@@ -11,7 +11,6 @@ import { BrowserWindow, Utils } from 'electrobun/main'
 import { promises as dns } from 'node:dns'
 import { existsSync, lstatSync, rmSync } from 'node:fs'
 import { dirname, extname, join, normalize } from 'node:path'
-import { agentSimResponse } from '../agent-sim-assets'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
 import { createCommandSurface, type BridgeResult } from '../commands'
 import { loadDeviceKey } from '../device-key'
@@ -76,7 +75,6 @@ const DATA_DIR =
 const PORT = Number(process.env.ADEA_SHELL_PORT ?? 4789)
 const SHELL_ORIGIN = `http://127.0.0.1:${PORT}`
 // Optional Agent Sim engine pack directory (scripts/pack-agent-sim.mjs layout).
-const AGENT_SIM_DIST = process.env.ADEA_AGENT_SIM_DIST
 
 // The installer's retained payload tar is only for Electrobun's own delta
 // updater, which Adea does not use (installer-archive.ts). Retire the one the
@@ -643,8 +641,9 @@ for (let attempt = 0; attempt < 30 && !server; attempt++) {
           if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
             return proxyCloudRequest(request, CLOUD_ORIGIN, SHELL_ORIGIN)
           }
-          if (AGENT_SIM_DIST && url.pathname.startsWith('/assets/agent-sim/')) {
-            return agentSimResponse(url.pathname, AGENT_SIM_DIST)
+          // Hosted Sim never falls back to a local engine, including stale installs.
+          if (url.pathname.startsWith('/assets/agent-sim/')) {
+            return new Response(null, { status: 404 })
           }
           const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '')
           let filePath = join(CLIENT_ROOT, rel)
