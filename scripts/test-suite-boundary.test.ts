@@ -24,6 +24,19 @@ describe('test suite boundaries', () => {
     expect(routeTests).toBeGreaterThan(stateBuild)
   })
 
+  test('loads the Solid test transform for the integration route-flow run', () => {
+    const runner = readFileSync(resolve(root, 'scripts/test-integration.mjs'), 'utf8')
+    const routeFlow = runner.slice(runner.indexOf('if (plan.routeFiles.length > 0)'))
+    const routeRun = routeFlow.slice(0, routeFlow.indexOf('environment\n      )'))
+    // Route modules reach `.tsx`; Bun 1.4.3 links those as dev JSX that solid-js cannot export, so the
+    // run needs the same CLI preload as the package `test` scripts (the root bunfig line is guard-pinned).
+    expect(routeRun).toContain("'--preload',")
+    expect(routeRun).toContain("resolve(root, 'scripts', 'test-solid-transform.ts')")
+    expect(routeRun.indexOf("'--preload',")).toBeLessThan(
+      routeRun.indexOf('...plan.routeFiles.map((file) => resolve(root, file))')
+    )
+  })
+
   test('installs locked Playwright before downloading browsers for the Start host', () => {
     const workflow = Bun.YAML.parse(
       readFileSync(resolve(root, '.github/workflows/tanstack-start.yml'), 'utf8')
