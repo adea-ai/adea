@@ -555,8 +555,14 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
         if (previousKey && compareBytes(previousKey, keyBytes) >= 0)
           fail('cbor', 'map keys are not canonically ordered')
         previousKey = keyBytes
-        if (key in out) fail('cbor', 'duplicate map key')
-        out[key] = decode()
+        if (Object.hasOwn(out, key)) fail('cbor', 'duplicate map key')
+        // Define rather than assign so `__proto__` stays an ordinary own key.
+        Object.defineProperty(out, key, {
+          value: decode(),
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        })
       }
       return out
     }
