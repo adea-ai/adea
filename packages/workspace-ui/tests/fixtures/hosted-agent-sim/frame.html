@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hosted Agent Sim stand-in frame</title>
+  </head>
+  <body>
+    <script>
+      // Stands in for the sim: it only records what the host posts to it.
+      window.receivedFromHost = []
+      window.addEventListener('message', (event) => window.receivedFromHost.push(event.data))
+    </script>
+  </body>
+</html>

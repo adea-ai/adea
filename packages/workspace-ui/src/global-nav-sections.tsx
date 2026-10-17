@@ -33,7 +33,9 @@ const RenameConversationDialog = lazy(() =>
   }))
 )
 const CreateGroupDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
+  import('./create-workspace-dialogs').then((module) => ({
+    default: module.ConnectedCreateGroupDialog,
+  }))
 )
 
 /**
@@ -172,8 +174,12 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
         </Show>
         <Show when={creating()}>
           <CreateGroupDialog
+            agents={settledData(agents) ?? []}
             busy={createGroup.isPending}
+            client={props.client}
+            currentUserId={settledData(bootstrap)?.principal.userId}
             onClose={() => setCreating(false)}
+            workspaceId={workspaceId() ?? ''}
             scope={{
               accountId: settledData(bootstrap)?.principal.userId,
               epoch: audienceEpoch(),

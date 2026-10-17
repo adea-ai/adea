@@ -173,14 +173,14 @@
     "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
     "dev": "vite build --watch",
     "lint": "oxlint",
-    "test": "bun test --conditions=browser tests",
+    "test": "bun test --conditions=browser --preload ../../scripts/test-solid-transform.ts tests",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@adea-ai/app-ui": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.137.0",
+    "@adea-ai/ui": "0.140.0",
     "@adea-ai/workspace-nav": "workspace:*",
     "@codemirror/commands": "^6.11.1",
     "@codemirror/language": "^6.12.4",

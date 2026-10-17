@@ -407,6 +407,13 @@
       "when": 1791958911223,
       "tag": "0057_retention_deletion_dispatches",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1792094313888,
+      "tag": "0058_legacy_audience_quarantine",
+      "breakpoints": true
     }
   ]
 }

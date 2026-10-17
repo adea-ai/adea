@@ -1,15 +1,14 @@
 name: Vite+ Cache Proof
 
-# Opt-in, non-required proof lane for the Vite+ task cache (vite.config.ts).
+# Opt-in, non-required proof lane for the Vite+ task cache on the real `orch:build`
+# graph (vite.config.ts, scripts/orch-graph.mjs).
 # Turbo stays the required runner for every Code Foundry workflow. This lane
 # consumes the Code Foundry setup action at the exact published v1.48.1 commit,
 # runs on pushes to its own branch, and adds no secrets, remote cache, or
 # deployment: the cache is the repository's GitHub Actions cache.
 #
 # Commit message lines make the run assert the restored cache: `vp-proof-expect:
-# cold|warm|one-miss` (the graph must have exactly 12 tasks), `vp-proof-miss:
-# <task>` (the lone miss must be that task, e.g. types:test) and
-# `vp-proof-manifest: <sha256>` (the dist outputs after restore).
+# cold|warm` and `vp-proof-manifest: <sha256>` (the dist outputs after restore).
 
 on:
   push:
@@ -78,7 +77,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache-v1.48.1"
+          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-v1.48.1"
           case "$cache_path" in
             "$RUNNER_TEMP"/*) ;;
             *) echo "Vite+ cache path is outside RUNNER_TEMP" >&2; exit 1 ;;
@@ -101,34 +100,27 @@ jobs:
           trailer() { printf '%s\n' "$message" | sed -n "s/^$1: *\(.*[^ ]\) *$/\1/p" | head -n1; }
           {
             printf 'expect=%s\n' "$(trailer vp-proof-expect)"
-            printf 'miss=%s\n' "$(trailer vp-proof-miss)"
             printf 'manifest=%s\n' "$(trailer vp-proof-manifest)"
           } >> "$GITHUB_OUTPUT"
       # A fresh runner has no generated dist, so a warm run that passes here
       # has replayed the outputs from the restored cache.
-      - name: Vite+ proof graph (restored task cache)
+      - name: Vite+ orch:build (restored task cache)
         env:
           EXPECT: ${{ steps.expect.outputs.expect }}
-          MISS: ${{ steps.expect.outputs.miss }}
           MANIFEST: ${{ steps.expect.outputs.manifest }}
         run: |
           set -euo pipefail
           args=(--fresh)
           [ -z "$EXPECT" ] || args+=(--expect "$EXPECT")
-          [ -z "$MISS" ] || args+=(--miss "$MISS")
           [ -z "$MANIFEST" ] || args+=(--expect-manifest "$MANIFEST")
           node scripts/vite-plus-proof.mjs "${args[@]}"
-      - name: Vite+ cache correctness (disposable worktree)
-        run: node scripts/vite-plus-proof.mjs --self-check
-      - name: Wrapper leaves a dirty checkout unchanged
-        env:
-          ADEA_VP_PROOF: '1'
+      - name: Proof script tests
         run: bun test scripts/vite-plus-proof.test.ts
       - name: Task cache contents
         shell: bash
         run: |
           set -euo pipefail
-          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache-v1.48.1"
+          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-v1.48.1"
           test "$VITE_CACHE_PATH" = "$expected"
           printf '%s\n' "$CODE_FOUNDRY_VITE_CACHE_PATHS" | grep -Fqx "$expected"
           test -d "$VITE_CACHE_PATH"

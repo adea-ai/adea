@@ -9,6 +9,7 @@ import {
   on,
   onCleanup,
   Show,
+  Suspense,
   type Accessor,
   type JSX,
 } from 'solid-js'
@@ -1632,132 +1633,134 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           })}
         >
           <div class="workspace-contextual-utility-frame__view">
-            <Show
-              when={!libraryOpen()}
-              fallback={
-                <AppLibraryPage
-                  focusSearchRequest={librarySearchRequest()}
-                  focusSearchRequestHandled={librarySearchRequestHandled()}
-                  onFocusSearchRequestHandled={(request) =>
-                    setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
-                  }
-                  preferences={railPreferences()}
-                  onReorder={(id, targetId, position) => {
-                    const previous = railPreferences()
-                    const next = reorderWorkspaceAppsRelativeTo(previous, id, targetId, position)
-                    if (next !== previous) persistRailPreferences(next)
-                    return appLibraryMoveAnnouncementFor(id, previous, next)
-                  }}
-                  onSetEnabled={(id, enabled) =>
-                    persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
-                  }
-                  onOpen={(id) => changeApp(id)}
-                  onReset={() => persistRailPreferences(defaultRailPreferences)}
-                />
-              }
-            >
+            <Suspense fallback={<WorkspaceEntryLoading />}>
               <Show
-                when={view() !== 'dev'}
+                when={!libraryOpen()}
                 fallback={
-                  <Show when={toolbarMount()} fallback={<WorkspaceEntryLoading />}>
-                    {(mount) => (
-                      <Show
-                        when={activeAppId() === 'source-control'}
-                        fallback={
-                          <DevWorkspace
-                            fixture={
-                              import.meta.env.DEV &&
-                              Reflect.get(currentSearch(), 'devE2e') === 'preserved'
-                            }
-                            runtime={utilityRuntime}
-                            toolbarMount={mount()}
-                            sidebarActionMount={sidebarActionMount()}
-                            sidebarOpener={sidebarOpener}
-                            utilityOwner={utilityOwner}
-                            utilityHostOwnedByShell
-                            deepLinkSelection={devDeepLinkSelection}
-                            onSelectionChange={applyDevSelection}
-                            onBreadcrumbChange={setDevBreadcrumb}
-                            workspaceNav={devNavHost}
-                            pickFolder={pickFolder}
-                          />
-                        }
-                      >
-                        <SourceControlView
-                          runtime={utilityRuntime}
-                          toolbarMount={mount()}
-                          onOpenDev={() => changeApp('dev')}
-                        />
-                      </Show>
-                    )}
-                  </Show>
+                  <AppLibraryPage
+                    focusSearchRequest={librarySearchRequest()}
+                    focusSearchRequestHandled={librarySearchRequestHandled()}
+                    onFocusSearchRequestHandled={(request) =>
+                      setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
+                    }
+                    preferences={railPreferences()}
+                    onReorder={(id, targetId, position) => {
+                      const previous = railPreferences()
+                      const next = reorderWorkspaceAppsRelativeTo(previous, id, targetId, position)
+                      if (next !== previous) persistRailPreferences(next)
+                      return appLibraryMoveAnnouncementFor(id, previous, next)
+                    }}
+                    onSetEnabled={(id, enabled) =>
+                      persistRailPreferences(setWorkspaceAppEnabled(railPreferences(), id, enabled))
+                    }
+                    onOpen={(id) => changeApp(id)}
+                    onReset={() => persistRailPreferences(defaultRailPreferences)}
+                  />
                 }
               >
                 <Show
-                  when={view() === 'virtual'}
+                  when={view() !== 'dev'}
                   fallback={
-                    <Show
-                      when={import.meta.env.DEV && currentSearch().chatE2e === 'visual'}
-                      fallback={
-                        props.chatEntry && activeAppId() !== 'kanban'
-                          ? props.chatEntry(
-                              conventionalWorkspace(),
-                              archiveAction,
-                              sidebarOpener,
-                              devNavHost,
-                              {
-                                active: teamChatActive,
-                                onRuntimeSelection: () => setTeamChatActive(false),
-                                surface: () => conventionalWorkspace(true),
+                    <Show when={toolbarMount()} fallback={<WorkspaceEntryLoading />}>
+                      {(mount) => (
+                        <Show
+                          when={activeAppId() === 'source-control'}
+                          fallback={
+                            <DevWorkspace
+                              fixture={
+                                import.meta.env.DEV &&
+                                Reflect.get(currentSearch(), 'devE2e') === 'preserved'
                               }
-                            )
-                          : conventionalWorkspace()
-                      }
-                    >
-                      <ChatVisualFixture state={chatVisualState()} />
+                              runtime={utilityRuntime}
+                              toolbarMount={mount()}
+                              sidebarActionMount={sidebarActionMount()}
+                              sidebarOpener={sidebarOpener}
+                              utilityOwner={utilityOwner}
+                              utilityHostOwnedByShell
+                              deepLinkSelection={devDeepLinkSelection}
+                              onSelectionChange={applyDevSelection}
+                              onBreadcrumbChange={setDevBreadcrumb}
+                              workspaceNav={devNavHost}
+                              pickFolder={pickFolder}
+                            />
+                          }
+                        >
+                          <SourceControlView
+                            runtime={utilityRuntime}
+                            toolbarMount={mount()}
+                            onOpenDev={() => changeApp('dev')}
+                          />
+                        </Show>
+                      )}
                     </Show>
                   }
                 >
                   <Show
-                    when={designerActive()}
+                    when={view() === 'virtual'}
                     fallback={
-                      <SpatialWorkspace
-                        {...props.virtualProps}
-                        archiveAction={archiveAction}
-                        restoreFocusRef={sidebarOpener}
-                        apiClient={props.client}
-                        createProjectFlow={devProjectFlowHost}
-                        initialScene={scene()}
-                        onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
-                        onWorkspaceViewChange={changeView}
-                        services={props.services}
-                        workspaceHost={workspaceHost}
-                        workspaceView={view()}
-                      />
+                      <Show
+                        when={import.meta.env.DEV && currentSearch().chatE2e === 'visual'}
+                        fallback={
+                          props.chatEntry && activeAppId() !== 'kanban'
+                            ? props.chatEntry(
+                                conventionalWorkspace(),
+                                archiveAction,
+                                sidebarOpener,
+                                devNavHost,
+                                {
+                                  active: teamChatActive,
+                                  onRuntimeSelection: () => setTeamChatActive(false),
+                                  surface: () => conventionalWorkspace(true),
+                                }
+                              )
+                            : conventionalWorkspace()
+                        }
+                      >
+                        <ChatVisualFixture state={chatVisualState()} />
+                      </Show>
                     }
                   >
                     <Show
-                      when={characterDesignerEnabled()}
+                      when={designerActive()}
                       fallback={
-                        <RoomDesignerWorkspace
-                          client={props.client}
+                        <SpatialWorkspace
+                          {...props.virtualProps}
+                          archiveAction={archiveAction}
                           restoreFocusRef={sidebarOpener}
-                          onOpenChat={() => changeView('chat')}
-                          initialCharacter={props.virtualProps.initialCharacter}
+                          apiClient={props.client}
+                          createProjectFlow={devProjectFlowHost}
                           initialScene={scene()}
-                          onClose={() => setRoomDesignerRoute(false)}
+                          onOpenRoomDesigner={() => setRoomDesignerRoute(true)}
+                          onWorkspaceViewChange={changeView}
+                          services={props.services}
+                          workspaceHost={workspaceHost}
+                          workspaceView={view()}
                         />
                       }
                     >
-                      <CharacterDesignerWorkspace
-                        initialCharacter={props.virtualProps.initialCharacter}
-                        onClose={() => changeApp('virtual')}
-                      />
+                      <Show
+                        when={characterDesignerEnabled()}
+                        fallback={
+                          <RoomDesignerWorkspace
+                            client={props.client}
+                            restoreFocusRef={sidebarOpener}
+                            onOpenChat={() => changeView('chat')}
+                            initialCharacter={props.virtualProps.initialCharacter}
+                            initialScene={scene()}
+                            onClose={() => setRoomDesignerRoute(false)}
+                          />
+                        }
+                      >
+                        <CharacterDesignerWorkspace
+                          initialCharacter={props.virtualProps.initialCharacter}
+                          onClose={() => changeApp('virtual')}
+                        />
+                      </Show>
                     </Show>
                   </Show>
                 </Show>
               </Show>
-            </Show>
+            </Suspense>
           </div>
           <Show when={contextualUtilitiesVisible() && utilityOwner.rightUtilityOpen()}>
             <SharedDevUtilityHost

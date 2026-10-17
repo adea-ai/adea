@@ -264,7 +264,7 @@ export function RenameConversationDialog(props: {
 }
 
 // The group dialogs live with the group audience flow; this module is the one place that loads them.
-export { CreateGroupDialog, GroupManageDialog } from './group-audience'
+export { ConnectedCreateGroupDialog, CreateGroupDialog, GroupManageDialog } from './group-audience'
 
 /**
  * A confirmation for an irreversible sidebar action (archive or delete a

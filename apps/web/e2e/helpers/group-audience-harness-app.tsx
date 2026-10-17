@@ -1,11 +1,9 @@
 import '../../src/start/globals.css'
-import { ApiClientError } from '@adea-ai/api-client'
+import { ApiClientError, type ApiGroupSelection } from '@adea-ai/api-client'
 import type {
   AgentSummary,
   ChannelSummary,
   ConversationParticipantRef,
-  GroupAgentEnlistmentGrant,
-  GroupAudienceGrant,
   WorkspaceMemberSummary,
   WorkspaceSummary,
 } from '@adea-ai/types'
@@ -17,15 +15,15 @@ import {
   GroupManageDialog,
   type GroupAudienceContext,
   type GroupCreateRequest,
-  type GroupGrantIssuer,
   type GroupRosterSaveRequest,
 } from '../../../../packages/workspace-ui/src/group-audience'
 
 /**
- * The group-management dialogs over an in-page stand-in for the server and for the missing grant issuer.
+ * The group-management dialogs over an in-page stand-in for the server.
  * Every identity here is synthetic. The stand-in keeps the rules the UI depends on: a repeated idempotency
  * key with the same payload answers the stored group, a different payload is refused, a roster write needs
- * the version it was drafted on, and grants must name the group they are sent for. It exposes switches the
+ * the version it was drafted on, and the request carries a selection of identities, never a grant (the
+ * server issues those). It exposes switches the
  * browser test pulls: a lost response, a refusal, revoked access, a slow answer and a concurrent edit.
  */
 export const harnessIds = {
@@ -66,18 +64,17 @@ const members = (role: WorkspaceMemberSummary['role'] = 'owner'): WorkspaceMembe
 ]
 
 type CreateMode = 'hold' | 'lost' | 'ok' | 'rejected' | 'unavailable'
-type SaveMode = 'forbidden' | 'lost' | 'lost-before' | 'ok' | 'unauthorized' | 'unknown'
-type IssuerMode = 'fail' | 'hold' | 'ok' | 'wrong-group' | 'wrong-agent-workspace'
+type SaveMode = 'forbidden' | 'hold' | 'lost' | 'lost-before' | 'ok' | 'unauthorized' | 'unknown'
 
 export type AudienceHarness = {
   calls: {
-    created: { channelId: string; idempotencyKey: string; title: string }[]
-    issued: {
-      agents: { agentId: string; workspaceId: string }[]
-      groupId: string
-      humans: string[]
+    created: {
+      channelId: string
+      idempotencyKey: string
+      selection: ApiGroupSelection
+      title: string
     }[]
-    saves: { expectedVersion: number; participants: ConversationParticipantRef[] }[]
+    saves: { expectedVersion: number; selection: ApiGroupSelection }[]
     staleReads: number
   }
   /** Someone else adds Sam to the stored group: the server version moves under an open manage dialog. */
@@ -94,9 +91,8 @@ export type AudienceHarness = {
   /** The next manage save is refused as a stale version without the page having been told. */
   nextSaveIsStale: () => void
   releaseCreate: () => void
-  /** Lets a held issuer answer (see setIssuer('hold')). */
-  releaseIssuer: () => void
-  setIssuer: (mode: IssuerMode) => void
+  /** Lets a held manage save answer (see nextSave('hold')). */
+  releaseSave: () => void
   setRole: (role: WorkspaceMemberSummary['role']) => void
   /** Moves the page to another workspace (`other`) or back, or to another account. */
   switchAccount: (userId: string) => void
@@ -138,57 +134,20 @@ const EARLIER_SECRET = 'Q3 acquisition target is Initech'
 const unavailable = () => new ApiClientError('Workspace unavailable', 404, 'workspace_unavailable')
 
 function build() {
-  const calls: AudienceHarness['calls'] = { created: [], issued: [], saves: [], staleReads: 0 }
+  const calls: AudienceHarness['calls'] = { created: [], saves: [], staleReads: 0 }
   const stored = new Map<string, { channel: ChannelSummary; fingerprint: string }>()
   let createMode: CreateMode = 'ok'
-  let issuerMode: IssuerMode = 'ok'
   let staleNext = false
   let saveMode: SaveMode = 'ok'
   let gate: { promise: Promise<void>; release: () => void } | undefined
-  let issuerGate: { promise: Promise<void>; release: () => void } | undefined
-  let grantCount = 0
-
-  const issueGrants: GroupGrantIssuer = async (request) => {
-    calls.issued.push({
-      agents: request.agents.map(({ agentId, workspaceId: home }) => ({
-        agentId,
-        workspaceId: home,
-      })),
-      groupId: request.groupId,
-      humans: [...request.humans],
-    })
-    if (issuerMode === 'fail') throw new TypeError('issuer unreachable')
-    if (issuerMode === 'hold') await issuerGate?.promise
-    const groupId = issuerMode === 'wrong-group' ? 'some-other-group' : request.groupId
-    const audienceGrants: GroupAudienceGrant[] = request.humans.map((userId) => ({
-      expiresAt: null,
-      grantId: `synthetic-${++grantCount}`,
-      groupId,
-      issuedAt: now,
-      participant: { kind: 'user', userId },
-      revision: 1,
-      revokedAt: null,
-    }))
-    const enlistmentGrants: GroupAgentEnlistmentGrant[] = request.agents.map((identity) => ({
-      agent:
-        issuerMode === 'wrong-agent-workspace'
-          ? { agentId: identity.agentId, workspaceId: ids.acme }
-          : identity,
-      expiresAt: null,
-      grantId: `synthetic-${++grantCount}`,
-      groupId,
-      issuedAt: now,
-      revision: 1,
-      revokedAt: null,
-    }))
-    return { audienceGrants, enlistmentGrants }
-  }
+  let saveGate: { promise: Promise<void>; release: () => void } | undefined
 
   const onCreate = async (_title: string, request?: GroupCreateRequest) => {
     if (!request) throw new Error('The dialog always names its request')
     calls.created.push({
       channelId: request.channelId,
       idempotencyKey: request.idempotencyKey,
+      selection: request.selection,
       title: request.title,
     })
     if (createMode === 'hold') await gate?.promise
@@ -198,22 +157,15 @@ function build() {
       throw new ApiClientError('rejected', 400, 'group_grant_rejected', undefined, [
         {
           participant: { kind: 'user', userId: ids.alexAdmin },
-          reason: 'grant_revoked',
+          reason: 'participant_cross_tenant',
         },
       ])
     }
-    // The server's own rule: grants must name the group they were sent for.
-    const wrong = [...request.audienceGrants, ...request.enlistmentGrants].some(
-      (grant) => grant.groupId !== request.channelId
-    )
-    if (wrong) throw new ApiClientError('Invalid request', 400, 'invalid_request')
+    // The server issues every grant from the selection; the creator is always the founding member.
     const participants: ConversationParticipantRef[] = [
       { kind: 'user', userId: currentUserId() },
-      ...request.audienceGrants.map(({ participant }) => participant),
-      ...request.enlistmentGrants.map(({ agent: enlisted }) => ({
-        agentId: enlisted.agentId,
-        kind: 'agent' as const,
-      })),
+      ...request.selection.humans.map((userId) => ({ kind: 'user' as const, userId })),
+      ...request.selection.agents.map(({ agentId }) => ({ agentId, kind: 'agent' as const })),
     ]
     const fingerprint = JSON.stringify([
       request.title,
@@ -244,10 +196,8 @@ function build() {
   }
 
   const onSave = async (request: GroupRosterSaveRequest) => {
-    calls.saves.push({
-      expectedVersion: request.expectedVersion,
-      participants: [...request.participants],
-    })
+    calls.saves.push({ expectedVersion: request.expectedVersion, selection: request.selection })
+    if (saveMode === 'hold') await saveGate?.promise
     if (memberRole() === 'member' || dropped().includes(currentUserId())) throw unavailable()
     if (saveMode === 'unauthorized') {
       saveMode = 'ok'
@@ -273,13 +223,12 @@ function build() {
     }
     if (request.expectedVersion !== channel().version)
       throw new ApiClientError('Channel version conflict', 409, 'conversation_conflict')
-    const wrong = [...request.audienceGrants, ...request.enlistmentGrants].some(
-      (grant) => grant.groupId !== channel().id
-    )
-    if (wrong) throw new ApiClientError('Invalid request', 400, 'invalid_request')
     const next = {
       ...channel(),
-      participants: [...request.participants],
+      participants: [
+        ...request.selection.humans.map((userId) => ({ kind: 'user' as const, userId })),
+        ...request.selection.agents.map(({ agentId }) => ({ agentId, kind: 'agent' as const })),
+      ],
       version: channel().version + 1,
     }
     setChannel(next)
@@ -318,6 +267,10 @@ function build() {
     },
     nextSave: (mode) => {
       saveMode = mode
+      if (mode === 'hold') {
+        const { promise, resolve } = Promise.withResolvers<void>()
+        saveGate = { promise, release: resolve }
+      }
     },
     nextSaveIsStale: () => {
       staleNext = true
@@ -327,17 +280,10 @@ function build() {
       gate?.release()
       gate = undefined
     },
-    releaseIssuer: () => {
-      issuerMode = 'ok'
-      issuerGate?.release()
-      issuerGate = undefined
-    },
-    setIssuer: (mode) => {
-      issuerMode = mode
-      if (mode === 'hold') {
-        const { promise, resolve } = Promise.withResolvers<void>()
-        issuerGate = { promise, release: resolve }
-      }
+    releaseSave: () => {
+      saveMode = 'ok'
+      saveGate?.release()
+      saveGate = undefined
     },
     setRole: setMemberRole,
     switchAccount: setCurrentUserId,
@@ -353,7 +299,7 @@ function build() {
     },
   }
   window.audienceHarness = harness
-  return { issueGrants, onCreate, onSave, calls, refresh: () => void (calls.staleReads += 1) }
+  return { onCreate, onSave, calls, refresh: () => void (calls.staleReads += 1) }
 }
 
 function Harness() {
@@ -361,7 +307,6 @@ function Harness() {
   const [dialog, setDialog] = createSignal<
     'create' | 'create-bare' | 'manage' | 'manage-readonly' | ''
   >('')
-  const [withIssuer, setWithIssuer] = createSignal(true)
   const [opened, setOpened] = createSignal<string>('')
   const audience = createMemo<GroupAudienceContext>(() => ({
     agentHomes: new Map(),
@@ -371,7 +316,6 @@ function Harness() {
       agent(ids.acmeTwin, ids.acme),
     ],
     currentUserId: currentUserId(),
-    issueGrants: withIssuer() ? server.issueGrants : undefined,
     members: members(memberRole()).filter(
       ({ userId }) => !dropped().includes(userId) || userId === currentUserId()
     ),
@@ -383,7 +327,6 @@ function Harness() {
       <Button onClick={() => setDialog('create')}>Open new group</Button>
       <Button onClick={() => setDialog('create-bare')}>Open the app's group dialog</Button>
       <Button onClick={() => setDialog('manage')}>Open manage</Button>
-      <Button onClick={() => setWithIssuer(false)}>Remove issuer</Button>
       <output aria-label="Opened conversation">{opened()}</output>
       <Show when={dialog() === 'create'}>
         <CreateGroupDialog
@@ -400,7 +343,7 @@ function Harness() {
         />
       </Show>
       <Show when={dialog() === 'create-bare'}>
-        {/* The production entry: no audience and no issuer, only the scope the host always knows. */}
+        {/* The production entry: no audience lists, only the scope the host always knows. */}
         <CreateGroupDialog
           busy={false}
           scope={{ accountId: currentUserId(), workspaceId: workspaceId() }}

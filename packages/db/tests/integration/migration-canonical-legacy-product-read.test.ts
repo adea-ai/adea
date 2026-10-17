@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { rmSync } from 'node:fs'
 import { sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
@@ -23,6 +24,7 @@ import { createTemporaryUserSession } from '../../src/identity'
 import { workspaceMemberships } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import { applyMigrationTail, canonicalChainFolders } from '../fixtures/canonical-chain'
+import { migrationsFolderBefore } from '../fixtures/cutover-rehearsal'
 import {
   canonicalUrl,
   createCanonicalDatabase,
@@ -45,7 +47,8 @@ import { seedLegacyAudience, type LegacyAudienceSeed } from '../fixtures/legacy-
 // Two owned databases on a disposable instance with the canonical role boundary:
 //   - fresh:   the canonical chain from an empty database, groups created by the product;
 //   - upgrade: main through 0046 and #1229/#1230, legacy groups written as the pre-#1232 product
-//              wrote them, then the canonical 0049/0050 backfill, then the quarantine.
+//              wrote them, then the canonical 0049/0050 backfill and 0051-0057. A fixture-only
+//              quarantine rehearsal follows; the production 0058 path is covered separately.
 // Migrations run as the migration role. Product reads and writes run as the runtime role.
 // Controls and restored-membership probes run in transactions that are always rolled back.
 
@@ -300,7 +303,14 @@ describe.skipIf(!provisioned)(
         runtime: upgrade.runtime.db,
       })
       await migrate(upgrade.migration.db, { migrationsFolder: chain.full })
-      await applyMigrationTail(upgrade.migration.db)
+      // Keep this fixture-only rehearsal before the production quarantine migration. The production
+      // migration and its current-product gate are exercised in migration-canonical-legacy-product-gate.
+      const preQuarantineTail = migrationsFolderBefore('0058_legacy_audience_quarantine')
+      try {
+        await migrate(upgrade.migration.db, { migrationsFolder: preQuarantineTail })
+      } finally {
+        rmSync(preQuarantineTail, { recursive: true, force: true })
+      }
       await installLegacyAudienceQuarantine(upgrade.migration.db)
       // Clean members write into the active group before the quarantine, as the legacy product allowed.
       for (const [sender, text] of [

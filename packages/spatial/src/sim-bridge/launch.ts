@@ -204,9 +204,13 @@ export function createLaunchCodeLedger(): Readonly<{
   >()
   return {
     issue(code, binding, expiresAt) {
+      if (!Number.isFinite(expiresAt)) throw new RangeError('launch code expiry must be finite')
       entries.set(code, { binding, expiresAt, spent: false })
     },
     redeem(code, presented, now) {
+      // An unusable clock reading cannot prove the code is still live, so it fails closed. Nothing
+      // is spent: the comparison below would otherwise be false for NaN and let an expired code pass.
+      if (!Number.isFinite(now)) return { ok: false, reason: 'code_expired' }
       const entry = entries.get(code)
       if (!entry) return { ok: false, reason: 'unknown' }
       if (entry.spent) return { ok: false, reason: 'code_used' }

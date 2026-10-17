@@ -41,6 +41,45 @@ Two consequences, both intentional until notarization lands:
 - Development builds that need a stable identity must pin the recipe that
   works; re-signing a shipped bundle is not it.
 
+### The installer's retained payload tar
+
+The Electrobun extractor keeps the decompressed payload it installed at
+`~/Library/Application Support/<identifier>/<channel>/self-extraction/<hash>.tar`
+(about 700 MB) so Electrobun's own updater can build delta patches against it.
+Adea updates through its signed feed and never calls that updater. Electrobun
+2.0.x has no config or extractor option to skip the copy (`release.generatePatch`
+only controls patch generation at build time), so the shell retires it at boot
+(`apps/desktop/shell/src/installer-archive.ts`):
+
+- It removes only `<hash>.tar`, where `<hash>` is the hash in the running
+  bundle's own `Resources/version.json`: the installer run that produced this
+  bundle.
+- An install later replaced by an Adea update (full or slim, stable or dev)
+  runs a bundle with a different hash, so the archive left by the original
+  installer is historical user data and is never touched.
+- It acts only on a regular file under that identity's `self-extraction`
+  directory, and never while Electrobun's `.electrobun-prepared-update.json`
+  exists. Failures are silent and cannot block a boot.
+- Deletion is descriptor-relative, not path-based. The `Application Support`
+  root is the one trusted starting point; the identifier, channel and
+  `self-extraction` directories are each opened with
+  `openat(O_NOFOLLOW | O_DIRECTORY)` from the descriptor already held, so a
+  symlink at any level refuses to open, and the file is removed with
+  `unlinkat` on the verified directory's descriptor. Swapping a path component
+  for a symlink after the check cannot redirect the delete, and `unlinkat`
+  never follows a final symlink. Without these native calls (Bun FFI to libc)
+  the archive is left in place.
+- The prepared-update record is looked up in the held directory too (never by
+  pathname). Only a positive "no such entry" from two independent kernel
+  lookups (`faccessat` without following, and a non-following `openat`) lets
+  the removal proceed; a record of any kind, including a dangling symlink or a
+  pipe, or any inconclusive result, leaves the archive in place.
+- Every open is `O_NONBLOCK` and anything that is not a regular file is skipped,
+  so a named pipe at the archive or prepared-update filename cannot block
+  startup.
+- Pending-update downloads and rollback assets live under the shell's own data
+  directory (`updates/`, the previous bundle) and are not involved.
+
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 

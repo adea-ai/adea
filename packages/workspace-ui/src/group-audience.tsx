@@ -1,9 +1,8 @@
+import type { AgentHqApiClient, ApiGroupSelection } from '@adea-ai/api-client'
+import { settledData, useWorkspaceListQuery, useWorkspaceMembersQuery } from '@adea-ai/data'
 import type {
   AgentSummary,
   ChannelSummary,
-  ConversationParticipantRef,
-  GroupAgentEnlistmentGrant,
-  GroupAudienceGrant,
   QualifiedAgentIdentity,
   WorkspaceMemberSummary,
   WorkspaceSummary,
@@ -32,15 +31,13 @@ import {
   applyDraft,
   audienceChoices,
   canManageGroup,
-  checkIssuedGrants,
   conflictAfterUnclearSave,
   describeAgents,
   describeHumans,
   draftIsEmpty,
   emptyDraft,
-  grantRequest,
+  groupSelection,
   groupAudienceCopy,
-  GroupGrantUnavailableError,
   groupFingerprint,
   humanKey,
   nextAttempt,
@@ -51,49 +48,42 @@ import {
   rosterChange,
   rosterKeys,
   runGroupSave,
-  StaleSaveError,
   selectedChoices,
   toggleSelection,
   type AudienceChoices,
   type AudienceSelection,
   type GroupAttempt,
   type GroupFailure,
-  type GroupGrantIssuer,
-  type IssuedGroupGrants,
   type RosterDraft,
 } from './group-audience-model'
 import { createClientRequestId } from './request-id'
 
 export { canManageGroup } from './group-audience-model'
-export type { AudienceChoices, GroupGrantIssuer } from './group-audience-model'
+export type { AudienceChoices } from './group-audience-model'
 
-/** What the server needs to create a group, exactly as the person's choices produced it. */
+/** What the server needs to create a group: the person's choices by identity. The server issues every grant. */
 export type GroupCreateRequest = Readonly<{
-  audienceGrants: readonly GroupAudienceGrant[]
   channelId: string
-  enlistmentGrants: readonly GroupAgentEnlistmentGrant[]
   idempotencyKey: string
+  selection: ApiGroupSelection
   title: string
 }>
 
-/** What the server needs to replace a group's roster: grants for everyone who is listed, and the version seen. */
+/** What the server needs to replace a group's roster: who should be in it, and the version seen. */
 export type GroupRosterSaveRequest = Readonly<{
-  audienceGrants: readonly GroupAudienceGrant[]
-  enlistmentGrants: readonly GroupAgentEnlistmentGrant[]
   expectedVersion: number
-  participants: readonly ConversationParticipantRef[]
+  selection: ApiGroupSelection
 }>
 
 /**
  * Everything the create and manage surfaces know about the tenant: the lists the server returned for this
- * workspace, and `issueGrants`, the trusted source of grants, which is absent until one exists.
+ * workspace. There is no grant source here: the server issues grants from the selection it is sent.
  */
 export type GroupAudienceContext = Readonly<{
   /** Home workspace of Agents the list does not include, learned from the group's own retained turns. */
   agentHomes?: ReadonlyMap<string, string>
   agents: readonly AgentSummary[]
   currentUserId: string | undefined
-  issueGrants?: GroupGrantIssuer
   members?: readonly WorkspaceMemberSummary[]
   workspaceId: string
   workspaces: readonly WorkspaceSummary[]
@@ -101,7 +91,7 @@ export type GroupAudienceContext = Readonly<{
 
 /**
  * Whose group this is and where: the signed-in account, the workspace, and the workspace's audience epoch.
- * It is passed by every host independently of whether a grant issuer exists, so a draft can never outlive the
+ * It is passed by every host independently of the audience lists, so a draft can never outlive the
  * account or workspace it was written for.
  */
 export type GroupScope = Readonly<{
@@ -271,28 +261,11 @@ function FailureAlert(props: { failure: GroupFailure }) {
   )
 }
 
-/** Asks the issuer, then proves what came back is what was asked for. Anything else is not sent. */
-async function issueChecked(
-  issue: GroupGrantIssuer,
-  request: ReturnType<typeof grantRequest>
-): Promise<IssuedGroupGrants> {
-  let issued: IssuedGroupGrants
-  try {
-    issued = await issue(request)
-  } catch (error) {
-    throw new GroupGrantUnavailableError(error)
-  }
-  const checked = checkIssuedGrants(request, issued)
-  if (!checked.ok) throw new GroupGrantUnavailableError()
-  return checked.grants
-}
-
-const noGrants: IssuedGroupGrants = { audienceGrants: [], enlistmentGrants: [] }
-
 /**
- * The new-group dialog. With a grant issuer it lets the person pick the actual audience and enlist Agents;
- * without one it says plainly that the group starts with only its creator. The group is shown as created only
- * when the server's answer arrives, and every failure keeps the title and selections for another try.
+ * The new-group dialog. It lets the person pick the audience and enlist Agents; the server issues and checks
+ * every grant. Without audience lists (a legacy host) the group starts with only its creator. The group is
+ * shown as created only when the server's answer arrives, and every failure keeps the title and selections
+ * for another try.
  */
 export function CreateGroupDialog(props: {
   audience?: GroupAudienceContext
@@ -322,7 +295,7 @@ export function CreateGroupDialog(props: {
       `${scopeKey(props.scope)}|${props.audience?.workspaceId ?? ''}|${props.audience?.currentUserId ?? ''}`
   )
   const token = () => `${context()}#${generation}`
-  // Closing or unmounting the dialog ends any send still waiting on the issuer: it must not reach the server later.
+  // Closing or unmounting the dialog ends any send still waiting: its answer belongs to nobody on screen.
   const invalidate = () => {
     generation += 1
     inFlight = false
@@ -349,7 +322,7 @@ export function CreateGroupDialog(props: {
         })
       : { agents: [], humans: [] }
   )
-  const canIssue = () => Boolean(props.audience?.issueGrants)
+  const canPick = () => Boolean(props.audience)
   const empty = createMemo(() => title().trim().length === 0)
 
   // A different account or workspace is a different group: nothing typed or selected carries over.
@@ -409,46 +382,20 @@ export function CreateGroupDialog(props: {
     const outcome = await runGroupSave({
       context: token,
       operation: 'create',
-      send: async (stillHere) => {
-        let grants = current.grants
-        if (!grants) {
-          const wanted = chosen.humans.length + chosen.agents.length
-          const issue = props.audience?.issueGrants
-          if (wanted > 0 && !issue) throw new GroupGrantUnavailableError()
-          grants =
-            wanted > 0 && issue
-              ? await issueChecked(
-                  issue,
-                  grantRequest({
-                    agents: chosen.agents,
-                    groupId: current.channelId,
-                    humans: chosen.humans,
-                    workspaceId: props.audience!.workspaceId,
-                  })
-                )
-              : noGrants
-          // The account or workspace moved while the issuer was answering: nothing is created and the
-          // reset attempt is not brought back.
-          if (!stillHere()) throw new StaleSaveError()
-          attempt = { ...current, grants }
-        }
-        return props.onCreate(text, {
-          audienceGrants: grants.audienceGrants,
+      send: () =>
+        props.onCreate(text, {
           channelId: current.channelId,
-          enlistmentGrants: grants.enlistmentGrants,
           idempotencyKey: current.idempotencyKey,
+          selection: groupSelection(chosen),
           title: text,
-        })
-      },
+        }),
     })
     if (started !== generation) return
     inFlight = false
     setPending(false)
     if (outcome.status === 'ignored') return
     if (outcome.status === 'failed') {
-      // A refused request is a different request next time: its grants are not reused.
       if (outcome.failure.kind === 'conflict') attempt = null
-      else if (!outcome.failure.retrySame) attempt = attempt ? { ...attempt, grants: null } : null
       setFailure(outcome.failure)
       return
     }
@@ -500,7 +447,7 @@ export function CreateGroupDialog(props: {
       ...selected(),
     ].toSorted()
     return (
-      canIssue() && JSON.stringify(rosterKeys(channel.participants)) !== JSON.stringify(expected)
+      canPick() && JSON.stringify(rosterKeys(channel.participants)) !== JSON.stringify(expected)
     )
   })
 
@@ -579,14 +526,7 @@ export function CreateGroupDialog(props: {
             <Text variant="caption" tone="muted">
               {groupAudienceCopy.creatorFounded}
             </Text>
-            <Show
-              when={canIssue()}
-              fallback={
-                <Text variant="caption" tone="muted" role="status" data-group-issuer-missing="">
-                  {groupAudienceCopy.issuerMissing}
-                </Text>
-              }
-            >
+            <Show when={canPick()}>
               <AudiencePicker
                 choices={choices()}
                 disabled={pending()}
@@ -615,6 +555,41 @@ export function CreateGroupDialog(props: {
         </form>
       </Show>
     </ModalDialog>
+  )
+}
+
+/**
+ * The new-group dialog with the tenant's real lists. It reads the workspace's members and workspaces only
+ * while it is open, so a host passes the Agents it already has and never loads audience data for a dialog
+ * nobody opened. Agents from other workspaces are offered only when the host's list holds them.
+ */
+export function ConnectedCreateGroupDialog(
+  props: Omit<Parameters<typeof CreateGroupDialog>[0], 'audience'> & {
+    agents: readonly AgentSummary[]
+    client: AgentHqApiClient
+    currentUserId: string | undefined
+    workspaceId: string
+  }
+) {
+  const members = useWorkspaceMembersQuery(props.client, () => props.workspaceId)
+  const workspaces = useWorkspaceListQuery(props.client)
+  const audience = createMemo<GroupAudienceContext>(() => ({
+    agents: props.agents,
+    currentUserId: props.currentUserId,
+    members: settledData(members)?.members,
+    workspaceId: props.workspaceId,
+    workspaces: settledData(workspaces) ?? [],
+  }))
+  return (
+    <CreateGroupDialog
+      audience={audience()}
+      busy={props.busy}
+      onClose={props.onClose}
+      onCreate={props.onCreate}
+      onOpen={props.onOpen}
+      open={props.open}
+      scope={props.scope}
+    />
   )
 }
 
@@ -653,7 +628,7 @@ export function GroupManageDialog(props: {
     () => `${props.audience.workspaceId}|${props.audience.currentUserId ?? ''}|${props.channel.id}`
   )
   const token = () => `${context()}#${generation}`
-  // See CreateGroupDialog: closing or unmounting ends any send still waiting on the issuer.
+  // See CreateGroupDialog: closing or unmounting ends any send still waiting.
   const invalidate = () => {
     generation += 1
     inFlight = false
@@ -678,7 +653,7 @@ export function GroupManageDialog(props: {
     props.audience.members
       ? canManageGroup(props.audience.members, props.audience.currentUserId)
       : false
-  const canChange = () => canManage() && Boolean(props.audience.issueGrants) && !archived()
+  const canChange = () => canManage() && !archived()
   const stale = () => props.channel.version !== reviewed()
   const unavailable = () => failure()?.kind === 'unavailable'
   // Once access is gone the group's title and roster are not shown any more, whatever was loaded before.
@@ -770,7 +745,6 @@ export function GroupManageDialog(props: {
 
   const save = async () => {
     if (inFlight || draftIsEmpty(draft()) || stale() || !canChange()) return
-    const issue = props.audience.issueGrants!
     const participants = applyDraft(props.channel.participants, draft(), choices())
     setLocal(null)
     if (!participants.some((participant) => participant.kind === 'user')) {
@@ -793,7 +767,7 @@ export function GroupManageDialog(props: {
     }
     if (unknown.length) {
       setLocal(
-        `The workspace of ${unknown.join(', ')} is not known here, so a grant cannot be requested for ${unknown.length === 1 ? 'it' : 'them'}. Remove ${unknown.length === 1 ? 'it' : 'them'} from the group or save from a place that knows ${unknown.length === 1 ? 'its' : 'their'} workspace.`
+        `The workspace of ${unknown.join(', ')} is not known here, so ${unknown.length === 1 ? 'it' : 'they'} cannot be identified exactly. Remove ${unknown.length === 1 ? 'it' : 'them'} from the group or save from a place that knows ${unknown.length === 1 ? 'its' : 'their'} workspace.`
       )
       return
     }
@@ -806,18 +780,11 @@ export function GroupManageDialog(props: {
     const outcome = await runGroupSave({
       context: token,
       operation: 'manage',
-      send: async (stillHere) => {
-        const request = {
-          agents,
-          groupId: props.channel.id,
-          humans,
-          workspaceId: props.audience.workspaceId,
-        }
-        const grants = await issueChecked(issue, request)
-        // The account, workspace or group changed while the issuer was answering: nothing is saved.
-        if (!stillHere()) throw new StaleSaveError()
-        return props.onSave({ ...grants, expectedVersion, participants })
-      },
+      send: () =>
+        props.onSave({
+          expectedVersion,
+          selection: { agents, humans },
+        }),
     })
     if (started !== generation) return
     inFlight = false
@@ -943,11 +910,7 @@ export function GroupManageDialog(props: {
             when={canChange()}
             fallback={
               <Text variant="caption" tone="muted" role="status" data-group-readonly="">
-                {archived()
-                  ? ''
-                  : !canManage()
-                    ? groupAudienceCopy.manageNeedsAuthority
-                    : groupAudienceCopy.manageNeedsIssuer}
+                {archived() || canManage() ? '' : groupAudienceCopy.manageNeedsAuthority}
               </Text>
             }
           >

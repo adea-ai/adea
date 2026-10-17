@@ -198,7 +198,7 @@ try {
     // suites above read their own src relatively; the database entry is already
     // built before provisioning), so it must be built on a clean checkout before
     // the route tests run. Like the builds above, this keeps integration
-    // runnable independently from a workspace-wide turbo build.
+    // runnable independently from a workspace-wide `vp run` build.
     if (plan.routeFiles.length > 0) {
       run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
       // Data consumers import packages/data/src, whose state dependency resolves

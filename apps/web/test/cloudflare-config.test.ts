@@ -154,15 +154,19 @@ describe('cloudflare.config.ts preview isolation', () => {
     }
   })
 
-  test('the preview workflow passes no build variables, so its preview is blocked as it stands', async () => {
+  test('the preview deploy job passes no build variables, so a deployed preview is blocked as it stands', async () => {
     // cloudflare-deploy.yml@v1 builds with the environment it sets itself; the
-    // caller supplies no ADEA_PREVIEW_* selection. Until it does, the Preview
-    // job fails at the build with the message above instead of publishing a
-    // Worker that cannot serve its API.
-    const workflow = await Bun.file(
-      new URL('../../../.github/workflows/cloudflare-preview.yml', import.meta.url)
-    ).text()
-    expect(workflow).not.toContain('ADEA_PREVIEW_')
-    expect(workflow).toContain('mode: preview')
+    // caller supplies no ADEA_PREVIEW_* selection to it. Until it does, a
+    // deployment attempt fails at the build with the message above instead of
+    // publishing a Worker that cannot serve its API. The availability job reads
+    // the selection (to classify the run), but only the deploy job matters here.
+    const workflow = Bun.YAML.parse(
+      await Bun.file(
+        new URL('../../../.github/workflows/cloudflare-preview.yml', import.meta.url)
+      ).text()
+    ) as { jobs: { preview: Record<string, unknown> } }
+    const deploy = JSON.stringify(workflow.jobs.preview)
+    expect(deploy).not.toContain('ADEA_PREVIEW_')
+    expect(deploy).toContain('"mode":"preview"')
   })
 })

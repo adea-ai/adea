@@ -43,12 +43,26 @@ blocked: no isolated preview resources are configured`). It does not fall back
 to production bindings, and it does not publish an assets-only Worker: that
 Worker serves the static client but answers every API route with a 500, and a
 green Preview check for it would claim a working preview that does not exist.
-Today `cloudflare-preview.yml` supplies no selection (the shared
-`cloudflare-deploy.yml@v1.47.1` workflow takes none), so the Preview job fails
-at the build until isolated preview resources exist and a reviewed change
-passes them in. Creating those resources is a separate decision. The Preview
-check is not a required status check, so merging is not blocked by it.
-`test/cloudflare-config.test.ts` pins all of this.
+Today the shared `cloudflare-deploy.yml@v1.47.1` workflow takes no selection,
+so a deployment attempt fails at the build until isolated preview resources
+exist and a reviewed change passes them in. Creating those resources is a
+separate decision. The Preview check is not a required status check, so
+merging is not blocked by it.
+
+`cloudflare-preview.yml` reports one of three outcomes, decided by
+`scripts/preview-availability.mjs` with the same rules as `previewEnv`:
+
+- **Unavailable, no isolated resources** (none of the six `ADEA_PREVIEW_*`
+  repository variables is set). The `unavailable` job passes and says so in a
+  notice and the job summary. It still builds the Worker, runs the config,
+  availability and workflow tests, and asserts that the preview build is
+  refused with the guard message. Only the deployment is skipped, and no
+  Cloudflare credential or deploy permission is present in that job.
+- **Configured** (a complete, valid selection). The `preview` job deploys, and a
+  failed deployment is a failed check.
+- **Invalid** (partial, production-valued or non-preview selection). The
+  `availability` job fails with the reason, and nothing else runs.
+  `test/cloudflare-config.test.ts` pins all of this.
 
 The production `wrangler.jsonc` keeps `main` pointed at the source entry
 (`src/start/worker.ts`) because the Cloudflare Vite plugin requires that file

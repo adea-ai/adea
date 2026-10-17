@@ -1,85 +1,43 @@
 # Vite+ cache proof lane
 
-An opt-in, non-required lane that exercises the Vite+ task cache on a bounded
-slice of the workspace. Turbo remains the required runner: `bun run build`,
-`test`, `lint` and `typecheck` and every required workflow are unchanged, and
-the committed `.github/code-foundry.yml` does not set `monorepo_tool`.
+An opt-in, non-required lane that proves the Vite+ task cache saves and restores on real GitHub Actions for the real
+`orch:build` graph. Turbo remains the required runner: the committed `.github/code-foundry.yml` does not set
+`monorepo_tool`, and no required workflow changes. This is not a Turbo replacement and makes no speed or parity claim.
 
 ## What it covers
 
-`vite.config.ts` defines `build` (`tsc`) and `test` (`bun test`) tasks for
-`types`, `state`, `api-client`, `app-core`, `auth` and `spatial`, plus a
-`proof` task that runs all of them. It is not a Turbo replacement and makes no
-speed or parity claim.
-
-Always use the wrapper. It computes the toolchain id from the node and bun
-that `vp` will really run and overrides any `ADEA_VP_TOOLCHAIN` in the
-environment; setting that variable by hand (`ADEA_VP_TOOLCHAIN=local vp run
-proof`) bypasses the runtime identity and is not a valid proof.
+`vite.config.ts` and `scripts/orch-graph.mjs` define the `orch:*` graph that `bun run build` already runs. The lane
+runs `vp run --cache orch:build` and checks what the task cache did:
 
 ```sh
-node scripts/vite-plus-proof.mjs                 # run the graph, print hits and a dist manifest
-node scripts/vite-plus-proof.mjs --expect warm --fresh   # assert the hit pattern on a clean tree
-node scripts/vite-plus-proof.mjs --self-check    # disposable-worktree cold/replay/invalidation checks
+node scripts/vite-plus-proof.mjs                          # run the graph, print hits, misses and a dist manifest
+node scripts/vite-plus-proof.mjs --expect warm --fresh    # assert the hit pattern on a tree with no dist
+node scripts/vite-plus-proof.mjs --expect-manifest <sha>  # assert the sha256 over every workspace's dist
 ```
 
-`--self-check` runs in a throwaway `git worktree` of `HEAD` (with its own
-install and cache directory), so it never edits the checkout it is run from.
-Success, failure or a killed process can leave at most a temporary directory.
-`scripts/vite-plus-proof.test.ts` pins that against a dirty checkout (an
-uncommitted edit to the file the self-check mutates, plus an untracked file):
-the failure path always runs; the full success path runs with
-`ADEA_VP_PROOF=1` and in the proof workflow. It does not use or modify a
-`VITE_CACHE_PATH` you have set. It deletes every package's `dist` and requires
-the cache to restore byte-identical outputs, because a hit count alone does not
-show that artifacts are replayed.
+`--expect cold` requires no hit; `--expect warm` requires every cacheable task to hit. A hit count alone does not show
+that artifacts are replayed, so the warm run starts on a fresh runner (no `dist` exists) and the sha256 over all
+workspaces' `dist` output must equal the cold run's.
 
-## Why the inputs are explicit
-
-Vite Task does not see files that Bun loads itself, so a Bun-run task cached
-with automatic tracking only keeps hitting after its test files change. Every
-task here lists its inputs (sources, tests, dependency `dist`, lockfile,
-config). `control:types-test-auto-only` is the same test with automatic
-tracking only; `--self-check` reports whether it still returns a stale hit.
-
-Vite Task also does not hash the node or bun binary. Each task fingerprints
-`ADEA_VP_TOOLCHAIN`, which the script builds from the `node` and `bun` that
-`vp` will actually execute (it resolves them from the `packageManager` pin and
-its own toolchain, not necessarily the first `bun` on `PATH`), the Vite+
-version, platform and architecture.
+Every task already fingerprints `ORCH_TOOLCHAIN` (`scripts/orch-toolchain.mjs`), computed from the node and bun that `vp`
+runs, so the proof adds no toolchain identity of its own. `vp` runs the Bun named by `packageManager`, which can differ
+from the first `bun` on `PATH`; the id in the run summary is the one the tasks used.
 
 ## CI
 
-`.github/workflows/vite-plus-proof.yml` runs on pushes to its own branch and
-by dispatch. It checks out Code Foundry v1.48.1 at release commit
+`.github/workflows/vite-plus-proof.yml` runs on pushes to its own branch and by dispatch. It checks out Code Foundry
+v1.48.1 at release commit
 [`e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d`](https://github.com/0xPlayerOne/code-foundry/releases/tag/v1.48.1),
-verifies the commit and package version, stages the pinned runtime under
-`$RUNNER_TEMP/code-foundry`, and uses that release's setup action
-with `cache-vite-plus: true`. The workflow copies the pinned cache and save
-actions from the same commit into the consumer workspace. It sets
-`VITE_CACHE_PATH` to a directory under `RUNNER_TEMP` before setup, then calls
-the supported `vite-plus-cache-save` action after the proof tasks with the
-setup action's published path, key, and save-intent outputs. The product action
-owns the cache namespace, key, restore prefixes, and push-only save behavior;
-Adea has no bespoke cache-key computation. The key partitions by toolchain,
-dependency manifests, Vite config, and run attempt. The workflow only opts its
-own job into `monorepo_tool: vite-plus`; the committed
-`.github/code-foundry.yml` and required Turbo workflows remain unchanged. No
-secrets, remote cache, or Cloudflare are used.
+verifies the commit and package version, stages the pinned runtime under `$RUNNER_TEMP/code-foundry`, and uses that
+release's setup action with `cache-vite-plus: true`. It sets `VITE_CACHE_PATH` to a directory under `RUNNER_TEMP` before
+setup, then calls the supported `vite-plus-cache-save` action after the build with the setup action's published path,
+key and save-intent outputs. The product action owns the cache namespace, key, restore prefixes and push-only save
+behavior; Adea has no bespoke cache-key computation. The workflow only opts its own job into `monorepo_tool: vite-plus`.
+No secrets, remote cache or Cloudflare are used; the cache is the repository's GitHub Actions cache.
 
-The proof job id is `proof_v1_48_1`, which gives this release qualification a
-separate Vite+ cache-key prefix. Its `VITE_CACHE_PATH` also ends in
-`adea-vite-plus-proof-cache-v1.48.1`. GitHub derives the archive version from
-the cache path list and compression tool ([cache version reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#cache-key-matching)),
-so even a restore-key fallback to the global compatibility prefix cannot
-select the earlier proof archive. The first v1.48.1 run can therefore assert a
-cold cache without deleting or replacing older entries; the visible job name
-remains `Vite+ cache proof`.
+The cache path ends in `adea-vite-plus-proof-cache-orch-v1.48.1`. GitHub derives the archive version from the cache path
+list ([cache version reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#cache-key-matching)),
+so this proof cannot restore the earlier bounded-slice proof's archives and the first run can assert a cold cache.
 
-The proof graph then runs on a fresh runner, where no `dist` exists, so a warm
-run replays outputs from the restored cache. Commit-message lines assert the
-result: `vp-proof-expect: cold|warm|one-miss`, `vp-proof-miss: <task>` for the
-lone miss (for the Bun-only edit, exactly `types:test`), and
-`vp-proof-manifest: <sha256>` for the sha256 of all dist outputs. The graph
-must have exactly 12 tasks (a build and a test per package), whatever the
-expected pattern. No secrets, remote cache or Cloudflare.
+Commit-message lines assert the result: `vp-proof-expect: cold|warm` and `vp-proof-manifest: <sha256>` (the dist
+outputs after restore).

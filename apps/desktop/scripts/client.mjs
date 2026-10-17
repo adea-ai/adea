@@ -32,7 +32,7 @@ function run(command, args, options = {}) {
 
 // Workspace packages ship `dist` (their exports point at it) and the web build
 // stages the public assets, so dependencies are prepared before bundling.
-run('bunx', ['turbo', 'run', 'build', '--filter=@adea-ai/web^...'], { cwd: repositoryRoot })
+run('bun', ['run', 'build:web-deps'], { cwd: repositoryRoot })
 run('bun', ['run', 'desktop:build'], {
   cwd: webRoot,
   env: { ...process.env, ADEA_DESKTOP_CLOUD_ORIGIN: target.cloudOrigin },

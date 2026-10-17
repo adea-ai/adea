@@ -33,7 +33,9 @@ import { projectWorkspaceNavigation, reconcileWorkspaceChannelSelection } from '
 import { WorkspaceNavSidebar, type WorkspaceNavHost } from './workspace-nav-sidebar'
 
 const CreateGroupDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
+  import('./create-workspace-dialogs').then((module) => ({
+    default: module.ConnectedCreateGroupDialog,
+  }))
 )
 const ProjectCreateDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.ProjectCreateDialog }))
@@ -345,8 +347,12 @@ export function VirtualRoomControls(props: {
         </Show>
         <Show when={dialog() === 'create-group'}>
           <CreateGroupDialog
+            agents={settledData(agents) ?? []}
             busy={createGroupMutation.isPending}
+            client={client()}
+            currentUserId={bootstrapData()?.principal.userId}
             onClose={() => setDialog(null)}
+            workspaceId={workspaceId() ?? ''}
             onCreate={createGroup}
             open
             scope={{
