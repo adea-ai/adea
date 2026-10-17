@@ -93,12 +93,19 @@ describe('orch task graph mirrors the package manifests', () => {
     }
   })
 
-  test('lint has no dependencies and test waits for the package own build', () => {
+  test('lint has no dependencies; test waits for the own build, or the dependency builds when there is none', () => {
     for (const workspace of scripted('lint')) {
       expect(tasks[task(workspace, 'lint')]!.dependsOn, workspace.name).toEqual(['orch:toolchain'])
     }
     for (const workspace of scripted('test')) {
-      const expected = workspace.scripts.build ? [task(workspace, 'build')] : []
+      // apps/desktop has no build but imports its dependencies' dist, so the race with their builds is closed.
+      const expected = workspace.scripts.build
+        ? [task(workspace, 'build')]
+        : [...transitive(workspace.name)]
+            .map((name) => byName.get(name)!)
+            .filter((dep) => dep.scripts.build)
+            .map((dep) => task(dep, 'build'))
+            .toSorted()
       const dependsOn = tasks[task(workspace, 'test')]!.dependsOn!
       expect(
         dependsOn.filter((name) => name !== 'orch:toolchain').toSorted(),
@@ -126,7 +133,30 @@ describe('orch task graph mirrors the package manifests', () => {
       expect(cache && cache.output, workspace.name).toEqual([`${workspace.dir}/dist/**`])
     }
     expect(tasks['orch:desktop:test']!.cache).toBe(false)
+    expect(tasks['orch:desktop:test']!.dependsOn).toContain('orch:dev-view:build')
     expect(PACKAGE_RULES['apps/desktop']!.uncachedTest).toBe(true)
+  })
+
+  test('a build-less test consumer waits for builds behind a build-less dependency', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'orch-buildless-'))
+    try {
+      const write = (dir: string, manifest: object) => {
+        mkdirSync(join(fixture, dir), { recursive: true })
+        writeFileSync(join(fixture, dir, 'package.json'), JSON.stringify(manifest))
+      }
+      write('packages/lib', { name: '@fixture/lib', scripts: { build: 'true', test: 'true' } })
+      write('packages/glue', { name: '@fixture/glue', dependencies: { '@fixture/lib': '*' } })
+      write('apps/shell', {
+        name: '@fixture/shell',
+        dependencies: { '@fixture/glue': '*' },
+        scripts: { test: 'true' },
+      })
+      const graph = buildTasks(fixture, toolchain) as typeof tasks
+      expect(graph['orch:shell:test']!.dependsOn).toContain('orch:lib:build')
+      expect(graph['orch:shell:test']!.dependsOn).toContain('orch:toolchain')
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
   })
 
   test('deps-of tasks build exactly the transitive workspace dependencies', () => {

@@ -313,9 +313,18 @@ export function buildTasks(root, toolchainId, env = process.env) {
     }
     if (has(workspace, 'test')) {
       const name = taskName(workspace, 'test')
-      const selfBuild = has(workspace, 'build') ? [taskName(workspace, 'build')] : []
+      // Turbo's `test` follows the package's own `build`. A package without one (apps/desktop) still imports its
+      // dependencies' `dist` through their `exports`, so it waits for every build in its dependency closure rather
+      // than racing them, including builds behind a dependency that has no build script itself.
+      const selfBuild = has(workspace, 'build')
+        ? [taskName(workspace, 'build')]
+        : buildsOf([...closure(byName, workspace)]).map((dep) => taskName(dep, 'build'))
       tasks[name] = rule.uncachedTest
-        ? { command: run(workspace, 'test'), dependsOn: selfBuild, cache: false }
+        ? {
+            command: run(workspace, 'test'),
+            dependsOn: ['orch:toolchain', ...selfBuild],
+            cache: false,
+          }
         : cached(run(workspace, 'test'), selfBuild, {
             input: [
               ...own(workspace, { includeDist: !rule.rebuildsDistInTest }),
