@@ -28,9 +28,16 @@ const [surface, setSurface] = createSignal<SimSurface>('hq')
 const [view, setView] = createSignal('a')
 
 const grants: SimLaunchRequest[] = []
+const navigations: { target: string; requestId: string }[] = []
+const saves: { character: string; requestId: string }[] = []
+// How the stand-in app answers a save: commit it, refuse it, or never answer.
+let saveMode: 'commit' | 'refuse' | 'hang' = 'commit'
 
 type Harness = {
   grants: SimLaunchRequest[]
+  navigations: { target: string; requestId: string }[]
+  saves: { character: string; requestId: string }[]
+  setSaveMode(value: 'commit' | 'refuse' | 'hang'): void
   setOnline(value: boolean): void
   setFrameOrigin(value: string | null): void
   setWorkspaceId(value: string): void
@@ -45,6 +52,11 @@ type Harness = {
 
 const harness: Harness = {
   grants,
+  navigations,
+  saves,
+  setSaveMode(value) {
+    saveMode = value
+  },
   frameOrigin: FRAME_ORIGIN,
   setOnline(value) {
     online = value
@@ -91,6 +103,16 @@ render(
           surface: request.surface,
           frameOrigin: FRAME_ORIGIN,
         }
+      }}
+      onNavigate={(request) => {
+        navigations.push({ ...request })
+        // The app answers a navigation by launching the requested surface again.
+        setSurface(request.target)
+      }}
+      onCharacterSave={(character, request) => {
+        saves.push({ character, requestId: request.requestId })
+        if (saveMode === 'hang') return new Promise<boolean>(() => undefined)
+        return Promise.resolve(saveMode === 'commit')
       }}
       frameUrl={(frame) =>
         `${frame.origin}/frame.html?bridge=${encodeURIComponent(frame.bridgeId)}&view=${view()}`

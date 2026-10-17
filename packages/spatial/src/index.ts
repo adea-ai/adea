@@ -1,3 +1,5 @@
+import { isSerializedSimCharacter } from './sim-bridge/character'
+
 export * from './asset-manifests'
 export {
   agentSimEngineManifestUrl,
@@ -35,8 +37,11 @@ export const DEFAULT_CHARACTER_ID = configurableCharacterId
 /**
  * Shell-side character param check. The engine validates against its
  * reference/preset catalogs on mount; the shell only needs a plausible
- * non-empty value to thread through.
+ * non-empty value to thread through. A serialized customization
+ * (`character:v1:` and 13 slots, 157 characters by default) is checked by the
+ * bridge's structural parser instead of the short-id length rule.
  */
 export function isPlausibleCharacterId(value: string | undefined): value is string {
-  return typeof value === 'string' && value.length > 0 && value.length <= 128
+  if (typeof value !== 'string' || value.length === 0) return false
+  return value.length <= 128 || isSerializedSimCharacter(value)
 }
