@@ -20,3 +20,9 @@ clients should import them from the focused video subpath so a lazy relay view
 does not load the operation registry. The full contract delegates registry
 decoders to the same implementation, so server reply validation and lazy
 client views keep one validation rule set.
+
+`dev-runtime-activity` exports bounded test-run, command-output, failure/stack,
+changed-files, plan and task payload schemas. The wire entry's
+`decodeRuntimeActivityEvent` additionally requires authenticated producer
+ownership; generic replay retains opaque rows without inventing counts or
+statuses. See the Dev Runtime spec's structured activity producer contract.

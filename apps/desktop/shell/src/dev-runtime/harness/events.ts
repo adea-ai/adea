@@ -1,3 +1,6 @@
+import { isRuntimeActivityEventKind } from '../../../../../../packages/types/src/dev-runtime-activity'
+import { admitRuntimeActivityEvent } from './activity-events'
+import type { RuntimeEventProvenance } from '../../../../../../packages/types/src/dev-runtime-wire'
 // Canonical runtime-session event log (#400): the durable, append-only,
 // sequence-ordered store behind `dev.session.events` and the
 // `runtime-events-v1` stream.
@@ -125,7 +128,7 @@ export type SessionEventInput = Readonly<{
 
 export type SessionEventLog = Readonly<{
   /** Appends one event; an identical duplicate returns `undefined`. */
-  append(input: SessionEventInput): RuntimeEvent | undefined
+  append(input: SessionEventInput, provenance?: RuntimeEventProvenance): RuntimeEvent | undefined
   /** Bounded ascending read from `fromSequence` (inclusive). */
   read(
     runtimeSessionId: string,
@@ -184,7 +187,18 @@ export function createSessionEventLog(input: {
     return records
   }
 
-  function appendEvent(sessionInput: SessionEventInput): RuntimeEvent | undefined {
+  function appendEvent(
+    sessionInput: SessionEventInput,
+    provenance?: RuntimeEventProvenance
+  ): RuntimeEvent | undefined {
+    if (isRuntimeActivityEventKind(sessionInput.kind)) {
+      for (const key of ['source', 'confidence', 'classification'] as const) {
+        if (sessionInput[key] === undefined)
+          throw new TypeError(
+            `event.${key}: structured activity requires an explicit producer fact`
+          )
+      }
+    }
     validateRuntimeResponseReferences(
       sessionInput.kind,
       sessionInput.payload,
@@ -217,6 +231,16 @@ export function createSessionEventLog(input: {
       classification: sessionInput.classification ?? 'workspace_metadata',
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
+    }
+    if (isRuntimeActivityEventKind(candidate.kind)) {
+      const admission = admitRuntimeActivityEvent(
+        candidate,
+        provenance ?? { source },
+        records,
+        sessionInput.occurredAt !== undefined
+      )
+      if (admission.duplicate) return undefined
+      candidate = admission.event
     }
     candidate = snapshotInteractionEvent(candidate) ?? candidate
     const interaction = validateInteractionAdmission(candidate, input.scope, input.resolveSession)
