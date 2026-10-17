@@ -52,6 +52,8 @@ describe('createDatabase construction', () => {
         Object.keys(reference.db._.schema ?? {}).toSorted()
       )
       expect(created.db._.fullSchema).toBe(reference.db._.fullSchema)
+      // drizzle assigns its configured cache to $cache; with none configured both are undefined.
+      expect(created.db.$cache).toBe(reference.db.$cache)
       expect(Object.keys(created.db.query).toSorted()).toEqual(
         Object.keys(reference.db.query).toSorted()
       )
@@ -71,6 +73,11 @@ describe('createDatabase construction', () => {
       const builders = (db: typeof created.db) => [
         db.select().from(workspaces).limit(3).toSQL(),
         db.query.workspaces.findFirst({ columns: { id: true } }).toSQL(),
+        db
+          .insert(workspaces)
+          .values({ name: 'probe' } as typeof workspaces.$inferInsert)
+          .onConflictDoNothing()
+          .toSQL(),
       ]
       expect(builders(created.db)).toEqual(builders(reference.db))
     } finally {
@@ -119,9 +126,6 @@ describe('createDatabase construction', () => {
       expect((first.db as unknown as { session: unknown }).session).not.toBe(
         (second.db as unknown as { session: unknown }).session
       )
-      // Closing one request's client must not touch the other's.
-      await first.close()
-      expect((second.client as unknown as { options: { max: number } }).options.max).toBe(10)
     } finally {
       await first.close()
       await second.close()

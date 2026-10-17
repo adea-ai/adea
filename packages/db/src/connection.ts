@@ -69,6 +69,8 @@ function constructDatabase(client: Sql) {
     $client: Sql
   }
   db.$client = client
+  // drizzle assigns the configured cache here, which is undefined: this client configures none.
+  ;(db as { $cache: unknown }).$cache = undefined
   return db
 }
 
