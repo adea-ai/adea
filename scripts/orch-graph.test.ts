@@ -137,6 +137,14 @@ describe('orch task graph mirrors the package manifests', () => {
     expect(PACKAGE_RULES['apps/desktop']!.uncachedTest).toBe(true)
   })
 
+  test('a test script that preloads the Solid transform lists it as an input of its test task', () => {
+    for (const workspace of scripted('test')) {
+      if (!workspace.scripts.test!.includes('scripts/test-solid-transform.ts')) continue
+      const cache = tasks[task(workspace, 'test')]!.cache
+      expect(cache && cache.input, workspace.name).toContain('scripts/test-solid-transform.ts')
+    }
+  })
+
   test('a build-less test consumer waits for builds behind a build-less dependency', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'orch-buildless-'))
     try {

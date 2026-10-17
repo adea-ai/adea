@@ -192,3 +192,18 @@ export function formatRelativeTime(iso: string, nowMs: number): string {
   if (hours < 24) return `${hours} h ago`
   return `${Math.floor(hours / 24)} d ago`
 }
+
+/** The turn an event belongs to: the latest prompt at or before it. */
+export function turnIdForEvent(
+  turns: readonly HistoryTurn[],
+  events: readonly RuntimeEvent[],
+  eventId: string
+): string | undefined {
+  const prompts = new Set(turns.map((turn) => turn.id))
+  let turnId: string | undefined
+  for (const event of events) {
+    if (prompts.has(event.eventId)) turnId = event.eventId
+    if (event.eventId === eventId) return turnId
+  }
+  return undefined
+}

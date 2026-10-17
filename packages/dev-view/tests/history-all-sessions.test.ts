@@ -9,8 +9,7 @@ import {
   RESUME_BLOCKED_COPY,
   buildAllSessionsView,
 } from '../src/history/all-sessions-model'
-import { turnIdForEvent } from '../src/history/history-pane'
-import { buildHistoryTurns } from '../src/history/turns-model'
+import { buildHistoryTurns, turnIdForEvent } from '../src/history/turns-model'
 import {
   SCAN_MAX_SESSIONS,
   newestScanOnly,
