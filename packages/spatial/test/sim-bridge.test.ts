@@ -731,6 +731,24 @@ describe('launch state machine', () => {
     expect(reduceSimLaunch(SIM_IDLE, grant(0)).state).toEqual(SIM_IDLE)
   })
 
+  test('a frame that fails before it reports ready fails the attempt', () => {
+    const awaiting = run(SIM_IDLE, { type: 'start' }, grant(1)).state
+    expect(awaiting.phase).toBe('awaiting_frame')
+    expect(
+      reduceSimLaunch(
+        awaiting,
+        frame(1, { type: 'frame.error', payload: { code: 'bridge_incompatible' } })
+      ).state
+    ).toEqual({ phase: 'unavailable', attempt: 1, reason: 'bridge_incompatible' })
+    // A stale attempt's error still cannot touch the current one.
+    expect(
+      reduceSimLaunch(
+        awaiting,
+        frame(0, { type: 'frame.error', payload: { code: 'bridge_incompatible' } })
+      ).state
+    ).toEqual(awaiting)
+  })
+
   test('frame errors, timeouts and offline are distinct, retryable ends', () => {
     const launching = run(SIM_IDLE, { type: 'start' }, grant(1), ready(1)).state
     expect(
@@ -761,6 +779,24 @@ describe('launch state machine', () => {
       ).effect
     ).toEqual({ type: 'request_grant', attempt: 2 })
     expect(reduceSimLaunch(SIM_IDLE, { type: 'offline' }).state).toEqual(SIM_IDLE)
+  })
+
+  test('starting while known offline records the offline state and requests nothing', () => {
+    expect(reduceSimLaunch(SIM_IDLE, { type: 'start', online: false })).toEqual({
+      state: { phase: 'offline', attempt: 1 },
+    })
+    // Retrying while still offline stays offline; coming online starts a real attempt.
+    const offline: SimLaunchState = { phase: 'offline', attempt: 1 }
+    expect(reduceSimLaunch(offline, { type: 'start', online: false })).toEqual({
+      state: { phase: 'offline', attempt: 2 },
+    })
+    expect(reduceSimLaunch(offline, { type: 'start', online: true }).effect).toEqual({
+      type: 'request_grant',
+      attempt: 2,
+    })
+    // Mid-attempt, `start` is still ignored whatever it says about connectivity.
+    const requesting: SimLaunchState = { phase: 'requesting', attempt: 1 }
+    expect(reduceSimLaunch(requesting, { type: 'start', online: false }).state).toEqual(requesting)
   })
 
   test('dispose and close return to idle; dispose tells the frame', () => {

@@ -39,7 +39,12 @@ export type SimLaunchState =
   | Readonly<{ phase: 'offline'; attempt: number }>
 
 export type SimLaunchEvent =
-  | Readonly<{ type: 'start' }>
+  /**
+   * Begins a new attempt. `online: false` means the host already knows it is offline: the attempt
+   * is recorded as `offline` and no grant is requested, so a surface that mounts offline shows the
+   * offline state (with its retry) instead of staying idle, and the backend is never asked.
+   */
+  | Readonly<{ type: 'start'; online?: boolean }>
   /** The backend's parsed reply for `attempt`; `null` is a reply that failed validation. */
   | Readonly<{ type: 'grant'; attempt: number; grant: SimLaunchGrant | null }>
   | Readonly<{ type: 'frame'; attempt: number; message: SimFrameMessage; now: number }>
@@ -92,7 +97,14 @@ function reduceFrame(state: SimLaunchState, message: SimFrameMessage, now: numbe
       return stay(state)
     }
     case 'frame.error':
-      if (state.phase !== 'launching' && state.phase !== 'running') return stay(state)
+      // A frame that fails before it ever reports ready (an engine that cannot start, a bridge
+      // version the host does not speak) is a failure of this attempt, not noise.
+      if (
+        state.phase !== 'awaiting_frame' &&
+        state.phase !== 'launching' &&
+        state.phase !== 'running'
+      )
+        return stay(state)
       return unavailable(attempt, FRAME_ERROR_REASONS[message.payload.code])
     case 'frame.close':
       return state.phase === 'idle' ? stay(state) : stay({ phase: 'idle', attempt })
@@ -106,6 +118,7 @@ export function reduceSimLaunch(state: SimLaunchState, event: SimLaunchEvent): S
       if (state.phase !== 'idle' && state.phase !== 'unavailable' && state.phase !== 'offline')
         return stay(state)
       const next = attempt + 1
+      if (event.online === false) return stay({ phase: 'offline', attempt: next })
       return {
         state: { phase: 'requesting', attempt: next },
         effect: { type: 'request_grant', attempt: next },
