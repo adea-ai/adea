@@ -113,3 +113,7 @@ entitlement fixture are not production substitutes. No live completion is claime
 
 The earlier [hosted Sim bridge follow-up](../plans/hosted-sim-bridge-follow-up.md)
 records the coordination proposal; reviewed PR #1450 supplies the bridge contract.
+The [parent-save evidence](../evidence/hosted-sim-parent-save-local-2026-10-17.md)
+records the actual-client designer round trips and fresh installed payload proof.
+The [production composition proposal](../plans/hosted-sim-production-composition.md)
+specifies the remaining entitlement, storage, runtime policy, and live authority decisions.

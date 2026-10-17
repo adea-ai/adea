@@ -167,7 +167,7 @@ await context.addInitScript(() => {
     window.addEventListener(
       'message',
       (event) => {
-        const win = window as unknown as { delaySimSave?: boolean }
+        const win = window as unknown as { delaySimSave?: boolean; releaseSimSave?: () => void }
         if (
           !win.delaySimSave ||
           event.data?.type !== 'frame.character.save' ||
@@ -178,13 +178,10 @@ await context.addInitScript(() => {
         win.delaySimSave = false
         event.stopImmediatePropagation()
         const { data, origin: sourceOrigin, source } = event
-        setTimeout(
-          () =>
-            window.dispatchEvent(
-              new MessageEvent('message', { data, origin: sourceOrigin, source })
-            ),
-          1_500
-        )
+        win.releaseSimSave = () => {
+          window.dispatchEvent(new MessageEvent('message', { data, origin: sourceOrigin, source }))
+          delete win.releaseSimSave
+        }
       },
       { capture: true }
     )
@@ -220,12 +217,18 @@ try {
     ;(window as unknown as { delaySimSave: boolean }).delaySimSave = true
   })
   await frame().getByRole('button', { name: 'Save & return', exact: true }).click()
+  await page.waitForFunction(() =>
+    Boolean((window as unknown as { releaseSimSave?: () => void }).releaseSimSave)
+  )
   const newerHair = frame()
     .locator('[data-slot="toggle-group"][aria-label="Hair"]')
     .getByRole('button')
     .nth(2)
   await newerHair.click()
   await expect(newerHair).toHaveAttribute('aria-pressed', 'true')
+  await page.evaluate(() =>
+    (window as unknown as { releaseSimSave?: () => void }).releaseSimSave?.()
+  )
   await expect(
     frame().getByText('Earlier design saved. Your newer edits are not saved yet.', { exact: true })
   ).toBeAttached()
@@ -263,12 +266,26 @@ try {
     )
   }
   expect(launches.at(-1)?.character).toBe(saved)
+  await frame().getByRole('button', { name: 'Close character designer', exact: true }).click()
+  await expect(page).not.toHaveURL(/characterDesigner=1/)
+  await frame().getByRole('button', { name: 'Room designer', exact: true }).click()
+  await expect(page).toHaveURL(/roomDesigner=1/)
+  await expect(
+    frame().getByRole('button', { name: 'Close room designer', exact: true })
+  ).toBeVisible({ timeout: 60_000 })
+  await frame().getByRole('button', { name: 'Close room designer', exact: true }).click()
+  await expect(page).not.toHaveURL(/roomDesigner=1/)
+  await expect(frame().getByRole('button', { name: 'Character', exact: true })).toBeVisible({
+    timeout: 60_000,
+  })
+  expect(new URL(page.url()).searchParams.get('character')).toBe(saved)
   console.log(
     JSON.stringify({
       evidence:
         'actual built client and private export with synthetic authority/storage; local only',
       saveCloseReopenParentReload: true,
       delayedAcknowledgementPreservesEdits: true,
+      roomDesignerRoundTrip: true,
       grants,
       assetReads,
       characterLength: saved!.length,
