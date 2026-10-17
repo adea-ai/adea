@@ -3,7 +3,9 @@
 // The route handler is the production one, with the real request scope. Only the
 // driver, the principal/authorization seam and the event-log reads are replaced by
 // counters, and the stream constants are the real ones, so a simulated half hour
-// shows the SQL an idle subscriber really costs. Hyperdrive is never involved.
+// counts the event-read and principal/authorization calls an idle subscriber makes.
+// Those are call counts on mocks, not independently verified physical SQL or
+// production telemetry. Hyperdrive is never involved.
 //
 // Properties:
 //   - an idle stream's catch-up reads back off, and the 15-second heartbeat and the

@@ -140,9 +140,11 @@ export const STREAM_CONNECTION_LIMIT = 8
 /**
  * Delay before the next catch-up poll. An active stream polls every `baseMs`; each
  * `pollsPerStep` consecutive empty polls add one more `baseMs`, up to `maxMs`, and any
- * delivered event resets the count. With the defaults an idle stream is at the 5-second
- * ceiling after about 45 seconds, so an idle subscriber costs 720 poll reads an hour
- * instead of 3,600, while a conversation that is moving stays at one second.
+ * delivered event resets the count. With the defaults an idle stream reaches the 5-second
+ * ceiling after 50 seconds of empty polling (5 polls each at 1, 2, 3 and 4 seconds), so an
+ * idle subscriber costs 720 poll reads an hour instead of 3,600, while a conversation that
+ * is moving stays at one second. This bounds the wait before the next poll, not the time
+ * to deliver: the read, classification and cursor signing come on top of it.
  */
 export function idlePollDelay(
   emptyPolls: number,
