@@ -13,7 +13,6 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { version as packagedVersion } from '../../package.json'
-import { resolveCloudOrigin } from './cloud-proxy'
 import { loadDeviceKey } from './device-key'
 import { createMacPermissionService, type MacPermissionService } from './desktop-permissions'
 import {
@@ -52,10 +51,10 @@ function contentId(value: unknown): string {
  * to open anything that is not a credential-free authorize URL on the one
  * canonical cloud origin.
  */
-function isAcceptableAuthorizationUrl(url: string): boolean {
+export function isAuthorizationUrlOn(url: string, cloudOrigin: string): boolean {
   try {
     const parsed = new URL(url)
-    const cloud = new URL(resolveCloudOrigin())
+    const cloud = new URL(cloudOrigin)
     return (
       parsed.origin === cloud.origin &&
       parsed.pathname === '/api/auth/desktop/authorize' &&
@@ -149,8 +148,16 @@ export function createCommandSurface(
      * renderer's typed path input stays the fallback.
      */
     pickFolder?: (request: Readonly<{ startingFolder?: string }>) => Promise<readonly string[]>
+    /**
+     * The one cloud origin this run targets (resolved once at boot, see
+     * cloud-proxy.ts). Sign-in only opens authorize URLs on this origin; absent,
+     * `desktop_auth_start` refuses every URL rather than guessing an origin.
+     */
+    cloudOrigin?: string
   }
 ) {
+  const isAcceptableAuthorizationUrl = (url: string): boolean =>
+    options?.cloudOrigin !== undefined && isAuthorizationUrlOn(url, options.cloudOrigin)
   const stateDir = join(dataDir, 'desktop-state')
   const contentDir = join(dataDir, 'local-content')
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })

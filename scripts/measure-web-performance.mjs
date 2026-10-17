@@ -29,7 +29,11 @@ import { performance } from 'node:perf_hooks'
 import { setTimeout as delay } from 'node:timers/promises'
 
 import { writeLaneSummary } from './dev-runtime-lane-report.mjs'
+import { assertLocalTestTargets } from './test-target-guard.mjs'
 import { measureScriptedInteractions, sampleResponseHeaders } from './web-performance-samplers.mjs'
+
+// An inherited DATABASE_URL must be a local or CI-created target before anything runs.
+assertLocalTestTargets()
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const web = path.join(root, 'apps/web')
