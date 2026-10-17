@@ -33,9 +33,15 @@ export type RuntimeResponseReferences = Readonly<{
   citations: readonly RuntimeCitationReference[]
 }>
 
-/** Optional metadata on a final assistant message; never inferred from text. */
+/**
+ * Optional metadata on a final assistant message; never inferred from text.
+ * New appends and wire events also carry the assistant identity fields
+ * (`messageId`, `supersedes`) that `decodeRuntimeAssistantPayload` enforces.
+ */
 export type RuntimeAssistantResponsePayload = Readonly<{
+  messageId?: string
   text: string
+  supersedes?: 'deltas'
   references?: RuntimeResponseReferences
 }>
 
@@ -175,7 +181,9 @@ export function validateRuntimeResponseReferences(
   )
     return
   const item = record(payload, 'response')
-  exactKeys(item, ['text', 'references'], [], 'response')
+  // Identity is validated by the assistant payload contract; a retained row
+  // written before it existed stays readable here and merely stays opaque.
+  exactKeys(item, ['text', 'references'], ['messageId', 'supersedes'], 'response')
   if (source === 'terminal_fallback')
     fail('response.references', 'terminal fallback cannot supply semantic sources')
   if (!['native', 'acp', 'authenticated_hook', 'host'].includes(source))

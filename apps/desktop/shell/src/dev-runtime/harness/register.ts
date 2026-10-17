@@ -74,6 +74,7 @@ import { summarizeWorkspaceRuns } from './workspace-summary'
 export type HarnessRuntimeInput = {
   /** Absent in production until a native/ACP adapter proves restore support. */
   checkpointRestoreAdapter?: CheckpointRestoreAdapter
+  checkpointRestoreTimeoutMs?: number
   authority: ChannelAuthority
   /** The verified local-lane scope; the shell IS the runtime node here. */
   scope: Scope
@@ -299,6 +300,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     persistSession: input.persistSession,
     getSessionRestoreCommit: input.getSessionRestoreCommit,
     adapter: input.checkpointRestoreAdapter,
+    restoreTimeoutMs: input.checkpointRestoreTimeoutMs,
     now,
   })
   const deviceDefault = createHarnessDeviceDefaultAuthority({ dataDir: input.dataDir })

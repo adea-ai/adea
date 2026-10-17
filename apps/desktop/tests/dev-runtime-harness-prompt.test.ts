@@ -33,7 +33,8 @@ import {
   createDesktopIdentityAuthority,
   type DesktopIdentityVerifier,
 } from '../shell/src/dev-runtime/channel/identity'
-import { createChannelGateway } from '../shell/src/dev-runtime/channel/server'
+import type { CheckpointRestoreAdapter } from '../shell/src/dev-runtime/harness/checkpoints'
+import { createChannelGateway, type StreamProvider } from '../shell/src/dev-runtime/channel/server'
 import { createDevRuntimeHost, type DevRuntimeHost } from '../shell/src/dev-runtime'
 import { registerTerminalRuntime } from '../shell/src/dev-runtime/terminal/register'
 import {
@@ -154,11 +155,18 @@ function scriptedHandoffDriver(
 }
 
 /** Boots the full composition with a real in-process sidecar + fake PTY. */
-async function boot(options: { acpDriver?: AcpLaneDriver } = {}): Promise<{
+async function boot(
+  options: {
+    acpDriver?: AcpLaneDriver
+    checkpointRestoreAdapter?: CheckpointRestoreAdapter
+    checkpointRestoreTimeoutMs?: number
+  } = {}
+): Promise<{
   authority: ReturnType<typeof createChannelAuthority>
   host(): DevRuntimeHost
   dataDir: string
   ptyProcesses(): ReturnType<typeof createFakePtyAdapter>['processes']
+  openWriter(grant: DevStreamGrant): { input(text: string): void; closed(): string | undefined }
   openChannel(): Promise<{
     execute(command: DevCommand): Promise<DevReply>
   }>
@@ -187,6 +195,14 @@ async function boot(options: { acpDriver?: AcpLaneDriver } = {}): Promise<{
     invoke: async () => ({ ok: true, value: null }),
     shellOrigin: SHELL_ORIGIN,
   })
+  let terminalStream: StreamProvider | undefined
+  const composedGateway = {
+    ...gateway,
+    registerStreamHandler: ((protocol, provider) => {
+      if (protocol === 'terminal-bytes-v1') terminalStream = provider
+      gateway.registerStreamHandler(protocol, provider)
+    }) as typeof gateway.registerStreamHandler,
+  }
   await identity.bind({ session: SESSION, claimed: SCOPE_A })
 
   const credential = newSidecarCredential()
@@ -214,7 +230,7 @@ async function boot(options: { acpDriver?: AcpLaneDriver } = {}): Promise<{
   const host = createDevRuntimeHost({
     credentialStore: createInMemoryVaultKeyStore(),
     authority,
-    gateway,
+    gateway: composedGateway,
     dataDir,
     scope: identity.currentScope(),
     identity,
@@ -231,6 +247,8 @@ async function boot(options: { acpDriver?: AcpLaneDriver } = {}): Promise<{
       resolvePinnedArchive: DEFAULT_ARCHIVE,
     }),
     ...(options.acpDriver ? { acpDriver: options.acpDriver } : {}),
+    checkpointRestoreAdapter: options.checkpointRestoreAdapter,
+    checkpointRestoreTimeoutMs: options.checkpointRestoreTimeoutMs,
   })
   mkdirSync(join(dataDir, 'dev-runtime', 'runtime'), { recursive: true })
   return {
@@ -238,6 +256,29 @@ async function boot(options: { acpDriver?: AcpLaneDriver } = {}): Promise<{
     host: () => host,
     dataDir,
     ptyProcesses: () => fake.processes,
+    openWriter(grant) {
+      let closed: string | undefined
+      const stream = {
+        grant,
+        send: () => {},
+        close: (code: string) => {
+          closed = code
+        },
+        onFrame: undefined as ((frame: DevStreamFrame) => void) | undefined,
+        onClose: undefined as (() => void) | undefined,
+      }
+      terminalStream!(stream as Parameters<StreamProvider>[0])
+      return {
+        input: (text) =>
+          stream.onFrame?.({
+            type: 'input',
+            sequence: '0',
+            generation: grant.resource.generation,
+            bytes: new TextEncoder().encode(text),
+          }),
+        closed: () => closed,
+      }
+    },
     async openChannel() {
       const handshakeReply = authority.handshake(
         {
@@ -896,6 +937,125 @@ describe('prompt delivery fences the terminal input authority (#400 residue)', (
         expect(missing).toMatchObject({ ok: false })
       } finally {
         rmSync(dataDir, { recursive: true, force: true })
+      }
+    },
+    60_000
+  )
+
+  test.each([false, true])(
+    'a pre-restore writer must renew after observed restore (late receipt: %s)',
+    async (late) => {
+      let release!: () => void
+      const wait = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let installationId = ''
+      let physical = 'before-restore'
+      const restoreAdapter: CheckpointRestoreAdapter = {
+        get installationId() {
+          return installationId
+        },
+        source: 'native',
+        async restore(input) {
+          input.assertCurrent()
+          if (late) await wait
+          physical = input.checkpoint.checkpointId
+          return {
+            status: 'restored',
+            restoreId: input.restoreId,
+            expectedGeneration: input.session.generation,
+            runtimeSessionId: input.session.id,
+            harnessRunId: input.session.activeHarnessRunId!,
+            checkpointId: input.checkpoint.checkpointId,
+            providerRestoreId: 'physical-proof',
+            observedAt: new Date().toISOString(),
+          }
+        },
+      }
+      const shell = await boot({
+        checkpointRestoreAdapter: restoreAdapter,
+        checkpointRestoreTimeoutMs: late ? 1 : undefined,
+      })
+      try {
+        const channel = await shell.openChannel()
+        const session = await sessionReady(shell, channel)
+        const terminal = await createTerminal(channel, session.id)
+        installationId = shell.host().harness!.managedPi.status().installationId!
+        okValue(await channel.execute(launchCommand(session, installationId)))
+        const launchedSession = shell.host().projectSession!.getSession(session.id)!
+        const current = {
+          ...launchedSession,
+          version: launchedSession.version + 1,
+          harnessInstallationId: installationId,
+        }
+        // The scripted restore adapter binds its observed installation explicitly.
+        shell.host().projectSession!.upsertSession(current)
+        const mintWriter = async () =>
+          okValue(
+            await channel.execute(
+              commandFor(
+                'dev.terminal.input',
+                SCOPE_A,
+                {
+                  terminalId: terminal.id,
+                  expectedGeneration: terminal.generation,
+                  direction: 'write',
+                },
+                { resource: { kind: 'terminal', id: terminal.id, generation: terminal.generation } }
+              )
+            )
+          ) as unknown as DevStreamGrant
+        const oldWriter = shell.openWriter(await mintWriter())
+        const unusedOldGrant = await mintWriter()
+        const checkpoint = shell.host().harness!.checkpoints.observe({
+          runtimeSessionId: session.id,
+          expectedGeneration: current.generation,
+          checkpointId: 'restored-conversation',
+          name: 'Restore point',
+          createdAt: new Date().toISOString(),
+          sourceEventId: 'writer-checkpoint',
+        })!
+        const reply = await channel.execute(
+          commandFor(
+            'dev.session.restoreCheckpoint',
+            SCOPE_A,
+            {
+              runtimeSessionId: session.id,
+              expectedGeneration: current.generation,
+              checkpointEventId: checkpoint.eventId,
+            },
+            { resource: sessionResource(current), idempotencyKey: 'writer-restore' }
+          )
+        )
+        if (late) {
+          expect(reply).toMatchObject({ ok: false, error: { code: 'delivery_ambiguous' } })
+          release()
+          await new Promise((resolve) => setImmediate(resolve))
+        } else expect(reply.ok).toBe(true)
+        expect(physical).toBe('restored-conversation')
+        expect(shell.host().projectSession!.getSession(session.id)!.generation).toBe(
+          current.generation + 1
+        )
+        oldWriter.input('old-authority')
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(oldWriter.closed()).toBe('stale_generation')
+        expect(shell.ptyProcesses()[0]!.written).toHaveLength(0)
+        const oldUnattached = shell.openWriter(unusedOldGrant)
+        oldUnattached.input('old-unused-grant')
+        expect(oldUnattached.closed()).toBe('stale_generation')
+        expect(shell.ptyProcesses()[0]!.written).toHaveLength(0)
+        const renewed = shell.openWriter(await mintWriter())
+        renewed.input('new-authority')
+        await new Promise((resolve) => setImmediate(resolve))
+        expect(renewed.closed()).toBeUndefined()
+        expect(
+          Buffer.concat(
+            shell.ptyProcesses()[0]!.written.map((chunk) => Buffer.from(chunk))
+          ).toString()
+        ).toBe('new-authority')
+      } finally {
+        release()
+        rmSync(shell.dataDir, { recursive: true, force: true })
       }
     },
     60_000
