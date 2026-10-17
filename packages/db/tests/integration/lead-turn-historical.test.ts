@@ -22,7 +22,13 @@ import {
   resolveLeadTurnAuthority,
 } from '../../src/lead-turn-runtime'
 import { fenceLeadTurnForRollback, readLeadTurnRollbackState } from '../../src/lead-turn-rollback'
-import { channelParticipants, messages, workspaceMemberships, workspaces } from '../../src/schema'
+import {
+  channelParticipants,
+  leadTurnIntents,
+  messages,
+  workspaceMemberships,
+  workspaces,
+} from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
 const databaseUrl = process.env.DATABASE_URL
@@ -616,6 +622,29 @@ describe.skipIf(!databaseUrl)('lead-turn historical reads and reconciliation', (
     await expect(
       resolveLeadTurnAuthority(connection.db, workspace.id, pin.intentId, owner.principal, 'read')
     ).resolves.toMatchObject({ intentId: pin.intentId })
+  })
+
+  test('the production authority anchors admittedAt to the immutable intent creation time for every purpose and every process', async () => {
+    const f = await fixture()
+    const { owner, workspace, pin } = f
+    const [intent] = await connection.db
+      .select()
+      .from(leadTurnIntents)
+      .where(eq(leadTurnIntents.id, pin.intentId))
+    const stored = intent!.createdAt.toISOString()
+    const resolve = (purpose: 'cancel' | 'effect' | 'read') =>
+      resolveLeadTurnAuthority(connection.db, workspace.id, pin.intentId, owner.principal, purpose)
+    for (const purpose of ['effect', 'read', 'cancel'] as const)
+      expect((await resolve(purpose)).admittedAt).toBe(stored)
+    // A later resolution, as a retried command from a new process would make, derives the same
+    // instant even after the admission has moved on. It must never be the request time.
+    await prepareLeadTurnRuntime(connection.db, workspace.id, pin.intentId, owner.principal, pin)
+    await new Promise((resolveTimer) => setTimeout(resolveTimer, 15))
+    for (const purpose of ['effect', 'read', 'cancel'] as const) {
+      const again = (await resolve(purpose)).admittedAt
+      expect(again).toBe(stored)
+      expect(Date.parse(again!)).toBeLessThan(Date.now() - 10)
+    }
   })
 
   test('negative contract: archived effect authority is denied, while archived read and cancel authority remain available', async () => {

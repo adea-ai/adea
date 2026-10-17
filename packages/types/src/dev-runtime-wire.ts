@@ -10,6 +10,8 @@ import {
   timestamp,
   uint64Pattern,
 } from './dev-runtime-validation-internal'
+import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
+import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
 
 export const runtimeEventKinds = [
   'session.created',
@@ -31,6 +33,8 @@ export const runtimeEventKinds = [
   'turn.user_input',
   'turn.assistant_delta',
   'turn.assistant_message',
+  'turn.reasoning_summary',
+  'turn.method_step_summary',
   'turn.result',
   'tool.requested',
   'tool.started',
@@ -170,7 +174,9 @@ export function decodeRuntimeEvent(
     if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
       fail('event.kind', 'terminal fallback cannot synthesize this event kind')
   }
+  validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
   validateEventPayload(item.payload, 'event.payload')
+  validateRuntimeResponseReferences(item.kind as string, item.payload, item.source as string)
   if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
   return value as RuntimeEvent

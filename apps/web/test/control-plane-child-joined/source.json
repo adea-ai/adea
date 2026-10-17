@@ -1,5 +1,5 @@
 {
   "repository": "adea-ai/control-plane",
-  "revision": "dff15411b66c9cd4fe9c3e72121c3f6db3588264",
-  "dependency": "CP #1041 transactional child admission, #1116 allocation read-scope fence, and the child allowance of CP #1121 (merged as CP #1123)"
+  "revision": "7d36f9bb78e32be9cb2e508884f010a9ad670c6b",
+  "dependency": "CP #1041 transactional child admission, #1116 allocation read-scope fence, the child allowance of CP #1121 (merged as CP #1123), and the childAllowanceSource fixture option (merged as CP #1131)"
 }

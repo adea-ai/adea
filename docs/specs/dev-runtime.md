@@ -403,6 +403,8 @@ type RuntimeEventKind =
   | 'turn.user_input'
   | 'turn.assistant_delta'
   | 'turn.assistant_message'
+  | 'turn.reasoning_summary'
+  | 'turn.method_step_summary'
   | 'turn.result'
   | 'tool.requested'
   | 'tool.started'
@@ -1370,6 +1372,11 @@ tiny individual requests. Feature components and heavy dependencies retain
 their automatic lazy boundaries. The unchanged Dev byte limit applies to the
 entry and immediately mounted central renderer together; splitting that
 implementation into multiple chunks does not expand its allowance.
+The selected-terminal resolver uses a dynamic import for the canonical reply
+decoder; in the verified web bundle, the initial Dev View entry and layout
+renderer exclude that decoder's runtime-schema dependency. The lazy
+runtime-terminal-pane chunk still imports the same module statically for stream
+decoding.
 Utility slots are independent:
 left and right may each show one pane or be collapsed, and a change on one side
 cannot hide the other side. Utility order, side, visibility, size, collapse,
@@ -2735,7 +2742,8 @@ Required kinds:
 
 - session/run `created`, `starting`, `ready`, `disconnected`, `resumed`,
   `completed`, `failed`, `cancelled`;
-- turn `user_input`, `assistant_delta`, `assistant_message`, `result`;
+- turn `user_input`, `assistant_delta`, `assistant_message`, `result`,
+  `reasoning_summary`, `method_step_summary`;
 - tool `requested`, `started`, `progress`, `completed`, `failed`;
 - approval/question `requested`, `resolved`, `expired`;
 - file/checkpoint/subagent/usage `observed`;
@@ -2774,6 +2782,177 @@ Event constraints:
   older terminal bodies are references to separately bounded terminal storage;
 - gaps return `resync_required` with checkpoint anchor; clients never advance
   past an unexplained gap.
+
+### Response sources and inline citation references (#1389)
+
+`turn.assistant_message` MAY carry a self-contained cited response. Its
+payload is exactly `{ text: string, references: RuntimeResponseReferences }`:
+
+```ts
+type RuntimeResponseReferences = {
+  schemaVersion: 1
+  sources: { id: string; title: string; url: string; snippet?: string }[]
+  citations: { sourceId: string; start: number; end: number }[]
+}
+```
+
+The response identity is its canonical `(runtimeSessionId, generation,
+eventId)`, retaining `harnessRunId`, source and source-event identity. Sources
+and citations MUST travel atomically with that response's exact `text` in
+both live delivery and replay. A source ID is case-sensitive, unique within
+that response, 1–128 ASCII characters matching
+`[a-zA-Z0-9][a-zA-Z0-9_.:-]*`. It is never an array index or a lookup in a
+different message, run, generation, session or workspace. Each citation MUST
+resolve against that same response's source list. Its nonempty half-open
+`[start, end)` span uses UTF-16 code units in `text`, before Markdown parsing,
+redaction or any display transformation; offsets MUST be safe integers,
+within the text, and MUST NOT split a surrogate pair. Cited text, titles,
+snippets and URLs MUST contain well-formed UTF-16; unpaired surrogates that
+UTF-8 replay would replace are refused. Consumers that transform
+text MUST remap spans or omit citation presentation, never attach stale offsets.
+Repeated identical `(sourceId, start, end)` tuples are refused. Citation order
+is preserved; overlaps and multiple sources for one claim are allowed.
+
+Bounds are enforced before append, live publication and wire acceptance,
+and again on durable replay: at most 32 sources and 128 citations; nonblank
+titles of at most 512 UTF-16 units; optional snippets of at most 2,048 units;
+URLs of at most 2,048 units; text of at most 65,536 units; and at most 48 KiB
+for the entire cited payload encoded as UTF-8 JSON. The last limit leaves room
+for event metadata in the existing 64 KiB canonical-CBOR stream frame.
+Unknown keys in this cited payload, its reference object, sources or citations,
+unsupported reference versions, duplicate IDs, dangling citations and malformed
+or over-bound input are refused as a whole. No truncation or index repair occurs.
+Invalid append does not consume a sequence, evict a record or notify a live
+subscriber. Invalid retained reference data fails replay without rewriting it.
+
+The producer boundary owns link safety. Source URLs MUST be absolute HTTP(S)
+URLs with a multi-label DNS hostname and a default port; credentials (including
+empty userinfo), relative URLs, whitespace, controls, bidi formatting controls,
+backslashes, percent-encoded ASCII controls/backslashes or host delimiters,
+IP literals, single-label hosts, trailing-dot hosts, and local/internal suffixes
+(`localhost`, `local`, `internal`, `lan`, `home`, `onion`) are refused. Valid
+URLs and text are preserved verbatim; title and snippet are untrusted plain
+text, never markup. This contract authorizes only a source-link representation.
+It performs no DNS resolution, retrieval, prefetch or credential forwarding;
+DNS names can resolve privately, so any future fetching requires the separate
+SSRF/redirect/DNS-rebinding authority from the threat model.
+
+Native, ACP, authenticated-hook and host producers may supply this metadata
+under their existing authenticated provenance. Terminal fallback MUST NOT
+synthesize it. The contract validates structure and locality, not whether a
+claim is true. Producers that cannot supply validated references MUST omit
+`references`; consumers MUST NOT infer sources from Markdown links, tool text,
+an earlier response or a completed run. An absent reference object remains
+unknown/no-source; explicitly empty lists are allowed and invent nothing.
+Legacy assistant payloads without `references`, unrelated opaque payloads and
+unknown event retention keep their existing behavior. This producer contract
+does not enable Sources/Inline Citation rendering or parse a harness's prose.
+
+Implementation is isolated in
+`packages/types/src/dev-runtime-response-references.ts`, re-exported through
+`@adea-ai/types/dev-runtime`. Contract and URL tests live in
+`packages/types/tests/dev-runtime-response-references.test.ts`; real durable
+append/restart/retention and canonical-CBOR replay tests live in
+`apps/desktop/tests/runtime-response-references-replay.test.ts`.
+
+### Explicit user-visible summaries (#1388)
+
+`turn.reasoning_summary` and `turn.method_step_summary` are separate, opt-in
+contracts for summaries a structured source explicitly reports as user-visible.
+They MUST NOT expose hidden chain of thought, raw analysis, reasoning tokens,
+tool transcripts relabelled as reasoning, or prose/status/duration inferred by
+the host. Ordinary assistant text and run/tool completion never create either
+event. Missing summaries remain unavailable; no placeholder summary is invented.
+
+Both payloads have exactly these common fields:
+
+```ts
+type SummarySnapshot = {
+  schemaVersion: 1
+  provenance: 'source_reported'
+  visibility: 'user_visible'
+  format: 'snapshot'
+  revision: number
+  text: string
+  durationMs?: number
+}
+type ReasoningSummary = SummarySnapshot & {
+  summaryId: string
+  status: 'streaming' | 'completed' | 'failed' | 'cancelled' | 'unknown'
+}
+type MethodStepSummary = SummarySnapshot & {
+  methodId: string
+  stepId: string
+  position: number
+  title: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown'
+}
+```
+
+The canonical event MUST name a `harnessRunId`, have authenticated `native`,
+`acp` or `authenticated_hook` provenance, authoritative confidence about the
+source observation, and an explicit `public`, `workspace_private` or
+`restricted_local` content classification. `host`, terminal fallback,
+untrusted hints, credential and metadata classifications cannot supply these
+content facts. Source visibility does not establish that the summarized claims
+are true, and it grants no additional disclosure or transport permission.
+
+Payload labels are not admission proof. Before any durable append, sequence consumption,
+retention eviction or live delivery, the host requires a configured
+`verifyVisibleSummary` callback to confirm an independently authenticated
+source observation. It binds the exact scope, session, run, generation,
+source, source-event identity, confidence, classification, kind and payload.
+The verifier receives a defensive copy and MUST verify the source's actual
+explicit user-visible-summary signal; it MUST NOT approve by checking the
+payload's own `visibility`/`provenance`, by classifying raw private reasoning,
+or by interpreting free text. Missing verification, false or nonboolean
+verification fails closed. No current adapter is enabled merely by adding
+these event kinds; actual source protocol support must supply this verifier.
+Replays validate already admitted durable facts and do not re-run a live
+source verifier or redisclose source-private content.
+
+Streaming consists of bounded full snapshots, not append-only reasoning-token
+deltas. Every snapshot is independently readable after a retained-window gap.
+`revision` is an integer 0–2,147,483,647 and MUST increase within the retained
+identity `(scope, session, generation, harnessRunId, source, kind, summaryId)`
+or `(scope, session, generation, harnessRunId, source, kind, methodId, stepId)`.
+It orders genuine source snapshots; it does not authorize generating text.
+Skipped revisions are allowed. Exact source-event duplicates remain ignored;
+conflicting duplicates remain refused. Terminal statuses (`completed`, `failed`,
+`cancelled`) cannot be revised while retained, and a method step's `position`
+cannot change. Run completion cannot complete an individual summary or step.
+
+`durationMs`, when supplied, is a source-reported measurement: elapsed duration
+for an active snapshot and total duration for a terminal snapshot. It is a
+safe integer 0–86,400,000 and cannot decrease across retained snapshots with
+known timing. `pending` and `unknown` statuses MUST omit it. Missing timing is
+unknown, never zero, a reused previous value, or a subtraction of host receive
+timestamps. Status is always supplied by the source, including explicit
+`unknown`. Different runs, generations, sources and method steps do not share
+status or timing. The source verifier owns source continuity beyond the
+bounded retained history; this event log does not introduce an unbounded
+stream ledger.
+
+IDs are 1–128 ASCII characters matching `[a-zA-Z0-9][a-zA-Z0-9_.:-]*`;
+method positions are integers 0–127. Summary text is at most 4,096 UTF-16 code
+units; step titles are nonblank and at most 512 units. Text/titles MUST be
+well-formed UTF-16 so UTF-8/CBOR replay preserves exact content. Each entire
+payload is at most 16 KiB of UTF-8 JSON, below the existing 64 KiB stream frame
+limit. Unknown fields, hidden/inferred provenance, unsupported versions,
+delta formats, malformed bounds and invalid source metadata are rejected.
+Raw chain-of-thought fields have no accepted shape. Retained summaries are
+revalidated, including revision/status/timing/position consistency; invalid
+retained bytes are refused without rewriting the evidence. Unrelated opaque
+payloads, unknown event retention and existing no-summary behavior remain
+unchanged.
+
+The isolated contract is `packages/types/src/dev-runtime-visible-summaries.ts`,
+re-exported through `@adea-ai/types/dev-runtime`; producer admission and bounded
+history checks are in the host's `harness/visible-summaries.ts`. Contract and
+durable replay tests are `packages/types/tests/dev-runtime-visible-summaries.test.ts`
+and `apps/desktop/tests/runtime-visible-summaries-replay.test.ts`. This contract
+does not enable shared Reasoning/Chain of Thought presentation or change Chat
+consumer composition.
 
 ## Terminal protocol
 
@@ -6126,27 +6305,23 @@ The workspace toolbar opens the appearance Sheet over the current view without
 route navigation. Its editor/catalogue chunk loads on the first intentional
 open. Save commits and closes; Cancel, Escape, and outside dismissal restore
 the opening snapshot and close. Reopening takes a fresh snapshot of committed
-preferences. Both the toolbar Sheet and the Settings section render Adea's
-app-local editor composition (`@adea-ai/dev-view`'s `AdeaAppearanceEditor`),
-adapted from the published `AppearanceEditor` because its fixed internals
-cannot express Adea's row order or accent entries: every control remains a
-published primitive (RadioGroup, DropdownMenu, Sheet, Switch, Input, Label,
-Button) or published composite (font settings group, editor actions, theme
-previews), while Adea owns the composition — the text (font) settings rows
-close the option list, after every palette and surface row, and the accent
-picker offers the six presets plus one control named "Custom". The fork keeps
-the published editor's control idioms, not generic radio rows: the accent
-picker draws the published swatch grid — one round swatch per preset painted
-with the catalogue's light/dark pair value for the resolved appearance,
-selection shown by the checked ring, the single Custom chip beside them, and
-no theme-default entry; the mode cards keep their miniature previews; the
-light, dark, and terminal menus render preview-card items (the published
-`ThemeMenuPreview` idiom — rendered from the exported `ThemeMiniature` in the
-menu card's geometry until the published package exports the composite); and
-the glass choices render as the published chips. Swatch and chip colors are
-catalogue values, so a swatch paints its color as an SVG fill: consumers may
-neither inline a style nor author palette literals. Upstreaming a row-order
-and accent-entries seam to the published package retires the fork.
+preferences. Both the toolbar Sheet and the Settings section render the
+published `AppearanceEditor`/`AppearancePopover` from `@adea-ai/ui`, configured
+through its options rather than recomposed: the text (font) settings rows close
+the option list (`fontSettingsPlacement: 'end'`), the accent row draws the six
+presets in one equally spaced line with a Custom button that opens the native
+colour selector and changes nothing until a colour is chosen
+(`accentEntryStyle: 'row'`), there is no theme-default entry because the default
+accent is the Violet preset (`showThemeDefaultAccent: false`), the mode cards
+carry their sun, moon and monitor glyphs (`showModeIcons`), and the toolbar
+trigger holds the pressed rung while the Sheet is open (`triggerVariant:
+'toolbar'`). The mode cards keep their miniature previews, the light, dark and
+terminal menus render the published preview-card items, and the glass choices
+render as the published chips. Adea owns no copy of the editor or its
+primitives: row order, keyboard and focus handling and narrow-panel layout are
+the published component's, and the theme API Adea needs (accent presets,
+canonical records, the projection helpers the importer uses) comes from
+`@adea-ai/ui` rather than a direct `@adea-ai/themes` dependency.
 Its host remains responsible for the V2 draft snapshot,
 live preview, persistence, cancellation, native transparency capability, custom
 accent validation, and the verified App Library contract. The app-local package
@@ -6160,7 +6335,12 @@ the appearance editor mounted beneath the dialog, so live preview and the
 uncommitted draft survive Close and Escape; dismissal restores focus to
 Manage themes without closing the containing Settings dialog or Appearance
 popover. No application
-copy of the dialog primitives remains.
+copy of the dialog primitives remains. The import parsing and projection code
+(`custom-theme-import.ts`) loads by dynamic import when a theme file is chosen,
+not when Appearance opens; the dialog shows a pending status while it loads,
+reports a failed load or read as an error, and drops the result of a run that a
+newer selection, closing the dialog, or leaving Appearance has superseded before
+anything is stored or selected (`theme-file-importer.ts`).
 
 Appearance and rail preference storage uses a read-modify-write contract with
 a recovery envelope: a malformed or future-version stored document is
@@ -6299,7 +6479,15 @@ appear only as leaves under their project, and closed ones leave the sidebar):
 it mounts the task board full width, with no workspace sidebar, through a
 route-scoped surface without changing the previous Chat surface. A search
 result or link to a task opens Kanban; with Kanban disabled, the board opens
-inside Chat instead. Library retains rail reorder and reset controls.
+inside Chat instead. The board and the task
+panel are lazy: the Tasks surface loads the board chunk on entry (a skeleton
+shows meanwhile, and a failed load offers Retry, which reloads the page because a
+browser keeps a failed module fetch for the life of the page), and the panel chunk
+loads when a task is created or opened (a failed load closes the request and says
+so on the board). A changed selection or disposed board invalidates its pending
+load callbacks, so a stale failure cannot clear a newer task selection. Neither
+is in Chat's initial graph.
+Library retains rail reorder and reset controls.
 Chat’s central conversation surface uses the canonical theme background in
 both light and dark modes, rather than imposing a separate grayscale palette.
 Each reorder moves one enabled app by one visible rail slot, skipping disabled

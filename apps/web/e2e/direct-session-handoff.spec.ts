@@ -15,18 +15,26 @@
 // shared service is touched. The vite server binds an ephemeral loopback
 // port and closes after the file.
 import { expect, test, type Page } from '@playwright/test'
-import { resolve } from 'node:path'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { createServer, type ViteDevServer } from 'vite'
 import solid from 'vite-plugin-solid'
 
 let server: ViteDevServer | undefined
+let cacheDir = ''
 let url = ''
 test.beforeAll(async () => {
   const root = resolve(process.cwd(), 'apps/web')
   const harness = '/@fs' + resolve(root, 'e2e/helpers/direct-session-handoff-harness-app.tsx')
+  // A private optimizer cache. The managed dev server owns node_modules/.vite; this instance must
+  // not rewrite the dependency hashes that a running app has already requested, or later harness
+  // pages on that server fail with 504 Outdated Optimize Dep.
+  cacheDir = mkdtempSync(join(tmpdir(), 'adea-direct-handoff-vite-'))
   server = await createServer({
     configFile: false,
     root,
+    cacheDir,
     logLevel: 'error',
     plugins: [
       solid(),
@@ -52,6 +60,7 @@ test.beforeAll(async () => {
 })
 test.afterAll(async () => {
   await server?.close()
+  rmSync(cacheDir, { recursive: true, force: true })
 })
 
 function trackPageErrors(page: Page): string[] {
@@ -104,6 +113,64 @@ test('a direct session attaches read-only: nothing is invented from the bound ru
   )
   await expect(page.getByRole('button', { name: 'Stop session run', exact: true })).toBeEnabled()
   expectNoErrors(errors)
+})
+
+// Approval state is visible truth, never a silent guess (#1177). Approval events
+// carry no qualified identity, so a requested event cannot be matched to its
+// resolution: the strip says the status is unknown instead of hiding it, and
+// "awaiting approval" appears only from the host's explicit fact.
+async function openApprovalHarness(page: Page, query: string): Promise<string[]> {
+  const errors = trackPageErrors(page)
+  await page.goto(`${url}?${query}`)
+  await expect(section(page)).toBeVisible()
+  return errors
+}
+
+test.describe('approval state is shown truthfully', () => {
+  test('a requested approval with no explicit fact reads as unknown, not awaiting', async ({
+    page,
+  }) => {
+    const errors = await openApprovalHarness(page, 'approvals=requested')
+    await expect(section(page).getByText('approval status unknown')).toBeVisible()
+    await expect(section(page).getByText('awaiting approval')).toHaveCount(0)
+    expectNoErrors(errors)
+  })
+
+  test('a requested and later resolved approval is still unknown (no identity to match)', async ({
+    page,
+  }) => {
+    const errors = await openApprovalHarness(page, 'approvals=requested-resolved')
+    await expect(section(page).getByText('approval status unknown')).toBeVisible()
+    await expect(section(page).getByText('awaiting approval')).toHaveCount(0)
+    expectNoErrors(errors)
+  })
+
+  test('an incomplete retained window is unknown even with no approval event', async ({ page }) => {
+    const errors = await openApprovalHarness(page, 'window=incomplete')
+    await expect(section(page).getByText('approval status unknown')).toBeVisible()
+    expectNoErrors(errors)
+  })
+
+  test('a complete window with no approval request shows neither label', async ({ page }) => {
+    const errors = await openApprovalHarness(page, 'approvals=none')
+    await expect(section(page).getByText('approval status unknown')).toHaveCount(0)
+    await expect(section(page).getByText('awaiting approval')).toHaveCount(0)
+    expectNoErrors(errors)
+  })
+
+  test("the host's explicit awaiting fact shows awaiting, and explicit false shows neither", async ({
+    page,
+  }) => {
+    const awaiting = await openApprovalHarness(page, 'approvals=requested&awaiting=true')
+    await expect(section(page).getByText('awaiting approval')).toBeVisible()
+    await expect(section(page).getByText('approval status unknown')).toHaveCount(0)
+    expectNoErrors(awaiting)
+
+    const none = await openApprovalHarness(page, 'approvals=requested&awaiting=false')
+    await expect(section(page).getByText('awaiting approval')).toHaveCount(0)
+    await expect(section(page).getByText('approval status unknown')).toHaveCount(0)
+    expectNoErrors(none)
+  })
 })
 
 test('an effect-shaped live turn stays unavailable; stops stay distinct', async ({ page }) => {

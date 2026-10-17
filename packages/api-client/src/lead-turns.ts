@@ -31,6 +31,7 @@ export type LeadTurnReasonCode =
   | 'PUBLICATION_WITHHELD'
   | 'FUNDING_CONFIRMATION_REQUIRED'
   | 'REQUESTED_MODEL_MISMATCH'
+  | 'MODEL_NOT_READY'
 export type ApiLeadTurnStatus = Readonly<{
   schemaVersion: 'adea-lead-turn/v1'
   intentId: string
@@ -38,6 +39,8 @@ export type ApiLeadTurnStatus = Readonly<{
   state: 'blocked' | 'prepared' | 'dispatch_pending' | LeadTurnRuntimeState
   availability: 'available' | 'unavailable'
   reasonCode?: LeadTurnReasonCode
+  /** With `MODEL_NOT_READY`: the bounded readiness reason of the last refused check, never provider text. */
+  readinessReason?: string
   dispatchId?: string
   executionId?: string
   attemptId?: string

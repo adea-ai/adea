@@ -1,16 +1,15 @@
 /*
  * Published AppearanceEditor bridge.
  *
- * @adea-ai/ui owns the presentation and @adea-ai/themes owns canonical
- * catalogue values. Adea keeps its V2 preference model; this adapter hands the
+ * @adea-ai/ui owns the presentation, the catalogue values and the theme API
+ * Adea consumes. Adea keeps its V2 preference model; this adapter hands the
  * published editor the catalogue's own theme records (the shared ThemeProvider
  * paints from the same catalogue), plus a record per imported theme.
  */
-import type { AdeaTheme, AdeaThemeRecord } from '@adea-ai/themes'
-import { getAccent } from '@adea-ai/themes'
-import adeaDark from '@adea-ai/themes/themes/adea-dark'
-import adeaLight from '@adea-ai/themes/themes/adea-light'
 import { colorToHex, normalizeAccentValue, parseColor } from '@adea-ai/ui/lib/accent-roles'
+import { getAccent } from '@adea-ai/ui/lib/accent-presets'
+import { defaultThemeRecord } from '@adea-ai/ui/lib/theme-projection'
+import type { AdeaTheme, AdeaThemeRecord } from '@adea-ai/ui/lib/theme-records'
 import {
   accentRolesForSelection,
   themeRecordById,
@@ -24,6 +23,9 @@ import {
   storedVariantRecord,
 } from '@adea-ai/app-ui/components/custom-theme-library'
 import { themeRegistry } from '@adea-ai/app-ui/components/theme-registry'
+
+const adeaLight = defaultThemeRecord('light')
+const adeaDark = defaultThemeRecord('dark')
 
 /** The published blue preset is the host's default custom accent. */
 export const DEFAULT_CUSTOM_ACCENT = getAccent('blue')?.light ?? adeaLight.colors.accent

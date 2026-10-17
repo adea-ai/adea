@@ -1428,6 +1428,27 @@ test('connects newly created Projects and group conversations to their canonical
   ).toBeVisible()
 })
 
+test('the production New group dialog does not carry its draft into another workspace', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create group conversation' }).click()
+  const groupDialog = page.getByRole('dialog', { name: 'New group conversation' })
+  const name = groupDialog.getByLabel('Conversation name')
+  await name.fill('Draft for Work')
+  await expect(name).toHaveValue('Draft for Work')
+  // The overlay covers the sidebar for the pointer, but a workspace can still change under an open dialog
+  // (a notification, a shortcut, another tab's switch): that is a different group, so the draft goes.
+  await workspaceNav(page)
+    .getByRole('button', { name: /^Home( |$)/ })
+    .evaluate((row) => (row as HTMLElement).click())
+  await expect(page).toHaveURL(/scene=home/)
+  // The draft is gone from the state, not only from the field: nothing can be submitted from it.
+  await expect(groupDialog.getByRole('button', { name: 'Create conversation' })).toBeDisabled()
+  await expect(name).toHaveValue('')
+})
+
 test('toggles chat and virtual Project views without losing shared selection or drafts', async ({
   page,
 }) => {
@@ -1887,6 +1908,85 @@ test('creates a Task from a side panel without moving the board', async ({ page 
     for (const release of refetch.waiting) release()
     refetch.waiting.clear()
   }
+})
+
+test('a failed board load offers Retry, which reloads into the board', async ({ page }) => {
+  await mockWorkspace(page)
+  // The board implementation is its own chunk; fail it until the person retries.
+  // A browser keeps a failed module fetch for the life of the page, so Retry
+  // reloads the page.
+  let failBoard = true
+  await page.route('**/task-board.tsx*', (route) =>
+    failBoard ? route.abort('failed') : route.continue()
+  )
+  await page.goto('/?view=chat&app=kanban')
+  const failure = page.getByRole('alert').filter({ hasText: 'Something interrupted the workspace' })
+  await expect(failure).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Task board', exact: true })).toHaveCount(0)
+  failBoard = false
+  await failure.getByRole('button', { name: 'Retry', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
+  await expect(failure).toHaveCount(0)
+})
+
+test('a failed Task panel load reports on the board and a reload recovers', async ({ page }) => {
+  await mockWorkspace(page)
+  let failPanel = true
+  await page.route('**/task-detail.tsx*', (route) =>
+    failPanel ? route.abort('failed') : route.continue()
+  )
+  await page.goto('/?view=chat&app=kanban')
+  const card = page.getByRole('button', { name: 'Launch planning', exact: true })
+  await card.click()
+  await expect(page.getByText('Task details could not be loaded.')).toBeVisible()
+  // The board stays usable: no panel opened and nothing is left selected.
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Task board', exact: true })).toBeVisible()
+  failPanel = false
+  await page.reload()
+  await card.click()
+  const detail = page.getByRole('dialog', { name: 'Edit task', exact: true })
+  await expect(detail.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(
+    'Launch planning'
+  )
+})
+
+test('Chat does not fetch the board or the Task panel until Tasks opens', async ({ page }) => {
+  await mockWorkspace(page)
+  const fetched: string[] = []
+  page.on('request', (request) => {
+    const match = /\/(task-board(?:-surface)?|task-detail)\.tsx/.exec(request.url())
+    if (match) fetched.push(match[1]!)
+  })
+  await page.goto('/?view=chat')
+  await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
+  expect(fetched.filter((name) => name !== 'task-board-surface')).toEqual([])
+  // Opening the board downloads it, and the panel only when a task opens.
+  await page.goto('/?view=chat&app=kanban')
+  await expect(page.getByRole('button', { name: 'Launch planning', exact: true })).toBeVisible()
+  expect(fetched).toContain('task-board')
+  expect(fetched).not.toContain('task-detail')
+  await page.getByRole('button', { name: 'Launch planning', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Edit task', exact: true })).toBeVisible()
+  expect(fetched).toContain('task-detail')
+})
+
+test('a task link opens the lazy board and panel inside Chat while Kanban is off', async ({
+  page,
+}) => {
+  await mockWorkspace(page)
+  // Explicitly disable Kanban: the link still opens the board inside Chat.
+  await page.goto('/?app=library')
+  await page.getByRole('button', { name: 'Disable Kanban', exact: true }).click()
+  await page.goto('/?view=chat&task=task-launch')
+  const detail = page.getByRole('dialog', { name: 'Edit task', exact: true })
+  await expect(detail.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(
+    'Launch planning'
+  )
+  await expect(page).not.toHaveURL(/app=kanban/)
+  await detail.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect(detail).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Task board', exact: true })).toBeVisible()
 })
 
 test('edits a Task with first-click selects and closes on Save without reopening', async ({

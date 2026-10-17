@@ -1,5 +1,65 @@
 # Changelog
 
+## [0.94.0](https://github.com/adea-ai/adea/compare/v0.93.0...v0.94.0) (2026-10-16)
+
+
+### Features
+
+* **models:** readiness reasons for lead turns and the stored default for new direct conversations ([#1422](https://github.com/adea-ai/adea/issues/1422)) ([f0e98ce](https://github.com/adea-ai/adea/commit/f0e98ce6019fd2bbc9907aa78eda0328bfe1ed45))
+* **runtime:** clarify connection discovery signals ([#1412](https://github.com/adea-ai/adea/issues/1412)) ([0c83661](https://github.com/adea-ai/adea/commit/0c836616e9c93ac338f2a84bd81e716431bd9df6))
+* **workspace-ui:** group audience and participation dialogs ([#1178](https://github.com/adea-ai/adea/issues/1178) UI slice) ([#1421](https://github.com/adea-ai/adea/issues/1421)) ([66da9ee](https://github.com/adea-ai/adea/commit/66da9eee84670d8838be7bda9bf5580cf6233b7c))
+
+
+### Bug Fixes
+
+* **deps:** update adea-ai design system ([#1416](https://github.com/adea-ai/adea/issues/1416)) ([a680123](https://github.com/adea-ai/adea/commit/a680123993f6d37597fb5600ad56955bba2b9dd0))
+
+
+### Tests
+
+* **db:** guard workspace deletion against retention evidence ([#1413](https://github.com/adea-ai/adea/issues/1413)) ([632776c](https://github.com/adea-ai/adea/commit/632776c7eb77165b302e7e68613ec42f2d4bf653)), closes [#1221](https://github.com/adea-ai/adea/issues/1221)
+* **web:** prove the Pi Durable lead-to-child journey; fix lead command retries ([#1420](https://github.com/adea-ai/adea/issues/1420)) ([e5b58b4](https://github.com/adea-ai/adea/commit/e5b58b4cdb68763012c473909cb4b99f3e884a9d))
+
+## [0.93.0](https://github.com/adea-ai/adea/compare/v0.92.0...v0.93.0) (2026-10-15)
+
+
+### Features
+
+* **runtime:** admit source-visible reasoning and method summaries ([#1404](https://github.com/adea-ai/adea/issues/1404)) ([ae199ed](https://github.com/adea-ai/adea/commit/ae199ed3c8f01a62c3eec18ae59c2b708a28ba35))
+* **runtime:** validate response sources and citation references ([#1400](https://github.com/adea-ai/adea/issues/1400)) ([b8286b3](https://github.com/adea-ai/adea/commit/b8286b3f65143feefc9741c352c928034a76f5ca))
+* **web:** addressed-turn client UI for group conversations ([#1179](https://github.com/adea-ai/adea/issues/1179)) ([#1374](https://github.com/adea-ai/adea/issues/1374)) ([abf9605](https://github.com/adea-ai/adea/commit/abf96054764f336e7623127c6fdfbecb380eb82a))
+
+
+### Bug Fixes
+
+* **db:** read plan references in a coherent snapshot ([#1409](https://github.com/adea-ai/adea/issues/1409)) ([459f1eb](https://github.com/adea-ai/adea/commit/459f1eb77b9ba2095e8fb68776310396784dac13))
+* **deps:** update adea-ai design system ([#1380](https://github.com/adea-ai/adea/issues/1380)) ([15cb975](https://github.com/adea-ai/adea/commit/15cb9754890ee6a8861cd0feb862e4a778d6b461))
+* **deps:** update dependency @adea-ai/ui to v0.134.0 ([#1408](https://github.com/adea-ai/adea/issues/1408)) ([583b0fc](https://github.com/adea-ai/adea/commit/583b0fcfda4b06bbe7c6ca5a154bfa452b89993a))
+* **desktop:** stop update apply scripts on command failure ([#1381](https://github.com/adea-ai/adea/issues/1381)) ([4f20a69](https://github.com/adea-ai/adea/commit/4f20a696868c1fce31236edd35a11baef4a633f0))
+* **dev-view:** recover lazy selected-terminal reply validation ([#1410](https://github.com/adea-ai/adea/issues/1410)) ([6919090](https://github.com/adea-ai/adea/commit/69190903072461705beb19dfb7b26cb76c87a83d))
+
+
+### Performance
+
+* **dev-view:** load terminal WebGL and search addons on demand ([#1376](https://github.com/adea-ai/adea/issues/1376)) ([ed976ee](https://github.com/adea-ai/adea/commit/ed976eeffa50ebd3e9fb288271baa7a5b2dbb85b))
+* **web:** load the task board and panel on demand ([#1378](https://github.com/adea-ai/adea/issues/1378)) ([cfcb190](https://github.com/adea-ai/adea/commit/cfcb190deb54a745c8c0c7f1c55663212360095f))
+* **workspace-ui:** split Control Plane settings imports into direct lazy entries ([#1377](https://github.com/adea-ai/adea/issues/1377)) ([d868aae](https://github.com/adea-ai/adea/commit/d868aae8149707c57580ded4a999bb0052f4ba45))
+
+
+### Tests
+
+* **db:** prove group admissions and grants through the cutover snapshot ([#1369](https://github.com/adea-ai/adea/issues/1369)) ([bb2ed93](https://github.com/adea-ai/adea/commit/bb2ed93fae7d320acbfd491d7c95114d60e90f80))
+* **db:** snapshot artifact-grant revocation instants and group sharing grants ([#1371](https://github.com/adea-ai/adea/issues/1371)) ([5e0feec](https://github.com/adea-ai/adea/commit/5e0feec645548553856a71e5006b79c0b07fa1ec))
+* **desktop,db:** close [#1218](https://github.com/adea-ai/adea/issues/1218) cleanup, memory-promotion and persona gaps ([#1370](https://github.com/adea-ai/adea/issues/1370)) ([478c7dd](https://github.com/adea-ai/adea/commit/478c7ddadff94e8ad462670c07c7b315f25e7074))
+* prove lead-profile child allowances and an installed-SDK child journey for [#1211](https://github.com/adea-ai/adea/issues/1211) ([#1373](https://github.com/adea-ai/adea/issues/1373)) ([98a3511](https://github.com/adea-ai/adea/commit/98a3511c05126c1326eb0462399903fc2b9cc409))
+* **rollback:** prove the fence-v2 contract for archived admissions ([#1384](https://github.com/adea-ai/adea/issues/1384)) ([0221a26](https://github.com/adea-ai/adea/commit/0221a2648530670ffdfef78a0ebb5d21acbee8df))
+* **web:** prove portable export and import through the authenticated routes ([#1226](https://github.com/adea-ai/adea/issues/1226)) ([#1372](https://github.com/adea-ai/adea/issues/1372)) ([0689e79](https://github.com/adea-ai/adea/commit/0689e7987d7d5377224021b3390377ed323eddfc))
+
+
+### Maintenance
+
+* **appearance:** shared appearance editor, lazy theme import and a narrow theme API ([#1375](https://github.com/adea-ai/adea/issues/1375)) ([fddfdaf](https://github.com/adea-ai/adea/commit/fddfdafc76fcc598feb146a1e5bba027b6b84b61))
+
 ## [0.92.0](https://github.com/adea-ai/adea/compare/v0.91.0...v0.92.0) (2026-10-14)
 
 

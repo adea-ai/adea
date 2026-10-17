@@ -22,7 +22,7 @@ import {
 // returned verdict, findings and inventory. No database is involved anywhere.
 
 const BEFORE_IDENTITY = {
-  formatVersion: 1,
+  formatVersion: 2,
   rehearsalId: 'rehearsal-1181',
   snapshotId: 'snapshot-before',
   source: 'unit',
@@ -247,9 +247,71 @@ const grant = (
   family: 'artifactReferenceGrants',
   grantId: 'grant-1',
   revision: 1,
-  revoked: false,
+  revokedAt: null,
   sourceWorkspaceId: 'wsp-1',
   version: 1,
+  ...overrides,
+})
+
+const admission = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'groupAdmissions' }>> = {}
+): MigrationSnapshotRecord => ({
+  authGrantId: 'grant-1',
+  authGroupId: 'group-1',
+  authRevision: 1,
+  channelId: 'ch-1',
+  family: 'groupAdmissions',
+  joinedSequence: 0,
+  principalId: 'user-1',
+  principalKind: 'user',
+  workspaceId: 'wsp-1',
+  ...overrides,
+})
+
+const audienceGrant = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'groupAudienceGrants' }>> = {}
+): MigrationSnapshotRecord => ({
+  channelId: 'ch-1',
+  expiresAt: null,
+  family: 'groupAudienceGrants',
+  grantId: 'grant-1',
+  issuedAt: '2026-01-01T00:00:00.000Z',
+  revokedAt: null,
+  revision: 1,
+  userId: 'user-1',
+  workspaceId: 'wsp-1',
+  ...overrides,
+})
+
+const sharingGrant = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'groupSharingGrants' }>> = {}
+): MigrationSnapshotRecord => ({
+  channelId: 'ch-1',
+  expiresAt: null,
+  family: 'groupSharingGrants',
+  grantId: 'grant-1',
+  issuedAt: '2026-01-01T00:00:00.000Z',
+  principalId: 'user-1',
+  principalKind: 'user',
+  revision: 1,
+  revokedAt: null,
+  scope: 'earlier_history',
+  workspaceId: 'wsp-1',
+  ...overrides,
+})
+
+const enlistmentGrant = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'groupEnlistmentGrants' }>> = {}
+): MigrationSnapshotRecord => ({
+  agentId: 'agent-1',
+  channelId: 'ch-1',
+  expiresAt: null,
+  family: 'groupEnlistmentGrants',
+  grantId: 'grant-1',
+  issuedAt: '2026-01-01T00:00:00.000Z',
+  revokedAt: null,
+  revision: 1,
+  workspaceId: 'wsp-1',
   ...overrides,
 })
 
@@ -334,6 +396,213 @@ const FIELD_DRIFT_CASES: ReadonlyArray<{
     expectedClass: 'changed_attribute',
     family: 'artifactReferenceGrants',
     field: 'expiresAt',
+  },
+  {
+    after: grant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: grant(),
+    expectedClass: 'changed_attribute',
+    family: 'artifactReferenceGrants',
+    field: 'revokedAt',
+  },
+  {
+    // Both revoked, only the instant moved: a later revocation time is not a flag flip.
+    after: grant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: grant({ revokedAt: '2026-01-15T00:00:00.000Z' }),
+    expectedClass: 'changed_attribute',
+    family: 'artifactReferenceGrants',
+    field: 'revokedAt',
+  },
+  // Every captured non-identity field of the group families (#1222) has a drift case.
+  {
+    after: sharingGrant({ scope: 'earlier_summary' }),
+    before: sharingGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupSharingGrants',
+    field: 'scope',
+  },
+  {
+    after: sharingGrant({ issuedAt: '2026-01-02T00:00:00.000Z' }),
+    before: sharingGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupSharingGrants',
+    field: 'issuedAt',
+  },
+  {
+    after: sharingGrant({ expiresAt: '2027-01-01T00:00:00.000Z' }),
+    before: sharingGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupSharingGrants',
+    field: 'expiresAt',
+  },
+  {
+    after: sharingGrant({ revokedAt: '2999-01-01T00:00:00.000Z' }),
+    before: sharingGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupSharingGrants',
+    field: 'revokedAt',
+  },
+  {
+    after: sharingGrant({ principalId: 'user-2' }),
+    before: sharingGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupSharingGrants',
+    field: 'principalId',
+  },
+  {
+    after: sharingGrant({ principalId: 'user-1', principalKind: 'agent' }),
+    before: sharingGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupSharingGrants',
+    field: 'principalKind',
+  },
+  {
+    after: sharingGrant({ workspaceId: 'wsp-2' }),
+    before: sharingGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupSharingGrants',
+    field: 'workspaceId',
+  },
+  {
+    after: sharingGrant({ revision: 2 }),
+    before: sharingGrant(),
+    expectedClass: 'digest_drift',
+    family: 'groupSharingGrants',
+    field: 'revision',
+  },
+  {
+    after: admission({ joinedSequence: 4 }),
+    before: admission(),
+    expectedClass: 'changed_attribute',
+    family: 'groupAdmissions',
+    field: 'joinedSequence',
+  },
+  {
+    after: admission({ authGrantId: 'grant-2' }),
+    before: admission(),
+    expectedClass: 'remapped_record',
+    family: 'groupAdmissions',
+    field: 'authGrantId',
+  },
+  {
+    after: admission({ authGroupId: 'group-2' }),
+    before: admission(),
+    expectedClass: 'remapped_record',
+    family: 'groupAdmissions',
+    field: 'authGroupId',
+  },
+  {
+    after: admission({ workspaceId: 'wsp-2' }),
+    before: admission(),
+    expectedClass: 'remapped_record',
+    family: 'groupAdmissions',
+    field: 'workspaceId',
+  },
+  {
+    after: admission({ authRevision: 2 }),
+    before: admission(),
+    expectedClass: 'digest_drift',
+    family: 'groupAdmissions',
+    field: 'authRevision',
+  },
+  {
+    after: audienceGrant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: audienceGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupAudienceGrants',
+    field: 'revokedAt',
+  },
+  {
+    // A moved revocation instant is not a flag flip: both sides are revoked, only the time differs.
+    after: audienceGrant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: audienceGrant({ revokedAt: '2026-01-15T00:00:00.000Z' }),
+    expectedClass: 'changed_attribute',
+    family: 'groupAudienceGrants',
+    field: 'revokedAt',
+  },
+  {
+    after: audienceGrant({ issuedAt: '2026-01-02T00:00:00.000Z' }),
+    before: audienceGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupAudienceGrants',
+    field: 'issuedAt',
+  },
+  {
+    after: audienceGrant({ expiresAt: '2027-01-01T00:00:00.000Z' }),
+    before: audienceGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupAudienceGrants',
+    field: 'expiresAt',
+  },
+  {
+    after: audienceGrant({ userId: 'user-2' }),
+    before: audienceGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupAudienceGrants',
+    field: 'userId',
+  },
+  {
+    after: audienceGrant({ workspaceId: 'wsp-2' }),
+    before: audienceGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupAudienceGrants',
+    field: 'workspaceId',
+  },
+  {
+    after: audienceGrant({ revision: 2 }),
+    before: audienceGrant(),
+    expectedClass: 'digest_drift',
+    family: 'groupAudienceGrants',
+    field: 'revision',
+  },
+  {
+    after: enlistmentGrant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: enlistmentGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupEnlistmentGrants',
+    field: 'revokedAt',
+  },
+  {
+    // A moved revocation instant is not a flag flip: both sides are revoked, only the time differs.
+    after: enlistmentGrant({ revokedAt: '2026-02-01T00:00:00.000Z' }),
+    before: enlistmentGrant({ revokedAt: '2026-01-15T00:00:00.000Z' }),
+    expectedClass: 'changed_attribute',
+    family: 'groupEnlistmentGrants',
+    field: 'revokedAt',
+  },
+  {
+    after: enlistmentGrant({ issuedAt: '2026-01-02T00:00:00.000Z' }),
+    before: enlistmentGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupEnlistmentGrants',
+    field: 'issuedAt',
+  },
+  {
+    after: enlistmentGrant({ expiresAt: '2027-01-01T00:00:00.000Z' }),
+    before: enlistmentGrant(),
+    expectedClass: 'changed_attribute',
+    family: 'groupEnlistmentGrants',
+    field: 'expiresAt',
+  },
+  {
+    after: enlistmentGrant({ agentId: 'agent-2' }),
+    before: enlistmentGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupEnlistmentGrants',
+    field: 'agentId',
+  },
+  {
+    after: enlistmentGrant({ workspaceId: 'wsp-2' }),
+    before: enlistmentGrant(),
+    expectedClass: 'remapped_record',
+    family: 'groupEnlistmentGrants',
+    field: 'workspaceId',
+  },
+  {
+    after: enlistmentGrant({ revision: 2 }),
+    before: enlistmentGrant(),
+    expectedClass: 'digest_drift',
+    family: 'groupEnlistmentGrants',
+    field: 'revision',
   },
 ]
 
@@ -700,12 +969,19 @@ describe('migration snapshot comparator', () => {
           expiresAt: null,
           family: 'artifactReferenceGrants',
           grantId: 'grant-1',
-          revoked: false,
+          revokedAt: null,
           revision: 1,
           sourceWorkspaceId: 'wsp-1',
           version: 1,
         },
       ]),
+      groupAdmissions: section([
+        admission(),
+        admission({ principalId: 'agent-1', principalKind: 'agent' }),
+      ]),
+      groupAudienceGrants: section([audienceGrant()]),
+      groupEnlistmentGrants: section([enlistmentGrant()]),
+      groupSharingGrants: section([sharingGrant()]),
       contentReplicas: section([
         {
           availability: 'available',
@@ -1056,7 +1332,7 @@ describe('migration snapshot comparator', () => {
     const before = doc(sections, 'snapshot-before')
     for (const drift of [
       { rehearsalId: 'rehearsal-other' },
-      { formatVersion: 2 },
+      { formatVersion: 3 },
       { source: 'other-system' },
     ]) {
       const after = doc(sections)
@@ -1070,12 +1346,42 @@ describe('migration snapshot comparator', () => {
     }
   })
 
+  test('a snapshot from an older format version is refused by name, never compared (#1222)', () => {
+    const sections: MigrationSnapshotSections = { memberships: section([membership('user-1')]) }
+    const current = doc(sections, 'snapshot-current')
+    // A version 1 artifact grant carried a revocation flag; reading it as an instant could hide a change.
+    const legacy = Object.freeze({
+      identity: Object.freeze({ ...current.identity, formatVersion: 1, snapshotId: 'snapshot-v1' }),
+      sections: Object.freeze({
+        artifactReferenceGrants: section([
+          { ...grant(), revoked: true, revokedAt: undefined } as unknown as MigrationSnapshotRecord,
+        ]),
+      }),
+    }) as unknown as MigrationSnapshotDocument
+    for (const [before, after] of [
+      [legacy, current],
+      [current, legacy],
+      [legacy, legacy],
+    ] as const) {
+      expect(() => compareMigrationSnapshots({ before, after })).toThrow(
+        /format incompatible.*version 1 predates version 2/
+      )
+    }
+    const future = Object.freeze({
+      identity: Object.freeze({ ...current.identity, formatVersion: 3 }),
+      sections: current.sections,
+    }) satisfies MigrationSnapshotDocument
+    expect(() => compareMigrationSnapshots({ before: current, after: future })).toThrow(
+      /newer than the supported version 2/
+    )
+  })
+
   test('malformed snapshot identity is a typed error', () => {
     const sections: MigrationSnapshotSections = { memberships: section([membership('user-1')]) }
     for (const identity of [
       { formatVersion: 0, rehearsalId: 'r', snapshotId: 's', source: 'x' },
-      { formatVersion: 1, rehearsalId: '', snapshotId: 's', source: 'x' },
-      { formatVersion: 1, rehearsalId: 'r', snapshotId: 's' },
+      { formatVersion: 2, rehearsalId: '', snapshotId: 's', source: 'x' },
+      { formatVersion: 2, rehearsalId: 'r', snapshotId: 's' },
     ]) {
       const broken = Object.freeze({
         identity: Object.freeze(identity) as MigrationSnapshotDocument['identity'],
@@ -1659,6 +1965,102 @@ describe('migration snapshot primitive and top-level array intake bounds', () =>
         findingClass: drift.expectedClass,
       })
     )
+  })
+})
+
+describe('group families in comparison (#1222)', () => {
+  test('a new admission or grant row is widened access; a withdrawn one is a missing record', () => {
+    const grew = compare(
+      {
+        groupAdmissions: section([admission()]),
+        groupAudienceGrants: section([audienceGrant()]),
+        groupEnlistmentGrants: section([]),
+      },
+      {
+        groupAdmissions: section([admission(), admission({ principalId: 'user-2' })]),
+        groupAudienceGrants: section([
+          audienceGrant(),
+          audienceGrant({ grantId: 'grant-2', userId: 'user-2' }),
+        ]),
+        groupEnlistmentGrants: section([enlistmentGrant()]),
+      }
+    )
+    expect(familyClasses(grew, 'groupAdmissions')).toEqual(['widened_access'])
+    expect(familyClasses(grew, 'groupAudienceGrants')).toEqual(['widened_access'])
+    expect(familyClasses(grew, 'groupEnlistmentGrants')).toEqual(['widened_access'])
+    const withdrawn = compare(
+      {
+        groupAdmissions: section([admission(), admission({ principalId: 'user-2' })]),
+        groupAudienceGrants: section([audienceGrant()]),
+        groupEnlistmentGrants: section([enlistmentGrant()]),
+      },
+      {
+        groupAdmissions: section([admission()]),
+        groupAudienceGrants: section([]),
+        groupEnlistmentGrants: section([]),
+      }
+    )
+    expect(familyClasses(withdrawn, 'groupAdmissions')).toEqual(['missing_record'])
+    expect(familyClasses(withdrawn, 'groupAudienceGrants')).toEqual(['missing_record'])
+    expect(familyClasses(withdrawn, 'groupEnlistmentGrants')).toEqual(['missing_record'])
+    expect(withdrawn.verdict).toBe('divergent')
+  })
+
+  test('a new sharing grant is widened access, a withdrawn one is missing, and a malformed one is quarantined', () => {
+    const grew = compare(
+      { groupSharingGrants: section([]) },
+      { groupSharingGrants: section([sharingGrant()]) }
+    )
+    expect(familyClasses(grew, 'groupSharingGrants')).toEqual(['widened_access'])
+    const withdrawn = compare(
+      { groupSharingGrants: section([sharingGrant()]) },
+      { groupSharingGrants: section([]) }
+    )
+    expect(familyClasses(withdrawn, 'groupSharingGrants')).toEqual(['missing_record'])
+    const malformed = compare(
+      { groupSharingGrants: section([sharingGrant()]) },
+      { groupSharingGrants: section([sharingGrant({ scope: 'everything' as never })]) }
+    )
+    expect(familyClasses(malformed, 'groupSharingGrants')).not.toEqual([])
+    expect(malformed.verdict).not.toBe('identical')
+  })
+
+  test('an admission is identified by channel, principal kind and principal, never by grant', () => {
+    // The same principal admitted under a different grant is one record whose grant link moved.
+    const remapped = compare(
+      { groupAdmissions: section([admission()]) },
+      { groupAdmissions: section([admission({ authGrantId: 'grant-9' })]) }
+    )
+    expect(familyClasses(remapped, 'groupAdmissions')).toEqual(['remapped_record'])
+    // A user and an Agent that share an id string are distinct admissions.
+    const distinct = compare(
+      { groupAdmissions: section([admission({ principalId: 'same' })]) },
+      {
+        groupAdmissions: section([
+          admission({ principalId: 'same' }),
+          admission({ principalId: 'same', principalKind: 'agent' }),
+        ]),
+      }
+    )
+    expect(familyClasses(distinct, 'groupAdmissions')).toEqual(['widened_access'])
+  })
+
+  test('an unknown principal kind or an unparseable expiry is quarantined, not compared', () => {
+    const ambiguous = compare(
+      {
+        groupAdmissions: section([
+          { ...admission(), principalKind: 'ghost' } as unknown as MigrationSnapshotRecord,
+        ]),
+        groupAudienceGrants: section([audienceGrant({ expiresAt: 'soon' })]),
+      },
+      {
+        groupAdmissions: section([admission()]),
+        groupAudienceGrants: section([audienceGrant()]),
+      }
+    )
+    expect(ambiguous.verdict).not.toBe('identical')
+    expect(familyClasses(ambiguous, 'groupAdmissions')).toContain('quarantined_record')
+    expect(familyClasses(ambiguous, 'groupAudienceGrants')).toContain('quarantined_record')
   })
 })
 

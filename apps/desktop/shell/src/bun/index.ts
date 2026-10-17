@@ -74,9 +74,6 @@ const CLIENT_ROOT =
 const DATA_DIR =
   process.env.ADEA_DATA_DIR ?? join(process.env.HOME ?? '.', 'Library/Application Support/Adea')
 const PORT = Number(process.env.ADEA_SHELL_PORT ?? 4789)
-// The canonical cloud origin the loopback `/api` proxy forwards to; a local
-// stack re-points it with ADEA_CLOUD_ORIGIN (see cloud-proxy.ts).
-const CLOUD_ORIGIN = resolveCloudOrigin()
 const SHELL_ORIGIN = `http://127.0.0.1:${PORT}`
 // Optional Agent Sim engine pack directory (scripts/pack-agent-sim.mjs layout).
 const AGENT_SIM_DIST = process.env.ADEA_AGENT_SIM_DIST
@@ -98,6 +95,9 @@ retireInstallerArchive({
 // boots exactly as before — truthful-empty resource listings and typed
 // `capability_unavailable` stops — never fabricated supervision state.
 const packagedManifest = loadPackagedManifestForEntry(import.meta.dir)
+// The cloud origin the loopback `/api` proxy forwards to: the one the client
+// was built for, from the target record next to it (see cloud-proxy.ts).
+const CLOUD_ORIGIN = resolveCloudOrigin(CLIENT_ROOT)
 if (!packagedManifest.ok && packagedManifest.appBundle) {
   console.error(
     `desktop shell: the packaged component manifest failed to load (${packagedManifest.reason}); the local stack runs without supervision`
@@ -185,6 +185,7 @@ const memoryStore = createMemoryStore({
   key: () => loadDeviceKey(join(DATA_DIR, 'desktop-state', 'device.key')),
 })
 const baseInvoke = createCommandSurface(DATA_DIR, {
+  cloudOrigin: CLOUD_ORIGIN,
   onChatPresentation: (candidate) => presentedRuntimeSession.set(candidate),
   memory: memoryStore,
   authorizedWorkspaceId: () => identity.currentScope().workspaceId,
