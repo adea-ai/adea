@@ -1,3 +1,4 @@
+import { decodeChatAttachmentEventPayload } from './dev-runtime-attachments'
 import {
   exactKeys,
   fail,
@@ -64,6 +65,8 @@ export const runtimeEventKinds = [
   'turn.reasoning_summary',
   'turn.method_step_summary',
   'turn.result',
+  'attachment.added',
+  'attachment.removed',
   'tool.requested',
   'tool.started',
   'tool.progress',
@@ -227,6 +230,11 @@ const eventSemantics: EventSemantics = {
   early(item, enforceEnvelopeBounds) {
     validateCheckpointEvent(item)
     if (isVersionedCallClaim(item)) validateCall(item, enforceEnvelopeBounds)
+    if (item.kind === 'attachment.added' || item.kind === 'attachment.removed') {
+      if (item.source !== 'host' || item.confidence !== 'authoritative')
+        fail('event.source', 'attachment facts require authoritative host provenance')
+      decodeChatAttachmentEventPayload(item.kind, item.payload)
+    }
     validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
   },
   late(item) {

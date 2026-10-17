@@ -1,3 +1,4 @@
+import { registerChatAttachmentRuntime } from './attachments/register'
 // The Dev Runtime host composition root: registers every production provider
 // the shipped shell can serve onto the M10 channel authority, and fills every
 // remaining registry operation with a typed-unavailable provider so no
@@ -121,6 +122,8 @@ export type DevRuntimeHost = Readonly<{
   repos?: ReturnType<typeof registerRepoRuntime>
   /** Present only when a verified scope exists at composition time. */
   harness?: HarnessRuntimeRegistration
+  /** Local encrypted attachment operations; present with a verified session/event host. */
+  attachments?: ReturnType<typeof registerChatAttachmentRuntime>
   /** Workspace connections (ADR 0012); present with a verified scope. */
   connections?: ConnectionsRuntime
   worktrees: ReturnType<typeof registerWorktreeRuntime>
@@ -573,6 +576,16 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           : {}),
       })
     : undefined
+  const attachments =
+    input.scope && projectSession && harness
+      ? registerChatAttachmentRuntime({
+          authority: input.authority,
+          dataDir: input.dataDir,
+          scope: input.scope,
+          resolveSession: projectSession.getSession,
+          events: harness.events,
+        })
+      : undefined
   // #31 consumer zero-config: the opted-in boot warm never breaks the boot —
   // it is fire-and-forget, its every failure mode is a typed durable driver
   // state, and it is skipped entirely for a scripted (injected) driver.
@@ -1023,6 +1036,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ...(projectSession ? { projectSession } : {}),
     ...(repos ? { repos } : {}),
     ...(harness ? { harness } : {}),
+    ...(attachments ? { attachments } : {}),
     ...(connections ? { connections } : {}),
     worktrees: worktrees ?? { commands: [] as DevOperation[], registeredCommands: 0 },
     ...(worktreeService ? { worktreeService } : {}),
