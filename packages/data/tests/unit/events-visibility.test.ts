@@ -122,35 +122,63 @@ test('manual reconnect replaces one live stream without waiting for backoff', as
   f.subscription.stop()
 })
 
-test('hiding cancels a scheduled reconnect and showing starts immediately', async () => {
+test('visibility preserves a pending server retry deadline across repeated hide/show', async () => {
   const visible = visibility()
-  const retry = new Set<() => void>()
+  const retry = new Set<{ run: () => void; delayMs: number }>()
+  let now = 100
   let requests = 0
   const subscription = createWorkspaceEventSubscription({
     workspaceId: 'workspace',
     url: '/events',
     visibility: visible,
+    now: () => now,
+    random: () => 0,
     queryClient: {} as QueryClient,
     fetchImpl: (async () => {
       requests++
-      throw new Error('offline')
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            if (requests === 1) {
+              controller.enqueue(new TextEncoder().encode('retry: 5000\n\n'))
+              controller.close()
+            }
+          },
+        })
+      )
     }) as typeof fetch,
-    schedule(run) {
-      retry.add(run)
+    schedule(run, delayMs) {
+      const pending = { run, delayMs }
+      retry.add(pending)
       return () => {
-        retry.delete(run)
+        retry.delete(pending)
       }
     },
   })
   await settle()
-  expect(retry.size).toBe(1)
+  expect([...retry].map((item) => item.delayMs)).toEqual([5000])
+  now = 1100
   visible.set(false)
   expect(retry.size).toBe(0)
+  visible.set(true)
   await settle()
   expect(requests).toBe(1)
+  expect([...retry].map((item) => item.delayMs)).toEqual([4000])
+  now = 2100
+  visible.set(false)
+  visible.set(true)
+  await settle()
+  expect(requests).toBe(1)
+  expect([...retry].map((item) => item.delayMs)).toEqual([3000])
+  // A manual reconnect must not waive a pending server deadline either.
+  subscription.reconnect()
+  await settle()
+  expect(requests).toBe(1)
+  visible.set(false)
+  now = 6100
   visible.set(true)
   await settle()
   expect(requests).toBe(2)
-  subscription.stop()
   expect(retry.size).toBe(0)
+  subscription.stop()
 })

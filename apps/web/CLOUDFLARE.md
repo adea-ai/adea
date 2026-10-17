@@ -263,13 +263,17 @@ The Worker hydrates lazy Secrets Store bindings before request handlers. Each
 isolate caches only resolved strings, by binding object, for 30 seconds. An
 expired entry is refreshed before use; refresh failures remove the old process
 environment value and are retried on the next request. A replacement binding
-object has no cached value. Concurrent cold requests may each read the store;
+object has no cached value. For overlapping reads, the latest-started read owns that binding's cache and the
+latest-started hydration owns its environment name. Late success/failure cannot
+overwrite/delete a newer publication, including replacement binding objects.
+Concurrent cold requests may each read the store;
 request-owned I/O promises are never shared between Worker invocations. Secret
 rotation can therefore take up to 30 seconds to reach a warm isolate. This cache
 does not cache authentication or authorization decisions.
 
 Browser workspace event subscriptions cancel the live stream and retry timer
-while hidden, then resume once from their signed cursor when visible. Server
+while hidden, then resume once from their signed cursor when visible. A pending
+retry deadline survives hiding; visibility/manual resume waits its remainder. Server
 replay, authorization and resync remain authoritative. Desktop summary reads use
 a 60-second visible-window interval and retain their immediate visibility
 refresh. These changes reduce client/store work in local fixtures; production

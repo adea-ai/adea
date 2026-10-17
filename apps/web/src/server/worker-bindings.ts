@@ -49,24 +49,34 @@ export function createSecretBindingHydrator(now: () => number = Date.now) {
   // must not be retained across Worker invocations. A new binding object gets a
   // new entry, and a rejected/expired read never falls back to a cached value.
   const cache = new WeakMap<SecretsStoreBinding, { value: string; expiresAt: number }>()
+  const latestRead = new WeakMap<SecretsStoreBinding, number>()
+  const latestHydration = new Map<string, number>()
+  let generation = 0
+  // Latest-started read wins each binding's cache; latest-started hydration
+  // wins each environment name, even if its binding object was replaced.
+  // Only counters and resolved strings survive an invocation, never promises.
   return async (env: unknown): Promise<void> => {
     if (typeof env !== 'object' || env === null) return
     await Promise.all(
       Object.entries(env as Record<string, unknown>).map(async ([name, binding]) => {
         if (!isSecretsStoreBinding(binding)) return
+        const current = ++generation
+        latestHydration.set(name, current)
         try {
           const cached = cache.get(binding)
           if (cached && cached.expiresAt > now()) {
             process.env[name] = cached.value
             return
           }
+          latestRead.set(binding, current)
           const value = await binding.get()
           if (typeof value !== 'string') throw new TypeError('Invalid secret binding result')
-          cache.set(binding, { value, expiresAt: now() + SECRET_BINDING_CACHE_MS })
-          process.env[name] = value
+          if (latestRead.get(binding) === current)
+            cache.set(binding, { value, expiresAt: now() + SECRET_BINDING_CACHE_MS })
+          if (latestHydration.get(name) === current) process.env[name] = value
         } catch {
-          cache.delete(binding)
-          delete process.env[name]
+          if (latestRead.get(binding) === current) cache.delete(binding)
+          if (latestHydration.get(name) === current) delete process.env[name]
           // The consuming guard returns its existing "not configured" response;
           // no store error or secret value enters a log or response.
         }

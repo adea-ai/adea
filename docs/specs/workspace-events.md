@@ -531,3 +531,8 @@ This proves liveness, never execution acceptance.
   0045 SQL to realistic old-shape copies and requires every pre-existing column of Agents,
   channels, participants, messages, mentions, read states, memberships and events to survive.
 - `apps/web/test/agent-edit-request.test.ts`: strict revision, field and placement parsing.
+
+Visibility suspension preserves an already pending reconnect deadline. Showing
+or manually reconnecting before that deadline re-arms only the remaining delay,
+including the server retry floor; hidden time counts toward the deadline. An
+active stream aborted by hiding has no pending retry and resumes immediately.

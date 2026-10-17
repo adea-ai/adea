@@ -71,7 +71,7 @@ export type WorkspaceEventDiagnostic = Readonly<{
 export type WorkspaceEventSubscription = Readonly<{
   /** Latest applied workspace sequence; 0 before the first event. */
   appliedSequence(): number
-  /** Force a reconnect that replays from the stored cursor. */
+  /** Reconnect from the stored cursor, respecting an already pending retry deadline. */
   reconnect(): void
   stop(): void
 }>
@@ -253,6 +253,7 @@ export function createWorkspaceEventSubscription(
   let stopped = false
   let controller: AbortController | undefined
   let cancelRetry: (() => void) | undefined
+  let retryAt: number | undefined
   let attempt = 0
   let appliedSequence = readCursor()
   let serverRetryMs: number | null = null
@@ -505,12 +506,31 @@ export function createWorkspaceEventSubscription(
     }
   }
 
+  function armRetry(): void {
+    cancelRetry?.()
+    cancelRetry = undefined
+    if (stopped || paused || retryAt === undefined) return
+    const remaining = Math.max(0, retryAt - now())
+    if (remaining === 0) {
+      retryAt = undefined
+      void run()
+      return
+    }
+    cancelRetry = schedule(() => {
+      cancelRetry = undefined
+      retryAt = undefined
+      void run()
+    }, remaining)
+  }
+
   function scheduleReconnect(): void {
     if (stopped || paused) return
     attempt += 1
     const delay = reconnectDelay(attempt, options.random ?? Math.random)
-    // The server's retry hint is a floor: never reconnect faster than it asks.
-    cancelRetry = schedule(() => void run(), Math.max(delay, serverRetryMs ?? 0))
+    // Hiding cancels the timer, not its deadline. Visibility and manual resume
+    // must respect the pending backoff and the server's minimum retry delay.
+    retryAt = now() + Math.max(delay, serverRetryMs ?? 0)
+    armRetry()
   }
 
   async function run(): Promise<void> {
@@ -535,6 +555,10 @@ export function createWorkspaceEventSubscription(
     if (stopped || paused) return
     cancelRetry?.()
     cancelRetry = undefined
+    if (retryAt !== undefined) {
+      armRetry()
+      return
+    }
     if (inFlight) {
       reconnectRequested = true
       controller?.abort()

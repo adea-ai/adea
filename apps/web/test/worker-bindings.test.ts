@@ -114,3 +114,67 @@ describe('bounded resolved secret cache', () => {
     expect(process.env.STORE_SECRET).toBeUndefined()
   })
 })
+
+function deferredSecret() {
+  let resolve!: (value: string) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<string>((yes, no) => {
+    resolve = yes
+    reject = no
+  })
+  return { promise, resolve, reject }
+}
+
+for (const stale of ['success', 'failure'] as const) {
+  test(`a late older ${stale} cannot replace a newer secret publication`, async () => {
+    const older = deferredSecret()
+    const newer = deferredSecret()
+    let reads = 0
+    const env = { STORE_SECRET: { get: () => (++reads === 1 ? older.promise : newer.promise) } }
+    const hydrate = createSecretBindingHydrator(() => 0)
+    const first = hydrate(env)
+    const second = hydrate(env)
+    expect(reads).toBe(2) // Request-owned promises are not shared.
+    newer.resolve('newer')
+    await second
+    if (stale === 'success') older.resolve('older')
+    else older.reject(new Error('old request failed'))
+    await first
+    expect(process.env.STORE_SECRET).toBe('newer')
+    await hydrate(env)
+    expect(reads).toBe(2)
+    expect(process.env.STORE_SECRET).toBe('newer')
+  })
+}
+
+test('a stale success cannot resurrect a value after the newest read failed', async () => {
+  const older = deferredSecret()
+  const newer = deferredSecret()
+  const hydrate = createSecretBindingHydrator(() => 0)
+  let reads = 0
+  const env = { STORE_SECRET: { get: () => (++reads === 1 ? older.promise : newer.promise) } }
+  const first = hydrate(env)
+  const second = hydrate(env)
+  newer.reject(new Error('new request failed'))
+  await second
+  expect(process.env.STORE_SECRET).toBeUndefined()
+  older.resolve('older')
+  await first
+  expect(process.env.STORE_SECRET).toBeUndefined()
+})
+
+for (const stale of ['success', 'failure'] as const) {
+  test(`old binding ${stale} cannot overwrite a replacement binding's value`, async () => {
+    const older = deferredSecret()
+    const hydrate = createSecretBindingHydrator(() => 0)
+    const first = hydrate({ STORE_SECRET: { get: () => older.promise } })
+    const replacement = { STORE_SECRET: { get: async () => 'replacement' } }
+    await hydrate(replacement)
+    if (stale === 'success') older.resolve('old binding')
+    else older.reject(new Error('old binding failed'))
+    await first
+    expect(process.env.STORE_SECRET).toBe('replacement')
+    await hydrate(replacement)
+    expect(process.env.STORE_SECRET).toBe('replacement')
+  })
+}
