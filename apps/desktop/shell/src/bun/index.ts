@@ -10,11 +10,12 @@
 import { BrowserWindow, Utils } from 'electrobun/main'
 import { promises as dns } from 'node:dns'
 import { existsSync, lstatSync, rmSync } from 'node:fs'
-import { extname, join, normalize } from 'node:path'
+import { dirname, extname, join, normalize } from 'node:path'
 import { agentSimResponse } from '../agent-sim-assets'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
 import { createCommandSurface, type BridgeResult } from '../commands'
 import { loadDeviceKey } from '../device-key'
+import { retireInstallerArchive } from '../installer-archive'
 import { createMemoryStore } from '../memory/store'
 import { createWorkspaceCleanup, type WorkspaceCleanup } from '../workspace-cleanup'
 import { workspaceLocalData, assertWorkspaceDataPath } from '../workspace-local-data'
@@ -76,6 +77,15 @@ const PORT = Number(process.env.ADEA_SHELL_PORT ?? 4789)
 const SHELL_ORIGIN = `http://127.0.0.1:${PORT}`
 // Optional Agent Sim engine pack directory (scripts/pack-agent-sim.mjs layout).
 const AGENT_SIM_DIST = process.env.ADEA_AGENT_SIM_DIST
+
+// The installer's retained payload tar is only for Electrobun's own delta
+// updater, which Adea does not use (installer-archive.ts). Retire the one the
+// installer wrote for this build; archives left by earlier installs are not
+// this build's and stay put. Best effort and silent on skip.
+retireInstallerArchive({
+  resourcesDir: join(dirname(process.execPath), '..', 'Resources'),
+  applicationSupportDir: join(process.env.HOME ?? '.', 'Library/Application Support'),
+})
 
 // The packaged component manifest (M10 #185): when this process runs from the
 // bundled .app layout, the packaging lane's strict install-location resolution
