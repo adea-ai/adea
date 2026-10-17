@@ -1,3 +1,12 @@
+import { decodeRuntimeAssistantPayload, isRuntimeAssistantEventKind } from './dev-runtime-assistant'
+export { decodeRuntimeAssistantPayload, isRuntimeAssistantEventKind } from './dev-runtime-assistant'
+export type {
+  RuntimeAssistantEventKind,
+  RuntimeAssistantDeltaPayload,
+  RuntimeAssistantMessagePayload,
+  RuntimeAssistantResultPayload,
+  RuntimeAssistantPayloads,
+} from './dev-runtime-assistant'
 import { decodeChatAttachmentEventPayload } from './dev-runtime-attachments'
 import {
   exactKeys,
@@ -10,6 +19,7 @@ import {
   stringValue,
   timestamp,
   uint64Pattern,
+  uint64String,
 } from './dev-runtime-validation-internal'
 import {
   decodeRuntimeCallPayload,
@@ -219,7 +229,17 @@ const eventSemantics: EventSemantics = {
       )
         fail('event.payload', 'queue identity does not match its event')
     }
+    // Lone surrogates in identities would be rewritten by UTF-8/CBOR and so
+    // collapse distinct namespaces; refuse them before admission and dedupe.
+    for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId', 'harnessRunId'] as const)
+      if (item[key] !== undefined) assertWellFormedUnicode(item[key] as string, `event.${key}`)
+    uint64String(item.seq, 'event.seq')
     if (isVersionedCallClaim(item)) validateCall(item, enforceEnvelopeBounds)
+    const kind = item.kind as string
+    if (isRuntimeAssistantEventKind(kind)) {
+      stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+      decodeRuntimeAssistantPayload(kind, item.payload)
+    }
     if (item.kind === 'attachment.added' || item.kind === 'attachment.removed') {
       if (item.source !== 'host' || item.confidence !== 'authoritative')
         fail('event.source', 'attachment facts require authoritative host provenance')
