@@ -30,9 +30,20 @@ export type TranscriptAccumulator = Readonly<{
   retainedFloorSequence?: string
   expectedSequence?: string
   events: readonly RuntimeEvent[]
+  /** The leading assistant streak lost its prefix; never store raw redaction context. */
+  assistantContextLost?: boolean
   availability: TranscriptAvailability
   retention: ChatRetentionTruth
 }>
+
+/** A bounded-history notice should describe what the person can see, not invent a recovery dependency. */
+export function transcriptHistoryNotice(
+  retentionTruth: ChatRetentionTruth,
+  availability: TranscriptAvailability
+): string | undefined {
+  if (retentionTruth.complete || availability.status === 'resync_required') return undefined
+  return 'Showing the latest events only.'
+}
 
 function sequence(value: string): bigint {
   try {
@@ -85,6 +96,7 @@ export function createTranscriptAccumulator(input: {
     generation: input.generation,
     fromSequence,
     events: [],
+    assistantContextLost: sequence(fromSequence) > 0n,
     availability: { status: 'available' },
     retention: { maxEvents: CHAT_EVENT_RETENTION_LIMIT, complete: true },
   }
@@ -159,6 +171,12 @@ export function acceptRuntimeEvent(
   const nextSequence = (eventSequence + 1n).toString()
   const bounded =
     events.length > CHAT_EVENT_RETENTION_LIMIT ? events.slice(-CHAT_EVENT_RETENTION_LIMIT) : events
+  const dropped = events.length - bounded.length
+  const assistantContextLost =
+    bounded[0]?.kind === 'turn.assistant_delta' &&
+    (dropped > 0
+      ? events[dropped - 1]?.kind === 'turn.assistant_delta'
+      : state.assistantContextLost === true)
   const priorBoundedReason =
     state.availability.status === 'bounded' ? state.availability.reason : undefined
   const window = retention(bounded, state.fromSequence, priorBoundedReason)
@@ -168,6 +186,7 @@ export function acceptRuntimeEvent(
     expectedSequence:
       expected === undefined || eventSequence >= sequence(expected) ? nextSequence : expected,
     events: bounded,
+    assistantContextLost,
     availability:
       boundedReason !== undefined
         ? {
@@ -198,6 +217,7 @@ export function acceptRuntimeStreamFrame(
     return {
       ...state,
       expectedSequence: frame.nextSequence,
+      assistantContextLost: openedSequence > requested || state.assistantContextLost === true,
       availability:
         openedSequence > requested
           ? {
@@ -230,6 +250,7 @@ export function acceptRuntimeStreamFrame(
     return {
       ...state,
       expectedSequence: frame.checkpointSequence,
+      assistantContextLost: true,
       availability: {
         status: 'bounded',
         reason: frame.reason,

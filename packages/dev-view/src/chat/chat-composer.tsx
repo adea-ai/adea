@@ -345,7 +345,11 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
   }
 
   return (
-    <section class="dev-chat__composer" aria-label="Chat composer">
+    <section
+      class="border-t border-border bg-background px-4 py-3"
+      aria-label="Chat composer"
+      data-chat-composer=""
+    >
       <AtomicChatComposer
         value={draft().text}
         pasteTokens={{
@@ -374,7 +378,10 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
         context={
           <Show when={decisionReady()}>
             <div>
-              <div class="dev-chat__composer-controls" aria-label="Launch mode">
+              <div
+                class="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs text-muted-foreground"
+                aria-label="Launch mode"
+              >
                 <Label for="dev-chat-composer-agent">Agent</Label>
                 <Show
                   when={props.agentProfiles && props.agentProfiles.length > 0}
@@ -410,7 +417,10 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               </div>
               <Show when={mode() === 'customize' && props.customization}>
                 {(customization) => (
-                  <div class="dev-chat__composer-controls" aria-label="Customize launch pins">
+                  <div
+                    class="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs text-muted-foreground"
+                    aria-label="Customize launch pins"
+                  >
                     <Label for="dev-chat-composer-harness">Harness</Label>
                     <NativeSelect
                       size="sm"
@@ -471,7 +481,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
           </Show>
         }
         notices={
-          <div>
+          <div class="flex flex-col gap-0.5 text-xs text-muted-foreground">
             <p id="dev-chat-composer-status" role="status">
               <Show
                 when={disabledReason()}
@@ -482,7 +492,7 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
             </p>
             <Show when={decisionReady() && resolvedLocation()}>
               {(label) => (
-                <p class="dev-chat__composer-location" aria-live="polite">
+                <p data-chat-composer-location="" aria-live="polite">
                   Running on {label()}
                 </p>
               )}

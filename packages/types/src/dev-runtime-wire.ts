@@ -56,10 +56,14 @@ export type {
   RuntimeCallPermissionEligibility,
   RuntimeCallPhase,
 } from './dev-runtime-call'
+export type { FollowUpQueueEventPayload } from './dev-runtime-follow-up-event'
+import { decodeFollowUpQueueEventPayload } from './dev-runtime-follow-up-event'
+
 import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
 import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
 
 export const runtimeEventKinds = [
+  'queue.updated',
   'session.created',
   'session.starting',
   'session.ready',
@@ -291,6 +295,16 @@ type EventSemantics = Readonly<{
 
 const eventSemantics: EventSemantics = {
   early(item, enforceEnvelopeBounds) {
+    if (item.kind === 'queue.updated') {
+      if (item.source !== 'host' || item.confidence !== 'authoritative')
+        fail('event.source', 'queue facts require the authoritative host')
+      const payload = decodeFollowUpQueueEventPayload(item.payload)
+      if (
+        payload.generation !== item.generation ||
+        payload.runtimeSessionId !== item.runtimeSessionId
+      )
+        fail('event.payload', 'queue identity does not match its event')
+    }
     if (
       isRuntimeActivityEventKind(item.kind) &&
       item.payload !== null &&
@@ -344,7 +358,10 @@ export function decodeRuntimeEvent(
   value: unknown,
   provenance: RuntimeEventProvenance
 ): RuntimeEvent {
-  return decodeEventEnvelope(value, provenance, true, eventSemantics)
+  const event = decodeEventEnvelope(value, provenance, true, eventSemantics)
+  return event.kind === 'queue.updated'
+    ? Object.freeze({ ...event, payload: decodeFollowUpQueueEventPayload(event.payload) })
+    : event
 }
 
 /**

@@ -24,6 +24,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 import type {
+  FollowUpQueueEventPayload,
   RuntimeEvent,
   RuntimeEventKind,
   RuntimeSession,
@@ -32,6 +33,7 @@ import type {
 import { isRuntimeVisibleSummaryKind } from '../../../../../../packages/types/src/dev-runtime-visible-summaries'
 import { canonicalDevCommandJson } from '../../../../../../packages/types/src/dev-runtime'
 import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
+import { decodeFollowUpQueueEventPayload } from '../../../../../../packages/types/src/dev-runtime-follow-ups'
 import { createDurableJsonStore } from '../host-store'
 import { createSessionHistoryReader, type RuntimeHistoryRead } from './history'
 import type { RuntimeEventHistoryPage } from '../../../../../../packages/types/src/dev-runtime-history'
@@ -79,10 +81,31 @@ function sameScope(left: Scope, right: Scope): boolean {
   )
 }
 
+function decodeQueueUpdate(
+  event: Pick<
+    RuntimeEvent,
+    'kind' | 'runtimeSessionId' | 'generation' | 'source' | 'confidence' | 'payload'
+  >
+): FollowUpQueueEventPayload | undefined {
+  if (event.kind !== 'queue.updated') return undefined
+  if (event.source !== 'host' || event.confidence !== 'authoritative')
+    throw new TypeError('queue.updated requires an authoritative host event')
+  const payload = decodeFollowUpQueueEventPayload(event.payload)
+  if (
+    payload.runtimeSessionId !== event.runtimeSessionId ||
+    payload.generation !== event.generation
+  )
+    throw new TypeError('queue.updated identity does not match its event')
+  return payload
+}
+
 function project(event: StoredEvent): RuntimeEvent {
   const { scope: _, ...rest } = event
+  const queuePayload = decodeQueueUpdate(rest)
   validateRuntimeResponseReferences(rest.kind, rest.payload, rest.source)
-  return snapshotInteractionEvent(rest) ?? { ...rest }
+  return queuePayload
+    ? { ...rest, payload: queuePayload }
+    : (snapshotInteractionEvent(rest) ?? { ...rest })
 }
 
 const seqOf = (event: RuntimeEvent): bigint => BigInt(event.seq)
@@ -209,8 +232,18 @@ export function createSessionEventLog(input: {
       sessionInput.payload,
       sessionInput.source ?? 'host'
     )
-    const records = all()
     const source = sessionInput.source ?? 'host'
+    const confidence = sessionInput.confidence ?? 'authoritative'
+    const queuePayload = decodeQueueUpdate({
+      kind: sessionInput.kind,
+      runtimeSessionId: sessionInput.runtimeSessionId,
+      generation: sessionInput.generation,
+      source,
+      confidence,
+      payload: sessionInput.payload ?? {},
+    })
+    validateRuntimeResponseReferences(sessionInput.kind, sessionInput.payload, source)
+    const records = all()
     const latest = BigInt(
       latestSeqOf(records, sessionInput.runtimeSessionId, sessionInput.generation)
     )
@@ -232,20 +265,22 @@ export function createSessionEventLog(input: {
       receivedAt: new Date().toISOString(),
       source,
       sourceEventId: sessionInput.sourceEventId,
-      confidence: sessionInput.confidence ?? 'authoritative',
+      confidence,
       classification: sessionInput.classification ?? 'workspace_metadata',
       kind: sessionInput.kind,
       payload:
-        !isRuntimeCallEventKind(sessionInput.kind) &&
+        queuePayload ??
+        (!isRuntimeCallEventKind(sessionInput.kind) &&
         !isRuntimeVisibleSummaryKind(sessionInput.kind) &&
         // Structured activity observations (#1405) keep their schema-validated
         // payload through admission so identity/provenance conflicts surface as
         // idempotency_conflict; the wipe below governs opaque transcript kinds.
+        // Queue publication (#1406) owns its normalized queue payload.
         !isRuntimeActivityEventKind(sessionInput.kind) &&
         (sessionInput.classification === 'credential' ||
           sessionInput.classification === 'restricted_local')
           ? {}
-          : (sessionInput.payload ?? {}),
+          : (sessionInput.payload ?? {})),
     }
     if (isRuntimeActivityEventKind(candidate.kind)) {
       const admission = admitRuntimeActivityEvent(

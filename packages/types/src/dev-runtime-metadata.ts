@@ -271,6 +271,7 @@ export const devOperationMetadata = {
   'dev.session.create': { capabilities: capabilities32, resource: null },
   'dev.session.events': { capabilities: capabilities33, resource: resource10 },
   'dev.session.history': { capabilities: capabilities33, resource: resource10 },
+  'dev.session.followUps': { capabilities: capabilities32, resource: resource10 },
   'dev.session.get': { capabilities: capabilities33, resource: resource10 },
   'dev.session.launchDefault': { capabilities: capabilities32, resource: resource10 },
   'dev.session.launchHarness': { capabilities: capabilities32, resource: resource10 },

@@ -114,6 +114,7 @@ export type AcpLaneDriver = Readonly<{
     processIdentity: string
     harnessRunId: string
     prompt: string
+    signal?: AbortSignal
   }): Promise<AcpPromptDeliveryResult>
 }>
 
@@ -173,6 +174,7 @@ export type AcpLane = Readonly<{
     runtimeSessionId: string
     harnessRunId: string
     prompt: string
+    signal?: AbortSignal
   }): Promise<AcpPromptDeliveryResult>
 }>
 
@@ -550,6 +552,7 @@ export function createAcpLane(input: AcpLaneInput): AcpLane {
     runtimeSessionId: string
     harnessRunId: string
     prompt: string
+    signal?: AbortSignal
   }): Promise<AcpPromptDeliveryResult> {
     const record = load().find((entry) => entry.id === deliverInput.acpConnectionId)
     if (!record) {
@@ -588,11 +591,18 @@ export function createAcpLane(input: AcpLaneInput): AcpLane {
       }
     }
     try {
+      if (deliverInput.signal?.aborted)
+        return {
+          ok: false,
+          code: 'delivery_ambiguous',
+          message: 'prompt delivery was cancelled before handoff',
+        }
       const result = await input.driver.deliverPrompt({
         connectionId: record.id,
         processIdentity: record.processIdentity ?? record.id,
         harnessRunId: deliverInput.harnessRunId,
         prompt: deliverInput.prompt,
+        ...(deliverInput.signal ? { signal: deliverInput.signal } : {}),
       })
       input.audit?.append(
         result.ok

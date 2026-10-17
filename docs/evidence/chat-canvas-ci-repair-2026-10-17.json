@@ -1,0 +1,681 @@
+{
+  "date": "2026-10-17",
+  "baseHead": "ef9d397f3609417d191d098e40b1a5928fde7020",
+  "budgetsChanged": false,
+  "visualTolerancesChanged": false,
+  "paneBehaviorRemoved": false,
+  "bundle": {
+    "before": {
+      "total": {
+        "rawBytes": 3135493,
+        "gzipBytes": 963401,
+        "fileCount": 168
+      },
+      "startup": {
+        "rawBytes": 687502,
+        "gzipBytes": 225344,
+        "fileCount": 31,
+        "files": [
+          "start-assets/FN6EICGO-DzHAmjXq.js",
+          "start-assets/VI7QYH27-DC7tIaka.js",
+          "start-assets/accent-presets-B2qmx86i.js",
+          "start-assets/accent-roles-B0O4T5Ea.js",
+          "start-assets/action-button-eILRWyf4.js",
+          "start-assets/button-BNijza_D.js",
+          "start-assets/client-OHQ6ojAk.js",
+          "start-assets/desktop-bridge-Cnnn3sCY.js",
+          "start-assets/dist-C_EN9vr8.js",
+          "start-assets/dist-Dgse9QmA.js",
+          "start-assets/dist-T_-OVjng.js",
+          "start-assets/dist-e4iWmNrW.js",
+          "start-assets/dist-y4S9dpo1.js",
+          "start-assets/index-DaPg3nhd.js",
+          "start-assets/lazyRouteComponent-B4VOenEk.js",
+          "start-assets/palette-D4PPZ9nE.js",
+          "start-assets/preload-helper-DjzSQ1t3.js",
+          "start-assets/rolldown-runtime-DK3Fl9T5.js",
+          "start-assets/routes-B2zVoEFQ.js",
+          "start-assets/src-CNAnbsux.js",
+          "start-assets/storage-keys-CBPwMAAW.js",
+          "start-assets/theme-records-DcBA4jIT.js",
+          "start-assets/toast-Yh8QRVE1.js",
+          "start-assets/tooltip-D7lnOjWw.js",
+          "start-assets/useNavigate-ByvEBTiA.js",
+          "start-assets/workspace-identity-mark-5NmdyLdS.js",
+          "start-assets/workspace-logo-Dz-sX3cY.js",
+          "start-assets/workspace-mount-yiXSs4gD.js",
+          "start-assets/workspace-navigation-entry-DHEIGGCm.js",
+          "start-assets/workspace-navigation-icons-CmE3N_kO.js",
+          "start-assets/workspace-settings-section-BKmlfdCl.js"
+        ]
+      },
+      "views": {
+        "virtual": {
+          "rawBytes": 93539,
+          "gzipBytes": 33025,
+          "fileCount": 13,
+          "files": [
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/inbox-C0IKs4Fy.js",
+            "start-assets/keyed-rows-DNrEWg7_.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/request-id-DRbjBqam.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/sidebar-nav-DeOMtUdW.js",
+            "start-assets/virtual-view-CIL7-HHl.js",
+            "start-assets/workspace-nav-VfF6BayX.js",
+            "start-assets/workspace-nav-sidebar-C2nMgckr.js",
+            "start-assets/workspace-shell-CRGeavx2.js"
+          ]
+        },
+        "chat": {
+          "rawBytes": 193365,
+          "gzipBytes": 63917,
+          "fileCount": 23,
+          "files": [
+            "start-assets/YFEENJN5-SI9Rpa1k.js",
+            "start-assets/ZZYKR3VO-C_1P2mxn.js",
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/card-DxhyCncT.js",
+            "start-assets/checkbox-CE6uA9SI.js",
+            "start-assets/conventional-workspace-entry-BHD7Lch5.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/file-DSYsl0Sv.js",
+            "start-assets/form-field-DTrKG_Z1.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/inbox-C0IKs4Fy.js",
+            "start-assets/keyed-rows-DNrEWg7_.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/request-id-DRbjBqam.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/sidebar-nav-DeOMtUdW.js",
+            "start-assets/skeleton-BIS8xxxu.js",
+            "start-assets/sparkles-BtNpfFcI.js",
+            "start-assets/status-chip-DW61HMDC.js",
+            "start-assets/textarea-CApHtbaF.js",
+            "start-assets/trash-xBQ-u1mz.js",
+            "start-assets/workspace-nav-VfF6BayX.js",
+            "start-assets/workspace-nav-sidebar-C2nMgckr.js"
+          ]
+        },
+        "appLibrary": {
+          "rawBytes": 11254,
+          "gzipBytes": 4493,
+          "fileCount": 4,
+          "files": [
+            "start-assets/app-library-page-D8fhmw1n.js",
+            "start-assets/form-field-DTrKG_Z1.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/input-group-CDdRTnK5.js"
+          ]
+        },
+        "devShell": {
+          "rawBytes": 160171,
+          "gzipBytes": 55562,
+          "fileCount": 22,
+          "files": [
+            "start-assets/ZR5G2IB7-Bi9wJxgN.js",
+            "start-assets/activity-model-DEl1gAG6.js",
+            "start-assets/alert-dialog-o6Fy4hu-.js",
+            "start-assets/archive-shelf-D0ZDAuyI.js",
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/button-group-DeyJ-TCC.js",
+            "start-assets/command-core-B7emCJVs.js",
+            "start-assets/dev-runtime-operation-metadata-BVZXaXPb.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/inbox-C0IKs4Fy.js",
+            "start-assets/layout-view-CKL73x-H.js",
+            "start-assets/list-row-control-DeVnOlw4.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/platform-CApvQ7rQ.js",
+            "start-assets/scroll-area-Q194nQVY.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/sidebar-nav-DeOMtUdW.js",
+            "start-assets/src-CjPiMfsV.js",
+            "start-assets/storage--jaMCT6T.js",
+            "start-assets/utility-resize-handle-DE94MtNp.js",
+            "start-assets/workspace-nav-VfF6BayX.js"
+          ]
+        },
+        "devUtilityPanes": {
+          "rawBytes": 185636,
+          "gzipBytes": 61478,
+          "fileCount": 16,
+          "files": [
+            "start-assets/activity-pane-BADSAmtp.js",
+            "start-assets/browser-pane-DgXERHb5.js",
+            "start-assets/devices-pane-xUV2t79r.js",
+            "start-assets/file-DSYsl0Sv.js",
+            "start-assets/files-pane-b7x7OMxs.js",
+            "start-assets/git-commit-horizontal-BjzhPCic.js",
+            "start-assets/harness-status-model-BN1FUEI0.js",
+            "start-assets/harness-status-section-C_5Se20X.js",
+            "start-assets/label-trPRSW2s.js",
+            "start-assets/session-history-section-fzAnsGyI.js",
+            "start-assets/skeleton-BIS8xxxu.js",
+            "start-assets/source-control-pane-G3lb2V8F.js",
+            "start-assets/status-cache-FUNj2YE3.js",
+            "start-assets/status-chip-DW61HMDC.js",
+            "start-assets/utility-command-CBrZgiNr.js",
+            "start-assets/utility-host-CgxHx70H.js"
+          ]
+        },
+        "sharedUtilityOpen": {
+          "rawBytes": 183370,
+          "gzipBytes": 61061,
+          "fileCount": 26,
+          "files": [
+            "start-assets/activity-model-DEl1gAG6.js",
+            "start-assets/activity-pane-BADSAmtp.js",
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/browser-pane-DgXERHb5.js",
+            "start-assets/command-CPCwSlAr.js",
+            "start-assets/command-core-B7emCJVs.js",
+            "start-assets/dev-runtime-contract-CiOeYJGH.js",
+            "start-assets/dev-runtime-operation-metadata-BVZXaXPb.js",
+            "start-assets/devices-pane-xUV2t79r.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/form-field-DTrKG_Z1.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/harness-status-model-BN1FUEI0.js",
+            "start-assets/harness-status-section-C_5Se20X.js",
+            "start-assets/input-ByLqSkJY.js",
+            "start-assets/label-trPRSW2s.js",
+            "start-assets/list-row-control-DeVnOlw4.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/scroll-area-Q194nQVY.js",
+            "start-assets/session-history-section-fzAnsGyI.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/skeleton-BIS8xxxu.js",
+            "start-assets/status-chip-DW61HMDC.js",
+            "start-assets/utility-command-CBrZgiNr.js",
+            "start-assets/utility-host-CgxHx70H.js",
+            "start-assets/utility-resize-handle-DE94MtNp.js"
+          ]
+        },
+        "devTerminal": {
+          "rawBytes": 746762,
+          "gzipBytes": 199149,
+          "fileCount": 33,
+          "files": [
+            "start-assets/ZR5G2IB7-Bi9wJxgN.js",
+            "start-assets/activity-model-DEl1gAG6.js",
+            "start-assets/alert-dialog-o6Fy4hu-.js",
+            "start-assets/archive-shelf-D0ZDAuyI.js",
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/button-group-DeyJ-TCC.js",
+            "start-assets/command-CPCwSlAr.js",
+            "start-assets/command-core-B7emCJVs.js",
+            "start-assets/desktop-permissions-BAFYl3sH.js",
+            "start-assets/dev-runtime-CumTQGSO.js",
+            "start-assets/dev-runtime-contract-CiOeYJGH.js",
+            "start-assets/dev-runtime-operation-metadata-BVZXaXPb.js",
+            "start-assets/dev-runtime-registry-dto-BSCwpVTT.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/form-field-DTrKG_Z1.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/inbox-C0IKs4Fy.js",
+            "start-assets/input-ByLqSkJY.js",
+            "start-assets/layout-view-CKL73x-H.js",
+            "start-assets/list-row-control-DeVnOlw4.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/platform-CApvQ7rQ.js",
+            "start-assets/runtime-terminal-pane-C2uhwHsm.js",
+            "start-assets/scroll-area-Q194nQVY.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/sidebar-nav-DeOMtUdW.js",
+            "start-assets/src-CjPiMfsV.js",
+            "start-assets/storage--jaMCT6T.js",
+            "start-assets/terminal-pane-BGBxyERq.js",
+            "start-assets/textarea-CApHtbaF.js",
+            "start-assets/toggle-BgGMnj-2.js",
+            "start-assets/utility-resize-handle-DE94MtNp.js",
+            "start-assets/workspace-nav-VfF6BayX.js"
+          ]
+        },
+        "devEditor": {
+          "rawBytes": 500890,
+          "gzipBytes": 162324,
+          "fileCount": 27,
+          "files": [
+            "start-assets/ZR5G2IB7-Bi9wJxgN.js",
+            "start-assets/activity-model-DEl1gAG6.js",
+            "start-assets/alert-dialog-o6Fy4hu-.js",
+            "start-assets/archive-shelf-D0ZDAuyI.js",
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/button-group-DeyJ-TCC.js",
+            "start-assets/code-editor-BapVQew2.js",
+            "start-assets/command-CPCwSlAr.js",
+            "start-assets/command-core-B7emCJVs.js",
+            "start-assets/dev-runtime-operation-metadata-BVZXaXPb.js",
+            "start-assets/editor-mirror-CQjrvMyg.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/file-stream-D1XjdIz1.js",
+            "start-assets/files-pane-BuZYB37I.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/inbox-C0IKs4Fy.js",
+            "start-assets/layout-view-CKL73x-H.js",
+            "start-assets/list-row-control-DeVnOlw4.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/platform-CApvQ7rQ.js",
+            "start-assets/scroll-area-Q194nQVY.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/sidebar-nav-DeOMtUdW.js",
+            "start-assets/src-CjPiMfsV.js",
+            "start-assets/storage--jaMCT6T.js",
+            "start-assets/utility-resize-handle-DE94MtNp.js",
+            "start-assets/workspace-nav-VfF6BayX.js"
+          ]
+        }
+      }
+    },
+    "after": {
+      "clientJavaScriptFiles": 164,
+      "clientJavaScriptBytes": 3135282,
+      "clientJavaScriptGzipBytes": 962776,
+      "startup": {
+        "rawBytes": 687489,
+        "gzipBytes": 225318,
+        "fileCount": 31,
+        "files": [
+          "start-assets/FN6EICGO-DzHAmjXq.js",
+          "start-assets/VI7QYH27-DC7tIaka.js",
+          "start-assets/accent-presets-B2qmx86i.js",
+          "start-assets/accent-roles-B0O4T5Ea.js",
+          "start-assets/action-button-eILRWyf4.js",
+          "start-assets/button-BNijza_D.js",
+          "start-assets/client-OHQ6ojAk.js",
+          "start-assets/desktop-bridge-Cnnn3sCY.js",
+          "start-assets/dist-C_EN9vr8.js",
+          "start-assets/dist-Dgse9QmA.js",
+          "start-assets/dist-T_-OVjng.js",
+          "start-assets/dist-e4iWmNrW.js",
+          "start-assets/dist-y4S9dpo1.js",
+          "start-assets/index-DxttDNy-.js",
+          "start-assets/lazyRouteComponent-B4VOenEk.js",
+          "start-assets/palette-D4PPZ9nE.js",
+          "start-assets/preload-helper-DjzSQ1t3.js",
+          "start-assets/rolldown-runtime-DK3Fl9T5.js",
+          "start-assets/routes-4G93OgaG.js",
+          "start-assets/src-CNAnbsux.js",
+          "start-assets/storage-keys-CBPwMAAW.js",
+          "start-assets/theme-records-DcBA4jIT.js",
+          "start-assets/toast-Bx6ic9w2.js",
+          "start-assets/tooltip-D7lnOjWw.js",
+          "start-assets/useNavigate-ByvEBTiA.js",
+          "start-assets/workspace-identity-mark-1IWwIAca.js",
+          "start-assets/workspace-logo-Dz-sX3cY.js",
+          "start-assets/workspace-mount-BK-2BzsT.js",
+          "start-assets/workspace-navigation-entry-ykEHJc8a.js",
+          "start-assets/workspace-navigation-icons-CmE3N_kO.js",
+          "start-assets/workspace-settings-section-BKmlfdCl.js"
+        ]
+      },
+      "views": {
+        "virtual": {
+          "rawBytes": 93573,
+          "gzipBytes": 33038,
+          "fileCount": 13,
+          "files": [
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/inbox-C0IKs4Fy.js",
+            "start-assets/keyed-rows-DNrEWg7_.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/request-id-DRbjBqam.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/sidebar-nav-DeOMtUdW.js",
+            "start-assets/virtual-view-pCJNnZBk.js",
+            "start-assets/workspace-nav-CRd8q_n3.js",
+            "start-assets/workspace-nav-sidebar-F4WReEKS.js",
+            "start-assets/workspace-shell-BMWByAmO.js"
+          ]
+        },
+        "chat": {
+          "rawBytes": 193606,
+          "gzipBytes": 63827,
+          "fileCount": 22,
+          "files": [
+            "start-assets/YFEENJN5-SI9Rpa1k.js",
+            "start-assets/ZZYKR3VO-C_1P2mxn.js",
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/card-CeChvOBm.js",
+            "start-assets/checkbox-CE6uA9SI.js",
+            "start-assets/conventional-workspace-entry-BVCsaqv9.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/file-DSYsl0Sv.js",
+            "start-assets/form-field-DTrKG_Z1.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/inbox-C0IKs4Fy.js",
+            "start-assets/keyed-rows-DNrEWg7_.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/request-id-DRbjBqam.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/shared-lazy-primitives-CZE7qHJO.js",
+            "start-assets/sidebar-nav-DeOMtUdW.js",
+            "start-assets/sparkles-BtNpfFcI.js",
+            "start-assets/textarea-CApHtbaF.js",
+            "start-assets/trash-xBQ-u1mz.js",
+            "start-assets/workspace-nav-CRd8q_n3.js",
+            "start-assets/workspace-nav-sidebar-F4WReEKS.js"
+          ]
+        },
+        "appLibrary": {
+          "rawBytes": 11254,
+          "gzipBytes": 4493,
+          "fileCount": 4,
+          "files": [
+            "start-assets/app-library-page-BlW81aeX.js",
+            "start-assets/form-field-DTrKG_Z1.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/input-group-CDdRTnK5.js"
+          ]
+        },
+        "devShell": {
+          "rawBytes": 160260,
+          "gzipBytes": 55575,
+          "fileCount": 22,
+          "files": [
+            "start-assets/ZR5G2IB7-DLprlsCC.js",
+            "start-assets/activity-model-DEl1gAG6.js",
+            "start-assets/alert-dialog-DcR3tznW.js",
+            "start-assets/archive-shelf-DlaIsoki.js",
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/button-group-DeyJ-TCC.js",
+            "start-assets/command-core-B7emCJVs.js",
+            "start-assets/dev-runtime-operation-metadata-BVZXaXPb.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/inbox-C0IKs4Fy.js",
+            "start-assets/layout-view-GfFKa0np.js",
+            "start-assets/list-row-control-DeVnOlw4.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/platform-CApvQ7rQ.js",
+            "start-assets/scroll-area-Q194nQVY.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/sidebar-nav-DeOMtUdW.js",
+            "start-assets/src-ugld3Y2z.js",
+            "start-assets/storage--jaMCT6T.js",
+            "start-assets/utility-resize-handle-CzobagFJ.js",
+            "start-assets/workspace-nav-CRd8q_n3.js"
+          ]
+        },
+        "devUtilityPanes": {
+          "rawBytes": 185165,
+          "gzipBytes": 60847,
+          "fileCount": 12,
+          "files": [
+            "start-assets/activity-pane-Pex4xe32.js",
+            "start-assets/browser-pane-CB9xSJKW.js",
+            "start-assets/dev-utility-models-C0L4k2p6.js",
+            "start-assets/devices-pane-1btPtRma.js",
+            "start-assets/file-DSYsl0Sv.js",
+            "start-assets/files-pane-B-E3Y8gS.js",
+            "start-assets/git-commit-horizontal-BjzhPCic.js",
+            "start-assets/harness-status-section-BfgYYn7r.js",
+            "start-assets/session-history-section-3Cq8zvb6.js",
+            "start-assets/shared-lazy-primitives-CZE7qHJO.js",
+            "start-assets/source-control-pane-DMrFn1kx.js",
+            "start-assets/utility-host-xEHTnkUV.js"
+          ]
+        },
+        "sharedUtilityOpen": {
+          "rawBytes": 183345,
+          "gzipBytes": 60632,
+          "fileCount": 23,
+          "files": [
+            "start-assets/activity-model-DEl1gAG6.js",
+            "start-assets/activity-pane-Pex4xe32.js",
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/browser-pane-CB9xSJKW.js",
+            "start-assets/command-CPCwSlAr.js",
+            "start-assets/command-core-B7emCJVs.js",
+            "start-assets/dev-runtime-contract-CiOeYJGH.js",
+            "start-assets/dev-runtime-operation-metadata-BVZXaXPb.js",
+            "start-assets/dev-utility-models-C0L4k2p6.js",
+            "start-assets/devices-pane-1btPtRma.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/form-field-DTrKG_Z1.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/harness-status-section-BfgYYn7r.js",
+            "start-assets/input-ByLqSkJY.js",
+            "start-assets/list-row-control-DeVnOlw4.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/scroll-area-Q194nQVY.js",
+            "start-assets/session-history-section-3Cq8zvb6.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/shared-lazy-primitives-CZE7qHJO.js",
+            "start-assets/utility-host-xEHTnkUV.js",
+            "start-assets/utility-resize-handle-CzobagFJ.js"
+          ]
+        },
+        "devTerminal": {
+          "rawBytes": 746851,
+          "gzipBytes": 199163,
+          "fileCount": 33,
+          "files": [
+            "start-assets/ZR5G2IB7-DLprlsCC.js",
+            "start-assets/activity-model-DEl1gAG6.js",
+            "start-assets/alert-dialog-DcR3tznW.js",
+            "start-assets/archive-shelf-DlaIsoki.js",
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/button-group-DeyJ-TCC.js",
+            "start-assets/command-CPCwSlAr.js",
+            "start-assets/command-core-B7emCJVs.js",
+            "start-assets/desktop-permissions-BAFYl3sH.js",
+            "start-assets/dev-runtime-JSi29XjM.js",
+            "start-assets/dev-runtime-contract-CiOeYJGH.js",
+            "start-assets/dev-runtime-operation-metadata-BVZXaXPb.js",
+            "start-assets/dev-runtime-registry-dto-BSCwpVTT.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/form-field-DTrKG_Z1.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/inbox-C0IKs4Fy.js",
+            "start-assets/input-ByLqSkJY.js",
+            "start-assets/layout-view-GfFKa0np.js",
+            "start-assets/list-row-control-DeVnOlw4.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/platform-CApvQ7rQ.js",
+            "start-assets/runtime-terminal-pane-Bkg8svUc.js",
+            "start-assets/scroll-area-Q194nQVY.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/sidebar-nav-DeOMtUdW.js",
+            "start-assets/src-ugld3Y2z.js",
+            "start-assets/storage--jaMCT6T.js",
+            "start-assets/terminal-pane-CP_0bucJ.js",
+            "start-assets/textarea-CApHtbaF.js",
+            "start-assets/toggle-BgGMnj-2.js",
+            "start-assets/utility-resize-handle-CzobagFJ.js",
+            "start-assets/workspace-nav-CRd8q_n3.js"
+          ]
+        },
+        "devEditor": {
+          "rawBytes": 500979,
+          "gzipBytes": 162337,
+          "fileCount": 27,
+          "files": [
+            "start-assets/ZR5G2IB7-DLprlsCC.js",
+            "start-assets/activity-model-DEl1gAG6.js",
+            "start-assets/alert-dialog-DcR3tznW.js",
+            "start-assets/archive-shelf-DlaIsoki.js",
+            "start-assets/badge-BM8rsDfj.js",
+            "start-assets/button-group-DeyJ-TCC.js",
+            "start-assets/code-editor-BapVQew2.js",
+            "start-assets/command-CPCwSlAr.js",
+            "start-assets/command-core-B7emCJVs.js",
+            "start-assets/dev-runtime-operation-metadata-BVZXaXPb.js",
+            "start-assets/editor-mirror-CQjrvMyg.js",
+            "start-assets/empty-7ZGan9Na.js",
+            "start-assets/file-stream-D1XjdIz1.js",
+            "start-assets/files-pane-BuZYB37I.js",
+            "start-assets/grip-vertical-0SvSyUTN.js",
+            "start-assets/inbox-C0IKs4Fy.js",
+            "start-assets/layout-view-GfFKa0np.js",
+            "start-assets/list-row-control-DeVnOlw4.js",
+            "start-assets/pixel-resize-handle-CCdo-F8C.js",
+            "start-assets/platform-CApvQ7rQ.js",
+            "start-assets/scroll-area-Q194nQVY.js",
+            "start-assets/shared-lazy-icons-5v7K7f6Y.js",
+            "start-assets/sidebar-nav-DeOMtUdW.js",
+            "start-assets/src-ugld3Y2z.js",
+            "start-assets/storage--jaMCT6T.js",
+            "start-assets/utility-resize-handle-CzobagFJ.js",
+            "start-assets/workspace-nav-CRd8q_n3.js"
+          ]
+        }
+      },
+      "modules": 1002
+    }
+  },
+  "linux": {
+    "sourceRun": 39074736114,
+    "sourceHead": "ef9d397f3609417d191d098e40b1a5928fde7020",
+    "cases": [
+      {
+        "case": "chat-view-conversation-light-desktop",
+        "expectedSha256": "e1a3f23301bde83060c1981ccd11d75d921eaafd17b30036c23ecfb2ec391d66",
+        "actualSha256": "eae7d4cef11a474ce1209a13d08efac4fda8a051e1ac73fa831f5052f10439a0",
+        "retryByteIdentical": true
+      },
+      {
+        "case": "chat-view-conversation-light-mobile",
+        "expectedSha256": "57604e8f6642c58783d779e50ef6d2a0c9da939c0e3fbc7d94d93dec132f2f44",
+        "actualSha256": "377db19a37b0ddb5bc1cd42e3e0d373d4713a724372a1b7aacdf1700633122d4",
+        "retryByteIdentical": true
+      },
+      {
+        "case": "chat-view-conversation-dark-desktop",
+        "expectedSha256": "218ca5203d68c6fa0ea900508131fb02dbc535da44f5352abe24c7664f16935f",
+        "actualSha256": "0e77cf9aa0781e57d48bafea2549dafcbe4e504b02e8f66c81c8579a640aa2b2",
+        "retryByteIdentical": true
+      },
+      {
+        "case": "chat-view-conversation-dark-mobile",
+        "expectedSha256": "1afb47154137cb6425083e897997381ed6b7e4f3d60814843e8524410dd01f08",
+        "actualSha256": "d4b923d1048c6e50230babc21ba7695773eadb92682d101e86c63533aa21cb2f",
+        "retryByteIdentical": true
+      },
+      {
+        "case": "chat-view-attention-light-desktop",
+        "expectedSha256": "7d327ba55e6e8a4cf7aee6facf47d083261ed037d8b19db19306240b9473e7e6",
+        "actualSha256": "2fcda98706c5518386d5d2ef41aa0d593fa0082a7395b570480c018b64ece3c0",
+        "retryByteIdentical": true
+      },
+      {
+        "case": "chat-view-attention-light-mobile",
+        "expectedSha256": "deefba026d017547cc2790252550751299661a332aeb242dc8a9894b2f2a9a7d",
+        "actualSha256": "bd64307b4476756dae98c2c6ab630eb1ee8f60781fe00b97f82820972279dfe2",
+        "retryByteIdentical": true
+      },
+      {
+        "case": "chat-view-attention-dark-desktop",
+        "expectedSha256": "3d15a6a8e98b3b2d29bf01ff27dc6ae636b41c92d70ac5f6f5be648b11105d21",
+        "actualSha256": "0dfc6310bc1898627ab3f094eba790963558139445e8600c559c04cdfd4c7822",
+        "retryByteIdentical": true
+      },
+      {
+        "case": "chat-view-attention-dark-mobile",
+        "expectedSha256": "cb6ffa1df2e4981fc3a5d41861d2a229f806e98210a4fa357b03e286f25af635",
+        "actualSha256": "5c9bfbe0f789e64e7ab2fcc0d8ce32c1f3b522c46b286531bb6bdaf9e5ca4d35",
+        "retryByteIdentical": true
+      },
+      {
+        "case": "chat-view-reconnect-light-desktop",
+        "expectedSha256": "7abadc1bd9c5774d6775fbc61eac9a2ad388c6871ba28778b4d01589fc53ca20",
+        "actualSha256": "52c9b8bc5dbee92aa81c650849412db73673c41bdb63dc3137f4bb79c9a71f64",
+        "retryByteIdentical": true
+      },
+      {
+        "case": "chat-view-reconnect-light-mobile",
+        "expectedSha256": "a8988ae688b55c92afee2780cb5e2aa854159d85b2846390b29552950646d4cc",
+        "actualSha256": "f5abcd62b6f402f8acba1f1896aac5f74ab893dce46a16482e083e4d71f5cdb5",
+        "retryByteIdentical": true
+      },
+      {
+        "case": "chat-view-reconnect-dark-desktop",
+        "expectedSha256": "7e5793ad07c6853e52bfce5b9fda848d89cf13ef2673f0738e650dcbab432d79",
+        "actualSha256": "1c3297ec1699bf0ab0e43e32468124f2f8439e698d59a063edcac9a2aab77498",
+        "retryByteIdentical": true
+      },
+      {
+        "case": "chat-view-reconnect-dark-mobile",
+        "expectedSha256": "ae6401846f0e3bd53a691ec03875794fce3766218ab21696cf0c3f568a2c8d20",
+        "actualSha256": "a4535e1e77216d029bd2de26e764668864136c7f9fbdaabdc5ca85b7d5c3891f",
+        "retryByteIdentical": true
+      }
+    ]
+  },
+  "darwin": {
+    "sourceBase": "ef9d397f3609417d191d098e40b1a5928fde7020",
+    "cases": [
+      {
+        "case": "chat-view-conversation-light-desktop",
+        "expectedSha256": "e30350433853b56287687bda7e825cd084af899d386f3d191a5c5a1cb744cb01",
+        "actualSha256": "cde21ef4e28f1f62e9daac091d51f81c5fe8dfc47fce910a8cafefb58ec28736"
+      },
+      {
+        "case": "chat-view-conversation-light-mobile",
+        "expectedSha256": "229f31a355a3520b2dd3aa8c3c44193f634545fed9b65ff6feb170f1e96ffa2e",
+        "actualSha256": "4233f375967e5b6312426edb278dbaecb081ccfae1eac81429450463d01f02b2"
+      },
+      {
+        "case": "chat-view-conversation-dark-desktop",
+        "expectedSha256": "801df79f9f0824cc6185c605a382c29e8765521442ceb89ac6950431c34dd52b",
+        "actualSha256": "27ceeb484dd9926ad81013b8b29ef61d84ebce3b06c14c9c62809fc210ad588d"
+      },
+      {
+        "case": "chat-view-conversation-dark-mobile",
+        "expectedSha256": "da5dff188ec5444a5b0f80beaa9872400794bc4b30dcad5eafc157fb99cecd7b",
+        "actualSha256": "6d284ecf808d3184acbf90dc9729cc1ef81512417ff237b01fe91de5c35d6018"
+      },
+      {
+        "case": "chat-view-attention-light-desktop",
+        "expectedSha256": "98f94cb40d51f37a952f119d376003645bb1baeeebd3bf2bccf59d008b0dd05e",
+        "actualSha256": "393e605090459358ce4d7ab535ebacd8c204406ab346c4023eff3686f4f22cbd"
+      },
+      {
+        "case": "chat-view-attention-light-mobile",
+        "expectedSha256": "d44725d53aa58441a347347782d1be36a47aed73c6fa9104b3484d11140bd754",
+        "actualSha256": "b28e74508a23a758d84417230fe643bf4b35a99b576419e58f83edd94507f0fc"
+      },
+      {
+        "case": "chat-view-attention-dark-desktop",
+        "expectedSha256": "fe24905ce89e500c71afa84142dd0bf1fb3a537a66e7ad2cb3135f3bb45e59d1",
+        "actualSha256": "420559f7014902a8d00e85efa09eeb9aa67028fdf78eeb3af6ddf4185e0bc66b"
+      },
+      {
+        "case": "chat-view-attention-dark-mobile",
+        "expectedSha256": "ecae1097b94a5465c56dd264e96213f6a648603cb5c0cc88adccbcfe19e93db3",
+        "actualSha256": "6bcb04cd692b19c4b51e44e78c7e477bf3084a2a013f1af26831881a654d7725"
+      },
+      {
+        "case": "chat-view-reconnect-light-desktop",
+        "expectedSha256": "19d978a20711b08fabc73f1b2dceaef3a706065d00a49baeb30f0fd4d787ec50",
+        "actualSha256": "1dcc924526af79e395f1ffe11af9069fa554c4618c6706dc51220578c64218d1"
+      },
+      {
+        "case": "chat-view-reconnect-light-mobile",
+        "expectedSha256": "59cf7334f163b643429c5616e3203fad1a306a1feee3a3ce8bd8fc8c145e6c40",
+        "actualSha256": "0668a491b0b500321970dbd9da536ff08771bd30b1f4c10f6115f92e733bf11b"
+      },
+      {
+        "case": "chat-view-reconnect-dark-desktop",
+        "expectedSha256": "3db60ea5f402146d384426e0981f55a8f02a7fba7ce10d68ca17f2193ab2bda9",
+        "actualSha256": "f6d5327e20fe8a8ebcf0d735bfd295c35f64354d3e7b77453f33036f6c1d45f8"
+      },
+      {
+        "case": "chat-view-reconnect-dark-mobile",
+        "expectedSha256": "b32b3b215e7fe615075345cc87dfda144472cbaf0c1d57124c0e9cd1c037a516",
+        "actualSha256": "6181774ebfdb22184033a41c91cd7030cc609a411ed44fff962b6b38500c4411"
+      }
+    ]
+  },
+  "visualDecision": "All24 actual/expected/diff triplets inspected. Former per-event card snapshots replaced by the approved shared Bubble/Trace/Confirmation/Questionnaire/reconnect presentation; original artifacts preserved.",
+  "linuxWorkflowImage": "mcr.microsoft.com/playwright:v1.63.0-noble",
+  "darwinQualification": "All13 unchanged native visual tests pass after inspected baseline promotion; no snapshot-update flag or tolerance change.",
+  "linuxQualification": "All12 CI actuals equal their retry images byte-for-byte; expected images equal original git baselines. New-head hosted visual rerun pending."
+}

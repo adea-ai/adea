@@ -1314,6 +1314,12 @@
       "body": "{ runtimeSessionId: string; expectedGeneration: integer; beforeSequence?: uint64-string; cursor?: string(1..2048); limit?: integer(1..500) }",
       "reply": "RuntimeEventHistoryPage"
     },
+    "dev.session.followUps": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "FollowUpQueueRequest",
+      "reply": "FollowUpQueueSnapshot"
+    },
     "dev.session.get": {
       "capabilities": ["dev.session.read"],
       "resource": "runtime_session:required",

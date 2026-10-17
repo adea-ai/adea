@@ -70,6 +70,7 @@ import { createHarnessPreferenceAuthority, type HarnessPreferenceAuthority } fro
 import { createRunHistoryStore, type RunHistoryStore } from './runs'
 import { RUN_ACTIVE_STATES, RUN_TERMINAL_STATES, canTransitionRun, runEventKind } from './status'
 import { summarizeWorkspaceRuns } from './workspace-summary'
+import { registerFollowUpQueue } from './follow-up-register'
 
 export type HarnessRuntimeInput = {
   authority: ChannelAuthority
@@ -287,6 +288,16 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     dataDir: input.dataDir,
     scope: input.scope,
     resolveSession: input.resolveSession,
+  })
+  const followUps = registerFollowUpQueue({
+    authority: input.authority,
+    scope: input.scope,
+    dataDir: input.dataDir,
+    resolveSession: input.resolveSession,
+    runs,
+    events,
+    lane,
+    structuredDelivery: input.acpDriver?.deliverPrompt !== undefined,
   })
   const deviceDefault = createHarnessDeviceDefaultAuthority({ dataDir: input.dataDir })
   const preferences = createHarnessPreferenceAuthority({
@@ -1633,7 +1644,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       })
       return run
     },
-    'dev.session.cancelHarness': (command) => {
+    'dev.session.cancelHarness': async (command) => {
       requireScope(command)
       const body = devOperationDecoders['dev.session.cancelHarness'].request(command.body)
       const session = resolveSessionOrThrow(body.runtimeSessionId as string)
@@ -1657,18 +1668,33 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           ? { detail: `confirmation ${body.confirmationId as string}` }
           : {}),
       })
-      // A live ACP lane bound to this session loses its transport authority
-      // with the run; close is best-effort and generation-fenced by the lane.
+      // Capture the exact original transport before queue cleanup can yield.
       const live = lane.readyFor(session.id)
-      if (live) {
-        void lane
-          .close({ acpConnectionId: live.id, expectedGeneration: live.generation })
-          .catch(() => undefined)
-      }
       const nextSession = applySession(session, {
         activeHarnessRunId: undefined,
         lifecycle: 'disconnected',
       })
+      // The canonical generation changes before awaiting queue cleanup. Any
+      // old queued delivery is already inert even if its journal is unreadable.
+      try {
+        await followUps.cancelGeneration(session.id, session.generation)
+      } catch {
+        appendEventFact({
+          session: nextSession,
+          harnessRunId: next.id,
+          kind: 'capability.degraded',
+          payload: { reason: 'follow-up queue cleanup requires recovery' },
+          sourceEventId: `host:queue-stop:${next.id}:${next.version}`,
+        })
+      }
+      // A live ACP lane bound to this session loses its transport authority
+      // with the run. Await close so Stop does not report an unsettled close as complete.
+      // The queue independently retains any still-running physical send claim.
+      if (live) {
+        await lane
+          .close({ acpConnectionId: live.id, expectedGeneration: live.generation })
+          .catch(() => undefined)
+      }
       appendEventFact({
         session: nextSession,
         harnessRunId: next.id,
@@ -1835,7 +1861,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   }
 
   return {
-    commands: Object.keys(providers) as DevOperation[],
+    commands: [...Object.keys(providers), 'dev.session.followUps'] as DevOperation[],
     managedPi,
     lane,
     events,

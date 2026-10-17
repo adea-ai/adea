@@ -176,9 +176,12 @@ export function DirectSessionHandoffControls(
       <Show when={props.view.notice}>
         <div
           id={noticeId}
-          class={cn('dev-chat__notice', {
-            'dev-handoff__notice--offline': props.view.reconnectRequired,
-          })}
+          class={cn(
+            'flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs text-muted-foreground',
+            {
+              'dev-handoff__notice--offline': props.view.reconnectRequired,
+            }
+          )}
           role="alert"
         >
           <p>{props.view.notice}</p>

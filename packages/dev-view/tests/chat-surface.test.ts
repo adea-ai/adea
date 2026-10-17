@@ -6,7 +6,7 @@ import {
   CHAT_RESPONSE_UNAVAILABLE_REASON,
   chatTranscriptActionDisabledReason,
 } from '../src/chat/transcript-availability'
-import { projectTranscriptEvents } from '../src/chat/presentation'
+import { MAX_BODY_TEXT, projectTranscriptEvents } from '../src/chat/presentation'
 
 function event(overrides: Partial<RuntimeEvent> = {}): RuntimeEvent {
   return {
@@ -57,12 +57,100 @@ describe('chat surface presentation', () => {
       }),
     ])
 
-    expect(rows).toHaveLength(2)
+    // The unknown kind stays visible as an `other` row carrying only its wire
+    // kind; its raw payload never becomes content. Credential events are the
+    // one exclusion.
+    expect(rows).toHaveLength(3)
     expect(rows[0]?.text).toContain('[private path]')
     expect(rows[0]?.text).toContain('[secret redacted]')
     expect(rows[0]?.text).not.toContain('supersecret')
     expect(rows[1]?.role).toBe('approval')
+    expect(rows[2]).toMatchObject({ id: 'ignored-1', role: 'other', label: 'unknown.event' })
+    expect(rows[2]?.text).toBeUndefined()
+    // `event` is the canonical reference handed back to host callbacks; the
+    // rendered fields are the ones that become markup.
+    expect(JSON.stringify(rows.map(({ event: _event, ...shown }) => shown))).not.toContain(
+      'do not render'
+    )
     expect(rows.some((row) => row.id === 'credential-1')).toBe(false)
+  })
+
+  test('PEM redaction preserves the original unbounded delimiter semantics', () => {
+    const privateMaterial = 'private-material-that-must-not-appear'
+    const pem = [
+      `-----BEGIN PRIVATE KEY${'-'.repeat(5_000)}\n`,
+      privateMaterial,
+      `\n-----END PRIVATE KEY${'-'.repeat(5_000)}`,
+    ].join('')
+    const row = projectTranscriptEvents([event({ payload: { text: pem } })])[0]
+
+    expect(row?.body).toContain('[secret redacted]')
+    expect(row?.body).not.toContain(privateMaterial)
+  })
+
+  test('unrendered known and future kinds expose only their wire name', () => {
+    const rows = projectTranscriptEvents(
+      ['file.observed', 'future.private_payload' as RuntimeEvent['kind']].map((kind, index) =>
+        event({
+          eventId: `unrendered-${index}`,
+          kind,
+          payload: {
+            name: 'unclassified private answer',
+            text: 'the user secret that does not match a token pattern',
+            message: 'private conversation content',
+          },
+        })
+      )
+    )
+
+    expect(rows).toHaveLength(2)
+    for (const [index, row] of rows.entries()) {
+      expect(row).toMatchObject({
+        id: `unrendered-${index}`,
+        role: 'other',
+        kind: index === 0 ? 'file.observed' : 'future.private_payload',
+        label: index === 0 ? 'file.observed' : 'future.private_payload',
+      })
+      expect(row.text).toBeUndefined()
+      expect(row.body).toBeUndefined()
+      expect(JSON.stringify(row)).not.toContain('unclassified private answer')
+      expect(JSON.stringify(row)).not.toContain('user secret')
+      expect(JSON.stringify(row)).not.toContain('private conversation content')
+    }
+
+    const fallback = projectTranscriptEvents(
+      [
+        event({
+          eventId: 'unrendered-fallback',
+          kind: 'file.observed',
+          payload: { text: 'private fallback payload' },
+        }),
+      ],
+      { projection: 'terminal_fallback' }
+    )
+    expect(JSON.stringify(fallback)).not.toContain('private fallback payload')
+  })
+
+  test('prose keeps line breaks and fragment whitespace; labels stay one line', () => {
+    const rows = projectTranscriptEvents([
+      event({ eventId: 'm', payload: { text: 'one\r\ntwo\n\n\tthree' } }),
+      event({ eventId: 'd1', kind: 'turn.assistant_delta', payload: { text: 'Hel' } }),
+      event({ eventId: 'd2', kind: 'turn.assistant_delta', payload: { text: 'lo ' } }),
+      event({ eventId: 'd3', kind: 'turn.assistant_delta', payload: { text: 'world' } }),
+    ])
+    expect(rows[0]?.body).toBe('one\ntwo\n\n\tthree')
+    expect(rows.slice(1).map((row) => row.body)).toEqual(['Hel', 'lo ', 'world'])
+    expect(rows[0]?.text).not.toContain('\n')
+  })
+
+  test('a message body is bounded at the message limit and says so', () => {
+    const rows = projectTranscriptEvents([
+      event({ payload: { text: 'x'.repeat(MAX_BODY_TEXT + 10) } }),
+      event({ eventId: 'short', payload: { text: 'ok' } }),
+    ])
+    expect(rows[0]?.body).toHaveLength(MAX_BODY_TEXT)
+    expect(rows[0]?.bodyTruncated).toBe(true)
+    expect(rows[1]?.bodyTruncated).toBeUndefined()
   })
 
   test('bounds rendered text to whole code points and strips control characters', () => {

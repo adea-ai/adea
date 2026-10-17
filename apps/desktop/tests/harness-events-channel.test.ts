@@ -342,6 +342,138 @@ function okValue(reply: DevReply): Record<string, unknown> {
 }
 
 describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
+  test('authenticated malformed queue IDs cannot poison subsequent live or replay CBOR frames', async () => {
+    const channel = await openChannel()
+    try {
+      const created = okValue(
+        await channel.execute(
+          commandFor('dev.session.create', SCOPE_A, {
+            projectId: PROJECT_ID,
+            repoId: REPO_ID,
+            worktreeId: randomUUID(),
+          })
+        )
+      ) as unknown as { id: string; generation: number }
+      okValue(await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {})))
+      okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchDefault',
+            SCOPE_A,
+            {
+              runtimeSessionId: created.id,
+              expectedGeneration: created.generation,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+            },
+            { resource: sessionResource(created) }
+          )
+        )
+      )
+      created.generation += 1
+      const target = { runtimeSessionId: created.id, expectedGeneration: created.generation }
+      const resource = sessionResource(created)
+      const queue = (body: Record<string, unknown>) =>
+        channel.execute(
+          commandFor(
+            'dev.session.followUps',
+            SCOPE_A,
+            { ...target, ...body },
+            { resource, idempotencyKey: randomUUID() }
+          )
+        )
+      const initial = okValue(await queue({ action: 'read' }))
+      const events = host!.harness!.events
+      const sequence = events.latestSequence(created.id, created.generation)
+      for (const messageId of ['\ud800', '\udfff', 'x\ud800z']) {
+        expect(
+          await queue({
+            action: 'enqueue',
+            expectedVersion: 0,
+            messageId,
+            text: 'private follow up',
+          })
+        ).toMatchObject({ ok: false })
+        expect(okValue(await queue({ action: 'read' }))).toEqual(initial)
+        expect(events.latestSequence(created.id, created.generation)).toBe(sequence)
+      }
+      const grant = okValue(
+        await channel.execute(
+          commandFor('dev.session.events', SCOPE_A, { ...target, direction: 'read' }, { resource })
+        )
+      ) as unknown as { grantId: string }
+      channel.sendText({
+        method: 'dev.runtime.stream.attach.v1',
+        attach: channel.signAttach(grant.grantId),
+      })
+      expect((await channel.next()).frame).toMatchObject({ type: 'opened' })
+      for (let i = 0; i < 10; i++) {
+        const frame = (await channel.next()).frame
+        if (frame?.type === 'heartbeat') break
+        expect(i).toBeLessThan(9)
+      }
+      const messageId = 'valid-🚀'
+      expect(
+        okValue(
+          await queue({ action: 'enqueue', expectedVersion: 0, messageId, text: 'valid text' })
+        ).version
+      ).toBe(1)
+      const live = (await channel.next()).frame
+      if (live?.type !== 'data') throw new Error('expected live queue data')
+      const decoded = decodeRuntimeEvent(decodeCbor(live.bytes).value, { source: 'host' })
+      expect(decoded).toMatchObject({
+        kind: 'queue.updated',
+        payload: { items: [{ id: messageId }] },
+      })
+      const replay = events
+        .read(created.id, { generation: created.generation })
+        .filter((event) => event.kind === 'queue.updated')
+      expect(replay).toHaveLength(1)
+      expect(
+        decodeRuntimeEvent(decodeCbor(encodeCbor(replay[0])).value, { source: 'host' })
+      ).toEqual(decoded)
+      expect(okValue(await queue({ action: 'read' }))).toMatchObject({
+        version: 1,
+        items: [{ id: messageId }],
+      })
+      const replayChannel = await openChannel()
+      try {
+        const replayGrant = okValue(
+          await replayChannel.execute(
+            commandFor(
+              'dev.session.events',
+              SCOPE_A,
+              { ...target, direction: 'read' },
+              { resource }
+            )
+          )
+        ) as unknown as { grantId: string }
+        replayChannel.sendText({
+          method: 'dev.runtime.stream.attach.v1',
+          attach: replayChannel.signAttach(replayGrant.grantId),
+        })
+        expect((await replayChannel.next()).frame).toMatchObject({ type: 'opened' })
+        let replayed = false
+        for (let i = 0; i < 10; i++) {
+          const frame = (await replayChannel.next()).frame
+          if (frame?.type === 'heartbeat') break
+          if (frame?.type === 'data') {
+            const event = decodeRuntimeEvent(decodeCbor(frame.bytes).value, { source: 'host' })
+            if (event.kind === 'queue.updated') {
+              expect(event).toEqual(decoded)
+              replayed = true
+            }
+          }
+        }
+        expect(replayed).toBe(true)
+      } finally {
+        replayChannel.close()
+      }
+    } finally {
+      channel.close()
+    }
+  })
+
   test('the host enforces the exact CBOR budget and the real socket withholds restricted call bodies', async () => {
     const channel = await openChannel()
     try {

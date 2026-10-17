@@ -46,6 +46,11 @@
       "development": "./src/dev-runtime-history.ts",
       "import": "./dist/dev-runtime-history.js"
     },
+    "./dev-runtime-follow-ups": {
+      "types": "./dist/dev-runtime-follow-ups.d.ts",
+      "development": "./src/dev-runtime-follow-ups.ts",
+      "import": "./dist/dev-runtime-follow-ups.js"
+    },
     "./dev-runtime-activity": {
       "types": "./dist/dev-runtime-activity/index.d.ts",
       "development": "./src/dev-runtime-activity/index.ts",
