@@ -2,6 +2,7 @@ import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 import { createMemo, createSignal, For, onCleanup, onMount } from 'solid-js'
 import { ChatView } from './chat-view'
 import type { ChatDraftChange } from './chat-composer'
+import { acceptRuntimeEvent, createTranscriptAccumulator } from './model/transcript'
 import type {
   ChatConversation,
   ChatConversationModel,
@@ -22,6 +23,11 @@ import {
   groundedStoppedEvents,
   hostileEvents,
   largeEvents,
+  longApprovalEvents,
+  retentionStreamEvents,
+  retentionStreamScript,
+  retentionTurnEvents,
+  retentionTurnScript,
   richEvents,
 } from './visual-fixture-data'
 import './visual-fixture.css'
@@ -53,6 +59,12 @@ export type ChatVisualFixtureState =
   | 'grounded-stopped'
   /** Untrusted text in every summary and reference field. */
   | 'grounded-hostile'
+  /** An approval whose request is longer than the card's description shows. */
+  | 'approval-long'
+  /** The real accumulator, one event per `chat-visual:append` (or `detail.count`): a turn whose prompt is evicted. */
+  | 'retention-turn'
+  /** The same, for one reply streamed in deltas far past the window. */
+  | 'retention-stream'
 
 const codeStreamInitial: readonly RuntimeEvent[] = [
   fixtureEvent('1', 'turn.user_input', { text: 'Add a helper.' }),
@@ -71,6 +83,9 @@ const STATE_EVENTS: Partial<Record<ChatVisualFixtureState, readonly RuntimeEvent
   'grounded-stream': [groundedPrompt],
   'grounded-stopped': groundedStoppedEvents,
   'grounded-hostile': groundedHostileEvents,
+  'approval-long': longApprovalEvents,
+  'retention-turn': retentionTurnEvents,
+  'retention-stream': retentionStreamEvents,
 }
 
 const STATE_TITLES: Partial<Record<ChatVisualFixtureState, string>> = {
@@ -313,6 +328,47 @@ function streamingModel(
   }
 }
 
+/**
+ * A transcript fed through the real accumulator, so the window fills and drops
+ * its oldest event exactly as a live session's does. Each `chat-visual:append`
+ * adds `detail.count` events (default one) and tells the subscriber once.
+ */
+function retainingModel(
+  initial: readonly RuntimeEvent[],
+  script: (seq: string) => RuntimeEvent
+): Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> {
+  return {
+    openTranscript: async () => {
+      let state = createTranscriptAccumulator({ runtimeSessionId: sessionId, generation: 3 })
+      for (const item of initial) state = acceptRuntimeEvent(state, item)
+      let nextSeq = Number(initial.at(-1)?.seq ?? '0') + 1
+      const listeners = new Set<(state: TranscriptAccumulator) => void>()
+      const onAppend = (appendEvent: Event) => {
+        const count = (appendEvent as CustomEvent<{ count?: number }>).detail?.count ?? 1
+        for (let n = 0; n < count; n += 1) {
+          state = acceptRuntimeEvent(state, script(String(nextSeq)))
+          nextSeq += 1
+        }
+        for (const listener of listeners) listener(state)
+      }
+      window.addEventListener('chat-visual:append', onAppend)
+      return {
+        state: () => state,
+        subscribe: (listener: (state: TranscriptAccumulator) => void) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        close: () => {
+          listeners.clear()
+          window.removeEventListener('chat-visual:append', onAppend)
+        },
+      }
+    },
+    send: async () => undefined,
+    cancel: async () => conversation('streaming', retentionTurnEvents),
+  }
+}
+
 export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureState }>) {
   const state = props.state ?? 'conversation'
   const events = state === 'attention' ? attentionEvents : (STATE_EVENTS[state] ?? transcriptEvents)
@@ -329,7 +385,11 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
             ? streamingModel([groundedPrompt], groundedScript, () =>
                 setCancelCount((count) => count + 1)
               )
-            : undefined
+            : state === 'retention-turn'
+              ? retainingModel(retentionTurnEvents, retentionTurnScript)
+              : state === 'retention-stream'
+                ? retainingModel(retentionStreamEvents, retentionStreamScript)
+                : undefined
   const [draft, setDraft] = createSignal<ChatDraftValue>({
     text: state === 'attention' ? 'I can clarify the target environment.' : '',
     blocks: [],
@@ -433,7 +493,9 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                   state === 'reconnect' ||
                   state === 'streaming' ||
                   state === 'code-stream' ||
-                  state === 'grounded-stream'
+                  state === 'grounded-stream' ||
+                  state === 'retention-turn' ||
+                  state === 'retention-stream'
                 }
                 draftRevision={fallbackDraftModel ? undefined : draftRevision()}
                 onDraftChange={onDraftChange}

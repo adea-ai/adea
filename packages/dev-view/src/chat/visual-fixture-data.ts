@@ -96,6 +96,16 @@ export const richEvents: readonly RuntimeEvent[] = [
   }),
 ]
 
+/** The decisive part of this request sits past the 400 characters a card description shows. */
+export const LONG_APPROVAL_TAIL = 'FINAL STEP: drop table audit_log (irreversible)'
+export const longApprovalEvents: readonly RuntimeEvent[] = [
+  event('1', 'turn.user_input', { text: 'Clean up the audit tables.' }),
+  event('2', 'approval.requested', {
+    name: 'Run cleanup plan',
+    text: `${'Review each step of the cleanup plan before it runs. '.repeat(12)}${LONG_APPROVAL_TAIL}`,
+  }),
+]
+
 export const hostileEvents: readonly RuntimeEvent[] = [
   event('1', 'turn.user_input', {
     text: '<img src=x onerror=alert(1)> **not bold** [x](javascript:alert(1))',
@@ -429,3 +439,47 @@ export const groundedHostileEvents: readonly RuntimeEvent[] = [
     'chat-visual-hostile-answer'
   ),
 ]
+
+/**
+ * Retention: a window that fills and then drops its oldest event for each new one.
+ * Both start with the prompt (the first event to be evicted) and a collapsed
+ * reasoning line, a disclosure the reader can open and a text to select.
+ */
+export const RETENTION_FILLER_ID = 'chat-visual-filler'
+export const retentionTurnEvents: readonly RuntimeEvent[] = [
+  fixtureEvent('1', 'turn.user_input', { text: 'Clean up the audit tables.' }),
+  fixtureEvent('2', 'tool.started', { name: 'workspace.search' }, RETENTION_FILLER_ID),
+  reasoningSummary('3', 1, 'Reviewed the cleanup plan against the retention rules.', 'completed', {
+    summaryId: 'retention-think',
+    durationMs: 2000,
+    eventId: 'chat-visual-retention-think',
+  }),
+]
+/** One more activity line per event, so the reply's own events fill the window. */
+export const retentionTurnScript = (seq: string): RuntimeEvent =>
+  fixtureEvent(seq, 'tool.completed', { name: `step ${seq}`, summary: `Finished step ${seq}.` })
+
+export const retentionStreamEvents: readonly RuntimeEvent[] = [
+  fixtureEvent('1', 'turn.user_input', { text: 'Explain the cleanup in detail.' }),
+  reasoningSummary('2', 1, 'Reviewed the cleanup plan against the retention rules.', 'completed', {
+    summaryId: 'retention-think',
+    durationMs: 2000,
+    eventId: 'chat-visual-retention-think',
+  }),
+]
+/**
+ * A letters-only word for a sequence number: digits inside prose read as secret
+ * material to the redaction heuristics, which would split the reply into several
+ * blocks and hide what this fixture is for (one block, drawn far past the window).
+ */
+export const retentionWord = (seq: string): string =>
+  `w${[...seq].map((digit) => String.fromCodePoint(97 + Number(digit))).join('')}`
+
+/** A single reply streamed as one delta per event, far past the window. */
+export const retentionStreamScript = (seq: string): RuntimeEvent =>
+  fixtureEvent(
+    seq,
+    'turn.assistant_delta',
+    { text: `${retentionWord(seq)} ` },
+    `chat-visual-d${seq}`
+  )

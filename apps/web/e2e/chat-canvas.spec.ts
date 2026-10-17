@@ -455,6 +455,134 @@ test.describe('streaming', () => {
   })
 })
 
+const appendMany = (page: Page, count: number) =>
+  page.evaluate(
+    (detail) => window.dispatchEvent(new CustomEvent('chat-visual:append', { detail })),
+    {
+      count,
+    }
+  )
+
+// The fixture's letters-only word for an event sequence (digits read as secrets to redaction).
+const word = (seq: number) =>
+  `w${[...String(seq)].map((digit) => String.fromCodePoint(97 + Number(digit))).join('')}`
+
+test.describe('identity across the retention window', () => {
+  // The fixture feeds the real transcript accumulator, which keeps the newest
+  // 1,000 events and drops the oldest for each new one past that.
+  test('a reply keeps its nodes, selection, focus and fold when its prompt is evicted', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'retention-turn')
+    const prompt = page.getByRole('article', { name: 'You' })
+    await expect(prompt).toBeVisible()
+
+    // The reader opens the reasoning, selects a sentence of it and leaves focus on its toggle.
+    const toggle = reasoning(page).getByRole('button').first()
+    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click()
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    // Double-click the middle of a word, so the selection cannot reach past the text.
+    const picked = await reasoning(page).evaluate((root) => {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const at = node.textContent?.indexOf('cleanup') ?? -1
+        if (at < 0) continue
+        const range = document.createRange()
+        range.setStart(node, at + 2)
+        range.setEnd(node, at + 4)
+        const box = range.getBoundingClientRect()
+        return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+      }
+      return undefined
+    })
+    expect(picked).toBeDefined()
+    await page.mouse.dblclick(picked!.x, picked!.y)
+    const selected = await page.evaluate(() => window.getSelection()?.toString() ?? '')
+    expect(selected).toBe('cleanup')
+    await toggle.focus()
+
+    const reply = (await page.getByRole('article', { name: 'Assistant' }).elementHandle())!
+    const line = (await reasoning(page).elementHandle())!
+    const anchor = () =>
+      page.evaluate(
+        () =>
+          [...document.querySelectorAll('[data-anchor-id]')]
+            .map((element) => element.getAttribute('data-anchor-id') ?? '')
+            .find((id) => id.endsWith(':reply')) ?? null
+      )
+    const anchored = await anchor()
+    const settled = async () => {
+      expect(await reply.evaluate((element) => element.isConnected)).toBe(true)
+      expect(await line.evaluate((element) => element.isConnected)).toBe(true)
+      await expect(toggle).toBeFocused()
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe(selected)
+      expect(await anchor()).toBe(anchored)
+      await expect(reasoning(page)).toHaveCount(1)
+    }
+
+    // Fill the window to its limit: nothing has been evicted yet.
+    await appendMany(page, 997)
+    await expect(page.getByText('Finished step 1000.')).toBeAttached()
+    await expect(prompt).toBeVisible()
+    await settled()
+
+    // One more event evicts the prompt, the oldest. The reply is now a turn with no prompt.
+    await appendMany(page, 1)
+    await expect(prompt).toHaveCount(0)
+    await expect(page.getByText('Finished step 1001.')).toBeAttached()
+    await settled()
+
+    // And again (the next oldest, an activity line that is not the reasoning).
+    await appendMany(page, 1)
+    await expect(page.getByText('Finished step 1002.')).toBeAttached()
+    await settled()
+    expect(errors).toEqual([])
+  })
+
+  test('a reply longer than the window is not rebuilt as its leading deltas are evicted', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'retention-stream')
+    const prompt = page.getByRole('article', { name: 'You' })
+    await expect(prompt).toBeVisible()
+    await appendMany(page, 998)
+    const block = page.locator('[data-entry-id^="chat-visual-d"]')
+    await expect(block).toHaveCount(1)
+    await expect(block).toContainText(word(1000))
+    const firstId = await block.getAttribute('data-entry-id')
+    const reply = (await page.getByRole('article', { name: 'Assistant' }).elementHandle())!
+    const blockHandle = (await block.elementHandle())!
+
+    // Every further event evicts the oldest: the prompt, the reasoning, then one delta each time.
+    const outcome = await page.evaluate(
+      async ({ reply: replyNode, block: blockNode }) => {
+        for (let step = 0; step < 80; step += 1) {
+          window.dispatchEvent(new CustomEvent('chat-visual:append', { detail: { count: 1 } }))
+          await new Promise<void>((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => done()))
+          )
+          if (!replyNode.isConnected || !blockNode.isConnected) return { ok: false, step }
+        }
+        return { ok: true, step: 80 }
+      },
+      { reply, block: blockHandle }
+    )
+    expect(outcome).toEqual({ ok: true, step: 80 })
+    await expect(prompt).toHaveCount(0)
+    // It really was evicting: the block is now named after a later delta and has lost the first words.
+    await expect(block).toHaveCount(1)
+    expect(await block.getAttribute('data-entry-id')).not.toBe(firstId)
+    await expect(block).not.toHaveText(new RegExp(`(^|\\s)${word(3)}(\\s|$)`))
+    await expect(block).toContainText(word(1080))
+    expect(errors).toEqual([])
+  })
+})
+
 test.describe('cancellation and failure', () => {
   test('Stop cancels exactly once and the cancelled run says so', async ({ page }) => {
     const errors = trackPageErrors(page)
@@ -512,6 +640,29 @@ test.describe('approvals and questions', () => {
     await card.getByRole('button', { name: 'Approve' }).click()
     expect(await resolution(page)).toMatchObject({
       eventId: 'chat-visual-12',
+      choice: expect.stringMatching(/approve/i),
+    })
+    expect(errors).toEqual([])
+  })
+
+  test('a request longer than the card description keeps its decisive tail inspectable', async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'approval-long')
+    const card = page.locator('[data-slot="confirmation"]')
+    await expect(card).toHaveAttribute('data-state', 'requested')
+    await expect(card).toContainText('Run cleanup plan')
+
+    // The description is clipped; the full request is in a block of its own.
+    const full = card.locator('[data-slot="code-block"]', { hasText: 'Full request' })
+    await expect(full).toBeVisible()
+    await expect(full).toContainText('FINAL STEP: drop table audit_log (irreversible)')
+
+    // Deciding still records the exact event, from the same card.
+    await card.getByRole('button', { name: 'Approve' }).click()
+    expect(await resolution(page)).toMatchObject({
+      eventId: 'chat-visual-2',
       choice: expect.stringMatching(/approve/i),
     })
     expect(errors).toEqual([])

@@ -767,6 +767,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // The ChatView visual fixture selector (#536 evidence lane). Only a DEV
   // build mounts the fixture; the param is inert in production.
   const chatVisualState = ():
+    | 'approval-long'
+    | 'retention-turn'
+    | 'retention-stream'
     | 'attention'
     | 'cancelled'
     | 'code-stream'
@@ -784,7 +787,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     | 'rich'
     | 'streaming' => {
     const value = currentSearch().chatState
-    return value === 'attention' ||
+    return value === 'approval-long' ||
+      value === 'retention-turn' ||
+      value === 'retention-stream' ||
+      value === 'attention' ||
       value === 'cancelled' ||
       value === 'code-stream' ||
       value === 'copy' ||
