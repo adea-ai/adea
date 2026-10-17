@@ -1,10 +1,12 @@
 import {
   canonicalBridgeOrigin,
+  createCharacterSaveClient,
   parseHostMessage,
   SIM_BRIDGE_CHANNEL,
   SIM_BRIDGE_VERSION,
   type SimFrameMessage,
   type SimHostMessage,
+  type SimNavigateTarget,
 } from '@adea-ai/spatial/sim-bridge'
 
 type Mount = { unmount(): void }
@@ -16,7 +18,15 @@ export function startSimFrame(options: {
   parentOrigins: readonly string[]
   allowLoopbackHttp?: boolean
   exchange: (body: unknown, signal: AbortSignal) => Promise<boolean>
-  mount: (launch: Launch, scene: 'home' | 'work', close: () => void) => Promise<Mount>
+  mount: (
+    launch: Launch,
+    scene: 'home' | 'work',
+    close: () => void,
+    actions: {
+      saveCharacter(character: string): Promise<boolean>
+      navigate(target: SimNavigateTarget): void
+    }
+  ) => Promise<Mount>
 }) {
   const win = options.window
   const fragment = new URLSearchParams(win.location.hash.slice(1))
@@ -43,10 +53,13 @@ export function startSimFrame(options: {
         parentOrigin
       )
   }
+  const saves = createCharacterSaveClient({ post })
+  let navigationId = 0
   const stop = () => {
     if (stopped) return
     stopped = true
     abort.abort()
+    saves.dispose()
     handle?.unmount()
     win.removeEventListener('message', message)
     win.removeEventListener('pagehide', stop)
@@ -54,10 +67,12 @@ export function startSimFrame(options: {
   const message = async (event: MessageEvent) => {
     const parsed = parseHostMessage(event, { parentOrigin, parentWindow: win.parent, bridgeId })
     if (!parsed.ok) return
+    saves.receive(parsed.message)
     if (parsed.message.type === 'host.dispose') {
       stop()
       return
     }
+    if (parsed.message.type !== 'host.launch') return
     if (launched || stopped) return
     launched = true
     const launch = parsed.message.payload
@@ -78,7 +93,15 @@ export function startSimFrame(options: {
       const mounted = await options.mount(
         launch,
         fragment.get('scene') === 'work' ? 'work' : 'home',
-        () => post({ type: 'frame.close', payload: {} })
+        () => post({ type: 'frame.close', payload: {} }),
+        {
+          saveCharacter: (character) => saves.save(character),
+          navigate: (target) =>
+            post({
+              type: 'frame.navigate',
+              payload: { target, requestId: `navigate${++navigationId}` },
+            }),
+        }
       )
       if (stopped) {
         mounted.unmount()

@@ -11,6 +11,7 @@ import {
 import { Alert, AlertTitle, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { HostedAgentSim, type HostedSimFrame } from '@adea-ai/workspace-ui/hosted-agent-sim'
+import { commitSimCharacter, navigateSimDesigner } from '../lib/sim-route'
 
 /** App wiring only: Chat and Dev do not subscribe to this optional surface. */
 export function HostedSimEntry(props: {
@@ -73,14 +74,18 @@ export function HostedSimEntry(props: {
     })
     if (result.ok && result.message.type === 'frame.close') props.onClose?.()
   }
+  // Register before rendering the child: its close handler synchronously removes
+  // the iframe, so the app must authenticate this event against the live window first.
+  if (typeof window !== 'undefined') {
+    window.addEventListener('message', message, { capture: true })
+    onCleanup(() => window.removeEventListener('message', message, { capture: true }))
+  }
   onMount(() => {
     window.addEventListener('online', online)
     window.addEventListener('offline', offline)
-    window.addEventListener('message', message)
     onCleanup(() => {
       window.removeEventListener('online', online)
       window.removeEventListener('offline', offline)
-      window.removeEventListener('message', message)
     })
   })
   return (
@@ -126,6 +131,14 @@ export function HostedSimEntry(props: {
                 }
                 character={props.character}
                 requestGrant={(request, signal) => client().requestSimLaunch(request, signal)}
+                onNavigate={({ target }) => navigateSimDesigner(window, target)}
+                onCharacterSave={(character, request) =>
+                  commitSimCharacter(window, character, request, {
+                    workspaceId: workspaceId() ?? '',
+                    surface: props.surface ?? 'hq',
+                    bridgeId: frame?.bridgeId,
+                  })
+                }
                 frameUrl={(next) => {
                   frame = next
                   const url = new URL('/frame', next.origin)

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { inspectClient, simPayloadOffenders } from './check-desktop-sim-payload.mjs'
+import { inspectArchive, inspectClient, simPayloadOffenders } from './check-desktop-sim-payload.mjs'
 import { packFromEnv } from './pack-agent-sim.mjs'
 
 const roots: string[] = []
@@ -59,4 +59,34 @@ test('CLI invoked through an absolute symlink cannot skip private-payload reject
   const result = spawnSync('node', [entry, '--client', root], { encoding: 'utf8' })
   expect(result.status).toBe(1)
   expect(result.stderr).toContain('Sim payload')
+})
+
+test('archive qualification checks the installed inner client and rejects stale payloads', async () => {
+  const root = await client()
+  const installed = join(root, 'Adea.app/Contents/Resources/app/client')
+  await mkdir(installed, { recursive: true })
+  await writeFile(join(installed, 'index.html'), '<main>Chat and Dev</main>')
+  const archive = join(root, 'installed.tar.zst')
+  const pack = () => {
+    const result = spawnSync('tar', ['--zstd', '-cf', archive, '-C', root, 'Adea.app'])
+    expect(result.status).toBe(0)
+  }
+  pack()
+  expect(inspectArchive(archive)).toMatchObject({ simPayloadFiles: 0 })
+  await mkdir(join(installed, 'assets/agent-sim'), { recursive: true })
+  await writeFile(join(installed, 'assets/agent-sim/engine.js'), 'private')
+  pack()
+  expect(() => inspectArchive(archive)).toThrow('Sim payload')
+  await rm(installed, { recursive: true })
+  await mkdir(installed)
+  pack()
+  expect(() => inspectArchive(archive)).toThrow('missing client/index.html')
+  await writeFile(archive, 'corrupt')
+  expect(() => inspectArchive(archive)).toThrow('Could not list')
+})
+
+test('an incomplete client cannot count as a payload-free application', async () => {
+  const root = await client()
+  await rm(join(root, 'index.html'))
+  await expect(inspectClient(root)).rejects.toThrow('missing index.html')
 })

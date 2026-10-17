@@ -12,7 +12,7 @@ const launch = {
 function fixture(
   options: {
     exchange?: () => Promise<boolean>
-    mount?: () => Promise<{ unmount(): void }>
+    mount?: Parameters<typeof startSimFrame>[0]['mount']
   } = {}
 ) {
   const listeners = new Map<string, (event: unknown) => unknown>()
@@ -116,4 +116,52 @@ test('dispose fences a pending mount and unmounts its late result', async () => 
   await pending
   expect(unmounted).toBe(1)
   expect(f.posts).toHaveLength(1)
+})
+
+test('frame save waits for the exact authenticated host result and disposal fails an open save', async () => {
+  let actions!: Parameters<Parameters<typeof startSimFrame>[0]['mount']>[3]
+  const f = fixture({
+    mount: async (_, __, ___, next) => {
+      actions = next
+      return { unmount() {} }
+    },
+  })
+  await f.message('host.launch', { ...launch, surface: 'character-designer' })
+  const pending = actions.saveCharacter('avatar-id')
+  expect(f.posts.at(-1)).toMatchObject({
+    value: {
+      type: 'frame.character.save',
+      payload: { requestId: 'save1', character: 'avatar-id' },
+    },
+  })
+  await f.message(
+    'host.character.save.result',
+    { requestId: 'save1', saved: true },
+    'https://foreign.example'
+  )
+  await f.message('host.character.save.result', { requestId: 'different', saved: true })
+  await f.message('host.character.save.result', { requestId: 'save1', saved: true })
+  expect(await pending).toBe(true)
+  const abandoned = actions.saveCharacter('avatar-two')
+  f.stop()
+  expect(await abandoned).toBe(false)
+  expect(await actions.saveCharacter('avatar-three')).toBe(false)
+})
+
+test('HQ requests a host designer transition without changing its own URL', async () => {
+  let actions!: Parameters<Parameters<typeof startSimFrame>[0]['mount']>[3]
+  const f = fixture({
+    mount: async (_, __, ___, next) => {
+      actions = next
+      return { unmount() {} }
+    },
+  })
+  await f.message('host.launch', launch)
+  actions.navigate('character-designer')
+  expect(f.posts.at(-1)).toMatchObject({
+    value: {
+      type: 'frame.navigate',
+      payload: { target: 'character-designer', requestId: 'navigate1' },
+    },
+  })
 })

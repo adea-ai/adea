@@ -43,6 +43,8 @@ bun test apps/web/test/sim-http.test.ts apps/web/test/sim-frame.test.ts
 bun test apps/web/test/sim-offload-browser/acceptance.test.ts
 bun scripts/check-hosted-sim-desktop-client.ts
 ADEA_SIM_TEST_EXPORT=/path/to/existing/private/export \
+  bun scripts/check-hosted-sim-desktop-save.ts
+ADEA_SIM_TEST_EXPORT=/path/to/existing/private/export \
   bun test apps/web/test/sim-offload-browser/acceptance.test.ts
 ```
 
@@ -69,7 +71,31 @@ The client build checks its output with `check-desktop-sim-payload.mjs --client`
 the release workflow checks the inner installed archive with `--archive` before
 publication. Existing published installers are not changed by this source patch.
 
-## Remaining production and navigation decisions
+## Parent navigation and persistence
+
+The reviewed bridge dependency adds closed `frame.navigate` requests for the two
+designers and an acknowledged `frame.character.save` request. The frame uses
+`createCharacterSaveClient`; an engine save succeeds only after its exact host
+response. The app checks cancellation, workspace, surface, and the active bridge
+nonce before synchronously committing the character to the parent URL. That
+nonce identifies the launch attempt. The write preserves history state, unrelated
+query values, and the hash, then notifies the router. No asynchronous write can
+land after a cancelled attempt. HQ and reopened designers read the route's
+current character instead of the initial mount snapshot.
+
+The private engine hooks are tracked in AgentSim PR #111. Each HQ transition ends
+its current attempt and requests a fresh designer grant. Character editing remains
+reactive; edits made during an acknowledgement remain dirty and open. Standalone
+designer URL persistence remains supported by the private engine.
+
+The actual-built-client save command uses a private local export and disposable
+API/bridge/entitlement/storage fixtures. Its final zero-error assertion deliberately
+keeps rendering failures visible. The new export exposes a CSP limitation:
+embedded GLB textures use blob fetches, while the host currently allows only
+`connect-src 'self'`. The no-security-changes instruction leaves that policy
+unchanged pending authorization for the specific blob-source addition.
+
+## Remaining production decisions
 
 The production route deliberately has no entitlement authority installed. Existing
 Adea code admitted the legacy engine by official origin/packed manifest; it has
@@ -85,10 +111,5 @@ Deployment, hostname/DNS, bindings, credentials, access changes, and any live
 rollout require separate explicit authorization. The local reference stores and
 entitlement fixture are not production substitutes. No live completion is claimed.
 
-The current closed bridge has `frame.close` but no request to open another
-surface. Direct host designer routes work through their own launch. The private
-HQ engine's room/character navigation controls still need a narrowly specified
-navigation message and host callback from the separate bridge owner; overloading
-`frame.close` would change its meaning and is intentionally avoided.
-
-The coordinated save/navigation proposal is [hosted Sim bridge follow-up](../plans/hosted-sim-bridge-follow-up.md). Existing serialized customization and acknowledged designer save/reopen remain owner-gated; direct designer mount success alone is not persistence proof.
+The earlier [hosted Sim bridge follow-up](../plans/hosted-sim-bridge-follow-up.md)
+records the coordination proposal; reviewed PR #1450 supplies the bridge contract.

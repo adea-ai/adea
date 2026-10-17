@@ -7,6 +7,9 @@ type Runtime = {
     scene: 'home' | 'work'
     character?: string
     onClose: () => void
+    onCharacterSave: (character: string) => Promise<boolean>
+    onOpenRoomDesigner: () => void
+    onOpenCharacterDesigner: () => void
   }): Promise<{ unmount(): void }>
 }
 
@@ -39,7 +42,7 @@ if (
       const result = (await response.json()) as { status?: unknown }
       return result.status === 'session'
     },
-    mount: async (launch, scene, onClose) => {
+    mount: async (launch, scene, onClose, actions) => {
       const response = await fetch('/assets/agent-sim/engine.json', {
         credentials: 'same-origin',
         cache: 'no-store',
@@ -72,6 +75,9 @@ if (
         scene,
         character: launch.character,
         onClose,
+        onCharacterSave: actions.saveCharacter,
+        onOpenRoomDesigner: () => actions.navigate('room-designer'),
+        onOpenCharacterDesigner: () => actions.navigate('character-designer'),
       })
     },
   })
