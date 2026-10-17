@@ -13,7 +13,7 @@ test('starts database, browser dependencies, and web build before waiting', asyn
   expect(started.map(({ command, args }) => [command, ...args])).toEqual([
     ['bun', 'scripts/e2e-setup.mjs'],
     ['bunx', 'playwright', 'install', '--with-deps', 'chromium'],
-    ['bunx', 'turbo', 'run', 'build', '--filter=@adea-ai/web^...'],
+    ['bun', 'run', 'build:web-deps'],
   ])
 
   finish.forEach((resolve) => resolve())

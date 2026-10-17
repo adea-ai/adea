@@ -39,13 +39,21 @@ describe('cloud proxy', () => {
     expect(headers.has('cookie')).toBe(false)
   })
 
-  test('resolves the cloud origin from the environment and refuses bogus values', () => {
-    expect(resolveCloudOrigin({})).toBe('https://adea.dev')
-    expect(resolveCloudOrigin({ ADEA_CLOUD_ORIGIN: 'http://127.0.0.1:3210' })).toBe(
-      'http://127.0.0.1:3210'
-    )
-    expect(() => resolveCloudOrigin({ ADEA_CLOUD_ORIGIN: 'https://adea.dev/api' })).toThrow()
-    expect(() => resolveCloudOrigin({ ADEA_CLOUD_ORIGIN: 'http://evil.example' })).toThrow()
+  test('resolves the cloud origin from the persisted build target and refuses bogus values', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-target-'))
+    try {
+      writeFileSync(
+        join(root, 'adea-desktop-target.json'),
+        '{"mode":"release","cloudOrigin":"https://adea.dev"}'
+      )
+      expect(resolveCloudOrigin(root, {})).toBe('https://adea.dev')
+      expect(() =>
+        resolveCloudOrigin(root, { ADEA_CLOUD_ORIGIN: 'https://adea.dev/api' })
+      ).toThrow()
+      expect(() => resolveCloudOrigin(root, { ADEA_CLOUD_ORIGIN: 'http://evil.example' })).toThrow()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test('forwards status, body, and headers while dropping set-cookie', async () => {

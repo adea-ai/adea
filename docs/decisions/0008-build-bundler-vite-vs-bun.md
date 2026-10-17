@@ -1,7 +1,8 @@
 # Build and Bundler: Vite vs Bun
 
-- Status: Accepted (2026-09-13). **Vite 8 (Rolldown) + Turborepo stay on the
-  app and library build surfaces.** The detached terminal sidecar has a narrow
+- Status: Accepted (2026-09-13). **Vite 8 (Rolldown) stays on the
+  app and library build surfaces; task orchestration moved from Turborepo to
+  Vite+ in [0015](0015-task-runner-vite-plus.md).** The detached terminal sidecar has a narrow
   Bun bundling exception recorded below. Measured in M7; the per-surface
   evidence is below.
 - Date: 2026-09-13

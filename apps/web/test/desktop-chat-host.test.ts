@@ -309,3 +309,59 @@ describe('desktop Chat reading position', () => {
     expect(host.readingPosition(SCOPE, first)).toBeUndefined()
   })
 })
+
+describe('desktop chat host initial model', () => {
+  test('hands the initial model hook to the conversation model it activates', async () => {
+    const operations: string[] = []
+    const runtime = {
+      ...createUnavailableDevRuntimeService(),
+      execute: async (command: { operation: string }) => {
+        operations.push(command.operation)
+        const value =
+          command.operation === 'dev.project.list'
+            ? {
+                items: [
+                  {
+                    id: 'project-1',
+                    scope: SCOPE,
+                    repoIds: ['repo-1'],
+                    lifecycle: 'ready',
+                    version: 1,
+                  },
+                ],
+                observedAt: '2026-09-22T10:00:00.000Z',
+              }
+            : { items: [], observedAt: '2026-09-22T10:00:00.000Z' }
+        return {
+          schemaVersion: 1,
+          operation: command.operation,
+          requestId: 'request-1',
+          ok: true,
+          value,
+          observedAt: '2026-09-22T10:00:00.000Z',
+        } as never
+      },
+    }
+    const host = createDesktopChatModelHost(runtime as never, {
+      initialModel: () => ({ kind: 'blocked', message: 'Default model is not ready.' }),
+    })
+    await host.get(SCOPE).list()
+    await expect(
+      host.get(SCOPE).create({
+        projectId: 'project-1',
+        repoId: 'repo-1',
+        worktreeId: 'worktree-1',
+        agentProfileId: 'profile-1',
+        agentProfileVersion: 1,
+        initialPrompt: 'Hello',
+        idempotencyKey: 'blocked-1',
+      })
+    ).rejects.toThrow('Default model is not ready.')
+    expect(
+      operations.some(
+        (operation) =>
+          operation === 'dev.session.create' || operation.startsWith('dev.session.launch')
+      )
+    ).toBe(false)
+  })
+})

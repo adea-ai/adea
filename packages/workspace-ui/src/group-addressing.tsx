@@ -5,11 +5,14 @@ import {
   useAddressedTurnsQuery,
   useAddressTurnMutation,
   useCancelAddressedTurnMutation,
+  useRefreshChannels,
+  useSetGroupSelectionMutation,
   useWorkspaceListQuery,
+  useWorkspaceMembersQuery,
   isLiveAddressedTurn,
   type AddressedTurnReplay,
 } from '@adea-ai/data'
-import type { AgentSummary, ChannelSummary } from '@adea-ai/types'
+import type { AgentSummary, ChannelSummary, WorkspaceMemberSummary } from '@adea-ai/types'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
@@ -21,9 +24,11 @@ import {
   createMemo,
   createSignal,
   For,
+  lazy,
   onCleanup,
   onMount,
   Show,
+  Suspense,
   type Accessor,
 } from 'solid-js'
 
@@ -45,6 +50,44 @@ import {
   type QualifiedAgent,
 } from './addressed-turn-model'
 import { ConversationAvatar } from './conversation-avatar'
+import type { GroupAudienceContext, GroupRosterSaveRequest } from './group-audience'
+
+// The manage dialog loads from the module that holds every group dialog, only once someone opens it.
+const GroupManageDialog = lazy(() =>
+  import('./create-workspace-dialogs').then((module) => ({ default: module.GroupManageDialog }))
+)
+
+const shortId = (id: string) => id.replaceAll('-', '').slice(0, 8)
+
+/**
+ * The group's people, named from the workspace's member list: the signed-in person reads as "You", a repeated
+ * display name gains the member's role and then a short id, and a person the list does not know is "Member".
+ */
+function groupHumans(
+  participants: ChannelSummary['participants'],
+  members: readonly WorkspaceMemberSummary[],
+  currentUserId: string | undefined
+) {
+  const known = new Map(members.map((member) => [member.userId, member]))
+  const people = participants.flatMap((participant) => {
+    if (participant.kind !== 'user') return []
+    const member = known.get(participant.userId)
+    return [{ member, userId: participant.userId }]
+  })
+  const named = (name: string) =>
+    people.filter(({ member }) => member?.displayName?.trim() === name).length
+  return people.map(({ member, userId }) => {
+    if (userId === currentUserId) return { key: userId, label: 'You' }
+    const name = member?.displayName?.trim()
+    if (!member || !name) return { key: userId, label: `Member ${shortId(userId)}` }
+    if (named(name) < 2) return { key: userId, label: name }
+    const withRole = `${name} · ${member.role}`
+    const same = people.filter(
+      (other) => other.member?.displayName?.trim() === name && other.member.role === member.role
+    ).length
+    return { key: userId, label: same < 2 ? withRole : `${withRole} · ${shortId(userId)}` }
+  })
+}
 
 type CancelState = Readonly<{ status: 'pending' | 'done' | 'failed'; text: string | null }>
 
@@ -64,6 +107,8 @@ export type GroupAddressing = Readonly<{
   dismiss: (key: string) => void
   /** The read failed and nothing is held for this conversation yet. */
   failed: Accessor<boolean>
+  /** The group's people as the server holds them, named from the workspace's member list. */
+  humans: Accessor<readonly Readonly<{ key: string; label: string }>[]>
   intents: Accessor<readonly AddressingIntent[]>
   loaded: Accessor<boolean>
   mode: Accessor<AddressingMode>
@@ -77,6 +122,13 @@ export type GroupAddressing = Readonly<{
   /** The server says this reader can no longer read the turns; none are kept or shown. */
   unavailable: Accessor<boolean>
   roster: Accessor<readonly QualifiedAgent[]>
+  /** What the manage dialog needs: the live group, the tenant's choices and how to save a roster. */
+  manage: Readonly<{
+    audience: Accessor<GroupAudienceContext>
+    channel: Accessor<ChannelSummary>
+    refresh: () => void
+    save: (request: GroupRosterSaveRequest) => Promise<ChannelSummary>
+  }>
   setRecipients: (agentIds: readonly string[]) => void
   turns: Accessor<readonly ApiAddressedTurn[]>
   agentAvatar: (agentId: string) => string | undefined
@@ -129,6 +181,28 @@ export function GroupAddressingController(props: {
   const context = createMemo(() => qualifyContext(props.agents, settledData(workspaces) ?? []))
   const roster = createMemo(() =>
     groupParticipants({ channel: props.channel, context: context(), turns: turns() })
+  )
+  const membersQuery = useWorkspaceMembersQuery(props.client, () => props.workspaceId)
+  const setParticipants = useSetGroupSelectionMutation(props.client, () => props.workspaceId)
+  const refreshChannels = useRefreshChannels(() => props.workspaceId)
+  const audienceContext = createMemo<GroupAudienceContext>(() => ({
+    agentHomes: new Map(
+      roster().flatMap(({ agentId, workspaceId }) =>
+        workspaceId ? [[agentId, workspaceId] as const] : []
+      )
+    ),
+    agents: props.agents,
+    currentUserId: props.currentUserId,
+    members: settledData(membersQuery)?.members,
+    workspaceId: props.workspaceId,
+    workspaces: settledData(workspaces) ?? [],
+  }))
+  const humans = createMemo(() =>
+    groupHumans(
+      props.channel.participants,
+      settledData(membersQuery)?.members ?? [],
+      props.currentUserId
+    )
   )
   const [chosen, setChosen] = createSignal<readonly string[]>([])
   // A recipient who left the roster since it was chosen is not addressed.
@@ -191,8 +265,22 @@ export function GroupAddressingController(props: {
     failed: () => turnsQuery.isError && !page(),
     stale: () => turnsQuery.isError && Boolean(page()),
     unavailable: () => page()?.unavailable === true,
+    humans,
     intents,
     loaded: () => Boolean(page()),
+    manage: {
+      audience: audienceContext,
+      channel: () => props.channel,
+      refresh: refreshChannels,
+      save: (request) =>
+        setParticipants
+          .mutateAsync({
+            channelId: props.channel.id,
+            expectedVersion: request.expectedVersion,
+            selection: request.selection,
+          })
+          .then((result) => result.channel),
+    },
     mode,
     qualify: (turn) => qualifyTurnAgent(turn, context()),
     qualifyIntent: (intent) => {
@@ -232,13 +320,18 @@ export function GroupAddressingController(props: {
 
 /** The group header: who is in it, in which workspace, for which audience, and who the next message addresses. */
 export function GroupRoster(props: { addressing: GroupAddressing }) {
+  const [managing, setManaging] = createSignal(false)
   return (
     <nav class="min-w-0 pt-0.5" aria-label="People in this conversation">
       <ul class="flex flex-wrap justify-center gap-x-4 gap-y-2 pt-0.5 pb-1">
-        <li class="flex items-center gap-2" aria-label="You">
-          <ConversationAvatar kind="user" />
-          <Text variant="label">You</Text>
-        </li>
+        <For each={props.addressing.humans()}>
+          {(human) => (
+            <li class="flex items-center gap-2" aria-label={human.label} data-group-human="">
+              <ConversationAvatar kind="user" />
+              <Text variant="label">{human.label}</Text>
+            </li>
+          )}
+        </For>
         <For each={props.addressing.roster()}>
           {(agent) => (
             <li class="flex items-center gap-2" aria-label={agent.label}>
@@ -263,7 +356,22 @@ export function GroupRoster(props: { addressing: GroupAddressing }) {
         <Text variant="caption" tone="muted" data-addressing-mode={props.addressing.mode().kind}>
           Next message: {props.addressing.mode().label}
         </Text>
+        <Button size="xs" variant="outline" onClick={() => setManaging(true)}>
+          Manage group
+        </Button>
       </p>
+      <Show when={managing()}>
+        <Suspense fallback={null}>
+          <GroupManageDialog
+            audience={props.addressing.manage.audience()}
+            channel={props.addressing.manage.channel()}
+            onClose={() => setManaging(false)}
+            onSave={props.addressing.manage.save}
+            onStale={props.addressing.manage.refresh}
+            open
+          />
+        </Suspense>
+      </Show>
     </nav>
   )
 }
