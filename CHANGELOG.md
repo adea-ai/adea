@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.95.0](https://github.com/adea-ai/adea/compare/v0.94.0...v0.95.0) (2026-10-17)
+
+
+### Features
+
+* **chat:** target-aware handoff controls and return-to-user model ([#1177](https://github.com/adea-ai/adea/issues/1177)) ([#1418](https://github.com/adea-ai/adea/issues/1418)) ([b056e4e](https://github.com/adea-ai/adea/commit/b056e4ea16c597b3ccc551e82b3c738f56670266))
+* **ci:** add opt-in Vite+ cache proof lane ([#1425](https://github.com/adea-ai/adea/issues/1425)) ([780ef75](https://github.com/adea-ai/adea/commit/780ef75fa1c717daf238d363e57c26a28f960f84))
+* **groups:** issue group grants on the server from qualified selections ([#1178](https://github.com/adea-ai/adea/issues/1178)) ([#1423](https://github.com/adea-ai/adea/issues/1423)) ([8363ebb](https://github.com/adea-ai/adea/commit/8363ebbd82106cd097de3ae47a560ba358575605))
+* **spatial:** hosted Agent Sim bridge schema and launch contract ([#1430](https://github.com/adea-ai/adea/issues/1430)) ([aa8ee1c](https://github.com/adea-ai/adea/commit/aa8ee1c057ad4b660e16e7f41d96c3fc04b53146))
+* **spatial:** hosted Agent Sim launch issuer and session exchange behind ports ([#1436](https://github.com/adea-ai/adea/issues/1436)) ([3099d9f](https://github.com/adea-ai/adea/commit/3099d9f4e4a8e45238c9bdcac693b06be6e9af07))
+* **workspace-ui:** hosted Agent Sim frame controller and component, origin injected ([#1437](https://github.com/adea-ai/adea/issues/1437)) ([6882ddc](https://github.com/adea-ai/adea/commit/6882ddcdf79496c75fb4b1acad41b9150a4fc7f2))
+
+
+### Bug Fixes
+
+* **db:** quarantine ambiguous legacy group audiences ([#1415](https://github.com/adea-ai/adea/issues/1415)) ([aa2d092](https://github.com/adea-ai/adea/commit/aa2d092fd2ab2e6ffa5490b26c5c3b159218215e))
+* **deps:** update adea-ai design system ([#1424](https://github.com/adea-ai/adea/issues/1424)) ([1071810](https://github.com/adea-ai/adea/commit/1071810c78502413fc286b93a8606e96df16043f))
+* **desktop:** retire the installer's retained payload tar for the running build ([#1382](https://github.com/adea-ai/adea/issues/1382)) ([4d7cdc3](https://github.com/adea-ai/adea/commit/4d7cdc3b562084fda2960aba9849f86094ed9717))
+* **web:** keep the workspace frame mounted while a view's queries settle ([#1427](https://github.com/adea-ai/adea/issues/1427)) ([21f1129](https://github.com/adea-ai/adea/commit/21f1129f9f4338113e536b2f4b07b11869c98719))
+
+
+### Performance
+
+* **db:** bind each group history map as one JSON parameter ([#1440](https://github.com/adea-ai/adea/issues/1440)) ([0dce039](https://github.com/adea-ai/adea/commit/0dce039ed3013a4a827d8787118d9ed0708bbc58))
+* **db:** share the relational schema config across createDatabase calls ([#1432](https://github.com/adea-ai/adea/issues/1432)) ([65133d3](https://github.com/adea-ai/adea/commit/65133d3a0d8ad99cfe4c482ac65158106b357358))
+
+
+### Documentation
+
+* record the Vite+ cutover as landed and drop the stale Turbo remote-cache note ([#1441](https://github.com/adea-ai/adea/issues/1441)) ([f688c4d](https://github.com/adea-ai/adea/commit/f688c4da28952a76b0bde5b1747bc2ef207e681a))
+
+
+### Tests
+
+* compile .tsx with the Solid DOM transform in bun test ([#1434](https://github.com/adea-ai/adea/issues/1434)) ([0643d20](https://github.com/adea-ai/adea/commit/0643d20e3d6846d65b52c404b1b158748964b6aa))
+* **data:** compile .tsx with the Solid transform in the data unit lane ([#1438](https://github.com/adea-ai/adea/issues/1438)) ([b4d39c8](https://github.com/adea-ai/adea/commit/b4d39c8caf308f0e5f4c955bc7de60685fac8ba7))
+
+
+### CI
+
+* **preview:** report an unavailable preview as its own outcome ([#1431](https://github.com/adea-ai/adea/issues/1431)) ([878939b](https://github.com/adea-ai/adea/commit/878939b14f4a5293e9da3e1a3bb9b22946baf111))
+* **review-policy:** give pull_request_target and pull_request_review separate cancellation groups ([#1439](https://github.com/adea-ai/adea/issues/1439)) ([8e0e52f](https://github.com/adea-ai/adea/commit/8e0e52f6e4950e6120659a0271529aa5c443e0e2))
+
+
+### Maintenance
+
+* **tooling:** replace Turborepo with Vite+ task orchestration ([#1433](https://github.com/adea-ai/adea/issues/1433)) ([959da6d](https://github.com/adea-ai/adea/commit/959da6d7b577e3c3d298ac407e7499f600946fe5))
+
 ## [0.94.0](https://github.com/adea-ai/adea/compare/v0.93.0...v0.94.0) (2026-10-16)
 
 
