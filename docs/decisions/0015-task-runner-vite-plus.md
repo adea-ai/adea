@@ -56,7 +56,12 @@ The graph also carries these decisions, each found by running both runners:
 - The Agent Sim engine pack that `ADEA_AGENT_SIM_DIST` names is a directory outside the workspace,
   and `bun` copies it, so no input glob can name it. A digest of its files is written into the web
   build command (`ORCH_AGENT_SIM_PACK=<digest>`, `none` when unset), computed when the graph loads.
-  A relative path is resolved against `apps/web`, as `scripts/pack-agent-sim.mjs` resolves it.
+  A relative path is resolved against `apps/web`, as `scripts/pack-agent-sim.mjs` resolves it. The
+  staging script follows links for `engine.json` and `engine.js` and copies the rest as links, so the
+  digest covers each link's own text and, through the walk, the contents of its target. A link is
+  accepted only when its real path is inside the pack (links to directories are not descended, so a
+  cycle ends). A link that leaves the pack, a dangling link, an unreadable entry or a special file
+  makes the digest unknown, and the web build then runs uncached instead of trusting a partial digest.
 - Different environment values and different pack digests are separate cache entries, so returning
   to an earlier value replays it; editing a tracked file replaces the entry for its command.
 - Cloudflare deploy lanes skip Code Foundry's Turbo-only affected check and deploy conservatively.
@@ -88,7 +93,9 @@ Output parity is stated per run, not as a blanket claim:
 - Web build cache contract, tested by editing and varying inputs on a warm cache: editing
   `scripts/pack-agent-sim.mjs` misses; each `ADEA_PUBLIC_*` value misses when changed and hits when
   repeated; an engine pack directory misses when first set, when a file's content changes at the same
-  path and when a file is added, and hits when unchanged.
+  path and when a file is added, and hits when unchanged. With `engine.js` a link to a file in the
+  pack, the build misses when the target's content changes and when the link is retargeted, and hits
+  when neither does; with a link that leaves the pack the web build runs every time.
 - Edits invalidate exactly the tasks that depend on them (library source, a package's tests, the web
   app, desktop shell source that the web tests read, `bunfig.toml`, the test preload, the source
   contract setup script); a failing type check, lint, test or dependency build exits non-zero and is

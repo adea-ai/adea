@@ -7,6 +7,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -218,6 +219,20 @@ describe('a package test task lists what its tests read outside the package', ()
   })
 })
 
+const withPack = (build: (pack: string, outside: string) => void) => {
+  const base = mkdtempSync(join(tmpdir(), 'orch-pack-link-'))
+  const pack = join(base, 'pack')
+  const outside = join(base, 'outside')
+  mkdirSync(pack)
+  mkdirSync(outside)
+  try {
+    build(pack, outside)
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+}
+const digestOf = (pack: string) => agentSimPackDigest(root, { ADEA_AGENT_SIM_DIST: pack })
+
 describe('the web build declares everything it reads that no glob can see', () => {
   const web = 'orch:web:build'
   const declaredEnv = () => {
@@ -273,11 +288,82 @@ describe('the web build declares everything it reads that no glob can see', () =
     }
   })
 
-  test('an unset or unreadable pack has its own stable digest', () => {
+  test('an unset pack is cached under its own digest', () => {
     expect(agentSimPackDigest(root, {})).toBe('none')
-    expect(agentSimPackDigest(root, { ADEA_AGENT_SIM_DIST: '/nonexistent/agent-sim-pack' })).toBe(
-      'unreadable'
-    )
     expect(buildTasks(root, toolchain, {})[web]!.command).toContain('ORCH_AGENT_SIM_PACK=none ')
+  })
+
+  describe('links in the pack follow the staging script, which follows links and copies the rest as links', () => {
+    test('a linked engine file changes the digest when its target changes or the link is retargeted', () => {
+      withPack((pack) => {
+        writeFileSync(join(pack, 'engine.json'), '{"version":"1.0.0"}')
+        writeFileSync(join(pack, 'real-a.js'), 'a')
+        writeFileSync(join(pack, 'real-b.js'), 'a')
+        symlinkSync('real-a.js', join(pack, 'engine.js'))
+        const first = digestOf(pack)
+        expect(first).toMatch(/^[0-9a-f]{16}$/)
+
+        writeFileSync(join(pack, 'real-a.js'), 'changed')
+        const edited = digestOf(pack)
+        expect(edited).not.toBe(first)
+
+        writeFileSync(join(pack, 'real-a.js'), 'a')
+        expect(digestOf(pack)).toBe(first)
+        rmSync(join(pack, 'engine.js'))
+        symlinkSync('real-b.js', join(pack, 'engine.js'))
+        expect(digestOf(pack)).not.toBe(first)
+      })
+    })
+
+    test('a linked engine.json and a linked directory are digested through their targets', () => {
+      withPack((pack) => {
+        mkdirSync(join(pack, 'data'))
+        writeFileSync(join(pack, 'data', 'engine.json'), '{"version":"1.0.0"}')
+        writeFileSync(join(pack, 'engine.js'), 'a')
+        symlinkSync('data/engine.json', join(pack, 'engine.json'))
+        symlinkSync('data', join(pack, 'data-link'))
+        const first = digestOf(pack)
+        writeFileSync(join(pack, 'data', 'engine.json'), '{"version":"2.0.0"}')
+        expect(digestOf(pack)).not.toBe(first)
+      })
+    })
+
+    test('a link cycle inside the pack terminates', () => {
+      withPack((pack) => {
+        mkdirSync(join(pack, 'sub'))
+        writeFileSync(join(pack, 'engine.json'), '{}')
+        symlinkSync('..', join(pack, 'sub', 'up'))
+        expect(digestOf(pack)).toMatch(/^[0-9a-f]{16}$/)
+      })
+    })
+
+    test('a link that leaves the pack, or points nowhere, leaves the digest unknown and the build uncached', () => {
+      withPack((pack, outside) => {
+        writeFileSync(join(outside, 'engine.js'), 'x')
+        writeFileSync(join(pack, 'engine.json'), '{}')
+        symlinkSync(join(outside, 'engine.js'), join(pack, 'engine.js'))
+        expect(digestOf(pack)).toBeNull()
+        const definition = buildTasks(root, toolchain, { ADEA_AGENT_SIM_DIST: pack })[web]!
+        expect(definition.cache).toBe(false)
+        expect(definition.dependsOn).toContain('orch:toolchain')
+        expect(definition.command).toBe('bun run --cwd apps/web build')
+
+        rmSync(join(pack, 'engine.js'))
+        symlinkSync('missing.js', join(pack, 'engine.js'))
+        expect(digestOf(pack)).toBeNull()
+      })
+      expect(
+        agentSimPackDigest(root, { ADEA_AGENT_SIM_DIST: '/nonexistent/agent-sim-pack' })
+      ).toBeNull()
+    })
+
+    test('a pack path that is itself a link is digested through its target', () => {
+      withPack((pack, outside) => {
+        writeFileSync(join(pack, 'engine.json'), '{}')
+        const linked = join(outside, 'linked-pack')
+        symlinkSync(pack, linked)
+        expect(digestOf(linked)).toBe(digestOf(pack))
+      })
+    })
   })
 })

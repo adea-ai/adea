@@ -12,8 +12,15 @@
 // (`tsc`, `vite`) reads on its own. What `bun` loads (the script it starts, its imports, a test file, `bunfig.toml`
 // and its preload) is not seen, so every task lists those as explicit `input` globs.
 import { createHash } from 'node:crypto'
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import {
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  existsSync,
+  statSync,
+} from 'node:fs'
+import { join, resolve, sep } from 'node:path'
 
 import { PUBLIC_ENV_NAMES } from '../apps/web/start/client-policy.mjs'
 
@@ -168,35 +175,52 @@ const run = (workspace, script) => `bun run --cwd ${workspace.dir} ${script}`
 const group = (dependsOn) => ({ command: 'node -e 0', cache: false, dependsOn })
 
 /**
- * Content digest of the Agent Sim engine pack `ADEA_AGENT_SIM_DIST` names, or `none` when it is unset.
+ * Content digest of the Agent Sim engine pack `ADEA_AGENT_SIM_DIST` names: `none` when it is unset, `null` when the
+ * pack cannot be digested completely.
  *
  * `scripts/pack-agent-sim.mjs` copies the pack into `apps/web/public/assets/agent-sim`, and `bun` runs it, so the
  * runner sees neither the read nor a glob that could name a directory outside the workspace. The digest is part of the
  * cached command: a different pack is a different key, the same pack is a hit. A relative path is resolved against
  * `apps/web`, as `packFromEnv` resolves it against the working directory of `bun run --cwd apps/web build`.
+ *
+ * The staging script follows symbolic links (`stat` and `readFile` of `engine.json` and `engine.js`) and copies the
+ * rest with `cp`, which keeps links as links. So a link is digested by its own text and by the file it points to, and
+ * a link is accepted only when it points to a file or directory inside the pack (the pack root, its links and their
+ * targets are compared by real path), where the walk digests the target's contents at its own place. A link that
+ * leaves the pack, a dangling link, an unreadable entry and anything that is not a file, directory or link make the
+ * digest `null`; the web build then runs uncached, because a partial digest could replay stale output.
  */
 export function agentSimPackDigest(root, env = process.env) {
   const configured = env.ADEA_AGENT_SIM_DIST
   if (!configured) return 'none'
-  const dist = resolve(root, 'apps/web', configured)
   const hash = createHash('sha256')
-  const walk = (directory) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true }).toSorted((a, b) =>
-      a.name < b.name ? -1 : 1
-    )) {
-      const path = join(directory, entry.name)
-      if (entry.isDirectory()) walk(path)
-      else if (entry.isFile()) {
-        hash.update(`${path.slice(dist.length)}\0${statSync(path).size}\0`)
-        hash.update(readFileSync(path))
-      }
-    }
-  }
   try {
-    walk(dist)
+    const pack = realpathSync(resolve(root, 'apps/web', configured))
+    const inside = (path) => path === pack || path.startsWith(`${pack}${sep}`)
+    const walk = (directory) => {
+      for (const entry of readdirSync(directory, { withFileTypes: true }).toSorted((a, b) =>
+        a.name < b.name ? -1 : 1
+      )) {
+        const path = join(directory, entry.name)
+        const name = path.slice(pack.length)
+        if (entry.isSymbolicLink()) {
+          if (!inside(realpathSync(path))) return false
+          hash.update(`link\0${name}\0${readlinkSync(path)}\0`)
+        } else if (entry.isDirectory()) {
+          hash.update(`dir\0${name}\0`)
+          if (!walk(path)) return false
+        } else if (entry.isFile()) {
+          hash.update(`file\0${name}\0${statSync(path).size}\0`)
+          hash.update(readFileSync(path))
+        } else {
+          return false
+        }
+      }
+      return true
+    }
+    if (!walk(pack)) return null
   } catch {
-    // The build fails on a missing or unreadable pack, and a failed run is never cached.
-    return 'unreadable'
+    return null
   }
   return hash.digest('hex').slice(0, 16)
 }
@@ -240,14 +264,27 @@ export function buildTasks(root, toolchainId, env = process.env) {
 
     if (has(workspace, 'build')) {
       const name = taskName(workspace, 'build')
-      tasks[name] = cached(run(workspace, 'build'), buildDeps, {
-        unsetEnv: rule.buildUnsetEnv,
-        prefix: rule.agentSimPack
-          ? `ORCH_AGENT_SIM_PACK=${agentSimPackDigest(root, env)}`
-          : undefined,
-        input: [...own(workspace, { includeDist: false }), ...builtInputs, ...(rule.build ?? [])],
-        rest: { output: [`${workspace.dir}/dist/**`], env: [...viteEnv, ...(rule.buildEnv ?? [])] },
-      })
+      const packDigest = rule.agentSimPack ? agentSimPackDigest(root, env) : undefined
+      tasks[name] =
+        packDigest === null
+          ? {
+              command: run(workspace, 'build'),
+              dependsOn: ['orch:toolchain', ...buildDeps],
+              cache: false,
+            }
+          : cached(run(workspace, 'build'), buildDeps, {
+              unsetEnv: rule.buildUnsetEnv,
+              prefix: packDigest === undefined ? undefined : `ORCH_AGENT_SIM_PACK=${packDigest}`,
+              input: [
+                ...own(workspace, { includeDist: false }),
+                ...builtInputs,
+                ...(rule.build ?? []),
+              ],
+              rest: {
+                output: [`${workspace.dir}/dist/**`],
+                env: [...viteEnv, ...(rule.buildEnv ?? [])],
+              },
+            })
       all.build.push(name)
     }
     if (has(workspace, 'typecheck')) {
