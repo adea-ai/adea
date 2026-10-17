@@ -2740,6 +2740,35 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
   // bottom edge (what a click from the top would do) instead of leaving the
   // offset to however far the reopen scrolled, then require it to hold.
   const directory = page.locator('section.conventional-directory')
+  // The pin is only meaningful once the scrollport has its final geometry. Before it
+  // overflows (or while it still resizes or scrolls), scrollIntoView clamps to 0 and the
+  // later click scrolls the button into view, so the dialog opens at an offset the pin
+  // never saw (observed on a hosted run: pinned 0, opened at 396). Wait until the
+  // scrollport overflows and its scroll height, client height and offset hold across
+  // consecutive frames, then pin; the assertion below is unchanged.
+  await expect
+    .poll(() =>
+      directory.evaluate((element) => {
+        const geometry = () =>
+          `${element.scrollHeight}:${element.clientHeight}:${element.scrollTop}`
+        return new Promise<boolean>((resolve) => {
+          let last = geometry()
+          let steady = 0
+          let frames = 0
+          const step = () => {
+            const next = geometry()
+            steady = next === last ? steady + 1 : 0
+            last = next
+            frames += 1
+            if (steady >= 5) resolve(element.scrollHeight > element.clientHeight)
+            else if (frames >= 120) resolve(false)
+            else requestAnimationFrame(step)
+          }
+          requestAnimationFrame(step)
+        })
+      })
+    )
+    .toBe(true)
   await archiveAgent.evaluate((element) => element.scrollIntoView({ block: 'end' }))
   const pinnedScroll = await directory.evaluate((element) => element.scrollTop)
   await archiveAgent.click()
