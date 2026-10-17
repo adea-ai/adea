@@ -53,6 +53,12 @@ const GENERATED = [
 ]
 
 /**
+ * The Solid compile step the four Solid packages' tests run under (`bun test --preload`, see their `test` scripts):
+ * a change to it changes the JSX every one of their tests executes, but it is outside every package directory.
+ */
+const SOLID_TEST_TRANSFORM = 'scripts/test-solid-transform.ts'
+
+/**
  * Per-package facts the manifests cannot express. Each entry is something a task reads (or writes) that the
  * package directory glob does not already cover or must not include.
  */
@@ -89,11 +95,15 @@ export const PACKAGE_RULES = {
       // `cloudflare-config.test.ts` reads the preview workflow.
       'apps/desktop/shell/src/**',
       '.github/workflows/cloudflare-preview.yml',
+      SOLID_TEST_TRANSFORM,
     ],
   },
   'packages/data': {
     // `controller-audience.test.ts` reads the workspace controller source.
     test: ['packages/workspace-ui/src/**'],
+  },
+  'packages/dev-view': {
+    test: [SOLID_TEST_TRANSFORM],
   },
   'packages/remote-content': {
     // Its `test` script runs `bun run build` first, so `dist` is rewritten by the task: it is a product of the
@@ -102,7 +112,15 @@ export const PACKAGE_RULES = {
   },
   'packages/ui': {
     // `tests/shared-ui-boundary.test.ts` scans these sources.
-    test: ['apps/web/src/**', 'packages/workspace-nav/src/**', 'packages/workspace-ui/src/**'],
+    test: [
+      'apps/web/src/**',
+      'packages/workspace-nav/src/**',
+      'packages/workspace-ui/src/**',
+      SOLID_TEST_TRANSFORM,
+    ],
+  },
+  'packages/workspace-ui': {
+    test: [SOLID_TEST_TRANSFORM],
   },
 }
 
