@@ -49,6 +49,11 @@ export {
   decodeWorktree,
 } from './dev-runtime-registry-dto'
 import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
+export type {
+  FollowUpQueueRequest,
+  FollowUpQueueSnapshot,
+  FollowUpQueueEventPayload,
+} from './dev-runtime-follow-ups'
 import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
 import {
   decodeScope,
@@ -2264,6 +2269,16 @@ function decodeResourcePreferenceFields(value: unknown, path: string, stored: bo
 }
 
 function namedType(name: string, value: unknown, path: string): unknown {
+  if (name === 'FollowUpQueueRequest') {
+    // Keep the shared command decoder able to bind this body to its session
+    // resource without pulling the queue's full schema into every client.
+    // The host operation provider applies decodeFollowUpQueueRequest before
+    // authorization, locking, or mutation.
+    const item = record(value, path)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    integerValue(item.expectedGeneration, `${path}.expectedGeneration`, 0)
+    return value
+  }
   if (name === 'ChatAttachmentUpload') return decodeChatAttachmentUpload(value, path)
   if (
     name === 'FileIdentity' ||
@@ -5017,7 +5032,10 @@ export function decodeDevCommand(value: unknown): DevCommand {
   return value as DevCommand
 }
 
-export function decodeDevReply(value: unknown): DevReply {
+export function decodeDevReply(
+  value: unknown,
+  operationValueDecoders?: Readonly<Partial<Record<DevOperation, (value: unknown) => unknown>>>
+): DevReply {
   const item = record(value, 'reply')
   if (item.schemaVersion !== 1) fail('reply.schemaVersion', 'expected 1')
   const operation = item.operation
@@ -5033,13 +5051,15 @@ export function decodeDevReply(value: unknown): DevReply {
       'reply'
     )
     timestamp(item.observedAt, 'reply.observedAt')
-    const decodeValue = devReplyValueDecoders[item.operation as DevOperation]
+    const operationDecoder = operationValueDecoders?.[item.operation as DevOperation]
+    const decodeValue = operationDecoder ?? devReplyValueDecoders[item.operation as DevOperation]
     if (!decodeValue)
       fail(
         'reply.value',
         'success DTO decoder is unavailable until the operation-owning provider slice installs it'
       )
-    decodeValue(item.value)
+    const decodedValue = decodeValue(item.value)
+    if (operationDecoder) return { ...item, value: decodedValue } as unknown as DevReply
   } else if (item.ok === false) {
     exactKeys(item, ['schemaVersion', 'operation', 'requestId', 'ok', 'error'], [], 'reply')
     decodeError(item.error)
