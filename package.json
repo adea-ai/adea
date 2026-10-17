@@ -52,10 +52,13 @@
   },
   "devDependencies": {
     "@adea-ai/ui": "0.137.0",
+    "@babel/core": "^8.0.6",
+    "@babel/preset-typescript": "^8.0.1",
     "@playwright/test": "^1.63.0",
     "@shadcn/lint": "^0.2.0",
     "@tailwindcss/postcss": "^4.3.3",
     "axe-core": "^4.13.0",
+    "babel-preset-solid": "^1.9.15",
     "bun-types": "^1.4.2",
     "code-foundry": "1.44.3",
     "oxfmt": "^0.71.0",

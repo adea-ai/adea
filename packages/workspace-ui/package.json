@@ -193,7 +193,7 @@
     "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
     "dev": "vite build --watch",
     "lint": "oxlint",
-    "test": "bun test --conditions=browser tests/unit",
+    "test": "bun test --conditions=browser --preload ../../scripts/test-solid-transform.ts tests/unit",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
