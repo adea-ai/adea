@@ -61,6 +61,14 @@ own: callers pass `MessageEvent`-shaped values in and post through `postToFrame`
   (`SimSessionExchangeRequest` / `SimSessionExchangeResult`). Neither body carries a
   token. `createLaunchOnce` and `createLaunchCodeLedger` pin the single-use behaviour for
   the frame and for a backend implementation to match.
+- **Launch service** (`service.ts`): the backend logic for both steps, written against
+  injectable ports and with no I/O, endpoint or storage of its own. `createSimLaunchIssuer`
+  checks a caller-supplied `SimEntitlementChecker` and issues a code through a
+  `SimLaunchCodeStore`; `createSimSessionExchange` redeems it once and returns the
+  `Set-Cookie` value separately from the JSON body. The sim origin and the entitlement source
+  are inputs, never defaults: an absent or invalid origin answers `not_configured` before the
+  entitlement source is asked, and any verdict other than `entitled` fails closed. Nothing
+  here chooses where entitlement comes from, where the sim is hosted, or how stores persist.
 - **Session cookie** (`cookie.ts`): named `__Host-adea-sim`, with `HttpOnly`, `Secure`,
   `Path=/`, `SameSite=None`, `Partitioned`, no `Domain`, and a lifetime of at most one
   hour. It authorizes the sim origin's assets only, never an Adea account API.
