@@ -12,11 +12,13 @@ runs `vp run --cache orch:build` and checks what the task cache did:
 
 ```sh
 node scripts/vite-plus-proof.mjs                          # run the graph, print hits, misses and a dist manifest
-node scripts/vite-plus-proof.mjs --expect warm --fresh    # assert the hit pattern on a tree with no dist
-node scripts/vite-plus-proof.mjs --expect-manifest <sha>  # assert the sha256 over every workspace's dist
+node scripts/vite-plus-proof.mjs --expect cold --fresh    # the first run: nothing may hit; prints the dist manifest
+node scripts/vite-plus-proof.mjs --expect warm --fresh --expect-manifest <cold sha>   # the replay on a fresh tree
 ```
 
-`--expect cold` requires no hit; `--expect warm` requires every cacheable task to hit. A hit count alone does not show
+`--expect cold` requires no hit and needs no earlier manifest. `--expect warm` requires every cacheable task to hit and
+refuses to run without `--expect-manifest <sha256>`, the cold run's manifest, so the restored outputs are always compared
+with what the cold run built. A hit count alone does not show
 that artifacts are replayed, so the warm run starts on a fresh runner (no `dist` exists) and the sha256 over all
 workspaces' `dist` output must equal the cold run's.
 

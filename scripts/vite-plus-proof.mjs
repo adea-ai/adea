@@ -70,15 +70,39 @@ function check(label, condition, detail) {
   if (!condition) process.exitCode = 1
 }
 
+const SHA256 = /^[0-9a-f]{64}$/
+const FLAGS = new Set(['--expect', '--expect-manifest', '--fresh'])
+
 function value(args, flag) {
   const index = args.indexOf(flag)
-  return index === -1 ? null : args[index + 1]
+  if (index === -1) return null
+  const found = args[index + 1]
+  if (found === undefined || found.startsWith('--')) throw new Error(`${flag} needs a value`)
+  return found
+}
+
+/**
+ * Validate the command line before anything runs. A warm run must name the cold run's dist manifest: without it the
+ * restored outputs would never be compared with what the cold run built, and a warm "proof" would only count hits.
+ * A cold run needs no earlier manifest.
+ */
+export function parseArgs(args) {
+  const unknown = args.filter((arg) => arg.startsWith('--') && !FLAGS.has(arg))
+  if (unknown.length) throw new Error(`unknown option ${unknown.join(', ')}`)
+  const wanted = value(args, '--expect')
+  const manifest = value(args, '--expect-manifest')
+  if (wanted !== null && wanted !== 'cold' && wanted !== 'warm')
+    throw new Error(`--expect must be cold or warm, not ${wanted}`)
+  if (manifest !== null && !SHA256.test(manifest))
+    throw new Error('--expect-manifest must be a lowercase 64-character sha256')
+  if (wanted === 'warm' && manifest === null)
+    throw new Error('--expect warm requires --expect-manifest <the cold run sha256>')
+  return { wanted, manifest, fresh: args.includes('--fresh') }
 }
 
 function once(args) {
-  const wanted = value(args, '--expect')
-  const manifest = value(args, '--expect-manifest')
-  if (args.includes('--fresh')) {
+  const { wanted, manifest, fresh } = parseArgs(args)
+  if (fresh) {
     const built = withDist(callerRoot).map(({ dir }) => dir)
     check('no workspace has a dist before the run', built.length === 0, built.join(', '))
   }
