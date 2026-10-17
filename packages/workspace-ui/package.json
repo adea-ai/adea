@@ -20,6 +20,13 @@
       "development": "./src/platform.ts",
       "import": "./dist/platform.js"
     },
+    "./hosted-agent-sim": {
+      "types": "./dist/hosted-agent-sim.d.ts",
+      "solid": "./src/hosted-agent-sim.tsx",
+      "development": "./src/hosted-agent-sim.tsx",
+      "import": "./dist/hosted-agent-sim.js",
+      "default": "./dist/hosted-agent-sim.js"
+    },
     "./plugins-dialog": {
       "types": "./dist/plugins-dialog.d.ts",
       "solid": "./src/plugins-dialog.tsx",

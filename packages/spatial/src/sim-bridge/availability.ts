@@ -92,7 +92,14 @@ function reduceFrame(state: SimLaunchState, message: SimFrameMessage, now: numbe
       return stay(state)
     }
     case 'frame.error':
-      if (state.phase !== 'launching' && state.phase !== 'running') return stay(state)
+      // A frame that fails before it ever reports ready (an engine that cannot start, a bridge
+      // version the host does not speak) is a failure of this attempt, not noise.
+      if (
+        state.phase !== 'awaiting_frame' &&
+        state.phase !== 'launching' &&
+        state.phase !== 'running'
+      )
+        return stay(state)
       return unavailable(attempt, FRAME_ERROR_REASONS[message.payload.code])
     case 'frame.close':
       return state.phase === 'idle' ? stay(state) : stay({ phase: 'idle', attempt })

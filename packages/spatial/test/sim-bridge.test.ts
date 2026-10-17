@@ -731,6 +731,24 @@ describe('launch state machine', () => {
     expect(reduceSimLaunch(SIM_IDLE, grant(0)).state).toEqual(SIM_IDLE)
   })
 
+  test('a frame that fails before it reports ready fails the attempt', () => {
+    const awaiting = run(SIM_IDLE, { type: 'start' }, grant(1)).state
+    expect(awaiting.phase).toBe('awaiting_frame')
+    expect(
+      reduceSimLaunch(
+        awaiting,
+        frame(1, { type: 'frame.error', payload: { code: 'bridge_incompatible' } })
+      ).state
+    ).toEqual({ phase: 'unavailable', attempt: 1, reason: 'bridge_incompatible' })
+    // A stale attempt's error still cannot touch the current one.
+    expect(
+      reduceSimLaunch(
+        awaiting,
+        frame(0, { type: 'frame.error', payload: { code: 'bridge_incompatible' } })
+      ).state
+    ).toEqual(awaiting)
+  })
+
   test('frame errors, timeouts and offline are distinct, retryable ends', () => {
     const launching = run(SIM_IDLE, { type: 'start' }, grant(1), ready(1)).state
     expect(
