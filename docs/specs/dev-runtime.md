@@ -5279,7 +5279,7 @@ the general client command contract.
 
 Bounds are 16 pending/claimed items, 16,384 UTF-8 bytes per nonempty text, and
 65,536 UTF-8 bytes across the queue. NUL and other C0 controls except tab/CR/LF
-are refused. IDs are nonblank strings of at most 128 characters. Within one
+are refused. IDs are nonblank strings of at most 128 characters. Request, snapshot, and queue-event identifiers must also contain well-formed Unicode: reject lone high/low surrogates before durable mutation, while preserving valid astral code points without normalization or replacement. Within one
 generation, retain at most 256 used message IDs and 1,024 mutation receipts;
 do not evict delivery tombstones to accept more work. At those limits return
 `limit_exceeded`; an explicitly authorized new generation resets them. Storage

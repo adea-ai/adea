@@ -6,6 +6,7 @@ import {
   record,
   stringValue,
 } from './dev-runtime-validation-internal'
+import { assertWellFormedUnicode } from './dev-runtime-unicode'
 
 export const FOLLOW_UP_QUEUE_MAX_ITEMS = 16
 export const FOLLOW_UP_TEXT_MAX_BYTES = 16_384
@@ -44,6 +45,7 @@ function dataRecord(value: unknown, path: string) {
 
 function identifier(value: unknown, path: string, max = 128): string {
   const text = stringValue(value, path, 1, max)
+  assertWellFormedUnicode(text, path)
   if (text.trim() !== text || Array.from(text).some((char) => char.charCodeAt(0) < 32))
     fail(path, 'invalid identifier')
   return text

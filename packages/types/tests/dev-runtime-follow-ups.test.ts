@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { decodeDevCommand, decodeRuntimeEvent, devOperationDefinitions } from '../src/dev-runtime'
 import {
+  decodeFollowUpQueueEventPayload,
   decodeFollowUpQueueReply,
   decodeFollowUpQueueRequest,
   decodeFollowUpQueueSnapshot,
@@ -16,6 +17,51 @@ const enqueue = {
 } as const
 
 describe('generation-fenced follow-up queue contract', () => {
+  test('identifier admission rejects lone surrogates and preserves astral IDs across every queue projection', () => {
+    for (const id of ['\ud800', '\udfff', 'a\ud800z', 'a\udfffz', 'valid-🚀']) {
+      const snapshot = {
+        schemaVersion: 1,
+        runtimeSessionId: id,
+        generation: 2,
+        version: 1,
+        delivery: 'unavailable',
+        items: [{ id, text: 'ok', bytes: 2, state: 'queued' }],
+        lastDelivery: { messageId: id, status: 'accepted' },
+      }
+      const payload = {
+        schemaVersion: 1,
+        runtimeSessionId: id,
+        generation: 2,
+        version: 1,
+        change: 'enqueue',
+        items: [{ id, bytes: 2, state: 'queued' }],
+        lastDelivery: { messageId: id, status: 'accepted' },
+      }
+      const values = [
+        () => decodeFollowUpQueueRequest({ ...enqueue, messageId: id }),
+        () => decodeFollowUpQueueRequest({ ...enqueue, runtimeSessionId: id }),
+        () =>
+          decodeFollowUpQueueRequest({
+            ...base,
+            action: 'reorder',
+            expectedVersion: 1,
+            messageIds: [id],
+          }),
+        () => decodeFollowUpQueueSnapshot(snapshot),
+        () => decodeFollowUpQueueSnapshot({ ...snapshot, runtimeSessionId: 'session-1' }),
+        () =>
+          decodeFollowUpQueueSnapshot({ ...snapshot, runtimeSessionId: 'session-1', items: [] }),
+        () => decodeFollowUpQueueEventPayload(payload),
+        () => decodeFollowUpQueueEventPayload({ ...payload, runtimeSessionId: 'session-1' }),
+        () =>
+          decodeFollowUpQueueEventPayload({ ...payload, runtimeSessionId: 'session-1', items: [] }),
+      ]
+      for (const decode of values)
+        if (id === 'valid-🚀') expect(decode).not.toThrow()
+        else expect(decode).toThrow()
+    }
+  })
+
   test('accepts exact bounded actions and reuses session authority', () => {
     for (const body of [
       { ...base, action: 'read' },
