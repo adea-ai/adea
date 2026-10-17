@@ -3,8 +3,13 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { chromium } from '@playwright/test'
 
+import { assertLocalTestTargets } from '../../../scripts/test-target-guard.mjs'
+
 // Browser-level sign-in acceptance: drives the real form so the error mapping
 // and the returnTo round trip are verified as a person experiences them.
+// The acceptance origin must be loopback or a host named in
+// ADEA_ALLOW_REMOTE_TEST_TARGET; production hosts are refused outright.
+assertLocalTestTargets()
 const base = process.env.ADEA_ACCEPTANCE_URL
 if (!base) throw new Error('Set ADEA_ACCEPTANCE_URL to the isolated acceptance origin')
 const origin = new URL(base).origin

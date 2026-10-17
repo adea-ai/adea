@@ -1,3 +1,4 @@
+import type { ApiLeadTurnChildrenQuery } from '@adea-ai/api-client'
 import type {
   LeadPreparedSelection,
   LeadRuntimeAdapter,
@@ -8,16 +9,18 @@ type PublicationInput = Parameters<NonNullable<LeadRuntimeAdapter['assertPublica
 /** Candidate port wraps real versioned SDK methods; it adds no raw HTTP endpoint guesses. */
 export type LeadSdkCandidateTransport = Readonly<{
   workspaceId: string
-  prepare?: (intentId: string) => Promise<unknown>
+  /** `issuedAt` is the command's stable anchor; a retried command must repeat it. */
+  prepare?: (intentId: string, issuedAt?: string) => Promise<unknown>
   /** The actual exported PiDurableLeadPreparationSchema; absent releases stay inactive. */
   preparationSchema?: Readonly<{ parse: (data: unknown) => unknown }>
   lookup?: (intentId: string) => Promise<unknown>
   /** Actual exported PiDurableLeadLookupResponseSchema, including its strict envelope. */
   lookupResponseSchema?: Readonly<{ parse: (response: unknown) => unknown }>
-  dispatch: (intentId: string, preparationRef: string) => Promise<unknown>
+  dispatch: (intentId: string, preparationRef: string, issuedAt?: string) => Promise<unknown>
+  children?: (dispatchId: string, page: ApiLeadTurnChildrenQuery) => Promise<unknown>
   status: (dispatchId: string) => Promise<unknown>
   progress: (dispatchId: string, afterSequence: number) => Promise<unknown>
-  cancel: (dispatchId: string) => Promise<unknown>
+  cancel: (dispatchId: string, issuedAt?: string) => Promise<unknown>
 }>
 const record = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -98,7 +101,7 @@ export function createLeadTurnSdkAdapter(
       ? {
           async prepare(authority: LeadRuntimeAuthority): Promise<LeadPreparedSelection> {
             scope(authority)
-            const response = await transport.prepare!(authority.intentId)
+            const response = await transport.prepare!(authority.intentId, authority.admittedAt)
             if (!record(response)) throw new Error('RUNTIME_RESPONSE_INVALID')
             const value = transport.preparationSchema!.parse(response.data)
             if (
@@ -152,8 +155,20 @@ export function createLeadTurnSdkAdapter(
         !/^prep_[a-f0-9]{32}$/.test(prepared.preparationRef)
       )
         throw new Error('RUNTIME_RESPONSE_INVALID')
-      return transport.dispatch(authority.intentId, prepared.preparationRef)
+      return transport.dispatch(authority.intentId, prepared.preparationRef, authority.admittedAt)
     },
+    ...(transport.children
+      ? {
+          async children(
+            authority: LeadRuntimeAuthority,
+            dispatchId: string,
+            page: ApiLeadTurnChildrenQuery
+          ) {
+            scope(authority)
+            return transport.children!(dispatchId, page)
+          },
+        }
+      : {}),
     async status(authority, dispatchId) {
       scope(authority)
       return transport.status(dispatchId)
@@ -162,10 +177,10 @@ export function createLeadTurnSdkAdapter(
       scope(authority)
       return transport.progress(dispatchId, cursor)
     },
-    async cancel(authority, dispatchId, key) {
+    async cancel(authority, dispatchId, key, issuedAt) {
       scope(authority)
       if (key !== `lead-cancel:${dispatchId}`) throw new Error('RUNTIME_RESPONSE_INVALID')
-      return transport.cancel(dispatchId)
+      return transport.cancel(dispatchId, issuedAt)
     },
     ...(assertPublicationCurrent
       ? {

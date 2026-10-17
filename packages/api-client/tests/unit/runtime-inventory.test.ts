@@ -46,5 +46,46 @@ test('registration keys and arbitrary trust metadata never enter the inventory c
         ],
       }),
   })
-  expect(await client.listRuntimeNodes('workspace')).toEqual({ nodes: [node] })
+  expect(await client.listRuntimeNodes('workspace')).toEqual({
+    nodes: [
+      {
+        ...node,
+        deviceOnline: {
+          state: 'unknown',
+          dependency: 'control_plane.runtime_connection_discovery.device_online',
+        },
+        hostReachability: { state: 'not_applicable' },
+      },
+    ],
+  })
+})
+
+test('unprobed remote hosts stay unknown with their upstream dependency named', async () => {
+  const client = createApiClient({
+    fetchImpl: async () =>
+      Response.json({
+        nodes: [
+          {
+            id: 'remote-node',
+            controlPlaneRuntimeNodeRefId: 'rnr_remote',
+            kind: 'remote_host',
+            displayName: 'Home server',
+            health: 'healthy',
+            pairingState: 'paired',
+            lastProofAt: '2026-10-07T06:00:00.000Z',
+            lastSeenAt: '2026-10-07T06:00:00.000Z',
+            platform: 'Linux',
+            softwareVersion: '1.0.0',
+          },
+        ],
+      }),
+  })
+
+  const result = await client.listRuntimeNodes('workspace')
+
+  expect(result.nodes[0]?.deviceOnline).toEqual({ state: 'not_applicable' })
+  expect(result.nodes[0]?.hostReachability).toEqual({
+    state: 'unknown',
+    dependency: 'control_plane.runtime_connection_discovery.host_reachability',
+  })
 })

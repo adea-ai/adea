@@ -3,8 +3,13 @@ import { resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
+import { assertLocalTestTargets } from '../../../scripts/test-target-guard.mjs'
+
 // Hosted acceptance for the account/session flows the migration gates on.
 // Runs against an isolated Worker + Neon branch; never production.
+// The acceptance origin must be loopback or a host named in
+// ADEA_ALLOW_REMOTE_TEST_TARGET; production hosts are refused outright.
+assertLocalTestTargets()
 const base = process.env.ADEA_ACCEPTANCE_URL
 if (!base) throw new Error('Set ADEA_ACCEPTANCE_URL to the isolated acceptance origin')
 const origin = new URL(base).origin

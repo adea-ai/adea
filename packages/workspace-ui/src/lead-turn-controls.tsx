@@ -11,7 +11,7 @@ import {
   leadTurnCanCancel,
   type LeadTurnView,
 } from './lead-turn-state'
-import { projectModelFunding } from './lead-model-state'
+import { blockedFundingMessage, projectModelFunding } from './lead-model-state'
 import { LeadTurnModelChoices } from './lead-turn-model-choices'
 import type { LeadRequestedChoices } from './lead-model-request'
 import { leadTurnPresentation } from './lead-turn-presentation'
@@ -35,6 +35,7 @@ export function LeadTurnControls(props: {
     busy: false,
     notice: null,
     requiresNewAdmission: false,
+    lastRefusal: null,
   })
   const [confirmed, setConfirmed] = createSignal(false)
   const [now, setNow] = createSignal(Date.now())
@@ -68,6 +69,10 @@ export function LeadTurnControls(props: {
   const funding = createMemo(() => {
     const binding = leadFundingBinding(view().turn)
     if (!binding) return null
+    // The controller already projected a block with its bounded reason; projecting it again
+    // would discard that reason, and a block never needs a freshness proof.
+    const stored = view().funding
+    if (stored?.state === 'blocked') return stored
     return projectModelFunding(
       view().funding,
       { workspaceId: props.workspaceId, ...binding },
@@ -87,7 +92,9 @@ export function LeadTurnControls(props: {
   const preparationCurrent = () => {
     return leadPreparationCurrent(view().turn, now())
   }
-  const presentation = createMemo(() => leadTurnPresentation(view().turn, preparationCurrent()))
+  const presentation = createMemo(() =>
+    leadTurnPresentation(view().turn, preparationCurrent(), view().lastRefusal)
+  )
   createEffect(() => {
     const disclosure = readyFunding()
     const preparationExpiry = Date.parse(view().turn?.preparationExpiresAt ?? '')
@@ -236,8 +243,7 @@ export function LeadTurnControls(props: {
           when={readyFunding()}
           fallback={
             <EmptyDescription role="status">
-              Current payer authorization is unavailable. Refresh and review model setup before
-              starting.
+              {blockedFundingMessage(funding())} Refresh and review model setup before starting.
             </EmptyDescription>
           }
         >
