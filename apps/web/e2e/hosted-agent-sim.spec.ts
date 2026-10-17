@@ -58,6 +58,8 @@ type Grant = { workspaceId: string; surface: string; bridgeId: string; platform:
 type FrameMessage =
   | { type: 'frame.ready'; payload: Record<string, never> }
   | { type: 'frame.state'; payload: { state: 'running' } }
+  | { type: 'frame.navigate'; payload: { requestId: string; target: string } }
+  | { type: 'frame.character.save'; payload: { requestId: string; character: string } }
 
 async function open(page: Page, query = '') {
   await page.goto(`${fixtureUrl}/${query}`)
@@ -282,5 +284,238 @@ test.describe('protocol version and channel nonce', () => {
     await deliver(page, READY, grant!.bridgeId, 2)
     await expect(page.getByRole('alert')).toContainText('Agent Sim needs an update')
     await expect(page.locator('iframe')).toHaveCount(0)
+  })
+})
+
+const SERIALIZED =
+  'character:v1:body-body-01|ears-ears-01|face-female-emotion-usual-01|hair-hairstyle-female-01|-|top-outfit-01|bottom-pants-01|shoes-shoe-sneakers-01|-|-|-|-|-'
+
+const canonical = (page: Page) =>
+  page.evaluate(() =>
+    (
+      window as unknown as { agentSimHarness: { canonical(): string | undefined } }
+    ).agentSimHarness.canonical()
+  )
+
+const harnessList = (page: Page, name: 'navigations' | 'saves') =>
+  page.evaluate(
+    (key) =>
+      (window as unknown as { agentSimHarness: Record<string, unknown[]> }).agentSimHarness[
+        key
+      ]!.slice(),
+    name
+  )
+
+async function running(page: Page) {
+  await open(page)
+  await expect(page.locator('iframe')).toHaveCount(1)
+  const [grant] = await grants(page)
+  await deliver(page, READY, grant!.bridgeId)
+  await expect.poll(async () => (await received(page)).length).toBe(1)
+  await deliver(page, { type: 'frame.state', payload: { state: 'running' } }, grant!.bridgeId)
+  await expect(page.locator('iframe')).toHaveAttribute('data-agent-sim-active', 'true')
+  return grant!
+}
+
+const receivedResults = async (page: Page) =>
+  (await received(page)).filter(
+    (message) => (message as { type?: string }).type === 'host.character.save.result'
+  )
+
+test.describe('frame navigation', () => {
+  test('HQ asking for a designer disposes the frame and launches that surface with a fresh grant', async ({
+    page,
+  }) => {
+    const first = await running(page)
+    await deliver(
+      page,
+      { type: 'frame.navigate', payload: { requestId: 'nav1', target: 'room-designer' } },
+      first.bridgeId
+    )
+
+    await expect.poll(async () => (await grants(page)).length).toBe(2)
+    const second = (await grants(page))[1]!
+    expect(second).toMatchObject({ workspaceId: 'ws_a', surface: 'room-designer' })
+    expect(second.bridgeId).not.toBe(first.bridgeId)
+    expect(await harnessList(page, 'navigations')).toEqual([
+      { target: 'room-designer', requestId: 'nav1' },
+    ])
+
+    // One new frame bound to the new nonce; the old nonce can neither launch it nor navigate again.
+    await expect(page.locator('iframe')).toHaveAttribute(
+      'src',
+      new RegExp(encodeURIComponent(second.bridgeId))
+    )
+    await expect.poll(async () => (await received(page)).length).toBe(0)
+    await deliver(page, READY, first.bridgeId)
+    await deliver(
+      page,
+      { type: 'frame.navigate', payload: { requestId: 'nav2', target: 'character-designer' } },
+      first.bridgeId
+    )
+    await page.waitForTimeout(150)
+    expect(await received(page)).toHaveLength(0)
+    expect(await grants(page)).toHaveLength(2)
+    expect(await harnessList(page, 'navigations')).toHaveLength(1)
+
+    // The new surface's grant carries its own single-use code.
+    await deliver(page, READY, second.bridgeId)
+    await expect.poll(async () => (await received(page)).length).toBe(1)
+    expect((await received(page))[0]).toMatchObject({
+      type: 'host.launch',
+      payload: { surface: 'room-designer', code: expect.stringMatching(/^02/) },
+    })
+  })
+
+  test('a navigation to HQ or an address is refused and the frame keeps running', async ({
+    page,
+  }) => {
+    const grant = await running(page)
+    for (const target of ['hq', 'https://evil.example/'])
+      await deliver(
+        page,
+        { type: 'frame.navigate', payload: { requestId: 'n', target } },
+        grant.bridgeId
+      )
+    await page.waitForTimeout(150)
+    expect(await harnessList(page, 'navigations')).toHaveLength(0)
+    expect(await grants(page)).toHaveLength(1)
+    await expect(page.locator('iframe')).toHaveAttribute('data-agent-sim-active', 'true')
+  })
+})
+
+test.describe('acknowledged character save', () => {
+  test('the host answers the same request only after the app commits the serialized value', async ({
+    page,
+  }) => {
+    const grant = await running(page)
+    await deliver(
+      page,
+      { type: 'frame.character.save', payload: { requestId: 'save1', character: SERIALIZED } },
+      grant.bridgeId
+    )
+    await expect
+      .poll(async () => receivedResults(page))
+      .toEqual([
+        expect.objectContaining({
+          payload: { requestId: 'save1', saved: true },
+        }),
+      ])
+    expect(await harnessList(page, 'saves')).toEqual([
+      { character: SERIALIZED, requestId: 'save1' },
+    ])
+  })
+
+  test('a refused save is answered as refused, never as saved', async ({ page }) => {
+    const grant = await running(page)
+    await call(page, 'setSaveMode', 'refuse')
+    await deliver(
+      page,
+      { type: 'frame.character.save', payload: { requestId: 'save1', character: SERIALIZED } },
+      grant.bridgeId
+    )
+    await expect
+      .poll(async () => receivedResults(page))
+      .toEqual([
+        expect.objectContaining({
+          payload: { requestId: 'save1', saved: false, reason: 'refused' },
+        }),
+      ])
+  })
+
+  test('malformed values and stale nonces never reach the app', async ({ page }) => {
+    const grant = await running(page)
+    for (const character of [`${SERIALIZED}|-`, 'character:v1:body-body-01'])
+      await deliver(
+        page,
+        { type: 'frame.character.save', payload: { requestId: 'bad', character } },
+        grant.bridgeId
+      )
+    await deliver(
+      page,
+      { type: 'frame.character.save', payload: { requestId: 'old', character: SERIALIZED } },
+      'wrong-nonce-wrong-nonce'
+    )
+    await page.waitForTimeout(150)
+    expect(await harnessList(page, 'saves')).toHaveLength(0)
+    expect(await receivedResults(page)).toHaveLength(0)
+  })
+
+  test('a save left pending when the surface changes is never answered to the next frame', async ({
+    page,
+  }) => {
+    const grant = await running(page)
+    await call(page, 'setSaveMode', 'hang')
+    await deliver(
+      page,
+      { type: 'frame.character.save', payload: { requestId: 'save1', character: SERIALIZED } },
+      grant.bridgeId
+    )
+    await expect.poll(async () => (await harnessList(page, 'saves')).length).toBe(1)
+    await call(page, 'setSurface', 'character-designer')
+    await expect.poll(async () => (await grants(page)).length).toBe(2)
+    await page.waitForTimeout(150)
+    expect(await receivedResults(page)).toHaveLength(0)
+  })
+})
+
+const answered = async (page: Page) =>
+  (await received(page)).filter(
+    (message) => (message as { type?: string }).type === 'host.character.save.result'
+  )
+
+test.describe('canonical character state', () => {
+  test('committing the canonical character acknowledges the same frame and the next launch carries it', async ({
+    page,
+  }) => {
+    const grant = await running(page)
+    const source = await iframeSource(page)
+    await deliver(
+      page,
+      { type: 'frame.character.save', payload: { requestId: 'save1', character: SERIALIZED } },
+      grant.bridgeId
+    )
+    // The app's canonical character changed before the acknowledgement, and the frame that asked
+    // is still the one on screen: same address, same window, no second launch.
+    await expect.poll(async () => answered(page)).toHaveLength(1)
+    expect((await answered(page))[0]).toMatchObject({
+      payload: { requestId: 'save1', saved: true },
+    })
+    expect(await canonical(page)).toBe(SERIALIZED)
+    expect(await iframeSource(page)).toBe(source)
+    expect(await grants(page)).toHaveLength(1)
+    await expect(page.locator('iframe')).toHaveAttribute('data-agent-sim-active', 'true')
+
+    // Reopening (a new launch) hands the frame the saved value.
+    await call(page, 'setSurface', 'character-designer')
+    await expect.poll(async () => (await grants(page)).length).toBe(2)
+    const second = (await grants(page))[1]!
+    await deliver(page, READY, second.bridgeId)
+    await expect.poll(async () => (await received(page)).length).toBe(1)
+    expect((await received(page))[0]).toMatchObject({
+      type: 'host.launch',
+      payload: { surface: 'character-designer', character: SERIALIZED },
+    })
+  })
+
+  test('a save given up on by a workspace change cannot write canonical state when it finishes last', async ({
+    page,
+  }) => {
+    const grant = await running(page)
+    await call(page, 'setSaveMode', 'delayed')
+    await deliver(
+      page,
+      { type: 'frame.character.save', payload: { requestId: 'save1', character: SERIALIZED } },
+      grant.bridgeId
+    )
+    await expect.poll(async () => (await harnessList(page, 'saves')).length).toBe(1)
+    await call(page, 'setWorkspaceId', 'ws_b')
+    await expect.poll(async () => (await grants(page)).length).toBe(2)
+
+    // The old save finishes after the workspace changed: it finds itself aborted.
+    await call(page, 'release')
+    await page.waitForTimeout(150)
+    expect(await canonical(page)).toBeUndefined()
+    expect(await answered(page)).toHaveLength(0)
   })
 })
