@@ -124,7 +124,7 @@ describe('desktop shell boot', () => {
     expect(existsSync(join(root, 'apps/desktop/src'))).toBe(false)
     expect(existsSync(join(root, 'apps/desktop/index.html'))).toBe(false)
     const clientBuild = await readFile(join(root, 'apps/desktop/scripts/client.mjs'), 'utf8')
-    expect(clientBuild).toContain('@adea-ai/web^...')
+    expect(clientBuild).toContain("'build:web-deps'")
     expect(clientBuild).toContain("'desktop:build'")
 
     // The client ships inside the bundle; a packaged app that only read the

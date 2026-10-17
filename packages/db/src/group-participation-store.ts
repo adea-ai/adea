@@ -52,6 +52,7 @@ import {
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
+  legacyAudienceQuarantine,
   groupSharingGrants,
   messages,
   workspaceMemberships,
@@ -69,6 +70,17 @@ export type GroupHistoryAccess = Readonly<{
   includesEarlierHistory: boolean
   includesEarlierSummary: boolean
 }>
+
+/** The quarantine is an authority deny even if a stale admission/grant row reappears. */
+function notQuarantinedAdmission() {
+  return sql`not exists (
+    select 1 from ${legacyAudienceQuarantine}
+    where ${legacyAudienceQuarantine.workspaceId} = ${groupAdmissions.workspaceId}
+      and ${legacyAudienceQuarantine.channelId} = ${groupAdmissions.channelId}
+      and ${legacyAudienceQuarantine.principalKind} = ${groupAdmissions.principalKind}
+      and ${legacyAudienceQuarantine.principalId} = coalesce(${groupAdmissions.userId}, ${groupAdmissions.agentId})
+  )`
+}
 
 /** Fail-closed window for an unprovable grant: behaves as absent everywhere. */
 export const ABSENT_GRANT_WINDOW: GroupGrantWindow = {
@@ -276,7 +288,11 @@ export async function loadGroupRoster(
     .select()
     .from(groupAdmissions)
     .where(
-      and(eq(groupAdmissions.workspaceId, workspaceId), eq(groupAdmissions.channelId, channelId))
+      and(
+        eq(groupAdmissions.workspaceId, workspaceId),
+        eq(groupAdmissions.channelId, channelId),
+        notQuarantinedAdmission()
+      )
     )
     .orderBy(asc(groupAdmissions.createdAt), asc(groupAdmissions.id))
   const [admissionRows, grants] = await Promise.all([
@@ -372,6 +388,7 @@ export async function groupChannelIdsInForce(
       and(
         eq(groupAdmissions.principalKind, 'user'),
         eq(groupAdmissions.userId, userId),
+        notQuarantinedAdmission(),
         ...(workspaceId ? [eq(groupAdmissions.workspaceId, workspaceId)] : []),
         ...(options.channelIds
           ? [
@@ -446,6 +463,7 @@ export async function groupHistoryAccessByUser(
       and(
         eq(groupAdmissions.principalKind, 'user'),
         eq(groupAdmissions.userId, userId),
+        notQuarantinedAdmission(),
         ...(workspaceId ? [eq(groupAdmissions.workspaceId, workspaceId)] : [])
       )
     )

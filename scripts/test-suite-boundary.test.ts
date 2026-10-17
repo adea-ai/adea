@@ -44,7 +44,7 @@ describe('test suite boundaries', () => {
 
   test('exposes Code Foundry entry points for every test category', () => {
     expect(packageJson.scripts.test).toBe('bun run test:unit')
-    expect(packageJson.scripts['test:unit']).toContain('turbo run test')
+    expect(packageJson.scripts['test:unit']).toContain('vp run orch:test')
     expect(packageJson.scripts['test:unit']).toContain('bun run test:coverage')
     expect(packageJson.scripts['test:integration']).toBe('bun scripts/test-integration.mjs')
     const localValidation = readFileSync(resolve(root, '.github/code-foundry.yml'), 'utf8')

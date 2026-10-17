@@ -59,7 +59,7 @@ jobs:
         id: playwright-install
         run: bunx playwright install --with-deps chromium
         background: true
-      - run: bunx turbo run build --filter=@adea-ai/web^...
+      - run: bun run build:web-deps
       - run: bun run --cwd apps/web start:verify
       - run: bun run build:cloudflare
       # Route surface and asset-caching gate against the production build
