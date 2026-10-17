@@ -3,6 +3,7 @@ import { Confirmation } from '@adea-ai/ui/components/composites/confirmation'
 import { Trace, TraceLine } from '@adea-ai/ui/components/ui/trace'
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
+import { approvalDetails } from './model/approval'
 import type { ChatTranscriptItem } from './presentation'
 
 export type ChatApprovalProps = Readonly<{
@@ -47,6 +48,7 @@ export function ChatApproval(props: ChatApprovalProps): JSX.Element {
         state="requested"
         title={title()}
         description={item().text ?? APPROVAL_PROMPT}
+        details={approvalDetails(item().text)}
         approveLabel="Approve"
         denyLabel="Deny"
         onApprove={
