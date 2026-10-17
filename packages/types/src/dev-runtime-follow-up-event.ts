@@ -28,9 +28,9 @@ export type FollowUpQueueEventPayload = Readonly<{
 }>
 
 function validIdentifier(value: unknown, max = 128): value is string {
-  if (typeof value === 'string') assertWellFormedUnicode(value, 'followUps.identifier')
+  if (typeof value !== 'string') return false
+  assertWellFormedUnicode(value, 'followUps.identifier')
   return (
-    typeof value === 'string' &&
     value.length > 0 &&
     value.length <= max &&
     value.trim() === value &&
@@ -41,11 +41,10 @@ function validIdentifier(value: unknown, max = 128): value is string {
 /** Prompt-free queue facts shared by the lean browser wire decoder and host. */
 export function validateFollowUpQueueEventPayload(value: unknown): FollowUpQueueEventPayload {
   const item = usageDataRecord(value, 'followUps')
-  const hasReceipt = 'lastDelivery' in item
   integerValue(item.generation, 'followUps.generation', 0)
   integerValue(item.version, 'followUps.version', 0)
   if (
-    Object.keys(item).length !== 6 + Number(hasReceipt) ||
+    Object.keys(item).length !== ('lastDelivery' in item ? 7 : 6) ||
     item.schemaVersion !== 1 ||
     !validIdentifier(item.runtimeSessionId, 256) ||
     ![

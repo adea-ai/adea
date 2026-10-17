@@ -2299,7 +2299,7 @@ projection; `unavailable` is empty for the local owner. Scoped capability
 subsets arrive with remote callers (M14 runtime nodes), which authenticate as
 a different identity class than this trusted local channel. The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 232 operation names, exact body shapes, exact reply types, complete required
+all 242 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -9121,3 +9121,5 @@ The sealed queue authenticates an outbox publication witness: prepared, attempte
 Stop captures the original ACP connection ID and generation before its first queue-cleanup await. It closes only that captured binding afterward; a replacement connection becoming ready during cleanup is never selected by the old Stop. The blocked-cleanup registration regression verifies the original connection closes while the replacement remains ready.
 
 Follow-up publication witnesses inspect only retained evidence in the exact runtime session and generation. They search every retained page through a captured upper sequence, preserving full scope/source/kind/classification/payload identity checks. Quarantined usage in another session or an older generation cannot block a healthy queue. Quarantine remains enforced within the selected generation; attempted publication without retained proof still refuses `recovery_required` after eviction.
+
+The contextual utility host and pane command helper share one lazy output chunk. Its explicit nonrecursive grouping preserves eager context, terminal decoder, editor, and startup boundaries under the existing production graph and byte guards. Queue identifier validation and all safe-integer, receipt-count, provenance, and replay checks remain canonical.
