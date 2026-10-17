@@ -1,10 +1,7 @@
 // No `server-only` marker: Bun-run unit tests import this module directly (same pattern as
 // marketplace-installation-request); the client-boundary guard keeps `src/server` out of browsers.
-import type {
-  ConversationParticipantRef,
-  GroupAgentEnlistmentGrant,
-  GroupAudienceGrant,
-} from '@adea-ai/types'
+import type { GroupSelection } from '@adea-ai/db'
+import type { ConversationParticipantRef } from '@adea-ai/types'
 
 export { conversationErrorResponse } from './conversation-response'
 
@@ -29,84 +26,33 @@ export function parseConversationParticipant(value: unknown): ConversationPartic
   return null
 }
 
-function parseGrantIdentity(value: Record<string, unknown>): {
-  grantId: string
-  revision: number
-} | null {
-  if (
-    typeof value.grantId !== 'string' ||
-    !value.grantId.trim() ||
-    value.grantId.length > 128 ||
-    typeof value.revision !== 'number' ||
-    !Number.isSafeInteger(value.revision) ||
-    value.revision < 1
-  )
-    return null
-  return { grantId: value.grantId, revision: value.revision }
-}
-
-function parseGrantWindow(value: Record<string, unknown>): {
-  expiresAt: string | null
-  issuedAt: string
-  revokedAt: string | null
-} | null {
-  if (typeof value.issuedAt !== 'string' || !value.issuedAt.trim()) return null
-  for (const field of ['expiresAt', 'revokedAt'] as const) {
-    const entry = value[field]
-    if (entry !== undefined && entry !== null && typeof entry !== 'string') return null
-  }
-  return {
-    expiresAt: typeof value.expiresAt === 'string' ? value.expiresAt : null,
-    issuedAt: value.issuedAt,
-    revokedAt: typeof value.revokedAt === 'string' ? value.revokedAt : null,
-  }
-}
+/** The most identities one group selection may carry, humans and Agents together. */
+export const GROUP_SELECTION_LIMIT = 100
 
 /**
- * Strict wire parser for a human audience grant. The grant must already name
- * the group being created — cross-group grants are rejected here and again
- * by the policy, never relabelled.
+ * Strict wire parser for a group selection: user ids and workspace-qualified
+ * Agent identities, nothing else. A selection carries no grant, id, revision
+ * or time of any kind; unknown keys are rejected rather than ignored so a
+ * caller can never smuggle authority through the shape. Returns null for any
+ * malformed input, and an absent selection is the empty selection.
  */
-export function parseGroupAudienceGrant(value: unknown): GroupAudienceGrant | null {
-  if (!value || typeof value !== 'object') return null
+export function parseGroupSelection(value: unknown): GroupSelection | null {
+  if (value === undefined) return { agents: [], humans: [] }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const candidate = value as Record<string, unknown>
-  const identity = parseGrantIdentity(candidate)
-  const window = parseGrantWindow(candidate)
-  const participant = parseConversationParticipant(candidate.participant)
-  if (
-    !identity ||
-    !window ||
-    !participant ||
-    participant.kind !== 'user' ||
-    typeof candidate.groupId !== 'string' ||
-    !candidate.groupId.trim()
-  )
-    return null
-  return { ...identity, ...window, groupId: candidate.groupId, participant }
-}
-
-/** Strict wire parser for an Agent enlistment grant, bound to its group like above. */
-export function parseGroupEnlistmentGrant(value: unknown): GroupAgentEnlistmentGrant | null {
-  if (!value || typeof value !== 'object') return null
-  const candidate = value as Record<string, unknown>
-  const identity = parseGrantIdentity(candidate)
-  const window = parseGrantWindow(candidate)
-  const agent = candidate.agent as Record<string, unknown> | undefined
-  if (
-    !identity ||
-    !window ||
-    !agent ||
-    typeof agent !== 'object' ||
-    !isConversationUuid(agent.agentId) ||
-    !isConversationUuid(agent.workspaceId) ||
-    typeof candidate.groupId !== 'string' ||
-    !candidate.groupId.trim()
-  )
-    return null
-  return {
-    ...identity,
-    ...window,
-    agent: { agentId: agent.agentId as string, workspaceId: agent.workspaceId as string },
-    groupId: candidate.groupId,
+  if (Object.keys(candidate).some((key) => key !== 'humans' && key !== 'agents')) return null
+  const humans = candidate.humans === undefined ? [] : candidate.humans
+  const agentInputs = candidate.agents === undefined ? [] : candidate.agents
+  if (!Array.isArray(humans) || !Array.isArray(agentInputs)) return null
+  if (humans.length + agentInputs.length > GROUP_SELECTION_LIMIT) return null
+  if (!humans.every(isConversationUuid)) return null
+  const agents: { agentId: string; workspaceId: string }[] = []
+  for (const input of agentInputs) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+    const agent = input as Record<string, unknown>
+    if (Object.keys(agent).some((key) => key !== 'agentId' && key !== 'workspaceId')) return null
+    if (!isConversationUuid(agent.agentId) || !isConversationUuid(agent.workspaceId)) return null
+    agents.push({ agentId: agent.agentId, workspaceId: agent.workspaceId })
   }
+  return { agents, humans }
 }

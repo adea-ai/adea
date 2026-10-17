@@ -29,6 +29,8 @@ const create = () => {
   dirs.push(dataDir)
   return { dataDir, log: createSessionEventLog({ dataDir, scope }) }
 }
+// Each response is its own assistant message (#1386): a second final under one
+// message identity is a lifecycle violation, so identity follows the source event.
 const input = (overrides: Partial<SessionEventInput> = {}): SessionEventInput => ({
   runtimeSessionId: 'session-a',
   generation: 1,
@@ -38,6 +40,8 @@ const input = (overrides: Partial<SessionEventInput> = {}): SessionEventInput =>
   kind: 'turn.assistant_message',
   classification: 'workspace_private',
   payload: {
+    messageId: `message-${overrides.sourceEventId ?? 'response-a'}`,
+    supersedes: 'deltas',
     text: 'The evidence supports this.',
     references: {
       schemaVersion: 1,
@@ -79,6 +83,8 @@ describe('response references through durable append and replay', () => {
         input({
           sourceEventId: 'bad',
           payload: {
+            messageId: 'message-bad',
+            supersedes: 'deltas',
             text: 'claim',
             references: {
               schemaVersion: 1,
@@ -109,6 +115,8 @@ describe('response references through durable append and replay', () => {
           input({
             ...overrides,
             payload: {
+              messageId: 'message-claim',
+              supersedes: 'deltas',
               text: 'claim',
               references: {
                 schemaVersion: 1,
@@ -128,6 +136,8 @@ describe('response references through durable append and replay', () => {
       other.append(
         input({
           payload: {
+            messageId: 'message-claim',
+            supersedes: 'deltas',
             text: 'claim',
             references: {
               schemaVersion: 1,
@@ -161,6 +171,8 @@ describe('response references through durable append and replay', () => {
         log.append(
           input({
             payload: {
+              messageId: 'message-response-a',
+              supersedes: 'deltas',
               text: 'The evidence supports this.',
               references: {
                 schemaVersion: 1,
@@ -191,9 +203,13 @@ describe('response references through durable append and replay', () => {
     expect(readFileSync(file, 'utf8')).toBe(tampered)
   })
 
-  test('preserves old no-source and unknown-kind records unchanged on replay', () => {
+  test('preserves no-source finals and unrelated opaque records unchanged on replay', () => {
     const { dataDir, log } = create()
-    const legacy = log.append(input({ payload: { text: 'No producer sources.' } }))!
+    const legacy = log.append(
+      input({
+        payload: { messageId: 'message-plain', supersedes: 'deltas', text: 'No producer sources.' },
+      })
+    )!
     const future = log.append(
       input({
         sourceEventId: 'future',

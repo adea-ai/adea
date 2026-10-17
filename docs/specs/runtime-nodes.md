@@ -196,7 +196,15 @@ the page limit is 100. Responses are `private, no-store`.
 
 The projection preserves Adea registration/pairing/proof-derived health separately
 from the reported Control Plane node status/health and individual connection
-status/health/availability. It carries adapter/driver/harness versions, capability
+status/health/availability. For a discovered `local_device`, Control Plane node
+status is the explicit device-online observation. The registration-only inventory
+does not claim device liveness; it keeps `deviceOnline` unknown until discovery.
+For `remote_host`, host reachability is separate and remains `unknown` until the
+public contract supplies a host probe; it is never inferred from node health or
+a successful inventory request. The
+response also distinguishes discovery success from Control Plane service
+readiness, which remains `unknown` because the discovery response does not report
+a readiness signal. It carries adapter/driver/harness versions, capability
 support, compatibility limitations, grant requirements, entitlement state and
 eligibility reason/remediation codes. It is metadata only: public keys, node
 endpoints, native paths, process handles, credentials, free-form upstream labels
@@ -205,8 +213,13 @@ match the registered kind. Missing/foreign node references, changed location,
 duplicate connection identities and managed-cloud entries fail closed.
 
 Every read reclassifies stale, expired or future inventory observations using the
-five-minute admission window. The SDK's discovery schema does not report a
-RuntimeTransport: the DTO says `transport.state: 'unreported'`. It must not infer
+five-minute admission window. The pinned `@adea-ai/sdk@1.18.0` discovery contract
+(which depends on `@adea-ai/runtime-sdk@1.15.1`) does not report host reachability,
+Control Plane readiness, RuntimeTransport or session operations. Those fields
+remain typed `unknown` with the specific
+`control_plane.runtime_connection_discovery.*` dependency that must publish each
+signal. The `discovery` field reports only whether this inventory read succeeded;
+it is not an overall readiness or host-reachability result. The DTO must not infer
 `direct_local` or `remote_gateway` from location or change connection identity.
 Actual execution resolution owns the selected transport. Discovery remains a
 read model, never an execution or authorization proof; submission must freshly
@@ -220,6 +233,14 @@ ContentSyncDevice authorization or history availability. Missing/foreign Adea
 nodes retain the generic workspace refusal. Consumers use the typed
 `listRuntimeNodeConnections` API client; native Dev Runtime discovery retains its
 existing host authority and cannot be replaced by this cloud projection.
+An aborted request remains cancelled through the route and SDK fetch timeout
+boundary; cancellation is never converted to an empty successful inventory or
+an unavailable read model.
+
+An offline execution host may queue new work while authorized synchronized
+conversation history remains available. Local-only body content keeps its own
+unavailable state; neither content state is derived from the execution-host
+observation.
 
 Workspace details › Connections › Execution hosts exposes this read model as a
 read-only inspector. Hosts are listed through the existing authorized identity
@@ -281,6 +302,54 @@ success. Cancellation prevents later pages and discards late replies, although
 the desktop transport cannot withdraw a command already in flight. A later
 capture uses the same stable session identity so the migration comparator can
 compare records across restarts.
+
+## Self-hosted connection setup and recovery (#188)
+
+`packages/workspace-ui/src/self-hosted-connection-{model,panel,pane}` and
+`self-hosted-setup-guide` are the product surface for connecting a Control Plane the user
+runs. They consume the registration and discovery reads above and add no route, column or
+credential. The panel is controlled; each effect (open a pairing, rename, revoke, choose a
+host) is an optional operation, and one that is not supplied renders as unavailable with
+its reason rather than as a working control.
+
+Two authorities are shown separately and never derived from one another. **Execution host**
+is registration (`pairingState`), the last accepted proof and the Control Plane's own
+report. **Synchronized history** is governed by #193 member/device policy; no contract
+reports a history-sync identity for a host, so it is always shown as not reported, and its
+panel takes no host input at all. A host going offline, stale or revoked never changes it,
+and the surface never hides history because of host state.
+
+Retained observations (this surface differs deliberately from the Connections inspector,
+which hides previous inventory on any pending or failed read). The self-hosted pane keeps the
+last host list and discovery reports through a pending refresh or a transient failure (network
+or 5xx), labelled "could not be refreshed" and aging, so an open host, a typed draft and the
+keyboard position survive a flaky connection. That applies only while the reader is still
+authorized. A 401, 403 or 404 on the list drops the list, every cached report, the open host
+and any pairing values, and disables "Connect a host" until an authorized read succeeds; a
+refused discovery read drops every cached report (the list stays, being freshly read). An
+`audience_changed` event erases the resident queries before the refetch, and the pane shows
+loading with nothing retained until the authorized read returns. A refusal stays in force
+through any later retry error until a read succeeds. The pane keeps its own copy of the last
+list only from settled query results, never by reading a pending or failed query's `data`
+(which would suspend or throw), and discards that copy on refusal and on reset. Nothing here
+is a server authorization decision: it only stops this component keeping metadata the reader
+may no longer see.
+
+Status is the worst observation, worded as a report: `Reported eligible`, never ready or
+online. A failed or absent read is `unknown` (could not check, no report received, proof
+unknown), never offline. Compatibility is the Control Plane's reported
+`compatibility.state`; Adea publishes no minimum host version, so none is invented.
+Revoking states what it does and does not do (no deletion on the host, no erasure of Adea
+records, no change to history access, no cancellation of accepted work) and requires the
+reason the route requires. After a revoke is accepted the list read decides: a host still
+shown registered is reported as unconfirmed, not revoked. A pairing's values are held in
+memory only, are cleared on expiry, on an explicit clear, or on account or workspace change,
+and are never stored. A host appearing after a pairing was issued does not clear them or mark
+the pairing used: no registration read carries a challenge reference, so consumption is
+unknown and the values stay displayed (with a note that they may already have been used).
+Expiry shows only that the deadline passed, not that no host used the pairing. A Control
+Plane report is used only when both its node id and Control Plane ref match the host; any
+other report supplies no eligibility, capability, access or proof facts.
 
 ## Durable events
 
@@ -411,6 +480,11 @@ shared-message, bounded request and API-client tests in their owning packages.
 - `apps/web/test/control-plane-discovery.test.ts` — actual public SDK fixtures,
   exact node/location binding, duplicate/cloud refusal, independent health,
   freshness, grants, compatibility and metadata-leak canaries.
+- `apps/web/test/integration/runtime-node-connections.test.ts` — the real route,
+  temporary-session authorization, SDK fetch boundary, typed API client and data
+  query; covers pagination, cancellation, sanitized failures, offline node reads
+  alongside authorized encrypted replica history, audience denial and local-only
+  content unavailability.
 - `packages/api-client/tests/unit/control-plane.test.ts` — encoded node discovery
   requests alongside the catalog and credential API contracts.
 - `apps/web/start/browser/runtime-nodes.e2e.ts` — the whole flow against an

@@ -901,7 +901,17 @@ export async function setGroupChannelParticipantsInTransaction(
   const frontier = channel.latestMessageSequence
   const roster = validated.roster.map((admission) => {
     const canonical = storedByParticipant.get(participantKey(workspaceId, admission.participant))
-    if (canonical) return { ...admission, joinPoint: canonical.joinPoint }
+    // A member keeps their history frontier only while the grant that admits
+    // them is the same one (id and revision). A different binding is a new
+    // admission, for example a regrant after a withdrawal, and starts at the
+    // present: whatever was said while their access was withdrawn stays
+    // hidden unless earlier history is explicitly authorized.
+    if (
+      canonical &&
+      canonical.authorization.grantId === admission.authorization.grantId &&
+      canonical.authorization.revision === admission.authorization.revision
+    )
+      return { ...admission, joinPoint: canonical.joinPoint }
     // Strictly after the observed frontier: the decision allows sequences
     // at or after the join point, so joining AT the frontier would leak the
     // boundary message posted before admission.

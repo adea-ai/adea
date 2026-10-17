@@ -245,6 +245,28 @@ function validRecord(family: (typeof migrationSnapshotFamilies)[number]): Migrat
         runtimeSessionId: 'sess-1',
         state: 'prepared',
       }
+    case 'legacyAudienceQuarantine':
+      return {
+        channelId: 'ch-1',
+        createdAt: '2026-01-01T00:00:00.000000Z',
+        family: 'legacyAudienceQuarantine',
+        observedAt: '2026-01-01T00:00:00.000000Z',
+        principalId: 'agent-1',
+        principalKind: 'agent',
+        profile: 'legacy-group-v1',
+        quarantineId: 'quarantine-1',
+        reason: 'agent_not_active',
+        sourceChannelCreatedAt: '2025-12-01T00:00:00.000000Z',
+        sourceJoinedAt: '2025-12-02T00:00:00.000000Z',
+        sourceParticipantId: 'participant-1',
+        sourceRowDigest: 'a'.repeat(64),
+        sourceWorkspaceId: 'wsp-1',
+        withdrawnAdmissions: 1,
+        withdrawnAudienceGrants: 0,
+        withdrawnDigest: 'b'.repeat(64),
+        withdrawnEnlistmentGrants: 0,
+        workspaceId: 'wsp-1',
+      }
     case 'nativeSessions':
       return {
         accountId: 'acct-1',
@@ -332,13 +354,13 @@ function isSorted(values: readonly string[]): boolean {
 }
 
 describe('migration snapshot contract constants', () => {
-  test('the snapshot format version is pinned at 1', () => {
-    expect(MIGRATION_SNAPSHOT_FORMAT_VERSION).toBe(2)
+  test('the snapshot format version records quarantine provenance', () => {
+    expect(MIGRATION_SNAPSHOT_FORMAT_VERSION).toBe(3)
     expect(Number.isInteger(MIGRATION_SNAPSHOT_FORMAT_VERSION)).toBe(true)
   })
 
   test('every record family a migration must inventory is present, sorted and unique', () => {
-    expect(migrationSnapshotFamilies.length).toBe(26)
+    expect(migrationSnapshotFamilies.length).toBe(27)
     expect(isSorted([...migrationSnapshotFamilies])).toBe(true)
     expect(new Set(migrationSnapshotFamilies).size).toBe(migrationSnapshotFamilies.length)
     for (const family of [
@@ -357,6 +379,7 @@ describe('migration snapshot contract constants', () => {
       'identityBindings',
       'invitations',
       'leadTurnRuntime',
+      'legacyAudienceQuarantine',
       'memberships',
       'messages',
       'projectMembers',
@@ -460,6 +483,15 @@ describe('migration snapshot record validation', () => {
       [withoutField(validRecord('artifactReferenceGrants'), 'expiresAt'), 'expiresAt'],
       [withField(validRecord('artifactReferenceGrants'), 'expiresAt', 'not-a-date'), 'expiresAt'],
       [withField(validRecord('artifactReferenceGrants'), 'expiresAt', 42), 'expiresAt'],
+      [withoutField(validRecord('legacyAudienceQuarantine'), 'withdrawnDigest'), 'withdrawnDigest'],
+      [
+        withField(validRecord('legacyAudienceQuarantine'), 'sourceRowDigest', 'not-a-digest'),
+        'sourceRowDigest',
+      ],
+      [
+        withField(validRecord('legacyAudienceQuarantine'), 'withdrawnAdmissions', -1),
+        'withdrawnAdmissions',
+      ],
       [withField(validRecord('agents'), 'projectId', 7), 'projectId'],
       [withField(validRecord('executionAttempts'), 'attempt', 0), 'attempt'],
       [withoutField(validRecord('invitations'), 'state'), 'state'],
@@ -510,6 +542,7 @@ describe('migration snapshot record validation', () => {
       [withField(validRecord('groupAdmissions'), 'principalKind', 'ghost'), 'principalKind'],
       [withField(validRecord('groupSharingGrants'), 'principalKind', 'ghost'), 'principalKind'],
       [withField(validRecord('groupSharingGrants'), 'scope', 'everything'), 'scope'],
+      [withField(validRecord('legacyAudienceQuarantine'), 'reason', 'unreviewed'), 'reason'],
       [withField(validRecord('agents'), 'lifecycleState', 'zombie'), 'lifecycleState'],
       [withField(validRecord('tasks'), 'lifecycleState', 'deleted'), 'lifecycleState'],
       [withField(validRecord('contentRefs'), 'availability', 'cached'), 'availability'],
