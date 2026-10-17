@@ -415,7 +415,16 @@ export const CLIENT_BUNDLE_BUDGETS = {
     // Repository registry on library Collapsible, Item and Alert (#1317, #1318
     // harness pane): the shared utility open route measures 181,693 raw,
     // 1,469 bytes over the 176 KiB cap. Raw ratchets to 181 KiB (~2% headroom).
-    devUtilityPanes: { rawBytes: 181 * 1024, gzipBytes: 61 * 1024 },
+    // The conversation checkpoint restore contracts (#1403) carry three
+    // `checkpoint.restore_*` event kinds, checkpoint payload validation in the
+    // wire decoder's event semantics, the `dev.session.restoreCheckpoint`
+    // operation definition/metadata, and its reply decoder — all of which the
+    // shared utility panes load with the rest of the Dev Runtime contract.
+    // CI lands the view at 185,372 raw (main was already within 28 bytes of the
+    // old cap), so the raw cap steps 181 -> 182 KiB: a round cap with ~0.5%
+    // headroom rather than a bump pinned to this build. Gzip stays at its 61
+    // KiB step.
+    devUtilityPanes: { rawBytes: 182 * 1024, gzipBytes: 61 * 1024 },
     // xterm 6.0.0 (2026-10-01, #883) ships a larger terminal core than 5.5:
     // the route measures 197,372 gzip (raw stays well under the cap). 197 KiB
     // carries ~2.2% headroom instead of leaving the cap pinned to the build.
