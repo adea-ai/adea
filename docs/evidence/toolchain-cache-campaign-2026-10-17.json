@@ -320,7 +320,7 @@
           "exit": 0,
           "seconds": 1.262,
           "summary": [
-            "$ ORCH_TOOLCHAIN=darwin-arm64.na.node24.21.0-e4b5a3af0e05.bun1.4.3-ec3dacd9560f env -u FORCE_COLOR bun run --cwd packages/deployment build \u25cb cache miss: 'packages/deployment/src/index.ts' modified, executing",
+            "$ ORCH_TOOLCHAIN=darwin-arm64.na.node24.21.0-e4b5a3af0e05.bun1.4.3-ec3dacd9560f env -u FORCE_COLOR bun run --cwd packages/deployment build ○ cache miss: 'packages/deployment/src/index.ts' modified, executing",
             "vp run: 0/1 cache hit (0%), 2/2 successful. (Run `vp run --last-details` for full details)"
           ]
         }
@@ -739,7 +739,7 @@
         "mutation": {
           "exit": 0,
           "summary": [
-            "$ ORCH_TOOLCHAIN=darwin-arm64.na.node24.18.0-ee6fb0e01528.bun1.4.3-ec3dacd9560f bun run --cwd packages/ui build \u25cb cache miss: 'packages/ui/src/lib/version-notes.ts' modified, executing",
+            "$ ORCH_TOOLCHAIN=darwin-arm64.na.node24.18.0-ee6fb0e01528.bun1.4.3-ec3dacd9560f bun run --cwd packages/ui build ○ cache miss: 'packages/ui/src/lib/version-notes.ts' modified, executing",
             "vp run: 0/1 cache hit (0%), 3/3 successful. (Run `vp run --last-details` for full details)"
           ]
         },
@@ -971,5 +971,528 @@
     "Single local timings ran alongside other work and are not isolated benchmarks.",
     "Local worktree reuse is distinct from GitHub Actions fresh-runner transfer.",
     "Tests and output hashes establish their stated fixtures; held scopes remain unfinished."
-  ]
+  ],
+  "snapshotNote": "Earlier measurements retain their recorded heads. latestUpdate contains the current campaign checklist; foundations alone do not establish completion.",
+  "latestUpdate": {
+    "observedAt": "2026-10-17T19:10:00Z",
+    "complete": false,
+    "repositories": [
+      {
+        "repository": "adea-ai/adea",
+        "observedMainHead": "205b33c4f9015b10c1f801fb0194a88eaadf172d",
+        "classification": "Bun checking,14 library emit builds retained,Vite+ main",
+        "pullRequests": [
+          {
+            "number": 1447,
+            "url": "https://github.com/adea-ai/adea/pull/1447",
+            "state": "MERGED",
+            "isDraft": false,
+            "headRefOid": "d6fb16fbc62c4457fad2bd8d8c09db95f0fff19c",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T17:08:56Z",
+            "mergeCommit": {
+              "oid": "e894daab877446c4fda63c088b13c06b3770804c"
+            }
+          },
+          {
+            "number": 1449,
+            "url": "https://github.com/adea-ai/adea/pull/1449",
+            "state": "MERGED",
+            "isDraft": false,
+            "headRefOid": "fdc7a17d52d4899e3b7a6d1d4dfd87a0f21eccdb",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T18:25:12Z",
+            "mergeCommit": {
+              "oid": "68ebfe0d80d42bb72c3e25548e1ababfbc74283f"
+            }
+          },
+          {
+            "number": 1451,
+            "url": "https://github.com/adea-ai/adea/pull/1451",
+            "state": "MERGED",
+            "isDraft": false,
+            "headRefOid": "44426cbb2997791ed2b6885536394397423e0311",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T18:59:15Z",
+            "mergeCommit": {
+              "oid": "df72ac097ed21870898531666792ac29f96a3caf"
+            }
+          },
+          {
+            "number": 1453,
+            "url": "https://github.com/adea-ai/adea/pull/1453",
+            "state": "OPEN",
+            "isDraft": false,
+            "headRefOid": "811e1cd4cb18c9dda79c9c587c1b4e758f8930f1",
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "BLOCKED",
+            "mergedAt": null,
+            "mergeCommit": null
+          }
+        ],
+        "mainManifest": {
+          "packageManager": "bun@1.4.3",
+          "typescript": "^7.0.2",
+          "classicApi": "npm:typescript@^6.0.3",
+          "codeFoundry": "1.48.1"
+        }
+      },
+      {
+        "repository": "adea-ai/control-plane",
+        "observedMainHead": "3f8f5bebe3bce2d6784692927963a39474825e93",
+        "classification": "Bun checking,45 emit builds and TS6 AST API retained,Vite+ main",
+        "pullRequests": [
+          {
+            "number": 1170,
+            "url": "https://github.com/adea-ai/control-plane/pull/1170",
+            "state": "MERGED",
+            "isDraft": false,
+            "headRefOid": "51dd15b188297ed19694d94c3fb9caa86d09461f",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T18:15:21Z",
+            "mergeCommit": {
+              "oid": "84e12dbab1b2fea2380e8747a466db9fb1449959"
+            }
+          },
+          {
+            "number": 1173,
+            "url": "https://github.com/adea-ai/control-plane/pull/1173",
+            "state": "MERGED",
+            "isDraft": false,
+            "headRefOid": "ff5bfeddca365f27c7cfac02eeeba9a59c1b43e6",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T19:08:14Z",
+            "mergeCommit": {
+              "oid": "3f8f5bebe3bce2d6784692927963a39474825e93"
+            }
+          },
+          {
+            "number": 1174,
+            "url": "https://github.com/adea-ai/control-plane/pull/1174",
+            "state": "OPEN",
+            "isDraft": false,
+            "headRefOid": "fc1576e8e7b75558157b2a3862db0a429ccaed16",
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "BLOCKED",
+            "mergedAt": null,
+            "mergeCommit": null
+          },
+          {
+            "number": 1175,
+            "url": "https://github.com/adea-ai/control-plane/pull/1175",
+            "state": "OPEN",
+            "isDraft": true,
+            "headRefOid": "d25f14f1064491a9901c363fd2b49eb9b38032e2",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": null,
+            "mergeCommit": null
+          },
+          {
+            "number": 1176,
+            "url": "https://github.com/adea-ai/control-plane/pull/1176",
+            "state": "OPEN",
+            "isDraft": false,
+            "headRefOid": "a31c9c39f693176bb1e2c9e397a533968e6a6b78",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": null,
+            "mergeCommit": null
+          }
+        ],
+        "mainManifest": {
+          "packageManager": "bun@1.4.3",
+          "typescript": "^7.0.2",
+          "classicApi": "npm:typescript@6.0.3",
+          "codeFoundry": "1.48.1"
+        }
+      },
+      {
+        "repository": "adea-ai/cortana",
+        "observedMainHead": "5f55a2c17ed30838c2e282d86a258bbcf0d4c006",
+        "classification": "Mixed Rust/Python/JS; preserve native checks; Vite+ web proposed2596",
+        "pullRequests": [
+          {
+            "number": 2594,
+            "url": "https://github.com/adea-ai/cortana/pull/2594",
+            "state": "MERGED",
+            "isDraft": false,
+            "headRefOid": "23135ec739e711c1f93ddb420f893deb8d70ea25",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T18:04:46Z",
+            "mergeCommit": {
+              "oid": "56b3f2009145d78e1a508123791c44604689d876"
+            }
+          },
+          {
+            "number": 2595,
+            "url": "https://github.com/adea-ai/cortana/pull/2595",
+            "state": "MERGED",
+            "isDraft": false,
+            "headRefOid": "02c1951e74003f94733ede8eb4c85e347d076d09",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T18:34:10Z",
+            "mergeCommit": {
+              "oid": "5f55a2c17ed30838c2e282d86a258bbcf0d4c006"
+            }
+          },
+          {
+            "number": 2596,
+            "url": "https://github.com/adea-ai/cortana/pull/2596",
+            "state": "OPEN",
+            "isDraft": false,
+            "headRefOid": "cec7d26404d73506b376ad5eb31e7f25d4b8f384",
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "BLOCKED",
+            "mergedAt": null,
+            "mergeCommit": null
+          },
+          {
+            "number": 2597,
+            "url": "https://github.com/adea-ai/cortana/pull/2597",
+            "state": "OPEN",
+            "isDraft": false,
+            "headRefOid": "a7039e7eb0b1bc94905af5a4f2b70fed4dbef3e5",
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "BLOCKED",
+            "mergedAt": null,
+            "mergeCommit": null
+          }
+        ],
+        "mainManifest": {
+          "packageManager": "bun@1.4.3",
+          "typescript": "^7.0.2",
+          "classicApi": "npm:typescript@^6.0.3",
+          "codeFoundry": "1.44.11"
+        }
+      },
+      {
+        "repository": "adea-ai/ui",
+        "observedMainHead": "638f73622bed3b9e2d3a6ffa80f3ef82f0d9c0aa",
+        "classification": "Bun checking; declaration emit retained; compiler7/API6 follow-up460",
+        "pullRequests": [
+          {
+            "number": 459,
+            "url": "https://github.com/adea-ai/ui/pull/459",
+            "state": "MERGED",
+            "isDraft": false,
+            "headRefOid": "7f647d28ec6e5850a82f8fdd89ca75f65ff41ab1",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T19:07:34Z",
+            "mergeCommit": {
+              "oid": "638f73622bed3b9e2d3a6ffa80f3ef82f0d9c0aa"
+            }
+          },
+          {
+            "number": 460,
+            "url": "https://github.com/adea-ai/ui/pull/460",
+            "state": "OPEN",
+            "isDraft": true,
+            "headRefOid": "ec270ef3e8b6806aff1274f3e3391f7b20908fe9",
+            "mergeable": "CONFLICTING",
+            "mergeStateStatus": "DIRTY",
+            "mergedAt": null,
+            "mergeCommit": null
+          }
+        ],
+        "mainManifest": {
+          "packageManager": "bun@1.4.3",
+          "typescript": "^6.0.3",
+          "classicApi": null,
+          "codeFoundry": "1.48.1"
+        }
+      },
+      {
+        "repository": "adea-ai/themes",
+        "observedMainHead": "10a0832faec6783f7f842aeba41dc56d057a997c",
+        "classification": "Single TS library; Bun checking plus tsc emit; no Vite graph needed",
+        "pullRequests": [
+          {
+            "number": 97,
+            "url": "https://github.com/adea-ai/themes/pull/97",
+            "state": "MERGED",
+            "isDraft": false,
+            "headRefOid": "0c8e3fa8793482badeb0fd72a0f1b59a717ee18e",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T18:25:30Z",
+            "mergeCommit": {
+              "oid": "d923693f525a9cbe13101feb763bdfc576487896"
+            }
+          }
+        ],
+        "mainManifest": {
+          "packageManager": "bun@1.4.3",
+          "typescript": "^7.0.2",
+          "classicApi": null,
+          "codeFoundry": "1.48.2"
+        }
+      },
+      {
+        "repository": "adea-ai/plugins",
+        "observedMainHead": "1a216133e9f3a1580cb73aad1b99963c1457ee13",
+        "classification": "Compiler CLI; Bun checking plus tsc emit; Vite bundler not applicable",
+        "pullRequests": [
+          {
+            "number": 244,
+            "url": "https://github.com/adea-ai/plugins/pull/244",
+            "state": "MERGED",
+            "isDraft": false,
+            "headRefOid": "a9c2099057bacb6505cd8abbda133ada560fc4fe",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T17:56:21Z",
+            "mergeCommit": {
+              "oid": "1d27de7e0a46ce2dc3c190c38d9bda6f489d2549"
+            }
+          },
+          {
+            "number": 246,
+            "url": "https://github.com/adea-ai/plugins/pull/246",
+            "state": "MERGED",
+            "isDraft": false,
+            "headRefOid": "933a1836d7291a2728c0430ec3080cc3b27ffc27",
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T18:21:29Z",
+            "mergeCommit": {
+              "oid": "021e88c684472d097cacf9a40116476d118aea63"
+            }
+          }
+        ],
+        "mainManifest": {
+          "packageManager": "bun@1.4.3",
+          "typescript": "^7.0.2",
+          "classicApi": null,
+          "codeFoundry": "1.48.2"
+        }
+      },
+      {
+        "repository": "adea-ai/agent-sim",
+        "observedMainHead": "28fc6227ce84d11d7faa849df18062a7538046b7",
+        "classification": "Main Bun1.4.0/Turbo; pending110 moves to Bun1.4.3/Vite+ preserving13 emitting builds",
+        "pullRequests": [
+          {
+            "number": 110,
+            "url": "https://github.com/adea-ai/agent-sim/pull/110",
+            "state": "OPEN",
+            "isDraft": false,
+            "headRefOid": "6a0a65583baf7b01b038b2f54f294665eebcdbbf",
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "UNSTABLE",
+            "mergedAt": null,
+            "mergeCommit": null
+          }
+        ],
+        "mainManifest": {
+          "packageManager": "bun@1.4.0",
+          "typescript": "^7.0.2",
+          "classicApi": null,
+          "codeFoundry": "1.46.3"
+        }
+      },
+      {
+        "repository": "adea-ai/assets",
+        "observedMainHead": "15d1f784906738a0a0945e5557305eae7164ecaa",
+        "classification": "No JS manifest/build: Bun/TS/Vite+/build cache not applicable",
+        "pullRequests": []
+      },
+      {
+        "repository": "adea-ai/.github",
+        "observedMainHead": "b32a0453aea4a6745520d32da82c3ab63ca5c1c8",
+        "classification": "Org metadata: Bun/TS/Vite+/build cache not applicable",
+        "pullRequests": []
+      }
+    ],
+    "typescript": {
+      "stableCompiler": "7.0.2",
+      "classicApiLatest": "6.0.3",
+      "sources": [
+        "https://registry.npmjs.org/typescript/latest",
+        "https://bun.com/docs/runtime/check"
+      ],
+      "roles": "Bun check never emits and needs no TypeScript package alone. Keep tsc for required JavaScript/declaration emit and editor alignment; classic API tooling needs explicit typescript6 alias.",
+      "controlPlane1175": "Do not advance alias-major: actual boundary parser throws with TS7; alias6 passes7tests/382assertions.",
+      "ui460": "Compiler7 plus explicit API6 alias. Pre-foundation:964tests/57507assertions,10export regressions/54assertions,156built-module export parity pass; merged-foundation checks in progress."
+    },
+    "codeFoundry": "Existing reviewed1.48.1 foundations retained; new touched configuration uses1.48.2. Only explicitly approved issues:read caller additions.",
+    "cacheProofs": {
+      "control-plane": {
+        "head": "b65e5175d124799fe28c047685042b01ce0d0a12",
+        "bun": "1.4.3",
+        "layout": "two clean Git worktrees",
+        "runs": [
+          {
+            "exit": 0,
+            "seconds": 23.049,
+            "summary": [
+              "vp run: 0/45 cache hit (0%), 47/47 successful. (Run `vp run --last-details` for full details)"
+            ],
+            "checkout": "cp-worktree-a"
+          },
+          {
+            "exit": 0,
+            "seconds": 4.66,
+            "summary": [
+              "vp run: 45/45 cache hit (100%), 47/47 successful, 52.96s saved. (Run `vp run --last-details` for full details)"
+            ],
+            "checkout": "cp-worktree-b"
+          }
+        ],
+        "outputFiles": 2616,
+        "identical": true,
+        "mutation": {
+          "exit": 0,
+          "seconds": 1.262,
+          "summary": [
+            "$ ORCH_TOOLCHAIN=darwin-arm64.na.node24.21.0-e4b5a3af0e05.bun1.4.3-ec3dacd9560f env -u FORCE_COLOR bun run --cwd packages/deployment build ○ cache miss: 'packages/deployment/src/index.ts' modified, executing",
+            "vp run: 0/1 cache hit (0%), 2/2 successful. (Run `vp run --last-details` for full details)"
+          ]
+        }
+      },
+      "agent-sim": {
+        "head": "46fca334ba92456fefa8aba8faa8e9ff6a99d05a",
+        "bun": "1.4.3",
+        "layout": "two clean Git worktrees",
+        "runs": [
+          {
+            "exit": 0,
+            "seconds": 11.358,
+            "summary": [
+              "vp run: 0/13 cache hit (0%), 15/15 successful. (Run `vp run --last-details` for full details)"
+            ],
+            "checkout": "agent-sim-worktree-a"
+          },
+          {
+            "exit": 0,
+            "seconds": 1.332,
+            "summary": [
+              "vp run: 13/13 cache hit (100%), 15/15 successful, 17.98s saved. (Run `vp run --last-details` for full details)"
+            ],
+            "checkout": "agent-sim-worktree-b"
+          }
+        ],
+        "outputFiles": 130,
+        "identical": true,
+        "restoreMissingOutput": {
+          "exit": 0,
+          "seconds": 0.785,
+          "summary": [
+            "vp run: 6/6 cache hit (100%), 7/7 successful, 7.70s saved. (Run `vp run --last-details` for full details)"
+          ]
+        },
+        "restoredIdentically": true,
+        "mutation": {
+          "exit": 0,
+          "seconds": 1.071,
+          "summary": [
+            "vp run: 5/6 cache hit (83%), 7/7 successful, 7.13s saved. (Run `vp run --last-details` for full details)"
+          ]
+        }
+      },
+      "cortana": {
+        "head": "cec7d26404d73506b376ad5eb31e7f25d4b8f384",
+        "bun": "1.4.3",
+        "layout": "two clean Git worktrees",
+        "runs": [
+          {
+            "exit": 0,
+            "seconds": 17.813,
+            "summary": [
+              "vp run: 0/1 cache hit (0%), 2/2 successful. (Run `vp run --last-details` for full details)"
+            ],
+            "checkout": "cortana-cache-a"
+          },
+          {
+            "exit": 0,
+            "seconds": 0.924,
+            "summary": [
+              "vp run: 1/1 cache hit (100%), 2/2 successful, 15.96s saved. (Run `vp run --last-details` for full details)"
+            ],
+            "checkout": "cortana-cache-b"
+          }
+        ],
+        "outputFiles": 102,
+        "identical": true,
+        "restoreMissingOutput": {
+          "exit": 0,
+          "seconds": 0.747,
+          "summary": [
+            "vp run: 1/1 cache hit (100%), 2/2 successful, 15.96s saved. (Run `vp run --last-details` for full details)"
+          ]
+        },
+        "restoredIdentically": true,
+        "mutation": {
+          "exit": 0,
+          "seconds": 17.147,
+          "summary": [
+            "vp run: 0/1 cache hit (0%), 2/2 successful. (Run `vp run --last-details` for full details)"
+          ]
+        },
+        "publicEnvironmentMutation": {
+          "exit": 0,
+          "seconds": 23.001,
+          "summary": [
+            "vp run: 0/1 cache hit (0%), 2/2 successful. (Run `vp run --last-details` for full details)"
+          ]
+        }
+      },
+      "adeaHosted": {
+        "head": "df72ac097ed21870898531666792ac29f96a3caf",
+        "writer": "https://github.com/adea-ai/adea/actions/runs/39060477290",
+        "freshReader": "https://github.com/adea-ai/adea/actions/runs/39061003597",
+        "writerCold": "0/15 cacheable hits;17/17 tasks successful",
+        "freshReaderFirstBuild": "15/15 hits;17/17 successful",
+        "result": "Restored exact writer key. Actual executable bytes fingerprinted. Sim packing explicitly disabled; no deployment."
+      },
+      "pluginsDownloads": {
+        "writer": "https://github.com/adea-ai/plugins/actions/runs/39055921529",
+        "freshReader": "https://github.com/adea-ai/plugins/actions/runs/39056020219",
+        "result": "Trusted writer miss/save then independent exact-key reader restore; no isolated performance claim."
+      }
+    },
+    "cloudflare": {
+      "deployedSource": "68ebfe0d80d42bb72c3e25548e1ababfbc74283f",
+      "pipelineRun": "https://github.com/adea-ai/adea/actions/runs/39058006562",
+      "version": "fa1bb695-c9a5-403e-9743-d0ea1f48d921",
+      "deployment": "078b6719-65ff-470a-a508-3cef2ad58eaa",
+      "deployedAt": "2026-10-17T18:31:47.76444Z",
+      "initiatedByThisAgent": false,
+      "samples": [
+        {
+          "from": "2026-10-17T18:35:00Z",
+          "to": "2026-10-17T18:45:00Z",
+          "workerRequests": 1,
+          "workerErrors": 0,
+          "subrequests": 6,
+          "cpuTimeP50Raw": 42523,
+          "cpuTimeP99Raw": 42523,
+          "hyperdriveGroups": []
+        },
+        {
+          "from": "2026-10-17T18:45:00Z",
+          "to": "2026-10-17T19:00:00Z",
+          "workerGroups": [],
+          "hyperdriveGroups": []
+        }
+      ],
+      "conclusion": "Sparse/absent telemetry cannot establish production recovery or zero usage. No load probes issued."
+    },
+    "remaining": [
+      "Merge and qualify current AgentSim/Cortana/TypeScript follow-ups without overwriting active owners.",
+      "Hosted fresh writer-reader cache transfer still needed for Control Plane/UI/AgentSim/Cortana at merged heads.",
+      "Finish shared UI release sequencing before held Adea/Cortana/AgentSim consumer version updates.",
+      "Sparse Cloudflare telemetry cannot establish CPU/Hyperdrive recovery. No production load probes.",
+      "Cortana Windows cache identity unqualified; Windows commands intentionally remain uncached.",
+      "AgentSim110 auto-merge action was denied by automatic approval review; keep off pending explicit PR-specific approval."
+    ]
+  }
 }
