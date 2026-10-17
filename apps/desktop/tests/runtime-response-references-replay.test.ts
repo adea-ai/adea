@@ -213,9 +213,7 @@ describe('response references through durable append and replay', () => {
     const future = log.append(
       input({
         sourceEventId: 'future',
-        // The canonical log refuses kinds outside the wire vocabulary; an
-        // unrelated known kind must stay opaque to the reference contract.
-        kind: 'tool.progress',
+        kind: 'future.unknown' as RuntimeEvent['kind'],
         payload: { references: { future: true } },
       })
     )!

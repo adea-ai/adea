@@ -274,7 +274,7 @@ describe('source-visible summary admission and replay', () => {
 
   test('ordinary messages, run completion and unrelated kinds never generate a summary', () => {
     const { log, options } = fixture()
-    for (const kind of ['turn.assistant_message', 'run.completed', 'tool.progress'])
+    for (const kind of ['turn.assistant_message', 'run.completed', 'future.summary'])
       log.append(
         message(
           {
@@ -295,7 +295,7 @@ describe('source-visible summary admission and replay', () => {
     expect(retained.map((event) => event.kind)).toEqual([
       'turn.assistant_message',
       'run.completed',
-      'tool.progress',
+      'future.summary',
     ])
   })
 })

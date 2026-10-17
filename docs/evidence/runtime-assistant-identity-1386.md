@@ -141,14 +141,13 @@ overlap as follows.
   payload without identity fails on append and on the wire. A retained row
   written before identity existed still passes the reference check on replay
   and stays opaque to the assistant lifecycle.
-- The canonical log now decodes every candidate envelope, so an event kind
-  outside the wire vocabulary is refused at append instead of being retained
-  where no stream consumer could decode it. The #1388/#1389 replay tests that
-  used a made-up kind now use the known unrelated kind `tool.progress`, and
-  their assistant payloads carry identity.
-- Append order is: reference validation, envelope decode, duplicate/retry
-  check, summary admission, assistant lifecycle checks, then sequence
-  allocation.
+- The canonical log validates assistant and call candidates (envelope identities,
+  payload contract) before dedupe and cursor allocation. Other kinds keep
+  main's legacy opaque retention, so a retained unknown kind still appends. The
+  #1388/#1389 replay tests give their assistant payloads identity.
+- Append order is: reference validation, assistant/call candidate validation
+  against the next cursor, duplicate/retry check, summary admission, assistant
+  lifecycle checks, exhaustion check, then the exact-frame size check.
 
 Review corrections found while reconciling:
 
