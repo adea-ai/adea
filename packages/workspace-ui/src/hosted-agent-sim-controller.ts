@@ -12,13 +12,16 @@ import {
   reduceSimLaunch,
   type OriginAllowlist,
   type SimAvailabilityNotice,
-  type SimFrameMessage,
+  type SimFrameRequestMessage,
+  type SimFrameStatusMessage,
   type SimLaunchEffect,
   type SimLaunchEvent,
   type SimLaunchRequest,
   type SimLaunchState,
   type SimMessageEventLike,
+  type SimNavigateTarget,
   type SimPlatform,
+  type SimSaveFailure,
   type SimSurface,
 } from '@adea-ai/spatial/sim-bridge'
 
@@ -52,6 +55,23 @@ export type HostedSimSnapshot = Readonly<{
 
 type PostTarget = Readonly<{ postMessage(message: unknown, targetOrigin: string): void }>
 
+export type HostedSimNavigateRequest = Readonly<{ target: SimNavigateTarget; requestId: string }>
+/**
+ * What a save is about. `signal` aborts when the save times out or its attempt ends (disposal,
+ * navigation, a new attempt, a workspace or surface change), and the identity names the launch it
+ * belongs to. The app must check `signal.aborted` and write its canonical state in the same
+ * synchronous step, so a save that was given up on can never land after a newer one.
+ */
+export type HostedSimSaveRequest = Readonly<{
+  requestId: string
+  signal: AbortSignal
+  workspaceId: string
+  surface: SimSurface
+  /** The launch attempt's channel nonce. */
+  bridgeId: string
+  attempt: number
+}>
+
 export type HostedSimControllerOptions = Readonly<{
   /** The sim origin to embed. Absent or invalid means not configured; nothing is requested. */
   frameOrigin: string | null | undefined
@@ -60,8 +80,11 @@ export type HostedSimControllerOptions = Readonly<{
   surface: SimSurface
   /** A hint for the entitlement source only; it never proves a desktop identity. */
   platform: SimPlatform
-  /** Character id forwarded in `host.launch`. */
-  character?: string
+  /**
+   * Character forwarded in `host.launch`. A function is read when the launch is posted, so the
+   * app's canonical character can change (a save) without relaunching a running frame.
+   */
+  character?: string | (() => string | undefined)
   /** Asks the Adea backend for a launch. The reply is unvalidated and checked here. */
   requestGrant(request: SimLaunchRequest, signal: AbortSignal): Promise<unknown>
   /**
@@ -71,11 +94,26 @@ export type HostedSimControllerOptions = Readonly<{
   isOnline?(): boolean
   /** The frame element's `contentWindow`, read each time it is needed. */
   frameWindow(): PostTarget | null
+  /**
+   * The frame asks to open another surface. The attempt has already ended and the frame has been
+   * told to dispose when this runs; the callback changes the launch configuration so a fresh grant
+   * is issued for `target`. Absent means requests are ignored and the attempt continues.
+   */
+  onNavigate?(request: HostedSimNavigateRequest): void
+  /**
+   * The frame asks to save a validated character value. Resolve `true` only once the app's
+   * canonical state holds it. `false` answers `refused` and a rejection answers `failed`; absent
+   * answers `refused`. Nothing is answered after the attempt ends. Only one save runs at a time:
+   * a new one is refused until the previous callback has settled, even if it already timed out.
+   */
+  onCharacterSave?(character: string, request: HostedSimSaveRequest): Promise<boolean> | boolean
   onChange(snapshot: HostedSimSnapshot): void
   /** How long the backend may take to answer. Clamped to 1s..60s. */
   requestTimeoutMs?: number
   /** How long the frame may take to become ready and then to report running. Clamped to 1s..60s. */
   frameTimeoutMs?: number
+  /** How long `onCharacterSave` may take before the frame is told `timeout`. Clamped to 1s..60s. */
+  saveTimeoutMs?: number
   now?: () => number
   mintBridgeId?: () => string
   /** Schedules `run` after `ms` and returns a canceller. */
@@ -99,6 +137,7 @@ export type HostedSimController = Readonly<{
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000
 const DEFAULT_FRAME_TIMEOUT_MS = 15_000
+const DEFAULT_SAVE_TIMEOUT_MS = 5_000
 
 function clampTimeout(value: number | undefined, fallback: number): number {
   const wanted = value ?? fallback
@@ -137,6 +176,7 @@ export function createHostedSimController(
   const schedule = options.schedule ?? defaultSchedule
   const requestTimeoutMs = clampTimeout(options.requestTimeoutMs, DEFAULT_REQUEST_TIMEOUT_MS)
   const frameTimeoutMs = clampTimeout(options.frameTimeoutMs, DEFAULT_FRAME_TIMEOUT_MS)
+  const saveTimeoutMs = clampTimeout(options.saveTimeoutMs, DEFAULT_SAVE_TIMEOUT_MS)
 
   let state: SimLaunchState = SIM_IDLE
   let bridgeId = ''
@@ -144,6 +184,13 @@ export function createHostedSimController(
   let cancelTimer: (() => void) | null = null
   let abortRequest: AbortController | null = null
   let disposed = false
+  // The frame asked to move to another surface: this attempt is over and hears nothing more.
+  let navigated = false
+  // The one character save in flight for this attempt, and the clock that bounds it.
+  let pendingSave: { requestId: string; abort: AbortController } | null = null
+  let cancelSave: (() => void) | null = null
+  // The callback still running for this attempt, which outlives a timed-out answer.
+  let runningSave: object | null = null
   let current: HostedSimSnapshot = build()
 
   function build(): HostedSimSnapshot {
@@ -189,8 +236,18 @@ export function createHostedSimController(
       abortRequest = null
     }
     if (phase === 'idle' || phase === 'unavailable' || phase === 'offline') frame = null
+    // A save only lives while the frame can hear the answer.
+    if (phase !== 'launching' && phase !== 'running') clearSave()
     current = build()
     options.onChange(current)
+  }
+
+  function clearSave(abort = true) {
+    cancelSave?.()
+    cancelSave = null
+    // A save that is given up on (timeout, disposal, a new attempt) can no longer commit.
+    if (abort) pendingSave?.abort.abort()
+    pendingSave = null
   }
 
   function apply(event: SimLaunchEvent) {
@@ -218,6 +275,9 @@ export function createHostedSimController(
   function requestGrant(attempt: number) {
     bridgeId = mint()
     frame = null
+    navigated = false
+    clearSave()
+    runningSave = null
     if (!origins) {
       apply({
         type: 'grant',
@@ -263,6 +323,8 @@ export function createHostedSimController(
   function postLaunch(effect: Extract<SimLaunchEffect, { type: 'post_launch' }>) {
     const { attempt, grant } = effect
     const target = options.frameWindow()
+    const wanted = options.character
+    const character = typeof wanted === 'function' ? wanted() : wanted
     try {
       if (!origins || !target) throw new Error('no frame to launch')
       postToFrame(target, grant.frameOrigin, origins, bridgeId, {
@@ -271,7 +333,7 @@ export function createHostedSimController(
           code: grant.code,
           expiresAt: grant.expiresAt,
           surface: grant.surface,
-          ...(options.character ? { character: options.character } : {}),
+          ...(character ? { character } : {}),
         },
       })
     } catch {
@@ -289,6 +351,7 @@ export function createHostedSimController(
 
   function disposeFrame() {
     clearTimer()
+    clearSave()
     abortRequest?.abort()
     abortRequest = null
     const target = options.frameWindow()
@@ -298,6 +361,101 @@ export function createHostedSimController(
     } catch {
       // The frame is going away either way.
     }
+  }
+
+  function answerSave(
+    attempt: number,
+    requestId: string,
+    answer: { saved: true } | { saved: false; reason: SimSaveFailure }
+  ) {
+    const target = options.frameWindow()
+    if (disposed || navigated || !origins || !frame || !target) return
+    if (state.attempt !== attempt || (phaseNow() !== 'launching' && phaseNow() !== 'running'))
+      return
+    try {
+      postToFrame(target, frame.origin, origins, bridgeId, {
+        type: 'host.character.save.result',
+        payload: { requestId, ...answer },
+      })
+    } catch {
+      // The frame is gone; its own timeout fails the save.
+    }
+  }
+
+  function handleNavigate(request: HostedSimNavigateRequest) {
+    // Only a different designer than the one on screen; a frame cannot re-launch itself.
+    if (!options.onNavigate || request.target === options.surface || navigated) return
+    navigated = true
+    disposeFrame()
+    apply({
+      type: 'frame',
+      attempt: state.attempt,
+      message: { type: 'frame.close', payload: {} },
+      now: now(),
+    })
+    try {
+      options.onNavigate(request)
+    } catch {
+      // The app's router failing leaves this attempt closed; the view offers the way back.
+    }
+  }
+
+  function handleSave(character: string, requestId: string) {
+    const attempt = state.attempt
+    if (pendingSave || runningSave || !options.onCharacterSave) {
+      answerSave(attempt, requestId, { saved: false, reason: 'refused' })
+      return
+    }
+    const mine = { requestId, abort: new AbortController() }
+    const run = {}
+    pendingSave = mine
+    runningSave = run
+    const settle = (
+      answer: { saved: true } | { saved: false; reason: SimSaveFailure },
+      abort: boolean
+    ) => {
+      // A late answer for a request that timed out, or for an attempt that has ended, is dropped.
+      if (pendingSave !== mine) return
+      clearSave(abort)
+      answerSave(attempt, requestId, answer)
+    }
+    const finish = () => {
+      if (runningSave === run) runningSave = null
+    }
+    cancelSave = schedule(() => settle({ saved: false, reason: 'timeout' }, true), saveTimeoutMs)
+    let saving: Promise<boolean>
+    try {
+      saving = Promise.resolve(
+        options.onCharacterSave(character, {
+          requestId,
+          signal: mine.abort.signal,
+          workspaceId: options.workspaceId,
+          surface: options.surface,
+          bridgeId,
+          attempt,
+        })
+      )
+    } catch {
+      saving = Promise.reject(new Error('save failed'))
+    }
+    void saving.then(
+      (saved) => {
+        finish()
+        settle(saved === true ? { saved: true } : { saved: false, reason: 'refused' }, false)
+      },
+      () => {
+        finish()
+        settle({ saved: false, reason: 'failed' }, false)
+      }
+    )
+  }
+
+  function handleRequest(message: SimFrameRequestMessage) {
+    const phase = phaseNow()
+    // Requests are for a frame that was launched and has not been told to leave.
+    if (navigated || (phase !== 'launching' && phase !== 'running')) return
+    if (message.type === 'frame.navigate') handleNavigate(message.payload)
+    else handleSave(message.payload.character, message.payload.requestId)
   }
 
   return {
@@ -322,8 +480,17 @@ export function createHostedSimController(
         frameWindow: options.frameWindow(),
         bridgeId,
       })
-      let message: SimFrameMessage
-      if (parsed.ok) message = parsed.message
+      let message: SimFrameStatusMessage
+      if (parsed.ok) {
+        if (
+          parsed.message.type === 'frame.navigate' ||
+          parsed.message.type === 'frame.character.save'
+        ) {
+          handleRequest(parsed.message)
+          return
+        }
+        message = parsed.message
+      }
       // Origin and window matched the frame, but the envelope checks the version before the
       // channel nonce, so this may be a stale or foreign message. It counts as the current frame
       // speaking a protocol version this host does not understand only when it also carries the

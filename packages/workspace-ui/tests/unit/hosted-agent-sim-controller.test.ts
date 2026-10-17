@@ -3,6 +3,7 @@ import { frameEnvelope, type SimFrameMessage } from '@adea-ai/spatial/sim-bridge
 import {
   createHostedSimController,
   type HostedSimControllerOptions,
+  type HostedSimSaveRequest,
   type HostedSimSnapshot,
 } from '../../src/hosted-agent-sim-controller'
 
@@ -572,5 +573,350 @@ describe('hosted Agent Sim controller', () => {
       w.controller.start()
       expect(w.phase()).toBe('requesting')
     })
+  })
+})
+
+const SERIALIZED =
+  'character:v1:body-body-01|ears-ears-01|face-female-emotion-usual-01|hair-hairstyle-female-01|-|top-outfit-01|bottom-pants-01|shoes-shoe-sneakers-01|-|-|-|-|-'
+
+const payloadOf = (entry: Posted) => entry.message.payload as Record<string, unknown>
+const typed = (w: ReturnType<typeof setup>, type: string) =>
+  w.posted.filter((entry) => entry.message.type === type)
+
+const navigateFrom = (w: ReturnType<typeof setup>, target = 'room-designer', requestId = 'nav1') =>
+  w.fromFrame({
+    type: 'frame.navigate',
+    payload: { requestId, target: target as 'room-designer' },
+  })
+
+const saveFrom = (w: ReturnType<typeof setup>, requestId = 'save1', character = SERIALIZED) =>
+  w.fromFrame({ type: 'frame.character.save', payload: { requestId, character } })
+
+describe('hosted Agent Sim frame navigation', () => {
+  test('a running frame leaves once: dispose, closed attempt, then the app callback', async () => {
+    const navigations: unknown[] = []
+    const w = setup({ onNavigate: (request) => navigations.push(request) })
+    await launched(w)
+    w.controller.handleMessage(w.fromFrame({ type: 'frame.state', payload: { state: 'running' } }))
+    const second = navigateFrom(w, 'room-designer', 'nav2')
+    w.controller.handleMessage(navigateFrom(w, 'character-designer'))
+    expect(navigations).toEqual([{ target: 'character-designer', requestId: 'nav1' }])
+    expect(typed(w, 'host.dispose')).toHaveLength(1)
+    expect(w.phase()).toBe('idle')
+    expect(w.controller.snapshot().frame).toBeNull()
+    // The ended attempt hears nothing more, and the first navigation wins.
+    w.controller.handleMessage(second)
+    expect(navigations).toHaveLength(1)
+  })
+
+  test('the controller never mints a grant for the target itself', async () => {
+    const w = setup({ onNavigate: () => undefined })
+    await launched(w)
+    w.controller.handleMessage(navigateFrom(w))
+    expect(w.requests).toHaveLength(1)
+  })
+
+  test('same surface, no handler, an unlaunched frame and foreign senders are ignored', async () => {
+    const navigations: unknown[] = []
+    const early = setup({ onNavigate: (request) => navigations.push(request) })
+    early.controller.start()
+    early.requests[0]!.resolve(early.granted())
+    await early.flush()
+    early.controller.handleMessage(navigateFrom(early))
+    expect(navigations).toHaveLength(0)
+    expect(early.phase()).toBe('awaiting_frame')
+
+    const same = setup({ surface: 'room-designer', onNavigate: (r) => navigations.push(r) })
+    same.controller.start()
+    same.requests[0]!.resolve(same.granted('room-designer'))
+    await same.flush()
+    same.controller.handleMessage(same.fromFrame({ type: 'frame.ready', payload: {} }))
+    same.controller.handleMessage(navigateFrom(same, 'room-designer'))
+    expect(navigations).toHaveLength(0)
+
+    const none = setup()
+    await launched(none)
+    none.controller.handleMessage(navigateFrom(none))
+    expect(none.phase()).toBe('launching')
+
+    const foreign = setup({ onNavigate: (r) => navigations.push(r) })
+    await launched(foreign)
+    foreign.controller.handleMessage({ ...navigateFrom(foreign), origin: 'https://evil.example' })
+    foreign.controller.handleMessage({ ...navigateFrom(foreign), source: {} })
+    foreign.controller.handleMessage(
+      foreign.fromFrame(
+        { type: 'frame.navigate', payload: { requestId: 'n', target: 'room-designer' } },
+        'bridge-id-number-9999'
+      )
+    )
+    foreign.controller.handleMessage(
+      foreign.fromFrame({
+        type: 'frame.navigate',
+        payload: { requestId: 'n', target: 'hq' as 'room-designer' },
+      })
+    )
+    expect(navigations).toHaveLength(0)
+    expect(foreign.phase()).toBe('launching')
+  })
+
+  test('a throwing app callback leaves the attempt closed', async () => {
+    const w = setup({
+      onNavigate: () => {
+        throw new Error('router')
+      },
+    })
+    await launched(w)
+    w.controller.handleMessage(navigateFrom(w))
+    expect(w.phase()).toBe('idle')
+  })
+})
+
+const answers = (w: ReturnType<typeof setup>) =>
+  typed(w, 'host.character.save.result').map(payloadOf)
+
+const pending = () => {
+  let commit!: (saved: boolean) => void
+  const promise = new Promise<boolean>((resolve) => (commit = resolve))
+  return { promise, commit: (saved: boolean) => commit(saved) }
+}
+
+describe('hosted Agent Sim acknowledged character save', () => {
+  test('answers saved only after the app commits, for the same request', async () => {
+    let commit!: (saved: boolean) => void
+    const seen: unknown[] = []
+    const w = setup({
+      onCharacterSave: (character, request) => {
+        seen.push([character, request])
+        return new Promise<boolean>((resolve) => (commit = resolve))
+      },
+    })
+    await launched(w)
+    w.controller.handleMessage(saveFrom(w))
+    await w.flush()
+    expect(seen).toEqual([
+      [
+        SERIALIZED,
+        {
+          requestId: 'save1',
+          signal: expect.any(AbortSignal),
+          workspaceId: 'ws_1',
+          surface: 'hq',
+          bridgeId: 'bridge-id-number-0001',
+          attempt: 1,
+        },
+      ],
+    ])
+    expect((seen[0] as [string, { signal: AbortSignal }])[1].signal.aborted).toBe(false)
+    expect(answers(w)).toEqual([])
+    commit(true)
+    await w.flush()
+    expect(answers(w)).toEqual([{ requestId: 'save1', saved: true }])
+    expect(w.live().some((timer) => timer.ms === 5_000)).toBe(false)
+  })
+
+  test.each([
+    ['false', () => Promise.resolve(false), 'refused'],
+    ['a rejection', () => Promise.reject(new Error('conflict')), 'failed'],
+    [
+      'a throw',
+      () => {
+        throw new Error('sync')
+      },
+      'failed',
+    ],
+  ])('%s answers %s', async (_label, onCharacterSave, reason) => {
+    const w = setup({ onCharacterSave })
+    await launched(w)
+    w.controller.handleMessage(saveFrom(w))
+    await w.flush()
+    expect(answers(w)).toEqual([{ requestId: 'save1', saved: false, reason }])
+  })
+
+  test('no handler refuses and a second save while one is open is refused', async () => {
+    const none = setup()
+    await launched(none)
+    none.controller.handleMessage(saveFrom(none))
+    expect(answers(none)).toEqual([{ requestId: 'save1', saved: false, reason: 'refused' }])
+
+    let calls = 0
+    const w = setup({
+      onCharacterSave: () => {
+        calls += 1
+        return new Promise<boolean>(() => undefined)
+      },
+    })
+    await launched(w)
+    w.controller.handleMessage(saveFrom(w, 'a'))
+    w.controller.handleMessage(saveFrom(w, 'b'))
+    expect(calls).toBe(1)
+    expect(answers(w)).toEqual([{ requestId: 'b', saved: false, reason: 'refused' }])
+  })
+
+  test('a slow save times out and its late commit is never reported', async () => {
+    let commit!: (saved: boolean) => void
+    const w = setup({
+      onCharacterSave: () => new Promise<boolean>((resolve) => (commit = resolve)),
+    })
+    await launched(w)
+    w.controller.handleMessage(saveFrom(w))
+    w.live()
+      .find((timer) => timer.ms === 5_000)!
+      .run()
+    expect(answers(w)).toEqual([{ requestId: 'save1', saved: false, reason: 'timeout' }])
+    commit(true)
+    await w.flush()
+    expect(answers(w)).toHaveLength(1)
+  })
+
+  test('disposal, navigation and a new attempt drop the pending answer', async () => {
+    const disposed = pending()
+    const a = setup({ onCharacterSave: () => disposed.promise })
+    await launched(a)
+    a.controller.handleMessage(saveFrom(a))
+    a.controller.dispose()
+    disposed.commit(true)
+    await a.flush()
+    expect(answers(a)).toEqual([])
+
+    const left = pending()
+    const b = setup({ onCharacterSave: () => left.promise, onNavigate: () => undefined })
+    await launched(b)
+    b.controller.handleMessage(saveFrom(b))
+    b.controller.handleMessage(navigateFrom(b))
+    left.commit(true)
+    await b.flush()
+    expect(answers(b)).toEqual([])
+
+    const reconnected = pending()
+    const c = setup({ onCharacterSave: () => reconnected.promise })
+    await launched(c)
+    c.controller.handleMessage(saveFrom(c))
+    c.controller.setOffline()
+    c.controller.setOnline()
+    c.requests[1]!.resolve(c.granted())
+    await c.flush()
+    c.controller.handleMessage(c.fromFrame({ type: 'frame.ready', payload: {} }))
+    reconnected.commit(true)
+    await c.flush()
+    expect(answers(c)).toEqual([])
+  })
+
+  test('malformed, oversized, foreign and early saves reach no callback', async () => {
+    let calls = 0
+    const w = setup({
+      onCharacterSave: () => {
+        calls += 1
+        return true
+      },
+    })
+    w.controller.start()
+    w.requests[0]!.resolve(w.granted())
+    await w.flush()
+    w.controller.handleMessage(saveFrom(w))
+    w.controller.handleMessage(w.fromFrame({ type: 'frame.ready', payload: {} }))
+    for (const character of [
+      `${SERIALIZED}|-`,
+      SERIALIZED.replace('body-body-01', '-'),
+      'character:v1:body-body-01',
+      'x'.repeat(400),
+    ])
+      w.controller.handleMessage(saveFrom(w, 's', character))
+    w.controller.handleMessage({ ...saveFrom(w), origin: 'https://evil.example' })
+    w.controller.handleMessage(saveFrom(w, 's', SERIALIZED))
+    await w.flush()
+    expect(calls).toBe(1)
+  })
+})
+
+/** A canonical store whose commit is the contract's synchronous check-then-write. */
+function app() {
+  const state = { canonical: 'start', gates: [] as (() => void)[] }
+  const onCharacterSave = (character: string, request: HostedSimSaveRequest) =>
+    new Promise<boolean>((resolve) => {
+      state.gates.push(() => {
+        if (request.signal.aborted) return resolve(false)
+        state.canonical = character
+        resolve(true)
+      })
+    })
+  return { state, onCharacterSave }
+}
+
+describe('hosted Agent Sim save fencing', () => {
+  const other = SERIALIZED.replace('top-outfit-01', 'top-outfit-02')
+
+  test('a save that timed out cannot commit late, and the next one waits for its callback', async () => {
+    const { state, onCharacterSave } = app()
+    const w = setup({ onCharacterSave })
+    await launched(w)
+    w.controller.handleMessage(saveFrom(w, 'a', SERIALIZED))
+    w.live()
+      .find((timer) => timer.ms === 5_000)!
+      .run()
+    expect(answers(w)).toEqual([{ requestId: 'a', saved: false, reason: 'timeout' }])
+
+    // The first callback is still running, so a second save is refused rather than raced.
+    w.controller.handleMessage(saveFrom(w, 'b', other))
+    expect(state.gates).toHaveLength(1)
+    expect(answers(w)[1]).toEqual({ requestId: 'b', saved: false, reason: 'refused' })
+
+    // It finishes last and finds its request given up on: canonical state is untouched.
+    state.gates[0]!()
+    await w.flush()
+    expect(state.canonical).toBe('start')
+
+    // Now a retry is accepted and is the only writer.
+    w.controller.handleMessage(saveFrom(w, 'c', other))
+    expect(state.gates).toHaveLength(2)
+    state.gates[1]!()
+    await w.flush()
+    expect(state.canonical).toBe(other)
+    expect(answers(w)[2]).toEqual({ requestId: 'c', saved: true })
+  })
+
+  test.each([
+    ['disposal', (w: ReturnType<typeof setup>) => w.controller.dispose()],
+    ['navigation', (w: ReturnType<typeof setup>) => w.controller.handleMessage(navigateFrom(w))],
+    ['going offline', (w: ReturnType<typeof setup>) => w.controller.setOffline()],
+  ])('%s aborts the pending save before it can commit', async (_label, end) => {
+    const { state, onCharacterSave } = app()
+    const w = setup({ onCharacterSave, onNavigate: () => undefined })
+    await launched(w)
+    w.controller.handleMessage(saveFrom(w, 'a', SERIALIZED))
+    end(w)
+    state.gates[0]!()
+    await w.flush()
+    expect(state.canonical).toBe('start')
+    expect(answers(w)).toEqual([])
+  })
+
+  test('a new attempt does not wait for an aborted callback from the old one', async () => {
+    const { state, onCharacterSave } = app()
+    const w = setup({ onCharacterSave })
+    await launched(w)
+    w.controller.handleMessage(saveFrom(w, 'a', SERIALIZED))
+    w.controller.setOffline()
+    w.controller.setOnline()
+    w.requests[1]!.resolve(w.granted())
+    await w.flush()
+    w.controller.handleMessage(w.fromFrame({ type: 'frame.ready', payload: {} }))
+    w.controller.handleMessage(saveFrom(w, 'b', other))
+    expect(state.gates).toHaveLength(2)
+    // The old attempt finishes last: aborted, so it cannot overwrite the newer save.
+    state.gates[1]!()
+    state.gates[0]!()
+    await w.flush()
+    expect(state.canonical).toBe(other)
+  })
+
+  test('the launch carries the character as it is when the frame becomes ready', async () => {
+    let character = 'ada'
+    const w = setup({ character: () => character })
+    w.controller.start()
+    w.requests[0]!.resolve(w.granted())
+    await w.flush()
+    character = SERIALIZED
+    w.controller.handleMessage(w.fromFrame({ type: 'frame.ready', payload: {} }))
+    expect(payloadOf(typed(w, 'host.launch')[0]!)).toMatchObject({ character: SERIALIZED })
   })
 })

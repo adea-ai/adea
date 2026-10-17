@@ -184,7 +184,7 @@ describe('frame to host messages', () => {
       'frame.eval',
       'frame.fs.read',
       'frame.token',
-      'frame.navigate',
+      'frame.navigate.any',
       'host.launch',
       '',
     ])
