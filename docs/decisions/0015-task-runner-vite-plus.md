@@ -48,18 +48,51 @@ The graph also carries these decisions, each found by running both runners:
   The root `coverage/` created by `bun test --coverage` re-runs lint and the web build once.
 - The root `oxlint --deny-warnings` and the coverage lane stay uncached, as under Turbo.
 - Environment variables reach cached tasks only when declared, as under Turbo's strict mode.
-  Uncached tasks (the desktop tests, the coverage lane) receive the full environment.
+  Uncached tasks (the desktop tests, the coverage lane) receive the full environment. The web build
+  declares `VITE_*`, the four `ADEA_PUBLIC_*` names that `vite.config.ts` substitutes into the
+  browser code (read from `PUBLIC_ENV_NAMES`, so a new name cannot be missed) and
+  `ADEA_AGENT_SIM_DIST`. `ADEA_PUBLIC_DEPLOY_GIT_COMMIT_SHA` is embedded in the output, so a build
+  that sets it is a miss on every commit.
+- The Agent Sim engine pack that `ADEA_AGENT_SIM_DIST` names is a directory outside the workspace,
+  and `bun` copies it, so no input glob can name it. A digest of its files is written into the web
+  build command (`ORCH_AGENT_SIM_PACK=<digest>`, `none` when unset), computed when the graph loads.
+  A relative path is resolved against `apps/web`, as `scripts/pack-agent-sim.mjs` resolves it.
+- Different environment values and different pack digests are separate cache entries, so returning
+  to an earlier value replays it; editing a tracked file replaces the entry for its command.
 - Cloudflare deploy lanes skip Code Foundry's Turbo-only affected check and deploy conservatively.
 - `lint` results can depend on `packages/ui/dist` when a discovery-sensitive rule reads the barrel.
   Lint declares no dependency on it, as under Turbo.
 
-## Evidence (one host, 4 vCPU, Node 24.18.0, Bun 1.4.0; not a benchmark)
+## Evidence (one host, 4 vCPU, Node 24.21.0 for the final run and 24.18.0 earlier, Bun 1.4.0; not a benchmark)
 
-- `dist` of all 15 packages is byte-identical to the Turbo build, cold and after deleting every
-  `dist` and replaying from the cache.
+Output parity is stated per run, not as a blanket claim:
+
+- Same source, same checkout path: Turbo at main `878939b1` against Vite+ at `ef153ac8`, fresh
+  clones with a frozen install, Node 24.21.0. All 1,782 files of the 15 `dist` directories were
+  compared by SHA-256. 1,772 are identical. The 10 that differ are all under `apps/web/dist/server`:
+  eight chunks whose content-derived names changed, and `index.js` and `.vite/manifest.json`, which
+  name them. The difference is the Bun store directory suffix in `//#region` comments
+  (`better-auth@1.6.23+364b92bc23e0ea47` against `+4c689408c6010410`), which follows from the
+  regenerated `bun.lock` that adds `vite-plus`, not from the runner. With that suffix and the chunk
+  hashes normalised, every `apps/web/dist/server` file is identical. Each runner is deterministic:
+  two Turbo builds agree with each other and two Vite+ builds agree with each other.
+- An earlier directory-level manifest showed different `apps/web/dist` hashes for equal sizes. Its
+  cause was not isolated at the time and the comparison was not repeated as such; the file-level
+  comparison above supersedes it. A checkout path also appears in `server/wrangler.json`, so builds
+  from different paths differ in that file and in the chunk name derived from it.
+- Merged head `ef153ac8`, fresh clone, frozen install: cold build, typecheck, lint and
+  `test:unit` exit 0; second warm pass hits 15/15, 31/31 and 17/17. The first warm lint and web build
+  miss once because `bun test --coverage` creates `coverage/`. In one warm `test:unit` the uncached
+  desktop suite had two git-provider tests time out at 5 s while other tasks ran; the same suite
+  alone passed 1,416 of 1,416 three times.
+- Web build cache contract, tested by editing and varying inputs on a warm cache: editing
+  `scripts/pack-agent-sim.mjs` misses; each `ADEA_PUBLIC_*` value misses when changed and hits when
+  repeated; an engine pack directory misses when first set, when a file's content changes at the same
+  path and when a file is added, and hits when unchanged.
 - Edits invalidate exactly the tasks that depend on them (library source, a package's tests, the web
   app, desktop shell source that the web tests read, `bunfig.toml`, the test preload, the source
   contract setup script); a failing type check, lint, test or dependency build exits non-zero and is
   never replayed; changing a declared `VITE_*` variable misses and an undeclared one hits.
-- A cold full build took about 61-65 s with concurrency 4 against 76 s for the same graph under
-  Turbo's default concurrency; a fully cached build, typecheck and lint take about 1.6, 1.7 and 0.7 s.
+- A cold full build took about 62 s with concurrency 4 against 58 to 76 s under Turbo's default
+  concurrency on this host; a fully cached build, typecheck and lint take about 1, 2 and 5 s.
+- Hosted CI on this branch has not been observed.
