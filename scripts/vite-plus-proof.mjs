@@ -113,6 +113,9 @@ function once(args) {
     maxBuffer: 64 * 1024 * 1024,
   })
   const output = `${run.stdout}${run.stderr}`
+  // The raw `vp run` output stays in the job log, so a miss can be read without trusting the wrapper's summary.
+  if (process.env.GITHUB_ACTIONS)
+    console.log(`::group::raw vp run ${TASK} output\n${output}\n::endgroup::`)
   if (run.status !== 0) {
     process.stderr.write(output)
     throw new Error(`vp run ${TASK} failed (exit ${run.status})`)

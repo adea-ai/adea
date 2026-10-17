@@ -46,7 +46,7 @@ key and save-intent outputs. The product action owns the cache namespace, key, r
 behavior; Adea has no bespoke cache-key computation. The job uses the committed `monorepo_tool: vite-plus`; it appends
 nothing to `.github/code-foundry.yml`. No secrets, remote cache or Cloudflare are used; the cache is the repository's GitHub Actions cache.
 
-The cache path ends in `adea-vite-plus-proof-cache-orch-r3-v1.48.1`. GitHub derives the archive version from the cache path
+The cache path ends in `adea-vite-plus-proof-cache-orch-r4-v1.48.1`. GitHub derives the archive version from the cache path
 list ([cache version reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#cache-key-matching)),
 so this proof cannot restore the earlier bounded-slice proof's archives and the first run can assert a cold cache. The `r3` segment
 retires the archives written before the generated-directory listings were excluded from the task inputs (see below); a changed

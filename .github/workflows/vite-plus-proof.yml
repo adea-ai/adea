@@ -74,7 +74,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r3-v1.48.1"
+          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r4-v1.48.1"
           case "$cache_path" in
             "$RUNNER_TEMP"/*) ;;
             *) echo "Vite+ cache path is outside RUNNER_TEMP" >&2; exit 1 ;;
@@ -99,6 +99,15 @@ jobs:
             printf 'expect=%s\n' "$(trailer vp-proof-expect)"
             printf 'manifest=%s\n' "$(trailer vp-proof-manifest)"
           } >> "$GITHUB_OUTPUT"
+      # Diagnostics only (asserts nothing): what the restored task cache records about `.vite-temp`, and what the
+      # fresh tree has, before the build runs.
+      - name: Restored cache metadata (diagnostic)
+        if: always()
+        continue-on-error: true
+        run: |
+          ls -la node_modules | head -20 || true
+          find . -maxdepth 4 -name .vite-temp -not -path './node_modules/.bun/*' -print 2>/dev/null || true
+          python3 scripts/vite-plus-cache-inspect.py "$VITE_CACHE_PATH" || true
       # A fresh runner has no generated dist, so a warm run that passes here
       # has replayed the outputs from the restored cache.
       - name: Vite+ orch:build (restored task cache)
@@ -111,13 +120,21 @@ jobs:
           [ -z "$EXPECT" ] || args+=(--expect "$EXPECT")
           [ -z "$MANIFEST" ] || args+=(--expect-manifest "$MANIFEST")
           node scripts/vite-plus-proof.mjs "${args[@]}"
+      - name: Cache metadata after the run (diagnostic)
+        if: always()
+        continue-on-error: true
+        run: |
+          find . -maxdepth 4 -name .vite-temp -not -path './node_modules/.bun/*' -print 2>/dev/null || true
+          ls -la node_modules | head -20 || true
+          node_modules/.bin/vp run --last-details 2>&1 | head -80 || true
+          python3 scripts/vite-plus-cache-inspect.py "$VITE_CACHE_PATH" || true
       - name: Proof script tests
         run: bun test scripts/vite-plus-proof.test.ts
       - name: Task cache contents
         shell: bash
         run: |
           set -euo pipefail
-          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r3-v1.48.1"
+          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r4-v1.48.1"
           test "$VITE_CACHE_PATH" = "$expected"
           printf '%s\n' "$CODE_FOUNDRY_VITE_CACHE_PATHS" | grep -Fqx "$expected"
           test -d "$VITE_CACHE_PATH"
