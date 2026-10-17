@@ -1,5 +1,11 @@
 import { defineConfig, devices } from '@playwright/test'
 
+import { assertLocalTestTargets } from './scripts/test-target-guard.mjs'
+
+// Browser lanes reach only local servers and databases (or the CI-created Neon
+// branch); a base URL or database URL inherited from the shell is checked first.
+assertLocalTestTargets()
+
 // PERF_BASE_URL points the suite at an already-running server and disables
 // the managed webServer below. E2E_PORT is the local-run escape from the
 // shared port 3000: the managed server starts on 127.0.0.1:<E2E_PORT> with

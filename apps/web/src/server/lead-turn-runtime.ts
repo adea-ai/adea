@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto'
 import type {
+  ApiLeadTurnChildrenQuery,
+  ApiLeadTurnChildrenResponse,
   ApiLeadTurnStatus,
   ApiLeadTurnProgressResponse,
   LeadTurnRuntimeState,
   LeadTurnReasonCode,
 } from '@adea-ai/api-client'
+import { leadTurnChildrenQuery, projectLeadTurnChildrenPage } from './lead-turn-children'
+import { LeadRuntimeRefusal } from './lead-runtime-refusal'
 
 export type LeadRuntimeScope = Readonly<{ workspaceId: string; intentId: string; userId: string }>
 export type LeadRuntimeAuthority = Readonly<{
@@ -13,6 +17,12 @@ export type LeadRuntimeAuthority = Readonly<{
   workspaceId: string
   controlPlaneWorkspaceId: string
   originalActorRef: `user:${string}`
+  /**
+   * The intent's immutable admission instant (ISO). Prepare and dispatch send it as the command's
+   * `issuedAt`, so a retry from any process repeats the first attempt's value and CP, which binds
+   * the idempotency key to a digest including `issuedAt`, treats it as the same command.
+   */
+  admittedAt?: string
   /** Exact admission target retained on the intent; absent for legacy admissions. */
   handoffTarget?: Readonly<{
     runtimeSessionId: string
@@ -60,9 +70,21 @@ export type LeadRuntimeAdapter = {
     dispatchKey: string,
     prepared: LeadPreparedSelection
   ): Promise<unknown>
+  /** Read-only retained children; absent support never disables existing lead operations. */
+  children?: (
+    input: LeadRuntimeAuthority,
+    dispatchId: string,
+    page: ApiLeadTurnChildrenQuery
+  ) => Promise<unknown>
   status(input: LeadRuntimeAuthority, dispatchId: string): Promise<unknown>
   progress(input: LeadRuntimeAuthority, dispatchId: string, afterSequence: number): Promise<unknown>
-  cancel(input: LeadRuntimeAuthority, dispatchId: string, cancelKey: string): Promise<unknown>
+  /** `issuedAt` is the persisted cancel-request instant, repeated by every retry of the cancel. */
+  cancel(
+    input: LeadRuntimeAuthority,
+    dispatchId: string,
+    cancelKey: string,
+    issuedAt?: string
+  ): Promise<unknown>
   /** Current authoritative grant, selection and payer must match this exact execution/attempt. */
   assertPublicationCurrent?: (
     input: LeadRuntimeAuthority &
@@ -230,7 +252,8 @@ export function createLeadTurnRuntime(
   async function projection(
     scope: LeadRuntimeScope,
     reasonCode?: LeadTurnReasonCode,
-    held?: LeadRuntimeHeldAuthority
+    held?: LeadRuntimeHeldAuthority,
+    readinessReason?: string
   ): Promise<ApiLeadTurnStatus> {
     const authority = held ? checkedHeld(scope, held) : await store.authorize(scope, 'read')
     const stored = await storedRecord(scope, held?.purpose ?? 'read', held)
@@ -255,7 +278,7 @@ export function createLeadTurnRuntime(
       ...(stored?.publishedMessageId ? { publishedMessageId: stored.publishedMessageId } : {}),
       availability: reasonCode || !adapter ? 'unavailable' : 'available',
       ...(reasonCode
-        ? { reasonCode }
+        ? { reasonCode, ...(readinessReason ? { readinessReason } : {}) }
         : !adapter
           ? { reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE' }
           : {}),
@@ -286,6 +309,8 @@ export function createLeadTurnRuntime(
       await work()
       return await projection(scope, undefined, held)
     } catch (error) {
+      if (error instanceof LeadRuntimeRefusal)
+        return projection(scope, 'MODEL_NOT_READY', held, error.readinessReason)
       return projection(
         scope,
         error instanceof Error && error.message === 'RUNTIME_RESPONSE_INVALID'
@@ -465,14 +490,69 @@ export function createLeadTurnRuntime(
         scope,
         async () => {
           await store.cancelRequested(scope)
+          // The first request's instant is stored once; later retries read the same value.
+          const requested = (await storedRecord(scope, 'cancel', held))?.cancelRequestedAt
           await observation(
             scope,
-            await adapter.cancel(authority, prior.dispatchId!, `lead-cancel:${prior.dispatchId}`),
+            await adapter.cancel(
+              authority,
+              prior.dispatchId!,
+              `lead-cancel:${prior.dispatchId}`,
+              requested
+            ),
             held
           )
         },
         held
       )
+    },
+    async children(
+      scope: LeadRuntimeScope,
+      query: ApiLeadTurnChildrenQuery = {}
+    ): Promise<ApiLeadTurnChildrenResponse> {
+      const page = leadTurnChildrenQuery(query)
+      const authority = await store.authorize(scope, 'read')
+      const prior = await store.read(scope)
+      const unavailable = async (
+        reasonCode: Extract<
+          ApiLeadTurnChildrenResponse['childObservations'],
+          { availability: 'unavailable' }
+        >['reasonCode']
+      ): Promise<ApiLeadTurnChildrenResponse> => ({
+        leadTurn: await projection(scope),
+        childObservations: { availability: 'unavailable', reasonCode },
+      })
+      if (!prior?.dispatchId) return unavailable('NOT_DISPATCHED')
+      if (!adapter?.children) return unavailable('ADMISSION_SERVICE_UNAVAILABLE')
+      let value: unknown
+      try {
+        value = await adapter.children(authority, prior.dispatchId, page)
+      } catch {
+        return unavailable('RUNTIME_UNAVAILABLE')
+      }
+      try {
+        const result = projectLeadTurnChildrenPage(value, page)
+        binding(result.binding, authority.intentId, prior)
+        // Recheck canonical authority and the retained lineage after the awaited CP read.
+        const leadTurn = await projection(scope)
+        const current = await store.authorize(scope, 'read')
+        if (
+          current.controlPlaneWorkspaceId !== authority.controlPlaneWorkspaceId ||
+          current.messageId !== authority.messageId ||
+          current.originalActorRef !== authority.originalActorRef
+        )
+          throw new Error('RUNTIME_RESPONSE_INVALID')
+        binding(result.binding, scope.intentId, leadTurn)
+        if (
+          ['dispatchId', 'executionId', 'attemptId', 'runtimeSessionId'].some(
+            (key) => Reflect.get(leadTurn, key) !== Reflect.get(prior, key)
+          )
+        )
+          throw new Error('RUNTIME_RESPONSE_INVALID')
+        return { leadTurn, childObservations: { availability: 'available', ...result.page } }
+      } catch {
+        return unavailable('RUNTIME_RESPONSE_INVALID')
+      }
     },
     async progress(
       scope: LeadRuntimeScope,

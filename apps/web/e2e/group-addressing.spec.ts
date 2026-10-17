@@ -54,6 +54,28 @@ test('the group header names every participant with its workspace, the audience 
   await expect(roster).toContainText('Next message: No Agent addressed')
 })
 
+test('the header names the people the server holds, and Manage group shows the same roster with the owner’s controls', async ({
+  page,
+}) => {
+  await open(page)
+  const roster = page.getByRole('navigation', { name: 'People in this conversation' })
+  // The signed-in person is You; the other person is named from the workspace's member list, not assumed away.
+  await expect(roster.getByRole('listitem', { name: 'You' })).toBeVisible()
+  await expect(roster.getByRole('listitem', { name: 'Dana' })).toBeVisible()
+  await roster.getByRole('button', { name: 'Manage group' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Manage Launch review' })
+  const participants = dialog.getByRole('list', { name: 'Participants' })
+  await expect(participants.getByRole('listitem')).toHaveCount(4)
+  await expect(participants).toContainText('You')
+  await expect(participants).toContainText('Dana')
+  await expect(participants).toContainText('Aria · Acme')
+  // The signed-in person owns the workspace, so the controls are there; nothing is saved until they change something.
+  await expect(dialog.locator('[data-group-readonly]')).toHaveCount(0)
+  await expect(dialog.getByRole('heading', { name: 'Add people and Agents' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: 'Save changes' })).toBeDisabled()
+  await expect(dialog).toContainText('from the moment they join')
+})
+
 test('a message with no recipient chosen addresses no one', async ({ page }) => {
   await open(page)
   await send(page, 'Just thinking out loud')

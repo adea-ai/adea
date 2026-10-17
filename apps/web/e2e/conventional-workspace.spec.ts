@@ -1428,6 +1428,27 @@ test('connects newly created Projects and group conversations to their canonical
   ).toBeVisible()
 })
 
+test('the production New group dialog does not carry its draft into another workspace', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create group conversation' }).click()
+  const groupDialog = page.getByRole('dialog', { name: 'New group conversation' })
+  const name = groupDialog.getByLabel('Conversation name')
+  await name.fill('Draft for Work')
+  await expect(name).toHaveValue('Draft for Work')
+  // The overlay covers the sidebar for the pointer, but a workspace can still change under an open dialog
+  // (a notification, a shortcut, another tab's switch): that is a different group, so the draft goes.
+  await workspaceNav(page)
+    .getByRole('button', { name: /^Home( |$)/ })
+    .evaluate((row) => (row as HTMLElement).click())
+  await expect(page).toHaveURL(/scene=home/)
+  // The draft is gone from the state, not only from the field: nothing can be submitted from it.
+  await expect(groupDialog.getByRole('button', { name: 'Create conversation' })).toBeDisabled()
+  await expect(name).toHaveValue('')
+})
+
 test('toggles chat and virtual Project views without losing shared selection or drafts', async ({
   page,
 }) => {
@@ -2719,6 +2740,35 @@ test('deep-links settings and customizes an Agent without fabricating runtime st
   // bottom edge (what a click from the top would do) instead of leaving the
   // offset to however far the reopen scrolled, then require it to hold.
   const directory = page.locator('section.conventional-directory')
+  // The pin is only meaningful once the scrollport has its final geometry. Before it
+  // overflows (or while it still resizes or scrolls), scrollIntoView clamps to 0 and the
+  // later click scrolls the button into view, so the dialog opens at an offset the pin
+  // never saw (observed on a hosted run: pinned 0, opened at 396). Wait until the
+  // scrollport overflows and its scroll height, client height and offset hold across
+  // consecutive frames, then pin; the assertion below is unchanged.
+  await expect
+    .poll(() =>
+      directory.evaluate((element) => {
+        const geometry = () =>
+          `${element.scrollHeight}:${element.clientHeight}:${element.scrollTop}`
+        return new Promise<boolean>((resolve) => {
+          let last = geometry()
+          let steady = 0
+          let frames = 0
+          const step = () => {
+            const next = geometry()
+            steady = next === last ? steady + 1 : 0
+            last = next
+            frames += 1
+            if (steady >= 5) resolve(element.scrollHeight > element.clientHeight)
+            else if (frames >= 120) resolve(false)
+            else requestAnimationFrame(step)
+          }
+          requestAnimationFrame(step)
+        })
+      })
+    )
+    .toBe(true)
   await archiveAgent.evaluate((element) => element.scrollIntoView({ block: 'end' }))
   const pinnedScroll = await directory.evaluate((element) => element.scrollTop)
   await archiveAgent.click()
@@ -3600,6 +3650,136 @@ test.describe('touch workspace sidebar actions', () => {
       await expect(sidebar).not.toBeVisible()
       await expect(navigationToggle).toHaveAttribute('aria-expanded', 'false')
       await expect(navigationToggle).toBeFocused()
+    }
+  })
+
+  test('switching Virtual to Chat never detaches the workspace frame', async ({ page }) => {
+    await mockConnectedWorkspace(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+    // A frame that leaves <body> blurs whatever it holds. Queries that mount
+    // with the new view must settle behind the view's own Suspense boundary,
+    // not the route's, or the toolbar toggle is swapped out under the sheet's
+    // focus restoration.
+    await page.addInitScript(() => {
+      const detached = { count: 0 }
+      Reflect.set(window, '__workspaceFrameDetachments', detached)
+      new MutationObserver((records) => {
+        for (const record of records)
+          for (const node of record.removedNodes)
+            if (node instanceof Element && node.classList.contains('workspace-frame'))
+              detached.count += 1
+      }).observe(document, { childList: true, subtree: true })
+    })
+
+    await page.goto('/?view=virtual')
+    const navigationToggle = page
+      .getByLabel('Workspace toolbar')
+      .getByRole('button', { name: /^(Expand|Collapse) contextual sidebar$/ })
+    await navigationToggle.press('Enter')
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+    await expect(sidebar).toBeVisible()
+    await sidebar.getByRole('button', { name: 'Research Agent', exact: true }).click()
+
+    await expect(page.locator('.workspace-frame--chat')).toBeVisible()
+    await expect(page.locator('#workspace-main')).toContainText('Research Agent')
+    expect(
+      await page.evaluate(
+        () => (Reflect.get(window, '__workspaceFrameDetachments') as { count: number }).count
+      )
+    ).toBe(0)
+  })
+
+  test('the toolbar toggle stays attached and focused when Chat mounts after a held chunk and query', async ({
+    page,
+  }) => {
+    test.setTimeout(120_000)
+    await mockConnectedWorkspace(page)
+    await page.setViewportSize({ width: 390, height: 844 })
+
+    // Hold the Chat chunk, then a Chat query, so the Virtual to Chat switch
+    // finishes long after the sheet closed and returned focus to the toggle.
+    // That is the order that used to lose focus: the route Suspense boundary
+    // swapped the whole frame out of <body> when Chat's observers mounted.
+    const { promise: chunkHeld, resolve: releaseChunk } = Promise.withResolvers<void>()
+    const { promise: queryHeld, resolve: releaseQuery } = Promise.withResolvers<void>()
+    let holdQuery = false
+    await page.route('**/conventional-workspace-entry*', async (route) => {
+      await chunkHeld
+      await route.fallback()
+    })
+    await page.route('**/api/v1/account/conversations**', async (route) => {
+      if (holdQuery) await queryHeld
+      await route.fallback()
+    })
+    // Record every removed node that is, or contains, the toolbar toggle: the
+    // framework may detach the toggle itself or any ancestor up to the frame.
+    await page.addInitScript(() => {
+      const detached: string[] = []
+      Reflect.set(window, '__toggleDetachments', detached)
+      new MutationObserver((records) => {
+        for (const record of records)
+          for (const node of record.removedNodes)
+            if (
+              node instanceof Element &&
+              (node.matches('[data-context-toggle]') || node.querySelector('[data-context-toggle]'))
+            )
+              detached.push(`${node.tagName.toLowerCase()}.${String(node.className)}`)
+      }).observe(document, { childList: true, subtree: true })
+    })
+    const detachments = () =>
+      page.evaluate(() => (Reflect.get(window, '__toggleDetachments') as string[]).slice())
+
+    await page.goto('/?view=virtual')
+    const navigationToggle = page
+      .getByLabel('Workspace toolbar')
+      .getByRole('button', { name: /^(Expand|Collapse) contextual sidebar$/ })
+    const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
+    const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
+    const virtualRoom = page.getByRole('region', { name: 'Virtual Room' })
+    const engineFallback = page.getByRole('status', { name: 'Virtual view unavailable' })
+    await expect(virtualRoom.or(engineFallback)).toBeVisible({ timeout: 30_000 })
+    await expect(navigationToggle).toBeVisible()
+
+    await navigationToggle.press('Enter')
+    await expect(sidebar).toBeVisible()
+    await sidebar.getByRole('button', { name: 'Research Agent', exact: true }).click()
+    // The switch is pending on the held chunk: the view shows its loading
+    // state, the sheet is closed and focus is back on the toggle.
+    await expect(page.getByText('Opening workspace…')).toBeVisible()
+    await expect(sidebar).not.toBeVisible()
+    await expect(navigationToggle).toBeFocused()
+    const beforeChunk = await detachments()
+
+    holdQuery = true
+    releaseChunk()
+    // Chat has mounted and its conversations query is still pending.
+    await expect(page.locator('#workspace-main')).toBeVisible()
+    await expect(page).toHaveURL(/view=chat/)
+    expect(await detachments()).toEqual(beforeChunk)
+    await expect(navigationToggle).toBeFocused()
+    releaseQuery()
+    await expect(page.locator('#workspace-main')).toContainText('Research Agent')
+    expect(await detachments()).toEqual(beforeChunk)
+    await expect(navigationToggle).toBeFocused()
+
+    // Switch back and forth, closing the sheet by selection and by Escape.
+    for (const round of [1, 2]) {
+      await globalNavigation.getByRole('button', { name: 'Virtual view' }).click()
+      await expect(virtualRoom.or(engineFallback)).toBeVisible({ timeout: 30_000 })
+      await navigationToggle.press('Enter')
+      await expect(sidebar).toBeVisible()
+      await page.keyboard.press('Escape')
+      await expect(sidebar).not.toBeVisible()
+      await expect(navigationToggle).toBeFocused()
+
+      await navigationToggle.press('Enter')
+      await expect(sidebar).toBeVisible()
+      await sidebar.getByRole('button', { name: 'Research Agent', exact: true }).click()
+      await expect(sidebar).not.toBeVisible()
+      await expect(page).toHaveURL(/view=chat/)
+      await expect(page.locator('#workspace-main')).toContainText('Research Agent')
+      await expect(navigationToggle, `round ${round}`).toBeFocused()
+      expect(await detachments(), `round ${round}`).toEqual(beforeChunk)
     }
   })
 

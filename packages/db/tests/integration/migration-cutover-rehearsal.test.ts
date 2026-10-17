@@ -75,7 +75,6 @@ import {
 } from '../fixtures/cutover-rehearsal'
 import {
   captureGroupAudienceParticipants,
-  installLegacyAudienceQuarantine,
   legacyBackfillProfile,
   quarantineLegacyAudience,
   reconcileLegacyAudience,
@@ -179,6 +178,8 @@ type Fixture = {
   removed: Principal
   /** An Agent from another workspace on a legacy roster (an ambiguous audience record). */
   foreignAgentId: string
+  /** A same-workspace Agent on the shared group, retained after quarantine. */
+  homeAgentId: string
   sharedChannelId: string
   archivedChannelId: string
   /** Stable ids of the seeded records the exact-evidence assertions pin. */
@@ -229,6 +230,11 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     profileId: 'software-engineer',
     profileVersion: '1.0.0',
   })
+  const homeAgent = await createAgent(connection.db, workspaceId, owner, {
+    name: 'Rehearsal home agent',
+    profileId: 'software-engineer',
+    profileVersion: '1.0.0',
+  })
 
   // Legacy group rows, written as the pre-#1232 product wrote them: the group policy tables do not
   // exist before the canonical chain, so the product's group writers cannot run at this state.
@@ -259,6 +265,7 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     { channelId: sharedId, principalKind: 'user', userId: member.userId, workspaceId },
     { channelId: sharedId, principalKind: 'user', userId: removed.userId, workspaceId },
     { channelId: sharedId, principalKind: 'agent', agentId: foreignAgent.id, workspaceId },
+    { channelId: sharedId, principalKind: 'agent', agentId: homeAgent.id, workspaceId },
   ])
   // A third message from the clean member, with a stable id the exact-evidence assertions pin.
   const memberMessageId = await insertLegacyMessage(connection.db, {
@@ -431,6 +438,7 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     member,
     removed,
     foreignAgentId: foreignAgent.id,
+    homeAgentId: homeAgent.id,
     sharedChannelId: sharedId,
     archivedChannelId: closedId,
     memberMessageId,
@@ -608,6 +616,7 @@ function assertHistoricalEvidence(document: MigrationSnapshotDocument, fixture: 
       `${fixture.sharedChannelId}:user:${fixture.member.userId}`,
       `${fixture.sharedChannelId}:user:${fixture.removed.userId}`,
       `${fixture.sharedChannelId}:agent:${fixture.foreignAgentId}`,
+      `${fixture.sharedChannelId}:agent:${fixture.homeAgentId}`,
       `${fixture.archivedChannelId}:user:${fixture.owner.userId}`,
       `${fixture.archivedChannelId}:user:${fixture.member.userId}`,
     ].toSorted()
@@ -1021,18 +1030,33 @@ async function executeScenario() {
   )
   const fullRevoked = await full('full-revoked')
 
-  // Audience phase: the canonical admissions and grants the cutover created from the populated legacy
-  // roster, the real 0050 backfill replayed on that populated data, the quarantine of the ambiguous
-  // audience, and the product's answer to the principals it excludes.
+  // Audience phase: the production cutover classifies and withholds ambiguous legacy audiences;
+  // replaying the real 0050 backfill and the fixture reconciliation must not restore them.
   const groupDb = connection.db
-  // No production migration creates the quarantine table: it exists only once this test installs it.
   const quarantineTableInProduct = await tablePresent(connection, 'app.legacy_audience_quarantine')
-  await installLegacyAudienceQuarantine(groupDb)
   const audienceState = async () => ({
     reconciliation: await reconcileLegacyAudience(groupDb),
     participants: await captureGroupAudienceParticipants(groupDb, fixture.workspaceId),
   })
   const audienceAtCutover = await audienceState()
+  const quarantineRecords = await groupDb.execute<{
+    reason: string
+    source_row_digest: string
+    source_digest_matches: boolean
+    withdrawn_admissions: number
+    withdrawn_audience_grants: number
+    withdrawn_enlistment_grants: number
+    withdrawn_digest: string
+  }>(sql`
+    select q.reason, q.source_row_digest,
+      q.source_row_digest = app.legacy_participant_digest(cp) as source_digest_matches,
+      q.withdrawn_admissions, q.withdrawn_audience_grants, q.withdrawn_enlistment_grants,
+      q.withdrawn_digest
+    from app.legacy_audience_quarantine q
+    join app.channel_participants cp on cp.id = q.source_participant_id
+    where q.workspace_id = ${fixture.workspaceId}::uuid
+    order by q.reason, q.principal_kind, q.principal_id
+  `)
   await replayCanonicalBackfill(groupDb)
   const audienceAfterReplay = await audienceState()
   const fullReplayed = await full('full-backfill-replay')
@@ -1107,6 +1131,7 @@ async function executeScenario() {
   }
   const audience = {
     atCutover: audienceAtCutover,
+    quarantineRecords,
     afterReplay: audienceAfterReplay,
     replayComparison,
     quarantine,
@@ -1237,6 +1262,11 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       groupAudienceGrants: { reason: expect.any(String), table: 'group_audience_grants' },
       groupEnlistmentGrants: { reason: expect.any(String), table: 'group_enlistment_grants' },
       groupSharingGrants: { reason: expect.any(String), table: 'group_sharing_grants' },
+      legacyAudienceQuarantine: {
+        reason:
+          'the legacy_audience_quarantine table is created by 0058_legacy_audience_quarantine',
+        table: 'legacy_audience_quarantine',
+      },
     })
     expect(Object.keys(before.provenance.notInLegacyRegistry)).toEqual(['nativeSessions'])
     expect(before.document.sections.executionAttempts?.records.length).toBeGreaterThanOrEqual(1)
@@ -1336,39 +1366,64 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(grants.staleAfterRevoke?.revoked).toBe(true)
   }, 300_000)
 
-  test('the cutover admits the populated legacy roster exactly, and replaying the real 0050 backfill changes nothing', async () => {
+  test('the production migration admits only the provable legacy audience, and replaying 0050 changes nothing', async () => {
     const { audience, fixture } = await runScenario()
     const channel = fixture.sharedChannelId
     const admitted = [
-      `${channel}:agent:${fixture.foreignAgentId}`,
+      `${channel}:agent:${fixture.homeAgentId}`,
       `${channel}:user:${fixture.owner.userId}`,
       `${channel}:user:${fixture.member.userId}`,
-      `${channel}:user:${fixture.removed.userId}`,
     ].toSorted()
     const grantKey = (userId: string) => `${channel}:user:${userId}:implicit:member:${userId}:1:`
-    // Exact participants and grants. The canonical backfill is the only writer: it admits every active
-    // legacy participant, including the two ambiguous ones, which is why the quarantine step exists.
+    // Exact participants and grants after the production migration. Ambiguous principals were
+    // withheld in the same migration that classified and preserved their source rows.
     expect(audience.atCutover.participants).toEqual({
       admissions: admitted,
-      audienceGrants: [
-        grantKey(fixture.owner.userId),
-        grantKey(fixture.member.userId),
-        grantKey(fixture.removed.userId),
-      ].toSorted(),
+      audienceGrants: [grantKey(fixture.owner.userId), grantKey(fixture.member.userId)].toSorted(),
       enlistmentGrants: [
-        `${channel}:agent:${fixture.foreignAgentId}:implicit:member:${fixture.foreignAgentId}:1:`,
+        `${channel}:agent:${fixture.homeAgentId}:implicit:member:${fixture.homeAgentId}:1:`,
       ],
     })
-    // Six legacy roster rows, two admissible; the other four are not yet recorded as ambiguous.
+    // Six source rows, two provable and four durably classified with their original-row digests.
     expect(audience.atCutover.reconciliation).toMatchObject({
-      sourceRows: 6,
-      admissibleRows: 2,
-      quarantined: 0,
-      admissions: 4,
-      audienceGrants: 3,
+      sourceRows: 7,
+      admissibleRows: 3,
+      quarantined: 4,
+      admissions: 3,
+      audienceGrants: 2,
       enlistmentGrants: 1,
-      unrecordedClassifications: 4,
+      unrecordedClassifications: 0,
+      sourceDigestMismatches: 0,
+      missingOriginals: 0,
+      invariants: {
+        admissionsEqualAdmissible: true,
+        admissionsPlusQuarantinedEqualSource: true,
+        quarantineCoversClassification: true,
+        originalDigestsMatch: true,
+        originalsPreserved: true,
+      },
     })
+    expect(audience.quarantineRecords).toHaveLength(4)
+    expect(audience.quarantineRecords.map((row) => row.reason).toSorted()).toEqual([
+      'agent_workspace_mismatch',
+      'group_channel_not_active',
+      'group_channel_not_active',
+      'user_not_workspace_member',
+    ])
+    expect(audience.quarantineRecords.every((row) => row.source_digest_matches)).toBe(true)
+    expect(
+      audience.quarantineRecords.every((row) => /^[0-9a-f]{64}$/.test(row.withdrawn_digest))
+    ).toBe(true)
+    expect(
+      audience.quarantineRecords.reduce(
+        (totals, row) => ({
+          admissions: totals.admissions + row.withdrawn_admissions,
+          audience: totals.audience + row.withdrawn_audience_grants,
+          enlistment: totals.enlistment + row.withdrawn_enlistment_grants,
+        }),
+        { admissions: 0, audience: 0, enlistment: 0 }
+      )
+    ).toEqual({ admissions: 2, audience: 1, enlistment: 1 })
     // Replaying the real 0050 statements on the populated data is a no-op: same rows, same digests.
     expect(audience.afterReplay).toEqual(audience.atCutover)
     // Families both sides prove stay equal to the cutover capture; the rest stay unknown.
@@ -1378,35 +1433,40 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(audience.replayComparison.verdict).toBe('inconclusive')
   }, 300_000)
 
-  test('the quarantine records exactly the ambiguous audiences, withdraws only their grants, and is idempotent', async () => {
+  test('production quarantine provenance reconciles, and migration/backfill replays add nothing', async () => {
     const { audience, fixture } = await runScenario()
     const channel = fixture.sharedChannelId
     expect(audience.quarantine).toEqual({
-      recordedNow: 4,
-      withdrawnNow: { admissions: 2, audienceGrants: 1, enlistmentGrants: 1 },
+      recordedNow: 0,
+      withdrawnNow: { admissions: 0, audienceGrants: 0, enlistmentGrants: 0 },
     })
     expect(audience.quarantined.reconciliation).toMatchObject({
-      sourceRows: 6,
-      admissibleRows: 2,
+      sourceRows: 7,
+      admissibleRows: 3,
       quarantined: 4,
       quarantinedByReason: {
+        agent_not_active: 0,
+        channel_workspace_mismatch: 0,
         group_channel_not_active: 2,
         user_not_workspace_member: 1,
         agent_workspace_mismatch: 1,
       },
-      admissions: 2,
+      admissions: 3,
       audienceGrants: 2,
-      enlistmentGrants: 0,
+      enlistmentGrants: 1,
       unrecordedClassifications: 0,
       invariants: {
         admissionsEqualAdmissible: true,
         admissionsPlusQuarantinedEqualSource: true,
         quarantineCoversClassification: true,
+        originalDigestsMatch: true,
+        originalsPreserved: true,
       },
     })
     // Only the clean owner and member keep an admission; the removed user and foreign Agent are gone.
     expect(audience.quarantined.participants.admissions).toEqual(
       [
+        `${channel}:agent:${fixture.homeAgentId}`,
         `${channel}:user:${fixture.owner.userId}`,
         `${channel}:user:${fixture.member.userId}`,
       ].toSorted()
@@ -1414,7 +1474,9 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(audience.quarantined.participants.admissions).not.toContain(
       `${channel}:user:${fixture.removed.userId}`
     )
-    expect(audience.quarantined.participants.enlistmentGrants).toEqual([])
+    expect(audience.quarantined.participants.enlistmentGrants).toEqual([
+      `${channel}:agent:${fixture.homeAgentId}:implicit:member:${fixture.homeAgentId}:1:`,
+    ])
     // The original legacy record is never edited: the source digest is identical at every stage.
     const digests = new Set(
       [audience.atCutover, audience.afterReplay, audience.quarantined, audience.final].map(
@@ -1454,7 +1516,7 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       expect(outcome).toEqual({ denied: 'Channel unavailable' })
     }
     // The owner re-adding them to the roster cannot recreate the admission: the quarantine trigger refuses it by reason.
-    expect(denial.rejoin).toContain('legacy audience is quarantined (user_not_workspace_member)')
+    expect(denial.rejoin).toContain('Conversation participant unavailable')
     expect(denial.admission).toBeNull()
     // A refused write leaves messages, roster rows, admissions and the channel version untouched.
     expect(denial.footprintAfter).toEqual(denial.footprintBefore)
@@ -1470,9 +1532,12 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       title: 'Shared rehearsal channel',
       workspaceId: fixture.workspaceId,
     })
-    expect(control.channel.value.participants.map((entry) => entry.userId).toSorted()).toEqual(
-      [fixture.owner.userId, fixture.member.userId].toSorted()
-    )
+    expect(
+      control.channel.value.participants
+        .filter((entry) => entry.kind === 'user')
+        .map((entry) => entry.userId)
+        .toSorted()
+    ).toEqual([fixture.owner.userId, fixture.member.userId].toSorted())
     const listed = control.messages.value.messages
     expect(
       listed.map((entry) => [entry.sequence, entry.bodyText, entry.sender.userId, entry.deleted])
@@ -1506,14 +1571,16 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
   test('the pre-0046 comparison names every family it cannot prove and stays unknown', async () => {
     const { audience } = await runScenario()
     // The legacy-scope comparison covers only the families the pre-0046 schema can answer for. The
-    // artifact grants, the three group families (created by 0049) and the native inventory stay unknown
-    // by contract there; the full-capture proof below is where the group families are compared.
+    // artifact grants, group families created after 0046, quarantine created by 0058 and the native
+    // inventory stay unknown by contract there; the full-capture proof below compares the group and
+    // quarantine families once their schema exists.
     expect(UNPROVEN_FAMILIES).toEqual([
       'artifactReferenceGrants',
       'groupAdmissions',
       'groupAudienceGrants',
       'groupEnlistmentGrants',
       'groupSharingGrants',
+      'legacyAudienceQuarantine',
       'nativeSessions',
     ])
     expect(
@@ -1521,7 +1588,7 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
         (finding) => finding.findingClass === 'unknown_domain'
       )
     ).toBe(true)
-    expect(audience.atCutover.reconciliation.unrecordedClassifications).toBe(4)
+    expect(audience.atCutover.reconciliation.unrecordedClassifications).toBe(0)
   }, 300_000)
 
   test('group admissions and grants are captured as nonempty families and compared record for record (#1222)', async () => {
@@ -1537,9 +1604,9 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
       capture: typeof proof.cutover,
       family: F
     ) => (capture.document.sections[family]?.records ?? []).filter((r) => r.channelId === channel)
-    // The cutover populated all three families from the legacy roster; none is an empty or absent section.
-    expect(section(proof.cutover, 'groupAdmissions')).toHaveLength(4)
-    expect(section(proof.cutover, 'groupAudienceGrants')).toHaveLength(3)
+    // The production cutover populates only provable principals; ambiguous legacy rows are withdrawn.
+    expect(section(proof.cutover, 'groupAdmissions')).toHaveLength(3)
+    expect(section(proof.cutover, 'groupAudienceGrants')).toHaveLength(2)
     expect(section(proof.cutover, 'groupEnlistmentGrants')).toHaveLength(1)
     expect(
       section(proof.cutover, 'groupAdmissions')
@@ -1547,10 +1614,9 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
         .toSorted()
     ).toEqual(
       [
-        `agent:${fixture.foreignAgentId}`,
+        `agent:${fixture.homeAgentId}`,
         `user:${fixture.owner.userId}`,
         `user:${fixture.member.userId}`,
-        `user:${fixture.removed.userId}`,
       ].toSorted()
     )
     expect(
@@ -1562,12 +1628,15 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(section(proof.cutover, 'groupAudienceGrants').every((r) => r.issuedAt.length > 0)).toBe(
       true
     )
-    // The captured grants carry the grant owner; the removed user's grant is present until quarantined.
+    expect(section(proof.cutover, 'groupEnlistmentGrants').map((r) => r.agentId)).toEqual([
+      fixture.homeAgentId,
+    ])
+    // The captured grants carry the grant owner; the removed user's grant was withheld at cutover.
     expect(
       section(proof.cutover, 'groupAudienceGrants')
         .map((r) => r.userId)
         .toSorted()
-    ).toEqual([fixture.owner.userId, fixture.member.userId, fixture.removed.userId].toSorted())
+    ).toEqual([fixture.owner.userId, fixture.member.userId].toSorted())
     // The sharing grant written through the product is a nonempty family once registered, with its issue
     // instant as stored and no revocation; it is absent from the cutover capture taken before the write.
     expect(section(proof.cutover, 'groupSharingGrants')).toHaveLength(0)
@@ -1651,40 +1720,20 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(proof.revokedComparison.verdict).toBe('divergent')
   }, 300_000)
 
-  test('the quarantine withdrawal appears as exactly the withdrawn group records, and its repeat adds nothing (#1222)', async () => {
-    const { proof, fixture } = await runScenario()
-    const channel = fixture.sharedChannelId
+  test('the production-withheld group families remain stable after migration and backfill replay (#1222)', async () => {
+    const { proof } = await runScenario()
     const findings = proof.quarantineComparison.findings.filter(
       (finding) => finding.findingClass !== 'unknown_domain'
     )
-    // Two admissions (removed user, foreign Agent), one audience grant and one enlistment grant withdrawn.
-    expect(
-      findings.map((finding) => `${finding.findingClass}:${finding.family}`).toSorted()
-    ).toEqual(
-      [
-        'missing_record:groupAdmissions',
-        'missing_record:groupAdmissions',
-        'missing_record:groupAudienceGrants',
-        'missing_record:groupEnlistmentGrants',
-      ].toSorted()
-    )
-    expect(proof.quarantineComparison.verdict).toBe('divergent')
-    const remaining = (
-      family: 'groupAdmissions' | 'groupAudienceGrants' | 'groupEnlistmentGrants'
-    ) =>
-      (proof.quarantined.document.sections[family]?.records ?? []).filter(
-        (r) => r.channelId === channel
-      )
-    expect(remaining('groupAdmissions')).toHaveLength(2)
-    expect(remaining('groupAudienceGrants')).toHaveLength(2)
-    expect(remaining('groupEnlistmentGrants')).toHaveLength(0)
-    // The quarantine withdraws audience and enlistment grants only: the member's sharing grant survives
-    // it untouched, so the comparison carries no sharing finding.
+    // The migration applies the withdrawal before this first full post-cutover snapshot. Subsequent
+    // migration and backfill replays produce no additional group-family findings.
+    expect(findings).toEqual([])
+    expect(proof.quarantineComparison.verdict).toBe('inconclusive')
     expect(proof.quarantined.document.sections.groupSharingGrants).toEqual(
       proof.replayed.document.sections.groupSharingGrants
     )
-    // Repeating the quarantine and replaying the real backfill resurrects nothing: the sections are
-    // equal record for record and the comparison carries no determinate finding.
+    // Repeating the quarantine and replaying the real backfill resurrects nothing: each family stays
+    // equal record for record.
     for (const family of [
       'groupAdmissions',
       'groupAudienceGrants',
@@ -1701,14 +1750,16 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     expect(proof.finalComparison.verdict).toBe('inconclusive')
   }, 300_000)
 
-  test('no production migration activates the audience quarantine (#1222)', async () => {
+  test('production cutover captures durable quarantine provenance in the snapshot family (#1222)', async () => {
     const { proof } = await runScenario()
-    // The quarantine table is test-only DDL: the full production journal leaves it absent, which is why
-    // it is not a snapshot family and why the withdrawal above is evidenced through the group families.
-    expect(proof.quarantineTableInProduct).toBe(false)
+    expect(proof.quarantineTableInProduct).toBe(true)
+    expect(migrationSnapshotFamilies).toContain('legacyAudienceQuarantine')
     expect(
-      (migrationSnapshotFamilies as readonly string[]).includes('legacyAudienceQuarantine')
-    ).toBe(false)
+      proof.cutover.document.sections.legacyAudienceQuarantine?.records.length
+    ).toBeGreaterThan(0)
+    expect(proof.replayed.document.sections.legacyAudienceQuarantine).toEqual(
+      proof.cutover.document.sections.legacyAudienceQuarantine
+    )
   }, 300_000)
 
   test('the comparator still reports a removed record after cutover', async () => {

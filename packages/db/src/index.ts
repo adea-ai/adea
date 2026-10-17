@@ -252,6 +252,7 @@ export {
   listWorkspaceEventsAfter,
   markEventDispatchesNotified,
   pendingEventDispatches,
+  prepareWorkspaceEventsAfter,
   pruneWorkspaceEventsBefore,
   workspaceEventWindow,
   WORKSPACE_EVENT_PAGE_LIMIT,
@@ -290,6 +291,19 @@ export {
   validateGroupCreation,
   workspaceQualifiedAgentKey,
 } from './group-participation-policy'
+export {
+  audienceGrantIdFor,
+  createGroupChannelFromSelection,
+  enlistmentGrantIdFor,
+  issueGroupGrants,
+  NO_STORED_GROUP_GRANTS,
+  setGroupChannelParticipantsFromSelection,
+  type GroupCreateFromSelectionInput,
+  type GroupSelection,
+  type GroupSetFromSelectionInput,
+  type IssuedGroupGrants,
+  type StoredGroupGrants,
+} from './group-grant-issuer'
 export {
   ABSENT_GRANT_WINDOW,
   admissionForParticipant,
