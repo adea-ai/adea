@@ -1821,7 +1821,7 @@ Chat attaches an existing session by walking the legal paged
 `dev.session.list` body and its opaque cursors; the list body has no
 `runtimeSessionId` filter. Since the host may start a bounded replay at the
 newest retained frame, it emits a `resync` frame with
-`reason: 'checkpoint_required'` and the actual retained floor before replaying
+`reason: 'checkpoint_required'` and the bounded replay checkpoint before replaying
 data. Chat accepts the first data frame only at that disclosed checkpoint; a
 data frame that jumps past the requested cursor without the checkpoint, or a
 later sequence jump, requires resync and is never acknowledged. Remembered
@@ -5300,16 +5300,16 @@ same ordered items while that floor survives, even with concurrent appends.
 Any pruned/replaced floor or unexplained sequence gap refuses `resync_required`
 without partial insertion; malformed/tampered or query-mismatched cursors refuse
 `invalid_state`. A changed page size cannot reuse a cursor. Refresh the stream
-and restart from its disclosed floor after a retention refusal. Stream replay
-also discloses an actual retention floor when global eviction raised it above
-the newest-500 floor.
+and restart from its disclosed replay checkpoint after a retention refusal. A
+checkpoint can be raised by retention or the newest-500 replay bound; only
+authoritative history-page metadata distinguishes the retained floor.
 
 The concrete `openRuntimeEventStream` handle exposes `loadOlder({ signal? })`
 and `hasOlder()`. Loading is single-flight, cancellation/disposal fenced, and
 merges against the latest live state before resolving. It validates page identity,
 order, continuity and duplicate equality; older insertion does not advance live
 acknowledgements or the forward replay cursor. The 1,000-event client bound still
-holds. The client preserves the host's retained floor from checkpoint frames and
+holds. The client preserves the host's retained floor from validated
 history-page metadata, so `hasOlder()` stops at that floor even when sequence
 numbers begin above one. A resync replay of an identical backfilled event consumes its expected
 forward sequence without duplicating the row, so the next live event cannot
@@ -8514,3 +8514,7 @@ private payload as a strict envelope, without promoting it to a typed call or
 summary fact; nonempty private history payloads remain refused. Other legacy restricted/credential appends retain
 the existing history slice's empty-payload projection. No history read upgrades
 legacy rows or bypasses call/summary provenance checks.
+
+### Replay checkpoint and authoritative history floor (#1396)
+
+A `checkpoint_required` stream frame identifies the beginning of the bounded replay window. Its `checkpointSequence` is the maximum of the requested cursor, the newest 500-event window start and the actual retained floor; it does not independently prove retention loss. The client must not promote this cursor to `retainedFloorSequence`. Only a validated history page's `retainedFromSequence` supplies that floor. With events 1–600 retained and a fresh attach from 0, replay starts at 101, and Load older remains available to retrieve 1–100 through the authenticated history operation. A real pruned floor stops further reads after its authoritative page is accepted; replay resync does not replace an already verified history floor.

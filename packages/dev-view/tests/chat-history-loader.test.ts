@@ -45,7 +45,7 @@ const page = (): RuntimeEventHistoryPage => ({
   nextCursor: 'opaque',
 })
 describe('older transcript loading', () => {
-  test('does not page before a disclosed stream retention floor', async () => {
+  test('stops paging at the authoritative history-page retention floor', async () => {
     let state = createTranscriptAccumulator({
       runtimeSessionId: 'session-a',
       generation: 1,
@@ -65,13 +65,22 @@ describe('older transcript loading', () => {
       },
       read: async () => {
         reads++
-        return page()
+        return {
+          ...page(),
+          retainedFromSequence: '4',
+          historyStart: 'retention_boundary',
+          items: [],
+          nextCursor: undefined,
+        }
       },
     })
 
+    expect(reader.hasOlder()).toBe(true)
+    await reader.loadOlder()
+    expect(state.retainedFloorSequence).toBe('4')
     expect(reader.hasOlder()).toBe(false)
     await reader.loadOlder()
-    expect(reads).toBe(0)
+    expect(reads).toBe(1)
     reader.close()
   })
 
@@ -83,6 +92,7 @@ describe('older transcript loading', () => {
       { type: 'resync', reason: 'checkpoint_required', checkpointSequence: '3' },
       'host'
     )
+    expect(replay.retainedFloorSequence).toBe('1')
     replay = acceptRuntimeEvent(replay, event(3))
     replay = acceptRuntimeEvent(replay, event(4))
     replay = acceptRuntimeEvent(replay, event(5))

@@ -232,9 +232,6 @@ export function acceptRuntimeStreamFrame(
   if (frame.type === 'resync') {
     return {
       ...state,
-      ...(frame.reason === 'checkpoint_required'
-        ? { retainedFloorSequence: frame.checkpointSequence }
-        : {}),
       expectedSequence: frame.checkpointSequence,
       availability: {
         status: 'bounded',
