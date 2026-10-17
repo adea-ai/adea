@@ -24,6 +24,8 @@ const [frameOrigin, setFrameOrigin] = createSignal<string | null>(
 )
 const [workspaceId, setWorkspaceId] = createSignal('ws_a')
 const [surface, setSurface] = createSignal<SimSurface>('hq')
+// Read inside the stable `frameUrl` callback below, to prove it cannot navigate a running frame.
+const [view, setView] = createSignal('a')
 
 const grants: SimLaunchRequest[] = []
 
@@ -33,6 +35,7 @@ type Harness = {
   setFrameOrigin(value: string | null): void
   setWorkspaceId(value: string): void
   setSurface(value: SimSurface): void
+  setView(value: string): void
   frameOrigin: string
   /** Delivers a message as if the current iframe had posted it, under `bridgeId`. */
   deliver(message: SimFrameMessage, bridgeId: string, version?: number): void
@@ -50,6 +53,7 @@ const harness: Harness = {
   setFrameOrigin: setFrameOrigin,
   setWorkspaceId: setWorkspaceId,
   setSurface: setSurface,
+  setView: setView,
   deliver(message, bridgeId, version = 1) {
     const iframe = document.querySelector('iframe')
     const envelope = { ...frameEnvelope(bridgeId, message), version }
@@ -89,7 +93,7 @@ render(
         }
       }}
       frameUrl={(frame) =>
-        `${frame.origin}/frame.html?bridge=${encodeURIComponent(frame.bridgeId)}`
+        `${frame.origin}/frame.html?bridge=${encodeURIComponent(frame.bridgeId)}&view=${view()}`
       }
     />
   ),

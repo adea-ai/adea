@@ -194,6 +194,33 @@ test.describe('configuration changes', () => {
     })
   })
 
+  test('a signal read by a stable frameUrl callback cannot navigate a running frame', async ({
+    page,
+  }) => {
+    await open(page)
+    await expect(page.locator('iframe')).toHaveCount(1)
+    const [grant] = await grants(page)
+    const source = await iframeSource(page)
+    expect(source).toContain('view=a')
+
+    await deliver(page, READY, grant!.bridgeId)
+    await expect.poll(async () => (await received(page)).length).toBe(1)
+    await deliver(page, { type: 'frame.state', payload: { state: 'running' } }, grant!.bridgeId)
+    await expect(page.locator('iframe')).toHaveAttribute('data-agent-sim-active', 'true')
+
+    // An unrelated signal the caller's callback happens to read changes while the frame runs.
+    await call(page, 'setView', 'b')
+    await page.waitForTimeout(250)
+
+    // The frame was not navigated: same address, same window (it still holds what the host posted),
+    // still running, and no second launch.
+    expect(await iframeSource(page)).toBe(source)
+    expect(await received(page)).toHaveLength(1)
+    await expect(page.locator('iframe')).toHaveAttribute('data-agent-sim-active', 'true')
+    await expect(page.getByRole('alert')).toHaveCount(0)
+    expect(await grants(page)).toHaveLength(1)
+  })
+
   test('a new surface launches again for that surface', async ({ page }) => {
     await open(page)
     await expect(page.locator('iframe')).toHaveCount(1)

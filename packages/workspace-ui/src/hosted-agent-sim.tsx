@@ -99,18 +99,24 @@ export function HostedAgentSim(props: {
       {/* Keyed: every attempt's frame is a new element, so a navigated frame never inherits the
           previous attempt's window or message history. */}
       <Show when={snapshot()?.frame} keyed>
-        {(frame) => (
-          <iframe
-            ref={(element) => (frameElement = element)}
-            src={frameUrl?.(frame)}
-            title="Agent Sim"
-            // The frame is a different origin; scripts and its own origin are all it gets.
-            sandbox="allow-scripts allow-same-origin"
-            referrerpolicy="no-referrer"
-            class="size-full border-0"
-            data-agent-sim-active={snapshot()?.state.phase === 'running' ? 'true' : undefined}
-          />
-        )}
+        {(frame) => {
+          // The address is evaluated once for this attempt's frame and kept. Signals the callback
+          // reads are not tracked, so nothing the caller changes can navigate a running frame; a
+          // new address needs a new launch (a configuration change).
+          const src = untrack(() => frameUrl?.(frame))
+          return (
+            <iframe
+              ref={(element) => (frameElement = element)}
+              src={src}
+              title="Agent Sim"
+              // The frame is a different origin; scripts and its own origin are all it gets.
+              sandbox="allow-scripts allow-same-origin"
+              referrerpolicy="no-referrer"
+              class="size-full border-0"
+              data-agent-sim-active={snapshot()?.state.phase === 'running' ? 'true' : undefined}
+            />
+          )
+        }}
       </Show>
       <Show when={snapshot()?.starting}>
         <p role="status" class="text-muted-foreground text-sm">
