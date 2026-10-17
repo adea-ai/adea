@@ -37,6 +37,15 @@ export const GLOBAL_INPUTS = [
   '.oxlintrc.json',
 ]
 
+/**
+ * The root `node_modules` directory listing is not an input. Vite's config loader creates and removes
+ * `node_modules/.vite-temp` while builds run, so a task that happened to list the directory then recorded an entry the
+ * next fresh checkout does not have ("'.vite-temp' removed from 'node_modules'", a miss on `apps/web build`). The
+ * dependencies themselves are fingerprinted by `bun.lock`, the toolchain id and the files a task reads. Only the
+ * directory listing is excluded, not the files below it.
+ */
+export const VOLATILE_INPUTS = ['!node_modules']
+
 /** `bunfig.toml` preloads these into every `bun test`; only the test tasks run them. */
 export const TEST_INPUTS = ['scripts/test-target-preload.ts', 'scripts/test-target-guard.mjs']
 
@@ -259,7 +268,10 @@ export function buildTasks(root, toolchainId, env = process.env) {
     // process (packages/db's factory-process test). Turbo passes no such variable, so it is removed.
     command: `ORCH_TOOLCHAIN=${toolchainId}${cache.prefix ? ` ${cache.prefix}` : ''} env ${['FORCE_COLOR', ...(cache.unsetEnv ?? [])].map((name) => `-u ${name}`).join(' ')} ${command}`,
     dependsOn: ['orch:toolchain', ...dependsOn],
-    cache: { input: [{ auto: true }, ...GLOBAL_INPUTS, ...cache.input], ...cache.rest },
+    cache: {
+      input: [{ auto: true }, ...GLOBAL_INPUTS, ...VOLATILE_INPUTS, ...cache.input],
+      ...cache.rest,
+    },
   })
   const buildsOf = (names) =>
     names.map((name) => byName.get(name)).filter((dep) => has(dep, 'build'))

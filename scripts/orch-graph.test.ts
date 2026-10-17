@@ -21,6 +21,7 @@ import {
   GLOBAL_INPUTS,
   PACKAGE_RULES,
   TEST_INPUTS,
+  VOLATILE_INPUTS,
 } from './orch-graph.mjs'
 
 const root = resolve(import.meta.dir, '..')
@@ -192,6 +193,15 @@ describe('orch task graph mirrors the package manifests', () => {
     for (const [name, definition] of Object.entries(tasks)) {
       if (!definition.cache || name === 'orch:toolchain') continue
       for (const path of GLOBAL_INPUTS) expect(inputsOf(name), name).toContain(path)
+    }
+  })
+
+  test('the volatile node_modules listing is excluded from every cached task, and nothing else is', () => {
+    expect(VOLATILE_INPUTS).toEqual(['!node_modules'])
+    for (const [name, definition] of Object.entries(tasks)) {
+      if (!definition.cache || name === 'orch:toolchain') continue
+      expect(inputsOf(name), name).toContain('!node_modules')
+      expect(inputsOf(name), name).toContain('bun.lock')
     }
   })
 })

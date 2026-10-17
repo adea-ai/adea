@@ -22,6 +22,12 @@ with what the cold run built. A hit count alone does not show
 that artifacts are replayed, so the warm run starts on a fresh runner (no `dist` exists) and the sha256 over all
 workspaces' `dist` output must equal the cold run's.
 
+The root `node_modules` directory listing is not a task input (`VOLATILE_INPUTS` in `scripts/orch-graph.mjs`). Vite creates
+and removes `node_modules/.vite-temp` while builds run; a first hosted warm run missed `apps/web build` because the
+cold run had recorded that entry ("'.vite-temp' removed from 'node_modules'"). Only the listing is excluded. Source
+files, `VITE_*` variables, `bun.lock` and the toolchain id still invalidate; a source edit and a `VITE_*` change both
+still miss.
+
 Every task already fingerprints `ORCH_TOOLCHAIN` (`scripts/orch-toolchain.mjs`), computed from the node and bun that `vp`
 runs, so the proof adds no toolchain identity of its own. `vp` runs the Bun named by `packageManager`, which can differ
 from the first `bun` on `PATH`; the id in the run summary is the one the tasks used.
@@ -38,9 +44,11 @@ key and save-intent outputs. The product action owns the cache namespace, key, r
 behavior; Adea has no bespoke cache-key computation. The job uses the committed `monorepo_tool: vite-plus`; it appends
 nothing to `.github/code-foundry.yml`. No secrets, remote cache or Cloudflare are used; the cache is the repository's GitHub Actions cache.
 
-The cache path ends in `adea-vite-plus-proof-cache-orch-v1.48.1`. GitHub derives the archive version from the cache path
+The cache path ends in `adea-vite-plus-proof-cache-orch-r2-v1.48.1`. GitHub derives the archive version from the cache path
 list ([cache version reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#cache-key-matching)),
-so this proof cannot restore the earlier bounded-slice proof's archives and the first run can assert a cold cache.
+so this proof cannot restore the earlier bounded-slice proof's archives and the first run can assert a cold cache. The `r2` segment
+retires the archives written before the `node_modules` listing was excluded from the task inputs (see below); a changed
+graph needs a new cold run, then a warm run that names its manifest.
 
 Commit-message lines assert the result: `vp-proof-expect: cold|warm` and `vp-proof-manifest: <sha256>` (the dist
 outputs after restore).
