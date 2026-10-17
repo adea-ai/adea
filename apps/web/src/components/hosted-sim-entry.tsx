@@ -5,8 +5,11 @@ import {
   canonicalBridgeOrigin,
   createOriginAllowlist,
   parseFrameMessage,
+  describeSimAvailability,
   type SimSurface,
 } from '@adea-ai/spatial/sim-bridge'
+import { Alert, AlertTitle, AlertDescription } from '@adea-ai/ui/components/ui/alert'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { HostedAgentSim, type HostedSimFrame } from '@adea-ai/workspace-ui/hosted-agent-sim'
 
 /** App wiring only: Chat and Dev do not subscribe to this optional surface. */
@@ -20,13 +23,21 @@ export function HostedSimEntry(props: {
   const [fallbackClient] = createSignal(createApiClient())
   const client = () => props.client ?? fallbackClient()
   const workspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
-  const [configuration, { refetch }] = createResource(client, async (api) => {
-    try {
-      return await api.simConfiguration()
-    } catch {
-      return { frameOrigin: null, allowLoopbackHttp: false }
+  const [isOnline, setIsOnline] = createSignal(
+    typeof navigator === 'undefined' || navigator.onLine !== false
+  )
+  const [configuration, { refetch }] = createResource(
+    () => isOnline() && client(),
+    async (
+      api
+    ): Promise<{ frameOrigin: string | null; allowLoopbackHttp?: boolean; failed?: boolean }> => {
+      try {
+        return await api.simConfiguration()
+      } catch {
+        return { frameOrigin: null, allowLoopbackHttp: false, failed: true }
+      }
     }
-  })
+  )
   const origin = () =>
     canonicalBridgeOrigin(configuration()?.frameOrigin, {
       allowLoopbackHttp: configuration()?.allowLoopbackHttp === true,
@@ -34,8 +45,21 @@ export function HostedSimEntry(props: {
   let container: HTMLDivElement | undefined
   let frame: HostedSimFrame | undefined
   const online = () => {
-    void refetch()
+    setIsOnline(true)
   }
+  const offline = () => {
+    setIsOnline(false)
+  }
+  const notice = () =>
+    !isOnline()
+      ? describeSimAvailability({ phase: 'offline', attempt: 0 })
+      : configuration()?.failed
+        ? describeSimAvailability({
+            phase: 'unavailable',
+            reason: 'service_unavailable',
+            attempt: 0,
+          })
+        : null
   const message = (event: MessageEvent) => {
     const active = frame
     const source = container?.querySelector('iframe')?.contentWindow
@@ -51,9 +75,11 @@ export function HostedSimEntry(props: {
   }
   onMount(() => {
     window.addEventListener('online', online)
+    window.addEventListener('offline', offline)
     window.addEventListener('message', message)
     onCleanup(() => {
       window.removeEventListener('online', online)
+      window.removeEventListener('offline', offline)
       window.removeEventListener('message', message)
     })
   })
@@ -64,32 +90,58 @@ export function HostedSimEntry(props: {
       }}
       class="size-full"
     >
-      <Show when={props.scene ?? 'home'} keyed>
-        {(scene) => (
-          <HostedAgentSim
-            frameOrigin={origin()}
-            allowLoopbackHttp={configuration()?.allowLoopbackHttp === true}
-            workspaceId={workspaceId() ?? ''}
-            surface={props.surface ?? 'hq'}
-            platform={
-              typeof window !== 'undefined' && '__adeaDesktop' in window ? 'desktop' : 'web'
-            }
-            character={props.character}
-            requestGrant={(request, signal) => client().requestSimLaunch(request, signal)}
-            frameUrl={(next) => {
-              frame = next
-              const url = new URL('/frame', next.origin)
-              // Non-secret mount context stays in the fragment, outside request/referrer logs.
-              url.hash = new URLSearchParams({
-                parentOrigin: window.location.origin,
-                bridgeId: next.bridgeId,
-                scene,
-              }).toString()
-              return url.toString()
-            }}
-            class="size-full"
-          />
-        )}
+      <Show
+        when={!notice()}
+        fallback={
+          <Alert variant="destructive">
+            <AlertTitle>{notice()?.title}</AlertTitle>
+            <AlertDescription>{notice()?.detail}</AlertDescription>
+            <Show when={isOnline()}>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void refetch()
+                }}
+              >
+                Try again
+              </Button>
+            </Show>
+          </Alert>
+        }
+      >
+        <Show when={configuration.loading}>
+          <p role="status">Checking Agent Sim…</p>
+        </Show>
+        <Show when={configuration()}>
+          <Show when={props.scene ?? 'home'} keyed>
+            {(scene) => (
+              <HostedAgentSim
+                frameOrigin={origin()}
+                allowLoopbackHttp={configuration()?.allowLoopbackHttp === true}
+                workspaceId={workspaceId() ?? ''}
+                surface={props.surface ?? 'hq'}
+                platform={
+                  typeof window !== 'undefined' && '__adeaDesktop' in window ? 'desktop' : 'web'
+                }
+                character={props.character}
+                requestGrant={(request, signal) => client().requestSimLaunch(request, signal)}
+                frameUrl={(next) => {
+                  frame = next
+                  const url = new URL('/frame', next.origin)
+                  // Non-secret mount context stays in the fragment, outside request/referrer logs.
+                  url.hash = new URLSearchParams({
+                    parentOrigin: window.location.origin,
+                    bridgeId: next.bridgeId,
+                    scene,
+                  }).toString()
+                  return url.toString()
+                }}
+                class="size-full"
+              />
+            )}
+          </Show>
+        </Show>
       </Show>
     </div>
   )
