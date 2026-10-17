@@ -1,5 +1,11 @@
 # Adea Desktop
 
+The supervision smoke accepts installed app bundles and Electrobun outer
+extractors. For an extractor, it uses the existing update extractor to stage
+the embedded installed app in a disposable directory, then runs the same
+component containment, digest, bundled-runtime, and real-process proofs.
+A malformed detected payload fails the lane; it never becomes dev evidence.
+
 The desktop target is an **Electrobun (Bun + CEF) shell around the single web
 UI**. There is no desktop-only client: the shell serves the web app's own
 TanStack Start SPA build on loopback and injects the `window.__adeaDesktop`

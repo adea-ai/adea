@@ -8,13 +8,10 @@
 // packaged mode — install-location resolution (PROOF 0) plus the sidecar
 // started from the bundled layout on the bundled Bun runtime — and labels a
 // missing bundle as an explicit dev fallback that is not packaged evidence.
-import { existsSync } from 'node:fs'
 import { describe, expect, test } from 'bun:test'
+import { findAppBundle } from '../shell/scripts/packaged-install'
 
-const bundleEntry = new URL(
-  '../shell/build/dev-macos-arm64/Adea-dev.app/Contents/Resources/app/dev-runtime-sidecar/entry.js',
-  import.meta.url
-).pathname
+const detectedBundle = findAppBundle(new URL('../shell/build', import.meta.url).pathname)
 
 describe.skipIf(process.platform !== 'darwin')('packaged supervision smoke', () => {
   test('launch-record identity, observed exit, SIGKILL escalation, reconcile-after-restart, bounded live events, and managed-Pi registration on real processes', async () => {
@@ -30,7 +27,7 @@ describe.skipIf(process.platform !== 'darwin')('packaged supervision smoke', () 
     // Keep the evidence visible in failure output.
     console.log(output)
     expect(proc.exitCode).toBe(0)
-    if (existsSync(bundleEntry)) {
+    if (detectedBundle) {
       // Packaged mode: the bundled layout must feed the component manifest.
       expect(output).toContain('MODE: packaged')
       expect(output).toContain('PROOF 0 install-location resolution')
