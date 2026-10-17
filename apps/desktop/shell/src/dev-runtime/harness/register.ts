@@ -282,7 +282,11 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     sources: input.discoverySources ?? [],
   })
   const runs = createRunHistoryStore({ dataDir: input.dataDir, scope: input.scope })
-  const events = createSessionEventLog({ dataDir: input.dataDir, scope: input.scope })
+  const events = createSessionEventLog({
+    dataDir: input.dataDir,
+    scope: input.scope,
+    resolveSession: input.resolveSession,
+  })
   const deviceDefault = createHarnessDeviceDefaultAuthority({ dataDir: input.dataDir })
   const preferences = createHarnessPreferenceAuthority({
     dataDir: input.dataDir,

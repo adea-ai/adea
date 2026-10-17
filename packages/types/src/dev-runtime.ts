@@ -143,6 +143,24 @@ export type {
   RuntimeCallPhase,
 } from './dev-runtime-wire'
 export {
+  decodeRuntimeInteractionPayload,
+  runtimeInteractionKinds,
+  validateRuntimeQuestionAnswers,
+} from './dev-runtime-interactions'
+export type {
+  RuntimeApprovalRequest,
+  RuntimeApprovalResolution,
+  RuntimeInteractionExpiry,
+  RuntimeInteractionKind,
+  RuntimeInteractionPayload,
+  RuntimeQuestion,
+  RuntimeQuestionAnswer,
+  RuntimeQuestionOption,
+  RuntimeQuestionRequest,
+  RuntimeQuestionResolution,
+  RuntimeResponseEligibility,
+} from './dev-runtime-interactions'
+export {
   CITED_RESPONSE_BYTES_MAX,
   RESPONSE_CITATION_MAX,
   RESPONSE_SOURCE_MAX,
