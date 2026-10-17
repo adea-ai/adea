@@ -1,6 +1,6 @@
 # Run Workspace Tasks with Vite+ (`vp run`)
 
-- Status: Accepted for review (2026-10-17). Supersedes the "Task orchestration and caching" row of
+- Status: Accepted (landed in #1433, 2026-10-17). Supersedes the "Task orchestration and caching" row of
   [ADR 0008](0008-build-bundler-vite-vs-bun.md); every other row stands.
 - Date: 2026-10-17
 - Scope: how `build`, `typecheck`, `lint` and the package `test` scripts are ordered and cached
@@ -20,7 +20,8 @@ runs every test, install and script.
   dependency, lint waits for nothing, and a package's test waits for its own build. Builds restore
   `dist/**`.
 - `.github/code-foundry.yml` sets `monorepo_tool: vite-plus`; the generated workflows restore the
-  task cache and save it on push only. Hosted timing has not been measured.
+  task cache and save it on push only. Hosted timing has not been measured; the opt-in lane in
+  [Vite+ cache proof lane](../vite-plus-proof.md) (#1425) checks that the cache saves and restores, not how fast.
 
 ## What is explicit, and why
 
