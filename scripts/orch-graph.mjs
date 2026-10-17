@@ -11,8 +11,11 @@
 // Vite Task fingerprints a task's command, its declared `env`, and the files it reads. It sees only what `node`
 // (`tsc`, `vite`) reads on its own. What `bun` loads (the script it starts, its imports, a test file, `bunfig.toml`
 // and its preload) is not seen, so every task lists those as explicit `input` globs.
-import { readdirSync, readFileSync, existsSync } from 'node:fs'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+
+import { PUBLIC_ENV_NAMES } from '../apps/web/start/client-policy.mjs'
 
 export const WORKSPACE_ROOTS = ['apps', 'packages']
 
@@ -56,8 +59,16 @@ export const PACKAGE_RULES = {
     // `dist/` is the build output; `public/assets` is staged by `scripts/sync-assets.mjs` on every build;
     // `cloudflare-env.d.ts` is written by `wrangler types`; `dist-desktop` is the desktop build's output.
     generated: ['dist', 'dist-desktop', 'public/assets', 'cloudflare-env.d.ts', '.assets.*'],
-    // `bun ../../scripts/sync-assets.mjs` copies these into `public/assets`, which `vite build` then reads.
-    build: ['scripts/sync-assets.mjs', 'packages/spatial/data/**'],
+    // `bun ../../scripts/sync-assets.mjs` copies these into `public/assets`, which `vite build` then reads; it
+    // imports `scripts/pack-agent-sim.mjs`, which stages the Agent Sim engine pack into the same tree.
+    build: ['scripts/sync-assets.mjs', 'scripts/pack-agent-sim.mjs', 'packages/spatial/data/**'],
+    // Build-time values the web build reads. `vite.config.ts` substitutes the four `ADEA_PUBLIC_*` names
+    // (`PUBLIC_ENV_NAMES`) into the browser code, and `pack-agent-sim.mjs` stages the pack at `ADEA_AGENT_SIM_DIST`.
+    // A cached task is given only the variables it declares, so an undeclared name would never reach the build.
+    buildEnv: [...PUBLIC_ENV_NAMES, 'ADEA_AGENT_SIM_DIST'],
+    // The pack is a directory outside the workspace, so its contents are not an input glob. Its digest is written
+    // into the command instead (see `agentSimPackDigest`).
+    agentSimPack: true,
     // TanStack Start's `loadEnvPlugin` calls `loadEnv(mode, root, '')`, and under `vp run` Vite reports that to the
     // runner as a dependency on EVERY environment variable (`getEnvs({ prefix: '' })`), so any ambient variable
     // (`OLDPWD`, a CI run id) would be a cache miss. Without the runner's client address Vite reports nothing; the
@@ -156,19 +167,53 @@ const run = (workspace, script) => `bun run --cwd ${workspace.dir} ${script}`
  */
 const group = (dependsOn) => ({ command: 'node -e 0', cache: false, dependsOn })
 
+/**
+ * Content digest of the Agent Sim engine pack `ADEA_AGENT_SIM_DIST` names, or `none` when it is unset.
+ *
+ * `scripts/pack-agent-sim.mjs` copies the pack into `apps/web/public/assets/agent-sim`, and `bun` runs it, so the
+ * runner sees neither the read nor a glob that could name a directory outside the workspace. The digest is part of the
+ * cached command: a different pack is a different key, the same pack is a hit. A relative path is resolved against
+ * `apps/web`, as `packFromEnv` resolves it against the working directory of `bun run --cwd apps/web build`.
+ */
+export function agentSimPackDigest(root, env = process.env) {
+  const configured = env.ADEA_AGENT_SIM_DIST
+  if (!configured) return 'none'
+  const dist = resolve(root, 'apps/web', configured)
+  const hash = createHash('sha256')
+  const walk = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true }).toSorted((a, b) =>
+      a.name < b.name ? -1 : 1
+    )) {
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) walk(path)
+      else if (entry.isFile()) {
+        hash.update(`${path.slice(dist.length)}\0${statSync(path).size}\0`)
+        hash.update(readFileSync(path))
+      }
+    }
+  }
+  try {
+    walk(dist)
+  } catch {
+    // The build fails on a missing or unreadable pack, and a failed run is never cached.
+    return 'unreadable'
+  }
+  return hash.digest('hex').slice(0, 16)
+}
+
 const hasViteBuild = (workspace) => /\bvite build\b/.test(workspace.scripts.build ?? '')
 
 /**
  * `toolchainId` names Node, Bun and the platform (see orch-toolchain.mjs): it is written into every cached command so
  * a different toolchain is a different key. `orch:toolchain` checks it on every invocation.
  */
-export function buildTasks(root, toolchainId) {
+export function buildTasks(root, toolchainId, env = process.env) {
   const workspaces = discoverWorkspaces(root)
   const byName = new Map(workspaces.map((workspace) => [workspace.name, workspace]))
   const cached = (command, dependsOn, cache) => ({
     // `vp` sets `FORCE_COLOR=1` for every cached task, which colours the stderr a test parses from a child
     // process (packages/db's factory-process test). Turbo passes no such variable, so it is removed.
-    command: `ORCH_TOOLCHAIN=${toolchainId} env ${['FORCE_COLOR', ...(cache.unsetEnv ?? [])].map((name) => `-u ${name}`).join(' ')} ${command}`,
+    command: `ORCH_TOOLCHAIN=${toolchainId}${cache.prefix ? ` ${cache.prefix}` : ''} env ${['FORCE_COLOR', ...(cache.unsetEnv ?? [])].map((name) => `-u ${name}`).join(' ')} ${command}`,
     dependsOn: ['orch:toolchain', ...dependsOn],
     cache: { input: [{ auto: true }, ...GLOBAL_INPUTS, ...cache.input], ...cache.rest },
   })
@@ -191,14 +236,17 @@ export function buildTasks(root, toolchainId) {
     const rule = PACKAGE_RULES[workspace.dir] ?? {}
     const buildDeps = direct.map((dep) => taskName(dep, 'build'))
     const builtInputs = transitive.flatMap((dep) => builtDependency(dep.dir))
-    const env = hasViteBuild(workspace) || workspace.dir === 'apps/web' ? ['VITE_*'] : []
+    const viteEnv = hasViteBuild(workspace) || workspace.dir === 'apps/web' ? ['VITE_*'] : []
 
     if (has(workspace, 'build')) {
       const name = taskName(workspace, 'build')
       tasks[name] = cached(run(workspace, 'build'), buildDeps, {
         unsetEnv: rule.buildUnsetEnv,
+        prefix: rule.agentSimPack
+          ? `ORCH_AGENT_SIM_PACK=${agentSimPackDigest(root, env)}`
+          : undefined,
         input: [...own(workspace, { includeDist: false }), ...builtInputs, ...(rule.build ?? [])],
-        rest: { output: [`${workspace.dir}/dist/**`], env },
+        rest: { output: [`${workspace.dir}/dist/**`], env: [...viteEnv, ...(rule.buildEnv ?? [])] },
       })
       all.build.push(name)
     }
@@ -206,7 +254,7 @@ export function buildTasks(root, toolchainId) {
       const name = taskName(workspace, 'typecheck')
       tasks[name] = cached(run(workspace, 'typecheck'), buildDeps, {
         input: [...own(workspace, { includeDist: false }), ...builtInputs],
-        rest: { env },
+        rest: { env: viteEnv },
       })
       all.typecheck.push(name)
     }

@@ -1,8 +1,20 @@
 import { describe, expect, test } from 'bun:test'
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 
+import { PUBLIC_ENV_NAMES } from '../apps/web/start/client-policy.mjs'
 import {
+  agentSimPackDigest,
   buildTasks,
   discoverWorkspaces,
   GLOBAL_INPUTS,
@@ -99,8 +111,10 @@ describe('orch task graph mirrors the package manifests', () => {
     for (const [name, definition] of Object.entries(tasks)) {
       if (!definition.cache || name === 'orch:toolchain') continue
       expect(definition.dependsOn, name).toContain('orch:toolchain')
-      expect(definition.command, name).toStartWith(
-        `ORCH_TOOLCHAIN=${toolchain} env -u FORCE_COLOR `
+      expect(definition.command, name).toMatch(
+        new RegExp(
+          `^ORCH_TOOLCHAIN=${toolchain}( ORCH_AGENT_SIM_PACK=[0-9a-z]+)? env -u FORCE_COLOR `
+        )
       )
     }
   })
@@ -201,5 +215,69 @@ describe('a package test task lists what its tests read outside the package', ()
   test('the ui boundary test sources are explicit inputs', () => {
     const inputs = inputsOf('orch:ui:test')
     for (const path of PACKAGE_RULES['packages/ui']!.test!) expect(inputs).toContain(path)
+  })
+})
+
+describe('the web build declares everything it reads that no glob can see', () => {
+  const web = 'orch:web:build'
+  const declaredEnv = () => {
+    const cache = tasks[web]!.cache
+    if (!cache) throw new Error('uncached')
+    return cache.env ?? []
+  }
+
+  test('every build-time public value and the Agent Sim pack path are declared env', () => {
+    for (const name of PUBLIC_ENV_NAMES) expect(declaredEnv(), name).toContain(name)
+    expect(declaredEnv()).toContain('ADEA_AGENT_SIM_DIST')
+  })
+
+  test('every module the asset staging scripts import is an input of the web build', () => {
+    const inputs = new Set(inputsOf(web))
+    const seen = new Set<string>()
+    const visit = (file: string) => {
+      if (seen.has(file)) return
+      seen.add(file)
+      const source = readFileSync(join(root, file), 'utf8')
+      for (const match of source.matchAll(/(?:from\s+|import\()\s*['"](\.{1,2}\/[^'"]+)['"]/g)) {
+        visit(relative(root, resolve(root, dirname(file), match[1]!)))
+      }
+    }
+    visit('scripts/sync-assets.mjs')
+    expect(seen.has('scripts/pack-agent-sim.mjs')).toBe(true)
+    for (const file of seen) expect(inputs.has(file), file).toBe(true)
+  })
+
+  test('the pack digest is written into the web build command and follows the pack contents', () => {
+    const pack = mkdtempSync(join(tmpdir(), 'orch-pack-'))
+    try {
+      writeFileSync(join(pack, 'engine.json'), '{"version":"1.0.0"}')
+      mkdirSync(join(pack, 'nested'))
+      writeFileSync(join(pack, 'engine.js'), 'a')
+      writeFileSync(join(pack, 'nested', 'asset.bin'), 'b')
+      const env = { ADEA_AGENT_SIM_DIST: pack }
+      const first = agentSimPackDigest(root, env)
+      expect(first).toMatch(/^[0-9a-f]{16}$/)
+      expect(agentSimPackDigest(root, env)).toBe(first)
+      expect(buildTasks(root, toolchain, env)[web]!.command).toContain(
+        `ORCH_AGENT_SIM_PACK=${first} `
+      )
+
+      writeFileSync(join(pack, 'nested', 'asset.bin'), 'c')
+      expect(agentSimPackDigest(root, env)).not.toBe(first)
+      writeFileSync(join(pack, 'nested', 'asset.bin'), 'b')
+      expect(agentSimPackDigest(root, env)).toBe(first)
+      writeFileSync(join(pack, 'extra.txt'), '')
+      expect(agentSimPackDigest(root, env)).not.toBe(first)
+    } finally {
+      rmSync(pack, { recursive: true, force: true })
+    }
+  })
+
+  test('an unset or unreadable pack has its own stable digest', () => {
+    expect(agentSimPackDigest(root, {})).toBe('none')
+    expect(agentSimPackDigest(root, { ADEA_AGENT_SIM_DIST: '/nonexistent/agent-sim-pack' })).toBe(
+      'unreadable'
+    )
+    expect(buildTasks(root, toolchain, {})[web]!.command).toContain('ORCH_AGENT_SIM_PACK=none ')
   })
 })
