@@ -2300,7 +2300,7 @@ projection; `unavailable` is empty for the local owner. Scoped capability
 subsets arrive with remote callers (M14 runtime nodes), which authenticate as
 a different identity class than this trusted local channel. The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 232 operation names, exact body shapes, exact reply types, complete required
+all 242 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
