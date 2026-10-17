@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Opt-in Vite+ cache proof for the real `orch:build` graph (vite.config.ts, scripts/orch-graph.mjs). Turbo stays the
-// required runner; this only runs the build graph once and reports what the task cache did.
+// Opt-in Vite+ cache proof for the real `orch:build` graph (vite.config.ts, scripts/orch-graph.mjs). It runs the build
+// graph once and reports what the task cache did; it changes nothing the required lanes run.
 //
 //   node scripts/vite-plus-proof.mjs [options]
 //     --expect cold|warm        assert the cache hit pattern: cold = no hit, warm = every cacheable task hit

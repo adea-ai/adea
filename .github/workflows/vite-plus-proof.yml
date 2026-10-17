@@ -1,11 +1,13 @@
 name: Vite+ Cache Proof
 
 # Opt-in, non-required proof lane for the Vite+ task cache on the real `orch:build`
-# graph (vite.config.ts, scripts/orch-graph.mjs).
-# Turbo stays the required runner for every Code Foundry workflow. This lane
-# consumes the Code Foundry setup action at the exact published v1.48.1 commit,
-# runs on pushes to its own branch, and adds no secrets, remote cache, or
-# deployment: the cache is the repository's GitHub Actions cache.
+# graph (vite.config.ts, scripts/orch-graph.mjs). The committed code-foundry.yml
+# already sets `monorepo_tool: vite-plus` and `runtime_ref: v1.48.1`, so the required
+# lanes run the same graph; this lane only adds the evidence that the cache saves
+# and restores on a fresh runner. It consumes the Code Foundry setup action at the
+# exact published v1.48.1 commit, runs on pushes to its own branch, and adds no
+# secrets, remote cache, or deployment: the cache is the repository's GitHub
+# Actions cache.
 #
 # Commit message lines make the run assert the restored cache: `vp-proof-expect:
 # cold|warm` and `vp-proof-manifest: <sha256>` (the dist outputs after restore).
@@ -66,11 +68,6 @@ jobs:
           test ! -e .github/actions/cache
           test ! -e .github/actions/vite-plus-cache-save
           cp -R "$RUNNER_TEMP/code-foundry/.github/actions/." .github/actions/
-      # Opt this job's workspace into Vite+. The repository's committed
-      # code-foundry.yml is untouched, so required workflows keep using Turbo.
-      - name: Opt this job into Vite+
-        run: |
-          printf '\nmonorepo_tool: vite-plus\n' >> .github/code-foundry.yml
       # Set the override before setup so the shared cache contract includes a
       # runner-local Vite+ path.
       - name: Set runner-local Vite+ cache path

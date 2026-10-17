@@ -1,8 +1,9 @@
 # Vite+ cache proof lane
 
 An opt-in, non-required lane that proves the Vite+ task cache saves and restores on real GitHub Actions for the real
-`orch:build` graph. Turbo remains the required runner: the committed `.github/code-foundry.yml` does not set
-`monorepo_tool`, and no required workflow changes. This is not a Turbo replacement and makes no speed or parity claim.
+`orch:build` graph. The committed `.github/code-foundry.yml` already sets `monorepo_tool: vite-plus` and
+`runtime_ref: v1.48.1`, so the required lanes run this same graph; this lane changes none of them and only adds the
+evidence for the cache. It makes no speed or parity claim.
 
 ## What it covers
 
@@ -32,8 +33,8 @@ verifies the commit and package version, stages the pinned runtime under `$RUNNE
 release's setup action with `cache-vite-plus: true`. It sets `VITE_CACHE_PATH` to a directory under `RUNNER_TEMP` before
 setup, then calls the supported `vite-plus-cache-save` action after the build with the setup action's published path,
 key and save-intent outputs. The product action owns the cache namespace, key, restore prefixes and push-only save
-behavior; Adea has no bespoke cache-key computation. The workflow only opts its own job into `monorepo_tool: vite-plus`.
-No secrets, remote cache or Cloudflare are used; the cache is the repository's GitHub Actions cache.
+behavior; Adea has no bespoke cache-key computation. The job uses the committed `monorepo_tool: vite-plus`; it appends
+nothing to `.github/code-foundry.yml`. No secrets, remote cache or Cloudflare are used; the cache is the repository's GitHub Actions cache.
 
 The cache path ends in `adea-vite-plus-proof-cache-orch-v1.48.1`. GitHub derives the archive version from the cache path
 list ([cache version reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#cache-key-matching)),
