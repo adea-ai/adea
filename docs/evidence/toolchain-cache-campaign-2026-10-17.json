@@ -160,6 +160,11 @@
           "url": "https://github.com/adea-ai/adea/pull/1447",
           "sourceHead": "d6fb16fbc62c4457fad2bd8d8c09db95f0fff19c",
           "merged": true
+        },
+        {
+          "url": "https://github.com/adea-ai/adea/pull/1449",
+          "implementationHead": "a65174c74b35c8aaf06e05c2527796f02503fef3",
+          "state": "draft; auto-merge off"
         }
       ],
       "checking": "14 library no-emit commands now Bun; tsc build/declaration emission preserved",
@@ -283,7 +288,7 @@
       "prs": [
         {
           "url": "https://github.com/adea-ai/control-plane/pull/1170",
-          "sourceHead": "b65e5175d124799fe28c047685042b01ce0d0a12"
+          "sourceHead": "40c9fe0ba27aaeebfb32831197e86a9d5f69d6b5"
         }
       ],
       "checking": "45 Bun checks added; all 45 tsc builds retained; Turbo removed",
@@ -325,13 +330,14 @@
         "Full composite typecheck, format, lint and doctor passed before review delta.",
         "Full unit lane at af16: 4144 pass, 11 skip, 0 fail; 83.08% line and 85.32% function coverage (80% minimum).",
         "Review delta: 61 tooling/Neon tests, 824 assertions; boundaries 1217 files/45 packages, zero violations.",
-        "Normal pre-commit build and 45/45 replay passed at b65e5175."
+        "Normal pre-commit build and 45/45 replay passed at b65e5175.",
+        "Final local-anchor repair: 6 tooling tests /379 assertions; zero boundary violations; approved audit issues:read and caller1.48.1; doctor and normal pre-commit build/replay passed. Custom PostgreSQL gate preserved."
       ],
       "remaining": [
         "Root owns exact-head review/readiness/merge.",
         "Hosted cache transfer and PostgreSQL qualification pending.",
         "CP1151/1153/1154 and Pi runtime scopes untouched.",
-        "Custom PostgreSQL gate preserved; audit issues:read addition approved and local-anchor parser regression repair in progress."
+        "Fresh-worktree cache proof records graph head b65e5175; final parser input40c9fe0b separately proved invalidation and45/45 immediate replay. Hosted transfer still pending."
       ]
     },
     {
