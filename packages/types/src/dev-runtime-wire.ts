@@ -19,6 +19,7 @@ import {
   timestamp,
   uint64String,
 } from './dev-runtime-validation-internal'
+import { assertWellFormedUnicode } from './dev-runtime-unicode'
 import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
 import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
 
@@ -147,9 +148,14 @@ export function decodeRuntimeEvent(
     'event'
   )
   if (item.schemaVersion !== 1) fail('event.schemaVersion', 'expected 1')
-  for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId'] as const)
-    stringValue(item[key], `event.${key}`, 1, 256)
-  if (item.harnessRunId !== undefined) stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+  for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId'] as const) {
+    const text = stringValue(item[key], `event.${key}`, 1, 256)
+    assertWellFormedUnicode(text, `event.${key}`)
+  }
+  if (item.harnessRunId !== undefined) {
+    const text = stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+    assertWellFormedUnicode(text, 'event.harnessRunId')
+  }
   integerValue(item.generation, 'event.generation', 0)
   uint64String(item.seq, 'event.seq')
   timestamp(item.occurredAt, 'event.occurredAt')

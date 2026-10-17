@@ -3,7 +3,12 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { decodeRuntimeEvent, encodeCbor, type Scope } from '../../../packages/types/src/dev-runtime'
+import {
+  decodeCbor,
+  decodeRuntimeEvent,
+  encodeCbor,
+  type Scope,
+} from '../../../packages/types/src/dev-runtime'
 import {
   createSessionEventLog,
   type SessionEventInput,
@@ -384,4 +389,57 @@ describe('assistant events must fit one runtime-events-v1 frame', () => {
       expect(log.latestSequence('session-1', 1)).toBe('100')
     })
   })
+})
+
+describe('assistant envelope identifiers must be well-formed Unicode', () => {
+  const lone = ['\ud800', '\udc00', 'a\ud83d', '\ude80b']
+  const fields = ['runtimeSessionId', 'harnessRunId', 'sourceEventId'] as const
+
+  for (const field of fields)
+    test(`${field} is refused before admission, dedupe, cursor allocation or publish`, () =>
+      withLog((log) => {
+        const published: unknown[] = []
+        log.subscribe('session-1', (event) => published.push(event))
+        log.append(input({ sourceEventId: 'seed' }))
+        for (const bad of lone) {
+          expect(() => log.append(input({ [field]: bad }))).toThrow('ill-formed Unicode string')
+          expect(() =>
+            log.append(
+              input({
+                [field]: bad,
+                kind: 'turn.result',
+                payload: { messageId: 'message-1' },
+              })
+            )
+          ).toThrow('ill-formed Unicode string')
+        }
+        expect(log.events()).toHaveLength(1)
+        expect(published).toHaveLength(1)
+        expect(log.latestSequence('session-1', 1)).toBe('1')
+        for (const bad of lone) expect(log.latestSequence(bad, 1)).toBe('0')
+      }))
+
+  test('two distinct lone-surrogate runs are refused, not merged into one wire identity', () =>
+    withLog((log) => {
+      for (const run of ['r\ud800', 'r\ud801'])
+        expect(() => log.append(input({ harnessRunId: run }))).toThrow('ill-formed Unicode string')
+      expect(log.events()).toHaveLength(0)
+    }))
+
+  test('valid astral and combining identifiers survive append, CBOR and replay unchanged', () =>
+    withLog((log, dataDir) => {
+      const ids = {
+        runtimeSessionId: 'session-🚀-é',
+        harnessRunId: 'run-👩‍💻',
+        sourceEventId: 'delta-𝒳-0',
+      }
+      const stored = log.append(input(ids))!
+      const wire = decodeCbor(encodeCbor(stored)).value as typeof stored
+      expect(wire).toEqual(stored)
+      for (const [key, value] of Object.entries(ids))
+        expect((wire as Record<string, unknown>)[key]).toBe(value)
+      const reopened = createSessionEventLog({ dataDir, scope })
+      expect(reopened.read(ids.runtimeSessionId)).toEqual([stored])
+      expect(reopened.append(input(ids))).toBeUndefined()
+    }))
 })

@@ -187,3 +187,7 @@ Validation on the reconciled tree:
 - `bun build --target=bun .../harness/events.ts`: host bundle passed.
 
 No packaged/live-harness, browser E2E or soak qualification is claimed.
+
+### Envelope identifier Unicode (review 5559261853)
+
+`decodeRuntimeEvent` now rejects unpaired surrogates in `eventId`, `runtimeSessionId`, `sourceEventId` and `harnessRunId` before admission, dedupe or cursor allocation. The canonical CBOR encoder passes strings through `TextEncoder`, which rewrites a lone surrogate to U+FFFD, so `r\uD800` and `r\uD801` would otherwise share one wire identity while the host kept them distinct. The check uses `packages/types/src/dev-runtime-unicode.ts`, byte-identical to the helper on #1417's branch, so the two branches merge without divergent behaviour. Valid astral and combining identifiers are preserved through append, CBOR and replay.

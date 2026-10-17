@@ -163,3 +163,33 @@ describe('assistant event identity contract', () => {
     ).toThrow('event kind')
   })
 })
+
+const wire = (id: string) => new TextDecoder().decode(new TextEncoder().encode(id))
+
+describe('envelope identifiers are well-formed Unicode', () => {
+  const lone = ['\ud800', '\udc00', 'a\ud83d', '\ude80b']
+  for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId', 'harnessRunId'] as const)
+    test(`${key} rejects unpaired surrogates and keeps valid scalars`, () => {
+      for (const bad of lone)
+        expect(() =>
+          decodeRuntimeEvent(
+            { ...event('turn.assistant_delta', delta), [key]: bad },
+            { source: 'acp' }
+          )
+        ).toThrow('ill-formed Unicode string')
+      const good = {
+        ...event('turn.assistant_delta', delta),
+        [key]: 'id-🚀-é',
+      }
+      expect(decodeRuntimeEvent(good, { source: 'acp' })).toEqual(good)
+      expect(decodeCbor(encodeCbor(good)).value).toEqual(good)
+    })
+
+  test('distinct lone-surrogate run ids cannot collapse to one wire identity', () => {
+    expect(wire('r\ud800')).toBe(wire('r\ud801'))
+    for (const id of ['r\ud800', 'r\ud801'])
+      expect(() =>
+        decodeRuntimeEvent({ ...event('turn.result', result), harnessRunId: id }, { source: 'acp' })
+      ).toThrow('ill-formed Unicode string')
+  })
+})
