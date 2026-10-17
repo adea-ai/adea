@@ -39,7 +39,11 @@ import {
 import { createDurableJsonStore } from '../host-store'
 import { assertAssistantEventFitsFrame, assertAssistantEventOrder } from './assistant-events'
 import { admitRuntimeActivityEvent } from './activity-events'
-import { validateInteractionAdmission, validateInteractionCorrelation } from './interactions'
+import {
+  snapshotInteractionEvent,
+  validateInteractionAdmission,
+  validateInteractionCorrelation,
+} from './interactions'
 import {
   snapshotCallEvent,
   validateCallEventAdmission,
@@ -103,7 +107,7 @@ function project(event: StoredEvent): RuntimeEvent {
   if (rest.kind === 'queue.updated') return decodeRuntimeEvent(rest, { source: rest.source })
   if (isVersionedCall(rest))
     return snapshotCallEvent(decodeRuntimeEvent(rest, { source: rest.source }))
-  return { ...rest }
+  return snapshotInteractionEvent(rest) ?? { ...rest }
 }
 
 const seqOf = (event: RuntimeEvent): bigint => BigInt(event.seq)
@@ -169,7 +173,8 @@ export type SessionEventLog = Readonly<{
 export function createSessionEventLog(input: {
   dataDir: string
   scope: Scope
-  /** The existing session authority. Required for versioned interactions. */
+  /** The existing session authority. Required for versioned interactions;
+   * legacy opaque events remain readable without inventing that authority. */
   resolveSession?: (runtimeSessionId: string) => RuntimeSession | undefined
   /** Overrides the per-session bound (tests only; production uses the constant). */
   maxPerSession?: number
@@ -265,7 +270,9 @@ export function createSessionEventLog(input: {
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
     }
+    candidate = snapshotInteractionEvent(candidate) ?? candidate
     const interaction = validateInteractionAdmission(candidate, input.scope, input.resolveSession)
+    if (interaction) candidate = interaction.event
     if (isVersionedCall(candidate) && sessionInput.classification === undefined)
       throw new TypeError('event.classification: call observations require explicit classification')
     // Validate the complete source contract without charging a new sequence or
@@ -323,6 +330,7 @@ export function createSessionEventLog(input: {
     }
     candidate = { ...candidate, seq: nextSequence.toString() }
     candidate = decodeRuntimeEvent(candidate, effectiveProvenance)
+    candidate = snapshotInteractionEvent(candidate) ?? candidate
     if (isRuntimeCallEventKind(candidate.kind)) {
       candidate = snapshotCallEvent(candidate)
       validateCallEventAdmission(candidate, records, input.verifyCallPermissionEligibility)
@@ -334,7 +342,7 @@ export function createSessionEventLog(input: {
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(
-      (event) => event.runtimeSessionId === sessionInput.runtimeSessionId
+      (event) => event.runtimeSessionId === candidate.runtimeSessionId
     )
     let bounded = records
     if (sessionEvents.length + 1 > maxPerSession) {
@@ -360,7 +368,7 @@ export function createSessionEventLog(input: {
       ...bounded.map((event) => ({ ...event, scope: input.scope })),
     ]
     store.save(stored)
-    for (const cb of subscribers.get(sessionInput.runtimeSessionId) ?? []) cb(candidate)
+    for (const cb of subscribers.get(candidate.runtimeSessionId) ?? []) cb(candidate)
     return candidate
   }
 

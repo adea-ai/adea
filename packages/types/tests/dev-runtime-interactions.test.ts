@@ -166,3 +166,122 @@ describe('versioned runtime interaction payloads', () => {
     ).toThrow()
   })
 })
+
+describe('inert interaction snapshots', () => {
+  test('caller aliases cannot change nested validated facts', () => {
+    const input = {
+      schemaVersion: 1,
+      requestId: 'request-1',
+      eligibility: { eligible: false, reason: 'response_unavailable' },
+      questions: [
+        {
+          id: 'target',
+          prompt: 'Which?',
+          required: true,
+          kind: 'choice',
+          multiple: false,
+          options: [{ id: 'web', label: 'Web' }],
+        },
+      ],
+    }
+    const snapshot = decodeRuntimeInteractionPayload('question.requested', input)
+    const serialized = JSON.stringify(snapshot)
+    input.questions[0]!.options[0]!.label = 'Changed after validation'
+    input.eligibility.eligible = true
+    expect(JSON.stringify(snapshot)).toBe(serialized)
+    expect(snapshot).not.toBe(input)
+    expect(Object.isFrozen(snapshot)).toBe(true)
+    const copied = snapshot as {
+      questions: readonly { options: readonly unknown[] }[]
+      eligibility: object
+    }
+    expect(Object.isFrozen(copied.questions)).toBe(true)
+    expect(Object.isFrozen(copied.questions[0])).toBe(true)
+    expect(Object.isFrozen(copied.questions[0]!.options[0])).toBe(true)
+    expect(Object.isFrozen(copied.eligibility)).toBe(true)
+  })
+
+  test('rejects non-enumerable serialization hooks on every nesting level without invoking them', () => {
+    for (const target of ['root', 'eligibility', 'questions', 'question', 'options', 'option']) {
+      const input = structuredClone(requested)
+      const choice = input.questions[0]!
+      const object =
+        target === 'root'
+          ? input
+          : target === 'eligibility'
+            ? input.eligibility
+            : target === 'questions'
+              ? input.questions
+              : target === 'question'
+                ? choice
+                : target === 'options'
+                  ? choice.options
+                  : choice.options[0]!
+      let invoked = 0
+      Object.defineProperty(object, 'toJSON', {
+        value: () => {
+          invoked += 1
+          return {}
+        },
+      })
+      expect(() => decodeRuntimeInteractionPayload('question.requested', input)).toThrow()
+      expect(invoked).toBe(0)
+    }
+  })
+
+  test('rejects accessors without reading them', () => {
+    for (const target of ['root', 'question', 'option', 'array']) {
+      const input = structuredClone(requested)
+      const choice = input.questions[0]!
+      let reads = 0
+      const object =
+        target === 'root'
+          ? input
+          : target === 'question'
+            ? choice
+            : target === 'option'
+              ? choice.options[0]!
+              : choice.options
+      const key =
+        target === 'root'
+          ? 'requestId'
+          : target === 'question'
+            ? 'prompt'
+            : target === 'option'
+              ? 'label'
+              : '0'
+      const value = Object.getOwnPropertyDescriptor(object, key)!.value
+      Object.defineProperty(object, key, {
+        enumerable: true,
+        get: () => {
+          reads += 1
+          return value
+        },
+      })
+      expect(() => decodeRuntimeInteractionPayload('question.requested', input)).toThrow()
+      expect(reads).toBe(0)
+    }
+  })
+})
+
+test('legacy objects cannot smuggle structured facts through serialization hooks', () => {
+  for (const value of [{ text: 'opaque' }, ['opaque']]) {
+    let invoked = 0
+    Object.defineProperty(value, 'toJSON', {
+      value: () => {
+        invoked += 1
+        return requested
+      },
+    })
+    expect(() => decodeRuntimeInteractionPayload('question.requested', value)).toThrow()
+    expect(invoked).toBe(0)
+  }
+})
+
+test('ordinary legacy JSON retains generic array/object bounds and stays opaque', () => {
+  for (const value of [
+    Array(64).fill('opaque'),
+    Object.fromEntries(Array.from({ length: 64 }, (_, i) => [`field-${i}`, i])),
+  ])
+    expect(decodeRuntimeInteractionPayload('question.requested', value)).toBeUndefined()
+})

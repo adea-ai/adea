@@ -336,3 +336,57 @@ describe('host interaction admission and correlation', () => {
     expect(log.events()).toHaveLength(1)
   })
 })
+
+test('session resolver callbacks cannot change the validated interaction that is persisted', () => {
+  const { options } = setup()
+  const original = structuredClone(payload)
+  const log = createSessionEventLog({
+    ...options,
+    resolveSession: () => {
+      original.prompt = 'Changed after admission'
+      return initialSession
+    },
+  })
+  const appended = log.append(request({ payload: original }))!
+  expect((appended.payload as { prompt: string }).prompt).toBe('Allow this action?')
+  expect((log.events()[0]!.payload as { prompt: string }).prompt).toBe('Allow this action?')
+  expect(Object.isFrozen(appended)).toBe(true)
+  expect(Object.isFrozen(appended.payload)).toBe(true)
+  expect(Reflect.set(appended.payload as object, 'prompt', 'Changed through returned alias')).toBe(
+    false
+  )
+  const replayed = createSessionEventLog(options).events()[0]!
+  expect((replayed.payload as { prompt: string }).prompt).toBe('Allow this action?')
+  expect(Object.isFrozen(replayed.payload)).toBe(true)
+})
+
+test('hidden payload serialization hooks are rejected before persistence or invocation', () => {
+  const { log } = setup()
+  const original = structuredClone(payload)
+  let invoked = 0
+  Object.defineProperty(original, 'toJSON', {
+    value: () => {
+      invoked += 1
+      return { forged: true }
+    },
+  })
+  expect(() => log.append(request({ payload: original }))).toThrow()
+  expect(invoked).toBe(0)
+  expect(log.events()).toHaveLength(0)
+})
+
+test('legacy payload hooks cannot serialize an unadmitted structured request', () => {
+  for (const original of [{ text: 'opaque' }, ['opaque']]) {
+    const { log } = setup()
+    let invoked = 0
+    Object.defineProperty(original, 'toJSON', {
+      value: () => {
+        invoked += 1
+        return payload
+      },
+    })
+    expect(() => log.append(request({ payload: original }))).toThrow()
+    expect(invoked).toBe(0)
+    expect(log.events()).toHaveLength(0)
+  }
+})
