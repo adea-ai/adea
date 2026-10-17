@@ -249,3 +249,30 @@ fail at c9e1a1d and pass after the repair, including exact sanitized boundaries,
 removed control characters and one additional visible code point. Existing input,
 output and privacy bounds remain unchanged. Earlier validation counts above are
 the c9e1a1d checkpoint; the final follow-up receipt records updated check results.
+
+### CI bundle and visual qualification follow-up
+
+Host verify at ef9d397f exceeded the unchanged 185,344-byte Dev utility budget:
+CI 185,579; local reproduction 185,636. Separate shared-model and shared-primitive
+chunk groups reduce local raw bytes to 185,165, gzip 61,478 to 60,847 and files 16 to 12.
+Pane components remain lazy; dependency recursion stays disabled. Startup raw
+bytes change 687,502 to 687,489; Chat 193,365 to 193,606, with gzip 63,917 to 63,827 and
+one fewer chunk. All route budgets pass; none was raised. Complete unchanged
+`start:verify` passes, including 25 host tests, build, Bun checking and client guard.
+Focused bundle suites pass 24 tests/74 assertions; Dev View 1,036/3,812 pass.
+
+CI visual run 39074736114 at ef9d397f passed 80 workspace tests; its 12 ChatView
+baselines still showed the former per-event cards. All 12 actual/expected/diff
+triplets were inspected across conversation/attention/reconnect, light/dark and
+desktop/mobile. Actuals show the approved shared bubbles, Trace, Confirmation,
+Questionnaire and reconnect notices. Each CI expected matches its checked-in
+baseline byte-for-byte, and each actual matches its retry byte-for-byte. Those
+reviewed actuals replace only the 12 Linux ChatView baselines; screenshot tolerances
+and test assertions are unchanged. Original CI artifact 12117030974 and hash
+receipts remain available for the coordinator's visual review.
+
+The corresponding 12 native Darwin triplets were also inspected before promotion;
+all 13 unchanged native visual tests then passed in 44.0 seconds. The linked
+[complete CI repair receipt](chat-canvas-ci-repair-2026-10-17.json) records both
+platforms' original/actual hashes and all measured route closures. Linux uses the
+existing CI image's actuals; a new-head hosted visual rerun remains pending.
