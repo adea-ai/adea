@@ -1752,6 +1752,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                         }
                       >
                         <CharacterDesignerWorkspace
+                          client={props.client}
                           initialCharacter={props.virtualProps.initialCharacter}
                           onClose={() => changeApp('virtual')}
                         />

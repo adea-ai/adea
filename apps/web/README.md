@@ -30,3 +30,7 @@ the shared preference schema. A successful shell write acknowledges with `null`;
 the adapter returns the normalized saved values to the UI, while write failures
 remain recoverable errors. Settings navigation must stay operable on fresh profiles
 and after saving notification or dictation preferences.
+
+## Hosted Sim
+
+The optional online-first Sim uses the [hosted integration guide](../../docs/guides/hosted-agent-sim.md). Production launch stays closed without an approved entitlement authority; local acceptance services use explicit disposable fixtures.

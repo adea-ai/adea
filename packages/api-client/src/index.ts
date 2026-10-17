@@ -731,6 +731,23 @@ function groupGrantRejections(value: unknown): readonly ApiGroupGrantRejection[]
 }
 
 export class AgentHqApiClient {
+  /** Optional hosted Sim configuration. This uses the same identity as workspace REST calls. */
+  simConfiguration(
+    signal?: AbortSignal
+  ): Promise<{ frameOrigin: string | null; allowLoopbackHttp?: boolean }> {
+    return this.request('/sim/config', { signal })
+  }
+
+  /** Protocol validation belongs to the spatial caller; credentials stay in this transport. */
+  requestSimLaunch(input: unknown, signal: AbortSignal): Promise<unknown> {
+    return this.request('/sim/launch', {
+      method: 'POST',
+      signal,
+      body: JSON.stringify(input),
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
   private readonly baseUrl: string
   private readonly client: 'browser' | 'desktop'
   private readonly fetchImpl: typeof fetch

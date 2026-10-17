@@ -114,9 +114,7 @@ the private Agent Sim repository. This repository stages only the tracked scene
 manifests from `@adea-ai/spatial` into `apps/web/public/assets`. Public build
 inputs and the conventional UI do not require a private engine pack. Install
 the pinned dependencies and configure local PostgreSQL for persistence-backed
-workspace flows and integration tests as described above. Engine rendering
-requires a separately prepared pack; without it, the virtual view shows its
-unavailable state.
+workspace flows and integration tests as described above. The app now uses an optional separately hosted Sim frame. Its private host consumes a prepared engine export; desktop builds exclude that export. Without an approved launch authority the app shows the unavailable state. See [hosted Sim integration](docs/guides/hosted-agent-sim.md) for local acceptance and remaining rollout decisions.
 
 ## Verification
 
