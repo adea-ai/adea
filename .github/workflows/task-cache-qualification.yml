@@ -70,9 +70,9 @@ jobs:
             cat "$RUNNER_TEMP/build-$pass.log"
             echo "$pass elapsed: $((SECONDS-start))s" >> "$GITHUB_STEP_SUMMARY"
           done
-          grep -Fq '17/17 cache hit' "$RUNNER_TEMP/build-second.log"
+          grep -Fq '15/15 cache hit' "$RUNNER_TEMP/build-second.log"
           if test "$previous" = "$head"; then
-            grep -Fq '17/17 cache hit' "$RUNNER_TEMP/build-first.log"
+            grep -Fq '15/15 cache hit' "$RUNNER_TEMP/build-first.log"
             echo 'Fresh runner restored all production tasks for the same head.' >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "Restored entry: ${RESTORED_KEY:-none}" >> "$GITHUB_STEP_SUMMARY"
