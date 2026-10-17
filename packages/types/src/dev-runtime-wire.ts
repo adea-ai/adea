@@ -22,6 +22,7 @@ import {
   uint64String,
 } from './dev-runtime-validation-internal'
 import { decodeCheckpointEventPayload } from './dev-runtime-checkpoints'
+import { decodeRuntimeInteractionPayload } from './dev-runtime-interactions'
 import {
   decodeRuntimeCallPayload,
   isRuntimeCallEventKind,
@@ -259,6 +260,15 @@ const eventSemantics: EventSemantics = {
   },
   late(item) {
     validateRuntimeResponseReferences(item.kind as string, item.payload, item.source as string)
+    // Structured question/approval interactions (#1395) travel only with
+    // authoritative, workspace_private, harness-run-bound provenance.
+    if (decodeRuntimeInteractionPayload(item.kind as string, item.payload)) {
+      if (item.confidence !== 'authoritative')
+        fail('event.confidence', 'structured interactions require authoritative provenance')
+      if (item.classification !== 'workspace_private')
+        fail('event.classification', 'structured interactions require workspace_private')
+      stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+    }
   },
 }
 
