@@ -9,8 +9,8 @@ fallback for builds without an engine pack.
 
 ## Stack
 
-- Turborepo, TanStack Start, SolidJS, and TypeScript
-- Bun for installation, scripts, and tests
+- Vite+ (`vp run` task graph), TanStack Start, SolidJS, and TypeScript
+- Bun 1.4.3 for installation, scripts, tests, and TypeScript checking
 - Scene manifests and telemetry schema via `@adea-ai/spatial`
   (the Three.js runtime, scenes, and asset pipeline live in Agent Sim)
 - TanStack Query's Solid bindings for server state and `solid-js/store` for
@@ -140,7 +140,7 @@ PLAYWRIGHT_HEADLESS=1 bun run test:e2e
 
 CI delegates general validation to the shared Code Foundry workflow. The
 separate Neon workflow runs the integration inventory as two shards, each against its own isolated branch, behind one required `Migrate Neon Branch` check.
-Package unit tests fan out through Turborepo.
+Package unit tests fan out through Vite+ (`vp run`).
 
 `bun run test:unit` includes an 80% line-and-function coverage gate for the
 durable authentication, persistence, and repository-boundary code exercised by

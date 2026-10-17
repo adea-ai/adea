@@ -28,6 +28,7 @@ const channel: ChannelSummary = {
   lifecycleState: 'active',
   participants: [
     { kind: 'user', userId },
+    { kind: 'user', userId: 'user-2' },
     { agentId: ariaId, kind: 'agent' },
     { agentId: guestId, kind: 'agent' },
   ],
@@ -123,6 +124,13 @@ function build() {
         { id: workspaceId, name: 'Acme' },
         { id: guestWorkspaceId, name: 'Globex' },
       ])
+    if (path.endsWith(`/workspaces/${workspaceId}/members`))
+      return json({
+        members: [
+          { displayName: 'Morgan', role: 'owner', userId },
+          { displayName: 'Dana', role: 'member', userId: 'user-2' },
+        ],
+      })
     const cancel = path.match(/\/turns\/([^/]+)\/cancel$/)
     if (cancel) {
       calls.cancel += 1

@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/types",
-  "version": "0.93.0",
+  "version": "0.95.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -92,6 +92,6 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "test": "bun test tests",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "bun check -p tsconfig.json"
   }
 }

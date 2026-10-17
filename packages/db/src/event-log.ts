@@ -71,6 +71,37 @@ export async function listWorkspaceEventsAfter(
 }
 
 /**
+ * The same read as `listWorkspaceEventsAfter`, built once for a long-lived
+ * subscriber that polls the same workspace over and over. Building a Drizzle
+ * select (column map, condition tree, SQL chunks) is pure JavaScript work that
+ * a one-second poll repeats unchanged for the life of a stream; here only the
+ * cursor is a placeholder, so each poll just binds it and runs. The statement,
+ * its workspace scope, ordering and limit are exactly those of the unprepared
+ * read, and `prepare` is the builder's own client-side step: it names no
+ * server-side statement, so pooled and pgbouncer-style connections are
+ * unaffected.
+ */
+export function prepareWorkspaceEventsAfter(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  limit: number = WORKSPACE_EVENT_PAGE_LIMIT
+): (afterSequence: number) => Promise<WorkspaceEventView[]> {
+  const query = database
+    .select()
+    .from(workspaceEvents)
+    .where(
+      and(
+        eq(workspaceEvents.workspaceId, workspaceId),
+        gt(workspaceEvents.workspaceSequence, sql.placeholder('afterSequence'))
+      )
+    )
+    .orderBy(asc(workspaceEvents.workspaceSequence))
+    .limit(Math.max(1, Math.min(limit, WORKSPACE_EVENT_PAGE_LIMIT)))
+    .prepare('workspace_events_after')
+  return async (afterSequence) => (await query.execute({ afterSequence })).map(toView)
+}
+
+/**
  * The retained window for a workspace: the earliest and latest sequences a
  * client can still replay. A cursor outside it cannot be proven continuous and
  * must be answered with `resync_required` rather than a silent gap.

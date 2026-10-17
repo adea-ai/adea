@@ -1,4 +1,5 @@
 import 'server-only'
+import { parseLeadTurnChildrenQuery } from './lead-turn-children'
 import { applicationDatabase } from './database'
 import { isConversationUuid } from './conversation-request'
 import { guardDesktopWorkspaceRequest } from './desktop-workspace'
@@ -11,7 +12,14 @@ import {
 } from './workspace-response'
 import { configuredLeadTurnProductDependencies, createLeadTurnProduct } from './lead-turn-product'
 
-export type LeadTurnOperation = 'prepare' | 'dispatch' | 'status' | 'progress' | 'cancel' | 'latest'
+export type LeadTurnOperation =
+  | 'prepare'
+  | 'dispatch'
+  | 'status'
+  | 'progress'
+  | 'cancel'
+  | 'latest'
+  | 'children'
 /** Public commands contain no authority, payer, model, project or session fields. */
 export async function handleLeadTurnRequest(
   request: Request,
@@ -59,13 +67,18 @@ export async function handleLeadTurnRequest(
     (operation !== 'latest' || !targetSessionId.trim() || targetSessionId.trim().length > 256)
   )
     return workspaceInvalidRequestResponse(request)
+  const childrenQuery =
+    operation === 'children' ? parseLeadTurnChildrenQuery(url.searchParams) : undefined
+  if (operation === 'children' && childrenQuery === null)
+    return workspaceInvalidRequestResponse(request)
   if (
     (operation === 'progress' && (!Number.isSafeInteger(afterSequence) || afterSequence < 0)) ||
-    [...url.searchParams.keys()].some(
-      (key) =>
-        (operation !== 'progress' || key !== 'afterSequence') &&
-        (operation !== 'latest' || key !== 'targetSessionId')
-    )
+    (operation !== 'children' &&
+      [...url.searchParams.keys()].some(
+        (key) =>
+          (operation !== 'progress' || key !== 'afterSequence') &&
+          (operation !== 'latest' || key !== 'targetSessionId')
+      ))
   )
     return workspaceInvalidRequestResponse(request)
   try {
@@ -92,9 +105,11 @@ export async function handleLeadTurnRequest(
                     scope.userId
                   ),
           }
-        : operation === 'progress'
-          ? await service.progress(scope, afterSequence)
-          : { leadTurn: await service[operation](scope) }
+        : operation === 'children'
+          ? await service.children(scope, childrenQuery ?? {})
+          : operation === 'progress'
+            ? await service.progress(scope, afterSequence)
+            : { leadTurn: await service[operation](scope) }
     return workspaceJsonResponse(payload, resolution, request, {
       headers: { 'cache-control': 'private, no-store' },
     })

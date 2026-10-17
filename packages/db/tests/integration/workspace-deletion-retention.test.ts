@@ -43,8 +43,19 @@ function postgresFailure(error: unknown): Readonly<{ code?: unknown; constraint?
 describe.skipIf(!databaseUrl)('retention evidence and permanent workspace deletion', () => {
   let connection: DatabaseConnection
 
-  beforeAll(() => {
+  beforeAll(async () => {
     connection = createDatabase(databaseUrl!)
+    // The assertion below expects SQLSTATE 23001 (restrict_violation), which PostgreSQL 18 raises
+    // for ON DELETE RESTRICT; 17 and earlier raise 23503 for the same refusal. The repository pins
+    // 18 (compose.yml, capture provisioning), so name the requirement instead of failing obscurely.
+    const [{ server_version_num: versionNumber }] = await connection.client<
+      [{ server_version_num: string }]
+    >`SELECT current_setting('server_version_num') AS server_version_num`
+    if (Number(versionNumber) < 180000) {
+      throw new Error(
+        `This test requires PostgreSQL 18 or newer (server_version_num ${versionNumber}): ON DELETE RESTRICT reports SQLSTATE 23001 only from 18; run it against the compose.yml database.`
+      )
+    }
   })
 
   afterAll(async () => {

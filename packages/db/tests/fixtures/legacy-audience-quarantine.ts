@@ -18,9 +18,11 @@ export const LEGACY_AUDIENCE_DDL_PATH = `${import.meta.dir}/legacy-audience-quar
 export const CANONICAL_BACKFILL_PATH = `${import.meta.dir}/canonical-chain/0050_group_legacy_backfill.sql`
 
 export const LEGACY_AUDIENCE_REASONS = [
+  'agent_not_active',
+  'agent_workspace_mismatch',
+  'channel_workspace_mismatch',
   'group_channel_not_active',
   'user_not_workspace_member',
-  'agent_workspace_mismatch',
 ] as const
 
 export type LegacyAudienceReason = (typeof LEGACY_AUDIENCE_REASONS)[number]
@@ -58,7 +60,8 @@ function classifiedParticipants() {
   return sql`
     select
       cp.id as source_participant_id,
-      cp.workspace_id,
+      ch.workspace_id,
+      cp.workspace_id as source_workspace_id,
       cp.channel_id,
       cp.principal_kind,
       coalesce(cp.user_id, cp.agent_id) as principal_id,
@@ -66,6 +69,7 @@ function classifiedParticipants() {
       to_char(cp.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') as joined_at,
       app.legacy_participant_digest(cp) as source_row_digest,
       case
+        when cp.workspace_id <> ch.workspace_id then 'channel_workspace_mismatch'
         when ch.lifecycle_state <> 'active' then 'group_channel_not_active'
         when cp.principal_kind = 'user' and not exists (
           select 1 from app.workspace_memberships wm
@@ -75,10 +79,15 @@ function classifiedParticipants() {
           select 1 from app.agents ag
           where ag.id = cp.agent_id and ag.workspace_id = cp.workspace_id
         ) then 'agent_workspace_mismatch'
+        when cp.principal_kind = 'agent' and exists (
+          select 1 from app.agents ag
+          where ag.id = cp.agent_id and ag.workspace_id = cp.workspace_id
+            and ag.lifecycle_state <> 'active'
+        ) then 'agent_not_active'
         else null
       end as reason
     from app.channel_participants cp
-    join app.channels ch on ch.id = cp.channel_id and ch.workspace_id = cp.workspace_id
+    join app.channels ch on ch.id = cp.channel_id
     where ch.kind = 'group'
   `
 }
@@ -106,12 +115,12 @@ export async function quarantineLegacyAudience(
       inserted as (
         insert into app.legacy_audience_quarantine (
           workspace_id, channel_id, principal_kind, principal_id, reason,
-          source_participant_id, source_row_digest, source_channel_created_at, source_joined_at,
+          source_participant_id, source_workspace_id, source_row_digest, source_channel_created_at, source_joined_at,
           profile, observed_at
         )
         select
           workspace_id, channel_id, principal_kind, principal_id, reason,
-          source_participant_id, source_row_digest, channel_created_at, joined_at,
+          source_participant_id, source_workspace_id, source_row_digest, channel_created_at, joined_at,
           ${input.profile}, ${input.observedAt}
         from classified
         where reason is not null
@@ -256,6 +265,10 @@ export type LegacyAudienceReconciliation = Readonly<{
   enlistmentGrants: number
   /** Quarantine records whose classification has no record: must be zero. */
   unrecordedClassifications: number
+  /** Original source rows that no longer match the digest captured by quarantine. */
+  sourceDigestMismatches: number
+  /** Quarantine records whose original channel_participants row is missing. */
+  missingOriginals: number
   /** Digest of the original group participant rows. Must not change across quarantine. */
   sourceDigest: string
   /** Digest of the quarantine records, including their withdrawal digests. */
@@ -269,6 +282,8 @@ export type LegacyAudienceReconciliation = Readonly<{
     admissionsEqualAdmissible: boolean
     admissionsPlusQuarantinedEqualSource: boolean
     quarantineCoversClassification: boolean
+    originalDigestsMatch: boolean
+    originalsPreserved: boolean
   }>
 }>
 
@@ -288,6 +303,10 @@ export async function reconcileLegacyAudience(
         where reason = 'user_not_workspace_member') as user_not_member,
       (select count(*)::int from app.legacy_audience_quarantine
         where reason = 'agent_workspace_mismatch') as agent_mismatch,
+      (select count(*)::int from app.legacy_audience_quarantine
+        where reason = 'agent_not_active') as agent_not_active,
+      (select count(*)::int from app.legacy_audience_quarantine
+        where reason = 'channel_workspace_mismatch') as channel_mismatch,
       (select count(*)::int from app.group_admissions) as admissions,
       (select count(*)::int from app.group_audience_grants) as audience_grants,
       (select count(*)::int from app.group_enlistment_grants) as enlistment_grants,
@@ -296,13 +315,19 @@ export async function reconcileLegacyAudience(
           select 1 from app.legacy_audience_quarantine q
           where q.workspace_id = c.workspace_id and q.channel_id = c.channel_id
             and q.principal_kind = c.principal_kind and q.principal_id = c.principal_id
-        )) as unrecorded
+        )) as unrecorded,
+      (select count(*)::int from app.legacy_audience_quarantine q
+        join app.channel_participants cp on cp.id = q.source_participant_id
+        where q.source_row_digest <> app.legacy_participant_digest(cp)) as source_digest_mismatches,
+      (select count(*)::int from app.legacy_audience_quarantine q
+        left join app.channel_participants cp on cp.id = q.source_participant_id
+        where cp.id is null) as missing_originals
   `)
   const digests = await db.execute<Record<string, string>>(sql`
     select
       coalesce((select encode(sha256(convert_to(string_agg(app.legacy_participant_digest(cp), '|' order by cp.id::text), 'UTF8')), 'hex')
         from app.channel_participants cp
-        join app.channels ch on ch.id = cp.channel_id and ch.workspace_id = cp.workspace_id
+        join app.channels ch on ch.id = cp.channel_id
         where ch.kind = 'group'), '') as source_digest,
       coalesce((select encode(sha256(convert_to(string_agg(concat_ws('|', q.workspace_id, q.channel_id,
           q.principal_kind, q.principal_id, q.reason, q.source_row_digest,
@@ -328,14 +353,18 @@ export async function reconcileLegacyAudience(
     admissibleRows,
     quarantined,
     quarantinedByReason: {
+      agent_not_active: Number(c.agent_not_active ?? 0),
+      agent_workspace_mismatch: Number(c.agent_mismatch ?? 0),
       group_channel_not_active: Number(c.not_active ?? 0),
       user_not_workspace_member: Number(c.user_not_member ?? 0),
-      agent_workspace_mismatch: Number(c.agent_mismatch ?? 0),
+      channel_workspace_mismatch: Number(c.channel_mismatch ?? 0),
     },
     admissions,
     audienceGrants: Number(c.audience_grants ?? 0),
     enlistmentGrants: Number(c.enlistment_grants ?? 0),
     unrecordedClassifications: Number(c.unrecorded ?? 0),
+    sourceDigestMismatches: Number(c.source_digest_mismatches ?? 0),
+    missingOriginals: Number(c.missing_originals ?? 0),
     sourceDigest: d.source_digest ?? '',
     quarantineDigest: d.quarantine_digest ?? '',
     admissionsDigest: d.admissions_digest ?? '',
@@ -345,6 +374,8 @@ export async function reconcileLegacyAudience(
       admissionsEqualAdmissible: admissions === admissibleRows,
       admissionsPlusQuarantinedEqualSource: admissions + quarantined === sourceRows,
       quarantineCoversClassification: Number(c.unrecorded ?? 0) === 0,
+      originalDigestsMatch: Number(c.source_digest_mismatches ?? 0) === 0,
+      originalsPreserved: Number(c.missing_originals ?? 0) === 0,
     },
   }
 }

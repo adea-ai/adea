@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/remote-content",
-  "version": "0.93.0",
+  "version": "0.95.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -17,7 +17,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "test": "bun run build && bun test tests/unit",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "bun check -p tsconfig.json"
   },
   "dependencies": {
     "@hpke/core": "1.9.0"

@@ -1,8 +1,6 @@
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { getWorkspaceDependencyFilters } from './workspace-dependency-filters.mjs'
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 const webRoot = resolve(repositoryRoot, 'apps/web')
@@ -16,20 +14,15 @@ function run(args, cwd, env = process.env) {
 // Cloudflare Workers deployment build for the TanStack Start host.
 //
 // Frozen install + workspace dependency builds mirror the previous OpenNext
-// lane (turbo's dependsOn covers every other lane, but the deploy workflow
-// invokes this script directly). `vite build` then produces the Worker entry
-// and client assets under apps/web/dist. The repository ships manifests only;
+// lane (the `orch:*` task graph covers every other lane, but the deploy
+// workflow invokes this script directly). `vite build` then produces the
+// Worker entry and client assets under apps/web/dist. The repository ships manifests only;
 // the spatial engine lives in the private agent-sim repo and is delivered
 // through the entitlement-gated engine remote, so this lane needs no asset
 // credentials.
 run(['install', '--frozen-lockfile'], repositoryRoot)
 
-const webManifest = JSON.parse(readFileSync(resolve(webRoot, 'package.json'), 'utf8'))
-const workspaceDepFilters = getWorkspaceDependencyFilters(
-  webManifest.dependencies,
-  webManifest.devDependencies
-)
-run(['x', 'turbo', 'run', 'build', ...workspaceDepFilters], repositoryRoot)
+run(['run', 'build:web-deps'], repositoryRoot)
 
 // Stamp the deployment commit SHA into the bundle so scene telemetry keeps
 // release attribution without a hosting provider (the old platform's

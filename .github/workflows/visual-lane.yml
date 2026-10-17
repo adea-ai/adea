@@ -118,7 +118,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: '1.4.0'
+          bun-version: '1.4.3'
 
       - run: bun install --frozen-lockfile
 
@@ -141,7 +141,7 @@ jobs:
       # The workspace packages ship `dist` (their exports point at it) and the
       # dev server reads it, so the client is prepared before Playwright starts.
       - name: Build workspace dependencies
-        run: bunx turbo run build --filter=@adea-ai/web^...
+        run: bun run build:web-deps
 
       # Cold dev servers abort most module requests on the first load while
       # Vite finishes dependency optimization (the documented dev-server
