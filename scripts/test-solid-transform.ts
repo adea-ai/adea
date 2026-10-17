@@ -1,7 +1,7 @@
 import { plugin } from 'bun'
 import { readFileSync } from 'node:fs'
 
-import { transformAsync } from '@babel/core'
+import { transformSync } from '@babel/core'
 import presetTypescript from '@babel/preset-typescript'
 import presetSolid from 'babel-preset-solid'
 
@@ -14,16 +14,19 @@ import presetSolid from 'babel-preset-solid'
 plugin({
   name: 'solid-jsx',
   setup(build) {
-    build.onLoad({ filter: /\.tsx$/ }, async ({ path }) => {
+    build.onLoad({ filter: /\.tsx$/ }, ({ path }) => {
       const source = readFileSync(path, 'utf8')
       // Babel installs an `Error.prepareStackTrace` rewriter on its first call and
       // raises `Error.stackTraceLimit`. With a custom `prepareStackTrace` set, Bun's
       // `Error.captureStackTrace` throws for any object that is not an Error, which
       // breaks `vite` (follow-redirects builds error types that way) in every later
-      // test file of the same process. Restore both once Babel is done.
+      // test file of the same process. Restore both once Babel is done. The transform is
+      // synchronous on purpose: `transformAsync` changes the globals before it returns its
+      // promise, so overlapping `onLoad` callbacks would save each other's changed values
+      // and restore them last.
       const { prepareStackTrace, stackTraceLimit } = Error
       try {
-        const result = await transformAsync(source, {
+        const result = transformSync(source, {
           filename: path,
           babelrc: false,
           configFile: false,
