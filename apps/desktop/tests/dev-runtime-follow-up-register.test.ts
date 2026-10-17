@@ -18,6 +18,7 @@ import {
   ChannelRejection,
 } from '../shell/src/dev-runtime/channel/authority'
 import { registerHarnessRuntime } from '../shell/src/dev-runtime/harness/register'
+import { createRepoMutationOwner } from '../shell/src/dev-runtime/worktrees/mutation-owner'
 import { createFollowUpStorage } from '../shell/src/dev-runtime/harness/follow-up-storage'
 import type { AcpLaneDriver } from '../shell/src/dev-runtime/harness/acp-lane'
 
@@ -62,6 +63,7 @@ function boot(withDelivery = true, withKey = true) {
   })
   const deliveries: string[] = []
   const signals: AbortSignal[] = []
+  const closedConnections: string[] = []
   let close = async () => {}
   let handoff = async (text: string) => {
     deliveries.push(text)
@@ -84,7 +86,10 @@ function boot(withDelivery = true, withKey = true) {
         processIdentity: 'fake-pid',
       },
     }),
-    close: () => close(),
+    close: (request) => {
+      closedConnections.push(request.connectionId)
+      return close()
+    },
     ...(withDelivery
       ? {
           deliverPrompt: async (request) => {
@@ -190,6 +195,7 @@ function boot(withDelivery = true, withKey = true) {
     connect,
     deliveries,
     signals,
+    closedConnections,
     setClose: (next: typeof close) => {
       close = next
     },
@@ -525,6 +531,48 @@ describe('follow-up production registration and M10 gate', () => {
       releaseSend()
       releaseClose()
       await new Promise((resolve) => setImmediate(resolve))
+      s.cleanup()
+    }
+  })
+
+  test('Stop closes only its original ACP binding when a replacement arrives during blocked cleanup', async () => {
+    const s = boot()
+    let release: (() => void) | undefined
+    let stopping: Promise<DevReply> | undefined
+    try {
+      const original = await s.connect()
+      const owner = createRepoMutationOwner({
+        dataDir: s.dataDir,
+        runtimeNodeId: scope.runtimeNodeId,
+        acquireTimeoutMs: 5_000,
+        pollIntervalMs: 5,
+      })
+      release = await owner.holdLock(
+        `follow-ups:${JSON.stringify([scope.accountId, scope.workspaceId, scope.runtimeNodeId])}`,
+        'test blocked queue cleanup'
+      )
+      stopping = s.execute(
+        s.command({ ...s.target, harnessRunId: 'run-1' }, 'dev.session.cancelHarness')
+      )
+      for (let turn = 0; turn < 100 && s.host.history.get('run-1')?.state !== 'cancelled'; turn++)
+        await new Promise((resolve) => setTimeout(resolve, 1))
+      expect(s.host.history.get('run-1')?.state).toBe('cancelled')
+      const replacement = await s.connect()
+      expect(replacement.id).not.toBe(original.id)
+      expect(s.host.lane.readyFor('session-1')?.id).toBe(replacement.id)
+      release()
+      release = undefined
+      expect(value(await stopping).state).toBe('cancelled')
+      expect(s.closedConnections).toEqual([original.id])
+      expect(s.host.lane.list().find((connection) => connection.id === original.id)?.state).toBe(
+        'closed'
+      )
+      expect(s.host.lane.list().find((connection) => connection.id === replacement.id)?.state).toBe(
+        'ready'
+      )
+    } finally {
+      release?.()
+      await stopping?.catch(() => undefined)
       s.cleanup()
     }
   })

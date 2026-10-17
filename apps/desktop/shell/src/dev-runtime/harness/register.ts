@@ -1650,6 +1650,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           ? { detail: `confirmation ${body.confirmationId as string}` }
           : {}),
       })
+      // Capture the exact original transport before queue cleanup can yield.
+      const live = lane.readyFor(session.id)
       const nextSession = applySession(session, {
         activeHarnessRunId: undefined,
         lifecycle: 'disconnected',
@@ -1670,7 +1672,6 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       // A live ACP lane bound to this session loses its transport authority
       // with the run. Await close so Stop does not report an unsettled close as complete.
       // The queue independently retains any still-running physical send claim.
-      const live = lane.readyFor(session.id)
       if (live) {
         await lane
           .close({ acpConnectionId: live.id, expectedGeneration: live.generation })
