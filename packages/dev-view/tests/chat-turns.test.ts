@@ -690,6 +690,65 @@ describe('reasoning and method summaries', () => {
   })
 })
 
+describe('the display limit cuts on a whole code point', () => {
+  const lead = 'a'.repeat(CHAT_ASSISTANT_TEXT_LIMIT - 1)
+
+  test('a final message ending in an emoji at the limit never shows half of it', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'go' }, 'u1'),
+      wire('turn.assistant_message', { text: `${lead}\u{1F600}` }, 'a1'),
+    ])
+    const entry = built[0]!.entries[0]!
+    expect(entry.type === 'text' && entry.text.isWellFormed()).toBe(true)
+    expect(entry).toMatchObject({ type: 'text', text: lead, truncated: true })
+  })
+
+  test('a streamed run whose fragments cross the limit never shows half of a character', () => {
+    const { texts } = proseOf([
+      event('turn.user_input', { text: 'go' }, 'u1'),
+      event('turn.assistant_delta', { text: lead }, 'd1'),
+      event('turn.assistant_delta', { text: '\u{1F600}' }, 'd2'),
+    ])
+    expect(texts).toHaveLength(1)
+    expect(texts[0]!.isWellFormed()).toBe(true)
+    expect(texts[0]).toBe(lead)
+  })
+
+  test('a whole character that fits under the limit is kept', () => {
+    const fits = 'a'.repeat(CHAT_ASSISTANT_TEXT_LIMIT - 2)
+    const { texts } = proseOf([
+      event('turn.user_input', { text: 'go' }, 'u1'),
+      event('turn.assistant_delta', { text: fits }, 'd1'),
+      event('turn.assistant_delta', { text: '\u{1F600}' }, 'd2'),
+    ])
+    expect(texts[0]).toBe(`${fits}\u{1F600}`)
+  })
+
+  test('a citation that reaches past the cut is dropped from the coordinates but stays counted', () => {
+    const text = `${lead}\u{1F600}`
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'go' }, 'u1'),
+      wire(
+        'turn.assistant_message',
+        {
+          text,
+          references: references([
+            { sourceId: 'book', start: 0, end: 4 },
+            { sourceId: 'book', start: lead.length, end: text.length },
+          ]),
+        },
+        'a1'
+      ),
+    ])
+    const entry = built[0]!.entries[0]!
+    expect(entry.type).toBe('text')
+    if (entry.type !== 'text') return
+    expect(entry.text).toBe(lead)
+    expect(entry.references?.cited).toBe(2)
+    expect(entry.references?.citations).toEqual([{ sourceId: 'book', start: 0, end: 4 }])
+  })
+})
+
 describe('cited responses', () => {
   const text = 'Rust needs no GC. It is fast.'
 

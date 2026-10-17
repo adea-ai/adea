@@ -123,9 +123,14 @@ function join(
   alreadyTruncated: boolean
 ): { text: string; truncated: boolean } {
   const text = parts.join('')
-  return text.length > CHAT_ASSISTANT_TEXT_LIMIT
-    ? { text: text.slice(0, CHAT_ASSISTANT_TEXT_LIMIT), truncated: true }
-    : { text, truncated: alreadyTruncated }
+  if (text.length <= CHAT_ASSISTANT_TEXT_LIMIT) return { text, truncated: alreadyTruncated }
+  // The redacted body keeps whole code points, so the limit can fall between the
+  // halves of an astral character; drop the high half rather than show half a
+  // character.
+  const last = text.charCodeAt(CHAT_ASSISTANT_TEXT_LIMIT - 1)
+  const end =
+    last >= 0xd800 && last <= 0xdbff ? CHAT_ASSISTANT_TEXT_LIMIT - 1 : CHAT_ASSISTANT_TEXT_LIMIT
+  return { text: text.slice(0, end), truncated: true }
 }
 
 type OpenTurn = { id: string; user?: ChatTranscriptItem; entries: ChatTurnEntry[] }
@@ -402,6 +407,18 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
         turn.entries.push({ type: 'notice', id: item.id, item })
       } else {
         const { text, truncated } = join([item.body], item.bodyTruncated === true)
+        // Spans are in the coordinates of the body; once the display cut shortens
+        // it, a span reaching past the cut cites words that are no longer shown.
+        // It stays counted in `cited` and is reported as unmarked.
+        const references =
+          item.references !== undefined && text.length < item.body.length
+            ? {
+                ...item.references,
+                citations: item.references.citations.filter(
+                  (citation) => citation.end <= text.length
+                ),
+              }
+            : item.references
         turn.entries.push({
           type: 'text',
           id: item.id,
@@ -410,7 +427,7 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
           truncated,
           failed: item.kind === 'turn.result' && resultFailed(item),
           eventIds: [item.id],
-          ...(item.references !== undefined ? { references: item.references } : {}),
+          ...(references !== undefined ? { references } : {}),
         })
       }
     } else if (item.role === 'approval') {
