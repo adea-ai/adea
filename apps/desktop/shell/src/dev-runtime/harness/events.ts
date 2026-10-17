@@ -30,16 +30,20 @@ import type {
   RuntimeSession,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
+import { isRuntimeVisibleSummaryKind } from '../../../../../../packages/types/src/dev-runtime-visible-summaries'
 import { canonicalDevCommandJson } from '../../../../../../packages/types/src/dev-runtime'
 import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
 import { decodeFollowUpQueueEventPayload } from '../../../../../../packages/types/src/dev-runtime-follow-ups'
 import { createDurableJsonStore } from '../host-store'
+import { createSessionHistoryReader, type RuntimeHistoryRead } from './history'
+import type { RuntimeEventHistoryPage } from '../../../../../../packages/types/src/dev-runtime-history'
 import {
   snapshotInteractionEvent,
   validateInteractionAdmission,
   validateInteractionCorrelation,
 } from './interactions'
 import { assertAssistantEventFitsFrame, assertAssistantEventOrder } from './assistant-events'
+
 import {
   decodeRuntimeEvent,
   validateRuntimeEventReplayCandidate,
@@ -158,6 +162,7 @@ export type SessionEventLog = Readonly<{
     options?: { fromSequence?: string; limit?: number; generation?: number }
   ): RuntimeEvent[]
   latestSequence(runtimeSessionId: string, generation?: number): string
+  history(runtimeSessionId: string, options: RuntimeHistoryRead): RuntimeEventHistoryPage
   /** Live subscription for stream push; returns the unsubscribe fn. */
   subscribe(runtimeSessionId: string, cb: (event: RuntimeEvent) => void): () => void
   /** Test/ops introspection: the wire DTOs currently retained. */
@@ -263,7 +268,19 @@ export function createSessionEventLog(input: {
       confidence,
       classification: sessionInput.classification ?? 'workspace_metadata',
       kind: sessionInput.kind,
-      payload: queuePayload ?? sessionInput.payload ?? {},
+      payload:
+        queuePayload ??
+        (!isRuntimeCallEventKind(sessionInput.kind) &&
+        !isRuntimeVisibleSummaryKind(sessionInput.kind) &&
+        // Structured activity observations (#1405) keep their schema-validated
+        // payload through admission so identity/provenance conflicts surface as
+        // idempotency_conflict; the wipe below governs opaque transcript kinds.
+        // Queue publication (#1406) owns its normalized queue payload.
+        !isRuntimeActivityEventKind(sessionInput.kind) &&
+        (sessionInput.classification === 'credential' ||
+          sessionInput.classification === 'restricted_local')
+          ? {}
+          : (sessionInput.payload ?? {})),
     }
     if (isRuntimeActivityEventKind(candidate.kind)) {
       const admission = admitRuntimeActivityEvent(
@@ -387,6 +404,11 @@ export function createSessionEventLog(input: {
 
   return {
     append: appendEvent,
+    history: createSessionHistoryReader({
+      dataDir: input.dataDir,
+      scope: input.scope,
+      readAll: all,
+    }),
     read: readEvents,
     latestSequence(runtimeSessionId, generation) {
       return latestSeqOf(all(), runtimeSessionId, generation)

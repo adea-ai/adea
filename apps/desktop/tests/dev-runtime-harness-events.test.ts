@@ -574,6 +574,56 @@ async function sessionWithRun(shell: Boot, channel: Awaited<ReturnType<Boot['ope
 }
 
 describe('dev.session.events through the gate', () => {
+  test('history admits only the authenticated session resource at its current generation', async () => {
+    const shell = await boot()
+    try {
+      const channel = await shell.openChannel()
+      const { sessionId, liveGeneration } = await sessionWithRun(shell, channel)
+      const read = (scope = SCOPE_A, id = sessionId, generation = liveGeneration, body = {}) =>
+        channel.execute(
+          commandFor(
+            'dev.session.history',
+            scope,
+            { runtimeSessionId: id, expectedGeneration: generation, limit: 1, ...body },
+            { resource: { kind: 'runtime_session', id, generation } }
+          )
+        )
+      const first = okValue(await read())
+      expect((first.items as RuntimeEvent[]).length).toBe(1)
+      expect(first.runtimeSessionId).toBe(sessionId)
+      expect(first.generation).toBe(liveGeneration)
+      for (const scope of [
+        { ...SCOPE_A, accountId: randomUUID() },
+        { ...SCOPE_A, workspaceId: randomUUID() },
+        { ...SCOPE_A, runtimeNodeId: randomUUID() },
+      ])
+        expect(errorCode(await read(scope))).toBe('channel_unauthorized')
+      expect(errorCode(await read(SCOPE_A, sessionId, liveGeneration - 1))).toBe('stale_generation')
+      expect((await read(SCOPE_A, randomUUID())).ok).toBe(false)
+      expect((await read(SCOPE_A, sessionId, liveGeneration, { cursor: 'tampered' })).ok).toBe(
+        false
+      )
+      const mismatch = await channel.execute(
+        commandFor(
+          'dev.session.history',
+          SCOPE_A,
+          { runtimeSessionId: sessionId, expectedGeneration: liveGeneration },
+          { resource: { kind: 'runtime_session', id: randomUUID(), generation: liveGeneration } }
+        )
+      )
+      expect(mismatch.ok).toBe(false)
+      for (const body of [
+        { limit: 0 },
+        { limit: 501 },
+        { beforeSequence: '-1' },
+        { beforeSequence: '01' },
+        { cursor: 'x'.repeat(2049) },
+      ])
+        expect((await read(SCOPE_A, sessionId, liveGeneration, body)).ok).toBe(false)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
   test('mints a read grant bound to the caller channel and attaches exactly once', async () => {
     const shell = await boot()
     try {
