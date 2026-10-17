@@ -406,6 +406,8 @@ type RuntimeEventKind =
   | 'turn.reasoning_summary'
   | 'turn.method_step_summary'
   | 'turn.result'
+  | 'attachment.added'
+  | 'attachment.removed'
   | 'tool.requested'
   | 'tool.started'
   | 'tool.progress'
@@ -2666,7 +2668,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.connections`            | `get`, `setGitHosting`, `setHarnessAccount`                                                                                                                                                                                                                                                                            |
 | `dev.worktree`               | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `rename`, `diffSummary`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                                               |
 | `dev.terminal`               | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                                                                                               |
-| `dev.session`                | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                                                                         |
+| `dev.session`                | `attachmentUpload`, `attachmentOpen`, `attachmentRemove`, `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                               |
 | `dev.summary`                | `workspaces`                                                                                                                                                                                                                                                                                                           |
 | `dev.harness`                | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`, `accountProfiles.list`, `accountProfiles.create`, `accountProfiles.delete`                                                                               |
 | `dev.memory`                 | `propose`                                                                                                                                                                                                                                                                                                              |
@@ -2744,6 +2746,7 @@ Required kinds:
   `completed`, `failed`, `cancelled`;
 - turn `user_input`, `assistant_delta`, `assistant_message`, `result`,
   `reasoning_summary`, `method_step_summary`;
+- attachment `added`, `removed` (authoritative host facts, references only);
 - tool `requested`, `started`, `progress`, `completed`, `failed`;
 - approval/question `requested`, `resolved`, `expired`;
 - file/checkpoint/subagent/usage `observed`;
@@ -4396,6 +4399,161 @@ an ambiguous side effect.
 
 Multi-file metadata/history changes stage all writes and restore prior disk and
 memory state if any commit fails. No deletion error is logged-and-ignored.
+
+## Local chat attachments (#1392)
+
+The local desktop host serves `dev.session.attachmentUpload`,
+`dev.session.attachmentOpen`, and `dev.session.attachmentRemove` through the
+existing authenticated runtime command channel. Upload/remove require the
+existing `dev.session.manage` capability; open requires `dev.session.read`.
+No new permission, cloud credential, remote storage account, external upload,
+filesystem grant, or OS application handoff is created. Every command binds the
+account/workspace/runtime-node scope, canonical runtime session, and live
+session generation in both body and resource envelope. Foreign records read as
+`not_found`; a stale generation is refused before any mutation or byte release.
+An archived session accepts no new upload. Open/remove retain the same live
+identity/generation checks, including for archived-session cleanup.
+
+The request/response DTOs live in `dev-runtime-attachments.ts` and are validated
+by the generated operation decoders and strict success-reply decoders. Upload
+success requires `available`, remove success requires `removed`, and an open
+reply can contain only an available attachment:
+
+```ts
+type ChatAttachmentUpload = {
+  name: string
+  mediaType: string
+  contentBase64: string
+}
+type ChatAttachmentReference = {
+  attachmentId: string // host-minted lowercase UUID, never a path or URL
+  mediaType: 'text/plain'
+  byteLength: number
+  state: 'available' | 'removed'
+}
+type ChatAttachment = ChatAttachmentReference & {
+  runtimeSessionId: string
+  generation: number
+  name: string
+  digestSha256: string
+  createdAt: string
+  removedAt?: string
+}
+type ChatAttachmentOpenResult = {
+  attachment: ChatAttachment
+  contentBase64: string
+  disposition: 'inert_text'
+}
+```
+
+This increment supports nonempty valid UTF-8 `text/plain` attachments up to
+128 KiB, with `.txt`, `.log`, `.md`, or `.json` display extensions. All open
+results are inert text: a Markdown/JSON extension is not permission to render
+HTML, execute code, launch an application, or dereference a URL. Unsupported
+media/extensions, invalid UTF-8, NUL, and control characters other than tab,
+CR and LF return `unsupported_capability`. Binary/image/HTML/SVG/archive and
+larger-transfer support is unavailable. The limit is an explicit local control-
+channel limit, not an invented bulk-stream capability. Canonical base64 is
+bounded to 174,764 characters; noncanonical padding and decoded-size overflow
+are rejected. The maximum supported request fits the channel's 256 KiB control
+frame bound without a new transport.
+
+Display names are ASCII, 1–128 characters, begin with a letter/digit, and
+contain only letters/digits, dot, space, underscore and hyphen. Path separators,
+colon, `..`, leading dot, trailing dot/space, control characters and reserved
+Windows device names are refused. Display metadata never chooses a storage
+path. Clients supply bytes they already possess; the host never reads an
+arbitrary caller-named file. Open returns authorized bytes and an opaque UUID,
+never an absolute path, `file:` URL, public URL, bearer download token, or OS
+launch receipt.
+
+### Local authority, bounds and removal
+
+The scope-partitioned SQLite database lives below
+`<dataDir>/dev-runtime/attachments/<sha256(account,workspace,node)>.sqlite3`.
+Its directory is owner-only, files are owner-only regular files, and database
+opens use SQLite's no-follow flag. Unsafe/symlinked directories, database files,
+journals, or key files refuse rather than being followed. The host reads the
+existing owner-only 32-byte device key without minting, rotating, deleting, or
+changing it; an unavailable key is `capability_unavailable`. As in the current
+[local-content implementation](./local-content.md), this key remains file-backed,
+not an OS-keyring claim.
+
+HKDF-SHA256 derives a scope-specific attachment key with a fixed versioned
+context. Per-record AES-256-GCM uses a fresh nonce and associated data binding
+schema version, full scope, session, generation and attachment UUID. Filename,
+content digest and bytes are sealed together. Schema and owner-header initialization
+commit atomically; unrelated or future SQLite schemas are retained unread rather
+than adopted or reconfigured. The owner header is authenticated;
+a re-labelled/copied database or ciphertext cannot open in another scope.
+Request fingerprints and transcript-outbox metadata use a separate derived MAC
+key. Errors and channel audit entries contain stable error codes and identity
+facts, never filenames, content, encoded bytes or host paths.
+
+Each scope retains at most 256 records, including removal tombstones, and at
+most 16 MiB of live decoded bytes. Quotas are checked inside the write
+transaction. Removal frees live-byte budget, seals a metadata-only tombstone,
+and removes byte access; it does not free the record/idempotency slot. Reusing a
+removed upload key never resurrects content. These are bounded local storage
+limits; there is no automatic retention/GC promise. The existing owner-proven
+workspace cleanup path validates the attachment store before any purge, then
+removes its records/outbox with that workspace's other native data. It preserves
+sibling scopes and reusable device credentials; additional account/node scopes
+for the same workspace, unreadable ciphertext, or ambiguous ownership block
+cleanup rather than claiming success.
+
+### Idempotency, interruption, ordering and transcript records
+
+Upload requires a nonempty printable idempotency key of at most 128 characters
+(letters/digits, dot, underscore, colon or hyphen). Its scope/session/generation-
+bound canonical content fingerprint makes a same-content retry return the same
+attachment UUID, including after host reopen. Different content or metadata under
+that key is `idempotency_conflict`. A successful remove is idempotent by the
+bound attachment UUID and returns the same tombstone on retry. Open/remove are
+synchronous transactions, so an open that linearizes before removal can return
+its authorized snapshot; an open after committed removal returns `not_found`.
+The live session generation is checked again immediately before commit.
+
+Pending transcript facts are recovered before a fresh mutation. Upload/remove
+atomically commit their encrypted record and a durable transcript outbox item before returning success. Publication uses stable source event IDs
+and the canonical session log, then marks the outbox delivered. Interruption
+before commit rolls back bytes and outbox together. A retry after commit but
+before publication publishes the original event; after publication but before
+the delivered marker, canonical dedupe suppresses a second event. The retry key
+and content fingerprint are authenticated inside each sealed record, including
+tombstones. The outbox MAC covers its prepared/attempted/delivered state; even
+rows marked delivered must authenticate before being skipped. An authenticated
+prepared row proves no publication was attempted and can publish above any
+retained history floor on retry. Before crossing
+the event-log commit boundary, the host durably authenticates the publication
+attempt. If that attempt's source event is absent from retained history, including
+an entirely evicted generation, recovery refuses `recovery_required` rather than
+inventing a new event cursor. This also fails closed if interruption happened
+between recording the attempt and actually appending the event. Local database
+edits without the key cannot substitute retry content or forge a delivery marker.
+The repaired draft uses attachment-store format 2; earlier draft stores are
+preserved and refused with `unsupported_version`, without automatic migration
+of metadata that the old format did not authenticate. SQLite
+uses immediate transactions, WAL and full synchronization; each operation closes
+its database handle and clears its derived key buffer.
+
+`attachment.added` and `attachment.removed` carry exactly
+`{ attachment: ChatAttachmentReference }`. Only authoritative `host` provenance
+can assert them; their state must match the kind. They are workspace-private
+metadata facts that reference a local upload/removal, not evidence that an
+assistant/harness received, opened or understood content. Filenames, content
+hashes, encoded bodies, paths and URLs are excluded from transcript payloads.
+References preserve their UUID/session/generation and canonical event sequence
+on replay; no consumer may treat a transcript reference as an access grant.
+Open/remove always reauthorize the bound session at use time.
+
+The production host composition and authenticated local operations are wired.
+Composer picker/chips, request-to-message attachment association, harness delivery,
+image/binary/bulk transfer, remote/cloud storage and packaged owner-journey
+qualification remain separate integration work. The consumer must offer no
+unsupported action and make no delivered-to-agent claim from these events.
+UI416, consumer1385 and transcript-history1396 are not changed by this producer
+increment.
 
 ## Files and search
 
@@ -8318,6 +8476,14 @@ files in the same commit:
   signed attach → `opened` → bounded CBOR replay → live push → ack →
   single-use attach replay refusal → generation-fenced `stale_generation`
   close);
+- `packages/types/tests/dev-runtime-attachments.test.ts`,
+  `apps/desktop/tests/dev-runtime-chat-attachments.test.ts` and
+  `apps/desktop/tests/dev-runtime-chat-attachments-channel.test.ts` pin #1392
+  bounded metadata/bytes, strict host-owned transcript references, signed
+  admission, no egress, encryption, scope/generation fences, interruption,
+  idempotency, open/remove ordering, quotas and ambiguous recovery;
+  composition and workspace-local-data tests exercise the production provider
+  and authenticated native purge integrations;
 - `apps/desktop/tests/dev-runtime-harness-prompt.test.ts` pins the
   launch→prompt-delivery residues: exactly-once fenced delivery into the
   session PTY through the `prompt_delivery` input authority (with provenance

@@ -1,3 +1,5 @@
+import { createChatAttachmentStore } from '../shell/src/dev-runtime/attachments/store'
+import { createSessionEventLog } from '../shell/src/dev-runtime/harness/events'
 import { describe, expect, test } from 'bun:test'
 import { randomBytes } from 'node:crypto'
 import {
@@ -175,4 +177,35 @@ test('refuses an unindexed ciphertext and a symlinked parent before physical cle
     expect(() =>
       assertWorkspaceDataPath(dir, join(dir, 'dev-runtime', 'browser', 'profiles', 'owned-profile'))
     ).toThrow('ambiguous_data')
+  }))
+
+test('#1392 attachment bytes are included in the existing authenticated workspace purge', () =>
+  fixture(({ dir, memory, cleanup }) => {
+    const state = join(dir, 'desktop-state')
+    mkdirSync(state, { mode: 0o700 })
+    writeFileSync(join(state, 'device.key'), randomBytes(32), { mode: 0o600 })
+    const events = createSessionEventLog({ dataDir: dir, scope: a })
+    const attachments = createChatAttachmentStore({
+      dataDir: dir,
+      scope: a,
+      events,
+      assertBinding: () => {},
+    })
+    const binding = { runtimeSessionId: 'session-attachments', generation: 1 }
+    const attachment = attachments.upload(
+      binding,
+      {
+        name: 'notes.txt',
+        mediaType: 'text/plain',
+        contentBase64: Buffer.from('private bytes').toString('base64'),
+      },
+      'upload-1'
+    )
+    memory.create(a.workspaceId, { text: 'private memory' })
+    expect(cleanup.plan().registryRecords).toBeGreaterThan(0)
+    cleanup.purge()
+    expect(() => attachments.open(binding, attachment.attachmentId)).toThrow('attachment_not_found')
+    expect(attachments.validateWorkspacePurge()).toBe(0)
+    expect(memory.list(a.workspaceId).entries).toHaveLength(0)
+    expect(existsSync(join(dir, 'local-content', `${sibling}.sealed`))).toBe(true)
   }))
