@@ -10,7 +10,7 @@
     "shell:dev": "bun scripts/shell.mjs dev",
     "lint": "oxlint",
     "test": "bun test tests",
-    "typecheck": "tsc -p shell/tsconfig.json"
+    "typecheck": "bun check -p shell/tsconfig.json"
   },
   "dependencies": {
     "@adea-ai/dev-view": "workspace:*"
