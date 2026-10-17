@@ -7,6 +7,7 @@ export type {
   RuntimeAssistantResultPayload,
   RuntimeAssistantPayloads,
 } from './dev-runtime-assistant'
+import { decodeChatAttachmentEventPayload } from './dev-runtime-attachments'
 import {
   exactKeys,
   fail,
@@ -73,6 +74,8 @@ export const runtimeEventKinds = [
   'turn.reasoning_summary',
   'turn.method_step_summary',
   'turn.result',
+  'attachment.added',
+  'attachment.removed',
   'tool.requested',
   'tool.started',
   'tool.progress',
@@ -222,6 +225,11 @@ const eventSemantics: EventSemantics = {
     if (isRuntimeAssistantEventKind(kind)) {
       stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
       decodeRuntimeAssistantPayload(kind, item.payload)
+    }
+    if (item.kind === 'attachment.added' || item.kind === 'attachment.removed') {
+      if (item.source !== 'host' || item.confidence !== 'authoritative')
+        fail('event.source', 'attachment facts require authoritative host provenance')
+      decodeChatAttachmentEventPayload(item.kind, item.payload)
     }
     validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
   },
