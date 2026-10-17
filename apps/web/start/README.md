@@ -59,6 +59,13 @@ modules recorded by the client build and fail if a rendered module is missing.
 Type-only imports are ignored; unresolved shared UI imports and non-literal
 runtime imports fail closed because their Tailwind sources cannot be proven.
 
+Shared lazy utility models and shared UI primitives use separate chunk groups in
+`vite.config.ts`. Neither group recursively absorbs dependencies or pane components;
+model dependencies must not become Chat dependencies. At the #1385 repair,
+consolidating the existing small shared chunks reduced the measured Dev utility
+closure from 185,636 to 185,165 raw bytes and 16 to 12 files, within the unchanged
+185,344-byte budget. Every route/startup closure remains checked by `start:verify`.
+
 ## Entry policy
 
 Root documents run the account allowlist in the Worker before rendering

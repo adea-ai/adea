@@ -119,6 +119,21 @@ export default defineConfig(({ command }) => ({
               // request. Leave feature components and their dependencies to
               // automatic splitting instead of grouping a whole icon catalogue.
               groups: [
+                // Shared models already belong to the lazy utility-pane closure.
+                // Consolidate wrappers without pulling pane components or model
+                // dependencies into the group or mixing them with shared UI.
+                {
+                  name: 'dev-utility-models',
+                  test: /packages\/dev-view\/src\/(agents\/harness-status-model|files\/status-cache|utility-command)\.ts$/,
+                  includeDependenciesRecursively: false,
+                  minShareCount: 2,
+                },
+                {
+                  name: 'shared-lazy-primitives',
+                  test: /@adea-ai\/ui\/src\/components\/ui\/(label\/label|skeleton\/skeleton|status-chip\/status-chip)\.tsx$/,
+                  includeDependenciesRecursively: false,
+                  minShareCount: 2,
+                },
                 // The runtime contract's decoders are imported by the Dev shell
                 // and by lazy panes; left to automatic splitting the wire and
                 // validation modules each become their own request.
