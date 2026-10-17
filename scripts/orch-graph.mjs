@@ -100,7 +100,7 @@ export const PACKAGE_RULES = {
   },
   'packages/data': {
     // `controller-audience.test.ts` reads the workspace controller source.
-    test: ['packages/workspace-ui/src/**'],
+    test: ['packages/workspace-ui/src/**', SOLID_TEST_TRANSFORM],
   },
   'packages/dev-view': {
     test: [SOLID_TEST_TRANSFORM],
