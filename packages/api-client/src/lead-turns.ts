@@ -79,3 +79,59 @@ export type ApiLeadTurnProgressResponse = ApiLeadTurnResponse &
     events: readonly ApiLeadTurnProgress[]
     nextSequence: number
   }>
+
+/** Read-only child observations; these references grant no action or artifact access. */
+export type ApiLeadTurnChild = Readonly<{
+  delegationId: string
+  childExecutionId: string
+  childAttemptId?: string
+  role: string
+  state:
+    | 'requested'
+    | 'dispatched'
+    | 'running'
+    | 'awaiting_input'
+    | 'completed'
+    | 'failed'
+    | 'cancelled'
+    | 'manual_intervention'
+  awaitingInput: boolean
+  stopRequested: boolean
+  acceptedAt: string
+  updatedAt: string
+  revision: number
+  outcome?: Readonly<{
+    state: 'completed' | 'failed' | 'cancelled'
+    resultRef?: string
+    failureCode?: string
+    publication: Readonly<{
+      status: 'pending' | 'published'
+      resolution?: 'continue_parent' | 'manual_intervention' | 'fail_parent'
+    }>
+  }>
+}>
+export type ApiLeadTurnChildrenCursor = Readonly<{ acceptedAt: string; delegationId: string }>
+export type ApiLeadTurnChildrenQuery = Readonly<{
+  limit?: number
+  after?: ApiLeadTurnChildrenCursor
+}>
+export type ApiLeadTurnChildrenPage = Readonly<{
+  children: readonly ApiLeadTurnChild[]
+  totalChildren: number
+  complete: boolean
+  next?: ApiLeadTurnChildrenCursor
+}>
+/** Unavailable reads carry no empty set, count, or completion claim. Pages are per-read snapshots. */
+export type ApiLeadTurnChildrenResponse = Readonly<{
+  leadTurn: ApiLeadTurnStatus
+  childObservations:
+    | (ApiLeadTurnChildrenPage & Readonly<{ availability: 'available' }>)
+    | Readonly<{
+        availability: 'unavailable'
+        reasonCode:
+          | 'NOT_DISPATCHED'
+          | 'ADMISSION_SERVICE_UNAVAILABLE'
+          | 'RUNTIME_UNAVAILABLE'
+          | 'RUNTIME_RESPONSE_INVALID'
+      }>
+}>

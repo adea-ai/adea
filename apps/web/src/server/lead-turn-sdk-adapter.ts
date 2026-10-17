@@ -1,3 +1,4 @@
+import type { ApiLeadTurnChildrenQuery } from '@adea-ai/api-client'
 import type {
   LeadPreparedSelection,
   LeadRuntimeAdapter,
@@ -16,6 +17,7 @@ export type LeadSdkCandidateTransport = Readonly<{
   /** Actual exported PiDurableLeadLookupResponseSchema, including its strict envelope. */
   lookupResponseSchema?: Readonly<{ parse: (response: unknown) => unknown }>
   dispatch: (intentId: string, preparationRef: string, issuedAt?: string) => Promise<unknown>
+  children?: (dispatchId: string, page: ApiLeadTurnChildrenQuery) => Promise<unknown>
   status: (dispatchId: string) => Promise<unknown>
   progress: (dispatchId: string, afterSequence: number) => Promise<unknown>
   cancel: (dispatchId: string, issuedAt?: string) => Promise<unknown>
@@ -155,6 +157,18 @@ export function createLeadTurnSdkAdapter(
         throw new Error('RUNTIME_RESPONSE_INVALID')
       return transport.dispatch(authority.intentId, prepared.preparationRef, authority.admittedAt)
     },
+    ...(transport.children
+      ? {
+          async children(
+            authority: LeadRuntimeAuthority,
+            dispatchId: string,
+            page: ApiLeadTurnChildrenQuery
+          ) {
+            scope(authority)
+            return transport.children!(dispatchId, page)
+          },
+        }
+      : {}),
     async status(authority, dispatchId) {
       scope(authority)
       return transport.status(dispatchId)
