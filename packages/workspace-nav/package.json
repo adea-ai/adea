@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/workspace-nav",
-  "version": "0.93.0",
+  "version": "0.95.0",
   "private": true,
   "type": "module",
   "sideEffects": false,
@@ -46,12 +46,12 @@
     "dev": "vite build --watch",
     "lint": "oxlint",
     "test": "bun test --conditions=browser tests/unit",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "bun check -p tsconfig.json"
   },
   "dependencies": {
     "@adea-ai/app-ui": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.134.0",
+    "@adea-ai/ui": "0.140.0",
     "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"
   },

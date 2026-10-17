@@ -24,6 +24,46 @@ and `cf deploy --prebuilt` uploads it. `cf previews deploy` publishes a
 preview version from the output built with `CLOUDFLARE_PREVIEW_BUILD=true`
 and `cf-wrangler build --mode preview`.
 
+**Preview isolation.** `cf-wrangler build --mode preview` does not swap
+bindings: whatever `cloudflare.config.ts` returns is what the Preview Worker is
+uploaded with. The config therefore branches on the build context
+(`isPreview`, or `--mode preview`). A Preview Worker runs unreviewed
+pull-request code, so it never gets the production Hyperdrive, Neon database or
+auth secret, cookie secret, or Control Plane signer. It needs dedicated preview
+resources, selected explicitly, all or none, through build variables:
+`ADEA_PREVIEW_HYPERDRIVE_ID`, `ADEA_PREVIEW_SECRETS_STORE_ID`,
+`ADEA_PREVIEW_DATABASE_URL_SECRET`, `ADEA_PREVIEW_AUTH_BASE_URL_SECRET`,
+`ADEA_PREVIEW_AUTH_COOKIE_SECRET_NAME`, `ADEA_PREVIEW_AUTH_TRUSTED_ORIGINS_SECRET`.
+The build fails if the selection is partial, names the production Hyperdrive or
+Secrets Store, or names a secret that is a production secret or not a dedicated
+`*PREVIEW*` secret.
+
+With no selection the Preview build is **blocked** (`Preview deployment
+blocked: no isolated preview resources are configured`). It does not fall back
+to production bindings, and it does not publish an assets-only Worker: that
+Worker serves the static client but answers every API route with a 500, and a
+green Preview check for it would claim a working preview that does not exist.
+Today the shared `cloudflare-deploy.yml@v1.47.1` workflow takes no selection,
+so a deployment attempt fails at the build until isolated preview resources
+exist and a reviewed change passes them in. Creating those resources is a
+separate decision. The Preview check is not a required status check, so
+merging is not blocked by it.
+
+`cloudflare-preview.yml` reports one of three outcomes, decided by
+`scripts/preview-availability.mjs` with the same rules as `previewEnv`:
+
+- **Unavailable, no isolated resources** (none of the six `ADEA_PREVIEW_*`
+  repository variables is set). The `unavailable` job passes and says so in a
+  notice and the job summary. It still builds the Worker, runs the config,
+  availability and workflow tests, and asserts that the preview build is
+  refused with the guard message. Only the deployment is skipped, and no
+  Cloudflare credential or deploy permission is present in that job.
+- **Configured** (a complete, valid selection). The `preview` job deploys, and a
+  failed deployment is a failed check.
+- **Invalid** (partial, production-valued or non-preview selection). The
+  `availability` job fails with the reason, and nothing else runs.
+  `test/cloudflare-config.test.ts` pins all of this.
+
 The production `wrangler.jsonc` keeps `main` pointed at the source entry
 (`src/start/worker.ts`) because the Cloudflare Vite plugin requires that file
 to exist while bundling. The plugin then writes the deploy-time manifest to

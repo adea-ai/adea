@@ -1,7 +1,10 @@
 import { expect, test } from 'bun:test'
 import { SuccessResponseEnvelopeSchema } from '@adea-ai/contracts'
+import { ControlPlaneClientError } from '@adea-ai/sdk'
 import { createConfiguredLeadTurnDependencies } from '../src/server/lead-turn-composition'
-import { type LeadSdkPort } from '../src/server/lead-turn-sdk-port'
+import { createLeadTurnRuntime } from '../src/server/lead-turn-runtime'
+import { installedLeadSdkPort, type LeadSdkPort } from '../src/server/lead-turn-sdk-port'
+import { LeadRuntimeRefusal, leadRefusalReason } from '../src/server/lead-runtime-refusal'
 const workspaceId = `wsp_${'0'.repeat(26)}`
 const actor = `user:${crypto.randomUUID()}` as const
 const authority = {
@@ -49,7 +52,7 @@ async function fixture() {
       calls.push({ method, body, claims })
       if (method === 'getModelSelectionFunding') return { data: { funding } }
       if (method === 'getPiDurableLeadPublication') return { data: { publication } }
-      if (method === 'dispatchPiDurableLead') {
+      if (method === 'dispatchPiDurableLead' || method === 'cancelPiDurableLead') {
         // Installed public base envelope is real; the new lead DTO is a disclosed mock
         // until compatible public SDK/runtime schemas are released.
         return SuccessResponseEnvelopeSchema.strict().parse({
@@ -183,4 +186,342 @@ test('publication requires exact current actor, selection, receipt and unmodifie
   await expect(composed.adapter!.assertPublicationCurrent!(expected)).rejects.toThrow(
     'RUNTIME_RESPONSE_INVALID'
   )
+})
+test('a retried key-bearing command repeats the same issuedAt so CP binds it to the same digest', async () => {
+  const f = await fixture()
+  let clock = Date.parse('2030-01-01T00:00:00.000Z')
+  const composed = await createConfiguredLeadTurnDependencies(
+    { ...f.dependencies, now: () => (clock += 60_000) },
+    undefined,
+    f.port
+  )
+  const admitted = { ...authority, admittedAt: '2029-12-31T23:00:00.000Z' }
+  await composed.adapter!.prepare!(admitted).catch(() => undefined)
+  await composed.adapter!.prepare!(admitted).catch(() => undefined)
+  await composed.adapter!.dispatch(admitted, `lead-turn:${authority.intentId}`, prepared)
+  await composed.adapter!.dispatch(admitted, `lead-turn:${authority.intentId}`, prepared)
+  await composed.adapter!.cancel(
+    admitted,
+    f.publication.dispatchId,
+    `lead-cancel:${f.publication.dispatchId}`,
+    '2029-12-31T23:30:00.000Z'
+  )
+  await composed.adapter!.cancel(
+    admitted,
+    f.publication.dispatchId,
+    `lead-cancel:${f.publication.dispatchId}`,
+    '2029-12-31T23:30:00.000Z'
+  )
+  const keyed = f.calls.filter((call) => call.body.idempotencyKey !== undefined)
+  expect(keyed.map((call) => [call.method, call.body.issuedAt])).toEqual([
+    ['preparePiDurableLead', admitted.admittedAt],
+    ['preparePiDurableLead', admitted.admittedAt],
+    ['dispatchPiDurableLead', admitted.admittedAt],
+    ['dispatchPiDurableLead', admitted.admittedAt],
+    ['cancelPiDurableLead', '2029-12-31T23:30:00.000Z'],
+    ['cancelPiDurableLead', '2029-12-31T23:30:00.000Z'],
+  ])
+  // Only the anchor is stable: every attempt is still its own signed, fresh command.
+  expect(new Set(keyed.map((call) => call.body.commandId)).size).toBe(keyed.length)
+})
+test('without an anchor a key-bearing command is issued now, as before', async () => {
+  const f = await fixture()
+  const clock = Date.parse('2030-01-01T00:00:00.000Z')
+  const composed = await createConfiguredLeadTurnDependencies(
+    { ...f.dependencies, now: () => clock },
+    undefined,
+    f.port
+  )
+  await composed.adapter!.dispatch(authority, `lead-turn:${authority.intentId}`, prepared)
+  expect(f.calls.at(-1)!.body.issuedAt).toBe('2030-01-01T00:00:00.000Z')
+})
+test('a blocked funding read at start carries only its bounded readiness reason', async () => {
+  const f = await fixture()
+  const composed = await createConfiguredLeadTurnDependencies(f.dependencies, undefined, f.port)
+  for (const reasonCode of ['CREDENTIAL_EXPIRED', 'QUOTA_EXHAUSTED', 'WORKSPACE_GRANT_REVOKED']) {
+    f.setFunding({ ...prepared, state: 'blocked', reasonCode } as never)
+    const error = await composed.authorizeConfirmedStart!(authority, prepared).catch((e) => e)
+    expect(error).toBeInstanceOf(LeadRuntimeRefusal)
+    expect(error.readinessReason).toBe(reasonCode)
+  }
+  // Unknown text, READY and another workspace's block never become a named reason.
+  for (const blocked of [
+    { reasonCode: 'sk-live-provider-text' },
+    { reasonCode: 'READY' },
+    { reasonCode: 'QUOTA_EXHAUSTED', workspaceId: `wsp_${'1'.repeat(26)}` },
+  ]) {
+    f.setFunding({ ...prepared, state: 'blocked', ...blocked } as never)
+    const error = await composed.authorizeConfirmedStart!(authority, prepared).catch((e) => e)
+    expect(error).not.toBeInstanceOf(LeadRuntimeRefusal)
+    expect(String(error.message)).toBe('RUNTIME_UNAVAILABLE')
+  }
+})
+const refuse = (code: string, status: number) => async (_url: unknown, init?: RequestInit) => {
+  const request = JSON.parse(String(init?.body))
+  return new Response(
+    JSON.stringify({
+      contractVersion: request.contractVersion,
+      requestId: request.requestId,
+      correlation: { traceId: request.correlation.traceId },
+      error: {
+        class: 'conflict',
+        code,
+        message: 'provider said: secret-token',
+        retryable: false,
+        source: 'policy',
+      },
+    }),
+    { status, headers: { 'content-type': 'application/json' } }
+  )
+}
+
+const nameRefusal = (patch: Record<string, unknown>, matches = true) =>
+  leadRefusalReason(
+    {
+      code: 'PI_LEAD_MODEL_NOT_READY',
+      status: 409,
+      retryable: false,
+      errorClass: 'conflict',
+      reasonCode: 'QUOTA_EXHAUSTED',
+      ...patch,
+    },
+    matches
+  )
+
+test('the agreed PI_LEAD_MODEL_NOT_READY refusal keeps only the SDK reason in its vocabulary', () => {
+  const unavailable = { status: 503, retryable: true, errorClass: 'runtime_unavailable' }
+  expect(nameRefusal({})).toBe('QUOTA_EXHAUSTED')
+  expect(nameRefusal({ reasonCode: 'CREDENTIAL_EXPIRED' })).toBe('CREDENTIAL_EXPIRED')
+  // READINESS_UNAVAILABLE is the retryable runtime_unavailable 503 with the same code.
+  expect(nameRefusal({ ...unavailable, reasonCode: 'READINESS_UNAVAILABLE' })).toBe(
+    'READINESS_UNAVAILABLE'
+  )
+  // An SDK without the field (or with an unusable value) is a known refusal with an unverifiable reason.
+  expect(nameRefusal({ reasonCode: undefined })).toBe('READINESS_UNAVAILABLE')
+  expect(nameRefusal({ reasonCode: 'sk-live-provider-text' })).toBe('READINESS_UNAVAILABLE')
+  expect(nameRefusal({ reasonCode: 'READY' })).toBe('READINESS_UNAVAILABLE')
+  // Raw details are never read: the SDK drops them, and a stray copy cannot name a reason.
+  expect(
+    nameRefusal({ reasonCode: undefined, details: { reasonCode: 'QUOTA_EXHAUSTED' } } as never)
+  ).toBe('READINESS_UNAVAILABLE')
+  // A 503 is the validated envelope only: code, retryable, class and an absent or UNAVAILABLE reason.
+  expect(nameRefusal({ ...unavailable, reasonCode: undefined })).toBe('READINESS_UNAVAILABLE')
+  for (const invalid of [
+    { ...unavailable, retryable: false, reasonCode: undefined },
+    { ...unavailable, errorClass: 'conflict', reasonCode: undefined },
+    { ...unavailable, reasonCode: 'QUOTA_EXHAUSTED' },
+    { ...unavailable, code: 'PI_LEAD_UNAVAILABLE', reasonCode: undefined },
+    { ...unavailable, status: 502, reasonCode: undefined },
+  ])
+    expect(nameRefusal(invalid)).toBeUndefined()
+  // A 409 must be a non-retryable conflict that does not claim UNAVAILABLE.
+  expect(nameRefusal({ retryable: true })).toBeUndefined()
+  expect(nameRefusal({ errorClass: 'runtime_unavailable' })).toBeUndefined()
+  expect(nameRefusal({ reasonCode: 'READINESS_UNAVAILABLE' })).toBeUndefined()
+  // Another request, status or code is not a readiness refusal.
+  expect(nameRefusal({}, false)).toBeUndefined()
+  expect(nameRefusal({ status: 500 })).toBeUndefined()
+  expect(nameRefusal({ code: 'PI_LEAD_UNAVAILABLE' })).toBeUndefined()
+  expect(nameRefusal({ code: 'PI_LEAD_FUNDING_CONFIRMATION_STALE' })).toBeUndefined()
+})
+test('the installed SDK port keeps only a readiness code from a Control Plane refusal', async () => {
+  const f = await fixture()
+  const attempt = async (code: string, status: number) => {
+    const composed = await createConfiguredLeadTurnDependencies(
+      {
+        ...f.dependencies,
+        environment: { ...f.dependencies.environment, CONTROL_PLANE_ORIGIN: 'http://127.0.0.1:1' },
+        fetch: refuse(code, status) as never,
+      },
+      undefined,
+      installedLeadSdkPort
+    )
+    return composed.adapter!.prepare!(authority).catch((error) => error)
+  }
+  const refused = await attempt('CREDENTIAL_EXPIRED', 409)
+  expect(refused).toBeInstanceOf(LeadRuntimeRefusal)
+  expect(refused.readinessReason).toBe('CREDENTIAL_EXPIRED')
+  expect(JSON.stringify(refused)).not.toContain('secret-token')
+  for (const other of [
+    await attempt('PI_LEAD_UNAVAILABLE', 503),
+    await attempt('provider-text', 409),
+    await attempt('QUOTA_EXHAUSTED', 500),
+  ])
+    expect(other).not.toBeInstanceOf(LeadRuntimeRefusal)
+})
+
+// CP #1159's real normalized envelope, as captured from its Nest HTTP test: the closed reason
+// rides in `error.details.reasonCode` and `meta.requestId` is a separate transport id.
+const cpReadinessRefusal =
+  (status: number, error: Record<string, unknown>, requestIdOverride?: string) =>
+  async (_url: unknown, init?: RequestInit) => {
+    const request = JSON.parse(String(init?.body))
+    return new Response(
+      JSON.stringify({
+        contractVersion: request.contractVersion,
+        requestId: requestIdOverride ?? request.requestId,
+        correlation: { traceId: request.correlation.traceId },
+        error: {
+          message: 'Lead dispatch request could not be completed',
+          source: 'workflow',
+          ...error,
+        },
+        meta: { requestId: 'req_01JABCDEF0123456789TRANSPT' },
+      }),
+      { status, headers: { 'content-type': 'application/json' } }
+    )
+  }
+const conflict = (reasonCode: string) => ({
+  class: 'conflict',
+  code: 'PI_LEAD_MODEL_NOT_READY',
+  retryable: false,
+  details: { reasonCode },
+})
+const unavailable = {
+  class: 'runtime_unavailable',
+  code: 'PI_LEAD_MODEL_NOT_READY',
+  retryable: true,
+  details: { reasonCode: 'READINESS_UNAVAILABLE' },
+}
+// True once the installed SDK exposes the closed reason (shipped by CP #1159's next release).
+const sdkCarriesReason =
+  new ControlPlaneClientError({
+    code: 'PI_LEAD_MODEL_NOT_READY',
+    errorClass: 'conflict',
+    message: 'm',
+    requestId: 'r',
+    retryable: false,
+    status: 409,
+    reasonCode: 'QUOTA_EXHAUSTED',
+  } as never).reasonCode === 'QUOTA_EXHAUSTED'
+
+test('a Control Plane readiness refusal reaches the Adea lead runtime from the HTTP response', async () => {
+  const f = await fixture()
+  const stored: unknown[] = []
+  const run = async (fetchImpl: unknown) => {
+    const composed = await createConfiguredLeadTurnDependencies(
+      {
+        ...f.dependencies,
+        environment: { ...f.dependencies.environment, CONTROL_PLANE_ORIGIN: 'http://127.0.0.1:1' },
+        fetch: fetchImpl as never,
+      },
+      undefined,
+      installedLeadSdkPort
+    )
+    const service = createLeadTurnRuntime({
+      store: {
+        async authorize() {
+          return authority
+        },
+        async read() {
+          return undefined
+        },
+        async prepare(value: unknown) {
+          stored.push(value)
+        },
+        async pending() {},
+        async observe() {
+          return undefined
+        },
+      } as never,
+      adapter: composed.adapter as never,
+      authorizeConfirmedStart: composed.authorizeConfirmedStart!,
+    })
+    return service.prepare({
+      workspaceId: authority.workspaceId,
+      intentId: authority.intentId,
+      userId: 'owner',
+    } as never)
+  }
+  // 409 with a named reason: exact reason when the SDK carries it, otherwise an unverifiable one.
+  for (const reasonCode of ['QUOTA_EXHAUSTED', 'CREDENTIAL_EXPIRED', 'WORKSPACE_GRANT_REVOKED']) {
+    const result = await run(cpReadinessRefusal(409, conflict(reasonCode)))
+    expect(result).toMatchObject({
+      state: 'blocked',
+      availability: 'unavailable',
+      reasonCode: 'MODEL_NOT_READY',
+      readinessReason: sdkCarriesReason ? reasonCode : 'READINESS_UNAVAILABLE',
+    })
+    expect(JSON.stringify(result)).not.toContain('secret-token')
+  }
+  // The retryable 503 envelope is recognized; the same status with another code or shape is not.
+  expect(await run(cpReadinessRefusal(503, unavailable))).toMatchObject({
+    reasonCode: 'MODEL_NOT_READY',
+    readinessReason: 'READINESS_UNAVAILABLE',
+  })
+  for (const generic of [
+    cpReadinessRefusal(503, { ...unavailable, code: 'PI_LEAD_UNAVAILABLE', details: undefined }),
+    cpReadinessRefusal(503, { ...unavailable, retryable: false }),
+    cpReadinessRefusal(409, { ...conflict('QUOTA_EXHAUSTED'), code: 'PI_LEAD_UNAVAILABLE' }),
+  ]) {
+    const result = await run(generic)
+    expect(result).toMatchObject({ state: 'blocked' })
+    expect((result as { reasonCode?: string }).reasonCode).not.toBe('MODEL_NOT_READY')
+  }
+  // A response for another request ID is never trusted, so no reason is read from it.
+  const foreign = await run(cpReadinessRefusal(409, conflict('QUOTA_EXHAUSTED'), 'req_other'))
+  expect((foreign as { reasonCode?: string }).reasonCode).not.toBe('MODEL_NOT_READY')
+  expect(stored).toEqual([])
+})
+
+test('child observation composition uses the installed SDK, read scope and opaque page parameters', async () => {
+  const f = await fixture()
+  expect(installedLeadSdkPort.childrenSupported).toBe(true)
+  const requests: Record<string, unknown>[] = []
+  const claims: Record<string, unknown>[] = []
+  const data = {
+    schemaVersion: 'pi-lead-dispatch/v1',
+    intentId: authority.intentId,
+    dispatchId: f.publication.dispatchId,
+    executionId: prepared.executionId,
+    attemptId: prepared.attemptId,
+    runtimeSessionId: f.publication.runtimeSessionId,
+    children: [],
+    totalChildren: 0,
+    complete: true,
+  }
+  const composed = await createConfiguredLeadTurnDependencies(
+    {
+      ...f.dependencies,
+      environment: { ...f.dependencies.environment, CONTROL_PLANE_ORIGIN: 'http://127.0.0.1:1' },
+      fetch: (async (input, init) => {
+        expect(String(input)).toBe('http://127.0.0.1:1/v3/pi-durable/lead-dispatches/children')
+        const body = JSON.parse(init!.body as string)
+        requests.push(body)
+        const authorization = new Headers(init!.headers).get('authorization')!
+        claims.push(JSON.parse(Buffer.from(authorization.split('.')[1]!, 'base64url').toString()))
+        return Response.json({
+          contractVersion: body.contractVersion,
+          requestId: body.requestId,
+          correlation: body.correlation,
+          data,
+        })
+      }) as typeof fetch,
+    },
+    undefined,
+    installedLeadSdkPort
+  )
+  const cursor = { acceptedAt: '2026-10-17T00:00:00Z', delegationId: `dlg_${'0'.repeat(26)}` }
+  expect(
+    await composed.adapter!.children!(authority, data.dispatchId, { limit: 1, after: cursor })
+  ).toEqual(data)
+  expect(requests[0]!.operation).toBe('pi-durable.lead.children')
+  expect(requests[0]!.parameters).toEqual({ dispatchId: data.dispatchId, limit: 1, after: cursor })
+  expect(requests[0]).not.toHaveProperty('payload')
+  expect(requests[0]).not.toHaveProperty('idempotencyKey')
+  expect(claims[0]!.scopes).toEqual(['execution:read'])
+  expect(claims[0]!.workspaceIds).toEqual([workspaceId])
+  expect(f.calls).toEqual([])
+})
+
+test('missing children capability leaves ordinary lead composition enabled', async () => {
+  const f = await fixture()
+  const composed = await createConfiguredLeadTurnDependencies(f.dependencies, undefined, {
+    ...f.port,
+    childrenSupported: false,
+  })
+  expect(composed.adapter).toBeDefined()
+  expect(composed.adapter!.children).toBeUndefined()
+  expect(composed.adapter!.dispatch).toBeFunction()
+  expect(f.calls).toEqual([])
 })

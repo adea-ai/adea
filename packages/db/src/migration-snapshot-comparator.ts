@@ -119,9 +119,10 @@ function visibilityGrew(before: string, after: string): boolean {
 // so the families added by #1219 compare every non-identity captured field:
 // artifactReferenceGrants, contentReplicas, leadTurnRuntime, nativeSessions,
 // runtimeNodes and taskSubmissions, and so do the group families (#1222):
-// groupAdmissions, groupAudienceGrants, groupEnlistmentGrants and groupSharingGrants. Bindings are links (a change is a remap),
-// digests are content/profile/version facts (drift), attributes are the row's
-// own state.
+// groupAdmissions, groupAudienceGrants, groupEnlistmentGrants and groupSharingGrants. The new
+// quarantine family also compares every security and provenance field, including source and
+// withdrawal digests. Bindings are links (a change is a remap), digests are content/profile/version
+// facts (drift), attributes are the row's own state.
 const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyComparison>> = {
   agents: {
     attributes: [{ field: 'lifecycleState' }],
@@ -298,6 +299,28 @@ const FAMILY_COMPARISONS: Readonly<Record<MigrationSnapshotFamily, FamilyCompari
     binding: ['attemptId', 'executionId', 'publishedMessageId', 'runtimeSessionId'],
     digests: [],
   },
+  legacyAudienceQuarantine: {
+    attributes: [
+      { field: 'createdAt' },
+      { field: 'observedAt' },
+      { field: 'profile' },
+      { field: 'reason' },
+      { field: 'sourceChannelCreatedAt' },
+      { field: 'sourceJoinedAt' },
+      { field: 'withdrawnAdmissions' },
+      { field: 'withdrawnAudienceGrants' },
+      { field: 'withdrawnEnlistmentGrants' },
+    ],
+    binding: [
+      'channelId',
+      'principalId',
+      'principalKind',
+      'quarantineId',
+      'sourceWorkspaceId',
+      'workspaceId',
+    ],
+    digests: ['sourceRowDigest', 'withdrawnDigest'],
+  },
   runtimeNodes: {
     // `platform` is the node's environment fact; `softwareVersion` is the
     // reported build, compared as a digest so a version change is drift.
@@ -469,6 +492,8 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
       return record.replicaId
     case 'leadTurnRuntime':
       return record.intentId
+    case 'legacyAudienceQuarantine':
+      return record.sourceParticipantId
     case 'nativeSessions':
       return record.sessionRef
     case 'runtimeNodes':
@@ -885,9 +910,10 @@ function requireMatchingIdentity(
     'formatVersion',
     'source',
   ]
-  // An older document is refused by name before any other identity check: its record shapes differ
-  // (version 2 replaced the artifact grant revocation flag with the persisted instant), so comparing it
-  // would read a flag as an instant and could report a changed authorization as identical.
+  // An older document is refused by name before any other identity check: its record contract cannot
+  // prove quarantine's durable negative authority. Comparing v2 as if the new family were empty could
+  // report changed admission protection as identical. Format 2 also changed artifact revocation and
+  // group grant instants, so all older versions require recapture.
   for (const [label, identity] of [
     ['before', before.identity],
     ['after', after.identity],
@@ -896,7 +922,7 @@ function requireMatchingIdentity(
     if (typeof version === 'number' && Number.isInteger(version) && version >= 1) {
       if (version < MIGRATION_SNAPSHOT_FORMAT_VERSION) {
         throw new MigrationSnapshotIdentityError(
-          `Snapshot format incompatible on the ${label} document: format version ${version} predates version ${MIGRATION_SNAPSHOT_FORMAT_VERSION} (artifact grant revocation is now an instant, not a flag); recapture it before comparing`
+          `Snapshot format incompatible on the ${label} document: format version ${version} predates version ${MIGRATION_SNAPSHOT_FORMAT_VERSION} (quarantine provenance is not represented); recapture it before comparing`
         )
       }
       if (version > MIGRATION_SNAPSHOT_FORMAT_VERSION) {

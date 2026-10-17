@@ -11,20 +11,147 @@ concurrency:
 
 permissions:
   contents: read
-  deployments: write
 
+# A pull-request Preview has three outcomes, and only the last two can fail:
+#
+#   unavailable  no isolated preview resources are configured. The deploy step is not attempted.
+#                The `unavailable` job passes and says so; it still builds, runs the
+#                configuration and guard tests, and proves the preview build is refused.
+#   configured   every ADEA_PREVIEW_* value is set and valid. The `preview` job deploys, and a
+#                failed deployment is a failed check.
+#   invalid      some values are set, or a value names a production resource. `availability`
+#                fails, so neither job below runs.
+#
+# `scripts/preview-availability.mjs` applies the same rules as `previewEnv` in
+# apps/web/cloudflare.config.ts. The selection is read from repository variables.
+# The shared deploy workflow does not forward them to the build yet, so a `configured` run fails
+# closed at the build until a reviewed change passes them in (see apps/web/CLOUDFLARE.md).
 jobs:
+  availability:
+    name: Cloudflare Preview / availability
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !startsWith(github.event.pull_request.head.ref, 'release-please--branches--main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      state: ${{ steps.availability.outputs.state }}
+    env:
+      ADEA_PREVIEW_HYPERDRIVE_ID: ${{ vars.ADEA_PREVIEW_HYPERDRIVE_ID }}
+      ADEA_PREVIEW_SECRETS_STORE_ID: ${{ vars.ADEA_PREVIEW_SECRETS_STORE_ID }}
+      ADEA_PREVIEW_DATABASE_URL_SECRET: ${{ vars.ADEA_PREVIEW_DATABASE_URL_SECRET }}
+      ADEA_PREVIEW_AUTH_BASE_URL_SECRET: ${{ vars.ADEA_PREVIEW_AUTH_BASE_URL_SECRET }}
+      ADEA_PREVIEW_AUTH_COOKIE_SECRET_NAME: ${{ vars.ADEA_PREVIEW_AUTH_COOKIE_SECRET_NAME }}
+      ADEA_PREVIEW_AUTH_TRUSTED_ORIGINS_SECRET: ${{ vars.ADEA_PREVIEW_AUTH_TRUSTED_ORIGINS_SECRET }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.3
+          cache: true
+          cache-dependency-path: bun.lock
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Classify preview availability
+        id: availability
+        run: bun scripts/preview-availability.mjs
+
+  # Runs only when no isolated resources exist. No Cloudflare credential, secret or deployment
+  # permission is present in this job.
+  unavailable:
+    name: Cloudflare Preview / unavailable (no isolated resources)
+    needs: availability
+    if: needs.availability.outputs.state == 'unavailable'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.3
+          cache: true
+          cache-dependency-path: bun.lock
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Build Worker
+        working-directory: apps/web
+        run: bun run build:cloudflare
+      - name: Configuration and guard regression tests
+        run: >-
+          bun test
+          apps/web/test/cloudflare-config.test.ts
+          scripts/preview-availability.test.ts
+          scripts/cloudflare-preview-workflow.test.ts
+      - name: Assert the preview build is refused
+        working-directory: apps/web
+        run: |
+          set -uo pipefail
+          # Same binary lookup as the shared deploy workflow: bun hoists workspace bins to
+          # arbitrary levels.
+          binpath="$PWD"
+          while [ "$binpath" != / ]; do
+            [ -d "$binpath/node_modules/.bin" ] && PATH="$binpath/node_modules/.bin:$PATH"
+            binpath=$(dirname "$binpath")
+          done
+          export PATH
+          command -v cf-wrangler >/dev/null || {
+            echo '::error::cf-wrangler not found; the preview guard could not be exercised' >&2
+            exit 1
+          }
+          status=0
+          out="$(CLOUDFLARE_PREVIEW_BUILD=true cf-wrangler build --mode preview 2>&1)" || status=$?
+          printf '%s\n' "$out"
+          if [ "$status" -eq 0 ]; then
+            echo '::error::The preview build succeeded without isolated resources; the guard no longer blocks it' >&2
+            exit 1
+          fi
+          if ! grep -qF 'Preview deployment blocked: no isolated preview resources are configured' <<<"$out"; then
+            echo '::error::The preview build failed for a reason other than the isolation guard' >&2
+            exit 1
+          fi
+          echo 'The preview build is refused by the isolation guard, as intended.'
+      - name: Report that the preview deployment is intentionally unavailable
+        run: |
+          set -euo pipefail
+          echo '::notice title=Preview deployment intentionally unavailable::No isolated preview resources are configured. Nothing was deployed. This is a state, not a validation failure.'
+          {
+            echo '### Preview deployment intentionally unavailable'
+            echo
+            echo 'No isolated preview resources are configured, so this pull request was not deployed and no Cloudflare credential was used.'
+            echo 'The build, the configuration and guard regression tests, and the check that the preview build is refused all passed.'
+            echo 'A real deployment error, a partial selection or a production-valued selection would fail instead of landing here.'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   preview:
     name: Cloudflare Preview / adea-web
-    if: github.event.pull_request.draft == false
-    uses: 0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.47.1
+    needs: availability
+    if: >-
+      github.event.pull_request.draft == false &&
+      needs.availability.outputs.state == 'configured'
+    uses: 0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.48.1
+    permissions:
+      contents: read
+      deployments: write
     with:
       mode: preview
       deploy-tool: cf
       working-directory: apps/web
       install-working-directory: .
       build-script: build:cloudflare
-      bun-version: 1.4.0
+      bun-version: 1.4.3
       environment: Preview - adea-web
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

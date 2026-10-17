@@ -4,6 +4,7 @@ import { sql } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
   groupHistoryAccessByUser,
+  channelIsAmongGroups,
   groupHistoryMessageAndThreadVisibleCondition,
   groupSummaryMessageVisibleCondition,
   userChannelVisibility,
@@ -215,12 +216,8 @@ function groupHistoryVisible(alias: string, access: ReadonlyMap<string, GroupHis
   const channelId = sql.raw(`${alias}.channel_id`)
   const sequence = sql.raw(`${alias}.sequence`)
   const threadRootMessageId = sql.raw(`${alias}.thread_root_message_id`)
-  const groupIds = [...access.keys()]
   return sql`(
-    ${channelId} not in (${sql.join(
-      groupIds.map((id) => sql`${id}::uuid`),
-      sql`, `
-    )})
+    not ${channelIsAmongGroups(channelId, access.keys())}
     or (
       ${groupHistoryMessageAndThreadVisibleCondition({
         channelId,

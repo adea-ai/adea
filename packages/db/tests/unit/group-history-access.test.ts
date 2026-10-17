@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { sql, type SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import {
+  channelIsAmongGroups,
   groupChannelIdsInForce,
   groupHistoryAccessByUser,
   groupHistoryMessageAndThreadVisibleCondition,
@@ -174,8 +175,14 @@ describe('group SQL read boundaries', () => {
     expect(query(groupHistoryMessageVisibleCondition({ ...input, access: new Map() })).sql).toBe(
       'false'
     )
-    expect(query(groupHistoryMessageVisibleCondition(input)).params).toEqual([CHANNEL])
-    expect(query(groupSummaryMessageVisibleCondition(input)).params).toEqual([CHANNEL, 7])
+    // One bound parameter per predicate: the channel's lowest visible sequence, 0 when earlier
+    // history is included and the join point otherwise.
+    expect(query(groupHistoryMessageVisibleCondition(input)).params).toEqual([
+      JSON.stringify({ [CHANNEL]: 0 }),
+    ])
+    expect(query(groupSummaryMessageVisibleCondition(input)).params).toEqual([
+      JSON.stringify({ [CHANNEL]: 7 }),
+    ])
   })
   test('root and reply parent must be in the same channel with their own visible sequence', () => {
     const history = query(groupHistoryMessageAndThreadVisibleCondition(input))
@@ -184,12 +191,94 @@ describe('group SQL read boundaries', () => {
     expect(history.sql).toContain('history_reply_parent.channel_id = candidate.channel_id')
     expect(summary.sql).toContain('history_root.sequence >=')
     expect(summary.sql).toContain('history_reply_parent.sequence >=')
-    expect(history.params).toEqual([CHANNEL, CHANNEL, CHANNEL])
-    expect(summary.params).toEqual([CHANNEL, 7, CHANNEL, 7, CHANNEL, 7])
+    expect(history.params).toEqual(Array(3).fill(JSON.stringify({ [CHANNEL]: 0 })))
+    expect(summary.params).toEqual(Array(3).fill(JSON.stringify({ [CHANNEL]: 7 })))
     const { replyToMessageId: _, ...withoutReply } = input
     expect(query(groupHistoryMessageAndThreadVisibleCondition(withoutReply)).sql).not.toContain(
       'history_reply_parent'
     )
+  })
+})
+
+// Hoisted fixtures for the constant-size predicate tests below.
+const groupAccess = (count: number) =>
+  new Map(
+    Array.from({ length: count }, (_, index) => [
+      `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`,
+      {
+        joinedSequence: index,
+        includesEarlierHistory: index % 2 === 0,
+        includesEarlierSummary: index % 3 === 0,
+      },
+    ])
+  )
+const members = (count: number) =>
+  query(channelIsAmongGroups(sql.raw('candidate.channel_id'), groupAccess(count).keys()))
+const key = (index: number) => `00000000-0000-4000-8000-${index.toString(16).padStart(12, '0')}`
+
+const predicateInput = (count: number) => ({
+  channelId: sql.raw('candidate.channel_id'),
+  sequence: sql.raw('candidate.sequence'),
+  threadRootMessageId: sql.raw('candidate.thread_root_message_id'),
+  replyToMessageId: sql.raw('candidate.reply_to_message_id'),
+  access: groupAccess(count),
+})
+
+describe('group SQL predicates stay constant-size however many groups the reader holds', () => {
+  // A reader's groups used to be spread into per-group terms: 22 to 37 bound parameters per group on
+  // the account summary and inbox, and the protocol allows 65,534 per statement. The predicates now
+  // bind each group map as one JSON parameter, so the statement and its parameter count do not
+  // depend on the number of groups.
+  test('statement text and parameter count do not grow with the number of groups', () => {
+    for (const build of [
+      groupHistoryMessageAndThreadVisibleCondition,
+      groupSummaryMessageAndThreadVisibleCondition,
+    ]) {
+      const small = query(build(predicateInput(2)))
+      const large = query(build(predicateInput(5000)))
+      expect(large.sql).toBe(small.sql)
+      expect(large.params).toHaveLength(small.params.length)
+      expect(large.params.length).toBeLessThanOrEqual(8)
+    }
+    expect(members(5000).sql).toBe(members(2).sql)
+    expect(members(5000).params).toHaveLength(1)
+  })
+
+  test('each group keeps its own lowest visible sequence', () => {
+    const [history] = query(groupHistoryMessageVisibleCondition(predicateInput(4))).params
+    const [summary] = query(groupSummaryMessageVisibleCondition(predicateInput(4))).params
+    // index 0: earlier history and summary included -> 0 for both; 1: join point 1 for both;
+    // 2: history included, summary join point 2; 3: summary included, history join point 3.
+    expect(JSON.parse(history as string)).toEqual({
+      [key(0)]: 0,
+      [key(1)]: 1,
+      [key(2)]: 0,
+      [key(3)]: 3,
+    })
+    expect(JSON.parse(summary as string)).toEqual({
+      [key(0)]: 0,
+      [key(1)]: 1,
+      [key(2)]: 2,
+      [key(3)]: 0,
+    })
+  })
+
+  test('channel ids are keyed in canonical lower case and a missing channel is denied, never null', () => {
+    const upper = query(
+      groupHistoryMessageVisibleCondition({
+        channelId: sql.raw('candidate.channel_id'),
+        sequence: sql.raw('candidate.sequence'),
+        access: new Map([
+          [
+            'AAAAAAAA-0000-4000-8000-000000000001',
+            { joinedSequence: 5, includesEarlierHistory: false, includesEarlierSummary: false },
+          ],
+        ]),
+      })
+    )
+    expect(upper.params).toEqual([JSON.stringify({ 'aaaaaaaa-0000-4000-8000-000000000001': 5 })])
+    expect(upper.sql).toContain('coalesce(')
+    expect(upper.sql).toContain(', false)')
   })
 })
 

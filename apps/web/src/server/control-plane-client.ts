@@ -146,6 +146,12 @@ export function commandEnvelope(
     payload: Record<string, unknown>
     hashedPayload?: Record<string, unknown>
     now: number
+    /**
+     * A stable ISO instant for retried commands. CP binds an idempotency key to a digest that
+     * includes `issuedAt`, so a retry must repeat the first attempt's value. Credential expiry
+     * and the command id still follow `now`.
+     */
+    issuedAt?: string
   }>
 ) {
   return {
@@ -154,7 +160,7 @@ export function commandEnvelope(
     contractVersion: CONTROL_PLANE_ADMIN_CONTRACT_VERSION,
     correlation: { traceId: correlation.traceId },
     idempotencyKey: input.idempotencyKey,
-    issuedAt: new Date(input.now).toISOString(),
+    issuedAt: input.issuedAt ?? new Date(input.now).toISOString(),
     operation: input.operation,
     payload: input.payload,
     payloadHash: sha256Hex(canonicalJson(input.hashedPayload ?? input.payload)),

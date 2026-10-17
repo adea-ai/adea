@@ -93,6 +93,8 @@ function fixture() {
     },
     async cancelRequested() {
       calls.push('cancelRequested')
+      // Stored once by the first request; a retry reads the same instant.
+      observed = { cancelRequestedAt: '2026-10-08T00:01:00.000Z', ...observed } as never
     },
     async publish(_scope, _binding, _text, check) {
       calls.push('publication-lock')
@@ -357,6 +359,20 @@ test('unknown transport outcome stays pending and cancel acknowledgement is not 
   await f.service.dispatch(scope)
   expect(await f.service.cancel(scope)).toMatchObject({ state: 'cancelling' })
   expect(f.calls).toContain('cancelRequested')
+})
+test('every cancel attempt carries the first request instant stored for the intent', async () => {
+  const f = fixture()
+  await f.service.prepare(scope)
+  await f.service.dispatch(scope)
+  const issued: unknown[] = []
+  const cancel = f.adapter.cancel
+  f.adapter.cancel = async (input, dispatchId, key, issuedAt) => {
+    issued.push(issuedAt)
+    return cancel(input, dispatchId, key, issuedAt)
+  }
+  await f.service.cancel(scope)
+  await f.service.cancel(scope)
+  expect(issued).toEqual(['2026-10-08T00:01:00.000Z', '2026-10-08T00:01:00.000Z'])
 })
 test('completed output requires current trusted grant inside publication boundary', async () => {
   const f = fixture()
