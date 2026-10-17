@@ -974,7 +974,7 @@
   ],
   "snapshotNote": "Earlier measurements retain their recorded heads. latestUpdate contains the current campaign checklist; foundations alone do not establish completion.",
   "latestUpdate": {
-    "observedAt": "2026-10-17T19:10:00Z",
+    "observedAt": "2026-10-17T19:16:00Z",
     "complete": false,
     "repositories": [
       {
@@ -1088,8 +1088,8 @@
             "state": "OPEN",
             "isDraft": true,
             "headRefOid": "d25f14f1064491a9901c363fd2b49eb9b38032e2",
-            "mergeable": "UNKNOWN",
-            "mergeStateStatus": "UNKNOWN",
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "BLOCKED",
             "mergedAt": null,
             "mergeCommit": null
           },
@@ -1099,8 +1099,8 @@
             "state": "OPEN",
             "isDraft": false,
             "headRefOid": "a31c9c39f693176bb1e2c9e397a533968e6a6b78",
-            "mergeable": "UNKNOWN",
-            "mergeStateStatus": "UNKNOWN",
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "BLOCKED",
             "mergedAt": null,
             "mergeCommit": null
           }
@@ -1195,10 +1195,10 @@
             "number": 460,
             "url": "https://github.com/adea-ai/ui/pull/460",
             "state": "OPEN",
-            "isDraft": true,
-            "headRefOid": "ec270ef3e8b6806aff1274f3e3391f7b20908fe9",
-            "mergeable": "CONFLICTING",
-            "mergeStateStatus": "DIRTY",
+            "isDraft": false,
+            "headRefOid": "2f55b1b28c9f95895e22c68e63bcce97d0b0b81b",
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "BLOCKED",
             "mergedAt": null,
             "mergeCommit": null
           }
@@ -1277,26 +1277,28 @@
       },
       {
         "repository": "adea-ai/agent-sim",
-        "observedMainHead": "28fc6227ce84d11d7faa849df18062a7538046b7",
-        "classification": "Main Bun1.4.0/Turbo; pending110 moves to Bun1.4.3/Vite+ preserving13 emitting builds",
+        "observedMainHead": "6f785a8ba14736d2cf9f45a883ec3c7551fbcfc6",
+        "classification": "Bun1.4.3/Vite+ on main;13 emitting builds retained; Bun checking throughout.",
         "pullRequests": [
           {
             "number": 110,
             "url": "https://github.com/adea-ai/agent-sim/pull/110",
-            "state": "OPEN",
+            "state": "MERGED",
             "isDraft": false,
             "headRefOid": "6a0a65583baf7b01b038b2f54f294665eebcdbbf",
-            "mergeable": "MERGEABLE",
-            "mergeStateStatus": "UNSTABLE",
-            "mergedAt": null,
-            "mergeCommit": null
+            "mergeable": "UNKNOWN",
+            "mergeStateStatus": "UNKNOWN",
+            "mergedAt": "2026-10-17T19:14:07Z",
+            "mergeCommit": {
+              "oid": "6f785a8ba14736d2cf9f45a883ec3c7551fbcfc6"
+            }
           }
         ],
         "mainManifest": {
-          "packageManager": "bun@1.4.0",
+          "packageManager": "bun@1.4.3",
           "typescript": "^7.0.2",
           "classicApi": null,
-          "codeFoundry": "1.46.3"
+          "codeFoundry": "1.48.2"
         }
       },
       {
@@ -1321,7 +1323,7 @@
       ],
       "roles": "Bun check never emits and needs no TypeScript package alone. Keep tsc for required JavaScript/declaration emit and editor alignment; classic API tooling needs explicit typescript6 alias.",
       "controlPlane1175": "Do not advance alias-major: actual boundary parser throws with TS7; alias6 passes7tests/382assertions.",
-      "ui460": "Compiler7 plus explicit API6 alias. Pre-foundation:964tests/57507assertions,10export regressions/54assertions,156built-module export parity pass; merged-foundation checks in progress."
+      "ui460": "Integrated head2f55b1b:967 tests/57516assertions,complete Bun checking,build/declaration emit,lint and format pass.10 export regressions/54assertions and156 built module export parity passed. Conflict-free; ready with auto-merge off."
     },
     "codeFoundry": "Existing reviewed1.48.1 foundations retained; new touched configuration uses1.48.2. Only explicitly approved issues:read caller additions.",
     "cacheProofs": {
@@ -1457,6 +1459,14 @@
         "writer": "https://github.com/adea-ai/plugins/actions/runs/39055921529",
         "freshReader": "https://github.com/adea-ai/plugins/actions/runs/39056020219",
         "result": "Trusted writer miss/save then independent exact-key reader restore; no isolated performance claim."
+      },
+      "controlPlaneHosted": {
+        "head": "3f8f5bebe3bce2d6784692927963a39474825e93",
+        "writer": "https://github.com/adea-ai/control-plane/actions/runs/39061140783",
+        "freshReader": "https://github.com/adea-ai/control-plane/actions/runs/39061303952",
+        "writerCold": "0/45 hits;47/47 successful",
+        "readerFirstBuild": "45/45 hits;47/47 successful",
+        "result": "Independent runner restored exact writer key and hit45/45 on first and second real builds."
       }
     },
     "cloudflare": {
@@ -1488,11 +1498,17 @@
     },
     "remaining": [
       "Merge and qualify current AgentSim/Cortana/TypeScript follow-ups without overwriting active owners.",
-      "Hosted fresh writer-reader cache transfer still needed for Control Plane/UI/AgentSim/Cortana at merged heads.",
       "Finish shared UI release sequencing before held Adea/Cortana/AgentSim consumer version updates.",
       "Sparse Cloudflare telemetry cannot establish CPU/Hyperdrive recovery. No production load probes.",
       "Cortana Windows cache identity unqualified; Windows commands intentionally remain uncached.",
-      "AgentSim110 auto-merge action was denied by automatic approval review; keep off pending explicit PR-specific approval."
-    ]
+      "Hosted fresh writer-reader cache transfer still needed for UI/AgentSim/Cortana at merged heads; Control Plane now proven."
+    ],
+    "agentSim110Approval": {
+      "head": "6a0a65583baf7b01b038b2f54f294665eebcdbbf",
+      "review": "Root exact-head source approval and all hosted checks successful; policy rerun successful.",
+      "automaticReview": "Initial auto-merge denied due earlier auto-off instruction. User explicitly approved PR110 auto-merge; retry succeeded.",
+      "merge": "6f785a8ba14736d2cf9f45a883ec3c7551fbcfc6"
+    },
+    "controlPlaneBudget": "1176 all478E2E tests/3793assertions passed but124.2s exceeded unchanged120s ceiling. Active Pi/test owner reconciliation required; no test or budget relaxed."
   }
 }
