@@ -2786,6 +2786,108 @@ Event constraints:
 - gaps return `resync_required` with checkpoint anchor; clients never advance
   past an unexplained gap.
 
+### Assistant message identity (#1386)
+
+The known `turn.assistant_delta`, `turn.assistant_message`, and `turn.result`
+kinds require a nonempty `harnessRunId` and a validated payload `messageId`.
+The opaque ID is 1–256 UTF-16 code units without whitespace, control characters,
+or unpaired surrogates, so UTF-8/CBOR round trips preserve it exactly.
+A native/ACP/authenticated-hook adapter allocates a stable source message ID
+before the first event (or persists a host-allocated mapping when the source
+has no message ID), retains it across retries/reconnects, and uses it for that
+message's deltas, final, and result. Never derive it from text, timestamps,
+receive order, or the current run alone: a run may contain multiple messages.
+A new message gets a new ID. Terminal fallback can bind its own bounded text
+observations but cannot assert another source's identity or emit a result.
+
+```ts
+type RuntimeAssistantDeltaPayload = {
+  messageId: string
+  deltaIndex: number // safe integer >= 0, contiguous per scoped message
+  text: string
+}
+type RuntimeAssistantMessagePayload = {
+  messageId: string
+  text: string // complete replacement, not another delta
+  supersedes: 'deltas'
+}
+type RuntimeAssistantResultPayload = {
+  messageId: string
+  summary?: string
+}
+```
+
+Delta and final `text` and result `summary` must be well-formed UTF-16: an
+unpaired surrogate would be rewritten by UTF-8/CBOR replay, so adapters split
+deltas at code-point boundaries. The whole stored assistant event, in canonical CBOR including the envelope
+and any extra or `references` fields on any of the three kinds, is at most
+64 KiB (65,536 bytes), the `runtime-events-v1` frame limit, so an appended
+message can always be streamed and replayed. JSON size is no proxy: CBOR
+expands numbers (a `0.1` is nine bytes) and the envelope adds its own. The host
+measures the exact event to be stored, with its allocated sequence, before
+persistence or publication; an oversize event fails with an explicit error, is
+never truncated, and consumes no sequence. An exact retry of a stored event
+stays a no-op even after the cursor gains a digit. A complete answer beyond the
+bound cannot be finalized under this contract; a chunked-final contract is
+separate work. Other payload fields remain bounded JSON; these reserved fields
+are validated by `decodeRuntimeEvent` and by the canonical log before
+persistence or live publication. Missing or malformed identity fails closed. Retained assistant
+payloads must also pass kind-specific validation before their message identity
+can establish ordering, confidence or settlement fences for new appends. A
+malformed retained payload remains opaque historical data and cannot block a
+valid new event merely because it contains the same `messageId`. Legacy opaque
+assistant records cannot establish supersession and must not be silently
+assigned an identity. At this increment there is no production structured
+assistant-event subscription/emitter; future adapters must provide this
+contract. Host lifecycle facts remain insufficient to fabricate an answer.
+
+The message key is the tuple `(runtimeSessionId, generation, harnessRunId,
+source, payload.messageId)` within the authenticated account/workspace/node
+scope. Equal IDs in another run, generation, session, or source are different
+messages. Neither a lower-confidence source nor a payload field can overwrite
+another source's text. Within one message key, new events may retain or raise
+confidence but cannot lower it; a weaker observation cannot append to, supersede,
+or close stronger text (`invalid_state`). Only `turn.assistant_message` with `supersedes: 'deltas'`
+replaces the deltas for that exact key. Its complete `text` remains usable when
+all deltas have fallen out of retention. A `turn.result` references the same
+key and closes it, but never replaces text, implies success, or proves that a
+final assistant message exists. Results without a final are valid (for example,
+a failed/cancelled source operation); retain the partial text as partial.
+
+For new appends, delta indexes start at zero and increase by one for each
+message independently; events for other messages and tools may interleave.
+A missing index is `resync_required` and appends nothing. An already-used index
+under a new source event ID is `idempotency_conflict`. A final may arrive
+without preceding deltas because it is self-contained. Once a final exists,
+only that message's result may follow; after its result no further text,
+second final, or second result may append. Invalid settlement is `invalid_state`.
+An exact retry using the original `sourceEventId` is checked before settlement
+and returns no event, allocates no sequence, and publishes nothing. Dedupe binds
+kind, canonical key-order-independent payload, harness run, confidence, and
+classification; a supplied source timestamp must also match. Opaque IDs cannot
+collide through delimiter characters in the tuple encoding. Changed content
+under that key is `idempotency_conflict`. Sequence allocation follows dedupe;
+an exact retry at uint64 exhaustion is still a no-op, while a new event at that
+boundary fails `invalid_state` rather than wrapping the generation's cursor.
+
+Replay is a read of original stored events, never a new append: event IDs,
+message IDs, delta indexes, generation, and sequences remain unchanged. Order
+by the canonical generation/uint64 sequence, never `occurredAt`, arrival time,
+or message ID. An inclusive replay cursor can redeliver the boundary event;
+consumers dedupe by canonical event identity/sequence before accumulating text.
+A replay starting at a final can immediately replace only its matching partial
+message, without having seen its deltas. It does not need delta zero. A replay
+starting mid-delta cannot claim complete text. An unexplained transport gap or
+`resync` discards incomplete accumulated deltas and requires a fresh bounded
+replay/checkpoint; never concatenate partial text across the missing range or
+across generations. Existing stream resync and replay-end heartbeat rules apply.
+Identity/order checks use the canonical log's retained window, including after
+restart: a retained final/result still fences late deltas even when delta zero
+has been evicted. Retention is not a permanent idempotency ledger. Adapters must
+not re-ingest evicted source history as new live events or reuse message IDs;
+source-cursor recovery outside that window requires resync rather than a new ID
+for the same response.
+
 ### Versioned tool and subagent call observations (#1387)
 
 `packages/types/src/dev-runtime-call.ts` owns the Adea-specific call contract;
@@ -2912,8 +3014,13 @@ neither UI #416 nor consumer PR #1385 is modified by this contract.
 
 ### Response sources and inline citation references (#1389)
 
-`turn.assistant_message` MAY carry a self-contained cited response. Its
-payload is exactly `{ text: string, references: RuntimeResponseReferences }`:
+`turn.assistant_message` MAY carry a self-contained cited response. It is the
+final message of [Assistant message identity](#assistant-message-identity-1386)
+plus references, so its payload is exactly `{ messageId: string, text: string,
+supersedes: 'deltas', references: RuntimeResponseReferences }`. Appends and
+wire events without that identity are refused like any other assistant final.
+The reference contract validates `text` and `references`; the identity fields
+are validated by the assistant contract:
 
 ```ts
 type RuntimeResponseReferences = {
@@ -2923,8 +3030,9 @@ type RuntimeResponseReferences = {
 }
 ```
 
-The response identity is its canonical `(runtimeSessionId, generation,
-eventId)`, retaining `harnessRunId`, source and source-event identity. Sources
+The response identity is its message key `(runtimeSessionId, generation,
+harnessRunId, source, messageId)`; the canonical `(runtimeSessionId,
+generation, eventId)` identifies the stored final. Sources
 and citations MUST travel atomically with that response's exact `text` in
 both live delivery and replay. A source ID is case-sensitive, unique within
 that response, 1–128 ASCII characters matching
@@ -2971,8 +3079,10 @@ claim is true. Producers that cannot supply validated references MUST omit
 `references`; consumers MUST NOT infer sources from Markdown links, tool text,
 an earlier response or a completed run. An absent reference object remains
 unknown/no-source; explicitly empty lists are allowed and invent nothing.
-Legacy assistant payloads without `references`, unrelated opaque payloads and
-unknown event retention keep their existing behavior. This producer contract
+A final without `references` keeps no sources; unrelated opaque payloads keep
+their existing behavior. A retained row written before message identity existed
+still passes the reference check on replay but stays opaque to the assistant
+lifecycle. This producer contract
 does not enable Sources/Inline Citation rendering or parse a harness's prose.
 
 Implementation is isolated in
@@ -8437,6 +8547,13 @@ files in the same commit:
   signed attach → `opened` → bounded CBOR replay → live push → ack →
   single-use attach replay refusal → generation-fenced `stale_generation`
   close);
+- `packages/types/tests/dev-runtime-assistant.test.ts` and
+  `apps/desktop/tests/dev-runtime-assistant-events.test.ts` pin #1386 identity,
+  explicit final supersession, per-message delta order, canonical retries,
+  tuple isolation, uint64 exhaustion, and retained final fences across restart;
+  the #1386 case in `apps/desktop/tests/dev-runtime-harness-events.test.ts`
+  proves resync can replay a final with its original identity after excluding
+  its deltas, followed by a replay-end heartbeat and run-isolated live events;
 - `packages/types/tests/dev-runtime-attachments.test.ts`,
   `apps/desktop/tests/dev-runtime-chat-attachments.test.ts` and
   `apps/desktop/tests/dev-runtime-chat-attachments-channel.test.ts` pin #1392

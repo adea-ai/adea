@@ -89,13 +89,15 @@ describe('authorized transcript history storage', () => {
   })
 
   test('byte budgets shorten pages without skipping events, and oversized single payloads are explicit', () => {
+    // Generic retained payloads exercise history's larger page budget; new
+    // assistant messages independently require #1401 identity/frame admission.
     const { log } = fixture()
     for (let n = 1; n <= 4; n++)
       log.append({
         runtimeSessionId: 'session-a',
         generation: 1,
         sourceEventId: `large-${n}`,
-        kind: 'turn.assistant_message',
+        kind: 'capability.restored',
         payload: { parts: Array.from({ length: 10 }, () => 'x'.repeat(10_000)) },
       })
     const first = log.history('session-a', { generation: 1, limit: 500 })
@@ -106,7 +108,7 @@ describe('authorized transcript history storage', () => {
       runtimeSessionId: 'session-a',
       generation: 1,
       sourceEventId: 'oversized',
-      kind: 'turn.assistant_message',
+      kind: 'capability.restored',
       payload: { parts: Array.from({ length: 24 }, () => 'y'.repeat(10_000)) },
     })
     const oversized = log.history('session-a', { generation: 1, limit: 1 })
@@ -288,7 +290,7 @@ describe('authorized transcript history storage', () => {
       runtimeSessionId: 'session-a',
       generation: 1,
       sourceEventId: 'large',
-      kind: 'turn.assistant_message',
+      kind: 'capability.restored',
       payload: { text: 'a'.repeat(250_000) },
     })
     expect(

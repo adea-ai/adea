@@ -26,13 +26,17 @@ import type {
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { isRuntimeVisibleSummaryKind } from '../../../../../../packages/types/src/dev-runtime-visible-summaries'
+import { canonicalDevCommandJson } from '../../../../../../packages/types/src/dev-runtime'
 import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
 import { createDurableJsonStore } from '../host-store'
 import { createSessionHistoryReader, type RuntimeHistoryRead } from './history'
 import type { RuntimeEventHistoryPage } from '../../../../../../packages/types/src/dev-runtime-history'
+import { assertAssistantEventFitsFrame, assertAssistantEventOrder } from './assistant-events'
+
 import {
   decodeRuntimeEvent,
   validateRuntimeEventReplayCandidate,
+  isRuntimeAssistantEventKind,
   isRuntimeCallEventKind,
 } from '../../../../../../packages/types/src/dev-runtime-wire'
 import {
@@ -184,6 +188,11 @@ export function createSessionEventLog(input: {
     )
     const records = all()
     const source = sessionInput.source ?? 'host'
+    const latest = BigInt(
+      latestSeqOf(records, sessionInput.runtimeSessionId, sessionInput.generation)
+    )
+    const exhausted = latest >= 18_446_744_073_709_551_615n
+    const nextSeq = (exhausted ? latest : latest + 1n).toString()
     let candidate: RuntimeEvent = {
       schemaVersion: 1,
       eventId: randomUUID(),
@@ -192,9 +201,10 @@ export function createSessionEventLog(input: {
         ? { harnessRunId: sessionInput.harnessRunId }
         : {}),
       generation: sessionInput.generation,
-      seq: (
-        BigInt(latestSeqOf(records, sessionInput.runtimeSessionId, sessionInput.generation)) + 1n
-      ).toString(),
+      // The stored cursor is the next one, so call verifiers and frame budgets
+      // see the real event. An exhausted generation keeps its last valid cursor
+      // here, so an exact retry stays a no-op; a new event is refused below.
+      seq: nextSeq,
       occurredAt: sessionInput.occurredAt ?? new Date().toISOString(),
       receivedAt: new Date().toISOString(),
       source,
@@ -214,21 +224,27 @@ export function createSessionEventLog(input: {
       throw new TypeError('event.classification: call observations require explicit classification')
     // A retry does not create a new call envelope: validate call facts before
     // comparison and charge the frame budget only for a genuinely new call.
-    // Other event kinds keep their legacy opaque retention behavior.
-    if (isRuntimeCallEventKind(candidate.kind))
+    // Assistant events are checked here too, so a malformed identity never
+    // reaches dedupe or the cursor. Other kinds keep legacy opaque retention.
+    if (isRuntimeCallEventKind(candidate.kind) || isRuntimeAssistantEventKind(candidate.kind))
       validateRuntimeEventReplayCandidate(candidate, { source })
     const duplicate = records.find((event) => sameSourceEvent(event, candidate))
     if (duplicate) {
-      const sameCallMetadata =
-        !isVersionedCall(candidate) ||
+      // Calls and assistant messages are keyed by their producing run and
+      // confidence; legacy opaque kinds keep their lenient retry comparison.
+      const sameMetadata =
+        !(isVersionedCall(candidate) || isRuntimeAssistantEventKind(candidate.kind)) ||
         (duplicate.harnessRunId === candidate.harnessRunId &&
           duplicate.confidence === candidate.confidence &&
           duplicate.classification === candidate.classification &&
           (sessionInput.occurredAt === undefined || duplicate.occurredAt === candidate.occurredAt))
       if (
         duplicate.kind === candidate.kind &&
-        JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload) &&
-        sameCallMetadata
+        (isVersionedCall(candidate)
+          ? JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
+          : canonicalDevCommandJson(duplicate.payload) ===
+            canonicalDevCommandJson(candidate.payload)) &&
+        sameMetadata
       ) {
         if (isVersionedCall(candidate)) {
           const replay = snapshotCallEvent(duplicate)
@@ -249,6 +265,16 @@ export function createSessionEventLog(input: {
       validateCallEventAdmission(candidate, records, input.verifyCallPermissionEligibility)
     }
     assertVisibleSummaryAppend(candidate, records, input.scope, input.verifyVisibleSummary)
+    assertAssistantEventOrder(records, candidate)
+    if (exhausted) {
+      throw {
+        code: 'invalid_state',
+        retryable: false,
+        message: 'runtime event sequence exhausted for this generation',
+      }
+    }
+    // Size the exact stored event: the allocated sequence can add a digit.
+    assertAssistantEventFitsFrame(candidate)
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(

@@ -91,6 +91,8 @@ export {
 export type { DevStreamVideoRelayChunk } from './dev-runtime-video'
 export {
   dataClassifications,
+  decodeRuntimeAssistantPayload,
+  isRuntimeAssistantEventKind,
   decodeCbor,
   decodeRuntimeEvent,
   decodeRuntimeEnvelope,
@@ -127,6 +129,11 @@ export type {
 } from './dev-runtime-visible-summaries'
 export type {
   DataClassification,
+  RuntimeAssistantEventKind,
+  RuntimeAssistantDeltaPayload,
+  RuntimeAssistantMessagePayload,
+  RuntimeAssistantResultPayload,
+  RuntimeAssistantPayloads,
   RuntimeEvent,
   RuntimeEventKind,
   RuntimeEventProvenance,
