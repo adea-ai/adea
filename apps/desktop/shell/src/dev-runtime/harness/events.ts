@@ -30,6 +30,7 @@ import { canonicalDevCommandJson } from '../../../../../../packages/types/src/de
 import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
 import { createDurableJsonStore } from '../host-store'
 import { validateInteractionAdmission, validateInteractionCorrelation } from './interactions'
+import { decodeRuntimeInteractionPayload } from '../../../../../../packages/types/src/dev-runtime-interactions'
 import { assertAssistantEventFitsFrame, assertAssistantEventOrder } from './assistant-events'
 import {
   decodeRuntimeEvent,
@@ -71,7 +72,8 @@ function sameScope(left: Scope, right: Scope): boolean {
 function project(event: StoredEvent): RuntimeEvent {
   const { scope: _, ...rest } = event
   validateRuntimeResponseReferences(rest.kind, rest.payload, rest.source)
-  return { ...rest }
+  const payload = decodeRuntimeInteractionPayload(rest.kind, rest.payload)
+  return payload ? Object.freeze({ ...rest, payload }) : { ...rest }
 }
 
 const seqOf = (event: RuntimeEvent): bigint => BigInt(event.seq)
@@ -215,6 +217,7 @@ export function createSessionEventLog(input: {
       payload: sessionInput.payload ?? {},
     }
     const interaction = validateInteractionAdmission(candidate, input.scope, input.resolveSession)
+    if (interaction) candidate = interaction.event
     if (isVersionedCall(candidate) && sessionInput.classification === undefined)
       throw new TypeError('event.classification: call observations require explicit classification')
     // A retry does not create a new call envelope: validate call facts before
@@ -276,7 +279,7 @@ export function createSessionEventLog(input: {
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(
-      (event) => event.runtimeSessionId === sessionInput.runtimeSessionId
+      (event) => event.runtimeSessionId === candidate.runtimeSessionId
     )
     let bounded = records
     if (sessionEvents.length + 1 > maxPerSession) {
@@ -302,7 +305,7 @@ export function createSessionEventLog(input: {
       ...bounded.map((event) => ({ ...event, scope: input.scope })),
     ]
     store.save(stored)
-    for (const cb of subscribers.get(sessionInput.runtimeSessionId) ?? []) cb(candidate)
+    for (const cb of subscribers.get(candidate.runtimeSessionId) ?? []) cb(candidate)
     return candidate
   }
 

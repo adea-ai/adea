@@ -20,6 +20,7 @@ function refuse(code: DevErrorCode, message: string): never {
 }
 
 type InteractionAdmission = Readonly<{
+  event: RuntimeEvent
   payload: RuntimeInteractionPayload
   session: RuntimeSession
 }>
@@ -31,7 +32,8 @@ export function validateInteractionAdmission(
 ): InteractionAdmission | undefined {
   const payload = decodeRuntimeInteractionPayload(event.kind, event.payload)
   if (!payload) return undefined
-  decodeRuntimeEvent(event, { source: event.source })
+  const snapshot = Object.freeze({ ...event, payload })
+  decodeRuntimeEvent(snapshot, { source: snapshot.source })
   if (!resolveSession)
     refuse(
       'capability_unavailable',
@@ -51,7 +53,7 @@ export function validateInteractionAdmission(
   if (session.archived) refuse('invalid_state', 'archived sessions cannot admit interactions')
   if (session.activeHarnessRunId !== event.harnessRunId)
     refuse('identity_mismatch', 'interaction does not name the current harness run')
-  return { payload, session }
+  return { event: snapshot, payload, session }
 }
 
 export function validateInteractionCorrelation(

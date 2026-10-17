@@ -2863,6 +2863,15 @@ retained requests return `resync_required`. Kind/ID/source mismatches are
 `identity_mismatch`; a reused request ID is `idempotency_conflict`. A second
 distinct outcome is `already_completed`. Exact source-event replay stays
 idempotent, including across restart. Refusals persist and publish nothing.
+Interaction decoding returns a detached, recursively frozen snapshot of bounded
+enumerable data. Accessors, symbol/non-enumerable properties, serialization
+hooks, sparse arrays and cycles are refused; accessor/serialization hooks are
+never invoked. The
+existing 256 KiB encoded payload and 64 KiB string bounds still apply. Admission
+uses this inert event/payload snapshot consistently for correlation, dedupe,
+persistence, subscribers and return values; replay reads detach/freeze versioned
+interaction payloads too. Caller aliases and session-resolver callbacks cannot
+rewrite previously validated questions, choices or outcomes.
 
 Eligibility is deliberately fail-closed while the M11 response command is
 absent: the only admitted fact is
