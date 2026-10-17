@@ -484,7 +484,10 @@ describe('account directory and inbox routes', () => {
     const guest = await user('revoke-guest')
     const workspaceId = await workspace(owner, 'Route Revocation HQ')
     await addWorkspaceMembership(connection.db, workspaceId, guest, 'member')
-    const conversation = await groupConversation(workspaceId, owner, 'Route Revoked Lane', [guest])
+    const conversation = await groupConversation(workspaceId, owner, 'Route Revoked Lane', [
+      owner,
+      guest,
+    ])
     const agent = await createAgent(connection.db, workspaceId, owner, {
       name: 'Route Revoked Agent',
       profileId: `prf_${'0'.repeat(25)}1`,
@@ -534,6 +537,7 @@ describe('account directory and inbox routes', () => {
     const workspaceId = await workspace(owner, 'Route During-Request HQ')
     await addWorkspaceMembership(connection.db, workspaceId, guest, 'member')
     const conversation = await groupConversation(workspaceId, owner, 'Route During-Request Lane', [
+      owner,
       guest,
     ])
 

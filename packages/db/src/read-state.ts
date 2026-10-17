@@ -34,6 +34,7 @@ import {
   channels,
   groupAdmissions,
   groupAudienceGrants,
+  legacyAudienceQuarantine,
   groupSharingGrants,
   messages,
   threadReadStates,
@@ -156,6 +157,13 @@ async function lockCurrentGroupChannelIdsForReadStateWrite(
         eq(groupAdmissions.workspaceId, workspaceId),
         eq(groupAdmissions.principalKind, 'user'),
         eq(groupAdmissions.userId, principal.userId),
+        sql`not exists (
+          select 1 from ${legacyAudienceQuarantine}
+          where ${legacyAudienceQuarantine.workspaceId} = ${groupAdmissions.workspaceId}
+            and ${legacyAudienceQuarantine.channelId} = ${groupAdmissions.channelId}
+            and ${legacyAudienceQuarantine.principalKind} = ${groupAdmissions.principalKind}
+            and ${legacyAudienceQuarantine.principalId} = ${groupAdmissions.userId}
+        )`,
         inArray(groupAdmissions.channelId, activeGroupIds)
       )
     )

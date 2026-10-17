@@ -34,6 +34,7 @@ import {
   verifiedCanonicalChain,
 } from '../fixtures/canonical-chain'
 import {
+  DRIZZLE_DIR,
   type RehearsalResources,
   disposeRehearsal,
   settleAndDispose,
@@ -107,6 +108,18 @@ function backfillStatements(): string[] {
   return text
     .split('--> statement-breakpoint')
     .map((part) => part.replace(/^(\s*--[^\n]*\n)*/g, '').trim())
+    .filter((part) => part.length > 0)
+}
+
+/**
+ * The live 0058 quarantine migration, statement by statement, exactly as drizzle would split it. The
+ * incoming chain predates it, but the current product read path filters through its table, so the
+ * product reads below need it. It is applied in one transaction, as drizzle's migrator applies it.
+ */
+function quarantineStatements(): string[] {
+  return readFileSync(`${DRIZZLE_DIR}/0058_legacy_audience_quarantine.sql`, 'utf8')
+    .split('--> statement-breakpoint')
+    .map((part) => part.trim())
     .filter((part) => part.length > 0)
 }
 
@@ -271,6 +284,15 @@ async function executeScenario() {
     before: groupAfterBackfill.document,
   })
   const comparison = compareMigrationSnapshots({ after: after.document, before: before.document })
+
+  // The chain itself has no quarantine surface (recorded above and asserted below). The product read
+  // path of this branch filters through app.legacy_audience_quarantine, so install the live 0058 now,
+  // after the chain captures, to read through the real product path. The seeded members are clean.
+  await connection.db.transaction(async (transaction) => {
+    for (const statement of quarantineStatements()) {
+      await transaction.execute(sql.raw(statement))
+    }
+  })
 
   const readsAfter = {
     ownerActive: await view(async () =>
@@ -654,12 +676,14 @@ describe.skipIf(!provisioningUrl && !inCi)(
       const { comparison } = await runScenario()
       // No determinate change on any main family. nativeSessions and the 0049 group families are outside
       // this capture's scope (the group tables do not exist at 0048; the test above proves them after the
-      // backfill), so the comparator reports them unknown on both sides and the verdict is inconclusive.
+      // backfill), and legacyAudienceQuarantine is absent from the chain (it predates 0058), so the
+      // comparator reports them unknown on both sides and the verdict is inconclusive.
       expect(comparison.findings.map((finding) => finding.family).toSorted()).toEqual([
         'groupAdmissions',
         'groupAudienceGrants',
         'groupEnlistmentGrants',
         'groupSharingGrants',
+        'legacyAudienceQuarantine',
         'nativeSessions',
       ])
       expect(
