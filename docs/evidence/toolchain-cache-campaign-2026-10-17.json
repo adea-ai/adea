@@ -1,0 +1,975 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-17",
+  "complete": false,
+  "stableBun": {
+    "version": "1.4.3",
+    "publishedAt": "2026-10-10T05:24:54Z",
+    "officialSources": [
+      "https://github.com/oven-sh/bun/releases/tag/bun-v1.4.3",
+      "https://bun.com/",
+      "https://bun.com/docs/runtime/check"
+    ],
+    "declarationEmit": "Bun checking does not replace required tsc emit."
+  },
+  "codeFoundry": {
+    "version": "1.48.1",
+    "sourceCommit": "e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d",
+    "approvedCallerScope": "Only issues:read additions to UI validation/audit and Control Plane audit; all other permissions preserved."
+  },
+  "repositories": [
+    {
+      "repository": "adea-ai/adea",
+      "inventoryOriginHead": "5a74c9aae7ab4ed85a0668e9a8f0207c5cbf5f62",
+      "latestObservedOriginHead": "a2a7a7a4cfd03737a3c96e16fdb1ed11b5578576",
+      "bunPins": [
+        {
+          "path": ".github/workflows-disabled/ci.yml",
+          "line": 24,
+          "text": "uses: oven-sh/setup-bun@v2"
+        },
+        {
+          "path": ".github/workflows-disabled/ci.yml",
+          "line": 26,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows-disabled/performance.yml",
+          "line": 21,
+          "text": "uses: oven-sh/setup-bun@v2"
+        },
+        {
+          "path": ".github/workflows-disabled/performance.yml",
+          "line": 23,
+          "text": "bun-version-file: package.json"
+        },
+        {
+          "path": ".github/workflows/cloudflare-db-migrate.yml",
+          "line": 45,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/cloudflare-db-migrate.yml",
+          "line": 47,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/cloudflare-preview.yml",
+          "line": 55,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/cloudflare-preview.yml",
+          "line": 57,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/cloudflare-preview.yml",
+          "line": 82,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/cloudflare-preview.yml",
+          "line": 84,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/cloudflare-preview.yml",
+          "line": 154,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/cloudflare-production.yml",
+          "line": 22,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/desktop-shell.yml",
+          "line": 82,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/desktop-shell.yml",
+          "line": 84,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/neon_workflow.yml",
+          "line": 68,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/neon_workflow.yml",
+          "line": 70,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/publish-packages.yml",
+          "line": 55,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/publish-packages.yml",
+          "line": 57,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/release-assets.yml",
+          "line": 158,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/release-assets.yml",
+          "line": 160,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/tanstack-start.yml",
+          "line": 48,
+          "text": "- uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
+        },
+        {
+          "path": ".github/workflows/tanstack-start.yml",
+          "line": 50,
+          "text": "bun-version: '1.4.3'"
+        },
+        {
+          "path": ".github/workflows/visual-lane.yml",
+          "line": 119,
+          "text": "- uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/visual-lane.yml",
+          "line": 121,
+          "text": "bun-version: '1.4.3'"
+        },
+        {
+          "path": ".mise.toml",
+          "line": 3,
+          "text": "bun = \"1.4.3\""
+        },
+        {
+          "path": "package.json",
+          "line": 89,
+          "text": "\"packageManager\": \"bun@1.4.3\""
+        }
+      ],
+      "status": "library checker migration merged; production efficiency candidate separate",
+      "prs": [
+        {
+          "url": "https://github.com/adea-ai/adea/pull/1447",
+          "sourceHead": "d6fb16fbc62c4457fad2bd8d8c09db95f0fff19c",
+          "merged": true
+        },
+        {
+          "url": "https://github.com/adea-ai/adea/pull/1449",
+          "implementationHead": "a65174c74b35c8aaf06e05c2527796f02503fef3",
+          "state": "draft; auto-merge off"
+        }
+      ],
+      "checking": "14 library no-emit commands now Bun; tsc build/declaration emission preserved",
+      "evidence": {
+        "allLibraryChecksPassed": true,
+        "sameSourceEmittedFiles": 1579,
+        "emittedFilesUnchanged": true,
+        "singleInterleavedSampleSeconds": {
+          "tsc": 144.37,
+          "bun": 35.324
+        },
+        "benchmark": false,
+        "hostedValidation": "https://github.com/adea-ai/adea/actions/runs/39051446573",
+        "hostedProductionCacheRestore": "https://github.com/adea-ai/adea/actions/runs/39045958492",
+        "hostedCacheHits": "15/15",
+        "hostedCacheHead": "7addf5f (historical; not current candidate)"
+      },
+      "remaining": [
+        "New efficiency candidate requires exact-head review, hosted validation and rollout decision.",
+        "Production post-rollout CPU and Hyperdrive effects unproven.",
+        "Packaged Electrobun runtime excluded; do not infer its Bun version from packageManager."
+      ]
+    },
+    {
+      "repository": "adea-ai/control-plane",
+      "inventoryOriginHead": "878e8e042a265ef58d81c63c06c439079d3ea69d",
+      "latestObservedOriginHead": "7a6d8f68c8fe966aa5a28759ed9d17df06f73521",
+      "bunPins": [
+        {
+          "path": ".github/workflows/container-promotion.yml",
+          "line": 160,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/container-promotion.yml",
+          "line": 162,
+          "text": "bun-version-file: .bun-version"
+        },
+        {
+          "path": ".github/workflows/m10-operability.yml",
+          "line": 29,
+          "text": "- uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/m10-operability.yml",
+          "line": 31,
+          "text": "bun-version-file: .bun-version"
+        },
+        {
+          "path": ".github/workflows/m9-production-readiness.yml",
+          "line": 34,
+          "text": "- uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/m9-production-readiness.yml",
+          "line": 36,
+          "text": "bun-version-file: .bun-version"
+        },
+        {
+          "path": ".github/workflows/m9-production-readiness.yml",
+          "line": 74,
+          "text": "- uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/m9-production-readiness.yml",
+          "line": 76,
+          "text": "bun-version-file: .bun-version"
+        },
+        {
+          "path": ".github/workflows/neon_workflow.yml",
+          "line": 101,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/neon_workflow.yml",
+          "line": 104,
+          "text": "bun-version-file: .bun-version"
+        },
+        {
+          "path": ".github/workflows/postgres-pull-request.yml",
+          "line": 37,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/postgres-pull-request.yml",
+          "line": 40,
+          "text": "bun-version-file: .bun-version"
+        },
+        {
+          "path": ".github/workflows/publish-packages.yml",
+          "line": 52,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/publish-packages.yml",
+          "line": 54,
+          "text": "bun-version-file: .bun-version"
+        },
+        {
+          "path": ".mise.toml",
+          "line": 3,
+          "text": "bun = \"1.4.3\""
+        },
+        {
+          "path": "infrastructure/containers/Dockerfile",
+          "line": 1,
+          "text": "FROM oven/bun:1.4.3-alpine@sha256:629e17411f1f129dbec3af78d5af9c9f2a937435c80349437206c6b0b7422373 AS dependencies"
+        },
+        {
+          "path": "infrastructure/containers/Dockerfile",
+          "line": 36,
+          "text": "FROM oven/bun:1.4.3-alpine@sha256:629e17411f1f129dbec3af78d5af9c9f2a937435c80349437206c6b0b7422373 AS runtime"
+        },
+        {
+          "path": "package.json",
+          "line": 127,
+          "text": "\"packageManager\": \"bun@1.4.3\","
+        }
+      ],
+      "status": "owned draft; 45-package graph and local worktree reuse qualified",
+      "prs": [
+        {
+          "url": "https://github.com/adea-ai/control-plane/pull/1170",
+          "sourceHead": "40c9fe0ba27aaeebfb32831197e86a9d5f69d6b5"
+        }
+      ],
+      "checking": "45 Bun checks added; all 45 tsc builds retained; Turbo removed",
+      "localCache": {
+        "head": "b65e5175d124799fe28c047685042b01ce0d0a12",
+        "bun": "1.4.3",
+        "layout": "two clean Git worktrees",
+        "runs": [
+          {
+            "exit": 0,
+            "seconds": 23.049,
+            "summary": [
+              "vp run: 0/45 cache hit (0%), 47/47 successful. (Run `vp run --last-details` for full details)"
+            ],
+            "checkout": "cp-worktree-a"
+          },
+          {
+            "exit": 0,
+            "seconds": 4.66,
+            "summary": [
+              "vp run: 45/45 cache hit (100%), 47/47 successful, 52.96s saved. (Run `vp run --last-details` for full details)"
+            ],
+            "checkout": "cp-worktree-b"
+          }
+        ],
+        "outputFiles": 2616,
+        "identical": true,
+        "mutation": {
+          "exit": 0,
+          "seconds": 1.262,
+          "summary": [
+            "$ ORCH_TOOLCHAIN=darwin-arm64.na.node24.21.0-e4b5a3af0e05.bun1.4.3-ec3dacd9560f env -u FORCE_COLOR bun run --cwd packages/deployment build \u25cb cache miss: 'packages/deployment/src/index.ts' modified, executing",
+            "vp run: 0/1 cache hit (0%), 2/2 successful. (Run `vp run --last-details` for full details)"
+          ]
+        }
+      },
+      "validation": [
+        "2616 emitted files match the Turbo baseline.",
+        "Full composite typecheck, format, lint and doctor passed before review delta.",
+        "Full unit lane at af16: 4144 pass, 11 skip, 0 fail; 83.08% line and 85.32% function coverage (80% minimum).",
+        "Review delta: 61 tooling/Neon tests, 824 assertions; boundaries 1217 files/45 packages, zero violations.",
+        "Normal pre-commit build and 45/45 replay passed at b65e5175.",
+        "Final local-anchor repair: 6 tooling tests /379 assertions; zero boundary violations; approved audit issues:read and caller1.48.1; doctor and normal pre-commit build/replay passed. Custom PostgreSQL gate preserved."
+      ],
+      "remaining": [
+        "Root owns exact-head review/readiness/merge.",
+        "Hosted cache transfer and PostgreSQL qualification pending.",
+        "CP1151/1153/1154 and Pi runtime scopes untouched.",
+        "Fresh-worktree cache proof records graph head b65e5175; final parser input40c9fe0b separately proved invalidation and45/45 immediate replay. Hosted transfer still pending."
+      ]
+    },
+    {
+      "repository": "adea-ai/cortana",
+      "inventoryOriginHead": "025616afab3dd443c0473d4734b8c067da1f2fea",
+      "latestObservedOriginHead": "025616afab3dd443c0473d4734b8c067da1f2fea",
+      "bunPins": [
+        {
+          "path": ".github/workflows/desktop-acceptance.yml",
+          "line": 73,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/desktop-acceptance.yml",
+          "line": 75,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/desktop-acceptance.yml",
+          "line": 437,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/desktop-acceptance.yml",
+          "line": 439,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/desktop.yml",
+          "line": 117,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/desktop.yml",
+          "line": 119,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/desktop.yml",
+          "line": 154,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/desktop.yml",
+          "line": 156,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/desktop.yml",
+          "line": 245,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/desktop.yml",
+          "line": 247,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/desktop.yml",
+          "line": 295,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/desktop.yml",
+          "line": 297,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/desktop.yml",
+          "line": 345,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/desktop.yml",
+          "line": 347,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/knowledge-accessibility.yml",
+          "line": 57,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/knowledge-accessibility.yml",
+          "line": 59,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/m7-visual-evidence.yml",
+          "line": 50,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/m7-visual-evidence.yml",
+          "line": 52,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/release-assets.yml",
+          "line": 57,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/release-assets.yml",
+          "line": 59,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/release-assets.yml",
+          "line": 166,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/release-assets.yml",
+          "line": 168,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".mise.toml",
+          "line": 3,
+          "text": "bun = \"1.4.3\""
+        },
+        {
+          "path": "Dockerfile",
+          "line": 5,
+          "text": "FROM --platform=$BUILDPLATFORM oven/bun:1.4.3-slim AS bun-runtime"
+        },
+        {
+          "path": "package.json",
+          "line": 60,
+          "text": "\"packageManager\": \"bun@1.4.3\""
+        }
+      ],
+      "status": "owned narrow cache draft; overlapping toolchain paths held",
+      "prs": [
+        {
+          "url": "https://github.com/adea-ai/cortana/pull/2594",
+          "sourceHead": "23135ec739e711c1f93ddb420f893deb8d70ea25"
+        }
+      ],
+      "checking": "Existing Bun 1.4.3 web checks; Python mypy and Rust checks retained",
+      "cache": "Three allowed workflows restore only Bun downloads keyed by OS/arch/Bun/lock. Linux evidence writers use default-branch pushes; manual-only desktop verifier uses default-branch workflow_dispatch, including macOS/Windows. Existing mixed release caches have incompatible prefixes and do not populate these keys.",
+      "validation": [
+        "Frozen install and 26 initial cache/release workflow checks passed.",
+        "Trigger-aware repair tests: 3 pass; changed-file formatting/lint passed.",
+        "Parent source review approved 23135ec7; hosted qualification pending."
+      ],
+      "remaining": [
+        "Root/web manifests, bun.lock and desktop.yml remain excluded pending ownership release.",
+        "Renovate branch head cd4168e92f8ce2135e5867844fa5760faca38735 establishes head, not ownership release.",
+        "Vite+ consolidation and hosted cold/warm cache transfer remain pending."
+      ]
+    },
+    {
+      "repository": "adea-ai/ui",
+      "inventoryOriginHead": "d1f38d1fef38eb32dfa7e4c7c0261d157ca54b76",
+      "latestObservedOriginHead": "d1f38d1fef38eb32dfa7e4c7c0261d157ca54b76",
+      "bunPins": [
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 63,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 65,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 85,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 87,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 158,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 160,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 204,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 206,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 244,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 246,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 288,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 290,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 328,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 330,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 368,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 370,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 461,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 463,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 521,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 523,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 590,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/design-system-gates.yml",
+          "line": 592,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 97,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 99,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 188,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 190,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 237,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 239,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 282,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 284,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 327,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 329,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 372,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 374,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 417,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/publish-ui.yml",
+          "line": 419,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/registry-pages.yml",
+          "line": 78,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/registry-pages.yml",
+          "line": 80,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".github/workflows/vite-task-cache-proof.yml",
+          "line": 52,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/vite-task-cache-proof.yml",
+          "line": 54,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".mise.toml",
+          "line": 3,
+          "text": "bun = \"1.4.3\""
+        },
+        {
+          "path": "package.json",
+          "line": 80,
+          "text": "\"packageManager\": \"bun@1.4.3\""
+        }
+      ],
+      "status": "owned draft; local graph qualified; hosted production cache qualification pending",
+      "prs": [
+        {
+          "url": "https://github.com/adea-ai/ui/pull/459",
+          "sourceHead": "0b4fa9878eb1f1d30f59f78752a5694c7b88b3ad"
+        }
+      ],
+      "checking": "Bun 1.4.3; default Vite+ graph replaces Turbo, tsc declaration emit preserved",
+      "localCache": {
+        "head": "8e9aac00ea61f9ed5ce8988e9f0ad275e72b35da",
+        "bun": "1.4.3",
+        "runs": [
+          {
+            "checkout": "worktree-a",
+            "exit": 0,
+            "seconds": 24.221,
+            "summary": [
+              "vp run: 0/1 cache hit (0%), 3/3 successful. (Run `vp run --last-details` for full details)"
+            ]
+          },
+          {
+            "checkout": "worktree-b",
+            "exit": 0,
+            "seconds": 3.813,
+            "summary": [
+              "vp run: 1/1 cache hit (100%), 3/3 successful, 23.06s saved. (Run `vp run --last-details` for full details)"
+            ]
+          }
+        ],
+        "mutation": {
+          "exit": 0,
+          "summary": [
+            "$ ORCH_TOOLCHAIN=darwin-arm64.na.node24.18.0-ee6fb0e01528.bun1.4.3-ec3dacd9560f bun run --cwd packages/ui build \u25cb cache miss: 'packages/ui/src/lib/version-notes.ts' modified, executing",
+            "vp run: 0/1 cache hit (0%), 3/3 successful. (Run `vp run --last-details` for full details)"
+          ]
+        },
+        "sameLayout": "two git worktrees",
+        "crossLayoutLimit": "clone-to-worktree root .git listing changes can cause a miss; root listing is retained because excluding it produced a stale hit"
+      },
+      "validation": [
+        "Full format, lint, typecheck and build passed.",
+        "874 library coverage tests plus 15 workshop tests passed.",
+        "Missing/tampered output restoration and cross-worktree positive/negative controls passed.",
+        "Official configuration-rendered Code Foundry 1.48.1 caller delta matched exactly; only approved issues:read additions; doctor and formatting passed."
+      ],
+      "remaining": [
+        "Hosted fixture replay does not establish fresh-runner production task reuse.",
+        "Clone-to-worktree layout changes can conservatively miss; root-directory exclusion caused stale reuse and was rejected.",
+        "UI416 component ownership preserved."
+      ]
+    },
+    {
+      "repository": "adea-ai/themes",
+      "inventoryOriginHead": "5b6b94a8f5437ae01870329bd24eb74243295f35",
+      "latestObservedOriginHead": "5b6b94a8f5437ae01870329bd24eb74243295f35",
+      "bunPins": [
+        {
+          "path": ".mise.toml",
+          "line": 2,
+          "text": "bun = \"1.4.3\""
+        },
+        {
+          "path": "package.json",
+          "line": 122,
+          "text": "\"packageManager\": \"bun@1.4.3\""
+        }
+      ],
+      "status": "inventory only; mutation ownership not cleared",
+      "checking": "Bun 1.4.3 and Bun checking already present; tsc emits JS/declarations",
+      "vitePlus": "not applicable to the current single-package tsc emitter; do not add an empty graph",
+      "remaining": ["Cache/runtime caller audit and hosted proofs remain pending owner clearance."]
+    },
+    {
+      "repository": "adea-ai/plugins",
+      "inventoryOriginHead": "a204a55e23385ca4ed907f4bcd19debd91f2e638",
+      "latestObservedOriginHead": "a204a55e23385ca4ed907f4bcd19debd91f2e638",
+      "bunPins": [
+        {
+          "path": ".github/workflows/marketplace-ci.yml",
+          "line": 28,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/marketplace-ci.yml",
+          "line": 30,
+          "text": "bun-version: '1.4.3'"
+        },
+        {
+          "path": ".github/workflows/marketplace-sync.yml",
+          "line": 44,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/marketplace-sync.yml",
+          "line": 46,
+          "text": "bun-version: '1.4.3'"
+        },
+        {
+          "path": ".github/workflows/publish-packages.yml",
+          "line": 39,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/publish-packages.yml",
+          "line": 41,
+          "text": "bun-version: 1.4.3"
+        },
+        {
+          "path": ".mise.toml",
+          "line": 2,
+          "text": "bun = \"1.4.3\""
+        },
+        {
+          "path": "package.json",
+          "line": 52,
+          "text": "\"packageManager\": \"bun@1.4.3\""
+        }
+      ],
+      "status": "owned draft; local checks passed; hosted qualification pending",
+      "checking": "Bun 1.4.3 and Bun checking already present; tsc emit retained; earlier Bun.file JSON migration is already main",
+      "vitePlus": "not applicable to the current deterministic single compiler build; no Vite build config needed",
+      "remaining": [
+        "Hosted transfer/timing proof and reusable caller pin alignment remain pending."
+      ],
+      "prs": [
+        {
+          "url": "https://github.com/adea-ai/plugins/pull/244",
+          "sourceHead": "a9c2099057bacb6505cd8abbda133ada560fc4fe"
+        }
+      ],
+      "validation": [
+        "Frozen install; full format/lint/Bun checking/tsc emit build passed.",
+        "215 compiler/CLI tests passed; final four cache/trigger tests passed.",
+        "Only download cache added; no permissions, publication, release or live sync performed."
+      ]
+    },
+    {
+      "repository": "adea-ai/agent-sim",
+      "inventoryOriginHead": "28fc6227ce84d11d7faa849df18062a7538046b7",
+      "latestObservedOriginHead": "28fc6227ce84d11d7faa849df18062a7538046b7",
+      "bunPins": [
+        {
+          "path": ".github/workflows/pack-gated.yml",
+          "line": 31,
+          "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
+        },
+        {
+          "path": ".github/workflows/pack-gated.yml",
+          "line": 33,
+          "text": "bun-version: 1.4.0"
+        },
+        {
+          "path": ".mise.toml",
+          "line": 3,
+          "text": "bun = \"1.4.2\""
+        },
+        {
+          "path": "package.json",
+          "line": 49,
+          "text": "\"packageManager\": \"bun@1.4.0\""
+        }
+      ],
+      "status": "held by existing toolchain owner; not modified",
+      "checking": "inventory packageManager/workflow Bun 1.4.0, mise 1.4.2; Turbo and tsc noEmit remain",
+      "remaining": [
+        "Coordinate existing dirty feat/vite-plus-graph-qualification worktree before any toolchain changes.",
+        "Separate hosted Sim owner controls app integration/private assets/desktop offload."
+      ]
+    },
+    {
+      "repository": "adea-ai/assets",
+      "inventoryOriginHead": "15d1f784906738a0a0945e5557305eae7164ecaa",
+      "latestObservedOriginHead": "15d1f784906738a0a0945e5557305eae7164ecaa",
+      "bunPins": [],
+      "status": "non-JavaScript repository: Bun/checker/Vite task graph not applicable",
+      "remaining": [
+        "Do not manufacture package manifests or Bun files.",
+        "Asset delivery/cache headers and organization workflow consumers require separate applicable audits."
+      ]
+    },
+    {
+      "repository": "adea-ai/.github",
+      "inventoryOriginHead": "b32a0453aea4a6745520d32da82c3ab63ca5c1c8",
+      "latestObservedOriginHead": "b32a0453aea4a6745520d32da82c3ab63ca5c1c8",
+      "bunPins": [],
+      "status": "non-JavaScript repository: Bun/checker/Vite task graph not applicable",
+      "remaining": [
+        "Do not manufacture package manifests or Bun files.",
+        "Asset delivery/cache headers and organization workflow consumers require separate applicable audits."
+      ]
+    }
+  ],
+  "cloudflare": {
+    "candidateBase": "a2a7a7a4cfd03737a3c96e16fdb1ed11b5578576",
+    "productionVersion": "1fc5a857-4e0c-49f7-931c-547442529b1c",
+    "deployedAt": "2026-10-17T17:12:21Z",
+    "lineageEvidence": "https://github.com/adea-ai/adea/actions/runs/39052654307/job/117454196301",
+    "predeploymentWindow": {
+      "utc": "16:45-17:00",
+      "requests": 112,
+      "success": 30,
+      "exceededResources": 82,
+      "failedCpuP50ApiUnits": 10000,
+      "failedCpuP99ApiUnits": 15942
+    },
+    "latestSparseWindow": {
+      "utc": "17:15-17:30",
+      "successfulInvocations": 1,
+      "errors": 0,
+      "hyperdriveGroups": 0,
+      "interpretation": "Insufficient to establish recovery or zero load. Missing telemetry does not prove recovery."
+    },
+    "localCandidate": {
+      "hiddenWindow": "Abort live SSE reader and retry; resume exactly once from signed cursor. Server authorization/replay unchanged.",
+      "desktopSummarySeconds": {
+        "before": 30,
+        "after": 60
+      },
+      "resolvedSecretCacheTtlMs": 30000,
+      "storeReadFixture": {
+        "requests": 100,
+        "bindings": 1,
+        "beforeCalls": 100,
+        "afterCalls": 1,
+        "sequentialWarmWindowOnly": true
+      },
+      "markAllRead": {
+        "localPostgres": 18,
+        "fixturesChannels": [1, 8],
+        "firstStatementCounts": {
+          "begin": 2,
+          "commit": 2,
+          "insert": 5,
+          "select": 17,
+          "set": 1
+        },
+        "repeatedStatementCounts": {
+          "begin": 2,
+          "commit": 2,
+          "select": 17,
+          "set": 1
+        },
+        "interpretation": "Fixed statement count for these open-project fixtures, not constant CPU/rows/latency and not a new query-count reduction."
+      },
+      "validation": [
+        "128 affected-package/web tests passed.",
+        "8 local read-state integration tests passed (146 assertions); disposable PostgreSQL removed.",
+        "Full typecheck: 33/33 tasks passed after loopback permission retry.",
+        "Full build: 17/17 tasks passed.",
+        "Full format and lint passed before evidence-only final updates; docs integrity 4 tests passed."
+      ]
+    },
+    "remaining": [
+      "Post-rollout health and route-level CPU/subrequest attribution.",
+      "Hidden-window fleet share and real request reductions.",
+      "Hyperdrive query/cacheability attribution; do not cache private responses or weaken authorization.",
+      "No quota-reset or recovery inference from missing metrics.",
+      "No production probes, deploys, infrastructure/credential changes or paid upgrades performed."
+    ]
+  },
+  "measurementLimits": [
+    "Single local timings ran alongside other work and are not isolated benchmarks.",
+    "Local worktree reuse is distinct from GitHub Actions fresh-runner transfer.",
+    "Tests and output hashes establish their stated fixtures; held scopes remain unfinished."
+  ]
+}
