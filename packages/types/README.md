@@ -33,3 +33,9 @@ identity/order/outcomes without prompt text. See the
 for bounded storage, generation/version fences, explicit delivery, replay,
 and interaction with Stop/Steer. No consumer control or unsupported transport
 capability is supplied by these types.
+
+`dev-runtime-activity` exports bounded test-run, command-output, failure/stack,
+changed-files, plan and task payload schemas. The wire entry's
+`decodeRuntimeActivityEvent` additionally requires authenticated producer
+ownership; generic replay retains opaque rows without inventing counts or
+statuses. See the Dev Runtime spec's structured activity producer contract.
