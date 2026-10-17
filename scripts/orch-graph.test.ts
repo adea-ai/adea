@@ -200,18 +200,27 @@ describe('orch task graph mirrors the package manifests', () => {
     const inputs = inputsOf('orch:web:build')
     // Exact directory paths only; the `/**` exclusions are the generated files below them.
     const exact = inputs.filter((input) => input.startsWith('!') && !input.includes('*'))
-    expect(exact.toSorted()).toEqual(['!apps/web', '!apps/web/public', '!node_modules'])
+    expect(exact.toSorted()).toEqual([
+      '!apps/web',
+      '!apps/web/public',
+      '!node_modules',
+      '!node_modules/.vite-temp',
+    ])
     // The files stay inputs: only the exact directory paths are excluded.
     for (const path of ['scripts/sync-assets.mjs', 'scripts/pack-agent-sim.mjs', 'bun.lock'])
       expect(inputs).toContain(path)
     expect(inputsOf('orch:ui:build').some((input) => input.startsWith('!apps/web'))).toBe(false)
   })
 
-  test('the volatile node_modules listing is excluded from every cached task, and nothing else is', () => {
-    expect(VOLATILE_INPUTS).toEqual(['!node_modules'])
+  test('the volatile node_modules paths are excluded from every cached task, and nothing else is', () => {
+    expect(VOLATILE_INPUTS).toEqual([
+      '!node_modules',
+      '!node_modules/.vite-temp',
+      '!node_modules/.vite-temp/**',
+    ])
     for (const [name, definition] of Object.entries(tasks)) {
       if (!definition.cache || name === 'orch:toolchain') continue
-      expect(inputsOf(name), name).toContain('!node_modules')
+      for (const path of VOLATILE_INPUTS) expect(inputsOf(name), name).toContain(path)
       expect(inputsOf(name), name).toContain('bun.lock')
     }
   })

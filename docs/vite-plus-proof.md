@@ -24,7 +24,7 @@ workspaces' `dist` output must equal the cold run's.
 
 The root `node_modules` directory listing is not a task input (`VOLATILE_INPUTS` in `scripts/orch-graph.mjs`). Vite creates
 and removes `node_modules/.vite-temp` while builds run; a first hosted warm run missed `apps/web build` because the
-cold run had recorded that entry ("'.vite-temp' removed from 'node_modules'"). Only the listing is excluded. The web build also leaves out the listings of `apps/web` and `apps/web/public`, the directories it
+cold run had recorded that entry ("'.vite-temp' removed from 'node_modules'"). Only the listing is excluded. `node_modules/.vite-temp` and the temporary config file Vite's loader writes into it are excluded by exact path too: the saved web-build entry of a hosted cold run recorded both, and a fresh runner has neither. The web build also leaves out the listings of `apps/web` and `apps/web/public`, the directories it
 generates `.wrangler`, `dist`, `cloudflare-env.d.ts` and `public/assets` into (a second hosted warm run missed with "'assets'
 removed from 'apps/web/public'"); the files in them stay inputs. Source
 files, `VITE_*` variables, `bun.lock` and the toolchain id still invalidate; a source edit and a `VITE_*` change both
@@ -46,9 +46,9 @@ key and save-intent outputs. The product action owns the cache namespace, key, r
 behavior; Adea has no bespoke cache-key computation. The job uses the committed `monorepo_tool: vite-plus`; it appends
 nothing to `.github/code-foundry.yml`. No secrets, remote cache or Cloudflare are used; the cache is the repository's GitHub Actions cache.
 
-The cache path ends in `adea-vite-plus-proof-cache-orch-r4-v1.48.1`. GitHub derives the archive version from the cache path
+The cache path ends in `adea-vite-plus-proof-cache-orch-r5-v1.48.1`. GitHub derives the archive version from the cache path
 list ([cache version reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#cache-key-matching)),
-so this proof cannot restore the earlier bounded-slice proof's archives and the first run can assert a cold cache. The `r3` segment
+so this proof cannot restore the earlier bounded-slice proof's archives and the first run can assert a cold cache. The `r5` segment
 retires the archives written before the generated-directory listings were excluded from the task inputs (see below); a changed
 graph needs a new cold run, then a warm run that names its manifest.
 

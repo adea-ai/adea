@@ -38,13 +38,20 @@ export const GLOBAL_INPUTS = [
 ]
 
 /**
- * The root `node_modules` directory listing is not an input. Vite's config loader creates and removes
- * `node_modules/.vite-temp` while builds run, so a task that happened to list the directory then recorded an entry the
- * next fresh checkout does not have ("'.vite-temp' removed from 'node_modules'", a miss on `apps/web build`). The
- * dependencies themselves are fingerprinted by `bun.lock`, the toolchain id and the files a task reads. Only the
- * directory listing is excluded, not the files below it.
+ * Vite's config loader writes the config it bundled to `<nearest node_modules>/.vite-temp/<name>.timestamp-<ms>-<hash>.mjs`
+ * and deletes the file, but not the directory. Run under `vp`, Vite reports that directory to the runner as an ignored
+ * input (`ignoreInput`); the web build unsets the runner's client address (see `buildUnsetEnv`), so the report never
+ * arrives and the runner tracks the paths itself. The root `node_modules` directory is not an input (its listing gained
+ * `.vite-temp` while a task ran), nor are `node_modules/.vite-temp` and the temporary file in it. The saved web-build
+ * entry of the hosted cold run recorded both of those paths, and the fresh runner of the next run had neither
+ * ("'.vite-temp' removed from 'node_modules'"). The exclusions are exact: the dependency files below `node_modules`
+ * stay inputs, as do `bun.lock` and the toolchain id.
  */
-export const VOLATILE_INPUTS = ['!node_modules']
+export const VOLATILE_INPUTS = [
+  '!node_modules',
+  '!node_modules/.vite-temp',
+  '!node_modules/.vite-temp/**',
+]
 
 /** `bunfig.toml` preloads these into every `bun test`; only the test tasks run them. */
 export const TEST_INPUTS = ['scripts/test-target-preload.ts', 'scripts/test-target-guard.mjs']
