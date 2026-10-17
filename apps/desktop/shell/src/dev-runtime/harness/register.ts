@@ -1650,14 +1650,6 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           ? { detail: `confirmation ${body.confirmationId as string}` }
           : {}),
       })
-      // A live ACP lane bound to this session loses its transport authority
-      // with the run; close is best-effort and generation-fenced by the lane.
-      const live = lane.readyFor(session.id)
-      if (live) {
-        void lane
-          .close({ acpConnectionId: live.id, expectedGeneration: live.generation })
-          .catch(() => undefined)
-      }
       const nextSession = applySession(session, {
         activeHarnessRunId: undefined,
         lifecycle: 'disconnected',
@@ -1674,6 +1666,15 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           payload: { reason: 'follow-up queue cleanup requires recovery' },
           sourceEventId: `host:queue-stop:${next.id}:${next.version}`,
         })
+      }
+      // A live ACP lane bound to this session loses its transport authority
+      // with the run. Await close so Stop does not report an unsettled close as complete.
+      // The queue independently retains any still-running physical send claim.
+      const live = lane.readyFor(session.id)
+      if (live) {
+        await lane
+          .close({ acpConnectionId: live.id, expectedGeneration: live.generation })
+          .catch(() => undefined)
       }
       appendEventFact({
         session: nextSession,

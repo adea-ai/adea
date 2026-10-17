@@ -9,6 +9,16 @@ import type { RunHistoryStore } from './runs'
 import { RUN_ACTIVE_STATES } from './status'
 import { createFollowUpQueue } from './follow-ups'
 
+function queueSourceEventId(payload: {
+  runtimeSessionId: string
+  generation: number
+  version: number
+}): string {
+  return `host:queue:${createHash('sha256')
+    .update(JSON.stringify([payload.runtimeSessionId, payload.generation, payload.version]))
+    .digest('hex')}`
+}
+
 export function registerFollowUpQueue(input: {
   authority: ChannelAuthority
   scope: Scope
@@ -63,6 +73,20 @@ export function registerFollowUpQueue(input: {
         ...(connection ? { deliveryBinding: `${connection.id}:${connection.generation}` } : {}),
       }
     },
+    isPublished: (payload) =>
+      input.events
+        .events()
+        .some(
+          (event) =>
+            event.runtimeSessionId === payload.runtimeSessionId &&
+            event.generation === payload.generation &&
+            event.source === 'host' &&
+            event.kind === 'queue.updated' &&
+            event.confidence === 'authoritative' &&
+            event.classification === 'workspace_metadata' &&
+            event.sourceEventId === queueSourceEventId(payload) &&
+            JSON.stringify(event.payload) === JSON.stringify(payload)
+        ),
     publish: (payload) => {
       input.events.append({
         runtimeSessionId: payload.runtimeSessionId,
@@ -72,9 +96,7 @@ export function registerFollowUpQueue(input: {
         confidence: 'authoritative',
         classification: 'workspace_metadata',
         payload,
-        sourceEventId: `host:queue:${createHash('sha256')
-          .update(JSON.stringify([payload.runtimeSessionId, payload.generation, payload.version]))
-          .digest('hex')}`,
+        sourceEventId: queueSourceEventId(payload),
       })
     },
     deliver: async ({ runtimeSessionId, generation, runId, text, signal, deliveryBinding }) => {
@@ -100,6 +122,7 @@ export function registerFollowUpQueue(input: {
         runtimeSessionId,
         harnessRunId: runId,
         prompt: text,
+        signal,
       })
       return { ok: result.ok && result.bytes === new TextEncoder().encode(text).byteLength }
     },

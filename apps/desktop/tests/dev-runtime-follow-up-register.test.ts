@@ -18,6 +18,7 @@ import {
   ChannelRejection,
 } from '../shell/src/dev-runtime/channel/authority'
 import { registerHarnessRuntime } from '../shell/src/dev-runtime/harness/register'
+import { createFollowUpStorage } from '../shell/src/dev-runtime/harness/follow-up-storage'
 import type { AcpLaneDriver } from '../shell/src/dev-runtime/harness/acp-lane'
 
 const scope = {
@@ -60,6 +61,8 @@ function boot(withDelivery = true, withKey = true) {
     },
   })
   const deliveries: string[] = []
+  const signals: AbortSignal[] = []
+  let close = async () => {}
   let handoff = async (text: string) => {
     deliveries.push(text)
     return {
@@ -81,8 +84,15 @@ function boot(withDelivery = true, withKey = true) {
         processIdentity: 'fake-pid',
       },
     }),
-    close: async () => {},
-    ...(withDelivery ? { deliverPrompt: async (request) => handoff(request.prompt) } : {}),
+    close: () => close(),
+    ...(withDelivery
+      ? {
+          deliverPrompt: async (request) => {
+            if (request.signal) signals.push(request.signal)
+            return handoff(request.prompt)
+          },
+        }
+      : {}),
   }
   const host = registerHarnessRuntime({
     authority,
@@ -179,6 +189,10 @@ function boot(withDelivery = true, withKey = true) {
     target,
     connect,
     deliveries,
+    signals,
+    setClose: (next: typeof close) => {
+      close = next
+    },
     revoke: () => {
       revoked = true
     },
@@ -411,6 +425,106 @@ describe('follow-up production registration and M10 gate', () => {
           )
       ).toBe(true)
     } finally {
+      s.cleanup()
+    }
+  })
+
+  test('Stop forwards abort, awaits close, and preserves the claim until a late physical send settles', async () => {
+    const s = boot()
+    let releaseSend!: () => void
+    let releaseClose!: () => void
+    const sendWait = new Promise<void>((resolve) => {
+      releaseSend = resolve
+    })
+    const closeWait = new Promise<void>((resolve) => {
+      releaseClose = resolve
+    })
+    let enteredSend!: () => void
+    let enteredClose!: () => void
+    const sent = new Promise<void>((resolve) => {
+      enteredSend = resolve
+    })
+    const closing = new Promise<void>((resolve) => {
+      enteredClose = resolve
+    })
+    const physical: string[] = []
+    try {
+      await s.connect()
+      value(
+        await s.execute(
+          s.command({
+            ...s.target,
+            action: 'enqueue',
+            expectedVersion: 0,
+            messageId: 'a',
+            text: 'late physical prompt',
+          })
+        )
+      )
+      value(
+        await s.execute(
+          s.command(
+            { ...s.target, harnessRunId: 'run-1', state: 'awaiting_input', source: 'native' },
+            'dev.harness.runStatus'
+          )
+        )
+      )
+      s.setHandoff(async (text) => {
+        enteredSend()
+        await sendWait
+        physical.push(text)
+        return {
+          ok: true as const,
+          bytes: new TextEncoder().encode(text).byteLength,
+          processIdentity: 'fake-pid',
+        }
+      })
+      s.setClose(async () => {
+        enteredClose()
+        await closeWait
+      })
+      const sending = s.execute(s.command({ ...s.target, action: 'deliver', expectedVersion: 1 }))
+      await sent
+      expect(s.signals).toHaveLength(1)
+      let stopReturned = false
+      const stopping = s
+        .execute(s.command({ ...s.target, harnessRunId: 'run-1' }, 'dev.session.cancelHarness'))
+        .then((reply) => {
+          stopReturned = true
+          return reply
+        })
+      await closing
+      expect(s.signals[0]!.aborted).toBe(true)
+      expect(stopReturned).toBe(false)
+      expect(() => createFollowUpStorage({ dataDir: s.dataDir, scope }).validateForPurge()).toThrow(
+        'workspace_cleanup_follow_up_busy'
+      )
+      releaseClose()
+      expect(value(await stopping).state).toBe('cancelled')
+      expect(await sending).toMatchObject({ ok: false, error: { code: 'stale_generation' } })
+      expect(physical).toEqual([])
+      expect(() => createFollowUpStorage({ dataDir: s.dataDir, scope }).validateForPurge()).toThrow(
+        'workspace_cleanup_follow_up_busy'
+      )
+      releaseSend()
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(physical).toEqual(['late physical prompt'])
+      expect(() =>
+        createFollowUpStorage({ dataDir: s.dataDir, scope }).validateForPurge()
+      ).not.toThrow()
+      expect(
+        s.host.events
+          .events()
+          .some(
+            (event) =>
+              event.kind === 'queue.updated' &&
+              (event.payload as { change: string }).change === 'delivery_accepted'
+          )
+      ).toBe(false)
+    } finally {
+      releaseSend()
+      releaseClose()
+      await new Promise((resolve) => setImmediate(resolve))
       s.cleanup()
     }
   })

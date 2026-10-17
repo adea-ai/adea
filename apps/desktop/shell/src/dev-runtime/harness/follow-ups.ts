@@ -36,6 +36,7 @@ type State = {
   lastWindow?: { runId: string; version: number }
   lastDelivery?: FollowUpDeliveryReceipt
   outbox?: FollowUpQueueEventPayload
+  outboxPublication?: 'prepared' | 'attempted' | 'delivered'
   stopped: boolean
 }
 type Authorization = { idempotencyKey?: string; authorize: () => Promise<() => void> }
@@ -57,6 +58,7 @@ export function createFollowUpQueue(input: {
   key?: () => Buffer
   resolve: (runtimeSessionId: string) => FollowUpLiveState
   publish: (event: FollowUpQueueEventPayload) => void
+  isPublished?: (event: FollowUpQueueEventPayload) => boolean
   deliver?: (input: {
     runtimeSessionId: string
     generation: number
@@ -134,6 +136,7 @@ export function createFollowUpQueue(input: {
         'lastWindow',
         'lastDelivery',
         'outbox',
+        'outboxPublication',
         'stopped',
       ])
       if (
@@ -176,6 +179,11 @@ export function createFollowUpQueue(input: {
         throw new Error()
       if (state.outbox) decodeFollowUpQueueEventPayload(state.outbox)
       if (
+        state.outboxPublication !== undefined &&
+        (!state.outbox || !['prepared', 'attempted', 'delivered'].includes(state.outboxPublication))
+      )
+        throw new Error()
+      if (
         state.lastWindow &&
         (typeof state.lastWindow.runId !== 'string' ||
           !Number.isSafeInteger(state.lastWindow.version) ||
@@ -192,8 +200,23 @@ export function createFollowUpQueue(input: {
   }
   function flush(state: State): void {
     if (!state.outbox) return
-    input.publish(state.outbox)
+    // This witness is inside the authenticated sealed state. Legacy pending
+    // outboxes have unknown publication status and require retained proof.
+    const phase = state.outboxPublication ?? 'attempted'
+    if (phase !== 'delivered') {
+      const retained = input.isPublished?.(state.outbox) === true
+      if (phase === 'attempted' && !retained)
+        error('recovery_required', 'follow-up publication outcome is no longer retained')
+      if (!retained) {
+        state.outboxPublication = 'attempted'
+        save(state)
+        input.publish(state.outbox)
+      }
+      state.outboxPublication = 'delivered'
+      save(state)
+    }
     delete state.outbox
+    delete state.outboxPublication
     save(state)
   }
   function publish(state: State, change: FollowUpQueueEventPayload['change']): void {
@@ -207,6 +230,7 @@ export function createFollowUpQueue(input: {
       change,
       ...(state.lastDelivery ? { lastDelivery: state.lastDelivery } : {}),
     })
+    state.outboxPublication = 'prepared'
     save(state)
     flush(state)
   }
@@ -328,14 +352,39 @@ export function createFollowUpQueue(input: {
       return view(state, live)
     })
     return result
-      .then((value) => ('attempt' in value ? finishDelivery(value) : value))
+      .then((value) => {
+        if (!('attempt' in value)) return value
+        const release = releaseDeliveryClaim!
+        releaseDeliveryClaim = undefined
+        return finishDelivery(value, release)
+      })
       .finally(() => {
         // Also release when publishing a durable claim failed before handoff.
         releaseDeliveryClaim?.()
       })
   }
 
-  async function finishDelivery(attempt: Attempt): Promise<FollowUpQueueSnapshot> {
+  async function finishDelivery(
+    attempt: Attempt,
+    releaseClaim: () => void
+  ): Promise<FollowUpQueueSnapshot> {
+    let physical: Promise<{ ok: boolean }> | undefined
+    try {
+      return await performDelivery(attempt, (pending) => {
+        physical = pending
+      })
+    } finally {
+      // A deadline/abort only ends the command wait. The transport may still
+      // physically write; keep its cross-process claim until actual settlement.
+      if (physical) void physical.then(releaseClaim, releaseClaim)
+      else releaseClaim()
+    }
+  }
+
+  async function performDelivery(
+    attempt: Attempt,
+    retain: (pending: Promise<{ ok: boolean }>) => void
+  ): Promise<FollowUpQueueSnapshot> {
     const { request, item, fence } = attempt
     const controller = new AbortController()
     const flightKey = `${request.runtimeSessionId}:${request.expectedGeneration}`
@@ -362,18 +411,17 @@ export function createFollowUpQueue(input: {
           controller.abort()
         }, input.deliveryTimeoutMs ?? 5_000)
       })
-      const verdict = await Promise.race([
-        input.deliver!({
-          runtimeSessionId: request.runtimeSessionId,
-          generation: request.expectedGeneration,
-          runId: attempt.live.runId!,
-          messageId: item.id,
-          text: item.text,
-          signal: controller.signal,
-          deliveryBinding: attempt.live.deliveryBinding,
-        }),
-        interrupted,
-      ])
+      const physical = input.deliver!({
+        runtimeSessionId: request.runtimeSessionId,
+        generation: request.expectedGeneration,
+        runId: attempt.live.runId!,
+        messageId: item.id,
+        text: item.text,
+        signal: controller.signal,
+        deliveryBinding: attempt.live.deliveryBinding,
+      })
+      retain(physical)
+      const verdict = await Promise.race([physical, interrupted])
       fence()
       const after = liveFor(request)
       if (
