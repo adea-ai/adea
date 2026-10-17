@@ -29,8 +29,11 @@ import type {
 import { canonicalDevCommandJson } from '../../../../../../packages/types/src/dev-runtime'
 import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
 import { createDurableJsonStore } from '../host-store'
-import { validateInteractionAdmission, validateInteractionCorrelation } from './interactions'
-import { decodeRuntimeInteractionPayload } from '../../../../../../packages/types/src/dev-runtime-interactions'
+import {
+  snapshotInteractionEvent,
+  validateInteractionAdmission,
+  validateInteractionCorrelation,
+} from './interactions'
 import { assertAssistantEventFitsFrame, assertAssistantEventOrder } from './assistant-events'
 import {
   decodeRuntimeEvent,
@@ -72,8 +75,7 @@ function sameScope(left: Scope, right: Scope): boolean {
 function project(event: StoredEvent): RuntimeEvent {
   const { scope: _, ...rest } = event
   validateRuntimeResponseReferences(rest.kind, rest.payload, rest.source)
-  const payload = decodeRuntimeInteractionPayload(rest.kind, rest.payload)
-  return payload ? Object.freeze({ ...rest, payload }) : { ...rest }
+  return snapshotInteractionEvent(rest) ?? { ...rest }
 }
 
 const seqOf = (event: RuntimeEvent): bigint => BigInt(event.seq)
@@ -216,6 +218,7 @@ export function createSessionEventLog(input: {
       kind: sessionInput.kind,
       payload: sessionInput.payload ?? {},
     }
+    candidate = snapshotInteractionEvent(candidate) ?? candidate
     const interaction = validateInteractionAdmission(candidate, input.scope, input.resolveSession)
     if (interaction) candidate = interaction.event
     if (isVersionedCall(candidate) && sessionInput.classification === undefined)

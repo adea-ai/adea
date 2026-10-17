@@ -374,3 +374,19 @@ test('hidden payload serialization hooks are rejected before persistence or invo
   expect(invoked).toBe(0)
   expect(log.events()).toHaveLength(0)
 })
+
+test('legacy payload hooks cannot serialize an unadmitted structured request', () => {
+  for (const original of [{ text: 'opaque' }, ['opaque']]) {
+    const { log } = setup()
+    let invoked = 0
+    Object.defineProperty(original, 'toJSON', {
+      value: () => {
+        invoked += 1
+        return payload
+      },
+    })
+    expect(() => log.append(request({ payload: original }))).toThrow()
+    expect(invoked).toBe(0)
+    expect(log.events()).toHaveLength(0)
+  }
+})

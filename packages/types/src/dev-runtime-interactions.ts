@@ -118,12 +118,23 @@ function validateQuestion(value: unknown, path: string): void {
 }
 
 /** Copy bounded data descriptors before validation; getters/toJSON never execute. */
-function interactionSnapshot(value: unknown): unknown {
+export function snapshotRuntimeInteractionValue(value: unknown): unknown {
+  // Legacy JSON remains opaque and keeps the generic event bounds. Structured
+  // schemas are much smaller; their arrays/records have fixed bounded arity.
+  const versioned =
+    value !== null &&
+    typeof value === 'object' &&
+    !Array.isArray(value) &&
+    Object.hasOwn(value, 'schemaVersion')
+  const nodeLimit = versioned ? 8192 : 256 * 1024
+  const depthLimit = versioned ? 8 : 32
+  const arityLimit = versioned ? 32 : 256 * 1024
   let nodes = 0
   let units = 0
   const seen = new Set<object>()
   const copy = (entry: unknown, path: string, depth: number): unknown => {
-    if (++nodes > 8192 || depth > 8) fail(path, 'interaction snapshot bounds exceeded')
+    if (++nodes > nodeLimit || depth > depthLimit)
+      fail(path, 'interaction snapshot bounds exceeded')
     if (typeof entry === 'string') {
       units += entry.length
       if (entry.length > 65_536 || units > 256 * 1024)
@@ -136,12 +147,12 @@ function interactionSnapshot(value: unknown): unknown {
     if (seen.has(entry)) fail(path, 'cyclic interaction payload')
     const array = Array.isArray(entry)
     if (array) {
-      if (Object.getPrototypeOf(entry) !== Array.prototype || entry.length > 32)
+      if (Object.getPrototypeOf(entry) !== Array.prototype || entry.length > arityLimit)
         fail(path, 'expected bounded plain array')
     } else record(entry, path)
     if ('toJSON' in entry) fail(path, 'serialization hooks are not interaction data')
     const keys = Reflect.ownKeys(entry)
-    if (keys.length > 33) fail(path, 'interaction property bounds exceeded')
+    if (keys.length > arityLimit + 1) fail(path, 'interaction property bounds exceeded')
     const values = new Map<string, unknown>()
     for (const key of keys) {
       if (typeof key !== 'string') fail(path, 'symbol properties are not interaction data')
@@ -185,16 +196,21 @@ export function decodeRuntimeInteractionPayload(
   value: unknown
 ): RuntimeInteractionPayload | undefined {
   if (!(runtimeInteractionKinds as readonly string[]).includes(kind)) return undefined
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  if (value === null || typeof value !== 'object') return undefined
+  if (Array.isArray(value)) {
+    snapshotRuntimeInteractionValue(value)
+    return undefined
+  }
   const source = record(value, 'interaction')
   const version = Object.getOwnPropertyDescriptor(source, 'schemaVersion')
   if (!version) {
+    snapshotRuntimeInteractionValue(source)
     if ('eligibility' in source) fail('interaction.eligibility', 'requires a versioned host fact')
     return undefined
   }
   if (!version.enumerable || !('value' in version))
     fail('interaction.schemaVersion', 'expected enumerable data property')
-  const item = record(interactionSnapshot(source), 'interaction')
+  const item = record(snapshotRuntimeInteractionValue(source), 'interaction')
   if (item.schemaVersion !== 1) fail('interaction.schemaVersion', 'expected 1')
   id(item.requestId, 'interaction.requestId')
   if (kind.endsWith('.requested')) {

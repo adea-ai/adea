@@ -263,3 +263,25 @@ describe('inert interaction snapshots', () => {
     }
   })
 })
+
+test('legacy objects cannot smuggle structured facts through serialization hooks', () => {
+  for (const value of [{ text: 'opaque' }, ['opaque']]) {
+    let invoked = 0
+    Object.defineProperty(value, 'toJSON', {
+      value: () => {
+        invoked += 1
+        return requested
+      },
+    })
+    expect(() => decodeRuntimeInteractionPayload('question.requested', value)).toThrow()
+    expect(invoked).toBe(0)
+  }
+})
+
+test('ordinary legacy JSON retains generic array/object bounds and stays opaque', () => {
+  for (const value of [
+    Array(64).fill('opaque'),
+    Object.fromEntries(Array.from({ length: 64 }, (_, i) => [`field-${i}`, i])),
+  ])
+    expect(decodeRuntimeInteractionPayload('question.requested', value)).toBeUndefined()
+})

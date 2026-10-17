@@ -10,6 +10,8 @@ import type {
 } from '../../../../../../packages/types/src/dev-runtime'
 import {
   decodeRuntimeInteractionPayload,
+  runtimeInteractionKinds,
+  snapshotRuntimeInteractionValue,
   validateRuntimeQuestionAnswers,
   type RuntimeInteractionPayload,
 } from '../../../../../../packages/types/src/dev-runtime-interactions'
@@ -24,6 +26,14 @@ type InteractionAdmission = Readonly<{
   payload: RuntimeInteractionPayload
   session: RuntimeSession
 }>
+
+/** Freeze even opaque legacy interaction JSON before storage can serialize it. */
+export function snapshotInteractionEvent(event: RuntimeEvent): RuntimeEvent | undefined {
+  if (!(runtimeInteractionKinds as readonly string[]).includes(event.kind)) return undefined
+  const data = snapshotRuntimeInteractionValue(event.payload)
+  const payload = decodeRuntimeInteractionPayload(event.kind, data) ?? data
+  return Object.freeze({ ...event, payload })
+}
 
 export function validateInteractionAdmission(
   event: RuntimeEvent,

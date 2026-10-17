@@ -2870,7 +2870,10 @@ never invoked. The
 existing 256 KiB encoded payload and 64 KiB string bounds still apply. Admission
 uses this inert event/payload snapshot consistently for correlation, dedupe,
 persistence, subscribers and return values; replay reads detach/freeze versioned
-interaction payloads too. Caller aliases and session-resolver callbacks cannot
+interaction payloads too. Opaque legacy interaction JSON is also snapshotted
+under its existing generic bounds, so a hidden hook cannot turn it into an
+unadmitted versioned record during storage. It remains opaque and grants no
+response eligibility. Caller aliases and session-resolver callbacks cannot
 rewrite previously validated questions, choices or outcomes.
 
 Eligibility is deliberately fail-closed while the M11 response command is
