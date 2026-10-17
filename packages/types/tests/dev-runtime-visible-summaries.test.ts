@@ -182,10 +182,15 @@ describe('user-visible summary wire contracts', () => {
     ).toThrow()
   })
 
-  test('leaves legacy and unknown-summary-like ordinary payloads opaque', () => {
+  test('leaves unknown-summary-like ordinary payloads opaque', () => {
     for (const payload of [{ text: 'Answer only.' }, { reasoning: 'opaque legacy data' }, {}]) {
-      expect(decode('turn.assistant_message', payload).payload).toEqual(payload)
-      expect(decode('turn.result', payload).payload).toEqual(payload)
+      expect(decode('tool.progress', payload).payload).toEqual(payload)
+      expect(decode('turn.user_input', payload).payload).toEqual(payload)
     }
+    const message = { messageId: 'message-1', text: 'Answer only.', supersedes: 'deltas' }
+    expect(decode('turn.assistant_message', message).payload).toEqual(message)
+    expect(decode('turn.result', { messageId: 'message-1' }).payload).toEqual({
+      messageId: 'message-1',
+    })
   })
 })
