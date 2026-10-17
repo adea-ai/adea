@@ -36,7 +36,7 @@ import type {
   GroupTurnDecision,
 } from '@adea-ai/types'
 import { authorizeWorkspaceAction } from '@adea-ai/auth/authorization'
-import { and, asc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm'
 
 import type { AgentHqTransaction } from './connection'
 import {
@@ -536,6 +536,23 @@ export async function groupHistoryAccessByUser(
   return access
 }
 
+/**
+ * A JSON object keyed by canonical channel id, bound as ONE parameter however many groups the
+ * reader holds. Spreading a reader's groups into per-group `= $n` terms costs one or two bound
+ * parameters (and a longer statement to plan) per group, and the protocol caps a statement at
+ * 65,534 parameters; the object keeps both constant.
+ */
+function channelObject(entries: Iterable<readonly [string, number | boolean]>): SQL {
+  const object: Record<string, number | boolean> = {}
+  for (const [channelId, value] of entries) object[channelId.toLowerCase()] = value
+  return sql`${JSON.stringify(object)}::jsonb`
+}
+
+/** True when the channel is one of the given groups: one bound parameter, any number of groups. */
+export function channelIsAmongGroups(channelId: SQL, groupIds: Iterable<string>): SQL {
+  return sql`(${channelObject([...groupIds].map((id) => [id, true] as const))} ? ${channelId}::text)`
+}
+
 function groupMessageVisibleCondition(
   input: {
     channelId: SQL
@@ -544,12 +561,18 @@ function groupMessageVisibleCondition(
   },
   includesEarlier: (history: GroupHistoryAccess) => boolean
 ): SQL {
-  const conditions = [...input.access].map(([channelId, history]) =>
-    includesEarlier(history)
-      ? sql`${input.channelId} = ${channelId}::uuid`
-      : sql`(${input.channelId} = ${channelId}::uuid and ${input.sequence} >= ${history.joinedSequence})`
+  if (!input.access.size) return sql`false`
+  // Each group reduces to the lowest sequence the reader may see in it: 0 when earlier history is
+  // included (message sequences come from an identity column and start at 1), otherwise the
+  // join point. A channel outside the map has no threshold, so the comparison is null and the
+  // coalesce answers false exactly as the absence of an OR term did.
+  const thresholds = channelObject(
+    [...input.access].map(
+      ([channelId, history]) =>
+        [channelId, includesEarlier(history) ? 0 : history.joinedSequence] as const
+    )
   )
-  return conditions.length ? (or(...conditions) ?? sql`false`) : sql`false`
+  return sql`coalesce(${input.sequence} >= (${thresholds} ->> ${input.channelId}::text)::bigint, false)`
 }
 
 /** SQL predicate for messages a user may see under effective group history. */
@@ -653,10 +676,7 @@ export function userChannelVisibility(input: {
   visibility: SQL
 }): SQL {
   const groupInForce = input.inForceGroupIds.length
-    ? sql`${input.channelId} in (${sql.join(
-        input.inForceGroupIds.map((id) => sql`${id}::uuid`),
-        sql`, `
-      )})`
+    ? channelIsAmongGroups(input.channelId, input.inForceGroupIds)
     : sql`false`
   return sql`(case when ${input.kind} = 'group' then ${groupInForce} else (
     ${input.visibility} = 'workspace'

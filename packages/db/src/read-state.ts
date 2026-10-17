@@ -13,6 +13,7 @@ import {
   admissionInForce,
   audienceGrantFromRow,
   type GroupHistoryAccess,
+  channelIsAmongGroups,
   groupChannelIdsInForce,
   groupHistoryAccessByUser,
   groupHistoryMessageAndThreadVisibleCondition,
@@ -313,10 +314,7 @@ async function listReadStateForUserInSnapshot(
   const topMessage = alias(messages, 'top_message')
   const visibleSummaryTopLevel = groupChannelIds.length
     ? sql`(
-        ${messages.channelId} not in (${sql.join(
-          groupChannelIds.map((id) => sql`${id}::uuid`),
-          sql`, `
-        )})
+        not ${channelIsAmongGroups(sql`${messages.channelId}`, groupChannelIds)}
         or (
           ${visibleSummaryMessage}
           and ${groupHistoryMessageAndThreadVisibleCondition({
@@ -332,10 +330,7 @@ async function listReadStateForUserInSnapshot(
   // reader to see earlier messages or use their sequences as a read frontier.
   const aggregateVisibleSummaryTopLevel = groupChannelIds.length
     ? sql`(
-        ${messages.channelId} not in (${sql.join(
-          groupChannelIds.map((id) => sql`${id}::uuid`),
-          sql`, `
-        )})
+        not ${channelIsAmongGroups(sql`${messages.channelId}`, groupChannelIds)}
         or ${groupSummaryMessageAndThreadVisibleCondition({
           channelId: sql`${messages.channelId}`,
           sequence: sql`${messages.sequence}`,
@@ -346,10 +341,7 @@ async function listReadStateForUserInSnapshot(
     : sql`true`
   const visibleGroupThreadAggregate = groupChannelIds.length
     ? sql`(
-        ${messages.channelId} not in (${sql.join(
-          groupChannelIds.map((id) => sql`${id}::uuid`),
-          sql`, `
-        )})
+        not ${channelIsAmongGroups(sql`${messages.channelId}`, groupChannelIds)}
         or (
           ${groupHistoryMessageAndThreadVisibleCondition({
             channelId: sql`${messages.channelId}`,
