@@ -1,6 +1,19 @@
 import { describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
-import { decodeRuntimeEvent } from '../src/dev-runtime-wire'
+import {
+  decodeRuntimeEnvelope,
+  decodeRuntimeEvent,
+  encodeCbor,
+  RUNTIME_EVENT_CBOR_BYTES_MAX,
+  validateRuntimeEventReplayCandidate,
+} from '../src/dev-runtime-wire'
+import {
+  assertRuntimeEventFrameSize as publicAssertRuntimeEventFrameSize,
+  RUNTIME_EVENT_CBOR_BYTES_MAX as publicRuntimeEventCborBytesMax,
+} from '../src/dev-runtime'
 import {
   decodeRuntimeInteractionPayload,
   validateRuntimeQuestionAnswers,
@@ -31,6 +44,11 @@ const resolved = {
 } as const
 
 describe('versioned runtime interaction payloads', () => {
+  test('exposes the shared runtime event frame bound through the public runtime barrel', () => {
+    expect(publicRuntimeEventCborBytesMax).toBe(RUNTIME_EVENT_CBOR_BYTES_MAX)
+    expect(publicAssertRuntimeEventFrameSize).toBeDefined()
+  })
+
   test('decodes multiple questions, optional text, and bounded labelled options', () => {
     expect(decodeRuntimeInteractionPayload('question.requested', requested)).toEqual(requested)
     expect(decodeRuntimeInteractionPayload('question.resolved', resolved)).toEqual(resolved)
@@ -164,5 +182,110 @@ describe('versioned runtime interaction payloads', () => {
     expect(() =>
       decodeRuntimeEvent({ ...event, harnessRunId: undefined }, { source: 'native' })
     ).toThrow()
+  })
+
+  test('bounds the whole canonical-CBOR interaction event, including UTF-8 and envelope bytes', () => {
+    const event = {
+      schemaVersion: 1,
+      eventId: 'event-2',
+      runtimeSessionId: 'session-1',
+      harnessRunId: 'run-1',
+      generation: 1,
+      seq: '2',
+      occurredAt: '2026-10-15T05:00:00Z',
+      receivedAt: '2026-10-15T05:00:01Z',
+      source: 'native',
+      sourceEventId: 'native-2',
+      confidence: 'authoritative',
+      classification: 'workspace_private',
+      kind: 'question.resolved',
+      payload: {
+        ...resolved,
+        answers: [{ questionId: 'notes', text: '' }],
+      },
+    } as const
+    const exactFit = {
+      ...event,
+      payload: {
+        ...event.payload,
+        answers: [{ questionId: 'notes', text: 'a'.repeat(65_138) }],
+      },
+    }
+    expect(encodeCbor(exactFit).byteLength).toBe(RUNTIME_EVENT_CBOR_BYTES_MAX)
+    expect(decodeRuntimeEvent(exactFit, { source: 'native' })).toEqual(exactFit)
+
+    const answers = [
+      'a'.repeat(65_139),
+      'a'.repeat(65_500),
+      'a'.repeat(65_536),
+      '🧪'.repeat(20_000),
+    ]
+    for (const text of answers) {
+      const candidate = {
+        ...event,
+        payload: {
+          ...event.payload,
+          answers: [{ questionId: 'notes', text }],
+        },
+      }
+      expect(text.length).toBeLessThanOrEqual(65_536)
+      expect(encodeCbor(candidate).byteLength).toBeGreaterThan(RUNTIME_EVENT_CBOR_BYTES_MAX)
+      expect(() =>
+        validateRuntimeEventReplayCandidate(candidate, { source: 'native' })
+      ).not.toThrow()
+      expect(() => decodeRuntimeEvent(candidate, { source: 'native' })).toThrow()
+    }
+  })
+})
+
+describe('interaction validators stay out of the lean browser decoder', () => {
+  const envelope = {
+    schemaVersion: 1,
+    eventId: 'event-1',
+    runtimeSessionId: 'session-1',
+    harnessRunId: 'run-1',
+    generation: 1,
+    seq: '1',
+    occurredAt: '2026-10-15T05:00:00.000Z',
+    receivedAt: '2026-10-15T05:00:01.000Z',
+    source: 'native',
+    sourceEventId: 'source-1',
+    confidence: 'authoritative',
+    classification: 'workspace_private',
+    kind: 'question.requested',
+    payload: { schemaVersion: 1, requestId: 'request-1', questions: [], eligibility },
+  }
+
+  test('only the complete decoder interprets a versioned interaction payload', () => {
+    expect(() => decodeRuntimeEvent(envelope, { source: 'native' })).toThrow('questions')
+    expect(decodeRuntimeEnvelope(envelope, { source: 'native' })).toBe(envelope)
+    const lowConfidence = { ...envelope, payload: requested, confidence: 'untrusted_hint' }
+    expect(() => decodeRuntimeEvent(lowConfidence, { source: 'native' })).toThrow('authoritative')
+    expect(decodeRuntimeEnvelope(lowConfidence, { source: 'native' })).toBe(lowConfidence)
+  })
+
+  test('the browser entry bundle excludes the interaction validators', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-interactions-'))
+    try {
+      const entry = join(directory, 'entry.ts')
+      writeFileSync(
+        entry,
+        `import { decodeRuntimeEnvelope } from ${JSON.stringify(
+          resolve(import.meta.dir, '../src/dev-runtime-wire.ts')
+        )}\nglobalThis.lean = [decodeRuntimeEnvelope]\n`
+      )
+      const result = await Bun.build({ entrypoints: [entry], minify: true, target: 'browser' })
+      expect(result.success).toBe(true)
+      const text = await result.outputs[0]!.text()
+      for (const marker of [
+        'structured interactions require',
+        'requires a versioned host fact',
+        'required question is unanswered',
+        'response_unavailable',
+      ])
+        expect(text).not.toContain(marker)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })
