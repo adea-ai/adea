@@ -6,7 +6,7 @@ import {
   useAddressTurnMutation,
   useCancelAddressedTurnMutation,
   useRefreshChannels,
-  useSetChannelParticipantsMutation,
+  useSetGroupSelectionMutation,
   useWorkspaceListQuery,
   useWorkspaceMembersQuery,
   isLiveAddressedTurn,
@@ -183,7 +183,7 @@ export function GroupAddressingController(props: {
     groupParticipants({ channel: props.channel, context: context(), turns: turns() })
   )
   const membersQuery = useWorkspaceMembersQuery(props.client, () => props.workspaceId)
-  const setParticipants = useSetChannelParticipantsMutation(props.client, () => props.workspaceId)
+  const setParticipants = useSetGroupSelectionMutation(props.client, () => props.workspaceId)
   const refreshChannels = useRefreshChannels(() => props.workspaceId)
   const audienceContext = createMemo<GroupAudienceContext>(() => ({
     agentHomes: new Map(
@@ -277,11 +277,7 @@ export function GroupAddressingController(props: {
           .mutateAsync({
             channelId: props.channel.id,
             expectedVersion: request.expectedVersion,
-            grants: {
-              audienceGrants: request.audienceGrants,
-              enlistmentGrants: request.enlistmentGrants,
-            },
-            participants: request.participants,
+            selection: request.selection,
           })
           .then((result) => result.channel),
     },

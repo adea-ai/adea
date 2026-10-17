@@ -22,8 +22,6 @@ import type {
   ContentReplicaSummary,
   ConversationParticipantRef,
   ContentRefSummary,
-  GroupAgentEnlistmentGrant,
-  GroupAudienceGrant,
   MessageSummary,
   PrincipalRef,
   ProjectMemberRole,
@@ -673,6 +671,15 @@ function boundedInt(value: number | undefined, min: number, max: number, fallbac
  * about when it is about one (a group-wide reason carries none). Values are read as received; the reader
  * decides which reasons it recognizes.
  */
+/**
+ * Who a group should hold, by stable identity: user ids and workspace-qualified
+ * Agents. It carries no grant, revision or time; the server issues those.
+ */
+export type ApiGroupSelection = Readonly<{
+  agents: readonly Readonly<{ agentId: string; workspaceId: string }>[]
+  humans: readonly string[]
+}>
+
 export type ApiGroupGrantRejection = Readonly<{
   participant?: ConversationParticipantRef
   reason: string
@@ -1687,10 +1694,10 @@ export class AgentHqApiClient {
   async createGroupChannel(
     workspaceId: string,
     input: Readonly<{
-      audienceGrants?: readonly GroupAudienceGrant[]
       channelId?: string
-      enlistmentGrants?: readonly GroupAgentEnlistmentGrant[]
       idempotencyKey: string
+      /** Who else is in the group, by qualified identity. The server issues every grant. */
+      selection?: ApiGroupSelection
       title: string
     }>
   ): Promise<ApiChannelResponse> {
@@ -1728,16 +1735,33 @@ export class AgentHqApiClient {
     workspaceId: string,
     channelId: string,
     participants: readonly ConversationParticipantRef[],
-    expectedVersion: number,
-    grants?: Readonly<{
-      audienceGrants?: readonly GroupAudienceGrant[]
-      enlistmentGrants?: readonly GroupAgentEnlistmentGrant[]
-    }>
+    expectedVersion: number
   ): Promise<ApiChannelResponse> {
     return this.request(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/participants`,
       {
-        body: JSON.stringify({ ...grants, participants }),
+        body: JSON.stringify({ participants }),
+        headers: { 'Content-Type': 'application/json', 'If-Match': String(expectedVersion) },
+        method: 'POST',
+      }
+    )
+  }
+
+  /**
+   * Replace a group's whole roster from a selection of qualified identities.
+   * The server issues the grants and proves each member's standing; the
+   * client never sends a grant, and a group refuses unqualified participants.
+   */
+  async setGroupSelection(
+    workspaceId: string,
+    channelId: string,
+    selection: ApiGroupSelection,
+    expectedVersion: number
+  ): Promise<ApiChannelResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/participants`,
+      {
+        body: JSON.stringify({ selection }),
         headers: { 'Content-Type': 'application/json', 'If-Match': String(expectedVersion) },
         method: 'POST',
       }
@@ -1934,13 +1958,12 @@ export class AgentHqApiClient {
     workspaceId: string,
     input: Readonly<{
       agentId?: string
-      audienceGrants?: readonly GroupAudienceGrant[]
       channelId?: string
-      enlistmentGrants?: readonly GroupAgentEnlistmentGrant[]
       idempotencyKey: string
       kind: 'project' | 'direct_agent' | 'group'
       mode?: 'new_topic'
       projectId?: string
+      selection?: ApiGroupSelection
       taskId?: string
       title: string
     }>

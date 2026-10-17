@@ -34,7 +34,9 @@ import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Heading } from '@adea-ai/ui/components/ui/typography'
 
 const CreateGroupDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
+  import('./create-workspace-dialogs').then((module) => ({
+    default: module.ConnectedCreateGroupDialog,
+  }))
 )
 const ProjectCreateDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({ default: module.ProjectCreateDialog }))
@@ -775,8 +777,12 @@ export function ConventionalWorkspaceShell(props: {
               </Show>
               <Show when={dialog() === 'create-group'}>
                 <CreateGroupDialog
+                  agents={controller.agents}
                   busy={controller.createGroupBusy}
+                  client={controller.client}
+                  currentUserId={controller.groupScope.accountId}
                   onClose={() => setDialog(null)}
+                  workspaceId={controller.groupScope.workspaceId ?? ''}
                   onCreate={controller.createGroup}
                   open
                   scope={controller.groupScope}
