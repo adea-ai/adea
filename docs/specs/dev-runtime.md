@@ -2783,6 +2783,130 @@ Event constraints:
 - gaps return `resync_required` with checkpoint anchor; clients never advance
   past an unexplained gap.
 
+### Versioned tool and subagent call observations (#1387)
+
+`packages/types/src/dev-runtime-call.ts` owns the Adea-specific call contract;
+the mapped donor lifecycle/write-gate units do not supply this versioned,
+bounded Adea wire schema. No donor code is copied for this contract.
+`decodeRuntimeCallEvent` on the existing wire and aggregate entry points
+validates the envelope, transport provenance, and the following payload:
+
+```ts
+type RuntimeCallPayload = {
+  schemaVersion: 1
+  callId: string
+  parentCallId?: string | null
+  phase: 'requested' | 'started' | 'progress' | 'completed' | 'failed' | 'cancelled'
+  permissionEligibility: 'unknown' | 'requires_approval' | 'not_required'
+  name?: string
+  input?: RuntimeCallData
+  output?: RuntimeCallData
+  durationMs?: number
+}
+type RuntimeCallData =
+  | { type: 'inline'; value: Json }
+  | { type: 'reference'; referenceId: string; byteLength?: number; sha256?: string }
+```
+
+- Call identity includes the event's `runtimeSessionId`, `generation`,
+  `harnessRunId`, `source`, and the payload's `callId`;
+  `harnessRunId` is required for validated calls. Calls from separate
+  runs, sources or generations MUST NOT pair. IDs are opaque 1–256 character
+  tokens starting with an ASCII alphanumeric, followed by ASCII alphanumerics,
+  `.`, `_`, `:` or `-`; they are neither paths nor URLs.
+- Each `tool.*` phase MUST equal its own kind suffix. `subagent.observed`
+  carries an explicit phase from the above set. No missing observation implies
+  a spinner, a completion, or a phase transition. This is an observation
+  contract, not a lifecycle state machine. Validated calls require a native,
+  ACP or owned-hook source; host lifecycle and terminal fallback cannot supply
+  call facts, even with unknown permission eligibility.
+- An absent parent means no relationship is established. `null` is an
+  explicitly observed root. A call cannot parent itself; the host refuses a
+  changed known parent, a tool/subagent identity collision, or a cycle proved
+  by its retained same-namespace observations. It does not claim to validate
+  evicted or unobserved history and does not require a parent/start row to be
+  retained before accepting a child/completion.
+- Missing input, output and duration remain absent. Inline JSON is bounded
+  independently for each input/output: 32 KiB of encoded UTF-8 JSON, depth 16,
+  2,048 nodes, 256 array/object entries per container, 16,384 UTF-16 code units
+  per string and 256 per nonempty key. Nonfinite numbers, non-JSON values and
+  sparse arrays are refused. The enclosing 256 KiB event limit still applies.
+  Independently valid input/output fields MUST also fit together with all
+  event IDs, timestamps, provenance and metadata in one canonical-CBOR event
+  of at most 65,536 bytes, the unchanged runtime-events data-frame grant.
+  `assertRuntimeEventFrameSize` enforces this aggregate envelope bound before
+  persistence or publication, including UTF-8 expansion. It measures the
+  canonical encoding with `cborByteLength`, a size-only calculator tested
+  byte-for-byte against `encodeCbor`, so decoders do not carry the full encoder. A producer must use
+  bounded references or less inline data when the whole event does not fit;
+  individual field budgets never justify increasing the transport cap.
+  The [aggregate budget evidence](../evidence/runtime-call-frame-budget-refs1387.md)
+  pins the combined-field, exact-limit, UTF-8 and real-channel cases.
+- References contain an opaque ID, optional nonnegative safe-integer byte
+  length and optional lowercase SHA-256 digest. They grant no file/network
+  access or proof that bytes exist; a future resolver must independently
+  authorize, classify and bound retrieval. Names are 1–256 code units and
+  duration is observed nonnegative safe-integer milliseconds, never a
+  difference between arrival timestamps.
+- Call observations require an explicit event classification; they never
+  inherit the generic event log's `workspace_metadata` default. Credential-
+  classified calls are refused before persistence or publication, and any
+  inline input/output requires `restricted_local` classification. References
+  carry only opaque metadata here; the referenced content remains subject to
+  independent authorization and classification by a future resolver.
+- Eligibility MUST be explicit, with `unknown` when the producer lacks the
+  fact. Known values require authoritative native/ACP/owned-hook provenance
+  and, at host-log admission, an affirmative out-of-band
+  `verifyCallPermissionEligibility` result from the owning adapter. Source
+  names, advertised capabilities, payload labels and booleans do not supply
+  this evidence. No production adapter currently supplies that verifier.
+  `not_required` is a permission observation; it is not an approval grant or
+  proof that all content is noninteractive or safe to fold.
+- New host-log call appends MUST pass this contract before persistence,
+  sequence consumption, eviction or subscriber notification. The admitted
+  snapshot is detached and deeply frozen before verifier/subscriber code sees
+  it. The generic envelope decoder retains legacy payloads without a `schemaVersion` as
+  bounded opaque data; the strict call decoder refuses them. A versioned call
+  claim is fully checked even through the generic decoder. Unknown versions
+  fail closed and cannot acquire validated call semantics. An exact retry of a
+  retained legacy opaque call remains deduplicated without promoting it; new
+  call records must use the versioned contract.
+- A repeated call `sourceEventId` with a changed run, confidence,
+  classification, explicitly supplied observation time, kind or payload is
+  `idempotency_conflict`, never an ignored duplicate. Host-assigned event ID,
+  receive time and sequence are not producer facts and are excluded from this
+  comparison.
+- Retry candidates validate the complete schema, Unicode and provenance before
+  identity/content comparison, without assigning a new persisted envelope
+  budget to an existing event. Exact duplicate source tuples reuse the retained
+  event for eligibility/continuity validation; its permission verifier still
+  applies. A duplicate at sequence 9 therefore remains idempotent when the next
+  host sequence would be 10. Every genuinely new record then passes the full
+  envelope budget before callbacks, persistence or publication. Source tuples
+  compare their fields directly, never an ambiguous delimiter-joined key.
+- Structured call strings, keys and envelope values require well-formed
+  Unicode; lone surrogates are rejected without replacement. The CBOR encoder
+  applies the same rule, while valid scalar text remains byte-for-byte intact.
+
+Decoder entry points. `decodeRuntimeEvent` is the complete decoder used by host
+admission, persistence and replay: envelope, generic payload bounds and every
+kind-specific contract (calls, visible summaries, cited responses, and any later
+interaction or attachment contract). `decodeRuntimeEnvelope` is the lean decoder
+for browser stream and transcript consumers: it enforces the authenticated
+envelope, the generic payload bounds and the full-frame bound for versioned call
+claims, but does not interpret a kind's payload. A consumer that renders or acts
+on a payload MUST narrow it with the explicit contract (for example
+`decodeRuntimeCallEvent`) rather than trust the envelope decode. Kind-specific
+validators are reachable only through `eventSemantics` in
+`packages/types/src/dev-runtime-wire.ts`; new contracts register there so the
+shared utility bundle never carries them. `dev-runtime-envelope.test.ts` bundles
+the lean entry and fails if a validator or a size regression reaches it.
+
+This change adds no native/ACP subscription or tool/subagent emitter. Existing
+production lifecycle receipts do not become call facts. UI rendering, folding,
+nesting and approval-response authority remain separate integration work;
+neither UI #416 nor consumer PR #1385 is modified by this contract.
+
 ### Response sources and inline citation references (#1389)
 
 `turn.assistant_message` MAY carry a self-contained cited response. Its
