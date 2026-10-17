@@ -179,6 +179,27 @@ test('app -> launch -> cross-origin frame -> session -> private runtime; offline
       if (process.env.ADEA_SIM_SCREENSHOT)
         await page.screenshot({ path: process.env.ADEA_SIM_SCREENSHOT })
     }
+    await page.waitForLoadState('networkidle')
+    for (const [value, record] of sessions)
+      sessions.set(value, { ...record, expiresAt: Date.now() - 1 })
+    const readsBeforeExpiry = assetReads
+    const expiredStatus = await page
+      .frameLocator('iframe')
+      .locator('body')
+      .evaluate(async () => {
+        return (
+          await fetch('/assets/agent-sim/engine.json', {
+            credentials: 'same-origin',
+            cache: 'no-store',
+          })
+        ).status
+      })
+    expect(expiredStatus).toBe(401)
+    expect(assetReads).toBe(readsBeforeExpiry)
+    await page.getByRole('button', { name: 'Chat', exact: true }).click()
+    await page.getByRole('button', { name: 'Sim', exact: true }).click()
+    await page.locator('iframe[data-agent-sim-active="true"]').waitFor({ timeout: 20_000 })
+    expect(grants).toBe(2)
     for (const surface of ['room-designer', 'character-designer']) {
       await page.goto(`${parentOrigin}/?surface=${surface}`)
       await page
@@ -186,7 +207,7 @@ test('app -> launch -> cross-origin frame -> session -> private runtime; offline
         .waitFor({ timeout: privateRoot ? 60_000 : 20_000 })
       await page.frameLocator('iframe').locator('canvas').first().waitFor({ timeout: 60_000 })
     }
-    expect(grants).toBe(3)
+    expect(grants).toBe(4)
     const cookies = await context.cookies()
     console.log(
       'cookie attributes',
@@ -208,11 +229,11 @@ test('app -> launch -> cross-origin frame -> session -> private runtime; offline
     expect(await page.getByText('Dev stays available').isVisible()).toBe(true)
     await page.getByRole('button', { name: 'Sim', exact: true }).click()
     await page.getByText('Agent Sim is offline', { exact: true }).waitFor()
-    expect(grants).toBe(3)
+    expect(grants).toBe(4)
     await context.setOffline(false)
     await page.getByRole('button', { name: 'Sim', exact: true }).click()
     await page.locator('iframe[data-agent-sim-active="true"]').waitFor({ timeout: 20_000 })
-    expect(grants).toBe(4)
+    expect(grants).toBe(5)
     expect(errors).toEqual([])
     console.log(
       JSON.stringify({
@@ -222,6 +243,8 @@ test('app -> launch -> cross-origin frame -> session -> private runtime; offline
         assetReads,
         httpOnlySession: true,
         chatDevWhileOffline: true,
+        expiredSessionRefused: true,
+        freshLaunchAfterExpiry: true,
       })
     )
   } finally {

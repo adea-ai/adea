@@ -78,10 +78,12 @@ export function createSimHost(options: {
       return new Response(null, { status: 401, headers })
     try {
       const session = await options.session(values[0]!)
+      const at = (options.now ?? Date.now)()
       if (
         !session ||
+        !Number.isFinite(at) ||
         !Number.isFinite(session.expiresAt) ||
-        session.expiresAt <= (options.now ?? Date.now)()
+        session.expiresAt <= at
       )
         return new Response(null, { status: 401, headers })
       const path = decodeURIComponent(url.pathname.slice('/assets/agent-sim/'.length))

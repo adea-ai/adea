@@ -41,6 +41,7 @@ prerequisites with `bun run build:web-deps`, then run:
 ```sh
 bun test apps/web/test/sim-http.test.ts apps/web/test/sim-frame.test.ts
 bun test apps/web/test/sim-offload-browser/acceptance.test.ts
+bun scripts/check-hosted-sim-desktop-client.ts
 ADEA_SIM_TEST_EXPORT=/path/to/existing/private/export \
   bun test apps/web/test/sim-offload-browser/acceptance.test.ts
 ```
@@ -57,7 +58,7 @@ session expiry, surface binding, missing authority, foreign origins, and bounded
 requests. Frame lifecycle tests cover foreign messages, duplicate launch, failed
 exchange, and disposal during a pending mount. The browser lane checks the actual
 partitioned cookie, separate cookie hosts, no Sim cookie on Adea API requests,
-offline Chat/Dev use, and a fresh Sim launch after reconnect.
+an expired-session refusal followed by a fresh launch, and a fresh Sim launch after reconnect. Its small Chat/Dev panels qualify frame isolation only. The separate `check-hosted-sim-desktop-client.ts` command serves the actual built desktop UI with disposable API/bridge fixtures and verifies that its real Chat/Dev screens remain reachable while Sim is unavailable or offline. Neither fixture proves native authorization or offline cloud execution.
 
 ## Desktop payload proof
 
@@ -89,3 +90,5 @@ surface. Direct host designer routes work through their own launch. The private
 HQ engine's room/character navigation controls still need a narrowly specified
 navigation message and host callback from the separate bridge owner; overloading
 `frame.close` would change its meaning and is intentionally avoided.
+
+The coordinated save/navigation proposal is [hosted Sim bridge follow-up](../plans/hosted-sim-bridge-follow-up.md). Existing serialized customization and acknowledged designer save/reopen remain owner-gated; direct designer mount success alone is not persistence proof.

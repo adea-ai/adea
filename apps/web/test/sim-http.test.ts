@@ -72,6 +72,9 @@ function fixture() {
       now += 3600_001
     },
     assetReads: () => assetReads,
+    invalidateClock: () => {
+      now = Number.NaN
+    },
   }
 }
 
@@ -161,4 +164,25 @@ test('session exchange refuses cross-origin POST and malformed or oversized bodi
       )
     ).status
   ).toBe(400)
+})
+
+test('private asset gate refuses a non-finite clock before reading private storage', async () => {
+  const f = fixture()
+  const grant = (await (
+    await f.api.launch(post(`${parentOrigin}/api/sim/launch`, body))
+  ).json()) as { code: string }
+  const exchanged = await f.host(
+    post(
+      `${origin}/session`,
+      { schemaVersion: 1, code: grant.code, bridgeId: body.bridgeId },
+      origin
+    )
+  )
+  const cookie = exchanged.headers.get('set-cookie')!.split(';')[0]!
+  f.invalidateClock()
+  expect(
+    (await f.host(new Request(`${origin}/assets/agent-sim/engine.js`, { headers: { cookie } })))
+      .status
+  ).toBe(401)
+  expect(f.assetReads()).toBe(0)
 })
