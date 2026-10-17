@@ -171,11 +171,14 @@ execution's configuration or current compatibility.
 - **Liveness.** Heartbeats every 15 seconds, `retry: 1000` guidance, bounded
   catch-up reads (a lost wake-up loses no event) every second while the stream is
   active, backing off one second per five empty reads to a five-second ceiling when
-  idle and returning to one second on the next delivery, so an event appended to an
-  idle stream arrives within five seconds; a full page is followed by an immediate
-  read. Heartbeat, reauthorization and lifetime deadlines run on their own timers,
-  not on the read interval, and reauthorization runs before a read that falls due
-  with it. The stream also has a deliberate 30-minute lifetime and a bounded
+  idle and returning to one second on the next delivery, so the scheduled wait before
+  the next read of an idle stream is at most five seconds. That bounds the poll delay,
+  not total delivery latency, which also includes the read, classification and cursor
+  signing. A full page is followed by an immediate read. Heartbeat, reauthorization and
+  lifetime deadlines are tracked independently of the read interval, and
+  reauthorization runs before a read that falls due with it. They share one serial loop,
+  so they are not hard real-time guarantees: a slow awaited operation delays whatever
+  falls due behind it. The stream also has a deliberate 30-minute lifetime and a bounded
   number of concurrent streams per workspace. That bound is per server instance: a global limit needs
   shared state.
 
