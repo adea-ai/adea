@@ -1509,6 +1509,32 @@
       "automaticReview": "Initial auto-merge denied due earlier auto-off instruction. User explicitly approved PR110 auto-merge; retry succeeded.",
       "merge": "6f785a8ba14736d2cf9f45a883ec3c7551fbcfc6"
     },
-    "controlPlaneBudget": "1176 all478E2E tests/3793assertions passed but124.2s exceeded unchanged120s ceiling. Active Pi/test owner reconciliation required; no test or budget relaxed."
+    "controlPlaneBudget": "1176 all478E2E tests/3793assertions passed but124.2s exceeded unchanged120s ceiling. Active Pi/test owner reconciliation required; no test or budget relaxed.",
+    "finalCheckpoint": {
+      "observedAt": "2026-10-17 19:25:46 UTC",
+      "sourceHeadBeforeThisEvidenceCommit": "98485c6f232399d37e1f024063dc35679a94dba8",
+      "allImplementationCommitsPublished": true,
+      "executionLimitation": "Mac exec transport disconnected during session recovery. Final checkpoint recorded through the authorized GitHub connection; no implementation changes made by this update.",
+      "uiHosted": {
+        "head": "638f73622bed3b9e2d3a6ffa80f3ef82f0d9c0aa",
+        "writer": "https://github.com/adea-ai/ui/actions/runs/39061095703",
+        "freshReader": "https://github.com/adea-ai/ui/actions/runs/39061684803",
+        "result": "Trusted writer0/1 hits; independent reader restored exact key and hit1/1 on first and second builds,3/3 tasks successful."
+      },
+      "agentSimHosted": {
+        "head": "6f785a8ba14736d2cf9f45a883ec3c7551fbcfc6",
+        "writer": "https://github.com/adea-ai/agent-sim/actions/runs/39061573583",
+        "freshReader": "https://github.com/adea-ai/agent-sim/actions/runs/39061768434",
+        "result": "Trusted writer0/13 hits; independent reader restored cache and hit13/13 on first and second builds,15/15 tasks successful. Private packaging remains separately owned."
+      },
+      "compilerRollout": {
+        "adea1453": "Merged4c416eb9c7028167b6a1876923561a018002fbee",
+        "cortana2597": "Merged7940c0d0f479b7cc6f4c6aa88cf627493a5bb6ff",
+        "controlPlane1176": "Same-head diagnostic rerun39060929989 attempt2 passes478 tests/3793assertions in98.9s against unchanged120s. Original124.2s failure retained; aggregate gate was queued at observation.",
+        "ui460": "Source-reviewed2f55b1b28c9f95895e22c68e63bcce97d0b0b81b;967 local tests/57516assertions,build/declaration emit,checks,lint,format pass. Hosted qualification pending."
+      },
+      "localDiagnostic": "Extra CP E2E diagnostic terminated without a passing verdict on a Mac running concurrent held-owner unit/E2E/smoke suites. Only our known diagnostic child was signalled; held owner processes untouched.",
+      "remaining": "Cortana2596 and UI460 hosted CI/merge; Cortana hosted fresh-runner cache transfer; held consumer release/version sequencing; meaningful post-rollout Cloudflare metrics. Campaign complete remains false."
+    }
   }
 }
