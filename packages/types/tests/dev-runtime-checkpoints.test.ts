@@ -59,6 +59,49 @@ describe('conversation checkpoints', () => {
       expect(() => decodeCheckpointRestoreOutcome(invalid)).toThrow()
   })
 
+  test('restored generation remains a safe integer exactly one above a valid request', () => {
+    for (const requestedGeneration of [0, 1, Number.MAX_SAFE_INTEGER - 1]) {
+      const next = requestedGeneration + 1
+      expect(
+        decodeCheckpointRestoreOutcome({
+          ...outcome,
+          requestedGeneration,
+          restoredGeneration: next,
+        })
+      ).toMatchObject({ restoredGeneration: next })
+      for (const restoredGeneration of [
+        -1,
+        0,
+        0.5,
+        next + 0.5,
+        NaN,
+        Infinity,
+        -Infinity,
+        Number.MAX_SAFE_INTEGER + 1,
+        String(next),
+        null,
+        {},
+        [],
+        true,
+      ])
+        if (restoredGeneration !== next)
+          expect(() =>
+            decodeCheckpointRestoreOutcome({ ...outcome, requestedGeneration, restoredGeneration })
+          ).toThrow()
+    }
+    for (const requestedGeneration of [
+      -1,
+      0.5,
+      NaN,
+      Infinity,
+      Number.MAX_SAFE_INTEGER,
+      Number.MAX_SAFE_INTEGER + 1,
+      '1',
+      null,
+    ])
+      expect(() => decodeCheckpointRestoreOutcome({ ...outcome, requestedGeneration })).toThrow()
+  })
+
   test('pins the strict restore command with required generation and no authority fields', () => {
     const body = {
       runtimeSessionId: 'session-1',

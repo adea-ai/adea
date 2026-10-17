@@ -125,11 +125,16 @@ export function decodeCheckpointRestoreOutcome(value: unknown): CheckpointRestor
   if (item.status === 'resolved') {
     nonblank(item.providerRestoreId, 'restore.providerRestoreId')
     timestamp(item.restoredAt, 'restore.restoredAt')
-    if (
-      integerValue(item.restoredGeneration, 'restore.restoredGeneration', 1) !==
-      (item.requestedGeneration as number) + 1
+    // requestedGeneration is already bounded to 0..MAX_SAFE_INTEGER-1.
+    // Equal integer bounds preserve both safe-integer validation and the
+    // exact-next-generation requirement through the shared validator.
+    const nextGeneration = (item.requestedGeneration as number) + 1
+    integerValue(
+      item.restoredGeneration,
+      'restore.restoredGeneration',
+      nextGeneration,
+      nextGeneration
     )
-      fail('restore.restoredGeneration', 'expected exactly the next generation')
   } else literal(item.code, devErrorCodes, 'restore.code')
   return value as CheckpointRestoreOutcome
 }
