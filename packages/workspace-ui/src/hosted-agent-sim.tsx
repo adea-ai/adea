@@ -1,4 +1,4 @@
-import { createSignal, onCleanup, onMount, Show } from 'solid-js'
+import { createEffect, createSignal, onCleanup, onMount, Show, untrack } from 'solid-js'
 
 import { Alert, AlertDescription, AlertTitle } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
@@ -39,40 +39,70 @@ export function HostedAgentSim(props: {
   const [snapshot, setSnapshot] = createSignal<HostedSimSnapshot | null>(null)
   let frameElement: HTMLIFrameElement | undefined
   let controller: HostedSimController | undefined
+  let frameUrl: ((frame: HostedSimFrame) => string) | undefined
 
-  onMount(() => {
-    controller = createHostedSimController({
+  // One launch per configuration. Everything the launch is about (origin, workspace, surface,
+  // platform, character) is read here, and a change disposes the running launch and starts a new
+  // one, so the grant, the frame's address and the controller always belong to the same attempt.
+  // `requestGrant` and `frameUrl` are bound when the launch is created and are not tracked: change
+  // the configuration to launch again. A configuration that arrives later starts the launch then.
+  createEffect(() => {
+    const config = {
       frameOrigin: props.frameOrigin,
       allowLoopbackHttp: props.allowLoopbackHttp,
       workspaceId: props.workspaceId,
       surface: props.surface,
       platform: props.platform,
       character: props.character,
-      requestGrant: (request, signal) => props.requestGrant(request, signal),
-      frameWindow: () => frameElement?.contentWindow ?? null,
-      onChange: setSnapshot,
+    }
+    untrack(() => {
+      const requestGrant = props.requestGrant
+      const instance = createHostedSimController({
+        ...config,
+        requestGrant: (request, signal) => requestGrant(request, signal),
+        isOnline: () => typeof navigator === 'undefined' || navigator.onLine !== false,
+        frameWindow: () => frameElement?.contentWindow ?? null,
+        onChange: (next) => {
+          if (controller === instance) setSnapshot(next)
+        },
+      })
+      controller = instance
+      frameUrl = props.frameUrl
+      instance.start()
     })
-    const onMessage = (event: MessageEvent) =>
-      controller?.handleMessage({ origin: event.origin, source: event.source, data: event.data })
-    const onOffline = () => controller?.setOffline()
+    onCleanup(() => {
+      controller?.dispose()
+      controller = undefined
+      frameUrl = undefined
+      setSnapshot(null)
+    })
+  })
+
+  const onMessage = (event: MessageEvent) =>
+    controller?.handleMessage({ origin: event.origin, source: event.source, data: event.data })
+  const onOffline = () => controller?.setOffline()
+  const onOnline = () => controller?.setOnline()
+
+  onMount(() => {
     window.addEventListener('message', onMessage)
     window.addEventListener('offline', onOffline)
+    window.addEventListener('online', onOnline)
     onCleanup(() => {
       window.removeEventListener('message', onMessage)
       window.removeEventListener('offline', onOffline)
-      controller?.dispose()
+      window.removeEventListener('online', onOnline)
     })
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) controller.setOffline()
-    else controller.start()
   })
 
   return (
     <div class={props.class} data-agent-sim-hosted>
-      <Show when={snapshot()?.frame}>
+      {/* Keyed: every attempt's frame is a new element, so a navigated frame never inherits the
+          previous attempt's window or message history. */}
+      <Show when={snapshot()?.frame} keyed>
         {(frame) => (
           <iframe
             ref={(element) => (frameElement = element)}
-            src={props.frameUrl(frame())}
+            src={frameUrl?.(frame)}
             title="Agent Sim"
             // The frame is a different origin; scripts and its own origin are all it gets.
             sandbox="allow-scripts allow-same-origin"
@@ -87,7 +117,8 @@ export function HostedAgentSim(props: {
           Starting Agent Sim…
         </p>
       </Show>
-      <Show when={snapshot()?.notice}>
+      {/* While starting, the status line above is the whole story; the notice is for end states. */}
+      <Show when={snapshot()?.starting ? null : snapshot()?.notice}>
         {(notice) => (
           <Alert variant={notice().tone === 'error' ? 'destructive' : 'default'}>
             <AlertTitle>{notice().title}</AlertTitle>

@@ -1,4 +1,5 @@
 import {
+  SIM_BRIDGE_CHANNEL,
   SIM_IDLE,
   SIM_LAUNCH_SCHEMA_VERSION,
   createBridgeId,
@@ -63,6 +64,11 @@ export type HostedSimControllerOptions = Readonly<{
   character?: string
   /** Asks the Adea backend for a launch. The reply is unvalidated and checked here. */
   requestGrant(request: SimLaunchRequest, signal: AbortSignal): Promise<unknown>
+  /**
+   * Whether the host currently believes it is online. Read when an attempt starts: offline starts
+   * the attempt in the offline state without asking the backend. Absent means online.
+   */
+  isOnline?(): boolean
   /** The frame element's `contentWindow`, read each time it is needed. */
   frameWindow(): PostTarget | null
   onChange(snapshot: HostedSimSnapshot): void
@@ -78,11 +84,16 @@ export type HostedSimControllerOptions = Readonly<{
 
 export type HostedSimController = Readonly<{
   snapshot(): HostedSimSnapshot
-  /** Begins a new attempt from idle, unavailable or offline; does nothing mid-attempt. */
+  /**
+   * Begins a new attempt from idle, unavailable or offline; does nothing mid-attempt. While
+   * `isOnline()` is false the attempt is recorded as offline and no grant is requested.
+   */
   start(): void
   /** Feeds a `window` `message` event in; anything not from the exact frame is dropped. */
   handleMessage(event: SimMessageEventLike): void
   setOffline(): void
+  /** The host came back online: an offline surface starts a new attempt on its own. */
+  setOnline(): void
   dispose(): void
 }>
 
@@ -92,6 +103,13 @@ const DEFAULT_FRAME_TIMEOUT_MS = 15_000
 function clampTimeout(value: number | undefined, fallback: number): number {
   const wanted = value ?? fallback
   return Math.min(Math.max(Number.isFinite(wanted) ? wanted : fallback, 1_000), 60_000)
+}
+
+/** Whether a message names this bridge's channel and the current attempt's nonce, read without running getters. */
+function carriesCurrentChannel(data: unknown, bridgeId: string): boolean {
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return false
+  const field = (name: string) => Object.getOwnPropertyDescriptor(data, name)?.value
+  return field('channel') === SIM_BRIDGE_CHANNEL && field('bridgeId') === bridgeId
 }
 
 function defaultSchedule(run: () => void, ms: number): () => void {
@@ -142,6 +160,14 @@ export function createHostedSimController(
   // `apply` reassigns `state`, which narrowing cannot see across the call.
   function phaseNow(): SimLaunchState['phase'] {
     return state.phase
+  }
+
+  function online(): boolean {
+    try {
+      return options.isOnline?.() !== false
+    } catch {
+      return true
+    }
   }
 
   function clearTimer() {
@@ -276,8 +302,11 @@ export function createHostedSimController(
 
   return {
     snapshot: () => current,
-    start: () => apply({ type: 'start' }),
+    start: () => apply({ type: 'start', online: online() }),
     setOffline: () => apply({ type: 'offline' }),
+    setOnline() {
+      if (phaseNow() === 'offline') apply({ type: 'start', online: online() })
+    },
     dispose() {
       if (disposed) return
       apply({ type: 'dispose' })
@@ -295,9 +324,14 @@ export function createHostedSimController(
       })
       let message: SimFrameMessage
       if (parsed.ok) message = parsed.message
-      // Only reached once origin, window and channel already matched the frame, so this is the
-      // right frame speaking a protocol version this host does not understand.
-      else if (parsed.reason === 'version_unsupported')
+      // Origin and window matched the frame, but the envelope checks the version before the
+      // channel nonce, so this may be a stale or foreign message. It counts as the current frame
+      // speaking a protocol version this host does not understand only when it also carries the
+      // current attempt's channel and bridge id; otherwise it is noise like any other mismatch.
+      else if (
+        parsed.reason === 'version_unsupported' &&
+        carriesCurrentChannel(event.data, bridgeId)
+      )
         message = { type: 'frame.error', payload: { code: 'bridge_incompatible' } }
       // Anything else is noise, or an attacker; it must not be able to fail a healthy attempt.
       else return

@@ -83,6 +83,22 @@ function setup(overrides: Partial<HostedSimControllerOptions> = {}) {
   }
 }
 
+async function awaitingFrame() {
+  const w = setup()
+  w.controller.start()
+  w.requests[0]!.resolve(w.granted())
+  await w.flush()
+  return w
+}
+
+const withVersion = (
+  message: ReturnType<ReturnType<typeof setup>['fromFrame']>,
+  version: number
+) => ({
+  ...message,
+  data: { ...(message.data as object), version },
+})
+
 const stale = (w: ReturnType<typeof setup>) => ({
   ...w.granted(),
   expiresAt: new Date(NOW - 1000).toISOString(),
@@ -406,5 +422,155 @@ describe('hosted Agent Sim controller', () => {
     await w.flush()
     expect(w.phase()).toBe('idle')
     expect(w.controller.snapshot().frame).toBeNull()
+  })
+
+  describe('protocol version and channel nonce', () => {
+    test('an unsupported version with the wrong nonce is ignored and the attempt survives', async () => {
+      const w = await awaitingFrame()
+      const wrong = w.fromFrame({ type: 'frame.ready', payload: {} }, 'bridge-id-number-9999')
+      w.controller.handleMessage(withVersion(wrong, 2))
+      expect(w.phase()).toBe('awaiting_frame')
+      expect(w.controller.snapshot().frame).not.toBeNull()
+      // The current frame still launches afterwards.
+      w.controller.handleMessage(w.fromFrame({ type: 'frame.ready', payload: {} }))
+      expect(w.phase()).toBe('launching')
+    })
+
+    test('an unsupported version with the current nonce still fails the attempt', async () => {
+      const w = await awaitingFrame()
+      w.controller.handleMessage(withVersion(w.fromFrame({ type: 'frame.ready', payload: {} }), 2))
+      expect(w.controller.snapshot().state).toMatchObject({
+        phase: 'unavailable',
+        reason: 'bridge_incompatible',
+      })
+    })
+
+    test('a previous attempt’s nonce at an unsupported version cannot fail the new attempt', async () => {
+      const w = await awaitingFrame()
+      const oldId = w.controller.snapshot().frame!.bridgeId
+      w.controller.setOffline()
+      w.controller.start()
+      w.requests[1]!.resolve(w.granted())
+      await w.flush()
+      expect(w.controller.snapshot().frame!.bridgeId).not.toBe(oldId)
+      w.controller.handleMessage(
+        withVersion(w.fromFrame({ type: 'frame.ready', payload: {} }, oldId), 2)
+      )
+      expect(w.phase()).toBe('awaiting_frame')
+    })
+
+    test.each([
+      ['another channel', { channel: 'someone.else' }],
+      ['no channel', { channel: undefined }],
+      ['a non-string nonce', { bridgeId: 7 }],
+    ])('an unsupported version with %s is ignored', async (_label, patch) => {
+      const w = await awaitingFrame()
+      const ready = withVersion(w.fromFrame({ type: 'frame.ready', payload: {} }), 2)
+      w.controller.handleMessage({ ...ready, data: { ...(ready.data as object), ...patch } })
+      expect(w.phase()).toBe('awaiting_frame')
+    })
+
+    test('an accessor for the nonce is never run and the message is ignored', async () => {
+      const w = await awaitingFrame()
+      let ran = false
+      const ready = w.fromFrame({ type: 'frame.ready', payload: {} })
+      const data = { ...(ready.data as object), version: 2 }
+      Object.defineProperty(data, 'bridgeId', {
+        enumerable: true,
+        get() {
+          ran = true
+          return w.controller.snapshot().frame!.bridgeId
+        },
+      })
+      w.controller.handleMessage({ ...ready, data })
+      expect(ran).toBe(false)
+      expect(w.phase()).toBe('awaiting_frame')
+    })
+
+    test('an unsupported version from the wrong window or origin is still dropped', async () => {
+      const w = await awaitingFrame()
+      const ready = withVersion(w.fromFrame({ type: 'frame.ready', payload: {} }), 2)
+      w.controller.handleMessage({ ...ready, origin: 'https://evil.example' })
+      w.controller.handleMessage({ ...ready, source: {} })
+      expect(w.phase()).toBe('awaiting_frame')
+    })
+  })
+
+  describe('starting offline', () => {
+    test('starts in the offline state with no grant request and a retry', () => {
+      let online = false
+      const w = setup({ isOnline: () => online })
+      w.controller.start()
+      expect(w.phase()).toBe('offline')
+      expect(w.requests).toHaveLength(0)
+      expect(w.live()).toHaveLength(0)
+      expect(w.controller.snapshot().notice).toMatchObject({
+        title: 'Agent Sim is offline',
+        retryable: true,
+      })
+      expect(w.controller.snapshot().frame).toBeNull()
+
+      // Retrying while still offline asks nothing.
+      w.controller.start()
+      expect(w.phase()).toBe('offline')
+      expect(w.requests).toHaveLength(0)
+
+      online = true
+      w.controller.start()
+      expect(w.phase()).toBe('requesting')
+      expect(w.requests).toHaveLength(1)
+    })
+
+    test('coming back online starts the launch without a retry', () => {
+      let online = false
+      const w = setup({ isOnline: () => online })
+      w.controller.start()
+      w.controller.setOnline()
+      expect(w.phase()).toBe('offline')
+      expect(w.requests).toHaveLength(0)
+      online = true
+      w.controller.setOnline()
+      expect(w.phase()).toBe('requesting')
+      expect(w.requests).toHaveLength(1)
+    })
+
+    test('coming back online does nothing unless the surface is offline', async () => {
+      const w = setup()
+      w.controller.setOnline()
+      expect(w.phase()).toBe('idle')
+      w.controller.start()
+      w.controller.setOnline()
+      expect(w.requests).toHaveLength(1)
+      w.requests[0]!.resolve(w.granted())
+      await w.flush()
+      w.controller.setOnline()
+      expect(w.requests).toHaveLength(1)
+      expect(w.phase()).toBe('awaiting_frame')
+    })
+
+    test('going offline mid-attempt and back online relaunches with a new nonce', async () => {
+      const w = setup()
+      w.controller.start()
+      w.requests[0]!.resolve(w.granted())
+      await w.flush()
+      const first = w.controller.snapshot().frame!.bridgeId
+      w.controller.setOffline()
+      expect(w.phase()).toBe('offline')
+      w.controller.setOnline()
+      expect(w.phase()).toBe('requesting')
+      w.requests[1]!.resolve(w.granted())
+      await w.flush()
+      expect(w.controller.snapshot().frame!.bridgeId).not.toBe(first)
+    })
+
+    test('an unreadable online probe counts as online', () => {
+      const w = setup({
+        isOnline: () => {
+          throw new Error('no navigator')
+        },
+      })
+      w.controller.start()
+      expect(w.phase()).toBe('requesting')
+    })
   })
 })
