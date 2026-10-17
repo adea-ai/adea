@@ -559,3 +559,49 @@ test('response bound to another intent or canonical message is not adopted', asy
     expect(h.calls).toEqual(['status'])
   }
 })
+
+const blockedTurn = (patch: Partial<ApiLeadTurnStatus> = {}): ApiLeadTurnStatus => ({
+  schemaVersion: 'adea-lead-turn/v1',
+  intentId: admitted().intentId,
+  messageId: admitted().messageId,
+  state: 'blocked',
+  availability: 'unavailable',
+  ...patch,
+})
+
+test('a refused readiness check is held across status reads until the next check replaces it', async () => {
+  const h = fixture(blockedTurn())
+  h.overrides.prepare = async () => ({
+    leadTurn: blockedTurn({ reasonCode: 'MODEL_NOT_READY', readinessReason: 'QUOTA_EXHAUSTED' }),
+  })
+  h.overrides.status = async () => ({ leadTurn: blockedTurn() })
+  await h.controller.prepare()
+  // The status read after prepare does not repeat the refusal; the view still knows it.
+  expect(h.controller.view.turn?.reasonCode).toBeUndefined()
+  expect(h.controller.view.lastRefusal).toBe('QUOTA_EXHAUSTED')
+  await h.controller.refresh()
+  expect(h.controller.view.lastRefusal).toBe('QUOTA_EXHAUSTED')
+  // A later check that is admitted clears it.
+  h.overrides.prepare = async () => ({ leadTurn: admitted() })
+  h.overrides.status = async () => ({ leadTurn: admitted() })
+  await h.controller.prepare()
+  expect(h.controller.view.lastRefusal).toBeNull()
+  // Resetting to another turn or scope never carries a refusal over.
+  h.overrides.prepare = async () => ({
+    leadTurn: blockedTurn({ reasonCode: 'MODEL_NOT_READY', readinessReason: 'CREDENTIAL_EXPIRED' }),
+  })
+  h.overrides.status = async () => ({ leadTurn: blockedTurn() })
+  h.controller.reset(blockedTurn())
+  await h.controller.prepare()
+  expect(h.controller.view.lastRefusal).toBe('CREDENTIAL_EXPIRED')
+  h.changeScope({ channelId: 'other-topic' })
+  expect(h.controller.view.lastRefusal).toBeNull()
+})
+
+test('a refusal without a named reason is held as unverifiable, never as a guessed reason', async () => {
+  const h = fixture(blockedTurn())
+  h.overrides.prepare = async () => ({ leadTurn: blockedTurn({ reasonCode: 'MODEL_NOT_READY' }) })
+  h.overrides.status = async () => ({ leadTurn: blockedTurn() })
+  await h.controller.prepare()
+  expect(h.controller.view.lastRefusal).toBe('READINESS_UNAVAILABLE')
+})

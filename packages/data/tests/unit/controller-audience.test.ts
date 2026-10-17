@@ -96,7 +96,14 @@ if (isServer) {
   test('controller audience regressions run with browser Solid', () => {
     const child = spawnSync(
       process.execPath,
-      ['--conditions=browser', '--conditions=development', 'test', fileURLToPath(import.meta.url)],
+      [
+        '--conditions=browser',
+        '--conditions=development',
+        'test',
+        '--preload',
+        fileURLToPath(new URL('../../../../scripts/test-solid-transform.ts', import.meta.url)),
+        fileURLToPath(import.meta.url),
+      ],
       { encoding: 'utf8', timeout: 10000 }
     )
     expect(child.error).toBeUndefined()

@@ -1,0 +1,290 @@
+{
+  "schemaVersion": 1,
+  "baseHead": "5a74c9aae7ab4ed85a0668e9a8f0207c5cbf5f62",
+  "platform": "darwin-arm64",
+  "node": "24.21.0",
+  "bun": "1.4.3",
+  "measurement": "One sequential sample per command, interleaved old/new for each package. Other repository checks ran concurrently. This is diagnostic timing, not an isolated benchmark or production saving.",
+  "packages": [
+    {
+      "package": "api-client",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 2.574,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 0.466,
+          "output": "\u2713 No type errors in 8 files [436.04ms]\n"
+        }
+      ]
+    },
+    {
+      "package": "app-core",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 1.878,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 0.522,
+          "output": "\u2713 No type errors in 2 files [451.45ms]\n"
+        }
+      ]
+    },
+    {
+      "package": "audio",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 1.982,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 0.717,
+          "output": "\u2713 No type errors in 6 files [680.58ms]\n"
+        }
+      ]
+    },
+    {
+      "package": "auth",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 7.175,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 3.791,
+          "output": "\u2713 No type errors in 18 files [3.74s]\n"
+        }
+      ]
+    },
+    {
+      "package": "data",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 3.732,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 0.653,
+          "output": "\u2713 No type errors in 12 files [618.09ms]\n"
+        }
+      ]
+    },
+    {
+      "package": "db",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 55.488,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 9.274,
+          "output": "\u2713 No type errors in 111 files [9.14s]\n"
+        }
+      ]
+    },
+    {
+      "package": "dev-view",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 8.367,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 3.023,
+          "output": "\u2713 No type errors in 226 files [2.99s]\n"
+        }
+      ]
+    },
+    {
+      "package": "remote-content",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 2.565,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 0.877,
+          "output": "\u2713 No type errors in 3 files [817.45ms]\n"
+        }
+      ]
+    },
+    {
+      "package": "spatial",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 4.84,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 0.553,
+          "output": "\u2713 No type errors in 14 files [496.08ms]\n"
+        }
+      ]
+    },
+    {
+      "package": "state",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 2.821,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 1.115,
+          "output": "\u2713 No type errors in 2 files [1082.50ms]\n"
+        }
+      ]
+    },
+    {
+      "package": "types",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 6.326,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 1.007,
+          "output": "\u2713 No type errors in 264 files [970.92ms]\n"
+        }
+      ]
+    },
+    {
+      "package": "ui",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 7.675,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 2.657,
+          "output": "\u2713 No type errors in 29 files [2.57s]\n"
+        }
+      ]
+    },
+    {
+      "package": "workspace-nav",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 4.74,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 1.771,
+          "output": "\u2713 No type errors in 27 files [1.72s]\n"
+        }
+      ]
+    },
+    {
+      "package": "workspace-ui",
+      "before": "tsc -p tsconfig.json --noEmit",
+      "after": "bun check -p tsconfig.json",
+      "runs": [
+        {
+          "checker": "tsc",
+          "exit": 0,
+          "seconds": 34.207,
+          "output": "$ tsc -p tsconfig.json --noEmit\n"
+        },
+        {
+          "checker": "bun",
+          "exit": 0,
+          "seconds": 8.898,
+          "output": "\u2713 No type errors in 134 files [8.80s]\n"
+        }
+      ]
+    }
+  ],
+  "negativeControl": {
+    "intentionalTypeErrorRejected": true,
+    "diagnostic": "TS2322",
+    "exit": 1,
+    "distFilesCompared": 1579,
+    "noEmittedOutputChanges": true
+  },
+  "buildContract": "Only no-emit typecheck scripts change. Existing TypeScript/Vite build and declaration-emit scripts are retained.",
+  "officialStableVerification": {
+    "url": "https://github.com/oven-sh/bun/releases/tag/bun-v1.4.3",
+    "publishedAt": "2026-10-10T05:24:54Z",
+    "prerelease": false,
+    "verifiedOn": "2026-10-17"
+  }
+}

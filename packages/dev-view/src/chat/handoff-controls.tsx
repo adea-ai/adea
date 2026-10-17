@@ -155,6 +155,11 @@ export function DirectSessionHandoffControls(
         <Show when={props.view.awaitingApproval}>
           <Badge variant="secondary">awaiting approval</Badge>
         </Show>
+        <Show when={props.view.approvalState === 'unknown'}>
+          <Badge variant="outline" title="Approval events cannot be matched to their requests">
+            approval status unknown
+          </Badge>
+        </Show>
         <Show when={props.view.coordination}>
           {(coordination) => (
             <Badge variant="outline" title={`Coordinating lead turn ${coordination().intentId}`}>

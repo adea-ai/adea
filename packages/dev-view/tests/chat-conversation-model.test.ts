@@ -478,6 +478,202 @@ describe('ChatConversationModel', () => {
     expect(model.project().conversations[0]?.draftBlocks).toEqual([block])
   })
 
+  describe('initial model for a new launched conversation', () => {
+    const input = {
+      projectId: 'project-1',
+      repoId: 'repo-1',
+      worktreeId: 'worktree-1',
+      agentProfileId: 'profile-1',
+      agentProfileVersion: 1,
+      initialPrompt: 'Fix the login flow',
+    }
+    test('launches with the resolved default model id', async () => {
+      const { calls, service } = launchService()
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: async () => ({ kind: 'model', modelId: 'gpt-5' }),
+      })
+      await model.create({ ...input, idempotencyKey: 'k-1' })
+      expect(
+        calls.find((call) => call.operation === 'dev.session.launchDefault')?.body
+      ).toMatchObject({ modelId: 'gpt-5' })
+    })
+
+    test('an explicit model id is never replaced and the hook is not consulted', async () => {
+      const { calls, service } = launchService()
+      let consulted = 0
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => {
+          consulted += 1
+          return { kind: 'model', modelId: 'default-model' }
+        },
+      })
+      await model.create({ ...input, modelId: 'chosen-model', idempotencyKey: 'k-2' })
+      expect(consulted).toBe(0)
+      expect(
+        calls.find((call) => call.operation === 'dev.session.launchDefault')?.body
+      ).toMatchObject({ modelId: 'chosen-model' })
+    })
+
+    test('a blocked default stops the create before any session exists', async () => {
+      const { calls, service } = launchService()
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => ({ kind: 'blocked', message: 'Reconnect the provider.' }),
+      })
+      await expect(model.create({ ...input, idempotencyKey: 'k-3' })).rejects.toThrow(
+        'Reconnect the provider.'
+      )
+      expect(calls.some((call) => call.operation.startsWith('dev.session.'))).toBe(false)
+    })
+
+    test('the harness default sends no model id', async () => {
+      const { calls, service } = launchService()
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => ({ kind: 'harness_default' }),
+      })
+      await model.create({ ...input, idempotencyKey: 'k-4' })
+      expect(
+        calls.find((call) => call.operation === 'dev.session.launchDefault')?.body
+      ).not.toHaveProperty('modelId')
+    })
+
+    test('a retry after a lost launch replays the original stored-default model', async () => {
+      const { calls, service } = launchService(['dev.session.launchDefault'])
+      const answers = [
+        { kind: 'model', modelId: 'model-a' },
+        { kind: 'model', modelId: 'model-b' },
+      ] as const
+      let asked = 0
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => answers[Math.min(asked++, answers.length - 1)]!,
+      })
+      const request = { ...input, idempotencyKey: 'k-6' }
+      await expect(model.create(request)).rejects.toThrow('transport lost')
+      // The stored default changed to B while the first attempt was in flight.
+      await model.create(request)
+      expect(asked).toBe(1)
+      expect(launches(calls).map((call) => call.body.modelId)).toEqual(['model-a', 'model-a'])
+      expect(
+        calls
+          .filter((call) => call.operation !== 'dev.session.get')
+          .map((call) => call.idempotencyKey)
+      ).toEqual(
+        Array(calls.filter((call) => call.operation !== 'dev.session.get').length).fill('k-6')
+      )
+    })
+
+    test('a retry after a lost create replays the original choice too', async () => {
+      const { calls, service } = launchService(['dev.session.create'])
+      let asked = 0
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () =>
+          ++asked === 1
+            ? { kind: 'model', modelId: 'model-a' }
+            : { kind: 'model', modelId: 'model-b' },
+      })
+      const request = { ...input, idempotencyKey: 'k-7' }
+      await expect(model.create(request)).rejects.toThrow('transport lost')
+      await model.create(request)
+      expect(asked).toBe(1)
+      expect(launches(calls).map((call) => call.body.modelId)).toEqual(['model-a'])
+    })
+
+    test('"no model" is a remembered choice: a retry does not adopt a default set meanwhile', async () => {
+      const { calls, service } = launchService(['dev.session.launchDefault'])
+      let asked = 0
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () =>
+          ++asked === 1
+            ? { kind: 'harness_default' }
+            : { kind: 'model', modelId: 'newly-stored-default' },
+      })
+      const request = { ...input, idempotencyKey: 'k-8' }
+      await expect(model.create(request)).rejects.toThrow('transport lost')
+      await model.create(request)
+      expect(asked).toBe(1)
+      for (const launch of launches(calls)) expect(launch.body).not.toHaveProperty('modelId')
+    })
+
+    test('an unconfigured hook also replays as no model', async () => {
+      const { calls, service } = launchService(['dev.session.launchDefault'])
+      const model = createChatConversationModel(service, SCOPE)
+      const request = { ...input, idempotencyKey: 'k-9' }
+      await expect(model.create(request)).rejects.toThrow('transport lost')
+      await model.create(request)
+      for (const launch of launches(calls)) expect(launch.body).not.toHaveProperty('modelId')
+    })
+
+    test('an explicit model survives a lost launch and the hook is never asked', async () => {
+      const { calls, service } = launchService(['dev.session.launchDefault'])
+      let asked = 0
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => {
+          asked += 1
+          return { kind: 'model', modelId: 'default-model' }
+        },
+      })
+      const request = { ...input, modelId: 'chosen-model', idempotencyKey: 'k-10' }
+      await expect(model.create(request)).rejects.toThrow('transport lost')
+      await model.create(request)
+      expect(asked).toBe(0)
+      expect(launches(calls).map((call) => call.body.modelId)).toEqual([
+        'chosen-model',
+        'chosen-model',
+      ])
+    })
+
+    test('a blocked start is decided again on retry and creates nothing until it is ready', async () => {
+      const { calls, service } = launchService()
+      let ready = false
+      let asked = 0
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => {
+          asked += 1
+          return ready
+            ? { kind: 'model', modelId: 'model-after-recovery' }
+            : { kind: 'blocked', message: 'Reconnect the provider.' }
+        },
+      })
+      const request = { ...input, idempotencyKey: 'k-11' }
+      await expect(model.create(request)).rejects.toThrow('Reconnect the provider.')
+      await expect(model.create(request)).rejects.toThrow('Reconnect the provider.')
+      expect(calls.filter((call) => call.operation === 'dev.session.create')).toHaveLength(0)
+      ready = true
+      await model.create(request)
+      expect(asked).toBe(3)
+      expect(launches(calls).map((call) => call.body.modelId)).toEqual(['model-after-recovery'])
+    })
+
+    test('a different request under a new key decides afresh', async () => {
+      const { calls, service } = launchService()
+      let asked = 0
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => ({ kind: 'model', modelId: asked++ === 0 ? 'model-a' : 'model-b' }),
+      })
+      await model.create({ ...input, idempotencyKey: 'k-12' })
+      await model.create({ ...input, initialPrompt: 'Another task', idempotencyKey: 'k-13' })
+      expect(launches(calls).map((call) => call.body.modelId)).toEqual(['model-a', 'model-b'])
+    })
+
+    test('an unlaunched session ignores the hook', async () => {
+      const { calls, service } = launchService()
+      let consulted = 0
+      const model = createChatConversationModel(service, SCOPE, {
+        initialModel: () => {
+          consulted += 1
+          return { kind: 'blocked', message: 'blocked' }
+        },
+      })
+      await model.create({
+        projectId: 'project-1',
+        repoId: 'repo-1',
+        worktreeId: 'worktree-1',
+        idempotencyKey: 'k-5',
+      })
+      expect(consulted).toBe(0)
+      expect(calls.map((call) => call.operation)).toEqual(['dev.session.create'])
+    })
+  })
+
   test('create is staged and idempotent, with one session, run, and prompt', async () => {
     const calls: Array<{
       operation: string
@@ -1400,3 +1596,33 @@ describe('conversation derivations from canonical events', () => {
     expect(deriveConversationStatus(subject, events)).toBe('completed')
   })
 })
+
+/** `lose` names operations whose first dispatch is lost after the host may have committed it. */
+function launchService(lose: readonly string[] = []) {
+  const calls: Array<{
+    operation: string
+    body: Record<string, unknown>
+    idempotencyKey?: string
+  }> = []
+  const lost = new Set(lose)
+  const created = session({ lifecycle: 'ready' })
+  const service = fakeService(async (command) => {
+    const hierarchy = hierarchyReply(command.operation)
+    if (hierarchy) return hierarchy
+    calls.push({
+      operation: command.operation,
+      body: command.body,
+      ...(command.idempotencyKey ? { idempotencyKey: command.idempotencyKey } : {}),
+    })
+    if (lost.delete(command.operation)) throw new Error('transport lost')
+    if (command.operation === 'dev.session.create') return ok(command.operation, created)
+    if (command.operation === 'dev.session.launchDefault')
+      return ok(command.operation, { id: 'run-1', runtimeSessionId: created.id })
+    if (command.operation === 'dev.session.get') return ok(command.operation, created)
+    throw new Error(`unexpected ${command.operation}`)
+  })
+  return { calls, service }
+}
+
+const launches = (calls: ReadonlyArray<{ operation: string; body: Record<string, unknown> }>) =>
+  calls.filter((call) => call.operation === 'dev.session.launchDefault')
