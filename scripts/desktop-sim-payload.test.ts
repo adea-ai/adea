@@ -2,6 +2,8 @@ import { afterEach, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 import { inspectClient, simPayloadOffenders } from './check-desktop-sim-payload.mjs'
 import { packFromEnv } from './pack-agent-sim.mjs'
 
@@ -47,4 +49,14 @@ test('old pack configuration fails without reading or staging private files', as
     packFromEnv({ environment: { ADEA_AGENT_SIM_DIST: '/not/read' }, log() {} })
   ).rejects.toThrow('hosted separately')
   expect(await packFromEnv({ environment: {}, log() {} })).toBe(false)
+})
+
+test('CLI invoked through an absolute symlink cannot skip private-payload rejection', async () => {
+  const root = await client()
+  await writeFile(join(root, 'engine.js'), 'private')
+  const entry = join(await client(), 'checker.mjs')
+  await symlink(fileURLToPath(new URL('./check-desktop-sim-payload.mjs', import.meta.url)), entry)
+  const result = spawnSync('node', [entry, '--client', root], { encoding: 'utf8' })
+  expect(result.status).toBe(1)
+  expect(result.stderr).toContain('Sim payload')
 })

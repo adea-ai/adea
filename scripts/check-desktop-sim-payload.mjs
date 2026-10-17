@@ -1,7 +1,8 @@
 import { readdir, lstat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
+import { existsSync, realpathSync } from 'node:fs'
 
 export function simPayloadOffenders(paths) {
   return paths.filter((path) => {
@@ -53,7 +54,11 @@ export function inspectArchive(archive) {
   return { files: paths.length, simPayloadFiles: 0 }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  existsSync(process.argv[1]) &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+) {
   const [mode, target] = process.argv.slice(2)
   try {
     if (!target || !['--client', '--archive'].includes(mode)) {

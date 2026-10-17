@@ -1,4 +1,4 @@
-import { agentSimResponse } from '../agent-sim-assets'
+import { serveDesktopClient } from '../client-assets'
 // Adea desktop shell — Electrobun 2.x (Bun main process, bundled CEF view).
 // Serves the single UI (apps/web's TanStack Start SPA output, built by
 // apps/desktop/scripts/client.mjs) from disk on a loopback port, injects the
@@ -11,7 +11,7 @@ import { agentSimResponse } from '../agent-sim-assets'
 import { BrowserWindow, Utils } from 'electrobun/main'
 import { promises as dns } from 'node:dns'
 import { existsSync, lstatSync, rmSync } from 'node:fs'
-import { dirname, extname, join, normalize } from 'node:path'
+import { dirname, join } from 'node:path'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
 import { createCommandSurface, type BridgeResult } from '../commands'
 import { loadDeviceKey } from '../device-key'
@@ -574,18 +574,6 @@ identity.onBindingChanged(() => {
 queueBootSteps()
 void host
 
-const MIME: Record<string, string> = {
-  '.html': 'text/html',
-  '.js': 'text/javascript',
-  '.css': 'text/css',
-  '.svg': 'image/svg+xml',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.ico': 'image/x-icon',
-  '.woff2': 'font/woff2',
-  '.wasm': 'application/wasm',
-}
-
 /**
  * The one-time launch bootstrap rides only the app window's own document
  * load: a browser-context request carries fetch metadata (`Sec-Fetch-Dest:
@@ -642,34 +630,7 @@ for (let attempt = 0; attempt < 30 && !server; attempt++) {
           if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
             return proxyCloudRequest(request, CLOUD_ORIGIN, SHELL_ORIGIN)
           }
-          // Hosted Sim never falls back to a local engine, including stale installs.
-          if (url.pathname.startsWith('/assets/agent-sim/')) {
-            return agentSimResponse(url.pathname)
-          }
-          const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '')
-          let filePath = join(CLIENT_ROOT, rel)
-          if (!filePath.startsWith(CLIENT_ROOT)) return new Response(null, { status: 403 })
-          if (existsSync(filePath) && !extname(filePath)) filePath = join(filePath, 'index.html')
-          if (!existsSync(filePath)) {
-            // Static asset paths never fall back to the SPA shell; a missing
-            // asset (e.g. an unpacked Agent Sim) is a plain 404 for the client.
-            if (rel === '/assets' || rel.startsWith('/assets/')) {
-              return new Response(null, { status: 404 })
-            }
-            filePath = join(CLIENT_ROOT, 'index.html')
-          }
-          let body = new Uint8Array(await Bun.file(filePath).arrayBuffer())
-          if (filePath.endsWith('.html')) {
-            body = new TextEncoder().encode(injectBridge(new TextDecoder().decode(body), request))
-          }
-          return new Response(body, {
-            headers: {
-              'content-type': MIME[extname(filePath)] ?? 'application/octet-stream',
-              // The injected bootstrap is single-use and per-document load;
-              // no cache may retain it.
-              'cache-control': 'no-store',
-            },
-          })
+          return serveDesktopClient(request, CLIENT_ROOT, injectBridge)
         } catch {
           return new Response(null, { status: 500 })
         }

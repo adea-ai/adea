@@ -1,7 +1,8 @@
 // Agent Sim is hosted separately. Keep this former staging entry as a hard
 // migration guard so an old release environment cannot silently reintroduce
 // licensed engine bytes into a public or desktop client build.
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
+import { existsSync, realpathSync } from 'node:fs'
 
 export async function packFromEnv({ log = console.log, environment = process.env } = {}) {
   if (environment.ADEA_AGENT_SIM_DIST) {
@@ -13,7 +14,11 @@ export async function packFromEnv({ log = console.log, environment = process.env
   return false
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  existsSync(process.argv[1]) &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+) {
   packFromEnv().catch((error) => {
     console.error(error instanceof Error ? error.message : error)
     process.exitCode = 1
