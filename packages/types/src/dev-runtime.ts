@@ -95,6 +95,7 @@ export {
   isRuntimeAssistantEventKind,
   decodeCbor,
   decodeRuntimeEvent,
+  decodeRuntimeActivityEvent,
   decodeRuntimeEnvelope,
   decodeRuntimeCallEvent,
   assertRuntimeEventFrameSize,
@@ -137,6 +138,7 @@ export type {
   RuntimeEvent,
   RuntimeEventKind,
   RuntimeEventProvenance,
+  RuntimeActivityEvent,
   RuntimeCallEvent,
   RuntimeCallEventKind,
   RuntimeCallData,
@@ -5578,3 +5580,36 @@ export function devStreamAttachProofMessage(input: {
     input.attach.fromSequence,
   ])
 }
+
+export {
+  decodeRuntimeActivityPayload,
+  isRuntimeActivityEventKind,
+  runtimeActivityEventKinds,
+  runtimeTestStatuses,
+  runtimeWorkStatuses,
+  runtimeFileChangeKinds,
+  ACTIVITY_PAYLOAD_BYTES_MAX,
+  ACTIVITY_JSON_NODES_MAX,
+  ACTIVITY_JSON_DEPTH_MAX,
+  ACTIVITY_TEXT_MAX,
+} from './dev-runtime-activity'
+export type {
+  RuntimeActivityEventKind,
+  RuntimeActivityPayloads,
+  RuntimeFailureRecord,
+  RuntimeFailurePayload,
+  RuntimeStackFrame,
+  RuntimeStackTrace,
+  RuntimeTestRunPayload,
+  RuntimeTestSummary,
+  RuntimeTestSuite,
+  RuntimeTestCase,
+  RuntimeTestStatus,
+  RuntimeTerminalOutputPayload,
+  RuntimeChangedFilesPayload,
+  RuntimeFileChange,
+  RuntimePlanPayload,
+  RuntimeTaskPayload,
+  RuntimeWorkStatus,
+  RuntimeWorkItem,
+} from './dev-runtime-activity'

@@ -126,6 +126,14 @@ export default defineConfig(({ command }) => ({
                   name: 'dev-runtime-contract',
                   test: /packages\/types\/dist\/dev-runtime-(wire|validation-internal)\.js$/,
                 },
+                // The contextual host and its lazy panes share this small command
+                // helper. Co-locate them without hoisting eager context or runtime
+                // decoder dependencies across their existing boundaries.
+                {
+                  name: 'utility-host',
+                  test: /packages\/dev-view\/src\/utility-(?:host\.tsx|command\.ts)$/,
+                  includeDependenciesRecursively: false,
+                },
                 // The theme record helpers, their CSS projection and the
                 // defaults they read share every importer today. The lazy theme
                 // importer reaches only the records, which would otherwise split
