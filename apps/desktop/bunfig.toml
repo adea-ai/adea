@@ -1,4 +1,4 @@
-# Desktop suite runtime (`bun test tests` from apps/desktop, also via turbo).
+# Desktop suite runtime (`bun test tests` from apps/desktop, also through `vp run orch:desktop:test`).
 [test]
 # Settles every child a test spawned before the next test runs, so Bun's
 # file-boundary dangling-process sweep never races an exiting child (the
