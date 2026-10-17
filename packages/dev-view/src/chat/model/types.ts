@@ -88,7 +88,18 @@ export type ConversationCreateInput = Readonly<{
   idempotencyKey?: string
 }>
 
+/**
+ * Where a NEW launched conversation gets its model when the caller names none. `blocked` stops the
+ * create before any session exists; nothing substitutes another model for it.
+ */
+export type InitialConversationModel =
+  | Readonly<{ kind: 'model'; modelId: string }>
+  | Readonly<{ kind: 'harness_default' }>
+  | Readonly<{ kind: 'blocked'; message: string }>
+
 export type ConversationModelOptions = Readonly<{
+  /** Consulted once per create request that launches a harness with no explicit `modelId`. */
+  initialModel?: () => InitialConversationModel | Promise<InitialConversationModel>
   sendInput?: ChatInputTransport
   now?: () => Date
   randomId?: () => string

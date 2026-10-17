@@ -188,6 +188,35 @@ describe('execution location policy', () => {
     })
   })
 
+  test('queues an offline remote host while synchronized conversation history stays available', () => {
+    const offlineDataAvailability: ExecutionDataAvailability = {
+      channelMessageMetadata: 'available',
+      localOnlyContent: 'unavailable',
+      synchronizedHistory: 'available',
+    }
+    const requestedLocation: ExecutionLocationSelection = {
+      kind: 'remote_host',
+      runtimeNodeId: 'host-1',
+    }
+
+    const decision = decideExecutionLocation(
+      input({
+        dataAvailability: offlineDataAvailability,
+        nodes: [node('local-1', 'local_device'), node('host-1', 'remote_host', 'offline')],
+        requestedLocation,
+      })
+    )
+
+    expect(decision).toMatchObject({
+      action: 'queue',
+      blocker: 'location_offline',
+      selectedLocation: requestedLocation,
+      dataAvailability: offlineDataAvailability,
+    })
+    expect(decision.dataAvailability.synchronizedHistory).toBe('available')
+    expect(decision.dataAvailability.localOnlyContent).toBe('unavailable')
+  })
+
   test('gates the future cloud location explicitly without falling back to it', () => {
     const decision = decideExecutionLocation(
       input({

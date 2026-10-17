@@ -142,11 +142,18 @@ test('a device pairs, proves liveness, rotates its key, and is revoked', async (
     expect(discovery.node).toMatchObject({
       id: node.id,
       controlPlaneRuntimeNodeRefId: node.controlPlaneRuntimeNodeRefId,
+      deviceOnline: {
+        state: 'unknown',
+        dependency: 'control_plane.runtime_connection_discovery.device_online',
+      },
+      hostReachability: { state: 'not_applicable' },
     })
     expect(Object.keys(discovery.node).toSorted()).toEqual([
       'controlPlaneRuntimeNodeRefId',
+      'deviceOnline',
       'displayName',
       'health',
+      'hostReachability',
       'id',
       'kind',
       'lastProofAt',

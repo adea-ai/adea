@@ -57,6 +57,7 @@ import {
   groupAdmissions,
   groupAudienceGrants,
   groupEnlistmentGrants,
+  legacyAudienceQuarantine,
   groupSharingGrants,
   messageArtifactReferences,
   messageMentions,
@@ -1332,21 +1333,48 @@ export async function setChannelParticipants(
     // Readers acquire the channel before participant rows. Take the same lock first so a
     // roster replacement cannot hold participants while waiting for a history-reader's channel.
     const channel = await requireChannel(transaction, workspaceId, channelId, { forUpdate: true })
+    if (channel.kind !== 'group') throw new Error('Channel participant policy conflict')
+    await requireGroupMutationStanding(transaction, workspaceId, channelId, principal)
     await requireChannelProjectWrite(transaction, workspaceId, channel, principal)
     if (channel.version !== expectedVersion) throw new Error('Channel version conflict')
-    if (channel.kind !== 'group') throw new Error('Channel participant policy conflict')
     const unique = new Map(participants.map((entry) => [stableKey(entry), entry])).values()
     const normalized = [...unique]
     for (const participant of normalized)
       await validateParticipant(transaction, workspaceId, participant)
-    await transaction
-      .delete(channelParticipants)
-      .where(
-        and(
-          eq(channelParticipants.workspaceId, workspaceId),
-          eq(channelParticipants.channelId, channelId)
+    if (normalized.length) {
+      const quarantined = await transaction
+        .select({ id: legacyAudienceQuarantine.id })
+        .from(legacyAudienceQuarantine)
+        .where(
+          and(
+            eq(legacyAudienceQuarantine.workspaceId, workspaceId),
+            eq(legacyAudienceQuarantine.channelId, channelId),
+            or(
+              ...normalized.map((participant) =>
+                and(
+                  eq(legacyAudienceQuarantine.principalKind, participant.kind),
+                  eq(
+                    legacyAudienceQuarantine.principalId,
+                    participant.kind === 'user' ? participant.userId : participant.agentId
+                  )
+                )!
+              )
+            )
+          )
         )
+        .limit(1)
+      if (quarantined.length) throw new Error('Conversation participant unavailable')
+    }
+    await transaction.delete(channelParticipants).where(
+      and(
+        eq(channelParticipants.workspaceId, workspaceId),
+        eq(channelParticipants.channelId, channelId),
+        sql`not exists (
+            select 1 from ${legacyAudienceQuarantine}
+            where ${legacyAudienceQuarantine.sourceParticipantId} = ${channelParticipants.id}
+          )`
       )
+    )
     if (normalized.length)
       await transaction.insert(channelParticipants).values(
         normalized.map((participant) => ({

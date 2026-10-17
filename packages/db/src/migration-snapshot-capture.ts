@@ -85,6 +85,7 @@ import {
   groupEnlistmentGrants,
   groupSharingGrants,
   leadTurnRuntime,
+  legacyAudienceQuarantine,
   messages,
   projectMembers,
   projects,
@@ -138,6 +139,7 @@ export const MIGRATION_SNAPSHOT_CAPTURE_PAGE_SIZE = 500
 
 /** Why a requested domain was not captured. */
 export const migrationSnapshotCaptureUnknownReasons = [
+  'schema_absent',
   'unrecognized_domain',
   'unsupported_family',
   'inventory_error',
@@ -685,6 +687,8 @@ function stableIdOf(record: MigrationSnapshotRecord): string {
       return record.replicaId
     case 'leadTurnRuntime':
       return record.intentId
+    case 'legacyAudienceQuarantine':
+      return record.sourceParticipantId
     case 'nativeSessions':
       return record.sessionRef
     case 'runtimeNodes':
@@ -1485,6 +1489,58 @@ async function captureFamilySectionByName(
           state: row.state,
         }),
       })
+    case 'legacyAudienceQuarantine':
+      return captureFamilySection(transaction, bound, {
+        fetchPage: (offset, rowsBound) =>
+          transaction
+            .select({
+              channelId: legacyAudienceQuarantine.channelId,
+              createdAt: sql<string>`to_char(${legacyAudienceQuarantine.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+              id: legacyAudienceQuarantine.id,
+              observedAt: legacyAudienceQuarantine.observedAt,
+              principalId: legacyAudienceQuarantine.principalId,
+              principalKind: legacyAudienceQuarantine.principalKind,
+              profile: legacyAudienceQuarantine.profile,
+              reason: legacyAudienceQuarantine.reason,
+              sourceChannelCreatedAt: legacyAudienceQuarantine.sourceChannelCreatedAt,
+              sourceJoinedAt: legacyAudienceQuarantine.sourceJoinedAt,
+              sourceParticipantId: legacyAudienceQuarantine.sourceParticipantId,
+              sourceRowDigest: legacyAudienceQuarantine.sourceRowDigest,
+              sourceWorkspaceId: legacyAudienceQuarantine.sourceWorkspaceId,
+              withdrawnAdmissions: legacyAudienceQuarantine.withdrawnAdmissions,
+              withdrawnAudienceGrants: legacyAudienceQuarantine.withdrawnAudienceGrants,
+              withdrawnDigest: legacyAudienceQuarantine.withdrawnDigest,
+              withdrawnEnlistmentGrants: legacyAudienceQuarantine.withdrawnEnlistmentGrants,
+              workspaceId: legacyAudienceQuarantine.workspaceId,
+            })
+            .from(legacyAudienceQuarantine)
+            .orderBy(asc(legacyAudienceQuarantine.sourceParticipantId))
+            .limit(rowsBound)
+            .offset(offset),
+        toRecord: (row) => ({
+          channelId: row.channelId,
+          createdAt: row.createdAt,
+          family: 'legacyAudienceQuarantine',
+          observedAt: row.observedAt,
+          principalId: row.principalId,
+          principalKind: row.principalKind,
+          profile: row.profile,
+          quarantineId: row.id,
+          reason: row.reason as MigrationSnapshotRecordFor<'legacyAudienceQuarantine'>['reason'],
+          sourceChannelCreatedAt: row.sourceChannelCreatedAt,
+          sourceJoinedAt: row.sourceJoinedAt,
+          sourceParticipantId: row.sourceParticipantId,
+          sourceRowDigest: row.sourceRowDigest,
+          sourceWorkspaceId: row.sourceWorkspaceId,
+          // The table only allows nulls while the migration is in progress. Preserve corrupted or
+          // incomplete values for the contract validator instead of coercing them to zero.
+          withdrawnAdmissions: row.withdrawnAdmissions as number,
+          withdrawnAudienceGrants: row.withdrawnAudienceGrants as number,
+          withdrawnDigest: row.withdrawnDigest as string,
+          withdrawnEnlistmentGrants: row.withdrawnEnlistmentGrants as number,
+          workspaceId: row.workspaceId,
+        }),
+      })
     case 'nativeSessions':
       // Composed by `captureNativeSessionSection` outside the database
       // transaction; `captureDocument` assigns the precomputed section and
@@ -1568,9 +1624,37 @@ async function captureDocument(
   bound: number,
   capturedAt: Date,
   nativeSessionSection?: MigrationSnapshotSection
-): Promise<MigrationSnapshotDocument> {
+): Promise<
+  Readonly<{
+    document: MigrationSnapshotDocument
+    domains: readonly MigrationSnapshotDomainCaptureStatus[]
+  }>
+> {
+  let effectiveDomains = domains
+  if (
+    domains.some(
+      (domain) => domain.domain === 'legacyAudienceQuarantine' && domain.status === 'captured'
+    )
+  ) {
+    const catalog = (await transaction.execute(sql`
+      select to_regclass('app.legacy_audience_quarantine')::text as relation
+    `)) as unknown as readonly { relation: string | null }[]
+    if (catalog[0]?.relation === null) {
+      effectiveDomains = domains.map((domain) =>
+        domain.domain === 'legacyAudienceQuarantine'
+          ? {
+              domain: domain.domain,
+              status: 'unknown' as const,
+              unknownReason: 'schema_absent' as const,
+            }
+          : domain
+      )
+    } else if (!catalog[0]) {
+      throw new Error('migration snapshot quarantine schema probe returned no row')
+    }
+  }
   const captured = new Set(
-    domains.filter((domain) => domain.status === 'captured').map((domain) => domain.domain)
+    effectiveDomains.filter((domain) => domain.status === 'captured').map((domain) => domain.domain)
   )
   // Sections are emitted in contract-family order regardless of the order
   // domains were requested in, so the serialized document is byte-stable.
@@ -1584,8 +1668,11 @@ async function captureDocument(
     sections[family] = await captureFamilySectionByName(transaction, family, bound, capturedAt)
   }
   return Object.freeze({
-    identity,
-    sections: Object.freeze(sections) as MigrationSnapshotSections,
+    document: Object.freeze({
+      identity,
+      sections: Object.freeze(sections) as MigrationSnapshotSections,
+    }),
+    domains: effectiveDomains,
   })
 }
 
@@ -1623,7 +1710,7 @@ export async function captureMigrationSnapshotInTransaction(
         : domain
     )
   }
-  const document = await captureDocument(
+  const result = await captureDocument(
     transaction,
     identity,
     domains,
@@ -1631,7 +1718,7 @@ export async function captureMigrationSnapshotInTransaction(
     input.identity.capturedAt,
     nativeSessionSection
   )
-  return Object.freeze({ document, domains })
+  return Object.freeze(result)
 }
 
 /**
@@ -1676,7 +1763,7 @@ export async function captureMigrationSnapshot(
       )
     }
   }
-  const document = await database.transaction(
+  const result = await database.transaction(
     (transaction) =>
       captureDocument(
         transaction,
@@ -1688,5 +1775,5 @@ export async function captureMigrationSnapshot(
       ),
     MIGRATION_SNAPSHOT_CAPTURE_TRANSACTION_CONFIG
   )
-  return Object.freeze({ document, domains })
+  return Object.freeze(result)
 }

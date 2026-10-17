@@ -2,7 +2,11 @@ import { describe, expect, test } from 'bun:test'
 import type { Scope, WorkspaceRunSummary } from '@adea-ai/types/dev-runtime'
 import { createRoot } from 'solid-js'
 
-import { createDevSummaryPoll, sameSummaryItems } from '../src/lib/dev-summary-poll'
+import {
+  createDevSummaryPoll,
+  DEV_SUMMARY_POLL_MS,
+  sameSummaryItems,
+} from '../src/lib/dev-summary-poll'
 
 const scope: Scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
@@ -128,4 +132,8 @@ describe('desktop cross-workspace run summary poll', () => {
       sameSummaryItems([item, { ...item, workspaceId: 'b' }], [{ ...item, workspaceId: 'b' }, item])
     ).toBe(false)
   })
+})
+
+test('summary background counts use the 60-second visible cadence', () => {
+  expect(DEV_SUMMARY_POLL_MS).toBe(60_000)
 })

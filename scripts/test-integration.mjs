@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { assertLocalTestTargets } from './test-target-guard.mjs'
 import {
   captureCommand,
   composePostgresImage,
@@ -17,6 +18,9 @@ import {
 } from './capture-provisioning.mjs'
 
 const root = resolve(import.meta.dirname, '..')
+
+// An inherited DATABASE_URL must be a local or CI-created target before anything runs.
+assertLocalTestTargets()
 const localDatabaseEnvironment = {
   DATABASE_URL:
     'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',
@@ -194,7 +198,7 @@ try {
     // suites above read their own src relatively; the database entry is already
     // built before provisioning), so it must be built on a clean checkout before
     // the route tests run. Like the builds above, this keeps integration
-    // runnable independently from a workspace-wide turbo build.
+    // runnable independently from a workspace-wide `vp run` build.
     if (plan.routeFiles.length > 0) {
       run('bun', ['run', '--cwd', 'packages/api-client', 'build'], process.env)
       // Data consumers import packages/data/src, whose state dependency resolves
@@ -205,12 +209,17 @@ try {
       // default conditions. The shared database environment and the same latency-sized ceiling apply.
       // These files install different `mock.module` route/auth seams, so per-file workers keep the
       // route contracts and their module registries from leaking into one another.
+      // Route modules reach `.tsx` through `@adea-ai/data` and the workspace UI. Bun 1.4.3 compiles those as
+      // automatic dev JSX, which solid-js cannot link (no `jsxDEV`), so this run loads the same Solid transform
+      // the package `test` scripts pass with `--preload` (the root bunfig preload line is pinned by the target guard).
       run(
         'bun',
         [
           'test',
           '--parallel',
           '--conditions=react-server',
+          '--preload',
+          resolve(root, 'scripts', 'test-solid-transform.ts'),
           '--timeout',
           String(timeoutMs),
           ...plan.routeFiles.map((file) => resolve(root, file)),

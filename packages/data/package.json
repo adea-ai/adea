@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/data",
-  "version": "0.92.0",
+  "version": "0.95.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -59,8 +59,8 @@
     "lint": "oxlint",
     "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
     "dev": "vite build --watch",
-    "test": "bun test tests/unit",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "test": "bun test --preload ../../scripts/test-solid-transform.ts tests/unit",
+    "typecheck": "bun check -p tsconfig.json"
   },
   "dependencies": {
     "@adea-ai/api-client": "workspace:*",

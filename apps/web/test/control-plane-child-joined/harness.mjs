@@ -1,7 +1,7 @@
 // Shared setup for the opt-in joined #1211 proofs. A real PostgreSQL-backed Adea workspace, lead
 // and intent, Adea's signed product reader, and CP's production factory in its own pinned Bun
 // process (host.mjs). Scope/account/tool policy/provider ports stay scripted, never live.
-import { readFileSync } from 'node:fs'
+import { appendFileSync, readFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
@@ -39,10 +39,15 @@ const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url
 /**
  * allowanceSource states where the lead plan's child allowance is written in CP's fixture:
  * 'profile' (only on the pinned profile version), 'request-and-profile', or 'none'.
- * controlApi additionally serves CP's actual control API from the same composition, so Adea's
+ * hostEntry names the CP-side host module in this directory. controlApi additionally serves CP's actual control API from the same composition, so Adea's
  * installed SDK can drive the lead over HTTP.
  */
-export async function startHarness({ allowanceSource = 'profile', controlApi = false, title }) {
+export async function startHarness({
+  allowanceSource = 'profile',
+  controlApi = false,
+  title,
+  hostEntry = 'host.mjs',
+}) {
   let connection, reader, owner, workspace, child, closed, choices
   const pending = new Map()
   let productRequests = 0
@@ -210,7 +215,8 @@ export async function startHarness({ allowanceSource = 'profile', controlApi = f
     const env = { ...process.env, ADEA_CHILD_FACTORY_CONFIG: JSON.stringify(config) }
     delete env.NODE_OPTIONS
     delete env.BUN_OPTIONS
-    child = spawn(binary, [join(import.meta.dirname, 'host.mjs')], {
+    if (!/^host[a-z-]*\.mjs$/.test(hostEntry)) throw new Error('INVALID_HOST_ENTRY')
+    child = spawn(binary, [join(import.meta.dirname, hostEntry)], {
       cwd: root,
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -221,7 +227,10 @@ export async function startHarness({ allowanceSource = 'profile', controlApi = f
       rejectReady(new Error('HOST_EXIT_BEFORE_READY'))
       for (const wait of pending.values()) wait.reject(new Error('HOST_EXIT_BEFORE_REPLY'))
     })
-    child.stderr.on('data', () => {})
+    // Diagnostics only: host stderr is dropped unless a log file is named for debugging a run.
+    child.stderr.on('data', (chunk) => {
+      if (process.env.PI_FACTORY_HOST_LOG) appendFileSync(process.env.PI_FACTORY_HOST_LOG, chunk)
+    })
     createInterface({ input: child.stdout }).on('line', (line) => {
       try {
         const value = JSON.parse(line)
