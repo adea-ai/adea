@@ -12,9 +12,11 @@ export const LEAD_SDK_METHODS = [
   'cancelPiDurableLead',
   'getPiDurableLeadPublication',
   'getModelSelectionFunding',
+  'getPiDurableLeadChildren',
 ] as const
 export type LeadSdkMethod = (typeof LEAD_SDK_METHODS)[number]
 export type LeadSdkPort = Readonly<{
+  childrenSupported?: boolean
   supported: boolean
   preparationSchema: Readonly<{ parse(value: unknown): unknown }> | null
   lookupResponseSchema: Readonly<{ parse(value: unknown): unknown }> | null
@@ -48,7 +50,11 @@ const preparationResponse = operation('preparePiDurableLead')?.responseSchema
 const preparationShape = isRecord(preparationResponse) ? preparationResponse.shape : undefined
 /** Activation uses actual exported SDK schemas and methods, never an endpoint fallback. */
 export const installedLeadSdkPort: LeadSdkPort = {
-  supported: LEAD_SDK_METHODS.every(
+  childrenSupported: Boolean(
+    operation('getPiDurableLeadChildren') &&
+    typeof Reflect.get(ControlPlaneClient.prototype, 'getPiDurableLeadChildren') === 'function'
+  ),
+  supported: LEAD_SDK_METHODS.filter((method) => method !== 'getPiDurableLeadChildren').every(
     (method) =>
       operation(method) && typeof Reflect.get(ControlPlaneClient.prototype, method) === 'function'
   ),

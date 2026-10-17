@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto'
 import type {
+  ApiLeadTurnChildrenQuery,
+  ApiLeadTurnChildrenResponse,
   ApiLeadTurnStatus,
   ApiLeadTurnProgressResponse,
   LeadTurnRuntimeState,
   LeadTurnReasonCode,
 } from '@adea-ai/api-client'
+import { leadTurnChildrenQuery, projectLeadTurnChildrenPage } from './lead-turn-children'
 import { LeadRuntimeRefusal } from './lead-runtime-refusal'
 
 export type LeadRuntimeScope = Readonly<{ workspaceId: string; intentId: string; userId: string }>
@@ -67,6 +70,12 @@ export type LeadRuntimeAdapter = {
     dispatchKey: string,
     prepared: LeadPreparedSelection
   ): Promise<unknown>
+  /** Read-only retained children; absent support never disables existing lead operations. */
+  children?: (
+    input: LeadRuntimeAuthority,
+    dispatchId: string,
+    page: ApiLeadTurnChildrenQuery
+  ) => Promise<unknown>
   status(input: LeadRuntimeAuthority, dispatchId: string): Promise<unknown>
   progress(input: LeadRuntimeAuthority, dispatchId: string, afterSequence: number): Promise<unknown>
   /** `issuedAt` is the persisted cancel-request instant, repeated by every retry of the cancel. */
@@ -496,6 +505,54 @@ export function createLeadTurnRuntime(
         },
         held
       )
+    },
+    async children(
+      scope: LeadRuntimeScope,
+      query: ApiLeadTurnChildrenQuery = {}
+    ): Promise<ApiLeadTurnChildrenResponse> {
+      const page = leadTurnChildrenQuery(query)
+      const authority = await store.authorize(scope, 'read')
+      const prior = await store.read(scope)
+      const unavailable = async (
+        reasonCode: Extract<
+          ApiLeadTurnChildrenResponse['childObservations'],
+          { availability: 'unavailable' }
+        >['reasonCode']
+      ): Promise<ApiLeadTurnChildrenResponse> => ({
+        leadTurn: await projection(scope),
+        childObservations: { availability: 'unavailable', reasonCode },
+      })
+      if (!prior?.dispatchId) return unavailable('NOT_DISPATCHED')
+      if (!adapter?.children) return unavailable('ADMISSION_SERVICE_UNAVAILABLE')
+      let value: unknown
+      try {
+        value = await adapter.children(authority, prior.dispatchId, page)
+      } catch {
+        return unavailable('RUNTIME_UNAVAILABLE')
+      }
+      try {
+        const result = projectLeadTurnChildrenPage(value, page)
+        binding(result.binding, authority.intentId, prior)
+        // Recheck canonical authority and the retained lineage after the awaited CP read.
+        const leadTurn = await projection(scope)
+        const current = await store.authorize(scope, 'read')
+        if (
+          current.controlPlaneWorkspaceId !== authority.controlPlaneWorkspaceId ||
+          current.messageId !== authority.messageId ||
+          current.originalActorRef !== authority.originalActorRef
+        )
+          throw new Error('RUNTIME_RESPONSE_INVALID')
+        binding(result.binding, scope.intentId, leadTurn)
+        if (
+          ['dispatchId', 'executionId', 'attemptId', 'runtimeSessionId'].some(
+            (key) => Reflect.get(leadTurn, key) !== Reflect.get(prior, key)
+          )
+        )
+          throw new Error('RUNTIME_RESPONSE_INVALID')
+        return { leadTurn, childObservations: { availability: 'available', ...result.page } }
+      } catch {
+        return unavailable('RUNTIME_RESPONSE_INVALID')
+      }
     },
     async progress(
       scope: LeadRuntimeScope,

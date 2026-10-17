@@ -39,3 +39,32 @@ test('explicit lead-turn message retains its blocked receipt and retry key', asy
   expect(response.leadTurn).toEqual(leadTurn)
   expect(response.leadTurn).not.toHaveProperty('executionRef')
 })
+
+test('child observation reads encode one opaque page cursor without mutation payloads', async () => {
+  const requests: Request[] = []
+  const payload = {
+    childObservations: { availability: 'unavailable', reasonCode: 'RUNTIME_UNAVAILABLE' },
+  }
+  const client = new AgentHqApiClient({
+    baseUrl: '/api',
+    fetchImpl: async (input, init) => {
+      requests.push(new Request(`https://test${input}`, init))
+      return Response.json(payload)
+    },
+  })
+  expect(await client.getLeadTurnChildren('work/space', 'turn/id')).toEqual(payload)
+  expect(new URL(requests[0]!.url).pathname).toBe(
+    '/api/v1/workspaces/work%2Fspace/lead-turns/turn%2Fid/children'
+  )
+  expect(new URL(requests[0]!.url).search).toBe('')
+  await client.getLeadTurnChildren('workspace', 'intent', {
+    limit: 1,
+    after: { acceptedAt: '2026-10-17T00:00:00Z', delegationId: `dlg_${'0'.repeat(26)}` },
+  })
+  expect(Object.fromEntries(new URL(requests[1]!.url).searchParams)).toEqual({
+    limit: '1',
+    afterAcceptedAt: '2026-10-17T00:00:00Z',
+    afterDelegationId: `dlg_${'0'.repeat(26)}`,
+  })
+  expect(requests.every((request) => request.method === 'GET' && request.body === null)).toBe(true)
+})

@@ -219,6 +219,11 @@ import type {
   ApiAddressedTurnResponse,
 } from './addressed-turns'
 export type {
+  ApiLeadTurnChild,
+  ApiLeadTurnChildrenCursor,
+  ApiLeadTurnChildrenQuery,
+  ApiLeadTurnChildrenPage,
+  ApiLeadTurnChildrenResponse,
   ApiHandoffTarget,
   ApiLeadTurnStatus,
   ApiRequestedRoleModelSelections,
@@ -230,6 +235,8 @@ export type {
   LeadTurnReasonCode,
 } from './lead-turns'
 import type {
+  ApiLeadTurnChildrenQuery,
+  ApiLeadTurnChildrenResponse,
   ApiHandoffTarget,
   ApiLeadTurnResponse,
   ApiLeadTurnProgressResponse,
@@ -1907,6 +1914,23 @@ export class AgentHqApiClient {
       throw new Error('Invalid lead progress cursor')
     return this.request(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/progress?afterSequence=${afterSequence}`
+    )
+  }
+
+  async getLeadTurnChildren(
+    workspaceId: string,
+    intentId: string,
+    page: ApiLeadTurnChildrenQuery = {}
+  ): Promise<ApiLeadTurnChildrenResponse> {
+    const query = new URLSearchParams()
+    if (page.limit !== undefined) query.set('limit', String(page.limit))
+    if (page.after) {
+      query.set('afterAcceptedAt', page.after.acceptedAt)
+      query.set('afterDelegationId', page.after.delegationId)
+    }
+    const suffix = query.size ? `?${query}` : ''
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/children${suffix}`
     )
   }
 
