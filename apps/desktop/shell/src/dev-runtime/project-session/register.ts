@@ -394,6 +394,7 @@ function archiveRecord(
 }
 
 export function registerProjectSessionRuntime(input: {
+  assertSessionInputAvailable?: (runtimeSessionId: string) => void
   authority: ChannelAuthority
   dataDir: string
   scope: Scope
@@ -1164,6 +1165,7 @@ export function registerProjectSessionRuntime(input: {
       if (session.archived) {
         throw devError('invalid_state', 'an archived session grants no input ownership')
       }
+      input.assertSessionInputAvailable?.(session.id)
       // Ownership transfer is the one input-authority operation: it bumps
       // the generation, so input granted under the old generation is inert.
       const next: RuntimeSession = {

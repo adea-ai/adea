@@ -712,167 +712,194 @@ describe('launch → ACP lane prompt handoff (#400 residue)', () => {
 })
 
 describe('prompt delivery fences the terminal input authority (#400 residue)', () => {
-  test('delivery takes single-writer ownership and a superseded user writer is rejected', async () => {
-    // Standalone terminal registration with a captured write-stream provider,
-    // so the user-writer side of the fence can be driven directly.
-    const dataDir = mkdtempSync(join(tmpdir(), 'adea-prompt-fence-'))
-    const runtimeRoot = join(dataDir, 'dev-runtime')
-    mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 })
-    try {
-      const authority = createChannelAuthority({
-        shellHost: SHELL_HOST,
-        shellOrigin: SHELL_ORIGIN,
-      })
-      let writeProvider:
-        | ((session: {
-            grant: DevStreamGrant
-            send: (frame: DevStreamFrame) => void
-            close: (code: 'normal' | 'stale_generation' | 'incompatible', reason?: string) => void
-            onFrame?: (frame: DevStreamFrame) => void
-            onClose?: () => void
-          }) => void)
-        | null = null
-      const gateway = {
-        registerStreamHandler: (protocol: string, provider: never) => {
-          if (protocol === 'terminal-bytes-v1') writeProvider = provider as never
-        },
-      }
-      const credential = newSidecarCredential()
-      const fake = createFakePtyAdapter()
-      const service = createSidecarService({
-        runtimeRoot,
-        ptyAdapter: fake.adapter,
-        sidecarVersion: '1.0.0-test',
-        credential,
-        executableIdentity: 'sidecar@fence-test',
-        pidStartIdentity: 'fence-test-identity',
-        managerLimits: { ...TERMINAL_LIMITS, ringMaxBytes: 4096, subscriberHighWaterBytes: 1024 },
-      })
-      const [clientSide, serverSide]: [ByteDuplex, ByteDuplex] = createLoopbackPair()
-      service.handleConnection(serverSide)
-      const connected = await connectSidecarClient({
-        duplex: clientSide,
-        scope: SCOPE_A,
-        credential: Buffer.from(credential).toString('base64url'),
-        nonce: randomUUID(),
-      })
-      if (!connected.ok) throw new Error('sidecar connect failed')
-
-      const registration = registerTerminalRuntime({
-        authority,
-        gateway: gateway as never,
-        sidecar: connected.client,
-        scope: SCOPE_A,
-        runtimeRoot,
-        resolveWorktreeRoot: (id) => (id === WORKTREE_ID ? '/tmp/adea-prompt-worktree' : null),
-      })
-      const channel = await (async () => {
-        const handshakeReply = authority.handshake(
-          {
-            schemaVersion: 1,
-            method: 'dev.runtime.handshake.v1',
-            requestId: randomUUID(),
-            bootstrap: authority.issueLaunchBootstrap(),
-            supportedProtocolVersions: ['1'],
-            nonce: randomBytes(24).toString('base64url'),
-            issuedAt: new Date().toISOString(),
-            expiresAt: new Date(Date.now() + 30_000).toISOString(),
-          },
-          { trusted: true }
-        )
-        if (!handshakeReply.ok) throw new Error('handshake failed')
-        const secret = Buffer.from(handshakeReply.clientSecret, 'base64url')
-        return {
-          async execute(command: DevCommand) {
-            return authority.execute(
-              {
-                channelId: handshakeReply.channelId,
-                clientCredentialId: handshakeReply.clientCredentialId,
-                command,
-                proof: createHmac('sha256', secret)
-                  .update(
-                    devCommandProofMessage({
-                      channelId: handshakeReply.channelId,
-                      clientCredentialId: handshakeReply.clientCredentialId,
-                      command,
-                    })
-                  )
-                  .digest('base64url'),
-              },
-              { trusted: true }
-            )
+  test.each([false, true])(
+    'input ownership and pending restore fence (blocked: %s)',
+    async (testRestoreFence) => {
+      let restorePending = testRestoreFence
+      // Standalone terminal registration with a captured write-stream provider,
+      // so the user-writer side of the fence can be driven directly.
+      const dataDir = mkdtempSync(join(tmpdir(), 'adea-prompt-fence-'))
+      const runtimeRoot = join(dataDir, 'dev-runtime')
+      mkdirSync(runtimeRoot, { recursive: true, mode: 0o700 })
+      try {
+        const authority = createChannelAuthority({
+          shellHost: SHELL_HOST,
+          shellOrigin: SHELL_ORIGIN,
+        })
+        let writeProvider:
+          | ((session: {
+              grant: DevStreamGrant
+              send: (frame: DevStreamFrame) => void
+              close: (code: 'normal' | 'stale_generation' | 'incompatible', reason?: string) => void
+              onFrame?: (frame: DevStreamFrame) => void
+              onClose?: () => void
+            }) => void)
+          | null = null
+        const gateway = {
+          registerStreamHandler: (protocol: string, provider: never) => {
+            if (protocol === 'terminal-bytes-v1') writeProvider = provider as never
           },
         }
-      })()
-
-      const runtimeSessionId = '00000000-0000-4000-8000-0000000000c1'
-      const terminal = okValue(
-        await channel.execute(
-          commandFor('dev.terminal.create', SCOPE_A, {
-            runtimeSessionId,
-            worktreeId: WORKTREE_ID,
-            cols: 80,
-            rows: 24,
-          })
-        )
-      ) as unknown as { id: string; generation: number }
-
-      // A user writer owns the terminal through its write grant…
-      const scriptedSession = {
-        grant: {
-          schemaVersion: 1,
-          grantId: randomUUID(),
-          protocol: 'terminal-bytes-v1' as const,
-          channelId: 'ch-fence',
+        const credential = newSidecarCredential()
+        const fake = createFakePtyAdapter()
+        const service = createSidecarService({
+          runtimeRoot,
+          ptyAdapter: fake.adapter,
+          sidecarVersion: '1.0.0-test',
+          credential,
+          executableIdentity: 'sidecar@fence-test',
+          pidStartIdentity: 'fence-test-identity',
+          managerLimits: { ...TERMINAL_LIMITS, ringMaxBytes: 4096, subscriberHighWaterBytes: 1024 },
+        })
+        const [clientSide, serverSide]: [ByteDuplex, ByteDuplex] = createLoopbackPair()
+        service.handleConnection(serverSide)
+        const connected = await connectSidecarClient({
+          duplex: clientSide,
           scope: SCOPE_A,
-          resource: { kind: 'terminal' as const, id: terminal.id, generation: terminal.generation },
-          direction: 'write' as const,
-          fromSequence: '0',
-          expiresAt: new Date(Date.now() + 60_000).toISOString(),
-          maxFrameBytes: 65_536,
-        },
-        sent: [] as DevStreamFrame[],
-        closed: undefined as { code: string; reason?: string } | undefined,
-        onFrame: undefined as ((frame: DevStreamFrame) => void) | undefined,
-        onClose: undefined as (() => void) | undefined,
-        send: undefined as never,
-        close: undefined as never,
+          credential: Buffer.from(credential).toString('base64url'),
+          nonce: randomUUID(),
+        })
+        if (!connected.ok) throw new Error('sidecar connect failed')
+
+        const registration = registerTerminalRuntime({
+          authority,
+          assertSessionInputAvailable: () => {
+            if (restorePending) throw { code: 'delivery_ambiguous' }
+          },
+          gateway: gateway as never,
+          sidecar: connected.client,
+          scope: SCOPE_A,
+          runtimeRoot,
+          resolveWorktreeRoot: (id) => (id === WORKTREE_ID ? '/tmp/adea-prompt-worktree' : null),
+        })
+        const channel = await (async () => {
+          const handshakeReply = authority.handshake(
+            {
+              schemaVersion: 1,
+              method: 'dev.runtime.handshake.v1',
+              requestId: randomUUID(),
+              bootstrap: authority.issueLaunchBootstrap(),
+              supportedProtocolVersions: ['1'],
+              nonce: randomBytes(24).toString('base64url'),
+              issuedAt: new Date().toISOString(),
+              expiresAt: new Date(Date.now() + 30_000).toISOString(),
+            },
+            { trusted: true }
+          )
+          if (!handshakeReply.ok) throw new Error('handshake failed')
+          const secret = Buffer.from(handshakeReply.clientSecret, 'base64url')
+          return {
+            async execute(command: DevCommand) {
+              return authority.execute(
+                {
+                  channelId: handshakeReply.channelId,
+                  clientCredentialId: handshakeReply.clientCredentialId,
+                  command,
+                  proof: createHmac('sha256', secret)
+                    .update(
+                      devCommandProofMessage({
+                        channelId: handshakeReply.channelId,
+                        clientCredentialId: handshakeReply.clientCredentialId,
+                        command,
+                      })
+                    )
+                    .digest('base64url'),
+                },
+                { trusted: true }
+              )
+            },
+          }
+        })()
+
+        const runtimeSessionId = '00000000-0000-4000-8000-0000000000c1'
+        const terminal = okValue(
+          await channel.execute(
+            commandFor('dev.terminal.create', SCOPE_A, {
+              runtimeSessionId,
+              worktreeId: WORKTREE_ID,
+              cols: 80,
+              rows: 24,
+            })
+          )
+        ) as unknown as { id: string; generation: number }
+
+        // A user writer owns the terminal through its write grant…
+        const scriptedSession = {
+          grant: {
+            schemaVersion: 1,
+            grantId: randomUUID(),
+            protocol: 'terminal-bytes-v1' as const,
+            channelId: 'ch-fence',
+            scope: SCOPE_A,
+            resource: {
+              kind: 'terminal' as const,
+              id: terminal.id,
+              generation: terminal.generation,
+            },
+            direction: 'write' as const,
+            fromSequence: '0',
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+            maxFrameBytes: 65_536,
+          },
+          sent: [] as DevStreamFrame[],
+          closed: undefined as { code: string; reason?: string } | undefined,
+          onFrame: undefined as ((frame: DevStreamFrame) => void) | undefined,
+          onClose: undefined as (() => void) | undefined,
+          send: undefined as never,
+          close: undefined as never,
+        }
+        scriptedSession.send = (frame) => scriptedSession.sent.push(frame)
+        scriptedSession.close = (code, reason) => {
+          scriptedSession.closed = { code, reason }
+        }
+        ;(writeProvider as NonNullable<typeof writeProvider>)(scriptedSession as never)
+
+        if (testRestoreFence) {
+          scriptedSession.onFrame?.({
+            type: 'input',
+            sequence: '0',
+            generation: terminal.generation,
+            bytes: new TextEncoder().encode('stale input while physical restore is pending'),
+          })
+          expect(scriptedSession.closed).toMatchObject({ code: 'stale_generation' })
+          await expect(
+            registration.deliverPrompt({ runtimeSessionId, prompt: 'also fenced' })
+          ).rejects.toMatchObject({ code: 'delivery_ambiguous' })
+          expect(fake.processes[0]!.written).toHaveLength(0)
+          restorePending = false
+        }
+
+        // …prompt delivery takes the ownership atomically and delivers…
+        const delivered = await registration.deliverPrompt({
+          runtimeSessionId,
+          prompt: 'fenced prompt',
+        })
+        expect(delivered).toMatchObject({ ok: true, terminalGeneration: terminal.generation })
+        const bytes = Buffer.concat(fake.processes[0]!.written.map((chunk) => Buffer.from(chunk)))
+        expect(bytes.toString('utf8')).toBe('fenced prompt\n')
+
+        // …and the superseded writer's chunk is rejected before the PTY.
+        scriptedSession.onFrame?.({
+          type: 'input',
+          sequence: '1',
+          generation: terminal.generation,
+          bytes: new TextEncoder().encode('user typing'),
+        })
+        expect(scriptedSession.closed).toMatchObject({ code: 'stale_generation' })
+        expect(bytes.toString('utf8')).toBe('fenced prompt\n')
+
+        // Delivery into a session without a terminal is a typed non-delivery.
+        const missing = await registration.deliverPrompt({
+          runtimeSessionId: '00000000-0000-4000-8000-0000000000c9',
+          prompt: 'nobody home',
+        })
+        expect(missing).toMatchObject({ ok: false })
+      } finally {
+        rmSync(dataDir, { recursive: true, force: true })
       }
-      scriptedSession.send = (frame) => scriptedSession.sent.push(frame)
-      scriptedSession.close = (code, reason) => {
-        scriptedSession.closed = { code, reason }
-      }
-      ;(writeProvider as NonNullable<typeof writeProvider>)(scriptedSession as never)
-
-      // …prompt delivery takes the ownership atomically and delivers…
-      const delivered = await registration.deliverPrompt({
-        runtimeSessionId,
-        prompt: 'fenced prompt',
-      })
-      expect(delivered).toMatchObject({ ok: true, terminalGeneration: terminal.generation })
-      const bytes = Buffer.concat(fake.processes[0]!.written.map((chunk) => Buffer.from(chunk)))
-      expect(bytes.toString('utf8')).toBe('fenced prompt\n')
-
-      // …and the superseded writer's chunk is rejected before the PTY.
-      scriptedSession.onFrame?.({
-        type: 'input',
-        sequence: '1',
-        generation: terminal.generation,
-        bytes: new TextEncoder().encode('user typing'),
-      })
-      expect(scriptedSession.closed).toMatchObject({ code: 'stale_generation' })
-      expect(bytes.toString('utf8')).toBe('fenced prompt\n')
-
-      // Delivery into a session without a terminal is a typed non-delivery.
-      const missing = await registration.deliverPrompt({
-        runtimeSessionId: '00000000-0000-4000-8000-0000000000c9',
-        prompt: 'nobody home',
-      })
-      expect(missing).toMatchObject({ ok: false })
-    } finally {
-      rmSync(dataDir, { recursive: true, force: true })
-    }
-  }, 60_000)
+    },
+    60_000
+  )
 
   test('a delivered prompt still encodes as canonical CBOR evidence for the stream', () => {
     // The provenance payload rides runtime-events-v1 as CBOR; pin the encode

@@ -8568,3 +8568,9 @@ controls. Adea retains only the utility width steps and saved preferences.
 Host CSS restyles the presented grip on Dev surfaces into a tall, skinny,
 translucent rung (icon dropped, hover wash softened) without touching the hit
 target, drag semantics, or keyboard controls.
+
+### Ambiguous physical checkpoint restore fence (#1390)
+
+The restore audit distinguishes a proved pre-dispatch refusal (`not_dispatched`) from an invoked adapter (`dispatching`). Once invocation is possible, a timeout, malformed or missing receipt, journal failure, or restart leaves the request durably pending; it must not publish a terminal failed outcome or permit another restore. Legacy failed outcomes without a pre-dispatch witness also remain fenced. No interrupted request is redispatched.
+
+While any restore for a session lacks either an atomic confirmed session commit or a witnessed pre-dispatch failure, the host fences input transfer, harness launches, ACP prompt delivery and every terminal input chunk, including already-open writer streams. Cancellation/read paths remain available. A valid receipt from an already-running adapter can reconcile after the command deadline only if its original session/run/installation/version binding still matches. It advances the generation exactly once through the existing atomic restore-commit witness. Takeover, invalid evidence or a failed confirmation write keeps the durable fence. A process restart cannot invent physical reconciliation; without an observed receipt or separately proved rollback the session remains unavailable for further input. Production still has no composed restore adapter, and no public bypass or blind retry is added.

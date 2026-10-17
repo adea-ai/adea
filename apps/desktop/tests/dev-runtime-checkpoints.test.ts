@@ -289,7 +289,7 @@ describe('conversation checkpoint restore authority', () => {
         reason: {
           code: 'stale_generation',
           retryable: false,
-          message: 'conversation checkpoint restore failed; see its canonical outcome',
+          message: 'restore session/input ownership changed',
         },
       },
       {
@@ -297,7 +297,7 @@ describe('conversation checkpoint restore authority', () => {
         reason: {
           code: 'stale_generation',
           retryable: false,
-          message: 'conversation checkpoint restore failed; see its canonical outcome',
+          message: 'restore session/input ownership changed',
         },
       },
     ])
@@ -305,13 +305,13 @@ describe('conversation checkpoint restore authority', () => {
     expect(await competing).toMatchObject({ code: 'invalid_state' })
     expect(
       s.events.events().filter((event) => event.kind === 'checkpoint.restore_failed')
-    ).toHaveLength(1)
+    ).toHaveLength(0)
     expect(s.events.events().some((event) => event.kind === 'checkpoint.restore_resolved')).toBe(
       false
     )
   })
 
-  test('restart turns interrupted restores into one ambiguous failure without redispatch', async () => {
+  test('restart retains interrupted restore fences and a live observed receipt reconciles without redispatch', async () => {
     let release!: () => void
     let calls = 0
     const wait = new Promise<void>((resolve) => {
@@ -328,13 +328,15 @@ describe('conversation checkpoint restore authority', () => {
     const unfinished = s.runtime.restore(request)
     const restarted = createConversationCheckpointRuntime(s.options)
     await expect(restarted.restore(request)).rejects.toMatchObject({ code: 'delivery_ambiguous' })
+    expect(() => restarted.assertInputAvailable(original.id)).toThrow()
     release()
-    await expect(unfinished).rejects.toMatchObject({ code: 'delivery_ambiguous' })
+    expect(await unfinished).toMatchObject({ status: 'resolved', restoredGeneration: 2 })
     expect(calls).toBe(1)
-    expect(s.current()).toEqual(original)
+    expect(s.current()).toMatchObject({ generation: 2, version: 2 })
+    expect(() => restarted.assertInputAvailable(original.id)).not.toThrow()
     expect(
       s.events.events().filter((event) => event.kind === 'checkpoint.restore_failed')
-    ).toHaveLength(1)
+    ).toHaveLength(0)
   })
 
   test('rejects forged/mismatched adapter receipts and records explicit failure', async () => {
@@ -370,9 +372,69 @@ describe('conversation checkpoint restore authority', () => {
     })
     expect(signal?.aborted).toBe(true)
     expect(s.current()).toEqual(original)
+    expect(() => runtime.assertInputAvailable(original.id)).toThrow()
+    const restarted = createConversationCheckpointRuntime(s.options)
+    expect(() => restarted.assertInputAvailable(original.id)).toThrow()
+    await expect(
+      restarted.restore(command(s.checkpoint.eventId, { idempotencyKey: 'after-timeout' }))
+    ).rejects.toMatchObject({ code: 'invalid_state' })
     expect(
       s.events.events().filter((event) => event.kind === 'checkpoint.restore_failed')
+    ).toHaveLength(0)
+  })
+
+  test('a late physical restore receipt reconciles after timeout without reopening input early', async () => {
+    let release!: () => void
+    const wait = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const physical = { checkpoint: 'working-tree', calls: 0 }
+    const s = setup(
+      adapter(async (input) => {
+        input.assertCurrent()
+        physical.calls++
+        await wait
+        physical.checkpoint = input.checkpoint.checkpointId
+        return {
+          status: 'restored',
+          restoreId: input.restoreId,
+          expectedGeneration: input.session.generation,
+          runtimeSessionId: original.id,
+          harnessRunId: 'run-1',
+          checkpointId: input.checkpoint.checkpointId,
+          providerRestoreId: 'late-observation',
+          observedAt: new Date().toISOString(),
+        }
+      })
+    )
+    let clock = Date.now()
+    const runtime = createConversationCheckpointRuntime({
+      ...s.options,
+      now: () => clock,
+      restoreTimeoutMs: 1,
+    })
+    const request = command(s.checkpoint.eventId)
+    await expect(runtime.restore(request)).rejects.toMatchObject({ code: 'delivery_ambiguous' })
+    const restarted = createConversationCheckpointRuntime(s.options)
+    expect(() => runtime.assertInputAvailable(original.id)).toThrow()
+    expect(() => restarted.assertInputAvailable(original.id)).toThrow()
+    expect(physical).toEqual({ checkpoint: 'working-tree', calls: 1 })
+    clock = Date.parse(request.expiresAt) + 1
+    release()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(physical).toEqual({ checkpoint: 'checkpoint-1', calls: 1 })
+    expect(s.current()).toMatchObject({ generation: 2, version: 2 })
+    expect(() => restarted.assertInputAvailable(original.id)).not.toThrow()
+    expect(await restarted.restore(request)).toMatchObject({
+      status: 'resolved',
+      providerRestoreId: 'late-observation',
+    })
+    expect(
+      s.events.events().filter((event) => event.kind === 'checkpoint.restore_resolved')
     ).toHaveLength(1)
+    expect(
+      s.events.events().filter((event) => event.kind === 'checkpoint.restore_failed')
+    ).toHaveLength(0)
   })
 
   test('a receipt from another restore attempt cannot confirm this command', async () => {
@@ -462,7 +524,7 @@ describe('conversation checkpoint restore authority', () => {
     expect(s.events.events()).toEqual(eventsBefore)
   })
 
-  test('a durable outcome write failure never advances the session and replays its failure after restart', async () => {
+  test('a durable outcome write failure retains ambiguity and input fencing across restart', async () => {
     let calls = 0
     const s = setup(
       adapter(async (input) => {
@@ -491,16 +553,55 @@ describe('conversation checkpoint restore authority', () => {
     const journal = runtime.journal()
     const restarted = createConversationCheckpointRuntime(options)
     await expect(restarted.restore({ ...request, requestId: randomUUID() })).rejects.toMatchObject({
-      code: 'corrupt_state',
+      code: 'delivery_ambiguous',
     })
+    expect(() => restarted.assertInputAvailable(original.id)).toThrow()
     expect(calls).toBe(1)
     expect(restarted.journal()).toEqual(journal)
     expect(
       s.events.events().filter((event) => event.kind === 'checkpoint.restore_failed')
-    ).toHaveLength(1)
+    ).toHaveLength(0)
     expect(s.events.events().some((event) => event.kind === 'checkpoint.restore_resolved')).toBe(
       false
     )
+  })
+
+  test('a physical restore whose confirmation cannot persist fences competing restores across restart', async () => {
+    const physical = { checkpoint: 'working-tree', calls: 0 }
+    const s = setup(
+      adapter(async (input) => {
+        const receipt = await adapter().restore(input)
+        physical.checkpoint = input.checkpoint.checkpointId
+        physical.calls++
+        const directory = join(s.options.dataDir, 'dev-runtime', 'harness', 'checkpoint-restores')
+        const file = readdirSync(directory).find((name) => name.endsWith('.sqlite3'))!
+        const db = new Database(join(directory, file))
+        try {
+          db.exec(`CREATE TRIGGER refuse_physical_confirmation BEFORE UPDATE ON durable_store_records
+          WHEN EXISTS (SELECT 1 FROM json_each(NEW.payload)
+            WHERE json_extract(value, '$.phase') = 'outcome'
+              AND json_extract(value, '$.outcome.status') = 'resolved')
+          BEGIN SELECT RAISE(FAIL, 'physical restore happened before journal failure'); END`)
+        } finally {
+          db.close()
+        }
+        return receipt
+      })
+    )
+    const request = command(s.checkpoint.eventId)
+    await expect(s.runtime.restore(request)).rejects.toMatchObject({ code: 'corrupt_state' })
+    expect(physical).toEqual({ checkpoint: 'checkpoint-1', calls: 1 })
+    expect(s.current()).toEqual(original)
+    const restarted = createConversationCheckpointRuntime(s.options)
+    await expect(
+      restarted.restore({ ...request, idempotencyKey: 'competing' })
+    ).rejects.toMatchObject({ code: 'invalid_state' })
+    expect(restarted.journal().some((entry) => entry.phase === 'outcome')).toBe(false)
+    expect(physical.calls).toBe(1)
+    expect(() => s.runtime.assertInputAvailable(original.id)).toThrow()
+    expect(() => restarted.assertInputAvailable(original.id)).toThrow()
+    s.setSession({ ...original, generation: 2, version: 2 })
+    expect(() => restarted.assertInputAvailable(original.id)).toThrow()
   })
 
   test('an applied restore can repair historical publication after takeover without advancing again', async () => {
@@ -838,7 +939,7 @@ describe('conversation checkpoint restore authority', () => {
     expect(calls).toBe(1)
   })
 
-  test('an exact next-generation input transfer is not a pending restore commit', async () => {
+  test('a pending restore fences input transfer and an external takeover is never mistaken for its commit', async () => {
     let calls = 0
     const s = setup(
       adapter(async (input) => {
@@ -851,7 +952,12 @@ describe('conversation checkpoint restore authority', () => {
       shellOrigin: 'http://127.0.0.1:4795',
       authorizeCommand: async () => {},
     })
-    const projectOptions = { authority, dataDir: s.options.dataDir, scope }
+    const projectOptions = {
+      authority,
+      dataDir: s.options.dataDir,
+      scope,
+      assertSessionInputAvailable: (id: string): void => runtime.assertInputAvailable(id),
+    }
     const projects = registerProjectSessionRuntime(projectOptions)
     projects.upsertSession(original)
     const runtime = createConversationCheckpointRuntime({
@@ -864,17 +970,22 @@ describe('conversation checkpoint restore authority', () => {
     })
     const request = command(s.checkpoint.eventId)
     await expect(runtime.restore(request)).rejects.toMatchObject({ code: 'corrupt_state' })
-    projects.providers['dev.session.transferInput']!({
-      ...request,
-      operation: 'dev.session.transferInput',
-      body: {
-        runtimeSessionId: original.id,
-        expectedGeneration: 1,
-        expectedOwnerVersion: 1,
-        fromView: 'dev',
-        toView: 'chat',
-      },
-    })
+    expect(() =>
+      projects.providers['dev.session.transferInput']!({
+        ...request,
+        operation: 'dev.session.transferInput',
+        body: {
+          runtimeSessionId: original.id,
+          expectedGeneration: 1,
+          expectedOwnerVersion: 1,
+          fromView: 'dev',
+          toView: 'chat',
+        },
+      })
+    ).toThrow()
+    expect(projects.getSession(original.id)).toEqual(original)
+    // Simulate an external/older host replacing the durable session anyway.
+    projects.upsertSession({ ...original, generation: 2, version: 2 })
     const reopened = registerProjectSessionRuntime(projectOptions)
     expect(reopened.getSession(original.id)).toEqual({ ...original, generation: 2, version: 2 })
     const restarted = createConversationCheckpointRuntime({

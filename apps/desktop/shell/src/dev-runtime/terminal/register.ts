@@ -68,6 +68,7 @@ export type TerminalRegistryEntry = {
 }
 
 export type RegisterTerminalRuntimeInput = {
+  assertSessionInputAvailable?: (runtimeSessionId: string) => void
   authority: ChannelAuthority
   gateway: ChannelGateway
   /** The adopted sidecar client (sidecar/adoption). */
@@ -915,6 +916,13 @@ export function registerTerminalRuntime(
           writeSessions.delete(grant.grantId)
           return
         }
+        try {
+          input.assertSessionInputAvailable?.(entry.runtimeSessionId)
+        } catch {
+          session.close('stale_generation', 'checkpoint restore is pending physical reconciliation')
+          writeSessions.delete(grant.grantId)
+          return
+        }
         void input.sidecar
           .writeInput(terminalId, frame.bytes)
           .then((written) => {
@@ -1111,6 +1119,7 @@ export function registerTerminalRuntime(
     let writeError: { code: string; message: string } | undefined
     try {
       const fenced = fencedWrite(authority, fence, chunks, (chunk) => {
+        input.assertSessionInputAvailable?.(request.runtimeSessionId)
         writes.push(
           input.sidecar.writeInput(target.terminalId, chunk).then((written) => {
             if (!written.ok && !writeError) {

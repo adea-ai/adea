@@ -401,6 +401,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
   let repos: ReturnType<typeof registerRepoRuntime> | undefined
   const projectSession = input.scope
     ? registerProjectSessionRuntime({
+        assertSessionInputAvailable: (id) => harness?.checkpoints.assertInputAvailable(id),
         authority: input.authority,
         dataDir: input.dataDir,
         scope: input.scope,
@@ -526,6 +527,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
   const terminal =
     input.sidecar && input.scope && input.gateway
       ? registerTerminalRuntime({
+          assertSessionInputAvailable: (id) => harness?.checkpoints.assertInputAvailable(id),
           authority: input.authority,
           gateway: input.gateway,
           sidecar: input.sidecar,

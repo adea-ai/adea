@@ -277,6 +277,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         : {}),
     })
   const lane = createAcpLane({
+    assertSessionInputAvailable: (id) => checkpoints.assertInputAvailable(id),
     scope: input.scope,
     dataDir: input.dataDir,
     driver: input.acpDriver ?? fallbackAcpDriver(),
@@ -358,6 +359,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   }
 
   function requireLaunchableSession(session: RuntimeSession): void {
+    checkpoints.assertInputAvailable(session.id)
     if (session.archived) {
       throw devError('invalid_state', 'an archived session launches no harness run')
     }
@@ -583,6 +585,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     /** Counts of the memory preamble leading `prompt`, when one does. */
     memory?: Readonly<{ entries: number; bytes: number }>
   }): Promise<void> {
+    checkpoints.assertInputAvailable(params.session.id)
     const sourceEventId = `host:prompt:${params.run.id}`
     // Provenance names how much of the delivery was workspace memory —
     // counts only; neither the memory nor the prompt text enters the event.

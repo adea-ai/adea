@@ -60,7 +60,14 @@ export type CheckpointRestoreAdapter = Readonly<{
   >
 }>
 type AuditRecord = Readonly<{
-  phase: 'requested' | 'outcome' | 'session_committed' | 'published_requested' | 'published_outcome'
+  phase:
+    | 'requested'
+    | 'dispatching'
+    | 'not_dispatched'
+    | 'outcome'
+    | 'session_committed'
+    | 'published_requested'
+    | 'published_outcome'
   request: CheckpointRestoreRequest
   runtimeSessionId: string
   harnessRunId: string
@@ -112,6 +119,8 @@ function validateJournal(entries: readonly AuditRecord[]): void {
     if (
       ![
         'requested',
+        'dispatching',
+        'not_dispatched',
         'outcome',
         'session_committed',
         'published_requested',
@@ -299,14 +308,49 @@ export function createConversationCheckpointRuntime(input: {
   }
   // The journal is the durable outbox. A restart never redelivers an ambiguous
   // harness side effect, and publication markers avoid replaying evicted audit.
-  for (const entry of read().filter((item) => item.phase === 'requested')) {
-    if (!outcomeFor(entry.request.restoreId)) failed(entry, 'delivery_ambiguous')
-  }
+  // Interrupted requests remain pending until an observed receipt can be reconciled.
   for (const entry of read().filter(
     (item) => item.phase === 'requested' || item.phase === 'outcome'
   )) {
     if (entry.phase === 'outcome' && !completeSession(entry, entry.outcome!)) continue
     publish(entry)
+  }
+
+  function completedRestoreIds(entries: readonly AuditRecord[]): Set<string> {
+    const committed = new Set(
+      entries
+        .filter((entry) => entry.phase === 'session_committed')
+        .map((entry) => entry.request.restoreId)
+    )
+    const refusedBeforeDispatch = new Set(
+      entries
+        .filter((entry) => entry.phase === 'not_dispatched')
+        .map((entry) => entry.request.restoreId)
+    )
+    return new Set(
+      entries
+        .filter(
+          (entry) =>
+            entry.phase === 'outcome' &&
+            (entry.outcome!.status === 'resolved'
+              ? committed.has(entry.request.restoreId)
+              : refusedBeforeDispatch.has(entry.request.restoreId))
+        )
+        .map((entry) => entry.request.restoreId)
+    )
+  }
+  function assertInputAvailable(runtimeSessionId: string): void {
+    const entries = read()
+    const completed = completedRestoreIds(entries)
+    if (
+      entries.some(
+        (entry) =>
+          entry.phase === 'requested' &&
+          entry.runtimeSessionId === runtimeSessionId &&
+          !completed.has(entry.request.restoreId)
+      )
+    )
+      refuse('delivery_ambiguous', 'checkpoint restore is pending physical reconciliation')
   }
 
   function sessionFor(id: string): RuntimeSession {
@@ -391,8 +435,7 @@ export function createConversationCheckpointRuntime(input: {
       const pending = inFlight.get(keyHash)
       if (pending) return pending
       const outcome = outcomeFor(existing.request.restoreId)
-      if (!outcome)
-        refuse('delivery_ambiguous', 'restore is interrupted; restart recovery is required')
+      if (!outcome) refuse('delivery_ambiguous', 'restore physical outcome remains unresolved')
       if (!completeSession(existing, outcome))
         refuse('stale_generation', 'confirmed restore session ownership changed')
       const expected =
@@ -415,20 +458,7 @@ export function createConversationCheckpointRuntime(input: {
     )
       refuse('invalid_state', 'restore requires a live, unarchived harness session')
     const requests = entries.filter((item) => item.phase === 'requested')
-    const committedIds = new Set(
-      entries
-        .filter((item) => item.phase === 'session_committed')
-        .map((item) => item.request.restoreId)
-    )
-    const completedIds = new Set(
-      entries
-        .filter(
-          (item) =>
-            item.phase === 'outcome' &&
-            (item.outcome!.status === 'failed' || committedIds.has(item.request.restoreId))
-        )
-        .map((item) => item.request.restoreId)
-    )
+    const completedIds = completedRestoreIds(entries)
     if (requests.length >= 1000)
       refuse('limit_exceeded', 'checkpoint restore audit capacity reached')
     if (
@@ -473,7 +503,7 @@ export function createConversationCheckpointRuntime(input: {
     }
     append(entry)
     publish(entry)
-    const assertCurrent = () => {
+    const assertCurrent = (checkExpiry = true) => {
       const prior = outcomeFor(entry.request.restoreId)
       if (prior) {
         if (prior.status === 'failed') result(prior)
@@ -488,12 +518,13 @@ export function createConversationCheckpointRuntime(input: {
         current.archived
       )
         refuse('stale_generation', 'restore session/input ownership changed')
-      if (Date.parse(command.expiresAt) <= now())
+      if (checkExpiry && Date.parse(command.expiresAt) <= now())
         refuse('token_expired', 'restore command expired before its side effect')
     }
     const execute = async (): Promise<CheckpointRestoreOutcome> => {
       const controller = new AbortController()
       let timer: ReturnType<typeof setTimeout> | undefined
+      let dispatched = false
       try {
         const adapter = input.adapter
         if (
@@ -508,71 +539,85 @@ export function createConversationCheckpointRuntime(input: {
           )
         assertCurrent()
         let adapterFenced = false
-        const receipt = await Promise.race([
-          adapter.restore({
+        append({ ...entry, phase: 'dispatching' })
+        dispatched = true
+        const observed = adapter
+          .restore({
             restoreId: entry.request.restoreId,
             checkpoint,
             checkpointEvent,
             session,
             assertCurrent: () => {
+              if (controller.signal.aborted)
+                refuse('delivery_ambiguous', 'restore dispatch was interrupted')
               assertCurrent()
               adapterFenced = true
             },
             signal: controller.signal,
-          }),
+          })
+          .then((receipt) => {
+            // Observation may arrive after the command deadline. Validate the same
+            // physical binding, but expiry cannot invalidate an already observed effect.
+            assertCurrent(false)
+            const proof = record(receipt, 'restore receipt')
+            exactKeys(
+              proof,
+              [
+                'status',
+                'restoreId',
+                'expectedGeneration',
+                'runtimeSessionId',
+                'harnessRunId',
+                'checkpointId',
+                'providerRestoreId',
+                'observedAt',
+              ],
+              [],
+              'restore receipt'
+            )
+            if (
+              proof.status !== 'restored' ||
+              proof.restoreId !== entry.request.restoreId ||
+              proof.expectedGeneration !== session.generation ||
+              proof.runtimeSessionId !== session.id ||
+              proof.harnessRunId !== session.activeHarnessRunId ||
+              proof.checkpointId !== checkpoint.checkpointId
+            )
+              refuse(
+                'identity_mismatch',
+                'restore receipt does not confirm the requested checkpoint/session/run'
+              )
+            stringValue(proof.providerRestoreId, 'receipt.providerRestoreId', 1, 256)
+            timestamp(proof.observedAt, 'receipt.observedAt')
+            if (!adapterFenced)
+              refuse('ownership_unproven', 'restore adapter did not prove its generation fence')
+            const { requestedAt: _, ...identity } = entry.request
+            const confirmed = decodeCheckpointRestoreOutcome({
+              ...identity,
+              status: 'resolved',
+              restoredGeneration: session.generation + 1,
+              providerRestoreId: receipt.providerRestoreId,
+              restoredAt: receipt.observedAt,
+              completedAt: iso(),
+            })
+            return result(finish(entry, confirmed))
+          })
+        return await Promise.race([
+          observed,
           new Promise<never>((_, reject) => {
             timer = setTimeout(
               () => {
                 controller.abort()
-                reject({ code: 'delivery_ambiguous' })
+                reject({
+                  code: 'delivery_ambiguous',
+                  retryable: false,
+                  message: 'restore receipt is pending',
+                })
               },
               Math.min(30_000, Math.max(1, input.restoreTimeoutMs ?? 30_000))
             )
           }),
         ])
-        assertCurrent()
-        const proof = record(receipt, 'restore receipt')
-        exactKeys(
-          proof,
-          [
-            'status',
-            'restoreId',
-            'expectedGeneration',
-            'runtimeSessionId',
-            'harnessRunId',
-            'checkpointId',
-            'providerRestoreId',
-            'observedAt',
-          ],
-          [],
-          'restore receipt'
-        )
-        if (
-          proof.status !== 'restored' ||
-          proof.restoreId !== entry.request.restoreId ||
-          proof.expectedGeneration !== session.generation ||
-          proof.runtimeSessionId !== session.id ||
-          proof.harnessRunId !== session.activeHarnessRunId ||
-          proof.checkpointId !== checkpoint.checkpointId
-        )
-          refuse(
-            'identity_mismatch',
-            'restore receipt does not confirm the requested checkpoint/session/run'
-          )
-        stringValue(proof.providerRestoreId, 'receipt.providerRestoreId', 1, 256)
-        timestamp(proof.observedAt, 'receipt.observedAt')
-        if (!adapterFenced)
-          refuse('ownership_unproven', 'restore adapter did not prove its generation fence')
-        const { requestedAt: _, ...identity } = entry.request
-        const confirmed = decodeCheckpointRestoreOutcome({
-          ...identity,
-          status: 'resolved',
-          restoredGeneration: session.generation + 1,
-          providerRestoreId: receipt.providerRestoreId,
-          restoredAt: receipt.observedAt,
-          completedAt: iso(),
-        })
-        return result(finish(entry, confirmed))
       } catch (error) {
         const confirmed = outcomeFor(entry.request.restoreId)
         if (confirmed?.status === 'resolved') {
@@ -586,6 +631,10 @@ export function createConversationCheckpointRuntime(input: {
             return confirmed
           throw error
         }
+        // Once invocation is possible, absence of a valid receipt proves
+        // neither refusal nor rollback. Keep the durable request unresolved.
+        if (dispatched) throw error
+        append({ ...entry, phase: 'not_dispatched' })
         const code = (error as { code?: DevErrorCode })?.code
         return result(
           failed(entry, code && devErrorCodes.includes(code) ? code : 'delivery_ambiguous')
@@ -601,5 +650,5 @@ export function createConversationCheckpointRuntime(input: {
     inFlight.set(keyHash, pending)
     return pending
   }
-  return { observe, restore, journal: read }
+  return { observe, restore, assertInputAvailable, journal: read }
 }
