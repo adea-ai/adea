@@ -85,7 +85,17 @@ export const PACKAGE_RULES = {
     generated: ['dist', 'dist-desktop', 'public/assets', 'cloudflare-env.d.ts', '.assets.*'],
     // `bun ../../scripts/sync-assets.mjs` copies these into `public/assets`, which `vite build` then reads; it
     // imports `scripts/pack-agent-sim.mjs`, which stages the Agent Sim engine pack into the same tree.
-    build: ['scripts/sync-assets.mjs', 'scripts/pack-agent-sim.mjs', 'packages/spatial/data/**'],
+    build: [
+      'scripts/sync-assets.mjs',
+      'scripts/pack-agent-sim.mjs',
+      'packages/spatial/data/**',
+      // The build creates `.wrangler`, `dist`, `cloudflare-env.d.ts` and `public/assets` itself, so the directory
+      // listings of `apps/web` and `apps/web/public` differ between the run that built them and a fresh checkout
+      // ("'.wrangler' removed from 'apps/web'", "'assets' removed from 'apps/web/public'"). Only those two listings
+      // are excluded; the files in them stay tracked.
+      '!apps/web',
+      '!apps/web/public',
+    ],
     // Build-time values the web build reads. `vite.config.ts` substitutes the four `ADEA_PUBLIC_*` names
     // (`PUBLIC_ENV_NAMES`) into the browser code, and `pack-agent-sim.mjs` stages the pack at `ADEA_AGENT_SIM_DIST`.
     // A cached task is given only the variables it declares, so an undeclared name would never reach the build.

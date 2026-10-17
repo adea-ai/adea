@@ -74,7 +74,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r2-v1.48.1"
+          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r3-v1.48.1"
           case "$cache_path" in
             "$RUNNER_TEMP"/*) ;;
             *) echo "Vite+ cache path is outside RUNNER_TEMP" >&2; exit 1 ;;
@@ -117,7 +117,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r2-v1.48.1"
+          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r3-v1.48.1"
           test "$VITE_CACHE_PATH" = "$expected"
           printf '%s\n' "$CODE_FOUNDRY_VITE_CACHE_PATHS" | grep -Fqx "$expected"
           test -d "$VITE_CACHE_PATH"

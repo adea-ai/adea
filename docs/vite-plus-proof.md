@@ -24,7 +24,9 @@ workspaces' `dist` output must equal the cold run's.
 
 The root `node_modules` directory listing is not a task input (`VOLATILE_INPUTS` in `scripts/orch-graph.mjs`). Vite creates
 and removes `node_modules/.vite-temp` while builds run; a first hosted warm run missed `apps/web build` because the
-cold run had recorded that entry ("'.vite-temp' removed from 'node_modules'"). Only the listing is excluded. Source
+cold run had recorded that entry ("'.vite-temp' removed from 'node_modules'"). Only the listing is excluded. The web build also leaves out the listings of `apps/web` and `apps/web/public`, the directories it
+generates `.wrangler`, `dist`, `cloudflare-env.d.ts` and `public/assets` into (a second hosted warm run missed with "'assets'
+removed from 'apps/web/public'"); the files in them stay inputs. Source
 files, `VITE_*` variables, `bun.lock` and the toolchain id still invalidate; a source edit and a `VITE_*` change both
 still miss.
 
@@ -44,10 +46,10 @@ key and save-intent outputs. The product action owns the cache namespace, key, r
 behavior; Adea has no bespoke cache-key computation. The job uses the committed `monorepo_tool: vite-plus`; it appends
 nothing to `.github/code-foundry.yml`. No secrets, remote cache or Cloudflare are used; the cache is the repository's GitHub Actions cache.
 
-The cache path ends in `adea-vite-plus-proof-cache-orch-r2-v1.48.1`. GitHub derives the archive version from the cache path
+The cache path ends in `adea-vite-plus-proof-cache-orch-r3-v1.48.1`. GitHub derives the archive version from the cache path
 list ([cache version reference](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching#cache-key-matching)),
-so this proof cannot restore the earlier bounded-slice proof's archives and the first run can assert a cold cache. The `r2` segment
-retires the archives written before the `node_modules` listing was excluded from the task inputs (see below); a changed
+so this proof cannot restore the earlier bounded-slice proof's archives and the first run can assert a cold cache. The `r3` segment
+retires the archives written before the generated-directory listings were excluded from the task inputs (see below); a changed
 graph needs a new cold run, then a warm run that names its manifest.
 
 Commit-message lines assert the result: `vp-proof-expect: cold|warm` and `vp-proof-manifest: <sha256>` (the dist
@@ -55,10 +57,12 @@ outputs after restore).
 
 ## Receipts
 
-The first graph (`orch-v1.48.1`, before the `node_modules` listing was excluded) saved cold in run 39018357793 (0/15,
-1792 files, sha256 `2e29f5eb56cd06a505a701192b7163381573276444e100031ae2e2e2aabfa65d`). Its two warm runs, 39018543532 and
-39018606345, failed: 14/15 with the same manifest, the one miss being `apps/web build` ("'.vite-temp' removed from
-'node_modules'"). They are failures, not proof.
+Graph `orch-v1.48.1` (before any listing was excluded): cold run 39018357793 saved (0/15, 1792 files, sha256
+`2e29f5eb56cd06a505a701192b7163381573276444e100031ae2e2e2aabfa65d`). Its warm runs 39018543532 and 39018606345 failed 14/15
+with the same manifest, the miss being `apps/web build` ("'.vite-temp' removed from 'node_modules'").
 
-The repaired graph (`orch-r2-v1.48.1`) saved cold in run 39019670060 (0/15, 1792 files, the same sha256, cache saved). A
-warm run passes only with 15/15 hits on a fresh runner and the same manifest; its result is recorded on the pull request.
+Graph `orch-r2-v1.48.1` (`node_modules` listing excluded): cold run 39019670060 saved (0/15, same sha256). Its warm run
+39019923271 failed 14/15 with the same manifest, the miss being `apps/web build` ("'assets' removed from 'apps/web/public'").
+
+These are failures, not proof. A warm run passes only with 15/15 hits on a fresh runner and the cold run's manifest; the
+result for the current graph is recorded on the pull request.

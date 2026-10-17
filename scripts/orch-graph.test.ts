@@ -196,6 +196,17 @@ describe('orch task graph mirrors the package manifests', () => {
     }
   })
 
+  test('the web build leaves out only the listings of the directories it generates into', () => {
+    const inputs = inputsOf('orch:web:build')
+    // Exact directory paths only; the `/**` exclusions are the generated files below them.
+    const exact = inputs.filter((input) => input.startsWith('!') && !input.includes('*'))
+    expect(exact.toSorted()).toEqual(['!apps/web', '!apps/web/public', '!node_modules'])
+    // The files stay inputs: only the exact directory paths are excluded.
+    for (const path of ['scripts/sync-assets.mjs', 'scripts/pack-agent-sim.mjs', 'bun.lock'])
+      expect(inputs).toContain(path)
+    expect(inputsOf('orch:ui:build').some((input) => input.startsWith('!apps/web'))).toBe(false)
+  })
+
   test('the volatile node_modules listing is excluded from every cached task, and nothing else is', () => {
     expect(VOLATILE_INPUTS).toEqual(['!node_modules'])
     for (const [name, definition] of Object.entries(tasks)) {
