@@ -1,0 +1,482 @@
+{
+  "schemaVersion": 1,
+  "observedAt": "2026-10-17T20:27:02.857443+00:00",
+  "scope": "Seven JavaScript repositories plus two honest non-JavaScript classifications; existing active owners and native/compiler boundaries preserved. Bounded audit, not a claim to have exhausted every possible future optimization.",
+  "method": "Read tracked origin/main source inventory; ten interleaved measured process pairs after warm-up for runtime comparisons; fifteen measured pairs for Themes API candidate. Same Mac, not an isolated benchmark. No production load probes.",
+  "repositories": {
+    "adea": {
+      "head": "287303f13dfea2731b94b5af6936f9a8b9492b49",
+      "nativeApiCounts": {
+        "spawnSync": 23,
+        "spawn": 34,
+        "sleep": 16,
+        "version": 11,
+        "WebView": 19,
+        "serve": 9,
+        "argv": 2,
+        "Subprocess": 10,
+        "listen": 2,
+        "connect": 3,
+        "secrets": 24,
+        "CryptoHasher": 7,
+        "write": 1,
+        "file": 7,
+        "Image": 1,
+        "Glob": 2,
+        "resolveSync": 1
+      },
+      "candidates": [
+        {
+          "path": "apps/desktop/shell/scripts/supervision-smoke.ts",
+          "fsOrProcessCalls": 11,
+          "bunApis": ["spawn", "spawnSync"]
+        },
+        {
+          "path": "apps/web/e2e/helpers/lead-role-choices-connected-preflight.mjs",
+          "fsOrProcessCalls": 9,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/setup-source-contract-tests.mjs",
+          "fsOrProcessCalls": 8,
+          "bunApis": []
+        },
+        {
+          "path": "apps/desktop/shell/src/dev-runtime/host-store.ts",
+          "fsOrProcessCalls": 7,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/generate-dev-runtime-contract.mjs",
+          "fsOrProcessCalls": 7,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/readiness-evidence.mjs",
+          "fsOrProcessCalls": 7,
+          "bunApis": []
+        },
+        {
+          "path": "apps/desktop/shell/src/commands.ts",
+          "fsOrProcessCalls": 5,
+          "bunApis": ["spawn"]
+        },
+        {
+          "path": "scripts/capture-provisioning.mjs",
+          "fsOrProcessCalls": 5,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/pi-durable-candidate/packed-consumer-fixture.mjs",
+          "fsOrProcessCalls": 5,
+          "bunApis": []
+        },
+        {
+          "path": "apps/desktop/scripts/shell.mjs",
+          "fsOrProcessCalls": 4,
+          "bunApis": []
+        }
+      ],
+      "disposition": "Bun already runs tests, checking, process helpers and selected file/hash APIs. Keep Node for gzip budget measurement: runtime swap changes measured compressed sizes. Held runtime/Pi/packaging scopes were inspected only and not modified."
+    },
+    "control-plane": {
+      "head": "ef5728c205138578de57f111da0ba884a51c290c",
+      "nativeApiCounts": {
+        "serve": 8,
+        "spawn": 3,
+        "write": 2,
+        "spawnSync": 1,
+        "YAML": 1
+      },
+      "candidates": [
+        {
+          "path": "scripts/architecture-audit.mjs",
+          "fsOrProcessCalls": 11,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/pack-pi-durable-candidate.mjs",
+          "fsOrProcessCalls": 11,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/validate-railway.mjs",
+          "fsOrProcessCalls": 9,
+          "bunApis": []
+        },
+        {
+          "path": ".github/scripts/neon-migration-gate.mjs",
+          "fsOrProcessCalls": 8,
+          "bunApis": []
+        },
+        {
+          "path": "docs/evidence/fixtures/m11-acp-local-probe-2026-09-08.mjs",
+          "fsOrProcessCalls": 8,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/requirements-ledger.mjs",
+          "fsOrProcessCalls": 7,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/certify-m11-installed-acp.mjs",
+          "fsOrProcessCalls": 6,
+          "bunApis": ["serve"]
+        },
+        {
+          "path": "scripts/run-foundation-acceptance.mjs",
+          "fsOrProcessCalls": 6,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/validate-skills.mjs",
+          "fsOrProcessCalls": 6,
+          "bunApis": ["YAML"]
+        },
+        {
+          "path": "tests/pi-child-continuation-process.fixture.mjs",
+          "fsOrProcessCalls": 6,
+          "bunApis": []
+        }
+      ],
+      "disposition": "Bun already runs validation, test groups, native servers and selected process/YAML APIs. Measured validator already uses Bun. Keep TypeScript 6 API alias for AST compatibility and TypeScript 7 declaration emit."
+    },
+    "cortana": {
+      "head": "7940c0d0f479b7cc6f4c6aa88cf627493a5bb6ff",
+      "nativeApiCounts": {},
+      "candidates": [
+        {
+          "path": "scripts/check-web-ui-contract.mjs",
+          "fsOrProcessCalls": 13,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/desktop-host-launch.mjs",
+          "fsOrProcessCalls": 6,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/desktop-control-plane-acceptance.mjs",
+          "fsOrProcessCalls": 5,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/desktop-package-acceptance.mjs",
+          "fsOrProcessCalls": 5,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/desktop-macos-lifecycle-acceptance.mjs",
+          "fsOrProcessCalls": 3,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/prepare-desktop-sidecar.mjs",
+          "fsOrProcessCalls": 3,
+          "bunApis": []
+        }
+      ],
+      "disposition": "Web UI contract and bundle checks already run on Bun. Keep Python/Rust/native desktop checks. New Vite+ graph has merged and hosted transfer is proven. Windows graph caching remains intentionally disabled pending executable-identity qualification."
+    },
+    "ui": {
+      "head": "d93f66adb256939687abbca71ce7501e190897ba",
+      "nativeApiCounts": {
+        "spawnSync": 1,
+        "serve": 1,
+        "file": 2,
+        "YAML": 1,
+        "version": 1
+      },
+      "candidates": [
+        {
+          "path": "packages/ui/scripts/vite-task-cache-proof.ts",
+          "fsOrProcessCalls": 20,
+          "bunApis": ["YAML", "version"]
+        },
+        {
+          "path": "packages/ui/scripts/check-packed-appearance.ts",
+          "fsOrProcessCalls": 13,
+          "bunApis": []
+        },
+        {
+          "path": "packages/ui/scripts/check-packed-conversation.ts",
+          "fsOrProcessCalls": 13,
+          "bunApis": []
+        },
+        {
+          "path": "packages/ui/scripts/check-packed-layout-renderer.ts",
+          "fsOrProcessCalls": 11,
+          "bunApis": []
+        },
+        {
+          "path": "packages/ui/scripts/check-packed-list-row.ts",
+          "fsOrProcessCalls": 11,
+          "bunApis": []
+        },
+        {
+          "path": "packages/ui/scripts/check-packed-scene-controls.ts",
+          "fsOrProcessCalls": 10,
+          "bunApis": []
+        },
+        {
+          "path": "packages/ui/scripts/check-packed-tree.ts",
+          "fsOrProcessCalls": 9,
+          "bunApis": []
+        },
+        {
+          "path": "packages/ui/scripts/design-system/build.ts",
+          "fsOrProcessCalls": 9,
+          "bunApis": []
+        },
+        {
+          "path": "packages/ui/scripts/check-packed-consumer.ts",
+          "fsOrProcessCalls": 7,
+          "bunApis": []
+        },
+        {
+          "path": "packages/ui/scripts/check-packed-settings-navigation.ts",
+          "fsOrProcessCalls": 7,
+          "bunApis": []
+        }
+      ],
+      "disposition": "Bun already runs tests and tooling. Preserve Solid/Vite build semantics, TypeScript declaration emit and the TypeScript 6 parser API alias. Native Oxlint runner compatibility was previously qualified; no speculative Bun CLI override. Held Unicode parser PR462 was not modified."
+    },
+    "themes": {
+      "head": "10a0832faec6783f7f842aeba41dc56d057a997c",
+      "nativeApiCounts": {},
+      "candidates": [
+        {
+          "path": "scripts/build-catalogue.ts",
+          "fsOrProcessCalls": 3,
+          "bunApis": []
+        }
+      ],
+      "disposition": "Measured Bun.file().json() replacement had no improvement in the full catalogue check and was discarded. No graph cache added to this standalone library. Frozen offline worktree installation and hosted package download transfer qualified."
+    },
+    "plugins": {
+      "head": "1a216133e9f3a1580cb73aad1b99963c1457ee13",
+      "nativeApiCounts": {
+        "file": 6
+      },
+      "candidates": [
+        {
+          "path": "packages/cli/src/index.ts",
+          "fsOrProcessCalls": 5,
+          "bunApis": ["file"]
+        },
+        {
+          "path": "scripts/verify-catalog-branch.ts",
+          "fsOrProcessCalls": 5,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/publish-packages.mjs",
+          "fsOrProcessCalls": 4,
+          "bunApis": []
+        }
+      ],
+      "disposition": "Existing Bun.file().json() adoption retained. End-to-end schema validation comparison was noisy and does not substantiate a speedup claim. No additional API substitution. Standalone library download reuse qualified."
+    },
+    "agent-sim": {
+      "head": "19e5b9c045dc1746f1a5c9a8c6ddfb54082008b8",
+      "nativeApiCounts": {
+        "build": 3,
+        "spawnSync": 1,
+        "Glob": 1,
+        "spawn": 2
+      },
+      "candidates": [
+        {
+          "path": "scripts/export-engine.mjs",
+          "fsOrProcessCalls": 7,
+          "bunApis": ["build"]
+        },
+        {
+          "path": "scripts/fetch-assets.mjs",
+          "fsOrProcessCalls": 7,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/orch-toolchain.mjs",
+          "fsOrProcessCalls": 3,
+          "bunApis": []
+        },
+        {
+          "path": "scripts/prepare-character-animation-split.mjs",
+          "fsOrProcessCalls": 3,
+          "bunApis": []
+        }
+      ],
+      "disposition": "Existing Bun.build, Bun.Glob and process APIs retained. Real graph cache/dev fanout already qualified. Engine export/packaging optimization remains separately owned; no takeover or modifications."
+    },
+    "assets": {
+      "applicability": "No JavaScript runtime manifest; Bun API migration, TypeScript and Vite+ graph not applicable."
+    },
+    ".github": {
+      "applicability": "No JavaScript runtime manifest; Bun API migration, TypeScript and Vite+ graph not applicable."
+    }
+  },
+  "runtimeComparisons": [
+    {
+      "repository": "adea",
+      "script": "scripts/check-dev-view-bundle.mjs",
+      "samplesMs": {
+        "node": [
+          102.17554199999995, 105.04675000000002, 96.69791599999999, 101.3729579999999,
+          99.77579199999997, 100.08804199999987, 100.37854099999998, 96.95983399999997,
+          98.53275000000016, 102.16695799999998
+        ],
+        "bun": [
+          66.25958299999998, 63.10133399999995, 63.37529200000003, 62.11887500000002,
+          62.19333299999996, 63.89795899999995, 66.34512500000001, 61.597832999999994,
+          61.19816699999991, 66.3563749999998
+        ]
+      },
+      "medianMs": {
+        "node": 100.23329149999992,
+        "bun": 63.23831299999999
+      },
+      "sameOutput": false,
+      "failures": []
+    },
+    {
+      "repository": "control-plane",
+      "script": "scripts/validate-railway.mjs",
+      "samplesMs": {
+        "node": [
+          37.240249999999975, 36.75545800000002, 33.08179199999994, 35.22016600000022,
+          34.34516700000012, 33.658292000000145, 35.117207999999955, 34.079790999999915,
+          35.581084000000374, 35.4465829999997
+        ],
+        "bun": [
+          24.74304100000002, 25.829167000000155, 23.647874999999985, 25.007749999999884,
+          22.872415999999784, 25.115083999999843, 23.324042000000045, 25.524458000000028,
+          28.917375000000245, 25.618750000000023
+        ]
+      },
+      "medianMs": {
+        "node": 35.16868700000009,
+        "bun": 25.061416999999864
+      },
+      "sameOutput": true,
+      "failures": []
+    },
+    {
+      "repository": "cortana",
+      "script": "scripts/check-web-ui-contract.mjs",
+      "samplesMs": {
+        "node": [
+          785.33175, 789.8851669999996, 768.8427909999999, 782.3036660000007, 776.1198749999992,
+          769.8407080000003, 772.8859579999998, 810.9162919999999, 784.1917919999979,
+          793.1850000000011
+        ],
+        "bun": [
+          684.8479169999999, 702.7576660000001, 667.4177080000003, 680.9189589999995,
+          675.919458000001, 670.1756249999988, 676.7452079999998, 676.3302499999995,
+          680.3383749999998, 695.736625000002
+        ]
+      },
+      "medianMs": {
+        "node": 783.2477289999993,
+        "bun": 678.5417914999998
+      },
+      "sameOutput": true,
+      "failures": []
+    }
+  ],
+  "runtimeComparisonSourceHeads": {
+    "adea": "44426cbb2997791ed2b6885536394397423e0311",
+    "control-plane": "fc1576e8e7b75558157b2a3862db0a429ccaed16",
+    "cortana": "36c329bd05a03ff14605115b9a21762de426134a"
+  },
+  "themesApiCandidate": {
+    "command": "bun scripts/build-catalogue.ts --check",
+    "baseHead": "10a0832faec6783f7f842aeba41dc56d057a997c",
+    "samplesMs": {
+      "baseline": [
+        66.88462499999997, 64.96975000000005, 65.57345800000003, 67.09095899999996,
+        66.96716699999993, 67.62533400000015, 67.34633299999993, 65.41166599999993,
+        64.74112500000007, 64.15104199999999, 65.522458, 64.98433299999995, 64.61212500000002,
+        67.94329200000027, 67.46245800000005
+      ],
+      "bunJson": [
+        66.07791699999999, 65.11704199999996, 69.13725000000004, 67.79341699999996,
+        66.34020899999993, 67.50462499999999, 66.43958299999997, 67.21033399999988,
+        64.9947919999998, 67.03570800000014, 66.13737500000005, 64.92070900000013,
+        66.56658400000003, 67.64629200000005, 64.11608400000013
+      ]
+    },
+    "mediansMs": {
+      "baseline": 65.57345800000003,
+      "bunJson": 66.43958299999997
+    },
+    "sameOutput": true,
+    "method": "15 interleaved measured pairs after two warm-up pairs; process wall time on same host; no isolated-host claim"
+  },
+  "pluginsExistingApiComparison": {
+    "command": "bun packages/cli/src/index.ts validate --schema-only",
+    "samplesMs": {
+      "currentBunJson": [
+        770.5182090000004, 951.7423340000004, 919.9108339999996, 2389.073583, 1643.0889579999998,
+        1241.001666999999, 1159.4075840000003, 971.2635419999991, 833.603042, 767.3682090000007
+      ],
+      "fsFallback": [
+        776.9053750000002, 845.6047919999996, 1812.871915999999, 2144.9187090000005,
+        1516.1143339999992, 1607.3850420000006, 946.2823339999993, 907.8074580000007,
+        770.8074580000002, 764.2141670000022
+      ]
+    },
+    "medianMs": {
+      "currentBunJson": 961.5029379999997,
+      "fsFallback": 927.044896
+    },
+    "sameOutput": true,
+    "errors": []
+  },
+  "decisions": [
+    "No new API rewrite was retained: the Themes candidate was slightly slower and Plugins results were noisy.",
+    "Control Plane validator was 35.17 ms on Node versus25.06 ms on Bun; Cortana UI contract was783.25 ms versus678.54 ms. Both already run on Bun; these are current-path checks, not newly delivered savings.",
+    "Adea gzip budget checker was100.23 ms versus63.24 ms, but combined gzip bytes changed24418 to24559. Preserve Node and measurement continuity.",
+    "Bun checking does not emit declarations. Preserve required TypeScript7.0.2 build dependency and explicit TypeScript6.0.3 parser aliases."
+  ],
+  "localDownloadProof": {
+    "themes": [
+      {
+        "stage": "writer",
+        "offline": false,
+        "exit": 0,
+        "seconds": 0.500862375,
+        "lockUnchanged": true
+      },
+      {
+        "stage": "reader",
+        "offline": true,
+        "exit": 0,
+        "seconds": 0.02367462499999995,
+        "lockUnchanged": true
+      }
+    ],
+    "plugins": [
+      {
+        "stage": "writer",
+        "offline": false,
+        "exit": 0,
+        "seconds": 0.541943583,
+        "lockUnchanged": true
+      },
+      {
+        "stage": "reader",
+        "offline": true,
+        "exit": 0,
+        "seconds": 0.02918675000000004,
+        "lockUnchanged": true
+      }
+    ]
+  },
+  "localDownloadValidation": {
+    "themes": "132 tests/14985 assertions, format, lint, Bun check, catalogue check and tsc emit pass after offline install. Initial missing npm and sandbox npm-cache path were fixed in local PATH/cache configuration; no source change. Final verification uses pinned Node24.22.0, Bun1.4.3 and local npm cache.",
+    "plugins": "Bun check, tsc emit and216 tests/910 assertions pass after offline install."
+  },
+  "newImplementationChanges": []
+}

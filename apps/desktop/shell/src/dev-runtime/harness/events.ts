@@ -23,6 +23,7 @@ import { join } from 'node:path'
 import type {
   RuntimeEvent,
   RuntimeEventKind,
+  RuntimeSession,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { isRuntimeVisibleSummaryKind } from '../../../../../../packages/types/src/dev-runtime-visible-summaries'
@@ -31,6 +32,11 @@ import { validateRuntimeResponseReferences } from '../../../../../../packages/ty
 import { createDurableJsonStore } from '../host-store'
 import { createSessionHistoryReader, type RuntimeHistoryRead } from './history'
 import type { RuntimeEventHistoryPage } from '../../../../../../packages/types/src/dev-runtime-history'
+import {
+  snapshotInteractionEvent,
+  validateInteractionAdmission,
+  validateInteractionCorrelation,
+} from './interactions'
 import { assertAssistantEventFitsFrame, assertAssistantEventOrder } from './assistant-events'
 
 import {
@@ -73,7 +79,7 @@ function sameScope(left: Scope, right: Scope): boolean {
 function project(event: StoredEvent): RuntimeEvent {
   const { scope: _, ...rest } = event
   validateRuntimeResponseReferences(rest.kind, rest.payload, rest.source)
-  return { ...rest }
+  return snapshotInteractionEvent(rest) ?? { ...rest }
 }
 
 const seqOf = (event: RuntimeEvent): bigint => BigInt(event.seq)
@@ -140,6 +146,9 @@ export type SessionEventLog = Readonly<{
 export function createSessionEventLog(input: {
   dataDir: string
   scope: Scope
+  /** The existing session authority. Required for versioned interactions;
+   * legacy opaque events remain readable without inventing that authority. */
+  resolveSession?: (runtimeSessionId: string) => RuntimeSession | undefined
   /** Overrides the per-session bound (tests only; production uses the constant). */
   maxPerSession?: number
   /** Overrides the total bound (tests only; production uses the constant). */
@@ -220,6 +229,9 @@ export function createSessionEventLog(input: {
           ? {}
           : (sessionInput.payload ?? {}),
     }
+    candidate = snapshotInteractionEvent(candidate) ?? candidate
+    const interaction = validateInteractionAdmission(candidate, input.scope, input.resolveSession)
+    if (interaction) candidate = interaction.event
     if (isVersionedCall(candidate) && sessionInput.classification === undefined)
       throw new TypeError('event.classification: call observations require explicit classification')
     // A retry does not create a new call envelope: validate call facts before
@@ -240,6 +252,7 @@ export function createSessionEventLog(input: {
           (sessionInput.occurredAt === undefined || duplicate.occurredAt === candidate.occurredAt))
       if (
         duplicate.kind === candidate.kind &&
+        (!interaction || duplicate.harnessRunId === candidate.harnessRunId) &&
         (isVersionedCall(candidate)
           ? JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
           : canonicalDevCommandJson(duplicate.payload) ===
@@ -259,6 +272,8 @@ export function createSessionEventLog(input: {
           'a different event already exists under this (session, generation, source, sourceEventId) key',
       }
     }
+    if (interaction) validateInteractionCorrelation(candidate, interaction, records)
+
     if (isRuntimeCallEventKind(candidate.kind)) {
       decodeRuntimeEvent(candidate, { source })
       candidate = snapshotCallEvent(candidate)
@@ -278,7 +293,7 @@ export function createSessionEventLog(input: {
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(
-      (event) => event.runtimeSessionId === sessionInput.runtimeSessionId
+      (event) => event.runtimeSessionId === candidate.runtimeSessionId
     )
     let bounded = records
     if (sessionEvents.length + 1 > maxPerSession) {
@@ -304,7 +319,7 @@ export function createSessionEventLog(input: {
       ...bounded.map((event) => ({ ...event, scope: input.scope })),
     ]
     store.save(stored)
-    for (const cb of subscribers.get(sessionInput.runtimeSessionId) ?? []) cb(candidate)
+    for (const cb of subscribers.get(candidate.runtimeSessionId) ?? []) cb(candidate)
     return candidate
   }
 
