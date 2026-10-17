@@ -126,11 +126,33 @@ export function revalidationOutcome(
 /** Retry guidance in milliseconds: the client starts here and backs off itself. */
 export const STREAM_RETRY_MS = 1_000
 export const STREAM_HEARTBEAT_MS = 15_000
+/** Catch-up poll interval while a stream is active (it just opened or just delivered). */
 export const STREAM_POLL_MS = 1_000
+/** Longest catch-up poll interval an idle stream backs off to. */
+export const STREAM_IDLE_POLL_MAX_MS = 5_000
+/** Consecutive empty polls that each add one base interval to an idle stream's delay. */
+export const STREAM_IDLE_POLLS_PER_STEP = 5
 /** How often the stream revalidates that the subscriber is still a member. */
 export const STREAM_REAUTHORIZE_MS = 30_000
 /** Concurrent streams one workspace may hold, per server instance. */
 export const STREAM_CONNECTION_LIMIT = 8
+
+/**
+ * Delay before the next catch-up poll. An active stream polls every `baseMs`; each
+ * `pollsPerStep` consecutive empty polls add one more `baseMs`, up to `maxMs`, and any
+ * delivered event resets the count. With the defaults an idle stream is at the 5-second
+ * ceiling after about 45 seconds, so an idle subscriber costs 720 poll reads an hour
+ * instead of 3,600, while a conversation that is moving stays at one second.
+ */
+export function idlePollDelay(
+  emptyPolls: number,
+  baseMs: number = STREAM_POLL_MS,
+  maxMs: number = STREAM_IDLE_POLL_MAX_MS,
+  pollsPerStep: number = STREAM_IDLE_POLLS_PER_STEP
+): number {
+  const steps = Math.floor(Math.max(0, emptyPolls) / pollsPerStep)
+  return Math.min(Math.max(baseMs, maxMs), baseMs * (1 + steps))
+}
 
 export type ReplayDecision =
   | Readonly<{ mode: 'live-from-head'; from: number }>

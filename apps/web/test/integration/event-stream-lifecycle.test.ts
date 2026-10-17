@@ -135,6 +135,7 @@ const realStream = await import('../../src/server/workspace-event-stream')
 mock.module('../../src/server/workspace-event-stream', () => ({
   ...realStream,
   STREAM_POLL_MS: 5,
+  STREAM_IDLE_POLL_MAX_MS: 5,
   STREAM_HEARTBEAT_MS: 60_000,
   STREAM_REAUTHORIZE_MS: 25,
 }))

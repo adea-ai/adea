@@ -32,11 +32,14 @@ import {
   deliveryFrame,
   drainingFrame,
   heartbeatFrame,
+  idlePollDelay,
   resyncFrame,
   revalidationOutcome,
   StreamConnections,
   type ResyncReason,
   STREAM_HEARTBEAT_MS,
+  STREAM_IDLE_POLL_MAX_MS,
+  STREAM_IDLE_POLLS_PER_STEP,
   STREAM_POLL_MS,
   STREAM_REAUTHORIZE_MS,
   STREAM_RETRY_MS,
@@ -242,8 +245,10 @@ async function get(
           }
         }
 
-        // The poll below repeats the same read every second for the life of the
-        // stream, so its query is built once here and only the cursor changes.
+        // The poll below repeats the same read for the life of the stream, so its
+        // query is built once here and only the cursor changes. An idle stream backs
+        // off (see idlePollDelay); the wait never runs past the next heartbeat,
+        // reauthorization or lifetime deadline, so those keep their exact cadence.
         const pollEventsAfter = prepareWorkspaceEventsAfter(
           database,
           workspaceId,
@@ -252,38 +257,33 @@ async function get(
         const startedAt = Date.now()
         let lastHeartbeat = Date.now()
         let lastReauthorize = Date.now()
+        let emptyPolls = 0
+        const pollDelay = () =>
+          idlePollDelay(
+            emptyPolls,
+            STREAM_POLL_MS,
+            STREAM_IDLE_POLL_MAX_MS,
+            STREAM_IDLE_POLLS_PER_STEP
+          )
+        let nextPollAt = Date.now() + pollDelay()
 
         while (!stopped()) {
-          await pause(STREAM_POLL_MS)
+          const wakeAt = Math.min(
+            nextPollAt,
+            lastHeartbeat + STREAM_HEARTBEAT_MS,
+            lastReauthorize + STREAM_REAUTHORIZE_MS,
+            startedAt + STREAM_LIFETIME_MS
+          )
+          await pause(Math.max(0, wakeAt - Date.now()))
           if (stopped()) break
-
-          // Bounded catch-up reads are what keep delivery correct when a wake-up
-          // is lost or delayed; the log is the source of truth.
-          const events = await pollEventsAfter(lastSequence)
-          if (stopped()) break
-          if (events.length > 0) {
-            const sent = await sendPage(events)
-            if (sent === 'stopped') break
-            if (sent === 'revoked') {
-              send(drainingFrame('membership-revoked'))
-              break
-            }
-            lastSequence = events.at(-1)!.workspaceSequence
-            await markEventDispatchesNotified(database, workspaceId, lastSequence)
-            if (stopped()) break
-          }
-
-          const now = Date.now()
-          if (now - lastHeartbeat >= STREAM_HEARTBEAT_MS) {
-            lastHeartbeat = now
-            send(heartbeatFrame())
-          }
 
           // A revoked session or membership must stop delivery promptly, not at
           // the next reconnect. The subscriber is re-resolved and re-authorized
-          // while the stream is open, so a deleted credential counts too.
-          if (now - lastReauthorize >= STREAM_REAUTHORIZE_MS) {
-            lastReauthorize = now
+          // while the stream is open, so a deleted credential counts too. It runs
+          // before the poll, so when both are due a revocation wins: nothing
+          // appended after it is delivered.
+          if (Date.now() - lastReauthorize >= STREAM_REAUTHORIZE_MS) {
+            lastReauthorize = Date.now()
             const current = await resolveWorkspacePrincipal(request)
             // A subscriber that left while the principal resolved gets no
             // further database work on its behalf.
@@ -301,6 +301,37 @@ async function get(
               send(drainingFrame(outcome.reason))
               break
             }
+          }
+
+          if (Date.now() >= nextPollAt) {
+            // Bounded catch-up reads are what keep delivery correct when a wake-up
+            // is lost or delayed; the log is the source of truth.
+            const events = await pollEventsAfter(lastSequence)
+            if (stopped()) break
+            if (events.length > 0) {
+              emptyPolls = 0
+              const sent = await sendPage(events)
+              if (sent === 'stopped') break
+              if (sent === 'revoked') {
+                send(drainingFrame('membership-revoked'))
+                break
+              }
+              lastSequence = events.at(-1)!.workspaceSequence
+              await markEventDispatchesNotified(database, workspaceId, lastSequence)
+              if (stopped()) break
+            } else {
+              emptyPolls += 1
+            }
+            // A full page means more is probably queued: read again at once so a
+            // backlog drains as fast as it is classified, not 200 events per interval.
+            nextPollAt =
+              events.length >= WORKSPACE_EVENT_PAGE_LIMIT ? Date.now() : Date.now() + pollDelay()
+          }
+
+          const now = Date.now()
+          if (now - lastHeartbeat >= STREAM_HEARTBEAT_MS) {
+            lastHeartbeat = now
+            send(heartbeatFrame())
           }
 
           if (now - startedAt >= STREAM_LIFETIME_MS) {

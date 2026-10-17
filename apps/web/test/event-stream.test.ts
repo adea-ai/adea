@@ -11,10 +11,14 @@ import {
   drainingFrame,
   eventFrame,
   heartbeatFrame,
+  idlePollDelay,
   resyncFrame,
   revalidationOutcome,
   StreamConnections,
   STREAM_CONNECTION_LIMIT,
+  STREAM_IDLE_POLL_MAX_MS,
+  STREAM_IDLE_POLLS_PER_STEP,
+  STREAM_POLL_MS,
   withheldFrame,
 } from '../src/server/workspace-event-stream'
 
@@ -247,5 +251,42 @@ describe('workspace event stream protocol', () => {
       connections.release(workspaceId)
     }
     expect(connections.open(workspaceId)).toBe(0)
+  })
+})
+
+describe('idle poll backoff', () => {
+  test('an active stream polls at the base interval', () => {
+    for (let empty = 0; empty < STREAM_IDLE_POLLS_PER_STEP; empty += 1) {
+      expect(idlePollDelay(empty)).toBe(STREAM_POLL_MS)
+    }
+  })
+
+  test('each run of empty polls adds one base interval, up to the ceiling', () => {
+    expect(idlePollDelay(STREAM_IDLE_POLLS_PER_STEP)).toBe(2 * STREAM_POLL_MS)
+    expect(idlePollDelay(3 * STREAM_IDLE_POLLS_PER_STEP)).toBe(4 * STREAM_POLL_MS)
+    expect(idlePollDelay(4 * STREAM_IDLE_POLLS_PER_STEP)).toBe(STREAM_IDLE_POLL_MAX_MS)
+    expect(idlePollDelay(10_000)).toBe(STREAM_IDLE_POLL_MAX_MS)
+  })
+
+  test('never faster than the base, never slower than the ceiling', () => {
+    expect(idlePollDelay(-3)).toBe(STREAM_POLL_MS)
+    for (let empty = 0; empty < 200; empty += 1) {
+      const delay = idlePollDelay(empty)
+      expect(delay).toBeGreaterThanOrEqual(STREAM_POLL_MS)
+      expect(delay).toBeLessThanOrEqual(STREAM_IDLE_POLL_MAX_MS)
+    }
+  })
+
+  test('a ceiling below the base is ignored rather than speeding the stream up', () => {
+    expect(idlePollDelay(100, 1_000, 200, 5)).toBe(1_000)
+  })
+
+  test('the delay is non-decreasing while idle', () => {
+    let previous = 0
+    for (let empty = 0; empty < 100; empty += 1) {
+      const delay = idlePollDelay(empty)
+      expect(delay).toBeGreaterThanOrEqual(previous)
+      previous = delay
+    }
   })
 })

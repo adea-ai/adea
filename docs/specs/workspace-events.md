@@ -169,9 +169,14 @@ execution's configuration or current compatibility.
   resume), and the stream already answers a cursor from before the window with
   `resync_required`.
 - **Liveness.** Heartbeats every 15 seconds, `retry: 1000` guidance, bounded
-  catch-up reads on a short interval (a lost wake-up loses no event), a
-  deliberate 30-minute stream lifetime, and a bounded number of concurrent
-  streams per workspace. That bound is per server instance: a global limit needs
+  catch-up reads (a lost wake-up loses no event) every second while the stream is
+  active, backing off one second per five empty reads to a five-second ceiling when
+  idle and returning to one second on the next delivery, so an event appended to an
+  idle stream arrives within five seconds; a full page is followed by an immediate
+  read. Heartbeat, reauthorization and lifetime deadlines run on their own timers,
+  not on the read interval, and reauthorization runs before a read that falls due
+  with it. The stream also has a deliberate 30-minute lifetime and a bounded
+  number of concurrent streams per workspace. That bound is per server instance: a global limit needs
   shared state.
 
 ## Per-principal filtering
