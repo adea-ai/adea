@@ -41,6 +41,11 @@
       "development": "./src/dev-runtime-wire.ts",
       "import": "./dist/dev-runtime-wire.js"
     },
+    "./dev-runtime-history": {
+      "types": "./dist/dev-runtime-history.d.ts",
+      "development": "./src/dev-runtime-history.ts",
+      "import": "./dist/dev-runtime-history.js"
+    },
     "./dev-runtime-registry-dto": {
       "types": "./dist/dev-runtime-registry-dto.d.ts",
       "development": "./src/dev-runtime-registry-dto.ts",

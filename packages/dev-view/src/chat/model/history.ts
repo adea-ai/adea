@@ -1,8 +1,8 @@
+import type { Scope } from '@adea-ai/types/dev-runtime'
 import {
   decodeRuntimeEventHistoryPage,
   type RuntimeEventHistoryPage,
-  type Scope,
-} from '@adea-ai/types/dev-runtime'
+} from '@adea-ai/types/dev-runtime-history'
 import { buildDevCommand } from '../../browser/command'
 import type { DevRuntimeService } from '../../platform'
 import { ChatRuntimeError, executeChatCommand } from './commands'

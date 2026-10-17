@@ -140,6 +140,8 @@ describe('older transcript loading', () => {
     })
     let published = false
     handle.subscribe((state) => {
+      expect(accepted.map((entry) => entry.seq)).toEqual(['2', '3', '4'])
+      expect(handle.state()).toBe(state)
       published = state.events[0]?.seq === '2'
     })
     await handle.loadOlder()

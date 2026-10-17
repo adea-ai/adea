@@ -46,12 +46,11 @@ function eventKey(event: RuntimeEvent): string {
   return `${event.runtimeSessionId}\u0000${event.generation}\u0000${event.source}\u0000${event.sourceEventId}`
 }
 
+// Both records already matched the full session/generation/source event key.
 function sameEvent(left: RuntimeEvent, right: RuntimeEvent): boolean {
   return (
     left.kind === right.kind &&
     left.seq === right.seq &&
-    left.runtimeSessionId === right.runtimeSessionId &&
-    left.generation === right.generation &&
     JSON.stringify(left.payload) === JSON.stringify(right.payload)
   )
 }
@@ -61,11 +60,9 @@ function retention(
   requestedFrom: string,
   reason?: ChatRetentionTruth['reason']
 ): ChatRetentionTruth {
-  const ordered = [...events].toSorted((left, right) =>
-    sequence(left.seq) < sequence(right.seq) ? -1 : 1
-  )
-  const oldestSequence = ordered[0]?.seq
-  const newestSequence = ordered.at(-1)?.seq
+  // Both callers pass the canonical sequence-sorted accumulator window.
+  const oldestSequence = events[0]?.seq
+  const newestSequence = events.at(-1)?.seq
   const bounded = oldestSequence !== undefined && sequence(requestedFrom) < sequence(oldestSequence)
   const retentionReason = reason ?? (bounded ? ('retention' as const) : undefined)
   return {
