@@ -1,5 +1,5 @@
 // The shell's loopback server helpers: the same-origin cloud proxy and the
-// optional Agent Sim engine mount. These run in Bun's test runner inside the
+// retired Agent Sim engine mount. These run in Bun's test runner inside the
 // desktop lane they serve.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -115,50 +115,18 @@ describe('agent sim mount', () => {
     rmSync(packRoot, { force: true, recursive: true })
   })
 
-  test('wraps the raw export manifest into the gate shape', async () => {
-    const response = await agentSimResponse('/assets/agent-sim/engine.json', packRoot)
-    expect(response.status).toBe(200)
-    expect(await response.json()).toEqual({
-      engine: { entryUrl: '/assets/agent-sim/engine.js', version: '0.11.0' },
-    })
-  })
-
-  test('passes the wrapped pack-lane manifest through unchanged in shape', async () => {
-    const wrappedRoot = mkdtempSync(join(tmpdir(), 'adea-agent-sim-'))
-    try {
-      writeFileSync(
-        join(wrappedRoot, 'engine.json'),
-        JSON.stringify({ engine: { entryUrl: '/assets/agent-sim/engine.js', version: '1.2.3' } })
-      )
-      const response = await agentSimResponse('/assets/agent-sim/engine.json', wrappedRoot)
-      expect(await response.json()).toEqual({
-        engine: { entryUrl: '/assets/agent-sim/engine.js', version: '1.2.3' },
-      })
-    } finally {
-      rmSync(wrappedRoot, { force: true, recursive: true })
-    }
-  })
-
-  test('serves engine files with their types and keeps traversal inside the pack', async () => {
-    const entry = await agentSimResponse('/assets/agent-sim/engine.js', packRoot)
-    expect(entry.status).toBe(200)
-    expect(entry.headers.get('content-type')).toBe('text/javascript')
-    const model = await agentSimResponse('/assets/agent-sim/models/scene.glb', packRoot)
-    expect(model.headers.get('content-type')).toBe('model/gltf-binary')
-    // `..` segments normalize to a path inside the pack root, never above it.
-    const dotdot = await agentSimResponse('/assets/agent-sim/../engine.js', packRoot)
-    expect(dotdot.status).toBe(200)
-    const missing = await agentSimResponse('/assets/agent-sim/models/nope.glb', packRoot)
-    expect(missing.status).toBe(404)
-  })
-
-  test('answers a pack without a usable manifest with a 404 the gate reads as unavailable', async () => {
-    const emptyRoot = mkdtempSync(join(tmpdir(), 'adea-agent-sim-'))
-    try {
-      const response = await agentSimResponse('/assets/agent-sim/engine.json', emptyRoot)
+  test('refuses a present legacy pack without serving any private bytes', async () => {
+    for (const path of ['engine.json', 'engine.js', 'models/scene.glb', '../engine.js']) {
+      const response = await agentSimResponse(`/assets/agent-sim/${path}`, packRoot)
       expect(response.status).toBe(404)
-    } finally {
-      rmSync(emptyRoot, { force: true, recursive: true })
+      expect(await response.text()).toBe('')
+      expect(response.headers.get('cache-control')).toBe('no-store')
     }
+  })
+
+  test('refuses an absent pack with the same response', async () => {
+    expect((await agentSimResponse('/assets/agent-sim/engine.json', '/never-read')).status).toBe(
+      404
+    )
   })
 })

@@ -1,3 +1,4 @@
+import { agentSimResponse } from '../agent-sim-assets'
 // Adea desktop shell — Electrobun 2.x (Bun main process, bundled CEF view).
 // Serves the single UI (apps/web's TanStack Start SPA output, built by
 // apps/desktop/scripts/client.mjs) from disk on a loopback port, injects the
@@ -643,7 +644,7 @@ for (let attempt = 0; attempt < 30 && !server; attempt++) {
           }
           // Hosted Sim never falls back to a local engine, including stale installs.
           if (url.pathname.startsWith('/assets/agent-sim/')) {
-            return new Response(null, { status: 404 })
+            return agentSimResponse(url.pathname)
           }
           const rel = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, '')
           let filePath = join(CLIENT_ROOT, rel)
