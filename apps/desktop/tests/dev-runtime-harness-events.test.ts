@@ -852,3 +852,92 @@ describe('runtime-events-v1 stream handler', () => {
     }
   }, 60_000)
 })
+
+describe('assistant identity over runtime-events-v1 (#1386)', () => {
+  test('resync replays a self-contained final with original identity and never republishes retries', async () => {
+    const shell = await boot()
+    let stream: ScriptedSession | undefined
+    try {
+      const events = shell.host().harness!.events
+      const sessionId = '00000000-0000-4000-8000-0000000000c1'
+      const assistant = {
+        runtimeSessionId: sessionId,
+        generation: 1,
+        harnessRunId: 'run-assistant',
+        source: 'acp' as const,
+        confidence: 'authoritative' as const,
+        classification: 'workspace_private' as const,
+      }
+      events.append({
+        ...assistant,
+        kind: 'turn.assistant_delta',
+        sourceEventId: 'assistant-delta',
+        payload: { messageId: 'message-1', deltaIndex: 0, text: 'partial' },
+      })
+      const finalInput = {
+        ...assistant,
+        kind: 'turn.assistant_message' as const,
+        sourceEventId: 'assistant-final',
+        payload: { messageId: 'message-1', text: 'Complete answer', supersedes: 'deltas' },
+      }
+      const final = events.append(finalInput)!
+      events.append({
+        ...assistant,
+        kind: 'turn.result',
+        sourceEventId: 'assistant-result',
+        payload: { messageId: 'message-1', summary: 'Finished' },
+      })
+      // The newest-500 replay starts at the final, beyond the partial delta.
+      for (let index = 0; index < 498; index += 1) {
+        events.append(eventInput({ runtimeSessionId: sessionId, sourceEventId: `filler-${index}` }))
+      }
+      stream = scriptedSession(
+        makeGrant({ resource: { kind: 'runtime_session', id: sessionId, generation: 1 } })
+      )
+      shell.capturedStreamProvider()(stream as never)
+      expect(stream.sent[0]).toEqual({
+        type: 'resync',
+        reason: 'checkpoint_required',
+        checkpointSequence: final.seq,
+      })
+      const replayed = stream.sent
+        .filter((frame) => frame.type === 'data')
+        .map((frame) => decodeCbor((frame as { bytes: Uint8Array }).bytes).value as RuntimeEvent)
+      expect(replayed).toHaveLength(500)
+      expect(decodeRuntimeEvent(replayed[0], { source: 'acp' })).toEqual(final)
+      expect(replayed[0]!.payload).toEqual({
+        messageId: 'message-1',
+        text: 'Complete answer',
+        supersedes: 'deltas',
+      })
+      expect(replayed.some((event) => event.kind === 'turn.assistant_delta')).toBe(false)
+      expect(stream.sent.at(-1)).toMatchObject({ type: 'heartbeat', throughSequence: '501' })
+      const frameCount = stream.sent.length
+      expect(events.append(finalInput)).toBeUndefined()
+      expect(stream.sent).toHaveLength(frameCount)
+      expect(() =>
+        events.append({
+          ...assistant,
+          kind: 'turn.assistant_delta',
+          sourceEventId: 'assistant-late',
+          payload: { messageId: 'message-1', deltaIndex: 1, text: 'late' },
+        })
+      ).toThrow()
+      expect(stream.sent).toHaveLength(frameCount)
+      const nextRun = events.append({
+        ...assistant,
+        harnessRunId: 'run-next',
+        kind: 'turn.assistant_delta',
+        sourceEventId: 'next-run-delta',
+        payload: { messageId: 'message-1', deltaIndex: 0, text: 'New run' },
+      })!
+      const live = stream.sent.at(-1) as { type: string; sequence: string; bytes: Uint8Array }
+      expect(live.type).toBe('data')
+      expect(decodeRuntimeEvent(decodeCbor(live.bytes).value, { source: 'acp' })).toEqual(nextRun)
+      expect(nextRun.harnessRunId).not.toBe(final.harnessRunId)
+    } finally {
+      stream?.onClose?.()
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  }, 30_000)
+})

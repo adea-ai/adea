@@ -115,6 +115,64 @@ test('a direct session attaches read-only: nothing is invented from the bound ru
   expectNoErrors(errors)
 })
 
+// Approval state is visible truth, never a silent guess (#1177). Approval events
+// carry no qualified identity, so a requested event cannot be matched to its
+// resolution: the strip says the status is unknown instead of hiding it, and
+// "awaiting approval" appears only from the host's explicit fact.
+async function openApprovalHarness(page: Page, query: string): Promise<string[]> {
+  const errors = trackPageErrors(page)
+  await page.goto(`${url}?${query}`)
+  await expect(section(page)).toBeVisible()
+  return errors
+}
+
+test.describe('approval state is shown truthfully', () => {
+  test('a requested approval with no explicit fact reads as unknown, not awaiting', async ({
+    page,
+  }) => {
+    const errors = await openApprovalHarness(page, 'approvals=requested')
+    await expect(section(page).getByText('approval status unknown')).toBeVisible()
+    await expect(section(page).getByText('awaiting approval')).toHaveCount(0)
+    expectNoErrors(errors)
+  })
+
+  test('a requested and later resolved approval is still unknown (no identity to match)', async ({
+    page,
+  }) => {
+    const errors = await openApprovalHarness(page, 'approvals=requested-resolved')
+    await expect(section(page).getByText('approval status unknown')).toBeVisible()
+    await expect(section(page).getByText('awaiting approval')).toHaveCount(0)
+    expectNoErrors(errors)
+  })
+
+  test('an incomplete retained window is unknown even with no approval event', async ({ page }) => {
+    const errors = await openApprovalHarness(page, 'window=incomplete')
+    await expect(section(page).getByText('approval status unknown')).toBeVisible()
+    expectNoErrors(errors)
+  })
+
+  test('a complete window with no approval request shows neither label', async ({ page }) => {
+    const errors = await openApprovalHarness(page, 'approvals=none')
+    await expect(section(page).getByText('approval status unknown')).toHaveCount(0)
+    await expect(section(page).getByText('awaiting approval')).toHaveCount(0)
+    expectNoErrors(errors)
+  })
+
+  test("the host's explicit awaiting fact shows awaiting, and explicit false shows neither", async ({
+    page,
+  }) => {
+    const awaiting = await openApprovalHarness(page, 'approvals=requested&awaiting=true')
+    await expect(section(page).getByText('awaiting approval')).toBeVisible()
+    await expect(section(page).getByText('approval status unknown')).toHaveCount(0)
+    expectNoErrors(awaiting)
+
+    const none = await openApprovalHarness(page, 'approvals=requested&awaiting=false')
+    await expect(section(page).getByText('awaiting approval')).toHaveCount(0)
+    await expect(section(page).getByText('approval status unknown')).toHaveCount(0)
+    expectNoErrors(none)
+  })
+})
+
 test('an effect-shaped live turn stays unavailable; stops stay distinct', async ({ page }) => {
   const errors = await openHarness(page)
   await page.getByRole('button', { name: 'Observe live lead turn' }).click()

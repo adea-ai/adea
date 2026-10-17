@@ -1,5 +1,4 @@
 // Application-owned selection resolution. No PTY is created or grant minted here.
-import { decodeDevReply } from '@adea-ai/types/dev-runtime'
 import type {
   DevCommand,
   DevErrorCode,
@@ -74,6 +73,9 @@ export async function resolveSelectedTerminal(options: {
         (reply.value as { items: unknown[] }).items.length > 500
       )
         return unavailable('limit_exceeded')
+      // Keep reply validation lazy without delaying the first runtime read.
+      const { decodeDevReply } = await import('@adea-ai/types/dev-runtime')
+      if (signal?.aborted) return unavailable('cancelled')
       const decoded = decodeDevReply(reply)
       if (!decoded.ok) return unavailable(decoded.error.code)
       const page = decoded.value as DevRuntimePage<TerminalRecord>

@@ -3,6 +3,7 @@ import type {
   ChatConversation,
   ChatConversationModel,
   ChatDraftValue,
+  ConversationModelOptions,
 } from '@adea-ai/dev-view/chat/model'
 import type { Scope } from '@adea-ai/types/dev-runtime'
 import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
@@ -144,7 +145,10 @@ function readingKey(identity: DesktopChatDraftIdentity): string {
  * instance-scoped, holds only the current authenticated runtime scope, and is
  * therefore shared by Chat remounts without becoming a process-global store.
  */
-export function createDesktopChatModelHost(runtime: DevRuntimeService): DesktopChatModelHost {
+export function createDesktopChatModelHost(
+  runtime: DevRuntimeService,
+  options: Pick<ConversationModelOptions, 'initialModel'> = {}
+): DesktopChatModelHost {
   let activeKey: string | undefined
   let model: ChatConversationModel | undefined
   const readingPositions = new Map<string, DesktopChatReadingPosition>()
@@ -154,7 +158,7 @@ export function createDesktopChatModelHost(runtime: DevRuntimeService): DesktopC
     if (model && activeKey === key) return model
     readingPositions.clear()
     activeKey = key
-    model = createChatConversationModel(runtime, scope)
+    model = createChatConversationModel(runtime, scope, options)
     return model
   }
 

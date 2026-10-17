@@ -12,7 +12,12 @@ import { searchConversationHistory, type ConversationSearchJump } from '../chat/
 import { AllSessionsResults, type AllSessionsFeed } from './all-sessions-results'
 import type { ResumeTarget } from './all-sessions-model'
 import { Entry, EntryList, ResultRow } from './history-parts'
-import { buildHistoryTurns, formatRelativeTime, type HistoryTurn } from './turns-model'
+import {
+  buildHistoryTurns,
+  formatRelativeTime,
+  turnIdForEvent,
+  type HistoryTurn,
+} from './turns-model'
 import { RunHistoryPane } from './run-history-pane'
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -184,20 +189,8 @@ function TurnRow(props: {
   )
 }
 
-/** The turn an event belongs to: the latest prompt at or before it. */
-export function turnIdForEvent(
-  turns: readonly HistoryTurn[],
-  events: readonly RuntimeEvent[],
-  eventId: string
-): string | undefined {
-  const prompts = new Set(turns.map((turn) => turn.id))
-  let turnId: string | undefined
-  for (const event of events) {
-    if (prompts.has(event.eventId)) turnId = event.eventId
-    if (event.eventId === eventId) return turnId
-  }
-  return undefined
-}
+// Moved to the pure turns model so tests can reach it without loading this component.
+export { turnIdForEvent }
 
 const REVEAL_MS = 2_400
 

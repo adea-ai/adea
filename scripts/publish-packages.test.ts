@@ -44,8 +44,8 @@ function workflowPushPaths(): string[] {
 
 function workflowBuildFilters(): string[] {
   const source = read('.github/workflows/publish-packages.yml')
-  return [...source.matchAll(/turbo run build ([^\n]+)/g)]
-    .flatMap((match) => [...match[1]!.matchAll(/--filter=(\S+)/g)].map((filter) => filter[1]!))
+  return [...source.matchAll(/vp run orch:([a-z-]+):build\b/g)]
+    .map((match) => `@adea-ai/${match[1]!}`)
     .toSorted()
 }
 

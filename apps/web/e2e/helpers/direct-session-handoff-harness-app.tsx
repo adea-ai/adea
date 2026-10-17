@@ -19,7 +19,7 @@ import {
   type HandoffLeadAgent,
   type HandoffLeadTurn,
 } from '@adea-ai/dev-view/chat'
-import type { HarnessRun } from '@adea-ai/types/dev-runtime'
+import type { HarnessRun, RuntimeEvent } from '@adea-ai/types/dev-runtime'
 import { resolveHandoffSessionAuthority } from '@adea-ai/dev-view/chat'
 import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
 import {
@@ -64,6 +64,53 @@ function conversation(
     events: [],
     retention: { maxEvents: 1_000, oldestSequence: '0', newestSequence: '0', complete: true },
   }
+}
+
+function approvalEvent(kind: 'approval.requested' | 'approval.resolved', n: number): RuntimeEvent {
+  const at = `2026-10-16T12:00:0${n}.000Z`
+  return {
+    schemaVersion: 1,
+    eventId: `evt-${n}`,
+    runtimeSessionId: 'session-1',
+    generation: 3,
+    seq: String(n),
+    occurredAt: at,
+    receivedAt: at,
+    source: 'native',
+    sourceEventId: `src-${n}`,
+    confidence: 'authoritative',
+    classification: 'workspace_metadata',
+    kind,
+    payload: {},
+  }
+}
+
+// Approval facts for the first session, drivable from the page URL so a test
+// can mount each retained-window shape: ?approvals=requested | requested-resolved,
+// ?window=incomplete, and the host's explicit ?awaiting=true | false.
+function approvalFixture(): Pick<ChatConversation, 'events' | 'retention'> {
+  const query = new URLSearchParams(location.search)
+  const approvals = query.get('approvals')
+  const events: RuntimeEvent[] =
+    approvals === 'requested'
+      ? [approvalEvent('approval.requested', 1)]
+      : approvals === 'requested-resolved'
+        ? [approvalEvent('approval.requested', 1), approvalEvent('approval.resolved', 2)]
+        : []
+  return {
+    events,
+    retention: {
+      maxEvents: 1_000,
+      oldestSequence: '0',
+      newestSequence: String(events.length),
+      complete: query.get('window') !== 'incomplete',
+    },
+  }
+}
+
+function explicitAwaiting(): boolean | undefined {
+  const value = new URLSearchParams(location.search).get('awaiting')
+  return value === 'true' ? true : value === 'false' ? false : undefined
 }
 
 function harnessRun(id: string, sessionId: string): HarnessRun {
@@ -133,7 +180,10 @@ function initialBackend(): FixtureBackend {
   }
   return {
     sessions: {
-      'session-1': conversation('session-1', 'run-1', 3, 'unsent coordination note', TASK_ID),
+      'session-1': {
+        ...conversation('session-1', 'run-1', 3, 'unsent coordination note', TASK_ID),
+        ...approvalFixture(),
+      },
       'session-2': conversation('session-2', 'run-2', 2, '', undefined),
     },
     channels: [
@@ -799,6 +849,7 @@ function Harness() {
         model={model}
         autoAttach={false}
         connected={connected()}
+        awaitingApproval={explicitAwaiting()}
         handoff={{
           harnessRuns: runs(),
           leadTurn: supply().turn,

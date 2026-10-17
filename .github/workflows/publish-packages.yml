@@ -54,7 +54,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.3
           no-cache: true
 
       - name: Install Node
@@ -78,7 +78,9 @@ jobs:
         # and not in the `paths` filter above, so building it here produced a
         # tarball nothing consumed on every run. The removal has to be complete
         # across all three lists; this is the third.
-        run: bunx turbo run build --filter=@adea-ai/audio --filter=@adea-ai/spatial
+        run: |
+          bun run vp run orch:audio:build
+          bun run vp run orch:spatial:build
 
       - name: Publish changed packages
         run: bun scripts/publish-packages.mjs

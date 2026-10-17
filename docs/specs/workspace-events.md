@@ -169,9 +169,18 @@ execution's configuration or current compatibility.
   resume), and the stream already answers a cursor from before the window with
   `resync_required`.
 - **Liveness.** Heartbeats every 15 seconds, `retry: 1000` guidance, bounded
-  catch-up reads on a short interval (a lost wake-up loses no event), a
-  deliberate 30-minute stream lifetime, and a bounded number of concurrent
-  streams per workspace. That bound is per server instance: a global limit needs
+  catch-up reads (a lost wake-up loses no event) every second while the stream is
+  active, backing off one second per five empty reads to a five-second ceiling when
+  idle (the ceiling is reached after 50 seconds of empty reads) and returning to one
+  second on the next delivery, so the scheduled wait before the next read of an idle
+  stream is at most five seconds. That bounds the poll delay, not total delivery
+  latency, which adds the read, classification and cursor signing on top of it. A full
+  page is followed by an immediate read. Heartbeat, reauthorization and lifetime
+  deadlines are tracked independently of the read interval, and
+  reauthorization runs before a read that falls due with it. They share one serial loop,
+  so they are not hard real-time guarantees: a slow awaited operation delays whatever
+  falls due behind it. The stream also has a deliberate 30-minute lifetime and a bounded
+  number of concurrent streams per workspace. That bound is per server instance: a global limit needs
   shared state.
 
 ## Per-principal filtering
@@ -314,7 +323,10 @@ desktop sessions share one path, and the cursor travels explicitly.
   group under `['workspaces', workspaceId, 'runtime-nodes']`. They do not imply
   execution acceptance or change canonical Message/history availability.
 - Reconnects back off 1s→30s with jitter, reset after a stable connection, and
-  never faster than the server asks.
+  never faster than the server asks. Hidden browser documents cancel the stream
+  and pending retry; visibility resumes one stream from the retained signed
+  cursor. Pausing changes no authorization or replay decision. A stale cursor
+  still receives the server's ordinary resync response.
 - One subscription is mounted in the workspace navigation shell — above view
   switching — so conventional, spatial, and dev surfaces read the same query
   state without reconnecting on each surface change, and transient UI
@@ -519,3 +531,8 @@ This proves liveness, never execution acceptance.
   0045 SQL to realistic old-shape copies and requires every pre-existing column of Agents,
   channels, participants, messages, mentions, read states, memberships and events to survive.
 - `apps/web/test/agent-edit-request.test.ts`: strict revision, field and placement parsing.
+
+Visibility suspension preserves an already pending reconnect deadline. Showing
+or manually reconnecting before that deadline re-arms only the remaining delay,
+including the server retry floor; hidden time counts toward the deadline. An
+active stream aborted by hiding has no pending retry and resumes immediately.
