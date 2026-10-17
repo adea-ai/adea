@@ -75,13 +75,23 @@ describe('published runtime discovery boundary', () => {
     const deps = await dependencies()
     const result = await listNodeRuntimeConnections({}, correlation, deps)
     expect(result.discovery).toEqual({ state: 'available' })
-    expect(result.node).toEqual(node)
+    expect(result.node).toEqual({
+      ...node,
+      deviceOnline: { state: 'not_applicable' },
+      hostReachability: {
+        state: 'unknown',
+        dependency: 'control_plane.runtime_connection_discovery.host_reachability',
+      },
+    })
     expect(result.connections[0]).toMatchObject({
       id: `rtc_${suffix}`,
       location: 'remote_host',
       node: { status: 'online' },
       connection: { health: 'healthy' },
-      transport: { state: 'unreported' },
+      transport: {
+        state: 'unknown',
+        dependency: 'control_plane.runtime_connection_discovery.transport',
+      },
     })
     expect(result.nextCursor).toBe('cur_abcd')
     expect(deps.requests[0]).toMatchObject({
@@ -142,6 +152,89 @@ describe('published runtime discovery boundary', () => {
     })
     expect(JSON.stringify(result)).not.toContain('private-path-canary')
   })
+  test('keeps reachable discovery and unknown service readiness separate from degraded connections', async () => {
+    const degraded = {
+      ...model(),
+      connection: { status: 'degraded', health: 'degraded', availability: 'degraded' },
+    }
+    const result = await listNodeRuntimeConnections({}, correlation, await dependencies([degraded]))
+
+    expect(result.discovery).toEqual({ state: 'available' })
+    expect(result.controlPlaneReadiness).toEqual({
+      state: 'unknown',
+      dependency: 'control_plane.runtime_connection_discovery.readiness',
+    })
+    expect(result.connections[0]).toMatchObject({
+      node: {
+        status: 'online',
+        health: 'online',
+        deviceOnline: { state: 'not_applicable' },
+        hostReachability: { state: 'unknown' },
+      },
+      connection: { status: 'degraded', health: 'degraded', availability: 'degraded' },
+      transport: {
+        state: 'unknown',
+        dependency: 'control_plane.runtime_connection_discovery.transport',
+      },
+      sessionOperations: {
+        state: 'unknown',
+        dependency: 'control_plane.runtime_connection_discovery.session_operations',
+      },
+    })
+    expect(result.connections[0]?.node.hostReachability).toEqual({
+      state: 'unknown',
+      dependency: 'control_plane.runtime_connection_discovery.host_reachability',
+    })
+  })
+  test('keeps local device presence separate from node health and host reachability', async () => {
+    const localNode = { ...node, kind: 'local_device' as const }
+    const localConnection = {
+      ...model(),
+      location: 'local_device',
+      node: { ...model().node, location: 'local_device', status: 'offline' },
+    }
+    const result = await listNodeRuntimeConnections({}, correlation, {
+      ...(await dependencies([localConnection])),
+      readRegisteredNode: async () => localNode,
+    })
+
+    expect(result.node.hostReachability).toEqual({ state: 'not_applicable' })
+    expect(result.connections[0]?.node).toMatchObject({
+      location: 'local_device',
+      status: 'offline',
+      health: 'online',
+      deviceOnline: { state: 'offline' },
+      hostReachability: { state: 'not_applicable' },
+    })
+  })
+  test.each(['stale', 'offline', 'revoked', 'incompatible'] as const)(
+    'preserves the explicit %s connection state and missing grant',
+    async (availability) => {
+      const result = await listNodeRuntimeConnections(
+        {},
+        correlation,
+        await dependencies([
+          {
+            ...model(),
+            connection: {
+              status: availability === 'revoked' ? 'revoked' : 'unavailable',
+              health: 'unavailable',
+              availability,
+            },
+            access: {
+              localProjectGrant: { required: true, state: 'missing' },
+              entitlement: { state: 'unknown' },
+            },
+          },
+        ])
+      )
+
+      expect(result.connections[0]).toMatchObject({
+        connection: { availability },
+        access: { localProjectGrant: { required: true, state: 'missing' } },
+      })
+    }
+  )
   test('reclassifies expired, old and future inventory observations on every read', async () => {
     for (const [freshness, state] of [
       [{ ...model().freshness, expiresAt: '2026-10-07T06:00:30.000Z' }, 'expired'],
@@ -173,7 +266,16 @@ describe('published runtime discovery boundary', () => {
     expect(JSON.stringify(result)).not.toContain('private-process-canary')
     result = await listNodeRuntimeConnections({}, correlation, { ...deps, environment: {} })
     expect(result.node.id).toBe(node.id)
+    expect(result.node.deviceOnline).toEqual({ state: 'not_applicable' })
+    expect(result.node.hostReachability).toEqual({
+      state: 'unknown',
+      dependency: 'control_plane.runtime_connection_discovery.host_reachability',
+    })
     expect(result.discovery).toEqual({ state: 'unavailable', code: 'CONTROL_PLANE_UNAVAILABLE' })
+    expect(result.controlPlaneReadiness).toEqual({
+      state: 'unknown',
+      dependency: 'control_plane.runtime_connection_discovery.readiness',
+    })
     expect(result.connections).toEqual([])
   })
 

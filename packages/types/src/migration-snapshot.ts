@@ -37,10 +37,11 @@
  *
  * Version 2 replaces `artifactReferenceGrants.revoked` (a flag) with `revokedAt` (the persisted
  * instant, microsecond precision) and adds the group grant families' issue and revocation instants.
- * A version 1 document cannot be compared: it lacks the instants, so the comparator rejects it with a
- * typed incompatibility error instead of reading its flag as an equal instant.
+ * Version 3 adds the complete durable legacy-audience quarantine provenance family. A v1 or v2
+ * document cannot prove that negative authority and is refused with a typed incompatibility error;
+ * it must be recaptured before its comparison can establish equivalence.
  */
-export const MIGRATION_SNAPSHOT_FORMAT_VERSION = 2
+export const MIGRATION_SNAPSHOT_FORMAT_VERSION = 3
 
 /**
  * Maximum length of any single identifier field, in characters. Identifier
@@ -110,6 +111,7 @@ export const migrationSnapshotFamilies = [
   'identityBindings',
   'invitations',
   'leadTurnRuntime',
+  'legacyAudienceQuarantine',
   'memberships',
   'messages',
   'nativeSessions',
@@ -155,6 +157,17 @@ export type MigrationChannelVisibility = (typeof migrationChannelVisibilities)[n
 /** Channel participants are user or agent principals. */
 export const migrationParticipantKinds = ['agent', 'user'] as const
 export type MigrationParticipantKind = (typeof migrationParticipantKinds)[number]
+
+/** Stable reasons why retained legacy group audience evidence did not authorize admission. */
+export const migrationLegacyAudienceQuarantineReasons = [
+  'agent_not_active',
+  'agent_workspace_mismatch',
+  'channel_workspace_mismatch',
+  'group_channel_not_active',
+  'user_not_workspace_member',
+] as const
+export type MigrationLegacyAudienceQuarantineReason =
+  (typeof migrationLegacyAudienceQuarantineReasons)[number]
 
 /** What a sharing grant lets its subject read of earlier group history (the table's own check list). */
 export const migrationGroupSharingScopes = ['earlier_history', 'earlier_summary'] as const
@@ -476,6 +489,34 @@ export type LeadTurnRuntimeSnapshotRecord = Readonly<{
   state: string
 }>
 
+/**
+ * Durable negative authority for one retained legacy participant. `sourceParticipantId` is the
+ * stable identity; `quarantineId` remains in the binding so deletion/recreation is visible. Every
+ * stored provenance and withdrawal field is captured, including the exact source and withdrawal
+ * digests, classification profile, timestamps and counts.
+ */
+export type LegacyAudienceQuarantineSnapshotRecord = Readonly<{
+  channelId: string
+  createdAt: string
+  family: 'legacyAudienceQuarantine'
+  observedAt: string
+  principalId: string
+  principalKind: MigrationParticipantKind
+  profile: string
+  quarantineId: string
+  reason: MigrationLegacyAudienceQuarantineReason
+  sourceChannelCreatedAt: string
+  sourceJoinedAt: string
+  sourceParticipantId: string
+  sourceRowDigest: string
+  sourceWorkspaceId: string
+  withdrawnAdmissions: number
+  withdrawnAudienceGrants: number
+  withdrawnDigest: string
+  withdrawnEnlistmentGrants: number
+  workspaceId: string
+}>
+
 /** The canonical lifecycle values reported by the runtime's session read. */
 const nativeSessionLifecycles = [
   'preparing',
@@ -559,6 +600,7 @@ export type MigrationSnapshotRecord =
   | IdentityBindingSnapshotRecord
   | InvitationSnapshotRecord
   | LeadTurnRuntimeSnapshotRecord
+  | LegacyAudienceQuarantineSnapshotRecord
   | MembershipSnapshotRecord
   | MessageSnapshotRecord
   | NativeSessionSnapshotRecord
@@ -1121,6 +1163,30 @@ export function migrationSnapshotRecordIssue(
           'authRevision',
           isNonNegativeSafeInteger(record.authRevision) && record.authRevision > 0
         ),
+      ])
+    case 'legacyAudienceQuarantine':
+      return firstIssue([
+        identifierField('quarantineId', record.quarantineId),
+        identifierField('workspaceId', record.workspaceId),
+        identifierField('channelId', record.channelId),
+        enumField('principalKind', record.principalKind, migrationParticipantKinds),
+        identifierField('principalId', record.principalId),
+        enumField('reason', record.reason, migrationLegacyAudienceQuarantineReasons),
+        identifierField('sourceParticipantId', record.sourceParticipantId),
+        identifierField('sourceWorkspaceId', record.sourceWorkspaceId),
+        check('sourceRowDigest', isDigest(record.sourceRowDigest)),
+        check('sourceChannelCreatedAt', isTimestamp(record.sourceChannelCreatedAt)),
+        check('sourceJoinedAt', isTimestamp(record.sourceJoinedAt)),
+        identifierField('profile', record.profile),
+        check('observedAt', isTimestamp(record.observedAt)),
+        check('withdrawnAdmissions', isNonNegativeSafeInteger(record.withdrawnAdmissions)),
+        check('withdrawnAudienceGrants', isNonNegativeSafeInteger(record.withdrawnAudienceGrants)),
+        check(
+          'withdrawnEnlistmentGrants',
+          isNonNegativeSafeInteger(record.withdrawnEnlistmentGrants)
+        ),
+        check('withdrawnDigest', isDigest(record.withdrawnDigest)),
+        check('createdAt', isTimestamp(record.createdAt)),
       ])
     case 'groupAudienceGrants':
       return firstIssue([

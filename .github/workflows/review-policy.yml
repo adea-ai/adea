@@ -24,8 +24,10 @@ on:
 permissions:
   pull-requests: read
 
+# One group per event: pull_request_target and pull_request_review both report the required
+# `Review Policy / Gate` context, so a shared group let one cancel the other's in-flight run.
 concurrency:
-  group: review-policy-${{ github.event.pull_request.number }}
+  group: review-policy-${{ github.event_name }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:

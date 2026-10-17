@@ -1,0 +1,151 @@
+name: Vite+ Cache Proof
+
+# Opt-in, non-required proof lane for the Vite+ task cache on the real `orch:build`
+# graph (vite.config.ts, scripts/orch-graph.mjs). The committed code-foundry.yml
+# already sets `monorepo_tool: vite-plus` and `runtime_ref: v1.48.1`, so the required
+# lanes run the same graph; this lane only adds the evidence that the cache saves
+# and restores on a fresh runner. It consumes the Code Foundry setup action at the
+# exact published v1.48.1 commit, runs on pushes to its own branch, and adds no
+# secrets, remote cache, or deployment: the cache is the repository's GitHub
+# Actions cache.
+#
+# Commit message lines make the run assert the restored cache: `vp-proof-expect:
+# cold|warm` and `vp-proof-manifest: <sha256>` (the dist outputs after restore).
+
+on:
+  push:
+    branches: [claude/project-thread-bdfpdv]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vite-plus-proof-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  proof_v1_48_1:
+    name: Vite+ cache proof
+    if: vars.CI_BILLING_PAUSED != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CODE_FOUNDRY_VERSION: 1.48.1
+      CODE_FOUNDRY_SHA: e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Checkout Code Foundry action dependencies
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          repository: 0xPlayerOne/code-foundry
+          ref: ${{ env.CODE_FOUNDRY_SHA }}
+          path: .github/.code-foundry
+          sparse-checkout: |
+            .github/actions/cache
+            .github/actions/vite-plus-cache-save
+            src/lib
+            src/runtime-core.mjs
+            src/runtime.mjs
+            package.json
+      - name: Verify the pinned runtime
+        run: |
+          set -euo pipefail
+          actual_sha="$(git -C .github/.code-foundry rev-parse HEAD)"
+          actual_version="$(node -p "require('./.github/.code-foundry/package.json').version")"
+          echo "Code Foundry runtime: $actual_version at $actual_sha"
+          [ "$actual_version" = "$CODE_FOUNDRY_VERSION" ]
+          [ "$actual_sha" = "$CODE_FOUNDRY_SHA" ]
+      - name: Install the pinned cache actions
+        run: |
+          set -euo pipefail
+          mv .github/.code-foundry "$RUNNER_TEMP/code-foundry"
+          mkdir -p .github/actions
+          test ! -e .github/actions/cache
+          test ! -e .github/actions/vite-plus-cache-save
+          cp -R "$RUNNER_TEMP/code-foundry/.github/actions/." .github/actions/
+      # Set the override before setup so the shared cache contract includes a
+      # runner-local Vite+ path.
+      - name: Set runner-local Vite+ cache path
+        shell: bash
+        run: |
+          set -euo pipefail
+          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r5-v1.48.1"
+          case "$cache_path" in
+            "$RUNNER_TEMP"/*) ;;
+            *) echo "Vite+ cache path is outside RUNNER_TEMP" >&2; exit 1 ;;
+          esac
+          printf 'VITE_CACHE_PATH=%s\n' "$cache_path" >> "$GITHUB_ENV"
+      - name: Setup with Code Foundry v1.48.1
+        id: code-foundry-setup
+        uses: 0xPlayerOne/code-foundry/.github/actions/setup@e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d
+        with:
+          install: 'true'
+          cache-build: 'false'
+          cache-vite-plus: 'true'
+      - name: Read the expected cache pattern
+        id: expect
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          message="$(git log -1 --format=%B "$COMMIT_SHA")"
+          trailer() { printf '%s\n' "$message" | sed -n "s/^$1: *\(.*[^ ]\) *$/\1/p" | head -n1; }
+          {
+            printf 'expect=%s\n' "$(trailer vp-proof-expect)"
+            printf 'manifest=%s\n' "$(trailer vp-proof-manifest)"
+          } >> "$GITHUB_OUTPUT"
+      # Diagnostics only (asserts nothing): what the restored task cache records about `.vite-temp`, and what the
+      # fresh tree has, before the build runs.
+      - name: Restored cache metadata (diagnostic)
+        if: always()
+        continue-on-error: true
+        run: |
+          ls -la node_modules | head -20 || true
+          find . -maxdepth 4 -name .vite-temp -not -path './node_modules/.bun/*' -print 2>/dev/null || true
+          python3 scripts/vite-plus-cache-inspect.py "$VITE_CACHE_PATH" || true
+      # A fresh runner has no generated dist, so a warm run that passes here
+      # has replayed the outputs from the restored cache.
+      - name: Vite+ orch:build (restored task cache)
+        env:
+          EXPECT: ${{ steps.expect.outputs.expect }}
+          MANIFEST: ${{ steps.expect.outputs.manifest }}
+        run: |
+          set -euo pipefail
+          args=(--fresh)
+          [ -z "$EXPECT" ] || args+=(--expect "$EXPECT")
+          [ -z "$MANIFEST" ] || args+=(--expect-manifest "$MANIFEST")
+          node scripts/vite-plus-proof.mjs "${args[@]}"
+      - name: Cache metadata after the run (diagnostic)
+        if: always()
+        continue-on-error: true
+        run: |
+          find . -maxdepth 4 -name .vite-temp -not -path './node_modules/.bun/*' -print 2>/dev/null || true
+          ls -la node_modules | head -20 || true
+          node_modules/.bin/vp run --last-details 2>&1 | head -80 || true
+          python3 scripts/vite-plus-cache-inspect.py "$VITE_CACHE_PATH" || true
+      - name: Proof script tests
+        run: bun test scripts/vite-plus-proof.test.ts
+      - name: Task cache contents
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r5-v1.48.1"
+          test "$VITE_CACHE_PATH" = "$expected"
+          printf '%s\n' "$CODE_FOUNDRY_VITE_CACHE_PATHS" | grep -Fqx "$expected"
+          test -d "$VITE_CACHE_PATH"
+          test -n "$(find "$VITE_CACHE_PATH" -type f -print -quit)"
+          du -sh "$VITE_CACHE_PATH"
+          if [ -d node_modules/.vite/task-cache ]; then
+            du -sh node_modules/.vite/task-cache
+          fi
+      - name: Save Vite+ task cache
+        uses: ./.github/actions/vite-plus-cache-save
+        with:
+          path: ${{ steps.code-foundry-setup.outputs.vite-plus-cache-path }}
+          key: ${{ steps.code-foundry-setup.outputs.vite-plus-cache-key }}
+          save: ${{ steps.code-foundry-setup.outputs.vite-plus-cache-save }}

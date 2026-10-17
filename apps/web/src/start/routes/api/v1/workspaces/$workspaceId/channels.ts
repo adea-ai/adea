@@ -3,21 +3,18 @@ import { randomUUID } from 'node:crypto'
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../../../server/request-scope'
 import type { ApiChannelResponse } from '@adea-ai/api-client'
-import type { GroupAudienceGrant, GroupAgentEnlistmentGrant } from '@adea-ai/types'
 import {
   createDirectAgentChannel,
   createDirectAgentTopic,
-  createGroupChannelWithGrants,
+  createGroupChannelFromSelection,
   createProjectChannel,
-  groupCreationCandidatesFromGrants,
   listChannelsForUser,
 } from '@adea-ai/db'
 
 import {
   conversationErrorResponse,
   isConversationUuid,
-  parseGroupAudienceGrant,
-  parseGroupEnlistmentGrant,
+  parseGroupSelection,
 } from '../../../../../../server/conversation-request'
 import { applicationDatabase } from '../../../../../../server/database'
 import {
@@ -117,14 +114,13 @@ async function post(request: Request, { params }: Context) {
       }
     } else {
       // Grant-gated groups: task bindings are rejected (groups isolate from
-      // task authority), the creator is founded explicitly, and every extra
-      // participant needs an explicit grant already bound to the new group.
+      // task authority) and the creator is founded explicitly. Everyone else
+      // arrives as a qualified selection; the server issues their grants and
+      // the creation transaction proves each one's standing. A request that
+      // carries grant bodies of its own is rejected, never honoured.
       if (
         body.taskId !== undefined ||
-        Object.keys(body).some(
-          (key) =>
-            !['kind', 'title', 'channelId', 'audienceGrants', 'enlistmentGrants'].includes(key)
-        )
+        Object.keys(body).some((key) => !['kind', 'title', 'channelId', 'selection'].includes(key))
       )
         return workspaceInvalidRequestResponse(request)
       const channelId =
@@ -133,51 +129,17 @@ async function post(request: Request, { params }: Context) {
             ? (body.channelId as string)
             : null
           : randomUUID()
-      const audienceInputs = Array.isArray(body.audienceGrants) ? body.audienceGrants : []
-      const enlistmentInputs = Array.isArray(body.enlistmentGrants) ? body.enlistmentGrants : []
-      if (
-        channelId === null ||
-        (!Array.isArray(body.audienceGrants) && body.audienceGrants !== undefined) ||
-        (!Array.isArray(body.enlistmentGrants) && body.enlistmentGrants !== undefined) ||
-        audienceInputs.length + enlistmentInputs.length > 100
-      )
-        return workspaceInvalidRequestResponse(request)
-      const audienceGrants: GroupAudienceGrant[] = []
-      for (const input of audienceInputs) {
-        const grant = parseGroupAudienceGrant(input)
-        if (!grant || grant.groupId !== channelId) return workspaceInvalidRequestResponse(request)
-        audienceGrants.push(grant)
-      }
-      const enlistmentGrants: GroupAgentEnlistmentGrant[] = []
-      for (const input of enlistmentInputs) {
-        const grant = parseGroupEnlistmentGrant(input)
-        if (!grant || grant.groupId !== channelId) return workspaceInvalidRequestResponse(request)
-        enlistmentGrants.push(grant)
-      }
-      const issuedAt = new Date().toISOString()
-      const created = await createGroupChannelWithGrants(
+      const selection = parseGroupSelection(body.selection)
+      if (channelId === null || !selection) return workspaceInvalidRequestResponse(request)
+      const created = await createGroupChannelFromSelection(
         applicationDatabase(),
         workspaceId,
         resolution.principal,
         {
-          candidates: groupCreationCandidatesFromGrants(workspaceId, {
-            audienceGrants: [
-              {
-                expiresAt: null,
-                grantId: `founder-${resolution.principal.userId}`,
-                groupId: channelId,
-                issuedAt,
-                participant: resolution.principal,
-                revision: 1,
-                revokedAt: null,
-              },
-              ...audienceGrants,
-            ],
-            enlistmentGrants,
-          }),
           channelId,
           idempotencyKey,
-          now: issuedAt,
+          now: new Date().toISOString(),
+          selection,
           title: body.title,
         }
       )

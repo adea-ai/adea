@@ -74,11 +74,11 @@ stripped from inbound requests first, so a caller cannot forge it;
 
 ## Validation
 
-Use Node 24.18.0 and Bun 1.4.0. From the repository root:
+Use Node 24.21.0 and Bun 1.4.3. From the repository root:
 
 ```sh
 bun install --frozen-lockfile
-bunx turbo run build --filter=@adea-ai/web^...
+bun run build:web-deps
 bun run --cwd apps/web start:verify   # unit tests, build, typecheck, client guard
 bun run build:cloudflare
 bun run --cwd apps/web start:check-routes  # URL surface and hashed-asset caching gate

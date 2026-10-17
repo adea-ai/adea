@@ -14,7 +14,14 @@ if (isServer) {
   test('normal unit discovery runs the mounted audience cases with browser-condition Solid', () => {
     const child = spawnSync(
       process.execPath,
-      ['--conditions=browser', '--conditions=development', 'test', fileURLToPath(import.meta.url)],
+      [
+        '--conditions=browser',
+        '--conditions=development',
+        'test',
+        '--preload',
+        fileURLToPath(new URL('../../../../scripts/test-solid-transform.ts', import.meta.url)),
+        fileURLToPath(import.meta.url),
+      ],
       { encoding: 'utf8', timeout: 10_000 }
     )
     const output = `${child.stdout ?? ''}${child.stderr ?? ''}`

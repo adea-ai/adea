@@ -1,4 +1,4 @@
-// Route → PostgreSQL flows for grant-gated group channels (#1178).
+// Route → PostgreSQL flows for grant-gated group channels (#1178). Callers send selections; the server issues the grants.
 //
 // Coverage class: real product route modules, real handlers, real database,
 // real @adea-ai/db group decisions. Two seams are injected, in the same way as
@@ -22,6 +22,7 @@ import { and, eq } from 'drizzle-orm'
 
 import {
   addWorkspaceMembership,
+  audienceGrantIdFor,
   channels,
   createAgent,
   createDatabase,
@@ -29,6 +30,7 @@ import {
   createTemporaryUserSession,
   createWorkspaceWithOwner,
   findWorkspaceMembership,
+  groupAudienceGrants,
   messages,
   removeWorkspaceMembership,
   revokeGroupGrant,
@@ -222,10 +224,10 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
           kind: 'group',
           title: 'Group',
           channelId,
-          audienceGrants: (grants.audience ?? []).map((participant, index) =>
-            audienceGrant(channelId, participant, `gra_aud_${index}_${channelId}`)
-          ),
-          enlistmentGrants: [],
+          selection: {
+            agents: [],
+            humans: (grants.audience ?? []).map((participant) => participant.userId),
+          },
         },
       }
     )
@@ -251,18 +253,10 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
           kind: 'group',
           title: 'Foreign Agent group',
           channelId,
-          audienceGrants: [],
-          enlistmentGrants: [
-            {
-              agent: { agentId: agent.id, workspaceId: claimedWorkspaceId },
-              expiresAt: null,
-              grantId: `gra_agent_${channelId}`,
-              groupId: channelId,
-              issuedAt: ISSUED,
-              revision: 1,
-              revokedAt: null,
-            },
-          ],
+          selection: {
+            agents: [{ agentId: agent.id, workspaceId: claimedWorkspaceId }],
+            humans: [],
+          },
         },
       }
     )
@@ -487,8 +481,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
     f: Awaited<ReturnType<typeof fixture>>,
     channelId: string,
     version: number,
-    member: UserPrincipalRef,
-    grantId: string
+    member: UserPrincipalRef
   ) {
     return call(
       participantsRoute,
@@ -499,24 +492,20 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
         as: f.owner,
         ifMatch: version,
         body: {
-          participants: [f.owner, member].map((principal) => ({
-            kind: 'user',
-            userId: principal.userId,
-          })),
-          audienceGrants: [
-            audienceGrant(channelId, f.owner, `founder-${f.owner.userId}`),
-            audienceGrant(channelId, member, `${grantId}_${channelId}`),
-          ],
-          enlistmentGrants: [],
+          selection: {
+            agents: [],
+            humans: [f.owner, member].map((principal) => principal.userId),
+          },
         },
       }
     )
   }
 
-  test('a grant whose group does not match the channel is refused with zero writes', async () => {
+  test('a body that carries grants is refused on create and on roster replace, with zero writes', async () => {
     const f = await fixture()
     const channelId = randomUUID()
-    const response = await call(
+    const forged = [audienceGrant(channelId, f.member, 'gra_forged')]
+    const created = await call(
       channelsRoute,
       'POST',
       `/api/v1/workspaces/${f.workspace.id}/channels`,
@@ -526,17 +515,43 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
         idempotencyKey: randomUUID(),
         body: {
           kind: 'group',
-          title: 'Mismatched',
+          title: 'Forged',
           channelId,
-          audienceGrants: [audienceGrant(randomUUID(), f.member, 'gra_wrong_group')],
+          audienceGrants: forged,
           enlistmentGrants: [],
         },
       }
     )
-    expect(response.status).toBe(400)
+    expect(created.status).toBe(400)
     expect(
       await connection.db.select().from(channels).where(eq(channels.id, channelId))
     ).toHaveLength(0)
+    const group = await createGroup(f)
+    const version = ((await group.response.json()) as { channel: { version: number } }).channel
+      .version
+    for (const body of [
+      { audienceGrants: forged, enlistmentGrants: [], participants: [] },
+      { audienceGrants: forged, selection: { agents: [], humans: [f.owner.userId] } },
+      { participants: [{ kind: 'user', userId: f.member.userId }] },
+    ]) {
+      const replaced = await call(
+        participantsRoute,
+        'POST',
+        `/api/v1/workspaces/${f.workspace.id}/channels/${group.channelId}/participants`,
+        { workspaceId: f.workspace.id, channelId: group.channelId },
+        { as: f.owner, ifMatch: version, body }
+      )
+      expect(replaced.status).toBe(400)
+    }
+    expect(await readTexts(f, group.channelId, f.owner)).toEqual([])
+    const member = await call(
+      messagesRoute,
+      'GET',
+      messagesUrl(f, group.channelId),
+      { workspaceId: f.workspace.id, channelId: group.channelId },
+      { as: f.member }
+    )
+    expect(member.status).toBe(404)
   })
 
   test('join point over routes: a newcomer reads nothing before joining and everything after', async () => {
@@ -544,9 +559,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
     const { channelId, response } = await createGroup(f)
     const created = (await response.json()) as { channel: { version: number } }
     expect((await postText(f, channelId, f.owner, 'before the newcomer')).status).toBe(201)
-    expect(
-      (await joinMember(f, channelId, created.channel.version, f.member, 'gra_join')).status
-    ).toBe(200)
+    expect((await joinMember(f, channelId, created.channel.version, f.member)).status).toBe(200)
     expect(await readTexts(f, channelId, f.member)).not.toContain('before the newcomer')
     expect((await postText(f, channelId, f.owner, 'after the newcomer')).status).toBe(201)
     expect(await readTexts(f, channelId, f.member)).toContain('after the newcomer')
@@ -559,7 +572,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
     expect(await readTexts(f, channelId, f.member)).toContain('visible before revocation')
     expect(
       await revokeGroupGrant(connection.db, f.workspace.id, channelId, f.owner, {
-        grantId: `gra_aud_0_${channelId}`,
+        grantId: audienceGrantIdFor(f.member.userId),
         kind: 'audience',
         revokedAt: new Date().toISOString(),
       })
@@ -604,9 +617,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
       idempotencyKey: randomUUID(),
       sender: f.owner,
     })
-    expect(
-      (await joinMember(f, channelId, created.channel.version, f.member, 'gra_byid')).status
-    ).toBe(200)
+    expect((await joinMember(f, channelId, created.channel.version, f.member)).status).toBe(200)
     const denied = await call(
       messageByIdRoute,
       'GET',
@@ -651,7 +662,7 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
     const f = await fixture()
     const { channelId } = await createGroup(f, { audience: [f.plain] })
     const revoked = await revokeGroupGrant(connection.db, f.workspace.id, channelId, f.owner, {
-      grantId: `gra_aud_0_${channelId}`,
+      grantId: audienceGrantIdFor(f.plain.userId),
       kind: 'audience',
       revokedAt: new Date().toISOString(),
     })
@@ -670,5 +681,211 @@ describe.skipIf(!connectionUrl)('grant-gated group channels: product routes', ()
     const write = await postText(f, channelId, f.plain, 'removed member write')
     expect(write.status).toBe(404)
     expect(await countMessages(channelId, 'removed member write')).toBe(0)
+  })
+
+  function replaceRoster(
+    f: Awaited<ReturnType<typeof fixture>>,
+    channelId: string,
+    version: number,
+    humans: readonly UserPrincipalRef[],
+    as: UserPrincipalRef = f.owner
+  ) {
+    return call(
+      participantsRoute,
+      'POST',
+      `/api/v1/workspaces/${f.workspace.id}/channels/${channelId}/participants`,
+      { workspaceId: f.workspace.id, channelId },
+      {
+        as,
+        ifMatch: version,
+        body: { selection: { agents: [], humans: humans.map(({ userId }) => userId) } },
+      }
+    )
+  }
+
+  async function storedAudienceGrants(channelId: string, userId: string) {
+    return (
+      await connection.db
+        .select()
+        .from(groupAudienceGrants)
+        .where(eq(groupAudienceGrants.channelId, channelId))
+    ).filter((row) => row.userId === userId)
+  }
+
+  async function versionOf(channelId: string) {
+    const [row] = await connection.db
+      .select({ version: channels.version })
+      .from(channels)
+      .where(eq(channels.id, channelId))
+    return row!.version
+  }
+
+  test('the same create request replays to the same group and issues nothing twice', async () => {
+    const f = await fixture()
+    const channelId = randomUUID()
+    const idempotencyKey = randomUUID()
+    const send = () =>
+      call(
+        channelsRoute,
+        'POST',
+        `/api/v1/workspaces/${f.workspace.id}/channels`,
+        { workspaceId: f.workspace.id },
+        {
+          as: f.owner,
+          idempotencyKey,
+          body: {
+            kind: 'group',
+            title: 'Replay',
+            channelId,
+            selection: { agents: [], humans: [f.member.userId] },
+          },
+        }
+      )
+    const first = await send()
+    expect(first.status).toBe(201)
+    const second = await send()
+    expect(second.status).toBe(201)
+    expect(((await second.json()) as { channel: { id: string } }).channel.id).toBe(channelId)
+    expect(await storedAudienceGrants(channelId, f.member.userId)).toHaveLength(1)
+  })
+
+  test('a selection naming someone who is not a workspace member is refused with zero writes', async () => {
+    const f = await fixture()
+    const channelId = randomUUID()
+    const response = await call(
+      channelsRoute,
+      'POST',
+      `/api/v1/workspaces/${f.workspace.id}/channels`,
+      { workspaceId: f.workspace.id },
+      {
+        as: f.owner,
+        idempotencyKey: randomUUID(),
+        body: {
+          kind: 'group',
+          title: 'Outsider',
+          channelId,
+          selection: { agents: [], humans: [f.outsider.userId] },
+        },
+      }
+    )
+    // The same uniform answer as any other unavailable participant: nothing says who is or is not a member.
+    expect(response.status).toBe(404)
+    expect(await response.json()).toMatchObject({ code: 'workspace_unavailable' })
+    expect(
+      await connection.db.select().from(channels).where(eq(channels.id, channelId))
+    ).toHaveLength(0)
+    expect(await storedAudienceGrants(channelId, f.outsider.userId)).toHaveLength(0)
+  })
+
+  test('a malformed selection is refused before anything is read', async () => {
+    const f = await fixture()
+    for (const selection of [
+      { agents: [], humans: ['not-a-uuid'] },
+      { agents: [{ agentId: randomUUID() }], humans: [] },
+      { agents: [], humans: [], extra: true },
+      { agents: 'all', humans: [] },
+    ]) {
+      const response = await call(
+        channelsRoute,
+        'POST',
+        `/api/v1/workspaces/${f.workspace.id}/channels`,
+        { workspaceId: f.workspace.id },
+        {
+          as: f.owner,
+          idempotencyKey: randomUUID(),
+          body: { kind: 'group', title: 'Malformed', selection },
+        }
+      )
+      expect(response.status).toBe(400)
+    }
+  })
+
+  test('replacing the roster keeps every retained member on the exact grant they already hold', async () => {
+    const f = await fixture()
+    const { channelId, response } = await createGroup(f, { audience: [f.member] })
+    const created = (await response.json()) as { channel: { version: number } }
+    const before = await storedAudienceGrants(channelId, f.member.userId)
+    expect(before).toHaveLength(1)
+    expect(before[0]!.grantId).toBe(audienceGrantIdFor(f.member.userId))
+    const joined = await replaceRoster(f, channelId, created.channel.version, [
+      f.owner,
+      f.member,
+      f.plain,
+    ])
+    expect(joined.status).toBe(200)
+    const after = await storedAudienceGrants(channelId, f.member.userId)
+    expect(after).toEqual(before)
+    expect(await storedAudienceGrants(channelId, f.plain.userId)).toHaveLength(1)
+    expect(await readTexts(f, channelId, f.plain)).toEqual([])
+  })
+
+  test('after a revoke, a stale or current roster that keeps the member is refused, and readmission is remove then add', async () => {
+    const f = await fixture()
+    const { channelId, response } = await createGroup(f, { audience: [f.member] })
+    const draftedAt = ((await response.json()) as { channel: { version: number } }).channel.version
+    expect(
+      await revokeGroupGrant(connection.db, f.workspace.id, channelId, f.owner, {
+        grantId: audienceGrantIdFor(f.member.userId),
+        kind: 'audience',
+        revokedAt: new Date().toISOString(),
+      })
+    ).toEqual({ revoked: true })
+    expect((await postText(f, channelId, f.member, 'while revoked')).status).toBe(404)
+    // A roster drafted before the revoke cannot bring them back: the withdrawn grant is seen as it is now.
+    const stale = await replaceRoster(f, channelId, draftedAt, [f.owner, f.member, f.plain])
+    expect(stale.status).toBe(400)
+    expect(await stale.json()).toMatchObject({
+      code: 'group_grant_rejected',
+      rejections: [{ reason: 'grant_revoked' }],
+    })
+    expect(await storedAudienceGrants(channelId, f.plain.userId)).toHaveLength(0)
+    // At the current version, keeping them is refused with the withdrawn reason, not renewed.
+    const kept = await replaceRoster(f, channelId, await versionOf(channelId), [
+      f.owner,
+      f.member,
+      f.plain,
+    ])
+    expect(kept.status).toBe(400)
+    expect(await kept.json()).toMatchObject({
+      code: 'group_grant_rejected',
+      rejections: [{ reason: 'grant_revoked' }],
+    })
+    expect((await postText(f, channelId, f.member, 'still revoked')).status).toBe(404)
+    // Readmission is explicit: remove, say something, add again.
+    const removed = await replaceRoster(f, channelId, await versionOf(channelId), [f.owner])
+    expect(removed.status).toBe(200)
+    expect((await postText(f, channelId, f.owner, 'said while removed')).status).toBe(201)
+    const readded = await replaceRoster(f, channelId, await versionOf(channelId), [
+      f.owner,
+      f.member,
+    ])
+    expect(readded.status).toBe(200)
+    const [grant] = await storedAudienceGrants(channelId, f.member.userId)
+    expect(grant).toMatchObject({ revision: 2, revokedAt: null })
+    expect((await postText(f, channelId, f.owner, 'said after readmission')).status).toBe(201)
+    expect(await readTexts(f, channelId, f.member)).toEqual(['said after readmission'])
+    expect((await postText(f, channelId, f.member, 'back in')).status).toBe(201)
+  })
+
+  test('only an owner or admin can replace a roster, and a stale version is a conflict', async () => {
+    const f = await fixture()
+    const { channelId } = await createGroup(f, { audience: [f.plain] })
+    const version = await versionOf(channelId)
+    const denied = await replaceRoster(f, channelId, version, [f.owner, f.plain, f.member], f.plain)
+    expect(denied.status).toBe(404)
+    expect(await storedAudienceGrants(channelId, f.member.userId)).toHaveLength(0)
+    const stale = await replaceRoster(f, channelId, version + 7, [f.owner, f.plain, f.member])
+    expect(stale.status).toBe(409)
+    expect(await storedAudienceGrants(channelId, f.member.userId)).toHaveLength(0)
+    expect(await versionOf(channelId)).toBe(version)
+  })
+
+  test('removing the only people leaves the group untouched', async () => {
+    const f = await fixture()
+    const { channelId } = await createGroup(f, { audience: [f.member] })
+    const version = await versionOf(channelId)
+    const refused = await replaceRoster(f, channelId, version, [])
+    expect(refused.status).toBe(400)
+    expect(await versionOf(channelId)).toBe(version)
   })
 })
