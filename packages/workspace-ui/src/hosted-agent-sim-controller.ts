@@ -56,7 +56,21 @@ export type HostedSimSnapshot = Readonly<{
 type PostTarget = Readonly<{ postMessage(message: unknown, targetOrigin: string): void }>
 
 export type HostedSimNavigateRequest = Readonly<{ target: SimNavigateTarget; requestId: string }>
-export type HostedSimSaveRequest = Readonly<{ requestId: string }>
+/**
+ * What a save is about. `signal` aborts when the save times out or its attempt ends (disposal,
+ * navigation, a new attempt, a workspace or surface change), and the identity names the launch it
+ * belongs to. The app must check `signal.aborted` and write its canonical state in the same
+ * synchronous step, so a save that was given up on can never land after a newer one.
+ */
+export type HostedSimSaveRequest = Readonly<{
+  requestId: string
+  signal: AbortSignal
+  workspaceId: string
+  surface: SimSurface
+  /** The launch attempt's channel nonce. */
+  bridgeId: string
+  attempt: number
+}>
 
 export type HostedSimControllerOptions = Readonly<{
   /** The sim origin to embed. Absent or invalid means not configured; nothing is requested. */
@@ -66,8 +80,11 @@ export type HostedSimControllerOptions = Readonly<{
   surface: SimSurface
   /** A hint for the entitlement source only; it never proves a desktop identity. */
   platform: SimPlatform
-  /** Character id forwarded in `host.launch`. */
-  character?: string
+  /**
+   * Character forwarded in `host.launch`. A function is read when the launch is posted, so the
+   * app's canonical character can change (a save) without relaunching a running frame.
+   */
+  character?: string | (() => string | undefined)
   /** Asks the Adea backend for a launch. The reply is unvalidated and checked here. */
   requestGrant(request: SimLaunchRequest, signal: AbortSignal): Promise<unknown>
   /**
@@ -86,7 +103,8 @@ export type HostedSimControllerOptions = Readonly<{
   /**
    * The frame asks to save a validated character value. Resolve `true` only once the app's
    * canonical state holds it. `false` answers `refused` and a rejection answers `failed`; absent
-   * answers `refused`. Nothing is answered after the attempt ends.
+   * answers `refused`. Nothing is answered after the attempt ends. Only one save runs at a time:
+   * a new one is refused until the previous callback has settled, even if it already timed out.
    */
   onCharacterSave?(character: string, request: HostedSimSaveRequest): Promise<boolean> | boolean
   onChange(snapshot: HostedSimSnapshot): void
@@ -169,8 +187,10 @@ export function createHostedSimController(
   // The frame asked to move to another surface: this attempt is over and hears nothing more.
   let navigated = false
   // The one character save in flight for this attempt, and the clock that bounds it.
-  let pendingSave: { requestId: string } | null = null
+  let pendingSave: { requestId: string; abort: AbortController } | null = null
   let cancelSave: (() => void) | null = null
+  // The callback still running for this attempt, which outlives a timed-out answer.
+  let runningSave: object | null = null
   let current: HostedSimSnapshot = build()
 
   function build(): HostedSimSnapshot {
@@ -222,9 +242,11 @@ export function createHostedSimController(
     options.onChange(current)
   }
 
-  function clearSave() {
+  function clearSave(abort = true) {
     cancelSave?.()
     cancelSave = null
+    // A save that is given up on (timeout, disposal, a new attempt) can no longer commit.
+    if (abort) pendingSave?.abort.abort()
     pendingSave = null
   }
 
@@ -255,6 +277,7 @@ export function createHostedSimController(
     frame = null
     navigated = false
     clearSave()
+    runningSave = null
     if (!origins) {
       apply({
         type: 'grant',
@@ -300,6 +323,8 @@ export function createHostedSimController(
   function postLaunch(effect: Extract<SimLaunchEffect, { type: 'post_launch' }>) {
     const { attempt, grant } = effect
     const target = options.frameWindow()
+    const wanted = options.character
+    const character = typeof wanted === 'function' ? wanted() : wanted
     try {
       if (!origins || !target) throw new Error('no frame to launch')
       postToFrame(target, grant.frameOrigin, origins, bridgeId, {
@@ -308,7 +333,7 @@ export function createHostedSimController(
           code: grant.code,
           expiresAt: grant.expiresAt,
           surface: grant.surface,
-          ...(options.character ? { character: options.character } : {}),
+          ...(character ? { character } : {}),
         },
       })
     } catch {
@@ -377,28 +402,51 @@ export function createHostedSimController(
 
   function handleSave(character: string, requestId: string) {
     const attempt = state.attempt
-    if (pendingSave || !options.onCharacterSave) {
+    if (pendingSave || runningSave || !options.onCharacterSave) {
       answerSave(attempt, requestId, { saved: false, reason: 'refused' })
       return
     }
-    const mine = { requestId }
+    const mine = { requestId, abort: new AbortController() }
+    const run = {}
     pendingSave = mine
-    const settle = (answer: { saved: true } | { saved: false; reason: SimSaveFailure }) => {
+    runningSave = run
+    const settle = (
+      answer: { saved: true } | { saved: false; reason: SimSaveFailure },
+      abort: boolean
+    ) => {
       // A late answer for a request that timed out, or for an attempt that has ended, is dropped.
       if (pendingSave !== mine) return
-      clearSave()
+      clearSave(abort)
       answerSave(attempt, requestId, answer)
     }
-    cancelSave = schedule(() => settle({ saved: false, reason: 'timeout' }), saveTimeoutMs)
+    const finish = () => {
+      if (runningSave === run) runningSave = null
+    }
+    cancelSave = schedule(() => settle({ saved: false, reason: 'timeout' }, true), saveTimeoutMs)
     let saving: Promise<boolean>
     try {
-      saving = Promise.resolve(options.onCharacterSave(character, { requestId }))
+      saving = Promise.resolve(
+        options.onCharacterSave(character, {
+          requestId,
+          signal: mine.abort.signal,
+          workspaceId: options.workspaceId,
+          surface: options.surface,
+          bridgeId,
+          attempt,
+        })
+      )
     } catch {
       saving = Promise.reject(new Error('save failed'))
     }
     void saving.then(
-      (saved) => settle(saved === true ? { saved: true } : { saved: false, reason: 'refused' }),
-      () => settle({ saved: false, reason: 'failed' })
+      (saved) => {
+        finish()
+        settle(saved === true ? { saved: true } : { saved: false, reason: 'refused' }, false)
+      },
+      () => {
+        finish()
+        settle({ saved: false, reason: 'failed' }, false)
+      }
     )
   }
 

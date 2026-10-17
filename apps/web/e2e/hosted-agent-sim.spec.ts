@@ -290,6 +290,13 @@ test.describe('protocol version and channel nonce', () => {
 const SERIALIZED =
   'character:v1:body-body-01|ears-ears-01|face-female-emotion-usual-01|hair-hairstyle-female-01|-|top-outfit-01|bottom-pants-01|shoes-shoe-sneakers-01|-|-|-|-|-'
 
+const canonical = (page: Page) =>
+  page.evaluate(() =>
+    (
+      window as unknown as { agentSimHarness: { canonical(): string | undefined } }
+    ).agentSimHarness.canonical()
+  )
+
 const harnessList = (page: Page, name: 'navigations' | 'saves') =>
   page.evaluate(
     (key) =>
@@ -449,5 +456,66 @@ test.describe('acknowledged character save', () => {
     await expect.poll(async () => (await grants(page)).length).toBe(2)
     await page.waitForTimeout(150)
     expect(await receivedResults(page)).toHaveLength(0)
+  })
+})
+
+const answered = async (page: Page) =>
+  (await received(page)).filter(
+    (message) => (message as { type?: string }).type === 'host.character.save.result'
+  )
+
+test.describe('canonical character state', () => {
+  test('committing the canonical character acknowledges the same frame and the next launch carries it', async ({
+    page,
+  }) => {
+    const grant = await running(page)
+    const source = await iframeSource(page)
+    await deliver(
+      page,
+      { type: 'frame.character.save', payload: { requestId: 'save1', character: SERIALIZED } },
+      grant.bridgeId
+    )
+    // The app's canonical character changed before the acknowledgement, and the frame that asked
+    // is still the one on screen: same address, same window, no second launch.
+    await expect.poll(async () => answered(page)).toHaveLength(1)
+    expect((await answered(page))[0]).toMatchObject({
+      payload: { requestId: 'save1', saved: true },
+    })
+    expect(await canonical(page)).toBe(SERIALIZED)
+    expect(await iframeSource(page)).toBe(source)
+    expect(await grants(page)).toHaveLength(1)
+    await expect(page.locator('iframe')).toHaveAttribute('data-agent-sim-active', 'true')
+
+    // Reopening (a new launch) hands the frame the saved value.
+    await call(page, 'setSurface', 'character-designer')
+    await expect.poll(async () => (await grants(page)).length).toBe(2)
+    const second = (await grants(page))[1]!
+    await deliver(page, READY, second.bridgeId)
+    await expect.poll(async () => (await received(page)).length).toBe(1)
+    expect((await received(page))[0]).toMatchObject({
+      type: 'host.launch',
+      payload: { surface: 'character-designer', character: SERIALIZED },
+    })
+  })
+
+  test('a save given up on by a workspace change cannot write canonical state when it finishes last', async ({
+    page,
+  }) => {
+    const grant = await running(page)
+    await call(page, 'setSaveMode', 'delayed')
+    await deliver(
+      page,
+      { type: 'frame.character.save', payload: { requestId: 'save1', character: SERIALIZED } },
+      grant.bridgeId
+    )
+    await expect.poll(async () => (await harnessList(page, 'saves')).length).toBe(1)
+    await call(page, 'setWorkspaceId', 'ws_b')
+    await expect.poll(async () => (await grants(page)).length).toBe(2)
+
+    // The old save finishes after the workspace changed: it finds itself aborted.
+    await call(page, 'release')
+    await page.waitForTimeout(150)
+    expect(await canonical(page)).toBeUndefined()
+    expect(await answered(page)).toHaveLength(0)
   })
 })

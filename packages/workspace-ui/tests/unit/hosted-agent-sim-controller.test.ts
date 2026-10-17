@@ -3,6 +3,7 @@ import { frameEnvelope, type SimFrameMessage } from '@adea-ai/spatial/sim-bridge
 import {
   createHostedSimController,
   type HostedSimControllerOptions,
+  type HostedSimSaveRequest,
   type HostedSimSnapshot,
 } from '../../src/hosted-agent-sim-controller'
 
@@ -692,7 +693,20 @@ describe('hosted Agent Sim acknowledged character save', () => {
     await launched(w)
     w.controller.handleMessage(saveFrom(w))
     await w.flush()
-    expect(seen).toEqual([[SERIALIZED, { requestId: 'save1' }]])
+    expect(seen).toEqual([
+      [
+        SERIALIZED,
+        {
+          requestId: 'save1',
+          signal: expect.any(AbortSignal),
+          workspaceId: 'ws_1',
+          surface: 'hq',
+          bridgeId: 'bridge-id-number-0001',
+          attempt: 1,
+        },
+      ],
+    ])
+    expect((seen[0] as [string, { signal: AbortSignal }])[1].signal.aborted).toBe(false)
     expect(answers(w)).toEqual([])
     commit(true)
     await w.flush()
@@ -811,5 +825,98 @@ describe('hosted Agent Sim acknowledged character save', () => {
     w.controller.handleMessage(saveFrom(w, 's', SERIALIZED))
     await w.flush()
     expect(calls).toBe(1)
+  })
+})
+
+/** A canonical store whose commit is the contract's synchronous check-then-write. */
+function app() {
+  const state = { canonical: 'start', gates: [] as (() => void)[] }
+  const onCharacterSave = (character: string, request: HostedSimSaveRequest) =>
+    new Promise<boolean>((resolve) => {
+      state.gates.push(() => {
+        if (request.signal.aborted) return resolve(false)
+        state.canonical = character
+        resolve(true)
+      })
+    })
+  return { state, onCharacterSave }
+}
+
+describe('hosted Agent Sim save fencing', () => {
+  const other = SERIALIZED.replace('top-outfit-01', 'top-outfit-02')
+
+  test('a save that timed out cannot commit late, and the next one waits for its callback', async () => {
+    const { state, onCharacterSave } = app()
+    const w = setup({ onCharacterSave })
+    await launched(w)
+    w.controller.handleMessage(saveFrom(w, 'a', SERIALIZED))
+    w.live()
+      .find((timer) => timer.ms === 5_000)!
+      .run()
+    expect(answers(w)).toEqual([{ requestId: 'a', saved: false, reason: 'timeout' }])
+
+    // The first callback is still running, so a second save is refused rather than raced.
+    w.controller.handleMessage(saveFrom(w, 'b', other))
+    expect(state.gates).toHaveLength(1)
+    expect(answers(w)[1]).toEqual({ requestId: 'b', saved: false, reason: 'refused' })
+
+    // It finishes last and finds its request given up on: canonical state is untouched.
+    state.gates[0]!()
+    await w.flush()
+    expect(state.canonical).toBe('start')
+
+    // Now a retry is accepted and is the only writer.
+    w.controller.handleMessage(saveFrom(w, 'c', other))
+    expect(state.gates).toHaveLength(2)
+    state.gates[1]!()
+    await w.flush()
+    expect(state.canonical).toBe(other)
+    expect(answers(w)[2]).toEqual({ requestId: 'c', saved: true })
+  })
+
+  test.each([
+    ['disposal', (w: ReturnType<typeof setup>) => w.controller.dispose()],
+    ['navigation', (w: ReturnType<typeof setup>) => w.controller.handleMessage(navigateFrom(w))],
+    ['going offline', (w: ReturnType<typeof setup>) => w.controller.setOffline()],
+  ])('%s aborts the pending save before it can commit', async (_label, end) => {
+    const { state, onCharacterSave } = app()
+    const w = setup({ onCharacterSave, onNavigate: () => undefined })
+    await launched(w)
+    w.controller.handleMessage(saveFrom(w, 'a', SERIALIZED))
+    end(w)
+    state.gates[0]!()
+    await w.flush()
+    expect(state.canonical).toBe('start')
+    expect(answers(w)).toEqual([])
+  })
+
+  test('a new attempt does not wait for an aborted callback from the old one', async () => {
+    const { state, onCharacterSave } = app()
+    const w = setup({ onCharacterSave })
+    await launched(w)
+    w.controller.handleMessage(saveFrom(w, 'a', SERIALIZED))
+    w.controller.setOffline()
+    w.controller.setOnline()
+    w.requests[1]!.resolve(w.granted())
+    await w.flush()
+    w.controller.handleMessage(w.fromFrame({ type: 'frame.ready', payload: {} }))
+    w.controller.handleMessage(saveFrom(w, 'b', other))
+    expect(state.gates).toHaveLength(2)
+    // The old attempt finishes last: aborted, so it cannot overwrite the newer save.
+    state.gates[1]!()
+    state.gates[0]!()
+    await w.flush()
+    expect(state.canonical).toBe(other)
+  })
+
+  test('the launch carries the character as it is when the frame becomes ready', async () => {
+    let character = 'ada'
+    const w = setup({ character: () => character })
+    w.controller.start()
+    w.requests[0]!.resolve(w.granted())
+    await w.flush()
+    character = SERIALIZED
+    w.controller.handleMessage(w.fromFrame({ type: 'frame.ready', payload: {} }))
+    expect(payloadOf(typed(w, 'host.launch')[0]!)).toMatchObject({ character: SERIALIZED })
   })
 })

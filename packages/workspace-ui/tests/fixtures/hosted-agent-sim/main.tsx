@@ -26,18 +26,25 @@ const [workspaceId, setWorkspaceId] = createSignal('ws_a')
 const [surface, setSurface] = createSignal<SimSurface>('hq')
 // Read inside the stable `frameUrl` callback below, to prove it cannot navigate a running frame.
 const [view, setView] = createSignal('a')
+// The stand-in app's canonical character, the way the real app's router state holds it.
+const [canonical, setCanonical] = createSignal<string | undefined>(undefined)
 
 const grants: SimLaunchRequest[] = []
 const navigations: { target: string; requestId: string }[] = []
 const saves: { character: string; requestId: string }[] = []
 // How the stand-in app answers a save: commit it, refuse it, or never answer.
-let saveMode: 'commit' | 'refuse' | 'hang' = 'commit'
+let saveMode: 'commit' | 'refuse' | 'hang' | 'delayed' = 'commit'
+const delayed: (() => void)[] = []
 
 type Harness = {
   grants: SimLaunchRequest[]
   navigations: { target: string; requestId: string }[]
   saves: { character: string; requestId: string }[]
-  setSaveMode(value: 'commit' | 'refuse' | 'hang'): void
+  setSaveMode(value: 'commit' | 'refuse' | 'hang' | 'delayed'): void
+  /** The app's canonical character. */
+  canonical(): string | undefined
+  /** Lets every delayed save finish, oldest first. */
+  release(): void
   setOnline(value: boolean): void
   setFrameOrigin(value: string | null): void
   setWorkspaceId(value: string): void
@@ -56,6 +63,10 @@ const harness: Harness = {
   saves,
   setSaveMode(value) {
     saveMode = value
+  },
+  canonical,
+  release() {
+    for (const finish of delayed.splice(0)) finish()
   },
   frameOrigin: FRAME_ORIGIN,
   setOnline(value) {
@@ -93,6 +104,7 @@ render(
       allowLoopbackHttp
       workspaceId={workspaceId()}
       surface={surface()}
+      character={canonical()}
       platform="web"
       requestGrant={async (request) => {
         grants.push(request)
@@ -111,8 +123,16 @@ render(
       }}
       onCharacterSave={(character, request) => {
         saves.push({ character, requestId: request.requestId })
+        // The same synchronous check-then-write the contract asks of the real app.
+        const commit = () => {
+          if (request.signal.aborted) return false
+          setCanonical(character)
+          return true
+        }
         if (saveMode === 'hang') return new Promise<boolean>(() => undefined)
-        return Promise.resolve(saveMode === 'commit')
+        if (saveMode === 'delayed')
+          return new Promise<boolean>((resolve) => delayed.push(() => resolve(commit())))
+        return saveMode === 'commit' && commit()
       }}
       frameUrl={(frame) =>
         `${frame.origin}/frame.html?bridge=${encodeURIComponent(frame.bridgeId)}&view=${view()}`
