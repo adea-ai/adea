@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.94.0",
+  "version": "0.95.0",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -60,7 +60,7 @@
     "@tailwindcss/postcss": "^4.3.3",
     "axe-core": "^4.13.0",
     "babel-preset-solid": "^1.9.15",
-    "bun-types": "^1.4.2",
+    "bun-types": "^1.4.3",
     "code-foundry": "1.44.3",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
@@ -86,5 +86,5 @@
   "engines": {
     "node": "24.21.0"
   },
-  "packageManager": "bun@1.4.0"
+  "packageManager": "bun@1.4.3"
 }

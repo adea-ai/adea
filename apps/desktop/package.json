@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/desktop",
-  "version": "0.94.0",
+  "version": "0.95.0",
   "private": true,
   "description": "Adea desktop lane: the Electrobun shell plus the single-UI client build it serves",
   "type": "module",
@@ -10,7 +10,7 @@
     "shell:dev": "bun scripts/shell.mjs dev",
     "lint": "oxlint",
     "test": "bun test tests",
-    "typecheck": "tsc -p shell/tsconfig.json"
+    "typecheck": "bun check -p shell/tsconfig.json"
   },
   "dependencies": {
     "@adea-ai/dev-view": "workspace:*"

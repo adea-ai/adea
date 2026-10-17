@@ -19,7 +19,7 @@ jobs:
       working-directory: apps/web
       install-working-directory: .
       build-script: build:cloudflare
-      bun-version: 1.4.0
+      bun-version: 1.4.3
       environment: Production - adea-web
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
