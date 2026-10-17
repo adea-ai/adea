@@ -1436,6 +1436,27 @@ export const devOperationDefinitions = {
     resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
     stream: null,
   },
+  'dev.session.attachmentOpen': {
+    body: '{ runtimeSessionId: string; expectedGeneration: integer; attachmentId: string(1..256) }',
+    capabilities: ['dev.session.read'],
+    reply: 'ChatAttachmentOpenResult',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    stream: null,
+  },
+  'dev.session.attachmentRemove': {
+    body: '{ runtimeSessionId: string; expectedGeneration: integer; attachmentId: string(1..256) }',
+    capabilities: ['dev.session.manage'],
+    reply: 'ChatAttachment',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    stream: null,
+  },
+  'dev.session.attachmentUpload': {
+    body: '{ runtimeSessionId: string; expectedGeneration: integer; upload: ChatAttachmentUpload }',
+    capabilities: ['dev.session.manage'],
+    reply: 'ChatAttachment',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    stream: null,
+  },
   'dev.session.cancelHarness': {
     body: '{ runtimeSessionId: string; expectedGeneration: integer; harnessRunId: string; confirmationId?: string }',
     capabilities: ['dev.session.manage'],

@@ -7,10 +7,18 @@ import {
   stringValue,
 } from './dev-runtime-validation-internal'
 import { decodeDevReply, type DevReply } from './dev-runtime'
-
-export const FOLLOW_UP_QUEUE_MAX_ITEMS = 16
-export const FOLLOW_UP_TEXT_MAX_BYTES = 16_384
-export const FOLLOW_UP_QUEUE_MAX_BYTES = 65_536
+import {
+  FOLLOW_UP_QUEUE_MAX_BYTES,
+  FOLLOW_UP_QUEUE_MAX_ITEMS,
+  FOLLOW_UP_TEXT_MAX_BYTES,
+} from './dev-runtime-follow-up-event'
+export {
+  decodeFollowUpQueueEventPayload,
+  FOLLOW_UP_QUEUE_MAX_BYTES,
+  FOLLOW_UP_QUEUE_MAX_ITEMS,
+  FOLLOW_UP_TEXT_MAX_BYTES,
+} from './dev-runtime-follow-up-event'
+export type { FollowUpQueueEventPayload } from './dev-runtime-follow-up-event'
 
 type QueueTarget = Readonly<{ runtimeSessionId: string; expectedGeneration: number }>
 export type FollowUpQueueRequest = QueueTarget &
@@ -40,19 +48,6 @@ export type FollowUpQueueSnapshot = Readonly<{
   items: readonly FollowUpQueueItem[]
   lastDelivery?: FollowUpDeliveryReceipt
 }>
-export type FollowUpQueueEventPayload = Omit<FollowUpQueueSnapshot, 'delivery' | 'items'> &
-  Readonly<{
-    items: readonly Omit<FollowUpQueueItem, 'text'>[]
-    change:
-      | 'enqueue'
-      | 'remove'
-      | 'reorder'
-      | 'delivery_started'
-      | 'delivery_accepted'
-      | 'delivery_ambiguous'
-      | 'cancelled'
-  }>
-
 function dataRecord(value: unknown, path: string) {
   const item = record(value, path)
   for (const key of Reflect.ownKeys(item)) {
@@ -114,21 +109,11 @@ export function decodeFollowUpQueueRequest(value: unknown): FollowUpQueueRequest
   return structuredClone(value) as FollowUpQueueRequest
 }
 
-function decodeSnapshot(
-  value: unknown,
-  event: boolean
-): FollowUpQueueSnapshot | FollowUpQueueEventPayload {
+function decodeSnapshot(value: unknown): FollowUpQueueSnapshot {
   const item = dataRecord(value, 'followUps')
   exactKeys(
     item,
-    [
-      'schemaVersion',
-      'runtimeSessionId',
-      'generation',
-      'version',
-      'items',
-      event ? 'change' : 'delivery',
-    ],
+    ['schemaVersion', 'runtimeSessionId', 'generation', 'version', 'items', 'delivery'],
     ['lastDelivery'],
     'followUps'
   )
@@ -136,21 +121,7 @@ function decodeSnapshot(
   identifier(item.runtimeSessionId, 'followUps.runtimeSessionId', 256)
   integerValue(item.generation, 'followUps.generation', 0)
   integerValue(item.version, 'followUps.version', 0)
-  if (event)
-    literal(
-      item.change,
-      [
-        'enqueue',
-        'remove',
-        'reorder',
-        'delivery_started',
-        'delivery_accepted',
-        'delivery_ambiguous',
-        'cancelled',
-      ],
-      'followUps.change'
-    )
-  else literal(item.delivery, ['unavailable', 'busy', 'ready'], 'followUps.delivery')
+  literal(item.delivery, ['unavailable', 'busy', 'ready'], 'followUps.delivery')
   if (!Array.isArray(item.items) || item.items.length > FOLLOW_UP_QUEUE_MAX_ITEMS)
     fail('followUps.items', 'expected bounded array')
   const ids = new Set<string>()
@@ -158,17 +129,12 @@ function decodeSnapshot(
   let claimed = 0
   for (const entryValue of item.items) {
     const entry = dataRecord(entryValue, 'followUps.items[]')
-    exactKeys(
-      entry,
-      event ? ['id', 'bytes', 'state'] : ['id', 'bytes', 'state', 'text'],
-      [],
-      'followUps.items[]'
-    )
+    exactKeys(entry, ['id', 'bytes', 'state', 'text'], [], 'followUps.items[]')
     const id = identifier(entry.id, 'followUps.items[].id')
     if (ids.has(id)) fail('followUps.items', 'duplicate id')
     ids.add(id)
     integerValue(entry.bytes, 'followUps.items[].bytes', 1, FOLLOW_UP_TEXT_MAX_BYTES)
-    if (!event && prompt(entry.text, 'followUps.items[].text') !== entry.bytes)
+    if (prompt(entry.text, 'followUps.items[].text') !== entry.bytes)
       fail('followUps.items[].bytes', 'does not match UTF-8 text')
     bytes += entry.bytes as number
     literal(entry.state, ['queued', 'dispatching', 'ambiguous'], 'followUps.items[].state')
@@ -182,7 +148,7 @@ function decodeSnapshot(
     identifier(receipt.messageId, 'followUps.lastDelivery.messageId')
     literal(receipt.status, ['accepted', 'ambiguous'], 'followUps.lastDelivery.status')
   }
-  const snapshot = structuredClone(value) as FollowUpQueueSnapshot | FollowUpQueueEventPayload
+  const snapshot = structuredClone(value) as FollowUpQueueSnapshot
   snapshot.items.forEach(Object.freeze)
   Object.freeze(snapshot.items)
   if (snapshot.lastDelivery) Object.freeze(snapshot.lastDelivery)
@@ -190,7 +156,7 @@ function decodeSnapshot(
 }
 
 export function decodeFollowUpQueueSnapshot(value: unknown): FollowUpQueueSnapshot {
-  return decodeSnapshot(value, false) as FollowUpQueueSnapshot
+  return decodeSnapshot(value)
 }
 
 /** Strict reply decoder for consumers that load the focused queue contract. */
@@ -207,7 +173,4 @@ export function decodeFollowUpQueueReply(
   return decodeDevReply(value, {
     'dev.session.followUps': decodeFollowUpQueueSnapshot,
   }) as DevReply<'dev.session.followUps', FollowUpQueueSnapshot>
-}
-export function decodeFollowUpQueueEventPayload(value: unknown): FollowUpQueueEventPayload {
-  return decodeSnapshot(value, true) as FollowUpQueueEventPayload
 }

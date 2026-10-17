@@ -36,6 +36,21 @@ requirements below must not be treated as verified current behavior.
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
 
+## Local chat attachment boundary (#1392)
+
+The Dev Runtime attachment provider is a separate scope/session/generation-bound
+local authority, described in [Dev Runtime attachments](./dev-runtime.md#local-chat-attachments-1392).
+It does not extend the transitional `local_content_*` lookup API or reuse its
+content-ID authorization gaps. It reads the existing owner-only device key,
+derives a scope-specific key, and seals display metadata and bounded UTF-8 bytes
+under authenticated associated data in an owner-only SQLite database below
+`dev-runtime/attachments`. It never creates or rotates device credentials.
+Authoritative transcript records contain opaque references only. Missing keys,
+unsupported content, foreign scope and stale generation fail closed.
+The owner-proven workspace data cleanup validates and purges these records with
+other native workspace data while retaining sibling scopes and device keys.
+This adds neither OS-keyring storage nor a cloud attachment service.
+
 ## What is stored
 
 This section describes the target contract, subject to the current limits above.

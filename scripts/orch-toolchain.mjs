@@ -109,7 +109,19 @@ function describe(name, searchPath, memo, root) {
     throw new Error(`\`${name} --version\` failed: ${error.message}`, { cause: error })
   }
   if (!version) throw new Error(`\`${name} --version\` printed nothing`)
-  return { version, sha256: sha256(file, memo, root) }
+  // Vite+ may prepend a transparent launcher only when a task starts.
+  // Hash the executable it actually runs, rather than the launcher's text.
+  let executable
+  try {
+    executable = execFileSync(file, ['-p', 'process.execPath'], {
+      encoding: 'utf8',
+      env: { ...process.env, PATH: searchPath },
+    }).trim()
+    if (!executable || !statSync(executable).isFile()) throw new Error('invalid executable path')
+  } catch (error) {
+    throw new Error(`\`${name}\` executable probe failed: ${error.message}`, { cause: error })
+  }
+  return { version, sha256: sha256(realpathSync(executable), memo, root) }
 }
 
 /**

@@ -390,6 +390,9 @@ describe('dev runtime composition', () => {
         'dev.repo.refresh',
         'dev.session.list',
         'dev.session.get',
+        'dev.session.attachmentUpload',
+        'dev.session.attachmentOpen',
+        'dev.session.attachmentRemove',
         'dev.session.create',
         'dev.session.transferInput',
         'dev.session.archive',
@@ -1560,4 +1563,73 @@ describe('auto-adopt on import (owner request)', () => {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }
   }, 60_000)
+})
+
+test('#1392 the production host composes a local attachment upload/open/remove path', async () => {
+  const shell = await boot()
+  try {
+    const host = shell.currentHost()
+    const id = '00000000-0000-4000-8000-0000000000d1'
+    host.projectSession!.upsertSession({
+      id,
+      scope: SCOPE_A,
+      projectId: 'project-1',
+      repoId: 'repo-1',
+      worktreeId: 'worktree-1',
+      lifecycle: 'ready',
+      archived: false,
+      projection: 'structured',
+      generation: 1,
+      version: 1,
+    })
+    const channel = await shell.openChannel()
+    const resource = { kind: 'runtime_session', id, generation: 1 }
+    const uploaded = await channel.execute(
+      commandFor(
+        'dev.session.attachmentUpload',
+        SCOPE_A,
+        {
+          runtimeSessionId: id,
+          expectedGeneration: 1,
+          upload: {
+            name: 'notes.txt',
+            mediaType: 'text/plain',
+            contentBase64: Buffer.from('local attachment').toString('base64'),
+          },
+        },
+        { resource, idempotencyKey: 'attachment-1' }
+      )
+    )
+    expect(uploaded.ok).toBe(true)
+    if (!uploaded.ok) throw new Error(uploaded.error.code)
+    const attachmentId = (uploaded.value as { attachmentId: string }).attachmentId
+    const opened = await channel.execute(
+      commandFor(
+        'dev.session.attachmentOpen',
+        SCOPE_A,
+        { runtimeSessionId: id, expectedGeneration: 1, attachmentId },
+        { resource }
+      )
+    )
+    expect(opened.ok).toBe(true)
+    expect(opened.ok && opened.value).toMatchObject({
+      disposition: 'inert_text',
+      contentBase64: Buffer.from('local attachment').toString('base64'),
+    })
+    const removed = await channel.execute(
+      commandFor(
+        'dev.session.attachmentRemove',
+        SCOPE_A,
+        { runtimeSessionId: id, expectedGeneration: 1, attachmentId },
+        { resource }
+      )
+    )
+    expect(removed.ok).toBe(true)
+    expect(host.harness!.events.events().map((event) => event.kind)).toEqual([
+      'attachment.added',
+      'attachment.removed',
+    ])
+  } finally {
+    rmSync(shell.dataDir, { recursive: true, force: true })
+  }
 })

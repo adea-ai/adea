@@ -1,4 +1,23 @@
 import {
+  decodeChatAttachmentUpload,
+  decodeChatAttachmentOpenResult,
+  decodeChatAttachmentMutationResult,
+} from './dev-runtime-attachments'
+export {
+  chatAttachmentLimits,
+  chatAttachmentMediaTypes,
+  decodeChatAttachment,
+  decodeChatAttachmentUpload,
+  decodeChatAttachmentReference,
+  decodeChatAttachmentOpenResult,
+} from './dev-runtime-attachments'
+export type {
+  ChatAttachmentUpload,
+  ChatAttachmentReference,
+  ChatAttachment,
+  ChatAttachmentOpenResult,
+} from './dev-runtime-attachments'
+import {
   devOperationDefinitions,
   devOperations,
   devRuntimeTransportMethods,
@@ -76,6 +95,19 @@ export {
   dataClassifications,
   decodeCbor,
   decodeRuntimeEvent,
+  decodeRuntimeEnvelope,
+  decodeRuntimeCallEvent,
+  assertRuntimeEventFrameSize,
+  RUNTIME_EVENT_CBOR_BYTES_MAX,
+  decodeRuntimeCallPayload,
+  isRuntimeCallEventKind,
+  runtimeCallEventKinds,
+  runtimeCallPhases,
+  RUNTIME_CALL_INLINE_BYTES_MAX,
+  RUNTIME_CALL_JSON_NODES_MAX,
+  RUNTIME_CALL_JSON_DEPTH_MAX,
+  RUNTIME_CALL_JSON_ENTRIES_MAX,
+  RUNTIME_CALL_JSON_STRING_MAX,
   encodeCbor,
   runtimeEventKinds,
 } from './dev-runtime-wire'
@@ -100,6 +132,13 @@ export type {
   RuntimeEvent,
   RuntimeEventKind,
   RuntimeEventProvenance,
+  RuntimeCallEvent,
+  RuntimeCallEventKind,
+  RuntimeCallData,
+  RuntimeCallJson,
+  RuntimeCallPayload,
+  RuntimeCallPermissionEligibility,
+  RuntimeCallPhase,
 } from './dev-runtime-wire'
 export {
   CITED_RESPONSE_BYTES_MAX,
@@ -2213,6 +2252,7 @@ function namedType(name: string, value: unknown, path: string): unknown {
     integerValue(item.expectedGeneration, `${path}.expectedGeneration`, 0)
     return value
   }
+  if (name === 'ChatAttachmentUpload') return decodeChatAttachmentUpload(value, path)
   if (
     name === 'FileIdentity' ||
     name === 'RootBookmark' ||
@@ -4448,6 +4488,9 @@ function decodeDevRuntimePage(
 // Success reply decoders, installed by the slice that owns each operation's
 // DTO. Every operation without an entry keeps failing closed in decodeDevReply.
 const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => unknown>> = {
+  'dev.session.attachmentUpload': (value) => decodeChatAttachmentMutationResult(value, 'available'),
+  'dev.session.attachmentOpen': (value) => decodeChatAttachmentOpenResult(value),
+  'dev.session.attachmentRemove': (value) => decodeChatAttachmentMutationResult(value, 'removed'),
   // Project registry (#398): import/create mint Project records, scan returns
   // a bounded preview page. update/archive/unbind reply with the Project
   // binding record (same decoder; unbind returns the removed binding).
