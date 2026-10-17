@@ -22,8 +22,6 @@ import type {
   ContentReplicaSummary,
   ConversationParticipantRef,
   ContentRefSummary,
-  GroupAgentEnlistmentGrant,
-  GroupAudienceGrant,
   MessageSummary,
   PrincipalRef,
   ProjectMemberRole,
@@ -42,15 +40,25 @@ import type {
   WorkspaceSearchPage,
 } from '@adea-ai/types'
 
-import type {
-  ApiRuntimeNodeConnectionsResponse,
-  ApiRuntimeNodesResponse,
+import {
+  runtimeNodeDeviceOnline,
+  runtimeNodeHostReachability,
+  type ApiRuntimeNodeConnectionsResponse,
+  type ApiRuntimeNodesResponse,
 } from './runtime-connections'
 export type {
+  ApiRuntimeDeviceOnline,
+  ApiRuntimeHostReachability,
   ApiRuntimeConnection,
   ApiRuntimeNode,
   ApiRuntimeNodeConnectionsResponse,
   ApiRuntimeNodesResponse,
+  RuntimeConnectionUnknownField,
+} from './runtime-connections'
+export {
+  runtimeConnectionDiscoveryUnknownDependencies,
+  runtimeNodeDeviceOnline,
+  runtimeNodeHostReachability,
 } from './runtime-connections'
 
 export type ApiAgentCreateInput = Readonly<{
@@ -211,6 +219,11 @@ import type {
   ApiAddressedTurnResponse,
 } from './addressed-turns'
 export type {
+  ApiLeadTurnChild,
+  ApiLeadTurnChildrenCursor,
+  ApiLeadTurnChildrenQuery,
+  ApiLeadTurnChildrenPage,
+  ApiLeadTurnChildrenResponse,
   ApiHandoffTarget,
   ApiLeadTurnStatus,
   ApiRequestedRoleModelSelections,
@@ -222,6 +235,8 @@ export type {
   LeadTurnReasonCode,
 } from './lead-turns'
 import type {
+  ApiLeadTurnChildrenQuery,
+  ApiLeadTurnChildrenResponse,
   ApiHandoffTarget,
   ApiLeadTurnResponse,
   ApiLeadTurnProgressResponse,
@@ -658,19 +673,68 @@ function boundedInt(value: number | undefined, min: number, max: number, fallbac
   return Math.min(Math.max(Math.trunc(value), min), max)
 }
 
+/**
+ * One refusal in a `400 group_grant_rejected` answer: the group-creation reason, and the participant it is
+ * about when it is about one (a group-wide reason carries none). Values are read as received; the reader
+ * decides which reasons it recognizes.
+ */
+/**
+ * Who a group should hold, by stable identity: user ids and workspace-qualified
+ * Agents. It carries no grant, revision or time; the server issues those.
+ */
+export type ApiGroupSelection = Readonly<{
+  agents: readonly Readonly<{ agentId: string; workspaceId: string }>[]
+  humans: readonly string[]
+}>
+
+export type ApiGroupGrantRejection = Readonly<{
+  participant?: ConversationParticipantRef
+  reason: string
+}>
+
 export class ApiClientError extends Error {
   readonly status: number
   readonly code?: string
   /** Names why a `409 turn_conflict` was refused; only present on addressed-turn conflicts. */
   readonly reason?: string
+  /** Every refused participant of a `group_grant_rejected` answer; absent on other failures. */
+  readonly rejections?: readonly ApiGroupGrantRejection[]
 
-  constructor(message: string, status: number, code?: string, reason?: string) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    reason?: string,
+    rejections?: readonly ApiGroupGrantRejection[]
+  ) {
     super(message)
     this.name = 'ApiClientError'
     this.status = status
     this.code = code
     this.reason = reason
+    this.rejections = rejections
   }
+}
+
+function groupGrantRejections(value: unknown): readonly ApiGroupGrantRejection[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const parsed: ApiGroupGrantRejection[] = []
+  for (const entry of value.slice(0, 100)) {
+    if (!entry || typeof entry !== 'object' || typeof entry.reason !== 'string') continue
+    const participant = entry.participant as Record<string, unknown> | undefined
+    if (participant?.kind === 'user' && typeof participant.userId === 'string')
+      parsed.push({
+        participant: { kind: 'user', userId: participant.userId },
+        reason: entry.reason,
+      })
+    else if (participant?.kind === 'agent' && typeof participant.agentId === 'string')
+      parsed.push({
+        participant: { agentId: participant.agentId, kind: 'agent' },
+        reason: entry.reason,
+      })
+    else parsed.push({ reason: entry.reason })
+  }
+  return parsed
 }
 
 export class AgentHqApiClient {
@@ -945,6 +1009,8 @@ export class AgentHqApiClient {
           id,
           controlPlaneRuntimeNodeRefId,
           kind,
+          deviceOnline: runtimeNodeDeviceOnline(kind),
+          hostReachability: runtimeNodeHostReachability(kind),
           displayName,
           health,
           pairingState,
@@ -1635,10 +1701,10 @@ export class AgentHqApiClient {
   async createGroupChannel(
     workspaceId: string,
     input: Readonly<{
-      audienceGrants?: readonly GroupAudienceGrant[]
       channelId?: string
-      enlistmentGrants?: readonly GroupAgentEnlistmentGrant[]
       idempotencyKey: string
+      /** Who else is in the group, by qualified identity. The server issues every grant. */
+      selection?: ApiGroupSelection
       title: string
     }>
   ): Promise<ApiChannelResponse> {
@@ -1676,16 +1742,33 @@ export class AgentHqApiClient {
     workspaceId: string,
     channelId: string,
     participants: readonly ConversationParticipantRef[],
-    expectedVersion: number,
-    grants?: Readonly<{
-      audienceGrants?: readonly GroupAudienceGrant[]
-      enlistmentGrants?: readonly GroupAgentEnlistmentGrant[]
-    }>
+    expectedVersion: number
   ): Promise<ApiChannelResponse> {
     return this.request(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/participants`,
       {
-        body: JSON.stringify({ ...grants, participants }),
+        body: JSON.stringify({ participants }),
+        headers: { 'Content-Type': 'application/json', 'If-Match': String(expectedVersion) },
+        method: 'POST',
+      }
+    )
+  }
+
+  /**
+   * Replace a group's whole roster from a selection of qualified identities.
+   * The server issues the grants and proves each member's standing; the
+   * client never sends a grant, and a group refuses unqualified participants.
+   */
+  async setGroupSelection(
+    workspaceId: string,
+    channelId: string,
+    selection: ApiGroupSelection,
+    expectedVersion: number
+  ): Promise<ApiChannelResponse> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/channels/${encodeURIComponent(channelId)}/participants`,
+      {
+        body: JSON.stringify({ selection }),
         headers: { 'Content-Type': 'application/json', 'If-Match': String(expectedVersion) },
         method: 'POST',
       }
@@ -1834,6 +1917,23 @@ export class AgentHqApiClient {
     )
   }
 
+  async getLeadTurnChildren(
+    workspaceId: string,
+    intentId: string,
+    page: ApiLeadTurnChildrenQuery = {}
+  ): Promise<ApiLeadTurnChildrenResponse> {
+    const query = new URLSearchParams()
+    if (page.limit !== undefined) query.set('limit', String(page.limit))
+    if (page.after) {
+      query.set('afterAcceptedAt', page.after.acceptedAt)
+      query.set('afterDelegationId', page.after.delegationId)
+    }
+    const suffix = query.size ? `?${query}` : ''
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/children${suffix}`
+    )
+  }
+
   async cancelLeadTurn(workspaceId: string, intentId: string): Promise<ApiLeadTurnResponse> {
     return this.request(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/cancel`,
@@ -1882,13 +1982,12 @@ export class AgentHqApiClient {
     workspaceId: string,
     input: Readonly<{
       agentId?: string
-      audienceGrants?: readonly GroupAudienceGrant[]
       channelId?: string
-      enlistmentGrants?: readonly GroupAgentEnlistmentGrant[]
       idempotencyKey: string
       kind: 'project' | 'direct_agent' | 'group'
       mode?: 'new_topic'
       projectId?: string
+      selection?: ApiGroupSelection
       taskId?: string
       title: string
     }>
@@ -2018,20 +2117,29 @@ export class AgentHqApiClient {
     let code: string | undefined
     let message: string | undefined
     let reason: string | undefined
+    let rejections: readonly ApiGroupGrantRejection[] | undefined
     try {
       const payload = (await response.json()) as {
         code?: string
         error?: string
         message?: string
         reason?: unknown
+        rejections?: unknown
       }
       code = payload.code ?? payload.error
       message = payload.message
       reason = typeof payload.reason === 'string' ? payload.reason : undefined
+      if (code === 'group_grant_rejected') rejections = groupGrantRejections(payload.rejections)
     } catch {
       // A non-JSON failure body keeps the status text.
     }
-    return new ApiClientError(message ?? response.statusText, response.status, code, reason)
+    return new ApiClientError(
+      message ?? response.statusText,
+      response.status,
+      code,
+      reason,
+      rejections
+    )
   }
 
   protected async request<T>(path: string, init: RequestInit = {}): Promise<T> {

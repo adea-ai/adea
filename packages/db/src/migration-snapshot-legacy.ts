@@ -282,6 +282,11 @@ export const LEGACY_MIGRATION_SNAPSHOT_VERSIONS: Readonly<Record<string, LegacyS
           table: 'group_sharing_grants',
           reason: 'the group_sharing_grants table is created by 0049_group_participation_grants',
         },
+        legacyAudienceQuarantine: {
+          table: 'legacy_audience_quarantine',
+          reason:
+            'the legacy_audience_quarantine table is created by 0058_legacy_audience_quarantine',
+        },
       },
       notInLegacyRegistry: {
         nativeSessions:

@@ -7,6 +7,7 @@ import type {
 
 import {
   MODEL_READINESS_REASON_CODES,
+  blockedFundingMessage,
   modelReadinessRemedy,
   projectModelFunding,
   projectModelReadiness,
@@ -278,6 +279,36 @@ test('blocked funding uses only the bounded reason/remedy and suppresses all rea
     'READINESS_UNAVAILABLE'
   )
   expect(projectFunding({ ...blocked, reasonCode: 'READY' }).state).toBe('blocked')
+})
+
+const blockedRead = (reasonCode: string) =>
+  projectFunding({
+    schemaVersion: 'model-funding-display/v1',
+    ...binding,
+    state: 'blocked',
+    reasonCode,
+  })
+
+const ownerOfKind = (kind: string) => ({
+  ...funding,
+  fundingSource: 'byo_api',
+  fundingOwner: { ...(funding as { fundingOwner: object }).fundingOwner, kind },
+})
+
+test('a bring-your-own payer that is Adea-paid is blocked, other payers stay ready', () => {
+  expect(projectFunding(ownerOfKind('adea_account')).state).toBe('blocked')
+  expect(projectFunding(ownerOfKind('workspace_account')).state).toBe('ready')
+  expect(projectFunding(ownerOfKind('provider_account')).state).toBe('ready')
+})
+
+test('a blocked payer read shows its remedy and an unnamed block stays generic', () => {
+  expect(blockedFundingMessage(blockedRead('QUOTA_EXHAUSTED'))).toBe(
+    `Current payer authorization is blocked. ${modelReadinessRemedy('QUOTA_EXHAUSTED')!.message}`
+  )
+  expect(blockedFundingMessage(blockedRead('secret upstream error'))).toBe(
+    'Current payer authorization is unavailable.'
+  )
+  expect(blockedFundingMessage(null)).toBe('Current payer authorization is unavailable.')
 })
 
 test('funding scope extras cannot enter the ready projection and freshness must be explicitly true', () => {

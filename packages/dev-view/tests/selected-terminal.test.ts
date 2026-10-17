@@ -264,3 +264,23 @@ test('rejects non-target rows that violate the filtered listing identity', async
     ).toMatchObject({ status: 'unavailable', reason: 'identity_mismatch' })
   }
 })
+
+test('retiring a selection during deferred validation refuses an otherwise ready result', async () => {
+  const controller = new AbortController()
+  let reads = 0
+  const pending = resolveSelectedTerminal({
+    scope,
+    selection,
+    signal: controller.signal,
+    execute: async (command) => {
+      reads++
+      return success(command, [record()])
+    },
+  })
+  // Let the completed runtime reply enter validation, then retire its owner
+  // before the asynchronous validator load can publish the resolved record.
+  await Promise.resolve()
+  controller.abort()
+  expect(await pending).toEqual({ status: 'unavailable', reason: 'cancelled' })
+  expect(reads).toBe(1)
+})

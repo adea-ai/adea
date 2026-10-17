@@ -295,7 +295,9 @@ export function projectModelFunding(
     !text(owner.ownerRef) ||
     !text(owner.displayName) ||
     !revision(owner.revision) ||
-    !enumValue(owner.kind, ['provider_account', 'workspace_account', 'adea_account'])
+    !enumValue(owner.kind, ['provider_account', 'workspace_account', 'adea_account']) ||
+    // The payer kind must agree with the funding source: bring-your-own cannot be Adea-paid.
+    (view.fundingSource === 'byo_api' && owner.kind === 'adea_account')
   )
     return blockedFunding()
   return {
@@ -332,6 +334,13 @@ const fundingBindingKeys = [
   'selectionRef',
   'selectionRevision',
 ] as const
+
+/** A named reason gets its remedy; anything unnamed stays the generic unavailable text. */
+export function blockedFundingMessage(value: ProjectedModelFunding | null): string {
+  return value?.state === 'blocked' && value.reasonCode !== 'READINESS_UNAVAILABLE'
+    ? `Current payer authorization is blocked. ${value.remedy.message}`
+    : 'Current payer authorization is unavailable.'
+}
 
 function blockedFunding(
   reason: unknown = 'READINESS_UNAVAILABLE'

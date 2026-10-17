@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/mobile",
-  "version": "0.92.0",
+  "version": "0.95.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -10,7 +10,7 @@
     "add:android": "cap add android",
     "add:ios": "cap add ios",
     "lint": "oxlint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "bun check -p tsconfig.json"
   },
   "dependencies": {
     "@capacitor/android": "8.5.2",

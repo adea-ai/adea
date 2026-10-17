@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 import { inspectDatabaseConfiguration } from './database-config.mjs'
+import { assertLocalTestTargets } from './test-target-guard.mjs'
 
 const PRIVILEGE_QUERY = [
   'SELECT current_user,',
@@ -12,9 +15,32 @@ const PRIVILEGE_QUERY = [
   'FROM pg_roles WHERE rolname = current_user;',
 ].join(' ')
 
-function queryPrivileges(rawUrl) {
+/**
+ * The environment `psql` runs with. psql is libpq, which lets inherited `PG*`
+ * variables route a connection: `PGHOSTADDR` overrides the destination whatever
+ * `PGHOST` says, and `PGSERVICE`, `PGSERVICEFILE` and `PGSYSCONFDIR` pull
+ * connection parameters from a service file. So no inherited `PG*` variable
+ * survives; the child gets only what the URL names, which is what the target
+ * guard checked.
+ */
+export function libpqEnvironment(rawUrl, inherited = process.env) {
   const url = new URL(rawUrl)
-  const result = spawnSync(
+  const kept = Object.fromEntries(Object.entries(inherited).filter(([name]) => !/^PG/i.test(name)))
+  return {
+    ...kept,
+    PGCHANNELBINDING: url.searchParams.get('channel_binding') ?? 'prefer',
+    PGCONNECT_TIMEOUT: '10',
+    PGDATABASE: url.pathname.slice(1),
+    PGHOST: url.hostname,
+    PGPASSWORD: decodeURIComponent(url.password),
+    PGPORT: url.port || '5432',
+    PGSSLMODE: url.searchParams.get('sslmode') ?? 'prefer',
+    PGUSER: decodeURIComponent(url.username),
+  }
+}
+
+export function queryPrivileges(rawUrl, { spawn = spawnSync, inherited = process.env } = {}) {
+  const result = spawn(
     'psql',
     [
       '--no-psqlrc',
@@ -26,17 +52,7 @@ function queryPrivileges(rawUrl) {
     ],
     {
       encoding: 'utf8',
-      env: {
-        ...process.env,
-        PGCHANNELBINDING: url.searchParams.get('channel_binding') ?? 'prefer',
-        PGCONNECT_TIMEOUT: '10',
-        PGDATABASE: url.pathname.slice(1),
-        PGHOST: url.hostname,
-        PGPASSWORD: decodeURIComponent(url.password),
-        PGPORT: url.port || '5432',
-        PGSSLMODE: url.searchParams.get('sslmode') ?? 'prefer',
-        PGUSER: decodeURIComponent(url.username),
-      },
+      env: libpqEnvironment(rawUrl, inherited),
       stdio: ['ignore', 'pipe', 'pipe'],
     }
   )
@@ -60,32 +76,43 @@ function queryPrivileges(rawUrl) {
   }
 }
 
-try {
-  const configuration = inspectDatabaseConfiguration(process.env)
-  const runtime = queryPrivileges(process.env.DATABASE_URL)
-  const migration = queryPrivileges(process.env.DATABASE_MIGRATION_URL)
+function main() {
+  // A probe reaches only local or CI-created targets (see test-target-guard.mjs).
+  assertLocalTestTargets()
+  try {
+    const configuration = inspectDatabaseConfiguration(process.env)
+    const runtime = queryPrivileges(process.env.DATABASE_URL)
+    const migration = queryPrivileges(process.env.DATABASE_MIGRATION_URL)
 
-  if (runtime.elevated || runtime.canCreateSchemaObjects || runtime.canCreateDatabaseObjects) {
-    throw new Error('Runtime database role has elevated or DDL privileges')
-  }
-  if (
-    migration.elevated ||
-    !migration.canCreateSchemaObjects ||
-    !migration.canCreateDatabaseObjects
-  ) {
-    throw new Error('Migration database role does not match the required privilege boundary')
-  }
-  if (
-    runtime.role !== configuration.runtimeRole ||
-    migration.role !== configuration.migrationRole
-  ) {
-    throw new Error('Connected database roles do not match the configured roles')
-  }
+    if (runtime.elevated || runtime.canCreateSchemaObjects || runtime.canCreateDatabaseObjects) {
+      throw new Error('Runtime database role has elevated or DDL privileges')
+    }
+    if (
+      migration.elevated ||
+      !migration.canCreateSchemaObjects ||
+      !migration.canCreateDatabaseObjects
+    ) {
+      throw new Error('Migration database role does not match the required privilege boundary')
+    }
+    if (
+      runtime.role !== configuration.runtimeRole ||
+      migration.role !== configuration.migrationRole
+    ) {
+      throw new Error('Connected database roles do not match the configured roles')
+    }
 
-  console.log(
-    `Database health check passed (database=${configuration.database}, runtimeRole=${runtime.role}, migrationRole=${migration.role})`
-  )
-} catch (error) {
-  console.error(error instanceof Error ? error.message : 'Database health check failed')
-  process.exitCode = 1
+    console.log(
+      `Database health check passed (database=${configuration.database}, runtimeRole=${runtime.role}, migrationRole=${migration.role})`
+    )
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : 'Database health check failed')
+    process.exitCode = 1
+  }
+}
+
+if (
+  process.argv[1] &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+) {
+  main()
 }

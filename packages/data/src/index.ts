@@ -339,6 +339,23 @@ export const channelMutationOptions = {
     onMutate: () => conversationMutationContext(workspaceId),
     onSuccess: channelMutationSuccess(queryClient, workspaceId),
   }),
+  groupSelection: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
+    mutationFn: (
+      input: Readonly<{
+        channelId: string
+        expectedVersion: number
+        selection: Parameters<AgentHqApiClient['setGroupSelection']>[2]
+      }>
+    ) =>
+      client.setGroupSelection(
+        workspaceId,
+        input.channelId,
+        input.selection,
+        input.expectedVersion
+      ),
+    onMutate: () => conversationMutationContext(workspaceId),
+    onSuccess: channelMutationSuccess(queryClient, workspaceId),
+  }),
   project: (client: AgentHqApiClient, queryClient: QueryClient, workspaceId: string) => ({
     mutationFn: (input: Parameters<AgentHqApiClient['createProjectChannel']>[1]) =>
       client.createProjectChannel(workspaceId, input),
@@ -1329,6 +1346,31 @@ export function useCreateGroupChannelMutation(
 ) {
   return useMutation(() =>
     channelMutationOptions.group(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+/** Re-reads the channel list and details, for a caller that learned its copy of a group is stale. */
+export function useRefreshChannels(workspaceId: MaybeAccessor<string>) {
+  const queryClient = useQueryClient()
+  return () =>
+    void queryClient.invalidateQueries({
+      queryKey: channelQueryKeys.all(resolveAccessor(workspaceId)),
+    })
+}
+export function useSetChannelParticipantsMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.participants(client, useQueryClient(), resolveAccessor(workspaceId))
+  )
+}
+/** Replaces a group's roster from a selection of qualified identities; the server issues the grants. */
+export function useSetGroupSelectionMutation(
+  client: AgentHqApiClient,
+  workspaceId: MaybeAccessor<string>
+) {
+  return useMutation(() =>
+    channelMutationOptions.groupSelection(client, useQueryClient(), resolveAccessor(workspaceId))
   )
 }
 export function useUpdateChannelMutation(

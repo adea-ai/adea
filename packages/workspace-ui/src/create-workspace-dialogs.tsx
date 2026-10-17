@@ -263,51 +263,8 @@ export function RenameConversationDialog(props: {
   )
 }
 
-export function CreateGroupDialog(props: {
-  busy: boolean
-  onClose: () => void
-  onCreate: (title: string) => Promise<void>
-  open: boolean
-}) {
-  const [error, setError] = createSignal<string | null>(null)
-  return (
-    <ModalDialog
-      modal={false}
-      class="max-h-full overflow-y-auto"
-      open={props.open}
-      onClose={props.onClose}
-      title="New group conversation"
-      description="A durable conversation for users and multiple Agents, without requiring a Project."
-    >
-      <form
-        class="grid gap-4"
-        onSubmit={(event) => {
-          event.preventDefault()
-          const title = String(new FormData(event.currentTarget).get('title') ?? '')
-          void props
-            .onCreate(title)
-            .then(() => props.onClose())
-            .catch(() => setError('Group conversation could not be created.'))
-        }}
-      >
-        <div class="flex flex-col gap-2">
-          <Label for="conversation-name">Conversation name</Label>
-          <Input id="conversation-name" name="title" required maxLength={120} autofocus />
-        </div>
-        <Show when={error()}>
-          {(message) => (
-            <Alert variant="destructive">
-              <AlertDescription>{message()}</AlertDescription>
-            </Alert>
-          )}
-        </Show>
-        <Button type="submit" disabled={props.busy}>
-          {props.busy ? 'Creating…' : 'Create conversation'}
-        </Button>
-      </form>
-    </ModalDialog>
-  )
-}
+// The group dialogs live with the group audience flow; this module is the one place that loads them.
+export { ConnectedCreateGroupDialog, CreateGroupDialog, GroupManageDialog } from './group-audience'
 
 /**
  * A confirmation for an irreversible sidebar action (archive or delete a
