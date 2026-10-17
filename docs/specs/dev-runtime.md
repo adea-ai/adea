@@ -421,6 +421,9 @@ type RuntimeEventKind =
   | 'question.expired'
   | 'file.observed'
   | 'checkpoint.observed'
+  | 'checkpoint.restore_requested'
+  | 'checkpoint.restore_resolved'
+  | 'checkpoint.restore_failed'
   | 'subagent.observed'
   | 'usage.observed'
   | 'terminal.command_started'
@@ -2227,7 +2230,7 @@ type DevOperation =
   | `dev.connections.${'get' | 'setGitHosting' | 'setHarnessAccount'}`
   | `dev.worktree.${'list' | 'create' | 'retryBootstrap' | 'lease' | 'releaseLease' | 'mergePlan' | 'mergeCommit' | 'archive' | 'unarchive' | 'cleanupPlan' | 'cleanupCommit' | 'cleanupResume' | 'cleanupJobs'}`
   | `dev.terminal.${'create' | 'attach' | 'detach' | 'input' | 'resize' | 'signal' | 'terminate' | 'checkpoint' | 'search' | 'historyDelete' | 'list' | 'shellProfiles'}`
-  | `dev.session.${'create' | 'get' | 'list' | 'launchDefault' | 'launchHarness' | 'resumeHarness' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
+  | `dev.session.${'create' | 'get' | 'list' | 'launchDefault' | 'launchHarness' | 'resumeHarness' | 'restoreCheckpoint' | 'cancelHarness' | 'events' | 'transferInput' | 'archive' | 'unarchive'}`
   | `dev.harness.${'managedPiStatus' | 'managedPiInstall' | 'acpConnect' | 'acpConnections' | 'acpClose' | 'preferences' | 'preferenceUpdate' | 'preferenceReset' | 'runStatus' | 'runs'}`
   | `dev.harness.accountProfiles.${'list' | 'create' | 'delete'}`
   | `dev.files.${'list' | 'stat' | 'read' | 'write' | 'create' | 'rename' | 'delete' | 'copy' | 'search' | 'openExternal' | 'readStream' | 'writeStream' | 'renameOverwritePlan' | 'renameOverwriteCommit' | 'deleteTreePlan' | 'deleteTreeCommit' | 'copyTreePlan' | 'copyTreeCommit'}`
@@ -2297,7 +2300,7 @@ projection; `unavailable` is empty for the local owner. Scoped capability
 subsets arrive with remote callers (M14 runtime nodes), which authenticate as
 a different identity class than this trusted local channel. The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 232 operation names, exact body shapes, exact reply types, complete required
+all 242 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -2785,6 +2788,141 @@ Event constraints:
   older terminal bodies are references to separately bounded terminal storage;
 - gaps return `resync_required` with checkpoint anchor; clients never advance
   past an unexplained gap.
+
+### Conversation checkpoint evidence and restore (#1390)
+
+Conversation checkpoints are distinct from terminal replay checkpoints and Git
+file snapshots. Restoring one MUST NOT truncate, rewrite, or delete the
+canonical conversation event log. `packages/types/src/dev-runtime-checkpoints.ts`
+owns their strict versioned DTOs. A `checkpoint.observed` payload with
+`schemaVersion: 1` contains a nonblank `checkpointId`, a nonblank `name`
+(1–512 characters), source `createdAt` (UTC timestamp),
+`harnessInstallationId`, and an exact restore-capability fact:
+`{ supported: true }` or
+`{ supported: false, reason: 'harness_restore_unavailable' }`. IDs are bounded
+to 256 characters. The enclosing event binds the canonical session, harness
+run, generation and authenticated source; confidence is `authoritative` and
+classification is `workspace_private`. Legacy unversioned markers remain
+opaque; an unversioned restore-capability claim is refused.
+
+The trusted host producer is `HarnessRuntimeRegistration.checkpoints.observe`.
+It rechecks canonical scope/session/generation and the current installation/run,
+validates the supplied name and timestamp, and derives restore capability from
+the host's matching native/ACP adapter. A marker or a renderer callback is never
+restore authority. The metadata observation seam is not a renderer write API.
+
+`dev.session.restoreCheckpoint` is an authenticated M10 command requiring the
+existing `dev.session.manage` capability and a `runtime_session` resource.
+Its strict body is `{ runtimeSessionId, expectedGeneration, checkpointEventId }`;
+an envelope `idempotencyKey` is mandatory. It adds no new credential or grant.
+The host rechecks the account/workspace/node scope, exact session/resource,
+body/envelope generation, live unarchived session, active run/installation,
+command expiry, and the exact retained checkpoint event before recording an
+attempt. A checkpoint from another session/installation is `identity_mismatch`;
+an unretained checkpoint is `resync_required`; a new stale request is
+`stale_generation`. Checkpoints from an older generation of the same session
+may be targeted, but the command fences the current generation and installation.
+No external session or harness is adopted or launched as a restore fallback.
+
+The durable journal uses the existing scoped, owner-only, WAL/full-sync SQLite
+host-store boundary under `dev-runtime/harness/checkpoint-restores/`. Its
+scope-derived file identity prevents workspace crossover. Each request gets a
+host `restoreId`; only hashes of its idempotency key and body fingerprint are
+stored. The logical journal is append-only: request, outcome, session-commit,
+and publication acknowledgements are new immutable records, never updates to
+prior audit entries. A session-commit acknowledgement binds the original
+confirmed outcome; a failed restore cannot carry one.
+At 1,000 attempts per scope it refuses `limit_exceeded`; it does not prune audit
+history to admit another mutation. Existing conversation events remain intact.
+
+The host durably records the request before dispatch and publishes
+`checkpoint.restore_requested` with `schemaVersion: 1`, `restoreId`,
+`checkpointId`, `checkpointEventId`, `requestedGeneration`, and `requestedAt`.
+Exactly one canonical outcome shares those identity fields (with `completedAt`
+instead of `requestedAt`):
+
+- `checkpoint.restore_resolved`: `status: 'resolved'`, exactly the next
+  `restoredGeneration`, a nonblank `providerRestoreId`, and the adapter's UTC
+  `restoredAt` observation;
+- `checkpoint.restore_failed`: `status: 'failed'` and a typed Dev Runtime
+  error `code`, without success fields.
+
+These three command/audit events are host-owned and retain the request
+generation in their envelope. The wire decoder checks that it matches
+`requestedGeneration`. A provider cannot self-publish canonical restore success.
+The new generation is carried explicitly in the successful result. Failed
+commands return a typed error while their canonical failed event remains
+available; successful commands return the strict `CheckpointRestoreOutcome` DTO.
+Neither an acknowledged delivery nor an untyped provider return is success.
+
+The optional `CheckpointRestoreAdapter` is an installation-bound native/ACP
+driver seam, absent in production at this revision. It must recheck the supplied
+`assertCurrent` fence immediately before its own generation-bound side effect,
+honor cancellation, and return an observed receipt naming the same checkpoint,
+session and run, the host `restoreId` and expected generation, plus its stable
+restore proof ID and observation time. The host
+checks the fence before dispatch, requires the adapter to check it too, and
+rechecks scope/generation/version/run/installation/archive after the receipt.
+Expiry gates initial dispatch; an already-running adapter's valid late receipt
+may resolve durable ambiguity under that same original binding after the
+command deadline, without redispatch. It strictly validates the complete success DTO before changing any
+canonical state. The validated confirmation is durably journaled before the
+existing session generation and version increment by one, fencing prior input
+grants without inventing another run or modifying old transcript rows. A failed
+confirmation write cannot advance the session. Because the journal and session
+store are separate durability boundaries, an interrupted session write leaves
+the confirmed decision pending for recovery, never a contradictory failed
+outcome. Recovery applies that decision once only while the original session
+generation, version, run, installation, and unarchived ownership still match;
+it never overwrites a changed owner or dispatches the adapter again. An already
+advanced session is not incremented twice. Success is returned/published only
+after the generation commit, and an unapplied confirmation blocks another
+restore for that session. The session authority publishes its in-memory cache
+only after the durable upsert succeeds, so a rejected SQLite write cannot be
+mistaken for a committed generation. The session transaction atomically retains
+a private, restore-specific commit witness binding the restore ID, session ID,
+resulting generation, and version. These bounded witnesses survive ownership
+transfers and are not conversation DTO fields. Recovery copies that witness to
+the journal's session-commit phase; it requires the witness before returning or
+publishing success. If the journal marker write fails, recovery reads the atomic
+witness and repairs the outbox without another session mutation, even after a
+later takeover. Without that witness, matching generation/version/run values
+cannot prove this restore committed: even an exact next-generation input
+transfer remains a takeover. The host restore seam requires this witness
+facility as well as a verified adapter. Neither capability is fabricated from
+a renderer callback.
+
+There is currently no verified managed-Pi or ACP conversation restore API wired
+to this seam. Production therefore emits unsupported checkpoint evidence and
+refuses an admitted restore with `capability_unavailable`, preserving session
+state and one canonical failed outcome. Real restoration remains blocked on a
+separately verified upstream harness adapter; synthetic driver receipts in tests
+are contract evidence, not packaged or real-harness acceptance. No PTY escape
+sequence, Git restore, terminal scrollback rewind, or fictional success is used.
+
+Concurrent retries with the same key/body share one in-flight dispatch; a changed
+body is `idempotency_conflict`, and another restore for that session must wait.
+Completed replay returns the original outcome without dispatching again, even
+after restart or checkpoint-event eviction, while still checking scope/session
+and the expected current generation (the resulting generation for successful
+replay). A later takeover makes that replay stale. Fresh retries use a fresh M10
+frame/nonce/expiry while retaining the logical idempotency key.
+
+A pending journal record found after restart becomes `delivery_ambiguous`, never
+an automatic harness retry. A bounded 30-second deadline also aborts and records
+ambiguity when no receipt is proven. Late completions cannot replace an existing
+failed outcome or advance session state. The journal doubles as a durable outbox:
+missing canonical request/outcome publications are replayed by stable source IDs,
+and append-only publication acknowledgements prevent repeated emission after
+event-log retention. A crash between harness completion and durable confirmation
+remains ambiguous rather than claiming restored state.
+
+`packages/types/tests/dev-runtime-checkpoints.test.ts` pins strict evidence,
+reply and event schemas. `apps/desktop/tests/dev-runtime-checkpoints.test.ts`
+pins authenticated admission, capability absence, foreign/stale refusals,
+single-dispatch replay, takeover fencing, malformed/unfenced receipts, deadline
+and restart interruption, durable confirmation/session-write fault recovery,
+durable outbox recovery, and audit-prefix preservation.
 
 ### Structured questions and correlated outcomes (#1395)
 
@@ -8655,3 +8793,11 @@ controls. Adea retains only the utility width steps and saved preferences.
 Host CSS restyles the presented grip on Dev surfaces into a tall, skinny,
 translucent rung (icon dropped, hover wash softened) without touching the hit
 target, drag semantics, or keyboard controls.
+
+### Ambiguous physical checkpoint restore fence (#1390)
+
+The restore audit distinguishes a proved pre-dispatch refusal (`not_dispatched`) from an invoked adapter (`dispatching`). Once invocation is possible, a timeout, malformed or missing receipt, journal failure, or restart leaves the request durably pending; it must not publish a terminal failed outcome or permit another restore. Legacy failed outcomes without a pre-dispatch witness also remain fenced. No interrupted request is redispatched.
+
+While any restore for a session lacks either an atomic confirmed session commit or a witnessed pre-dispatch failure, the host fences input transfer, harness launches, ACP prompt delivery and every terminal input chunk, including already-open writer streams. Cancellation/read paths remain available. A valid receipt from an already-running adapter can reconcile after the command deadline only if its original session/run/installation/version binding still matches. It advances the generation exactly once through the existing atomic restore-commit witness. Takeover, invalid evidence or a failed confirmation write keeps the durable fence. A process restart cannot invent physical reconciliation; without an observed receipt or separately proved rollback the session remains unavailable for further input. Production still has no composed restore adapter, and no public bypass or blind retry is added.
+
+Terminal write grants also bind the canonical runtime-session generation at minting. Attachment consumes the host-held generation binding, and every chunk compares it with the current session generation as well as the independent terminal generation and InputFence. A silent pre-restore writer and an unused pre-restore grant therefore remain stale after a successful normal or late restore; they never regain access when the pending predicate clears. A fresh authorized `dev.terminal.input` grant is required to resume. Expired unattached generation bindings are pruned, with a bounded 1,024 pending-grant map per terminal registration. Prompt delivery likewise captures the canonical session generation and checks it per chunk. Read streams retain their existing semantics.

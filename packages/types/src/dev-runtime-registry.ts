@@ -1506,6 +1506,13 @@ export const devOperationDefinitions = {
     resource: null,
     stream: null,
   },
+  'dev.session.restoreCheckpoint': {
+    body: '{ runtimeSessionId: string(1..256); expectedGeneration: integer(0..9007199254740990); checkpointEventId: string(1..256) }',
+    capabilities: ['dev.session.manage'],
+    reply: 'CheckpointRestoreOutcome',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    stream: null,
+  },
   'dev.session.resumeHarness': {
     body: '{ runtimeSessionId: string; expectedGeneration: integer; harnessRunId: string }',
     capabilities: ['dev.session.manage'],

@@ -274,6 +274,7 @@ export const devOperationMetadata = {
   'dev.session.launchDefault': { capabilities: capabilities32, resource: resource10 },
   'dev.session.launchHarness': { capabilities: capabilities32, resource: resource10 },
   'dev.session.list': { capabilities: capabilities33, resource: null },
+  'dev.session.restoreCheckpoint': { capabilities: capabilities32, resource: resource10 },
   'dev.session.resumeHarness': { capabilities: capabilities32, resource: resource10 },
   'dev.session.transferInput': { capabilities: capabilities32, resource: resource10 },
   'dev.session.unarchive': { capabilities: capabilities32, resource: resource10 },
