@@ -463,3 +463,65 @@ test('a Control Plane readiness refusal reaches the Adea lead runtime from the H
   expect((foreign as { reasonCode?: string }).reasonCode).not.toBe('MODEL_NOT_READY')
   expect(stored).toEqual([])
 })
+
+test('child observation composition uses the installed SDK, read scope and opaque page parameters', async () => {
+  const f = await fixture()
+  expect(installedLeadSdkPort.childrenSupported).toBe(true)
+  const requests: Record<string, unknown>[] = []
+  const claims: Record<string, unknown>[] = []
+  const data = {
+    schemaVersion: 'pi-lead-dispatch/v1',
+    intentId: authority.intentId,
+    dispatchId: f.publication.dispatchId,
+    executionId: prepared.executionId,
+    attemptId: prepared.attemptId,
+    runtimeSessionId: f.publication.runtimeSessionId,
+    children: [],
+    totalChildren: 0,
+    complete: true,
+  }
+  const composed = await createConfiguredLeadTurnDependencies(
+    {
+      ...f.dependencies,
+      environment: { ...f.dependencies.environment, CONTROL_PLANE_ORIGIN: 'http://127.0.0.1:1' },
+      fetch: (async (input, init) => {
+        expect(String(input)).toBe('http://127.0.0.1:1/v3/pi-durable/lead-dispatches/children')
+        const body = JSON.parse(init!.body as string)
+        requests.push(body)
+        const authorization = new Headers(init!.headers).get('authorization')!
+        claims.push(JSON.parse(Buffer.from(authorization.split('.')[1]!, 'base64url').toString()))
+        return Response.json({
+          contractVersion: body.contractVersion,
+          requestId: body.requestId,
+          correlation: body.correlation,
+          data,
+        })
+      }) as typeof fetch,
+    },
+    undefined,
+    installedLeadSdkPort
+  )
+  const cursor = { acceptedAt: '2026-10-17T00:00:00Z', delegationId: `dlg_${'0'.repeat(26)}` }
+  expect(
+    await composed.adapter!.children!(authority, data.dispatchId, { limit: 1, after: cursor })
+  ).toEqual(data)
+  expect(requests[0]!.operation).toBe('pi-durable.lead.children')
+  expect(requests[0]!.parameters).toEqual({ dispatchId: data.dispatchId, limit: 1, after: cursor })
+  expect(requests[0]).not.toHaveProperty('payload')
+  expect(requests[0]).not.toHaveProperty('idempotencyKey')
+  expect(claims[0]!.scopes).toEqual(['execution:read'])
+  expect(claims[0]!.workspaceIds).toEqual([workspaceId])
+  expect(f.calls).toEqual([])
+})
+
+test('missing children capability leaves ordinary lead composition enabled', async () => {
+  const f = await fixture()
+  const composed = await createConfiguredLeadTurnDependencies(f.dependencies, undefined, {
+    ...f.port,
+    childrenSupported: false,
+  })
+  expect(composed.adapter).toBeDefined()
+  expect(composed.adapter!.children).toBeUndefined()
+  expect(composed.adapter!.dispatch).toBeFunction()
+  expect(f.calls).toEqual([])
+})

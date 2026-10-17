@@ -174,7 +174,7 @@
     "dev": "vite build --watch",
     "lint": "oxlint",
     "test": "bun test --conditions=browser --preload ../../scripts/test-solid-transform.ts tests",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "bun check -p tsconfig.json"
   },
   "dependencies": {
     "@adea-ai/app-ui": "workspace:*",

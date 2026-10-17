@@ -136,6 +136,21 @@ export async function createConfiguredLeadTurnDependencies(
           `lead-turn:${intentId}`,
           issuedAt
         ),
+      ...(port.childrenSupported
+        ? {
+            children: async (dispatchId, page) => {
+              const response = await invoke(
+                'getPiDurableLeadChildren',
+                'pi-durable.lead.children',
+                { dispatchId, ...page },
+                'execution:read'
+              )
+              if (!isRecord(response) || !isRecord(response.data))
+                throw new Error('RUNTIME_RESPONSE_INVALID')
+              return response.data
+            },
+          }
+        : {}),
       status: (dispatchId) =>
         dispatchData(
           'getPiDurableLeadStatus',
