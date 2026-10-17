@@ -323,7 +323,10 @@ desktop sessions share one path, and the cursor travels explicitly.
   group under `['workspaces', workspaceId, 'runtime-nodes']`. They do not imply
   execution acceptance or change canonical Message/history availability.
 - Reconnects back off 1s→30s with jitter, reset after a stable connection, and
-  never faster than the server asks.
+  never faster than the server asks. Hidden browser documents cancel the stream
+  and pending retry; visibility resumes one stream from the retained signed
+  cursor. Pausing changes no authorization or replay decision. A stale cursor
+  still receives the server's ordinary resync response.
 - One subscription is mounted in the workspace navigation shell — above view
   switching — so conventional, spatial, and dev surfaces read the same query
   state without reconnecting on each surface change, and transient UI

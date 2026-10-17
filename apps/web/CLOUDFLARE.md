@@ -256,3 +256,22 @@ subscribes to the router history in `src/start/router.tsx`.
   no Cloudflare Images loader configuration is needed.
 - Preview Neon branches (`.github/workflows/neon_workflow.yml`) are unchanged
   and still gate PRs.
+
+## Request work and local efficiency qualification
+
+The Worker hydrates lazy Secrets Store bindings before request handlers. Each
+isolate caches only resolved strings, by binding object, for 30 seconds. An
+expired entry is refreshed before use; refresh failures remove the old process
+environment value and are retried on the next request. A replacement binding
+object has no cached value. Concurrent cold requests may each read the store;
+request-owned I/O promises are never shared between Worker invocations. Secret
+rotation can therefore take up to 30 seconds to reach a warm isolate. This cache
+does not cache authentication or authorization decisions.
+
+Browser workspace event subscriptions cancel the live stream and retry timer
+while hidden, then resume once from their signed cursor when visible. Server
+replay, authorization and resync remain authoritative. Desktop summary reads use
+a 60-second visible-window interval and retain their immediate visibility
+refresh. These changes reduce client/store work in local fixtures; production
+CPU, subrequests and Hyperdrive changes require post-rollout observations. The
+`exceededResources` status alone does not identify a CPU-only failure.

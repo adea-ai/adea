@@ -17,6 +17,7 @@ import { createProject } from '../../src/projects'
 import {
   listAccessibleChannelIds,
   listReadStateForUser,
+  markAllChannelsRead,
   markChannelReadState,
   markThreadReadState,
 } from '../../src/read-state'
@@ -251,6 +252,50 @@ describe.skipIf(!connectionUrl)('read state unread counts', () => {
       ...extra,
     })
   }
+
+  test('attributes mark-all-read statements across small and larger workspaces', async () => {
+    const owner = await user('mark-all-budget')
+    async function measure(channelCount: number) {
+      const workspaceId = await workspace(owner)
+      for (let channel = 0; channel < channelCount; channel++) {
+        const { channelId } = await projectChannel(workspaceId, owner, `Budget ${channel}`)
+        const root = await post(workspaceId, channelId, owner)
+        await post(workspaceId, channelId, owner, { threadRootMessageId: root.id })
+      }
+      const statements: string[] = []
+      const counting = postgres(connectionUrl!, {
+        debug: (_connection, query) => {
+          statements.push(query.trim().split(/\s+/)[0]!.toLowerCase())
+        },
+        max: 1,
+        prepare: false,
+      })
+      try {
+        await counting`select 1`
+        const database = drizzle(counting, { schema })
+        const sample = async () => {
+          statements.length = 0
+          const state = await markAllChannelsRead(database, workspaceId, owner)
+          expect(
+            state.every((item) => item.topLevelUnreadCount === 0 && item.threadUnreadCount === 0)
+          ).toBe(true)
+          return Object.fromEntries(
+            [...new Set(statements)]
+              .toSorted()
+              .map((kind) => [kind, statements.filter((value) => value === kind).length])
+          )
+        }
+        return { channels: channelCount, first: await sample(), repeated: await sample() }
+      } finally {
+        await counting.end()
+      }
+    }
+    const small = await measure(1)
+    const larger = await measure(8)
+    console.info('mark-all-read local statement attribution', JSON.stringify({ small, larger }))
+    expect(larger.first).toEqual(small.first)
+    expect(larger.repeated).toEqual(small.repeated)
+  })
 
   // The previous implementation, kept verbatim as an oracle: load every live
   // message of every accessible channel and count in memory. The SQL version

@@ -58,6 +58,8 @@ export type WorkspaceEventSubscriptionOptions = Readonly<{
   onDiagnostic?: (diagnostic: WorkspaceEventDiagnostic) => void
   /** Clear transient conversation UI after a sequence-only audience-change frame. */
   onAudienceChanged?: () => void
+  /** Browser visibility; injectable so pause/resume is deterministic in tests. */
+  visibility?: Readonly<{ isVisible(): boolean; subscribe(listener: () => void): () => void }>
 }>
 
 export type WorkspaceEventDiagnostic = Readonly<{
@@ -255,6 +257,16 @@ export function createWorkspaceEventSubscription(
   let appliedSequence = readCursor()
   let serverRetryMs: number | null = null
   let inFlight = false
+  let reconnectRequested = false
+  const visibilityDocument = typeof document === 'undefined' ? undefined : document
+  const visibility = options.visibility ?? {
+    isVisible: () => visibilityDocument?.visibilityState !== 'hidden',
+    subscribe(listener: () => void) {
+      visibilityDocument?.addEventListener('visibilitychange', listener)
+      return () => visibilityDocument?.removeEventListener('visibilitychange', listener)
+    },
+  }
+  let paused = !visibility.isVisible()
 
   function readCursor(): number {
     // Reads are as failure-tolerant as the writes below: a `Storage` that
@@ -458,19 +470,29 @@ export function createWorkspaceEventSubscription(
       diagnostics('connected')
 
       const reader = response.body.getReader()
+      const cancelReader = () => {
+        void reader.cancel().catch(() => undefined)
+      }
+      signal.addEventListener('abort', cancelReader, { once: true })
+      if (signal.aborted) cancelReader()
       const decoder = new TextDecoder()
       let buffer = ''
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        // Frames are separated by a blank line; keep the trailing partial frame.
-        const boundary = buffer.lastIndexOf('\n\n')
-        if (boundary === -1) continue
-        const chunk = buffer.slice(0, boundary + 2)
-        buffer = buffer.slice(boundary + 2)
-        for (const frame of parseEventFrames(chunk)) handleFrame(frame)
-        flushRefresh()
+      try {
+        for (;;) {
+          const { done, value } = await reader.read()
+          if (done || signal.aborted || paused || stopped) break
+          buffer += decoder.decode(value, { stream: true })
+          // Frames are separated by a blank line; keep the trailing partial frame.
+          const boundary = buffer.lastIndexOf('\n\n')
+          if (boundary === -1) continue
+          const chunk = buffer.slice(0, boundary + 2)
+          buffer = buffer.slice(boundary + 2)
+          for (const frame of parseEventFrames(chunk)) handleFrame(frame)
+          flushRefresh()
+        }
+      } finally {
+        signal.removeEventListener('abort', cancelReader)
+        reader.releaseLock()
       }
     } catch {
       // Falls through to the reconnect schedule below.
@@ -484,7 +506,7 @@ export function createWorkspaceEventSubscription(
   }
 
   function scheduleReconnect(): void {
-    if (stopped) return
+    if (stopped || paused) return
     attempt += 1
     const delay = reconnectDelay(attempt, options.random ?? Math.random)
     // The server's retry hint is a floor: never reconnect faster than it asks.
@@ -492,7 +514,7 @@ export function createWorkspaceEventSubscription(
   }
 
   async function run(): Promise<void> {
-    if (stopped) return
+    if (stopped || paused) return
     // One stream at a time. `reconnect()` aborts the in-flight run, whose
     // `finally` would otherwise schedule a second reconnect on top of the new
     // one — two live subscriptions, both receiving events.
@@ -503,21 +525,45 @@ export function createWorkspaceEventSubscription(
     } finally {
       inFlight = false
     }
-    scheduleReconnect()
+    if (reconnectRequested) {
+      reconnectRequested = false
+      void run()
+    } else scheduleReconnect()
   }
+
+  function reconnectNow(): void {
+    if (stopped || paused) return
+    cancelRetry?.()
+    cancelRetry = undefined
+    if (inFlight) {
+      reconnectRequested = true
+      controller?.abort()
+    } else void run()
+  }
+
+  const removeVisibilityListener = visibility.subscribe(() => {
+    const nextPaused = !visibility.isVisible()
+    if (stopped || nextPaused === paused) return
+    paused = nextPaused
+    if (paused) {
+      cancelRetry?.()
+      cancelRetry = undefined
+      reconnectRequested = false
+      controller?.abort()
+    } else reconnectNow()
+  })
 
   void run()
 
   return {
     appliedSequence: () => appliedSequence,
     reconnect() {
-      if (stopped) return
-      cancelRetry?.()
-      controller?.abort()
-      void run()
+      reconnectNow()
     },
     stop() {
       stopped = true
+      removeVisibilityListener()
+      reconnectRequested = false
       cancelRetry?.()
       controller?.abort()
     },

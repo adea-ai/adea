@@ -2055,7 +2055,7 @@ is `buildDevNavSource` in `sidebar/dev-nav-model.ts`:
   session-derived rows excluded, at most 50 ids).
 - **Counts** for collapsed workspaces and the "Needs you" strip add the
   desktop `dev.summary.workspaces` counts (polled by the desktop lane every
-  30s while the document is visible and again when it becomes visible) to the
+  60s while the document is visible and again when it becomes visible) to the
   cloud account summary's mentions and unread channels.
 
 Runtime reads are bounded and fail closed: one scope-wide worktree list and
