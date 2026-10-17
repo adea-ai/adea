@@ -52,3 +52,13 @@ graph needs a new cold run, then a warm run that names its manifest.
 
 Commit-message lines assert the result: `vp-proof-expect: cold|warm` and `vp-proof-manifest: <sha256>` (the dist
 outputs after restore).
+
+## Receipts
+
+The first graph (`orch-v1.48.1`, before the `node_modules` listing was excluded) saved cold in run 39018357793 (0/15,
+1792 files, sha256 `2e29f5eb56cd06a505a701192b7163381573276444e100031ae2e2e2aabfa65d`). Its two warm runs, 39018543532 and
+39018606345, failed: 14/15 with the same manifest, the one miss being `apps/web build` ("'.vite-temp' removed from
+'node_modules'"). They are failures, not proof.
+
+The repaired graph (`orch-r2-v1.48.1`) saved cold in run 39019670060 (0/15, 1792 files, the same sha256, cache saved). A
+warm run passes only with 15/15 hits on a fresh runner and the same manifest; its result is recorded on the pull request.
