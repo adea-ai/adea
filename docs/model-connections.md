@@ -40,14 +40,62 @@ can supply model readiness.
 The server probes the actual installed public SDK's seven model operation
 descriptors, request/response schemas and corresponding client methods. It uses
 those exported schemas and methods exclusively. Older versions remain inactive;
-there is no fabricated API implementation or raw HTTP fallback. The pinned SDK
-1.11.0 does not expose these operations.
+there is no fabricated API implementation or raw HTTP fallback. SDK 1.18.1
+exports all seven operations.
 
-Host composition must independently supply a qualified execution target. Browser
-requests cannot supply or qualify one. Current production route wiring has no
-such target, so list/defaults explicitly return `availability: unavailable` and
-selection preparation fails closed. No live-provider qualification, credential
-configuration, access change or production activation is claimed.
+Host composition must independently supply a qualified execution target
+(`PI_DURABLE_LEAD_ENABLED` with `PI_DURABLE_LEAD_TARGET`). Browser requests
+cannot supply or qualify one. Without a target, list/defaults explicitly return
+`availability: unavailable` and selection preparation fails closed. No
+live-provider qualification, credential configuration, access change or
+production activation is claimed.
+
+## Refused lead checks keep their reason
+
+A Control Plane refusal of a lead turn (preparation, or the funding recheck at
+explicit start) can carry one value of the model readiness `reasonCode` set, such as
+`QUOTA_EXHAUSTED` or `CREDENTIAL_EXPIRED`. Only that exact vocabulary crosses
+the server boundary, and only from a refusal on a client-error status whose
+request ID matches; provider text, other codes and server errors stay the
+generic runtime failure. The lead turn then reports `MODEL_NOT_READY` with the
+bounded `readinessReason`, nothing is stored or dispatched, and the UI shows the
+matching remedy while saying nothing ran and no other model was substituted. A
+blocked payer read names its remedy the same way. An unnamed or unknown reason
+reads as "could not be verified". These are projections only: they authorize no
+inference, and a later check is always a fresh Control Plane decision.
+
+The Control Plane refusal (CP #1159) is HTTP 409 `PI_LEAD_MODEL_NOT_READY` (class
+`conflict`, not retryable) with `error.details.reasonCode` from the same
+vocabulary. READINESS_UNAVAILABLE is the same code as a retryable 503 (class
+`runtime_unavailable`). The SDK parses the reason into the closed
+`ControlPlaneClientError.reasonCode` and drops `details`; Adea consumes that field
+only, behind its own allowlist and a matching request ID. The installed 1.18.1 has
+no such field, so a 409 there is a known refusal with an unverifiable reason
+(READINESS_UNAVAILABLE) until a release carries it. A 503 counts only as the exact
+envelope (code, retryable, class, and no other reason); any other 503 stays the
+generic failure. A byo_api selection paid by an Adea account is never ready, here
+or in the client projection.
+
+## New direct sessions
+
+The stored `direct` default initializes a NEW launched desktop conversation only.
+Existing sessions keep their provider and model, and a model named when the
+session is created always wins. The conversation host reads the default before any
+session exists. A failed or unreadable read, a revoked or missing connection, or a
+model that is not ready blocks the start with its remedy; nothing substitutes
+another model. Only a successful read that names no direct model leaves the harness's
+own model. An `unavailable` defaults response (SDK unsupported, no configured
+execution target, or metadata that cannot qualify its target) never read the stored
+default, so it blocks with a recovery message; a deployment without model metadata
+therefore cannot start launched conversations until it is configured or the user
+sets a model for that session. The default's
+`providerModel` is sent as the launch `modelId`, and the desktop host refuses one
+it cannot run. The choice made before the host create is dispatched, including
+"no model", is kept for that idempotency key: a retry after a lost response
+replays it even if the stored default changed meanwhile, while a start that was
+blocked before any create is decided again on retry. Sessions created empty on a worktree choose no model at creation, so
+this default does not apply to them. Readiness is a projection from the listing;
+direct sessions are never gated by the Control Plane.
 
 ## Funding boundary
 

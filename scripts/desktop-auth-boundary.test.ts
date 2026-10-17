@@ -129,9 +129,9 @@ describe('desktop packaging and single-UI client boundary', () => {
     // it does not own a separate client dependency graph.
     expect(manifest.dependencies).toEqual({ '@adea-ai/dev-view': 'workspace:*' })
     expect(manifest.devDependencies).toBeUndefined()
-    // The client build is the web app's own build pipeline, filtered to build
-    // the workspace packages the web app consumes first.
-    expect(clientBuild).toContain("'turbo', 'run', 'build', '--filter=@adea-ai/web^...'")
+    // The client build is the web app's own build pipeline, preceded by the
+    // build of the workspace packages the web app consumes.
+    expect(clientBuild).toContain("'bun', ['run', 'build:web-deps']")
     expect(clientBuild).toContain("'desktop:build'")
     expect(clientBuild).toContain('ADEA_DESKTOP_CLOUD_ORIGIN')
     // The SPA output is what the shell's static server serves; no second client.

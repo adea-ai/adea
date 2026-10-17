@@ -66,6 +66,7 @@ export function applyLeadTurnCancelReceipt(
     intentId: next.intentId,
     agentId: previous.agentId,
     ...(next.dispatchId !== undefined ? { dispatchId: next.dispatchId } : {}),
+    ...(next.attemptId !== undefined ? { attemptId: next.attemptId } : {}),
     state: next.state as HandoffLeadTurn['state'],
     canCancel: false,
     ...(next.handoffTarget === undefined ? {} : { handoffTarget: { ...next.handoffTarget } }),
@@ -159,6 +160,7 @@ export async function resolveLeadHandoffSupply(
   let turn: {
     intentId: string
     dispatchId?: string
+    attemptId?: string
     state: string
     handoffTarget?: {
       runtimeSessionId: string
@@ -195,6 +197,7 @@ export async function resolveLeadHandoffSupply(
       intentId: turn.intentId,
       agentId: leadAgent.id,
       ...(turn.dispatchId !== undefined ? { dispatchId: turn.dispatchId } : {}),
+      ...(turn.attemptId !== undefined ? { attemptId: turn.attemptId } : {}),
       state: turn.state as HandoffLeadTurn['state'],
       canCancel: leadTurnCanCancel(turn.state),
       // Execution location, never authority: mapped through so the

@@ -6,7 +6,7 @@ import {
   resolveDatabaseConnectionString,
   shouldRegisterDatabaseShutdownHooks,
 } from './database-connection'
-import { registerRequestCleanup } from './request-scope'
+import { registerRequestCleanup, requestScopedValue } from './request-scope'
 
 let shutdownRegistered = false
 
@@ -21,14 +21,25 @@ function registerDatabaseShutdown() {
   }
 }
 
-export function applicationDatabase() {
-  // Short-lived client per call, closed after the response. Hyperdrive pools
-  // at the origin, so worker-side reuse buys nothing — and reused pooled
-  // sessions go stale across requests, which hangs requests until the
-  // runtime kills them. Per-request lifecycle mirrors a plain Worker, where
-  // the same driver, options, and Hyperdrive config answer in ~100ms.
+const requestDatabaseKey = Symbol('applicationDatabase')
+
+function openApplicationDatabase() {
   const connection = createDatabase(resolveDatabaseConnectionString())
   registerDatabaseShutdown()
   registerRequestCleanup(() => connection.close().catch(() => undefined))
   return connection.db
+}
+
+export function applicationDatabase() {
+  // One short-lived client per REQUEST, closed with the request scope. Hyperdrive
+  // pools at the origin, so worker-side reuse across requests buys nothing — and
+  // reused pooled sessions go stale across requests, which hangs requests until
+  // the runtime kills them. Reuse inside one request is the opposite: the
+  // principal lookup, the authorization check and the query each used to open
+  // their own client (a connection, an authentication handshake and an ORM
+  // schema build apiece), which is most of the CPU a free-plan Worker has per
+  // invocation. The client lives in the request scope, so no other request can
+  // ever reach it, and every read still hits the database fresh. Outside a
+  // scope (tests, scripts) each call opens its own client as before.
+  return requestScopedValue(requestDatabaseKey, openApplicationDatabase)
 }

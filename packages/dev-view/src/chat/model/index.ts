@@ -278,6 +278,12 @@ export function createChatConversationModel(
     fingerprint: string
     promise?: Promise<ChatConversation>
     result?: ChatConversation
+    /**
+     * The initial-model choice made before the host create was dispatched, including "no model".
+     * A retry under the same idempotency key replays it instead of deciding again, so the host
+     * never sees two different launch bodies for one key.
+     */
+    initial?: Readonly<{ modelId?: string }>
     createdAt: number
     expirationTimer?: ReturnType<typeof setTimeout>
   }
@@ -393,6 +399,8 @@ export function createChatConversationModel(
     const request: CreateRequest = {
       fingerprint,
       createdAt: now().getTime(),
+      // A retry after transport loss builds a fresh request but keeps the original choice.
+      ...(existing?.initial ? { initial: existing.initial } : {}),
     }
     const promise = (async () => {
       await loadHierarchy()
@@ -402,6 +410,28 @@ export function createChatConversationModel(
           retryable: true,
           message: 'The canonical project registry has not resolved this conversation project.',
         })
+      // Resolved before the session exists: a blocked default must not leave an unlaunched session.
+      // Only a choice made before the host create is dispatched is kept, so a refused or
+      // unreadable default can still be retried after its recovery path.
+      if (request.initial === undefined) {
+        const launches = input.agentProfileId !== undefined || input.initialPrompt !== undefined
+        let modelId: string | undefined
+        if (launches && input.modelId === undefined && options.initialModel) {
+          const decision = await options.initialModel()
+          if (decision.kind === 'blocked')
+            throw new ChatRuntimeError({
+              code: 'capability_unavailable',
+              retryable: true,
+              message: decision.message,
+            })
+          if (decision.kind === 'model') modelId = decision.modelId
+        }
+        request.initial = modelId === undefined ? {} : { modelId }
+      }
+      const launchInput =
+        request.initial.modelId === undefined
+          ? input
+          : { ...input, modelId: request.initial.modelId }
       const createCommand = buildDevCommand({
         operation: 'dev.session.create',
         scope,
@@ -443,7 +473,7 @@ export function createChatConversationModel(
         const launchCommand = buildDevCommand({
           operation: launchOperation,
           scope,
-          body: launchBody(created, input),
+          body: launchBody(created, launchInput),
           resource: sessionResource(created),
           idempotencyKey,
         })

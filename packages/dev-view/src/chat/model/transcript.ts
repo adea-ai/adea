@@ -1,4 +1,4 @@
-import { decodeCbor, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
+import { decodeCbor, decodeRuntimeEnvelope } from '@adea-ai/types/dev-runtime-wire'
 import type { DevStreamFrame, RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
 import type { ChatRetentionTruth } from './types'
@@ -26,6 +26,8 @@ export type TranscriptAccumulator = Readonly<{
   runtimeSessionId: string
   generation: number
   fromSequence: string
+  /** Lowest sequence the host says is still retained for this generation. */
+  retainedFloorSequence?: string
   expectedSequence?: string
   events: readonly RuntimeEvent[]
   availability: TranscriptAvailability
@@ -220,7 +222,7 @@ export function acceptRuntimeStreamFrame(
   if (frame.type === 'data') {
     try {
       const decoded = decodeCbor(frame.bytes)
-      const event = decodeRuntimeEvent(decoded.value, { source })
+      const event = decodeRuntimeEnvelope(decoded.value, { source })
       if (event.seq !== frame.sequence) return gapped(state, frame.sequence)
       return acceptRuntimeEvent(state, event)
     } catch {
@@ -230,6 +232,9 @@ export function acceptRuntimeStreamFrame(
   if (frame.type === 'resync') {
     return {
       ...state,
+      ...(frame.reason === 'checkpoint_required'
+        ? { retainedFloorSequence: frame.checkpointSequence }
+        : {}),
       expectedSequence: frame.checkpointSequence,
       availability: {
         status: 'bounded',

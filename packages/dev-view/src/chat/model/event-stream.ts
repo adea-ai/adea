@@ -1,4 +1,4 @@
-import { decodeCbor, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
+import { decodeCbor, decodeRuntimeEnvelope } from '@adea-ai/types/dev-runtime-wire'
 import type { DevStreamFrame, RuntimeEvent, Scope } from '@adea-ai/types/dev-runtime'
 
 import { buildDevCommand } from '../../browser/command'
@@ -116,7 +116,7 @@ export async function openRuntimeEventStream(
       if (frame.type === 'data') {
         try {
           const decoded = decodeCbor(frame.bytes)
-          const candidate = decodeRuntimeEvent(decoded.value, { source })
+          const candidate = decodeRuntimeEnvelope(decoded.value, { source })
           if (
             candidate.seq === frame.sequence &&
             candidate.runtimeSessionId === runtimeSessionId &&

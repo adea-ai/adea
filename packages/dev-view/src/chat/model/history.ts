@@ -88,6 +88,15 @@ export function prependRuntimeHistory(
     oldestSequence === '1'
   return {
     ...state,
+    ...(page.retainedFromSequence === null || page.retainedFromSequence === undefined
+      ? {}
+      : {
+          retainedFloorSequence:
+            state.retainedFloorSequence === undefined ||
+            BigInt(page.retainedFromSequence) > BigInt(state.retainedFloorSequence)
+              ? page.retainedFromSequence
+              : state.retainedFloorSequence,
+        }),
     events,
     availability: complete
       ? { status: 'available' }
@@ -118,14 +127,19 @@ export function createRuntimeHistoryLoader(input: {
   let pending: Promise<void> | undefined
   let cursor: string | null | undefined
   let cursorAnchor: string | undefined
-  const hasOlder = () =>
-    !lifetime.signal.aborted &&
-    cursor !== null &&
-    !['conflict', 'resync_required', 'stale_generation'].includes(
-      input.state().availability.status
-    ) &&
-    input.state().events.length < CHAT_EVENT_RETENTION_LIMIT &&
-    BigInt(input.state().events[0]?.seq ?? '0') > 1n
+  const hasOlder = () => {
+    const state = input.state()
+    const oldest = state.events[0]?.seq
+    const floor = state.retainedFloorSequence
+    return (
+      !lifetime.signal.aborted &&
+      cursor !== null &&
+      !['conflict', 'resync_required', 'stale_generation'].includes(state.availability.status) &&
+      state.events.length < CHAT_EVENT_RETENTION_LIMIT &&
+      BigInt(oldest ?? '0') > 1n &&
+      (floor === undefined || BigInt(oldest ?? '0') > BigInt(floor))
+    )
+  }
   function loadOlder(options: { signal?: AbortSignal } = {}): Promise<void> {
     if (options.signal?.aborted)
       return Promise.reject(new DOMException('Transcript history load cancelled.', 'AbortError'))

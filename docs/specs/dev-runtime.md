@@ -403,6 +403,8 @@ type RuntimeEventKind =
   | 'turn.user_input'
   | 'turn.assistant_delta'
   | 'turn.assistant_message'
+  | 'turn.reasoning_summary'
+  | 'turn.method_step_summary'
   | 'turn.result'
   | 'tool.requested'
   | 'tool.started'
@@ -1370,6 +1372,11 @@ tiny individual requests. Feature components and heavy dependencies retain
 their automatic lazy boundaries. The unchanged Dev byte limit applies to the
 entry and immediately mounted central renderer together; splitting that
 implementation into multiple chunks does not expand its allowance.
+The selected-terminal resolver uses a dynamic import for the canonical reply
+decoder; in the verified web bundle, the initial Dev View entry and layout
+renderer exclude that decoder's runtime-schema dependency. The lazy
+runtime-terminal-pane chunk still imports the same module statically for stream
+decoding.
 Utility slots are independent:
 left and right may each show one pane or be collapsed, and a change on one side
 cannot hide the other side. Utility order, side, visibility, size, collapse,
@@ -2048,7 +2055,7 @@ is `buildDevNavSource` in `sidebar/dev-nav-model.ts`:
   session-derived rows excluded, at most 50 ids).
 - **Counts** for collapsed workspaces and the "Needs you" strip add the
   desktop `dev.summary.workspaces` counts (polled by the desktop lane every
-  30s while the document is visible and again when it becomes visible) to the
+  60s while the document is visible and again when it becomes visible) to the
   cloud account summary's mentions and unread channels.
 
 Runtime reads are bounded and fail closed: one scope-wide worktree list and
@@ -2735,7 +2742,8 @@ Required kinds:
 
 - session/run `created`, `starting`, `ready`, `disconnected`, `resumed`,
   `completed`, `failed`, `cancelled`;
-- turn `user_input`, `assistant_delta`, `assistant_message`, `result`;
+- turn `user_input`, `assistant_delta`, `assistant_message`, `result`,
+  `reasoning_summary`, `method_step_summary`;
 - tool `requested`, `started`, `progress`, `completed`, `failed`;
 - approval/question `requested`, `resolved`, `expired`;
 - file/checkpoint/subagent/usage `observed`;
@@ -2774,6 +2782,301 @@ Event constraints:
   older terminal bodies are references to separately bounded terminal storage;
 - gaps return `resync_required` with checkpoint anchor; clients never advance
   past an unexplained gap.
+
+### Versioned tool and subagent call observations (#1387)
+
+`packages/types/src/dev-runtime-call.ts` owns the Adea-specific call contract;
+the mapped donor lifecycle/write-gate units do not supply this versioned,
+bounded Adea wire schema. No donor code is copied for this contract.
+`decodeRuntimeCallEvent` on the existing wire and aggregate entry points
+validates the envelope, transport provenance, and the following payload:
+
+```ts
+type RuntimeCallPayload = {
+  schemaVersion: 1
+  callId: string
+  parentCallId?: string | null
+  phase: 'requested' | 'started' | 'progress' | 'completed' | 'failed' | 'cancelled'
+  permissionEligibility: 'unknown' | 'requires_approval' | 'not_required'
+  name?: string
+  input?: RuntimeCallData
+  output?: RuntimeCallData
+  durationMs?: number
+}
+type RuntimeCallData =
+  | { type: 'inline'; value: Json }
+  | { type: 'reference'; referenceId: string; byteLength?: number; sha256?: string }
+```
+
+- Call identity includes the event's `runtimeSessionId`, `generation`,
+  `harnessRunId`, `source`, and the payload's `callId`;
+  `harnessRunId` is required for validated calls. Calls from separate
+  runs, sources or generations MUST NOT pair. IDs are opaque 1–256 character
+  tokens starting with an ASCII alphanumeric, followed by ASCII alphanumerics,
+  `.`, `_`, `:` or `-`; they are neither paths nor URLs.
+- Each `tool.*` phase MUST equal its own kind suffix. `subagent.observed`
+  carries an explicit phase from the above set. No missing observation implies
+  a spinner, a completion, or a phase transition. This is an observation
+  contract, not a lifecycle state machine. Validated calls require a native,
+  ACP or owned-hook source; host lifecycle and terminal fallback cannot supply
+  call facts, even with unknown permission eligibility.
+- An absent parent means no relationship is established. `null` is an
+  explicitly observed root. A call cannot parent itself; the host refuses a
+  changed known parent, a tool/subagent identity collision, or a cycle proved
+  by its retained same-namespace observations. It does not claim to validate
+  evicted or unobserved history and does not require a parent/start row to be
+  retained before accepting a child/completion.
+- Missing input, output and duration remain absent. Inline JSON is bounded
+  independently for each input/output: 32 KiB of encoded UTF-8 JSON, depth 16,
+  2,048 nodes, 256 array/object entries per container, 16,384 UTF-16 code units
+  per string and 256 per nonempty key. Nonfinite numbers, non-JSON values and
+  sparse arrays are refused. The enclosing 256 KiB event limit still applies.
+  Independently valid input/output fields MUST also fit together with all
+  event IDs, timestamps, provenance and metadata in one canonical-CBOR event
+  of at most 65,536 bytes, the unchanged runtime-events data-frame grant.
+  `assertRuntimeEventFrameSize` enforces this aggregate envelope bound before
+  persistence or publication, including UTF-8 expansion. It measures the
+  canonical encoding with `cborByteLength`, a size-only calculator tested
+  byte-for-byte against `encodeCbor`, so decoders do not carry the full encoder. A producer must use
+  bounded references or less inline data when the whole event does not fit;
+  individual field budgets never justify increasing the transport cap.
+  The [aggregate budget evidence](../evidence/runtime-call-frame-budget-refs1387.md)
+  pins the combined-field, exact-limit, UTF-8 and real-channel cases.
+- References contain an opaque ID, optional nonnegative safe-integer byte
+  length and optional lowercase SHA-256 digest. They grant no file/network
+  access or proof that bytes exist; a future resolver must independently
+  authorize, classify and bound retrieval. Names are 1–256 code units and
+  duration is observed nonnegative safe-integer milliseconds, never a
+  difference between arrival timestamps.
+- Call observations require an explicit event classification; they never
+  inherit the generic event log's `workspace_metadata` default. Credential-
+  classified calls are refused before persistence or publication, and any
+  inline input/output requires `restricted_local` classification. References
+  carry only opaque metadata here; the referenced content remains subject to
+  independent authorization and classification by a future resolver.
+- Eligibility MUST be explicit, with `unknown` when the producer lacks the
+  fact. Known values require authoritative native/ACP/owned-hook provenance
+  and, at host-log admission, an affirmative out-of-band
+  `verifyCallPermissionEligibility` result from the owning adapter. Source
+  names, advertised capabilities, payload labels and booleans do not supply
+  this evidence. No production adapter currently supplies that verifier.
+  `not_required` is a permission observation; it is not an approval grant or
+  proof that all content is noninteractive or safe to fold.
+- New host-log call appends MUST pass this contract before persistence,
+  sequence consumption, eviction or subscriber notification. The admitted
+  snapshot is detached and deeply frozen before verifier/subscriber code sees
+  it. The generic envelope decoder retains legacy payloads without a `schemaVersion` as
+  bounded opaque data; the strict call decoder refuses them. A versioned call
+  claim is fully checked even through the generic decoder. Unknown versions
+  fail closed and cannot acquire validated call semantics. An exact retry of a
+  retained legacy opaque call remains deduplicated without promoting it; new
+  call records must use the versioned contract.
+- A repeated call `sourceEventId` with a changed run, confidence,
+  classification, explicitly supplied observation time, kind or payload is
+  `idempotency_conflict`, never an ignored duplicate. Host-assigned event ID,
+  receive time and sequence are not producer facts and are excluded from this
+  comparison.
+- Retry candidates validate the complete schema, Unicode and provenance before
+  identity/content comparison, without assigning a new persisted envelope
+  budget to an existing event. Exact duplicate source tuples reuse the retained
+  event for eligibility/continuity validation; its permission verifier still
+  applies. A duplicate at sequence 9 therefore remains idempotent when the next
+  host sequence would be 10. Every genuinely new record then passes the full
+  envelope budget before callbacks, persistence or publication. Source tuples
+  compare their fields directly, never an ambiguous delimiter-joined key.
+- Structured call strings, keys and envelope values require well-formed
+  Unicode; lone surrogates are rejected without replacement. The CBOR encoder
+  applies the same rule, while valid scalar text remains byte-for-byte intact.
+
+Decoder entry points. `decodeRuntimeEvent` is the complete decoder used by host
+admission, persistence and replay: envelope, generic payload bounds and every
+kind-specific contract (calls, visible summaries, cited responses, and any later
+interaction or attachment contract). `decodeRuntimeEnvelope` is the lean decoder
+for browser stream and transcript consumers: it enforces the authenticated
+envelope, the generic payload bounds and the full-frame bound for versioned call
+claims, but does not interpret a kind's payload. A consumer that renders or acts
+on a payload MUST narrow it with the explicit contract (for example
+`decodeRuntimeCallEvent`) rather than trust the envelope decode. Kind-specific
+validators are reachable only through `eventSemantics` in
+`packages/types/src/dev-runtime-wire.ts`; new contracts register there so the
+shared utility bundle never carries them. `dev-runtime-envelope.test.ts` bundles
+the lean entry and fails if a validator or a size regression reaches it.
+
+This change adds no native/ACP subscription or tool/subagent emitter. Existing
+production lifecycle receipts do not become call facts. UI rendering, folding,
+nesting and approval-response authority remain separate integration work;
+neither UI #416 nor consumer PR #1385 is modified by this contract.
+
+### Response sources and inline citation references (#1389)
+
+`turn.assistant_message` MAY carry a self-contained cited response. Its
+payload is exactly `{ text: string, references: RuntimeResponseReferences }`:
+
+```ts
+type RuntimeResponseReferences = {
+  schemaVersion: 1
+  sources: { id: string; title: string; url: string; snippet?: string }[]
+  citations: { sourceId: string; start: number; end: number }[]
+}
+```
+
+The response identity is its canonical `(runtimeSessionId, generation,
+eventId)`, retaining `harnessRunId`, source and source-event identity. Sources
+and citations MUST travel atomically with that response's exact `text` in
+both live delivery and replay. A source ID is case-sensitive, unique within
+that response, 1–128 ASCII characters matching
+`[a-zA-Z0-9][a-zA-Z0-9_.:-]*`. It is never an array index or a lookup in a
+different message, run, generation, session or workspace. Each citation MUST
+resolve against that same response's source list. Its nonempty half-open
+`[start, end)` span uses UTF-16 code units in `text`, before Markdown parsing,
+redaction or any display transformation; offsets MUST be safe integers,
+within the text, and MUST NOT split a surrogate pair. Cited text, titles,
+snippets and URLs MUST contain well-formed UTF-16; unpaired surrogates that
+UTF-8 replay would replace are refused. Consumers that transform
+text MUST remap spans or omit citation presentation, never attach stale offsets.
+Repeated identical `(sourceId, start, end)` tuples are refused. Citation order
+is preserved; overlaps and multiple sources for one claim are allowed.
+
+Bounds are enforced before append, live publication and wire acceptance,
+and again on durable replay: at most 32 sources and 128 citations; nonblank
+titles of at most 512 UTF-16 units; optional snippets of at most 2,048 units;
+URLs of at most 2,048 units; text of at most 65,536 units; and at most 48 KiB
+for the entire cited payload encoded as UTF-8 JSON. The last limit leaves room
+for event metadata in the existing 64 KiB canonical-CBOR stream frame.
+Unknown keys in this cited payload, its reference object, sources or citations,
+unsupported reference versions, duplicate IDs, dangling citations and malformed
+or over-bound input are refused as a whole. No truncation or index repair occurs.
+Invalid append does not consume a sequence, evict a record or notify a live
+subscriber. Invalid retained reference data fails replay without rewriting it.
+
+The producer boundary owns link safety. Source URLs MUST be absolute HTTP(S)
+URLs with a multi-label DNS hostname and a default port; credentials (including
+empty userinfo), relative URLs, whitespace, controls, bidi formatting controls,
+backslashes, percent-encoded ASCII controls/backslashes or host delimiters,
+IP literals, single-label hosts, trailing-dot hosts, and local/internal suffixes
+(`localhost`, `local`, `internal`, `lan`, `home`, `onion`) are refused. Valid
+URLs and text are preserved verbatim; title and snippet are untrusted plain
+text, never markup. This contract authorizes only a source-link representation.
+It performs no DNS resolution, retrieval, prefetch or credential forwarding;
+DNS names can resolve privately, so any future fetching requires the separate
+SSRF/redirect/DNS-rebinding authority from the threat model.
+
+Native, ACP, authenticated-hook and host producers may supply this metadata
+under their existing authenticated provenance. Terminal fallback MUST NOT
+synthesize it. The contract validates structure and locality, not whether a
+claim is true. Producers that cannot supply validated references MUST omit
+`references`; consumers MUST NOT infer sources from Markdown links, tool text,
+an earlier response or a completed run. An absent reference object remains
+unknown/no-source; explicitly empty lists are allowed and invent nothing.
+Legacy assistant payloads without `references`, unrelated opaque payloads and
+unknown event retention keep their existing behavior. This producer contract
+does not enable Sources/Inline Citation rendering or parse a harness's prose.
+
+Implementation is isolated in
+`packages/types/src/dev-runtime-response-references.ts`, re-exported through
+`@adea-ai/types/dev-runtime`. Contract and URL tests live in
+`packages/types/tests/dev-runtime-response-references.test.ts`; real durable
+append/restart/retention and canonical-CBOR replay tests live in
+`apps/desktop/tests/runtime-response-references-replay.test.ts`.
+
+### Explicit user-visible summaries (#1388)
+
+`turn.reasoning_summary` and `turn.method_step_summary` are separate, opt-in
+contracts for summaries a structured source explicitly reports as user-visible.
+They MUST NOT expose hidden chain of thought, raw analysis, reasoning tokens,
+tool transcripts relabelled as reasoning, or prose/status/duration inferred by
+the host. Ordinary assistant text and run/tool completion never create either
+event. Missing summaries remain unavailable; no placeholder summary is invented.
+
+Both payloads have exactly these common fields:
+
+```ts
+type SummarySnapshot = {
+  schemaVersion: 1
+  provenance: 'source_reported'
+  visibility: 'user_visible'
+  format: 'snapshot'
+  revision: number
+  text: string
+  durationMs?: number
+}
+type ReasoningSummary = SummarySnapshot & {
+  summaryId: string
+  status: 'streaming' | 'completed' | 'failed' | 'cancelled' | 'unknown'
+}
+type MethodStepSummary = SummarySnapshot & {
+  methodId: string
+  stepId: string
+  position: number
+  title: string
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'unknown'
+}
+```
+
+The canonical event MUST name a `harnessRunId`, have authenticated `native`,
+`acp` or `authenticated_hook` provenance, authoritative confidence about the
+source observation, and an explicit `public`, `workspace_private` or
+`restricted_local` content classification. `host`, terminal fallback,
+untrusted hints, credential and metadata classifications cannot supply these
+content facts. Source visibility does not establish that the summarized claims
+are true, and it grants no additional disclosure or transport permission.
+
+Payload labels are not admission proof. Before any durable append, sequence consumption,
+retention eviction or live delivery, the host requires a configured
+`verifyVisibleSummary` callback to confirm an independently authenticated
+source observation. It binds the exact scope, session, run, generation,
+source, source-event identity, confidence, classification, kind and payload.
+The verifier receives a defensive copy and MUST verify the source's actual
+explicit user-visible-summary signal; it MUST NOT approve by checking the
+payload's own `visibility`/`provenance`, by classifying raw private reasoning,
+or by interpreting free text. Missing verification, false or nonboolean
+verification fails closed. No current adapter is enabled merely by adding
+these event kinds; actual source protocol support must supply this verifier.
+Replays validate already admitted durable facts and do not re-run a live
+source verifier or redisclose source-private content.
+
+Streaming consists of bounded full snapshots, not append-only reasoning-token
+deltas. Every snapshot is independently readable after a retained-window gap.
+`revision` is an integer 0–2,147,483,647 and MUST increase within the retained
+identity `(scope, session, generation, harnessRunId, source, kind, summaryId)`
+or `(scope, session, generation, harnessRunId, source, kind, methodId, stepId)`.
+It orders genuine source snapshots; it does not authorize generating text.
+Skipped revisions are allowed. Exact source-event duplicates remain ignored;
+conflicting duplicates remain refused. Terminal statuses (`completed`, `failed`,
+`cancelled`) cannot be revised while retained, and a method step's `position`
+cannot change. Run completion cannot complete an individual summary or step.
+
+`durationMs`, when supplied, is a source-reported measurement: elapsed duration
+for an active snapshot and total duration for a terminal snapshot. It is a
+safe integer 0–86,400,000 and cannot decrease across retained snapshots with
+known timing. `pending` and `unknown` statuses MUST omit it. Missing timing is
+unknown, never zero, a reused previous value, or a subtraction of host receive
+timestamps. Status is always supplied by the source, including explicit
+`unknown`. Different runs, generations, sources and method steps do not share
+status or timing. The source verifier owns source continuity beyond the
+bounded retained history; this event log does not introduce an unbounded
+stream ledger.
+
+IDs are 1–128 ASCII characters matching `[a-zA-Z0-9][a-zA-Z0-9_.:-]*`;
+method positions are integers 0–127. Summary text is at most 4,096 UTF-16 code
+units; step titles are nonblank and at most 512 units. Text/titles MUST be
+well-formed UTF-16 so UTF-8/CBOR replay preserves exact content. Each entire
+payload is at most 16 KiB of UTF-8 JSON, below the existing 64 KiB stream frame
+limit. Unknown fields, hidden/inferred provenance, unsupported versions,
+delta formats, malformed bounds and invalid source metadata are rejected.
+Raw chain-of-thought fields have no accepted shape. Retained summaries are
+revalidated, including revision/status/timing/position consistency; invalid
+retained bytes are refused without rewriting the evidence. Unrelated opaque
+payloads, unknown event retention and existing no-summary behavior remain
+unchanged.
+
+The isolated contract is `packages/types/src/dev-runtime-visible-summaries.ts`,
+re-exported through `@adea-ai/types/dev-runtime`; producer admission and bounded
+history checks are in the host's `harness/visible-summaries.ts`. Contract and
+durable replay tests are `packages/types/tests/dev-runtime-visible-summaries.test.ts`
+and `apps/desktop/tests/runtime-visible-summaries-replay.test.ts`. This contract
+does not enable shared Reasoning/Chain of Thought presentation or change Chat
+consumer composition.
 
 ## Terminal protocol
 
@@ -4848,7 +5151,9 @@ and `hasOlder()`. Loading is single-flight, cancellation/disposal fenced, and
 merges against the latest live state before resolving. It validates page identity,
 order, continuity and duplicate equality; older insertion does not advance live
 acknowledgements or the forward replay cursor. The 1,000-event client bound still
-holds. A resync replay of an identical backfilled event consumes its expected
+holds. The client preserves the host's retained floor from checkpoint frames and
+history-page metadata, so `hasOlder()` stops at that floor even when sequence
+numbers begin above one. A resync replay of an identical backfilled event consumes its expected
 forward sequence without duplicating the row, so the next live event cannot
 become a false gap. `ChatConversationModel.openTranscript` publishes accepted backfill into
 its existing canonical event projection; optional methods preserve compatibility
@@ -8031,3 +8336,15 @@ controls. Adea retains only the utility width steps and saved preferences.
 Host CSS restyles the presented grip on Dev surfaces into a tall, skinny,
 translucent rung (icon dropped, hover wash softened) without touching the hit
 target, drag semantics, or keyboard controls.
+
+### Transcript history and retained call contracts
+
+Transcript history preserves current host admission for versioned tool/subagent calls
+and source-verified visible summaries, including their permitted restricted-local
+classification. Their complete validated canonical records remain available to
+the owning host validators; the history reader still omits restricted/credential
+payloads before disclosure. The history decoder validates an empty withheld
+private payload as a strict envelope, without promoting it to a typed call or
+summary fact; nonempty private history payloads remain refused. Other legacy restricted/credential appends retain
+the existing history slice's empty-payload projection. No history read upgrades
+legacy rows or bypasses call/summary provenance checks.

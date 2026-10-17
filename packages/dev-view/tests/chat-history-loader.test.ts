@@ -45,8 +45,39 @@ const page = (): RuntimeEventHistoryPage => ({
   nextCursor: 'opaque',
 })
 describe('older transcript loading', () => {
+  test('does not page before a disclosed stream retention floor', async () => {
+    let state = createTranscriptAccumulator({
+      runtimeSessionId: 'session-a',
+      generation: 1,
+      fromSequence: '0',
+    })
+    state = acceptRuntimeStreamFrame(
+      state,
+      { type: 'resync', reason: 'checkpoint_required', checkpointSequence: '4' },
+      'host'
+    )
+    state = acceptRuntimeEvent(state, event(4))
+    let reads = 0
+    const reader = createRuntimeHistoryLoader({
+      state: () => state,
+      commit: (next) => {
+        state = next
+      },
+      read: async () => {
+        reads++
+        return page()
+      },
+    })
+
+    expect(reader.hasOlder()).toBe(false)
+    await reader.loadOlder()
+    expect(reads).toBe(0)
+    reader.close()
+  })
+
   test('resync replay advances over backfilled duplicates without duplicating rows or stalling live data', () => {
     const loaded = prependRuntimeHistory(initial(), page())
+    expect(loaded.retainedFloorSequence).toBe('1')
     let replay = acceptRuntimeStreamFrame(
       loaded,
       { type: 'resync', reason: 'checkpoint_required', checkpointSequence: '3' },
@@ -117,6 +148,7 @@ describe('older transcript loading', () => {
   test('prepends in order without changing live replay cursor, dedupes retry and preserves concurrent appends', () => {
     const live = acceptRuntimeEvent(initial(), event(5))
     const loaded = prependRuntimeHistory(live, page())
+    expect(loaded.retainedFloorSequence).toBe('1')
     expect(loaded.events.map((e) => e.seq)).toEqual(['2', '3', '4', '5'])
     expect(loaded.expectedSequence).toBe('6')
     expect(prependRuntimeHistory(loaded, page())).toEqual(loaded)

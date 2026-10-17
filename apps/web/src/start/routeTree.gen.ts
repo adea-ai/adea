@@ -93,6 +93,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdChannelsChannelIdTurnsRouteImport } 
 import { Route as ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRouteImport } from './routes/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
 import { Route as ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRouteImport } from './routes/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
 import { Route as ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRouteImport } from './routes/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel'
+import { Route as ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdChildrenRouteImport } from './routes/api/v1/workspaces/$workspaceId/lead-turns/$intentId/children'
 import { Route as ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRouteImport } from './routes/api/v1/workspaces/$workspaceId/lead-turns/$intentId/prepare'
 import { Route as ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRouteImport } from './routes/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
 import { Route as ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRouteImport } from './routes/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
@@ -609,6 +610,12 @@ const ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRoute =
     path: '/cancel',
     getParentRoute: () => ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdRoute,
   } as any)
+const ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdChildrenRoute =
+  ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdChildrenRouteImport.update({
+    id: '/children',
+    path: '/children',
+    getParentRoute: () => ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdRoute,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRoute =
   ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRouteImport.update({
     id: '/prepare',
@@ -913,6 +920,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
   '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke': typeof ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRoute
+  '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/children': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdChildrenRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/prepare': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
@@ -1032,6 +1040,7 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
   '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke': typeof ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRoute
+  '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/children': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdChildrenRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/prepare': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
@@ -1152,6 +1161,7 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas': typeof ApiV1WorkspacesWorkspaceIdContentRefsContentIdReplicasRoute
   '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke': typeof ApiV1WorkspacesWorkspaceIdInvitationsInvitationIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRoute
+  '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/children': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdChildrenRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/prepare': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRoute
   '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress': typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute
   '/api/v1/workspaces/$workspaceId/projects/$projectId/delete': typeof ApiV1WorkspacesWorkspaceIdProjectsProjectIdDeleteRoute
@@ -1273,6 +1283,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
     | '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel'
+    | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/children'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/prepare'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
@@ -1392,6 +1403,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
     | '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel'
+    | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/children'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/prepare'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
@@ -1511,6 +1523,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/content-refs/$contentId/replicas'
     | '/api/v1/workspaces/$workspaceId/invitations/$invitationId/revoke'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel'
+    | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/children'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/prepare'
     | '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/progress'
     | '/api/v1/workspaces/$workspaceId/projects/$projectId/delete'
@@ -2190,6 +2203,13 @@ declare module '@tanstack/solid-router' {
       path: '/cancel'
       fullPath: '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/cancel'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRouteImport
+      parentRoute: typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdRoute
+    }
+    '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/children': {
+      id: '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/children'
+      path: '/children'
+      fullPath: '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/children'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdChildrenRouteImport
       parentRoute: typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdRoute
     }
     '/api/v1/workspaces/$workspaceId/lead-turns/$intentId/prepare': {
@@ -2885,6 +2905,7 @@ const ApiV1WorkspacesWorkspaceIdTasksRouteWithChildren =
 
 interface ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdRouteChildren {
   ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRoute: typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRoute
+  ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdChildrenRoute: typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdChildrenRoute
   ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRoute: typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRoute
   ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute: typeof ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute
 }
@@ -2893,6 +2914,8 @@ const ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdRouteChildren: ApiV1WorkspacesW
   {
     ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRoute:
       ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdCancelRoute,
+    ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdChildrenRoute:
+      ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdChildrenRoute,
     ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRoute:
       ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdPrepareRoute,
     ApiV1WorkspacesWorkspaceIdLeadTurnsIntentIdProgressRoute:

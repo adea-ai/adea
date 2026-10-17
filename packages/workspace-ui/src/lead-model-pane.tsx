@@ -209,7 +209,14 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
       </Show>
       <For each={roles}>
         {({ role, label }) => (
-          <SettingsRow label={label} description={defaultLabel(role)}>
+          <SettingsRow
+            label={label}
+            description={
+              role === 'direct'
+                ? `${defaultLabel(role)} · Initial model for new direct conversations only. Existing sessions keep their model, and a model chosen for one session overrides this.`
+                : defaultLabel(role)
+            }
+          >
             <Badge variant="outline">
               {configured()?.defaults?.[role] ? 'Selected' : 'Not configured'}
             </Badge>

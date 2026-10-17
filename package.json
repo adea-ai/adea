@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.92.0",
+  "version": "0.95.0",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -8,15 +8,16 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "turbo run build",
+    "build": "vp run orch:build",
+    "build:web-deps": "vp run orch:deps-of-web:build",
     "build:cloudflare": "bun scripts/build-cloudflare.mjs",
-    "dev": "turbo run dev --filter=@adea-ai/web --env-mode=loose",
+    "dev": "bun run --cwd apps/web dev",
     "fmt": "oxfmt .",
     "format:check": "oxfmt --check .",
     "format:write": "oxfmt --write .",
-    "lint": "turbo run lint && oxlint --deny-warnings",
+    "lint": "vp run orch:lint && oxlint --deny-warnings",
     "test": "bun run test:unit",
-    "test:unit": "turbo run test && bun run test:coverage",
+    "test:unit": "vp run orch:test && bun run test:coverage",
     "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit packages/types/tests/execution-location.test.ts packages/types/tests/migration-snapshot.test.ts scripts/*.test.ts --coverage",
     "test:bundle:dev-view": "bun run --cwd apps/web build && node scripts/check-dev-view-bundle.mjs",
     "test:integration": "bun scripts/test-integration.mjs",
@@ -24,8 +25,9 @@
     "test:integration:control-plane-child-sdk": "bun --conditions=react-server test apps/web/test/control-plane-child-joined/installed-sdk-child.test.mjs",
     "test:integration:control-plane-child-allowance": "PI_FACTORY_SOURCE_PIN=source-allowance-candidate.json PI_FACTORY_INSTALL=registry PI_FACTORY_EXPECT_SDK=accepts bun --conditions=react-server test apps/web/test/control-plane-child-joined/child-allowance-boundary.test.mjs",
     "test:integration:control-plane-child-allowance-predating": "PI_FACTORY_SOURCE_PIN=source-allowance-candidate.json PI_FACTORY_INSTALL=registry-predating-candidate PI_FACTORY_EXPECT_SDK=rejects bun --conditions=react-server test apps/web/test/control-plane-child-joined/child-allowance-boundary.test.mjs",
+    "test:integration:control-plane-journey": "PI_FACTORY_SOURCE_PIN=source-journey.json bun --conditions=react-server test apps/web/test/control-plane-child-joined/journey.test.mjs apps/web/test/control-plane-child-joined/journey-recovery.test.mjs apps/web/test/control-plane-child-joined/journey-authority.test.mjs apps/web/test/control-plane-child-joined/journey-identity.test.mjs",
     "test:integration:control-plane-joined": "bun scripts/test-integration.mjs --control-plane-joined",
-    "typecheck": "turbo run typecheck",
+    "typecheck": "vp run orch:typecheck",
     "db:health": "node scripts/database-health.mjs",
     "evidence:manifest": "node scripts/evidence-manifest.mjs",
     "relay:purge": "bun run --cwd packages/types build && bun scripts/purge-relay-ciphertext.ts",
@@ -50,20 +52,23 @@
     "test:browser:desktop-client": "bunx playwright install --with-deps chromium && bun apps/desktop/scripts/client.mjs && node scripts/check-desktop-client-browser.mjs"
   },
   "devDependencies": {
-    "@adea-ai/ui": "0.131.0",
+    "@adea-ai/ui": "0.140.0",
+    "@babel/core": "^8.0.6",
+    "@babel/preset-typescript": "^8.0.1",
     "@playwright/test": "^1.63.0",
     "@shadcn/lint": "^0.2.0",
     "@tailwindcss/postcss": "^4.3.3",
     "axe-core": "^4.13.0",
-    "bun-types": "^1.4.2",
-    "code-foundry": "1.44.3",
+    "babel-preset-solid": "^1.9.15",
+    "bun-types": "^1.4.3",
+    "code-foundry": "1.48.1",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
     "release-please": "17.11.2",
     "tailwindcss": "^4.3.3",
-    "turbo": "^2.11.7",
     "typescript": "^7.0.2",
-    "typescript6": "npm:typescript@^6.0.3"
+    "typescript6": "npm:typescript@^6.0.3",
+    "vite-plus": "1.3.0"
   },
   "overrides": {
     "@capacitor/android": "8.5.1",
@@ -81,5 +86,5 @@
   "engines": {
     "node": "24.21.0"
   },
-  "packageManager": "bun@1.4.0"
+  "packageManager": "bun@1.4.3"
 }

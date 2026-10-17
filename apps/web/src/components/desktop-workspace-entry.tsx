@@ -475,7 +475,13 @@ function DesktopWorkspace(props: {
     expectedWorkspaceId: props.devScopeWorkspaceId,
   })
   const connections = createDesktopWorkspaceConnectionsService(devRuntime)
-  const chatModelHost = createDesktopChatModelHost(devRuntime)
+  // A new launched conversation starts on the stored direct default; a failed read blocks it.
+  const chatModelHost = createDesktopChatModelHost(devRuntime, {
+    initialModel: async () => {
+      const { readDirectLaunchModel } = await import('@adea-ai/workspace-ui/direct-session-model')
+      return readDirectLaunchModel(props.client, props.devScopeWorkspaceId)
+    },
+  })
   const utilityOwner = createSharedDevUtilityOwner(
     devRuntime,
     typeof window === 'undefined' ? undefined : window.localStorage

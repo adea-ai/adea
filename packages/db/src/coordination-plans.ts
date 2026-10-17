@@ -42,6 +42,7 @@ import {
   type JobReferenceView,
 } from './job-outbound-reference'
 import { coordinationPlanCitations, coordinationPlanRevisions, coordinationPlans } from './schema'
+import { inReadSnapshot } from './transactions'
 
 type Database = AgentHqDatabase | AgentHqTransaction
 
@@ -321,11 +322,11 @@ export async function readCoordinationPlanJobReferences(
   revision: number,
   reader: UserPrincipalRef
 ): Promise<CoordinationPlanReferences> {
-  return database.transaction(async (transaction) => {
-    const channel = await requireChannelAccess(transaction, workspaceId, channelId, reader, 'read')
+  return inReadSnapshot(database, async (snapshot) => {
+    const channel = await requireChannelAccess(snapshot, workspaceId, channelId, reader, 'read')
     if (channel.kind !== 'group') throw new Error('Channel unavailable')
     if (!UUID.test(planId) || !isRevision(revision)) throw new Error('Plan unavailable')
-    const [plan] = await transaction
+    const [plan] = await snapshot
       .select({ currentRevision: coordinationPlans.currentRevision, id: coordinationPlans.id })
       .from(coordinationPlans)
       .where(
@@ -337,9 +338,9 @@ export async function readCoordinationPlanJobReferences(
       )
       .limit(1)
     if (!plan || revision > plan.currentRevision) throw new Error('Plan unavailable')
-    const jobIds = await readCitedJobIds(transaction, plan.id, revision)
+    const jobIds = await readCitedJobIds(snapshot, plan.id, revision)
     // The plan is a pointer: every reference is resolved for this reader, in this channel, now.
-    const references = await resolveJobReferences(transaction, {
+    const references = await resolveJobReferences(snapshot, {
       channelId,
       jobIds,
       reader,

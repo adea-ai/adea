@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { decodeRuntimeEventHistoryPage } from '../../../packages/types/src/dev-runtime-history'
 import { createSessionEventLog } from '../shell/src/dev-runtime/harness/events'
 import { transcriptPromptText } from '../shell/src/dev-runtime/harness/transcript-content'
 
@@ -27,6 +28,66 @@ function fixture(maxPerSession = 20) {
 }
 
 describe('authorized transcript history storage', () => {
+  test('a withheld visible-summary body remains a readable history envelope', () => {
+    const { dataDir } = fixture()
+    const log = createSessionEventLog({ dataDir, scope, verifyVisibleSummary: () => true })
+    log.append({
+      runtimeSessionId: 'session-a',
+      harnessRunId: 'run-a',
+      generation: 1,
+      source: 'acp',
+      confidence: 'authoritative',
+      classification: 'restricted_local',
+      sourceEventId: 'summary-source',
+      kind: 'turn.reasoning_summary',
+      payload: {
+        schemaVersion: 1,
+        provenance: 'source_reported',
+        visibility: 'user_visible',
+        format: 'snapshot',
+        summaryId: 'summary-a',
+        revision: 0,
+        text: 'host-only summary',
+        status: 'completed',
+      },
+    })
+    const history = decodeRuntimeEventHistoryPage(log.history('session-a', { generation: 1 }))
+    expect(history.items[0]!.payload).toEqual({})
+    expect(history.items[0]!.kind).toBe('turn.reasoning_summary')
+    expect(JSON.stringify(history)).not.toContain('host-only summary')
+  })
+
+  test('history omits restricted call payloads while retaining current host call validation', () => {
+    const { log } = fixture()
+    const observation = {
+      runtimeSessionId: 'session-a',
+      harnessRunId: 'run-a',
+      generation: 1,
+      source: 'acp' as const,
+      confidence: 'authoritative' as const,
+      classification: 'restricted_local' as const,
+      kind: 'tool.started' as const,
+      sourceEventId: 'call-source',
+      payload: {
+        schemaVersion: 1,
+        callId: 'call-a',
+        phase: 'started',
+        permissionEligibility: 'unknown',
+        input: { type: 'inline', value: { text: 'host-only call body' } },
+      },
+    }
+    const accepted = log.append(observation)
+    expect(accepted?.payload).toEqual(observation.payload)
+    expect(log.append(observation)).toBeUndefined()
+    expect(JSON.stringify(log.history('session-a', { generation: 1 }))).not.toContain(
+      'host-only call body'
+    )
+    expect(() =>
+      log.append({ ...observation, sourceEventId: 'credential-call', classification: 'credential' })
+    ).toThrow('credential')
+    expect(log.events()).toHaveLength(1)
+  })
+
   test('byte budgets shorten pages without skipping events, and oversized single payloads are explicit', () => {
     const { log } = fixture()
     for (let n = 1; n <= 4; n++)

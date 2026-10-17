@@ -1,4 +1,4 @@
-import { decodeRuntimeEvent, type RuntimeEvent } from './dev-runtime-wire'
+import { decodeRuntimeEnvelope, decodeRuntimeEvent, type RuntimeEvent } from './dev-runtime-wire'
 import {
   exactKeys,
   fail,
@@ -61,7 +61,13 @@ export function decodeRuntimeEventHistoryPage(value: unknown): RuntimeEventHisto
       ['host', 'native', 'acp', 'authenticated_hook', 'terminal_fallback'],
       'history.event.source'
     )
-    const event = decodeRuntimeEvent(raw, { source: raw.source as RuntimeEvent['source'] })
+    // A withheld private body is an envelope, never a kind-specific fact.
+    const withheld =
+      (raw.classification === 'credential' || raw.classification === 'restricted_local') &&
+      JSON.stringify(raw.payload) === '{}'
+    const event = (withheld ? decodeRuntimeEnvelope : decodeRuntimeEvent)(raw, {
+      source: raw.source as RuntimeEvent['source'],
+    })
     const seq = BigInt(event.seq)
     if (
       event.runtimeSessionId !== page.runtimeSessionId ||
