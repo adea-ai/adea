@@ -288,7 +288,7 @@ function redactTextRange(
  */
 export function redactAssistantDeltaFragments(
   items: readonly ChatTranscriptItem[]
-): readonly { body?: string; truncated: boolean }[] {
+): readonly { body?: string; truncated: boolean; continuation?: boolean }[] {
   // Keep references to the payload strings instead of normalizing/copying every
   // complete fragment. Only the bounded slices below are materialized.
   const raw = items.map((item) => assistantDeltaPayloadText(item))
@@ -297,7 +297,6 @@ export function redactAssistantDeltaFragments(
     if (fragment === undefined) return { truncated: item.bodyTruncated === true }
 
     const currentRaw = fragment.slice(0, BODY_SCAN_WINDOW)
-    const current = currentRaw.replace(/\r\n?/g, '\n')
     let leftRaw = ''
     for (
       let cursor = index - 1;
@@ -321,11 +320,21 @@ export function redactAssistantDeltaFragments(
       rightRaw += next.slice(0, remaining)
     }
 
+    // A CRLF split across two fragments is one line feed: the fragment holding
+    // the CR owns it and the fragment that starts with the LF contributes
+    // nothing, so the joined text matches the unsplit payload.
+    const continuesCr = leftRaw.endsWith('\r') && currentRaw.startsWith('\n')
+    const current = (continuesCr ? currentRaw.slice(1) : currentRaw).replace(/\r\n?/g, '\n')
+    const nextContinuesCr =
+      currentRaw.length === fragment.length &&
+      currentRaw.endsWith('\r') &&
+      rightRaw.startsWith('\n')
+
     // Measure the budget against raw wire units before CRLF normalization.
     // Otherwise 5,000 raw chars of CRLF whitespace shrink below the fail-closed
     // threshold and can hide an unbounded Bearer separator's discarded prefix.
     const left = leftRaw.replace(/\r\n?/g, '\n')
-    const right = rightRaw.replace(/\r\n?/g, '\n')
+    const right = (nextContinuesCr ? rightRaw.slice(1) : rightRaw).replace(/\r\n?/g, '\n')
     const context = left + current + right
     const currentStart = left.length
     const currentEnd = currentStart + current.length
@@ -350,6 +359,9 @@ export function redactAssistantDeltaFragments(
         fragment.length > BODY_SCAN_WINDOW ||
         item.bodyTruncated === true ||
         body.length >= MAX_BODY_TEXT,
+      // The whole fragment was the LF of a CRLF whose CR ended the previous one:
+      // it is empty but still part of the prose run, not an empty event.
+      ...(continuesCr && current.length === 0 ? { continuation: true } : {}),
     }
   })
 }

@@ -184,7 +184,10 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
   const turns: { id: string; user?: ChatTranscriptItem; entries: ChatTurnEntry[] }[] = []
   const entryByEventId = new Map<string, string>()
   let open: { id: string; user?: ChatTranscriptItem; entries: ChatTurnEntry[] } | undefined
-  const safeDelta = new Map<ChatTranscriptItem, { body?: string; truncated: boolean }>()
+  const safeDelta = new Map<
+    ChatTranscriptItem,
+    { body?: string; truncated: boolean; continuation?: boolean }
+  >()
   for (let index = 0; index < items.length;) {
     if (items[index]?.kind !== 'turn.assistant_delta') {
       index += 1
@@ -349,8 +352,10 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
       // `undefined` from an existing sanitizer result means sanitized/omitted,
       // not "try the raw body again". Only an absent result may fall back.
       const text = safe === undefined ? item.body : safe.body
-      if (text === undefined || text.length === 0) {
+      if ((text === undefined || text.length === 0) && safe?.continuation !== true) {
         // An empty fragment adds no prose but is still an event: keep it visible.
+        // The LF half of a CRLF split across fragments is empty too, yet it
+        // continues the prose run instead of interrupting it.
         flushDelta()
         const truncated = item.bodyTruncated === true || safe?.truncated === true
         if (truncated) {

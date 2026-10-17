@@ -190,6 +190,12 @@ const proseOf = (events: readonly RuntimeEvent[]) => {
   }
 }
 
+const proseForFragments = (fragments: readonly string[]) =>
+  proseOf([
+    event('turn.user_input', { text: 'hi' }, 'u1'),
+    ...fragments.map((text, index) => event('turn.assistant_delta', { text }, `d${index}`)),
+  ])
+
 describe('whitespace-only streamed fragments', () => {
   test('secrets split across assistant deltas are redacted after the fragments join', () => {
     const fragments = ['The response contains sk-', 'supersecretvalue1234 and must be hidden.']
@@ -426,6 +432,28 @@ describe('whitespace-only streamed fragments', () => {
       event('turn.assistant_delta', { text: 'b' }, 'd3'),
     ])
     expect(texts).toEqual(['a\nb'])
+  })
+
+  test('a CRLF split across fragments lays out like the unsplit text', () => {
+    const splits: readonly (readonly string[])[] = [
+      ['a\r\nb'],
+      ['a', '\r\nb'],
+      ['a\r', '\nb'],
+      ['a\r\n', 'b'],
+      ['a', '\r', '\nb'],
+      ['a\r', '\n', 'b'],
+      ['a', '\r', '\n', 'b'],
+      ['a\r', 'b'],
+      ['a\r\n\r', '\nb'],
+    ]
+    for (const fragments of splits) {
+      const joined = fragments.join('')
+      const { entries, texts } = proseForFragments(fragments)
+      expect({ fragments, texts }).toEqual({ fragments, texts: [joined.replace(/\r\n?/g, '\n')] })
+      expect(entries).toHaveLength(1)
+    }
+    // A CR that ends the stream is still a line break.
+    expect(proseForFragments(['a', '\r']).texts).toEqual(['a\n'])
   })
 
   test('an empty fragment is still a visible event, not prose', () => {
