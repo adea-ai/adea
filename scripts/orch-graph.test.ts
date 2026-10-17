@@ -367,3 +367,37 @@ describe('the web build declares everything it reads that no glob can see', () =
     })
   })
 })
+
+const stripJsonc = (text: string) => text.replace(/^\s*\/\/.*$/gm, '').replace(/,(\s*[}\]])/g, '$1')
+// The tsconfig each workspace's `typecheck` script names (`-p` or the package default).
+const configOf = (workspace: { dir: string; scripts: Record<string, string> }) => {
+  const project = /-p\s+(\S+)/.exec(workspace.scripts.typecheck ?? '')?.[1]
+  return join(workspace.dir, project ?? 'tsconfig.json')
+}
+
+const chain = (file: string, seen = new Set<string>()): Set<string> => {
+  if (seen.has(file)) return seen
+  seen.add(file)
+  const parsed = JSON.parse(stripJsonc(readFileSync(join(root, file), 'utf8'))) as {
+    extends?: string | string[]
+  }
+  for (const parent of [parsed.extends ?? []].flat()) {
+    if (!parent.startsWith('.')) continue
+    chain(relative(root, resolve(root, dirname(file), parent)), seen)
+  }
+  return seen
+}
+
+describe('every tsconfig a typecheck loads is an explicit input (a Bun-run checker does not report its reads)', () => {
+  test('the extends chain of each typechecked workspace is covered by the task inputs', () => {
+    for (const workspace of scripted('typecheck')) {
+      const config = configOf(workspace)
+      if (!existsSync(join(root, config))) continue
+      const inputs = new Set(inputsOf(task(workspace, 'typecheck')))
+      for (const file of chain(config)) {
+        const inPackage = file.startsWith(`${workspace.dir}/`)
+        expect(inPackage || inputs.has(file), `${workspace.name}: ${file}`).toBe(true)
+      }
+    }
+  })
+})

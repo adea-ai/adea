@@ -31,6 +31,8 @@ export const GLOBAL_INPUTS = [
   'bun.lock',
   'bunfig.toml',
   'tsconfig.base.json',
+  // `tsconfig.base.json` extends this one. `tsc` reports the read to the runner; `bun check` would not.
+  'packages/config/tsconfig.base.json',
   'tsconfig.json',
   '.oxlintrc.json',
 ]
