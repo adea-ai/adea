@@ -62,7 +62,13 @@ export function MessageComposer(props: {
     transcriptionSession?.cancel()
   })
 
-  const focusDraft = () => requestAnimationFrame(() => textarea?.focus())
+  const focusDraft = (caret?: 'end') =>
+    requestAnimationFrame(() => {
+      if (!textarea) return
+      textarea.focus()
+      // A draft rewritten while the field was unfocused can leave the caret at 0.
+      if (caret === 'end') textarea.setSelectionRange(textarea.value.length, textarea.value.length)
+    })
 
   const mentionSuggestions = createMemo(() => {
     const match = props.draft.match(/(?:^|\s)@([^\n]*)$/)
@@ -113,7 +119,7 @@ export function MessageComposer(props: {
 
   const insertMention = (agent: AgentSummary) => {
     props.onDraftChange(props.draft.replace(/@[^\n]*$/, `@${agent.name} `))
-    focusDraft()
+    focusDraft('end')
   }
 
   const dictate = async () => {
