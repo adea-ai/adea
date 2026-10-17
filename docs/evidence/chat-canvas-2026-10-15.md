@@ -237,3 +237,15 @@ all1,295 tests. No assertion, deadline, privacy rule or bound was relaxed.
 Historical UI mirrors, screenshots and other browser-lane results above remain
 historical; packaged, full-app integration and visual-baseline lanes are not
 claimed by these focused repair receipts.
+
+### Post-redaction clipping follow-up
+
+Personal review found a short-input expansion boundary:400 short Bearer tokens
+plus a decisive instruction fit the raw input limit, but redaction replacements
+pushed the instruction past the safe display bound. The sanitizer now returns
+explicit clipping provenance after replacements as well as at its input window.
+Both approval and question guards consume that provenance. Four new regressions
+fail at c9e1a1d and pass after the repair, including exact sanitized boundaries,
+removed control characters and one additional visible code point. Existing input,
+output and privacy bounds remain unchanged. Earlier validation counts above are
+the c9e1a1d checkpoint; the final follow-up receipt records updated check results.

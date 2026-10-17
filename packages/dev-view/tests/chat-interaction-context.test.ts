@@ -83,3 +83,33 @@ test('context made empty by safe control removal cannot be approved', () => {
     interactionContextDisabledReason(project('approval.requested', { text: '\u0001\u0002' }))
   ).toBeDefined()
 })
+
+for (const kind of ['approval.requested', 'question.requested'] as const) {
+  const key = kind === 'approval.requested' ? 'prompt' : 'question'
+  test(`${kind}: redaction expansion cannot hide an instruction while enabling a response`, () => {
+    const raw = `${'Bearer a '.repeat(400)}Do not delete the archive.`
+    expect(raw.length).toBeLessThan(4096)
+    const item = project(kind, { [key]: raw })
+    expect(item.requestContext?.length).toBe(4096)
+    expect(item.requestContext).not.toContain('Do not delete the archive.')
+    expect(item.requestContext).toContain('[secret redacted]')
+    expect(item.requestContextIncomplete).toBe(true)
+    expect(interactionContextDisabledReason(item)).toBeDefined()
+    expect(approvalDetails(item.requestContext, item.requestContextIncomplete)?.title).toContain(
+      'incomplete'
+    )
+  })
+
+  test(`${kind}: exact sanitized boundary is complete; one more visible point is fenced`, () => {
+    const expandedPrefix = 'Bearer [secret redacted] '
+    const raw = `Bearer a ${'x'.repeat(4096 - expandedPrefix.length)}`
+    const complete = project(kind, { [key]: `${raw}\u0001` })
+    expect(complete.requestContext?.length).toBe(4096)
+    expect(complete.requestContextIncomplete).toBe(false)
+    expect(interactionContextDisabledReason(complete)).toBeUndefined()
+    const clipped = project(kind, { [key]: `${raw}\u0001y` })
+    expect(clipped.requestContext?.length).toBe(4096)
+    expect(clipped.requestContextIncomplete).toBe(true)
+    expect(interactionContextDisabledReason(clipped)).toBeDefined()
+  })
+}

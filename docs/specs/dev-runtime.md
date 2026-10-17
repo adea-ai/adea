@@ -7177,7 +7177,10 @@ question wording takes precedence over incidental summary text. The existing
 4,096-character display and bounded redaction scan limits remain. If that context
 is missing or exceeds the display bound, the UI explicitly says it is incomplete
 and disables approval/question submission, including the callback path. Inspection
-must never label a clipped preview as the full request. Tool-output copy uses a
+must never label a clipped preview as the full request. Sanitizer provenance
+records both input-window truncation and clipping after redaction replacements,
+which can expand short tokens; either fences response callbacks. An exact-limit
+sanitized value is complete only if no additional visible code point is dropped. Tool-output copy uses a
 separate redacted layout-preserving projection within the same limit: LF and tabs
 survive, CRLF is normalized to LF, and unsafe controls are removed.
 

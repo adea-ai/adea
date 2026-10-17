@@ -82,11 +82,11 @@ const BODY_SCAN_WINDOW = 65_536
 /** Bounded overlap for ordinary patterns; ambiguous unbounded boundaries fail closed. */
 const MAX_CROSS_DELTA_CONTEXT = 5_000
 
-function redact(
+function redactWithProvenance(
   value: string,
   limit: number,
   options: { window?: number; layout?: boolean } = {}
-): string {
+): { text: string; truncated: boolean } {
   // A hostile transcript can be arbitrarily large: bound the scan BEFORE
   // redaction. Even patterns with intentionally unbounded separators run only
   // over this bounded window, never over the whole transcript.
@@ -109,20 +109,24 @@ function redact(
   let count = 0
   for (const character of redacted) {
     const code = character.codePointAt(0) ?? 0
-    // Prose keeps its line breaks and tabs (text nodes, never markup); every
-    // other control character is dropped from both forms.
-    if (options.layout && (code === 0x0a || code === 0x09)) {
-      kept += character
-      count += 1
-      if (count >= limit) break
-      continue
-    }
-    if (code < 0x20 || code === 0x7f) continue
+    // Count only surviving code points. Inspect one additional visible point
+    // before declaring clipping: exact-limit content followed by removed
+    // controls is complete, while replacement expansion can exceed the limit.
+    const layout = options.layout && (code === 0x0a || code === 0x09)
+    if (!layout && (code < 0x20 || code === 0x7f)) continue
+    if (count >= limit) return { text: kept, truncated: true }
     kept += character
     count += 1
-    if (count >= limit) break
   }
-  return kept
+  return { text: kept, truncated: value.length > window }
+}
+
+function redact(
+  value: string,
+  limit: number,
+  options: { window?: number; layout?: boolean } = {}
+): string {
+  return redactWithProvenance(value, limit, options).text
 }
 
 function textFromPayload(event: RuntimeEvent): string | undefined {
@@ -152,11 +156,12 @@ function requestContextFromPayload(event: RuntimeEvent): {
     const value = payload[key]
     if (typeof value !== 'string' || value.trim().length === 0) continue
     const raw = value.trim().replace(/\r\n?/g, '\n')
+    const safe = redactWithProvenance(raw, MAX_RENDERED_TEXT, { layout: true })
     return {
-      requestContext: redact(raw, MAX_RENDERED_TEXT, { layout: true }),
+      requestContext: safe.text,
       // Conservative on redaction/control removal: never approve content outside
       // the inspected bound, even if sanitizing would make the preview shorter.
-      requestContextIncomplete: raw.length > MAX_RENDERED_TEXT,
+      requestContextIncomplete: raw.length > MAX_RENDERED_TEXT || safe.truncated,
     }
   }
   return { requestContextIncomplete: true }
