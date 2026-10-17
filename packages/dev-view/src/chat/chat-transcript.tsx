@@ -42,14 +42,17 @@ import {
   settleEventReveal,
 } from '../history/event-reveal'
 import {
+  createChatPresentationIdentity,
+  type PresentedColumnEntry,
+  type PresentedStandaloneEntry,
+  type PresentedSegment,
+  type PresentedTurn,
+} from './model/identity'
+import {
   buildChatTurns,
   CHAT_ASSISTANT_TEXT_LIMIT,
-  segmentTurnEntries,
-  type ChatTurn,
   type ChatTurnActivity,
   type ChatTurnApproval,
-  type ChatTurnColumnEntry,
-  type ChatTurnEntry,
   type ChatTurnMethod,
   type ChatTurnNotice,
   type ChatTurnQuestion,
@@ -232,16 +235,24 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
       props.projection ? { projection: props.projection } : undefined
     )
   )
-  const projection = createMemo(() => buildChatTurns(items()))
-  // Drawn by id, not by object: each event re-projects the window into new
+  // One naming memory per session and generation: a new one starts with the
+  // scope, so a key never outlives the conversation it named.
+  const identity = createMemo(() => {
+    void props.resetKey
+    return createChatPresentationIdentity()
+  })
+  const projection = createMemo(() => identity().present(buildChatTurns(items())))
+  // Drawn by key, not by object: each event re-projects the window into new
   // objects, but a turn, a segment and a line keep their DOM (and any selection,
-  // focus or scroll anchor inside it) while only their content updates.
+  // focus or scroll anchor inside it) while only their content updates. The key
+  // is the first name a thing was given, so it also outlives the eviction of the
+  // event it was named after.
   const turnIds = createMemo<readonly string[]>(
-    () => projection().turns.map((turn) => turn.id),
+    () => projection().turns.map((turn) => turn.key),
     [],
     { equals: sameIds }
   )
-  const turnById = createMemo(() => new Map(projection().turns.map((turn) => [turn.id, turn])))
+  const turnById = createMemo(() => new Map(projection().turns.map((turn) => [turn.key, turn])))
 
   // History asks to show one event. The request waits until this transcript
   // holds the event (a session switch loads it a moment later), then scrolls to
@@ -329,7 +340,7 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
 }
 
 type TurnViewProps = {
-  turn: () => ChatTurn
+  turn: () => PresentedTurn
   last: () => boolean
   chat: ChatTranscriptProps
   answers: () => Record<string, QuestionnaireAnswers>
@@ -337,13 +348,13 @@ type TurnViewProps = {
 }
 
 function ChatTurnView(props: TurnViewProps): JSX.Element {
-  const segments = createMemo(() => segmentTurnEntries(props.turn().entries))
+  const segments = createMemo(() => props.turn().segments)
   const segmentIds = createMemo<readonly string[]>(
-    () => segments().map((segment) => segment.id),
+    () => segments().map((segment) => segment.key),
     [],
     { equals: sameIds }
   )
-  const segmentById = createMemo(() => new Map(segments().map((segment) => [segment.id, segment])))
+  const segmentById = createMemo(() => new Map(segments().map((segment) => [segment.key, segment])))
   const live = () => props.last() && props.chat.running === true
   const hasReply = () => props.turn().entries.length > 0 || live()
 
@@ -354,7 +365,7 @@ function ChatTurnView(props: TurnViewProps): JSX.Element {
           <Message
             role="user"
             label="You"
-            anchorId={`${props.turn().id}:user`}
+            anchorId={`${props.turn().key}:user`}
             data-entry-id={user().id}
             data-event-id={user().id}
           >
@@ -369,7 +380,7 @@ function ChatTurnView(props: TurnViewProps): JSX.Element {
         <Message
           role="assistant"
           label="Assistant"
-          anchorId={`${props.turn().id}:reply`}
+          anchorId={`${props.turn().key}:reply`}
           streaming={live()}
         >
           <MessageContent>
@@ -395,7 +406,7 @@ function ChatTurnView(props: TurnViewProps): JSX.Element {
   )
 }
 
-type Segment = ReturnType<typeof segmentTurnEntries>[number]
+type Segment = PresentedSegment
 
 function SegmentView(props: {
   segment: () => Segment | undefined
@@ -455,13 +466,13 @@ function WorkingLine(props: { awaitingApproval: boolean }): JSX.Element {
 }
 
 function ActivityColumn(props: {
-  entries: () => readonly ChatTurnColumnEntry[]
+  entries: () => readonly PresentedColumnEntry[]
   live: () => boolean
 }): JSX.Element {
-  const ids = createMemo<readonly string[]>(() => props.entries().map((entry) => entry.id), [], {
+  const ids = createMemo<readonly string[]>(() => props.entries().map((entry) => entry.key), [], {
     equals: sameIds,
   })
-  const byId = createMemo(() => new Map(props.entries().map((entry) => [entry.id, entry])))
+  const byId = createMemo(() => new Map(props.entries().map((entry) => [entry.key, entry])))
   return (
     <Trace>
       <For each={ids()}>
@@ -636,7 +647,7 @@ function ActivityLine(props: { item: () => ChatTranscriptItem | undefined }): JS
 }
 
 function EntryView(props: {
-  entry: Exclude<ChatTurnEntry, ChatTurnColumnEntry>
+  entry: PresentedStandaloneEntry
   streaming: boolean
   chat: ChatTranscriptProps
   answers: () => Record<string, QuestionnaireAnswers>
