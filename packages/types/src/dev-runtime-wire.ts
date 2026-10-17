@@ -18,18 +18,36 @@ import {
   record,
   stringValue,
   timestamp,
-  uint64Pattern,
   uint64String,
 } from './dev-runtime-validation-internal'
-import { decodeRuntimeInteractionPayload } from './dev-runtime-interactions'
 import {
   decodeRuntimeCallPayload,
   isRuntimeCallEventKind,
   type RuntimeCallEventKind,
   type RuntimeCallPayload,
 } from './dev-runtime-call'
+import {
+  decodeRuntimeActivityPayload,
+  isRuntimeActivityEventKind,
+  runtimeActivityEventKinds,
+  type RuntimeActivityEventKind,
+  type RuntimeActivityPayloads,
+} from './dev-runtime-activity'
 import { cborByteLength } from './dev-runtime-cbor-length'
-import { assertWellFormedUnicode } from './dev-runtime-unicode'
+import { assertJsonUnicode, assertWellFormedUnicode } from './dev-runtime-unicode'
+import { decodeRuntimeInteractionPayload } from './dev-runtime-interactions'
+import {
+  decodeFollowUpQueueEventPayload,
+  type FollowUpQueueEventPayload,
+} from './dev-runtime-follow-up-event'
+export type { FollowUpQueueEventPayload } from './dev-runtime-follow-up-event'
+import {
+  decodeRuntimeUsageObservedPayload,
+  usageDataRecord,
+  type RuntimeUsageObservedPayload,
+} from './dev-runtime-usage'
+export { decodeRuntimeUsageObservedPayload } from './dev-runtime-usage'
+export type { RuntimeUsageObservedPayload } from './dev-runtime-usage'
 export {
   decodeRuntimeCallPayload,
   isRuntimeCallEventKind,
@@ -92,14 +110,17 @@ export const runtimeEventKinds = [
   'checkpoint.observed',
   'subagent.observed',
   'usage.observed',
+  'queue.updated',
   'terminal.command_started',
   'terminal.command_finished',
   'terminal.cwd_changed',
   'terminal.transcript_reference',
   'capability.degraded',
   'capability.restored',
+  ...runtimeActivityEventKinds,
 ] as const
 export type RuntimeEventKind = (typeof runtimeEventKinds)[number]
+
 export const dataClassifications = [
   'public',
   'workspace_metadata',
@@ -109,7 +130,7 @@ export const dataClassifications = [
 ] as const
 export type DataClassification = (typeof dataClassifications)[number]
 
-export type RuntimeEvent = Readonly<{
+export type RuntimeEvent<K extends RuntimeEventKind = RuntimeEventKind> = Readonly<{
   schemaVersion: 1
   eventId: string
   runtimeSessionId: string
@@ -122,16 +143,22 @@ export type RuntimeEvent = Readonly<{
   sourceEventId: string
   confidence: 'authoritative' | 'bounded_projection' | 'untrusted_hint'
   classification: DataClassification
-  kind: RuntimeEventKind
-  payload: unknown
+  kind: K
+  payload: K extends 'usage.observed'
+    ? RuntimeUsageObservedPayload
+    : K extends 'queue.updated'
+      ? FollowUpQueueEventPayload
+      : K extends RuntimeActivityEventKind
+        ? RuntimeActivityPayloads[K]
+        : unknown
 }>
 
 /** Existing runtime-events-v1 data-frame budget; includes the entire encoded event. */
 export const RUNTIME_EVENT_CBOR_BYTES_MAX = 64 * 1024
 
-export function assertRuntimeEventFrameSize(event: RuntimeEvent): void {
+export function assertRuntimeEventFrameSize(event: RuntimeEvent, failureMessage?: string): void {
   if (cborByteLength(event) > RUNTIME_EVENT_CBOR_BYTES_MAX)
-    fail('event', 'full CBOR event exceeds the 64 KiB runtime-events frame limit')
+    fail('event', failureMessage ?? 'CBOR limit: 64 KiB')
 }
 
 export type RuntimeCallEvent = Omit<RuntimeEvent, 'kind' | 'payload' | 'source'> &
@@ -175,10 +202,76 @@ export function decodeRuntimeCallEvent(
   return value as RuntimeCallEvent
 }
 
+export type RuntimeActivityEvent = {
+  [K in RuntimeActivityEventKind]: Omit<
+    RuntimeEvent,
+    'kind' | 'payload' | 'source' | 'confidence'
+  > &
+    Readonly<{
+      source: 'native' | 'acp' | 'authenticated_hook'
+      confidence: 'authoritative'
+      kind: K
+      payload: RuntimeActivityPayloads[K]
+    }>
+}[RuntimeActivityEventKind]
+
+function validateActivity(item: Record<string, unknown>, enforceEnvelopeBounds = true): void {
+  if (!isRuntimeActivityEventKind(item.kind))
+    fail('event.kind', 'expected structured activity kind')
+  decodeRuntimeActivityPayload(item.payload, item.kind)
+  assertJsonUnicode(item)
+  if (item.source === 'host' || item.source === 'terminal_fallback')
+    fail('event.source', 'structured activity requires a native, ACP or owned hook producer')
+  if (item.confidence !== 'authoritative')
+    fail('event.confidence', 'structured activity requires authoritative producer facts')
+  if (enforceEnvelopeBounds) assertRuntimeEventFrameSize(item as RuntimeEvent)
+  if (
+    enforceEnvelopeBounds &&
+    item.source === 'authenticated_hook' &&
+    new TextEncoder().encode(JSON.stringify(item)).byteLength > 8 * 1024
+  )
+    fail('event', 'authenticated hook observation exceeds 8 KiB')
+}
+
+function assertActivityOwnership(
+  item: Record<string, unknown>,
+  provenance: RuntimeEventProvenance
+): void {
+  if (
+    !Array.isArray(provenance.ownedActivityKinds) ||
+    !provenance.ownedActivityKinds.includes(item.kind as RuntimeActivityEventKind)
+  )
+    fail('event.kind', 'structured activity requires out-of-band producer ownership')
+}
+
+/** Explicit opt-in: an opaque legacy row never gains structured activity semantics. */
+export function decodeRuntimeActivityEvent(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): RuntimeActivityEvent {
+  decodeRuntimeEvent(value, provenance)
+  const item = record(value, 'event')
+  validateActivity(item)
+  assertActivityOwnership(item, provenance)
+  return value as RuntimeActivityEvent
+}
+
+/** @internal Validation-only replay input; no new event or frame is returned. */
+export function validateRuntimeActivityReplayCandidate(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): void {
+  validateRuntimeEventReplayCandidate(value, provenance)
+  const item = record(value, 'event')
+  validateActivity(item, false)
+  assertActivityOwnership(item, provenance)
+}
+
 function validateEventPayload(value: unknown, path: string, depth = 0): void {
-  if (depth > 32) fail(path, 'maximum nesting depth exceeded')
+  if (depth > 32) fail(path, 'nesting too deep')
   if (typeof value === 'string') {
     stringValue(value, path, 0, 65_536)
+    assertWellFormedUnicode(value, path)
     return
   }
   if (value === null || typeof value === 'boolean') return
@@ -193,6 +286,7 @@ function validateEventPayload(value: unknown, path: string, depth = 0): void {
   const item = record(value, path)
   for (const [key, entry] of Object.entries(item)) {
     stringValue(key, `${path} key`, 1, 256)
+    assertWellFormedUnicode(key, `${path} key`)
     validateEventPayload(entry, `${path}.${key}`, depth + 1)
   }
 }
@@ -200,6 +294,8 @@ function validateEventPayload(value: unknown, path: string, depth = 0): void {
 export type RuntimeEventProvenance = Readonly<{
   /** Source derived from the authenticated transport/adapter, never event JSON. */
   source: RuntimeEvent['source']
+  /** Exact kinds owned by this authenticated adapter, never capabilities or event JSON. */
+  ownedActivityKinds?: readonly RuntimeActivityEventKind[]
 }>
 
 /**
@@ -207,12 +303,31 @@ export type RuntimeEventProvenance = Readonly<{
  * observations, visible summaries, cited responses, and any later interaction
  * or attachment contract) is reached ONLY through this object, so the lean
  * browser decoder below never imports it. Register new validators here, never
- * inside `decodeEventEnvelope`.
+ * inside `decodeEventEnvelope`. Browser stream and replay have a separate
+ * focused queue decoder so they do not pull unrelated kind validators into
+ * the lean envelope entry.
  */
 type EventSemantics = Readonly<{
-  early(item: Record<string, unknown>, enforceEnvelopeBounds: boolean): void
+  early(
+    item: Record<string, unknown>,
+    enforceEnvelopeBounds: boolean
+  ): RuntimeUsageObservedPayload | FollowUpQueueEventPayload | undefined
   late(item: Record<string, unknown>): void
 }>
+
+function decodeQueueEventPayload(
+  item: Record<string, unknown>,
+  decode = decodeFollowUpQueueEventPayload
+): FollowUpQueueEventPayload {
+  if (item.source !== 'host' || item.confidence !== 'authoritative')
+    fail('event.source', 'queue facts require the authoritative host')
+  if (item.classification !== 'workspace_metadata')
+    fail('event.classification', 'expected workspace_metadata')
+  const payload = decode(item.payload)
+  if (payload.runtimeSessionId !== item.runtimeSessionId || payload.generation !== item.generation)
+    fail('event.payload', 'queue identity does not match event')
+  return payload
+}
 
 const eventSemantics: EventSemantics = {
   early(item, enforceEnvelopeBounds) {
@@ -226,6 +341,24 @@ const eventSemantics: EventSemantics = {
     if (isRuntimeAssistantEventKind(kind)) {
       stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
       decodeRuntimeAssistantPayload(kind, item.payload)
+      if (enforceEnvelopeBounds)
+        assertRuntimeEventFrameSize(
+          item as RuntimeEvent,
+          `maximum encoded assistant event size exceeded (${RUNTIME_EVENT_CBOR_BYTES_MAX} bytes)`
+        )
+    }
+    if (isVersionedActivityClaim(item)) {
+      validateActivity(item, enforceEnvelopeBounds)
+    }
+    let queuePayload: FollowUpQueueEventPayload | undefined
+    if (item.kind === 'queue.updated') queuePayload = decodeQueueEventPayload(item)
+    const interaction = decodeRuntimeInteractionPayload(kind, item.payload)
+    if (interaction) {
+      if (item.confidence !== 'authoritative')
+        fail('event.confidence', 'structured interactions require authoritative provenance')
+      if (item.classification !== 'workspace_private')
+        fail('event.classification', 'structured interactions require workspace_private')
+      stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
     }
     if (item.kind === 'attachment.added' || item.kind === 'attachment.removed') {
       if (item.source !== 'host' || item.confidence !== 'authoritative')
@@ -233,24 +366,30 @@ const eventSemantics: EventSemantics = {
       decodeChatAttachmentEventPayload(item.kind, item.payload)
     }
     validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
+    if (item.kind === 'usage.observed') {
+      if (item.confidence !== 'authoritative')
+        fail('event.confidence', 'usage observations require authoritative reported figures')
+      return decodeRuntimeUsageObservedPayload(item.payload, item.generation as number)
+    }
+    return queuePayload
   },
   late(item) {
     validateRuntimeResponseReferences(item.kind as string, item.payload, item.source as string)
-    // Structured question/approval interactions (#1395) travel only with
-    // authoritative, workspace_private, harness-run-bound provenance.
-    if (decodeRuntimeInteractionPayload(item.kind as string, item.payload)) {
-      if (item.confidence !== 'authoritative')
-        fail('event.confidence', 'structured interactions require authoritative provenance')
-      if (item.classification !== 'workspace_private')
-        fail('event.classification', 'structured interactions require workspace_private')
-      stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
-    }
   },
 }
 
 function isVersionedCallClaim(item: Record<string, unknown>): boolean {
   return (
     isRuntimeCallEventKind(item.kind) &&
+    item.payload !== null &&
+    typeof item.payload === 'object' &&
+    Object.hasOwn(item.payload, 'schemaVersion')
+  )
+}
+
+function isVersionedActivityClaim(item: Record<string, unknown>): boolean {
+  return (
+    isRuntimeActivityEventKind(item.kind) &&
     item.payload !== null &&
     typeof item.payload === 'object' &&
     Object.hasOwn(item.payload, 'schemaVersion')
@@ -266,17 +405,30 @@ export function decodeRuntimeEvent(
 }
 
 /**
- * Lean browser decoder: authenticated envelope, generic payload bounds and the
- * full-frame bound for versioned call claims. It never interprets a kind's
- * payload, so a consumer that renders or acts on one must narrow it with the
- * explicit contract (for example `decodeRuntimeCallEvent`). Host admission and
- * persistence use `decodeRuntimeEvent`.
+ * Lean envelope decoder: authenticated envelope, generic payload bounds and the
+ * full-frame bound for versioned call and activity claims. It never interprets
+ * a kind's payload, so a consumer that renders or acts on one must narrow it
+ * with the explicit contract (for example `decodeRuntimeCallEvent`); browser
+ * stream and replay use `decodeRuntimeBrowserEnvelope` for the additional
+ * strict queue contract. Host admission and persistence use
+ * `decodeRuntimeEvent`.
  */
 export function decodeRuntimeEnvelope(
   value: unknown,
   provenance: RuntimeEventProvenance
 ): RuntimeEvent {
   return decodeEventEnvelope(value, provenance, true)
+}
+
+/** Browser stream and replay decoder with the prompt-free queue contract. */
+export function decodeRuntimeBrowserEnvelope(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): RuntimeEvent {
+  const event = decodeRuntimeEnvelope(value, provenance)
+  if (event.kind !== 'queue.updated') return event
+  const payload = decodeQueueEventPayload(event as unknown as Record<string, unknown>)
+  return Object.freeze({ ...event, payload }) as RuntimeEvent
 }
 
 /** @internal Validates a retry before comparing it; new records still require full decoding. */
@@ -293,7 +445,9 @@ function decodeEventEnvelope(
   enforceEnvelopeBounds: boolean,
   semantics?: EventSemantics
 ): RuntimeEvent {
-  const item = record(value, 'event')
+  // The discriminator and all envelope fields are own data properties before
+  // any branch or custom decoder can read them.
+  const item = usageDataRecord(value, 'event')
   exactKeys(
     item,
     [
@@ -315,12 +469,16 @@ function decodeEventEnvelope(
     'event'
   )
   if (item.schemaVersion !== 1) fail('event.schemaVersion', 'expected 1')
-  for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId'] as const)
-    stringValue(item[key], `event.${key}`, 1, 256)
-  if (item.harnessRunId !== undefined) stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+  for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId'] as const) {
+    const text = stringValue(item[key], `event.${key}`, 1, 256)
+    assertWellFormedUnicode(text, `event.${key}`)
+  }
+  if (item.harnessRunId !== undefined) {
+    const text = stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+    assertWellFormedUnicode(text, 'event.harnessRunId')
+  }
   integerValue(item.generation, 'event.generation', 0)
-  if (!uint64Pattern.test(stringValue(item.seq, 'event.seq')))
-    fail('event.seq', 'expected uint64 string')
+  uint64String(item.seq, 'event.seq')
   timestamp(item.occurredAt, 'event.occurredAt')
   timestamp(item.receivedAt, 'event.receivedAt')
   literal(
@@ -348,19 +506,24 @@ function decodeEventEnvelope(
       'terminal.cwd_changed',
       'terminal.transcript_reference',
     ]
-    if (!fallbackKinds.includes(item.kind as RuntimeEventKind))
-      fail('event.kind', 'terminal fallback cannot synthesize this event kind')
+    if (!fallbackKinds.includes(item.kind as RuntimeEventKind)) fail('event.kind', 'event kind')
   }
-  // Retained legacy events remain opaque. With semantics, a versioned call claim
-  // must satisfy the complete contract even through the generic decoder; the lean
-  // decoder still bounds the whole encoded call event.
-  if (semantics) semantics.early(item, enforceEnvelopeBounds)
-  else if (enforceEnvelopeBounds && isVersionedCallClaim(item))
+  // Retained legacy events remain opaque. Complete decoding applies every
+  // kind-specific contract; the lean decoder keeps whole-frame bounds for
+  // versioned call and activity claims without interpreting their payloads.
+  const decodedPayload = semantics?.early(item, enforceEnvelopeBounds)
+  if (
+    !semantics &&
+    enforceEnvelopeBounds &&
+    (isVersionedCallClaim(item) || isVersionedActivityClaim(item))
+  )
     assertRuntimeEventFrameSize(item as RuntimeEvent)
-  validateEventPayload(item.payload, 'event.payload')
-  semantics?.late(item)
-  if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
-    fail('event.payload', 'maximum encoded size exceeded')
+  const payload = decodedPayload ?? item.payload
+  validateEventPayload(payload, 'event.payload')
+  semantics?.late({ ...item, payload })
+  if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > 256 * 1024)
+    fail('event.payload', 'too large')
+  if (decodedPayload) return Object.freeze({ ...(value as RuntimeEvent), payload }) as RuntimeEvent
   return value as RuntimeEvent
 }
 
@@ -513,7 +676,7 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
     const major = first >> 5
     const info = first & 0x1f
     if (info < 24) return { major, value: BigInt(info) }
-    if (info > 27) fail('cbor', `unsupported additional information ${info}`)
+    if (info > 27) fail('cbor', `bad CBOR info ${info}`)
     const value = read(1 << (info - 24))
     if (value < [24n, 256n, 65_536n, 4_294_967_296n][info - 24]!)
       fail('cbor', 'non-shortest integer head')
@@ -572,7 +735,7 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
       try {
         return cborDecoder.decode(slice)
       } catch {
-        return fail('cbor', 'invalid UTF-8 text string')
+        return fail('cbor', 'invalid UTF-8')
       }
     }
     if (major === 4) {
@@ -589,9 +752,8 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
         const keyStart = offset
         const key = decode()
         const keyBytes = bytes.slice(keyStart, offset)
-        if (typeof key !== 'string') fail('cbor', 'map keys must be text strings')
-        if (previousKey && compareBytes(previousKey, keyBytes) >= 0)
-          fail('cbor', 'map keys are not canonically ordered')
+        if (typeof key !== 'string') fail('cbor', 'text map keys')
+        if (previousKey && compareBytes(previousKey, keyBytes) >= 0) fail('cbor', 'bad map order')
         previousKey = keyBytes
         if (Object.hasOwn(out, key)) fail('cbor', 'duplicate map key')
         // Define rather than assign so `__proto__` stays an ordinary own key.
@@ -604,7 +766,7 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
       }
       return out
     }
-    if (major === 6) fail('cbor', 'tags are not part of the frame vocabulary')
+    if (major === 6) fail('cbor', 'unsupported CBOR')
     return fail('cbor', `unsupported major type ${major}`)
   }
   const value = decode()

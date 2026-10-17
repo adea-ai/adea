@@ -126,7 +126,9 @@ describe('Dev Runtime operation registry', () => {
     // chat attachment upload/open/remove (#1392): the registry ratchet moves only when an
     // operation is deliberately added, and the decoder-key check below is
     // what keeps the list and the decoders in step.
-    expect(devOperations).toHaveLength(241)
+    // #1393 adds the authorized, generation-fenced follow-up queue operation;
+    // the merged registry keeps #1392's attachment operations too: 242.
+    expect(devOperations).toHaveLength(242)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({
@@ -1300,6 +1302,18 @@ describe('Dev Runtime authenticated channel (M10 #33)', () => {
     // same canonical key order regardless of insertion order.
     expect(decodeCbor(encodeCbor({ b: 1, a: 2 })).value).toEqual({ a: 2, b: 1 })
     expect(decodeCbor(encodeCbor({ b: 1, aa: 2 })).value).toEqual({ aa: 2, b: 1 })
+    const specialKeys = JSON.parse(
+      '{"__proto__":{"polluted":true},"constructor":"own","toString":"own"}'
+    ) as Record<string, unknown>
+    const decodedSpecialKeys = decodeCbor(encodeCbor(specialKeys)).value as Record<string, unknown>
+    expect(Object.getPrototypeOf(decodedSpecialKeys)).toBe(Object.prototype)
+    expect(Object.hasOwn(decodedSpecialKeys, '__proto__')).toBe(true)
+    expect(decodedSpecialKeys.__proto__).toEqual({ polluted: true })
+    expect(Object.hasOwn(decodedSpecialKeys, 'constructor')).toBe(true)
+    expect(decodedSpecialKeys.constructor).toBe('own')
+    expect(Object.hasOwn(decodedSpecialKeys, 'toString')).toBe(true)
+    expect(decodedSpecialKeys.toString).toBe('own')
+    expect(({} as { polluted?: boolean }).polluted).toBeUndefined()
     // Trailing bytes are reported, never silently consumed.
     const encoded = encodeCbor(1)
     const trailing = new Uint8Array(encoded.length + 1)

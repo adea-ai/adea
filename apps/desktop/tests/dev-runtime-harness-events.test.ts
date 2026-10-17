@@ -10,7 +10,7 @@
 // harness process is ever spawned.
 import { describe, expect, test } from 'bun:test'
 import { createCipheriv, createHmac, randomBytes, randomUUID } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -116,6 +116,91 @@ describe('session event log semantics', () => {
   test('production retention bounds match the documented limits', () => {
     expect(MAX_EVENTS_PER_SESSION).toBe(1000)
     expect(MAX_TOTAL_EVENTS).toBe(5000)
+  })
+
+  test('validates full queue event payloads before storing authoritative host events', () => {
+    const store = openLog()
+    const payload = {
+      schemaVersion: 1,
+      runtimeSessionId: '00000000-0000-4000-8000-0000000000b1',
+      generation: 2,
+      version: 1,
+      change: 'enqueue',
+      items: [{ id: 'message-1', bytes: 9, state: 'queued' }],
+    }
+    try {
+      const appended = store.append(
+        eventInput({
+          runtimeSessionId: payload.runtimeSessionId,
+          generation: payload.generation,
+          kind: 'queue.updated',
+          payload,
+        })
+      )!
+      expect(appended).toMatchObject({ kind: 'queue.updated', payload })
+      expect(Object.isFrozen(appended.payload)).toBe(true)
+      expect(Object.isFrozen((appended.payload as typeof payload).items)).toBe(true)
+      payload.items[0]!.state = 'dispatching'
+      expect((appended.payload as typeof payload).items[0]!.state).toBe('queued')
+      expect(() =>
+        store.append(
+          eventInput({
+            runtimeSessionId: payload.runtimeSessionId,
+            generation: payload.generation,
+            kind: 'queue.updated',
+            payload: {
+              ...payload,
+              items: [{ id: 'message-1', bytes: 9, state: 'queued', text: 'private prompt' }],
+            },
+          })
+        )
+      ).toThrow()
+      expect(() =>
+        store.append(
+          eventInput({
+            runtimeSessionId: payload.runtimeSessionId,
+            generation: payload.generation,
+            kind: 'queue.updated',
+            source: 'native',
+            payload,
+          })
+        )
+      ).toThrow('authoritative host')
+    } finally {
+      cleanup()
+    }
+  })
+
+  test('revalidates persisted queue event payloads during replay', () => {
+    const store = openLog()
+    const payload = {
+      schemaVersion: 1,
+      runtimeSessionId: '00000000-0000-4000-8000-0000000000b1',
+      generation: 2,
+      version: 1,
+      change: 'enqueue',
+      items: [{ id: 'message-1', bytes: 9, state: 'queued' }],
+    }
+    try {
+      store.append(
+        eventInput({
+          runtimeSessionId: payload.runtimeSessionId,
+          generation: payload.generation,
+          kind: 'queue.updated',
+          payload,
+        })
+      )
+      const file = join(activeLogDir!, 'dev-runtime', 'harness', 'session-events.json')
+      const persisted = JSON.parse(readFileSync(file, 'utf8')) as {
+        records: Array<{ payload: { items: Array<Record<string, unknown>> } }>
+      }
+      persisted.records[0]!.payload.items[0]!.text = 'persisted private prompt'
+      writeFileSync(file, JSON.stringify(persisted))
+
+      expect(() => store.events()).toThrow()
+    } finally {
+      cleanup()
+    }
   })
 
   test('sequences per generation and never fabricates a second session identity', () => {
@@ -710,6 +795,44 @@ function makeGrant(overrides: Partial<DevStreamGrant> = {}): DevStreamGrant {
 }
 
 describe('runtime-events-v1 stream handler', () => {
+  test('closes incompatible before any replay or heartbeat for retained opaque usage', async () => {
+    const shell = await boot()
+    try {
+      const events = shell.host().harness!.events
+      const sessionId = '00000000-0000-4000-8000-0000000000c1'
+      events.append(
+        eventInput({ runtimeSessionId: sessionId, kind: 'session.ready', sourceEventId: 'before' })
+      )
+      events.append(
+        eventInput({ runtimeSessionId: sessionId, kind: 'run.completed', sourceEventId: 'after' })
+      )
+      const file = join(shell.dataDir, 'dev-runtime', 'harness', 'session-events.json')
+      const stored = JSON.parse(readFileSync(file, 'utf8'))
+      stored.records[1] = { ...stored.records[1], kind: 'usage.observed', payload: { tokens: 123 } }
+      const original = JSON.stringify(stored)
+      writeFileSync(file, original)
+      for (const fromSequence of ['0', '2', '999']) {
+        const session = scriptedSession(
+          makeGrant({
+            resource: { kind: 'runtime_session', id: sessionId, generation: 1 },
+            fromSequence,
+          })
+        )
+        shell.capturedStreamProvider()(session as never)
+        expect(session.sent).toEqual([])
+        expect(session.closed).toEqual({
+          code: 'incompatible',
+          reason: 'runtime event history requires recovery',
+        })
+        expect(session.onFrame).toBeUndefined()
+        expect(session.onClose).toBeUndefined()
+      }
+      expect(readFileSync(file, 'utf8')).toBe(original)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('replays the bounded window, pushes live events, and closes on a newer generation', async () => {
     const shell = await boot()
     try {
