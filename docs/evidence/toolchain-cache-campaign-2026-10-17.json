@@ -1536,5 +1536,107 @@
       "localDiagnostic": "Extra CP E2E diagnostic terminated without a passing verdict on a Mac running concurrent held-owner unit/E2E/smoke suites. Only our known diagnostic child was signalled; held owner processes untouched.",
       "remaining": "Cortana2596 and UI460 hosted CI/merge; Cortana hosted fresh-runner cache transfer; held consumer release/version sequencing; meaningful post-rollout Cloudflare metrics. Campaign complete remains false."
     }
+  },
+  "currentCheckpoint": {
+    "observedAt": "2026-10-17T20:27:02.857443+00:00",
+    "precedence": "This checkpoint supersedes older remaining-work/status strings; earlier receipts remain historical evidence.",
+    "complete": false,
+    "broaderBunAudit": "docs/evidence/bun-performance-audit-2026-10-17.json",
+    "cortana2596": {
+      "sourceHead": "d87a518c13cc505844f2f5e22f48bc8894645a58",
+      "mergedHead": "534319e079f83ce4be73f6083027b305e2623986",
+      "url": "https://github.com/adea-ai/cortana/pull/2596",
+      "hostedWriter": "https://github.com/adea-ai/cortana/actions/runs/39066597973",
+      "hostedFreshReader": "https://github.com/adea-ai/cortana/actions/runs/39066649161",
+      "result": "Cold writer0/1 then1/1,2/2 successful. Fresh runner restores exact writer key and hits1/1 on its first and second builds,2/2 successful.",
+      "key": "production-tasks-v2-Linux-X64-node24.21.0-bun1.4.3-vp1.3.0-13cc2d5141034f7ae66f35f4a0d9cc6224232a261d38dab65dc57ff5d7836c90-39066597973-1"
+    },
+    "hostedWorkspaceCacheTransfer": {
+      "adea": "15/15, writer39060477290 reader39061003597",
+      "control-plane": "45/45, writer39061140783 reader39061303952",
+      "ui": "1/1, writer39061095703 reader39061684803",
+      "agent-sim": "13/13, writer39061625438 reader39061768434",
+      "cortana": "1/1, writer39066597973 reader39066649161"
+    },
+    "themesHostedDownloadTransfer": {
+      "head": "10a0832faec6783f7f842aeba41dc56d057a997c",
+      "writerRun": "https://github.com/adea-ai/themes/actions/runs/39066457864",
+      "writerJob": "Validation / CI / Format",
+      "savedAt": "2026-10-17T20:23:10.8090177Z",
+      "readerRun": "https://github.com/adea-ai/themes/actions/runs/39066576010",
+      "readerJob": "Validation / CI / Build",
+      "readerJobId": 117495405177,
+      "exactRestoredKey": "Linux-javascript-e93b77041c04137fd71751b910618f8143706b998eb050be417d09e89dd66985",
+      "result": "Both audit runs pass. First run Format job saved download cache; fresh second-run Build job restored that exact key. Frozen install208 ms in first-run Build,15 ms in reader Build; observational timings, not isolated benchmark."
+    },
+    "flatLibraryWorktrees": {
+      "themes": [
+        {
+          "stage": "writer",
+          "offline": false,
+          "exit": 0,
+          "seconds": 0.500862375,
+          "lockUnchanged": true
+        },
+        {
+          "stage": "reader",
+          "offline": true,
+          "exit": 0,
+          "seconds": 0.02367462499999995,
+          "lockUnchanged": true
+        }
+      ],
+      "plugins": [
+        {
+          "stage": "writer",
+          "offline": false,
+          "exit": 0,
+          "seconds": 0.541943583,
+          "lockUnchanged": true
+        },
+        {
+          "stage": "reader",
+          "offline": true,
+          "exit": 0,
+          "seconds": 0.02918675000000004,
+          "lockUnchanged": true
+        }
+      ]
+    },
+    "cloudflare": {
+      "deployedSource": "287303f13dfea2731b94b5af6936f9a8b9492b49",
+      "deploymentRun": "https://github.com/adea-ai/adea/actions/runs/39063656595",
+      "deploymentId": "335f2f14-b48f-485c-a06b-7631cc177205",
+      "workerVersion": "6c455a6a-8b8d-4092-95aa-2c327eb50147",
+      "deployedAt": "2026-10-17T19:45:13.79466Z",
+      "trafficPercent": 100,
+      "latestSuccessfulMetrics": {
+        "from": "2026-10-17T18:35:00Z",
+        "to": "2026-10-17T20:15:00Z",
+        "requests": 6,
+        "errors": 0,
+        "subrequests": 36,
+        "cpuTimeP50Raw": 26282,
+        "cpuTimeP99Raw": 46191,
+        "hyperdriveGroups": []
+      },
+      "verifiedCacheBehavior": "Hashed/start-assets immutable31536000 seconds; static asset hits bypass Worker except/api paths. Hyperdrive caching enabled. Authenticated dynamic/API responses remain private/no-store. Idle SSE, hidden-window suspension, summary poll and secret TTL/query batching fixes already merged/deployed.",
+      "recoveryConfirmed": false,
+      "blocker": {
+        "action": "Read additional Cloudflare account service analytics via GraphQL schema introspection",
+        "target": "Cloudflare GraphQL Analytics account",
+        "status": "rate-limited; no retry made",
+        "reason": "Rate limiter budget depleted; API requested waiting5 minutes. Further queries stopped.",
+        "pending": "Representative organic post-rollout CPU/Hyperdrive/other-service metrics. Six invocations and empty query groups cannot establish recovery."
+      },
+      "primaryCachingReference": "https://developers.cloudflare.com/changelog/post/2026-02-23-hyperdrive-stable-functions-uncacheable/",
+      "operationalChanges": "No infrastructure changes, access changes, deployments or production load probes performed by this follow-up."
+    },
+    "remaining": [
+      "Representative post-rollout Cloudflare service metrics and recovery confirmation; analytics temporarily rate-limited.",
+      "Windows executable/cache identity remains unqualified; Windows tasks intentionally uncached.",
+      "Separately owned runtime/Pi/private packaging and UI462 work was preserved and not taken over."
+    ],
+    "cacheScope": "Production build task-cache transfer qualified on Linux for all five workspace graphs; local Mac worktree portability qualified. Bun download cache reused offline for the two standalone JS libraries. Vite+ task caches remain per checkout by default; transfer proofs do not imply automatic global task-cache sharing or Windows qualification."
   }
 }
