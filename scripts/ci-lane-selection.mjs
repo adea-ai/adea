@@ -18,6 +18,7 @@ const webInputs = [
   // Build and type configuration shared by every package: a change here can alter what the
   // lanes build or run without touching any path above.
   /^turbo\.json$/,
+  /^vite\.config\.ts$/,
   /^tsconfig\.base\.json$/,
   /^tsconfig\.json$/,
   /^bunfig\.toml$/,

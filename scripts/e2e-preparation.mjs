@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process'
 export const e2ePreparationCommands = [
   { command: 'bun', args: ['scripts/e2e-setup.mjs'] },
   { command: 'bunx', args: ['playwright', 'install', '--with-deps', 'chromium'] },
-  { command: 'bunx', args: ['turbo', 'run', 'build', '--filter=@adea-ai/web^...'] },
+  { command: 'bun', args: ['run', 'build:web-deps'] },
 ]
 
 function runInheritedCommand(command, args) {

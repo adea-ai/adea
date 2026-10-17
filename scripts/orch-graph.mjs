@@ -1,0 +1,252 @@
+// Builds the `orch:*` Vite Task graph for the workspace from its manifests, so it cannot drift from them.
+//
+// The graph replaces `turbo.json` (`build`, `typecheck`, `lint`, `test`) and runs the same package scripts, so Bun
+// keeps running the tests. Its rules are the Turbo ones:
+//
+//   build      after the `build` of every workspace dependency (`^build`); outputs `dist/**`
+//   typecheck  after the `build` of every workspace dependency (`^build`)
+//   lint       no dependencies
+//   test       after the package's own `build` (`dependsOn: ["build"]`)
+//
+// Vite Task fingerprints a task's command, its declared `env`, and the files it reads. It sees only what `node`
+// (`tsc`, `vite`) reads on its own. What `bun` loads (the script it starts, its imports, a test file, `bunfig.toml`
+// and its preload) is not seen, so every task lists those as explicit `input` globs.
+import { readdirSync, readFileSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+
+export const WORKSPACE_ROOTS = ['apps', 'packages']
+
+/** Files every task depends on that no package directory contains. */
+export const GLOBAL_INPUTS = [
+  'bun.lock',
+  'bunfig.toml',
+  'tsconfig.base.json',
+  'tsconfig.json',
+  '.oxlintrc.json',
+]
+
+/** `bunfig.toml` preloads these into every `bun test`; only the test tasks run them. */
+export const TEST_INPUTS = ['scripts/test-target-preload.ts', 'scripts/test-target-guard.mjs']
+
+/** Generated or volatile paths below a package. They are products of a run, never inputs. */
+const GENERATED = [
+  'node_modules',
+  '.turbo',
+  '.vite',
+  '.wrangler',
+  '.cache',
+  'coverage',
+  'test-results',
+  'playwright-report',
+]
+
+/**
+ * Per-package facts the manifests cannot express. Each entry is something a task reads (or writes) that the
+ * package directory glob does not already cover or must not include.
+ */
+export const PACKAGE_RULES = {
+  'apps/desktop': {
+    // Its tests spawn children with a scrubbed environment and assert that no loader variable reaches them
+    // (supervision-env-contract, worktree-bootstrap-leases-templates). Vite Task tracks a cached task's file reads
+    // with an `LD_PRELOAD` shim that it re-injects into every descendant process, so those two assertions fail
+    // under a cached task. The suite runs uncached; Turbo cached it.
+    uncachedTest: true,
+  },
+  'apps/web': {
+    // `dist/` is the build output; `public/assets` is staged by `scripts/sync-assets.mjs` on every build;
+    // `cloudflare-env.d.ts` is written by `wrangler types`; `dist-desktop` is the desktop build's output.
+    generated: ['dist', 'dist-desktop', 'public/assets', 'cloudflare-env.d.ts', '.assets.*'],
+    // `bun ../../scripts/sync-assets.mjs` copies these into `public/assets`, which `vite build` then reads.
+    build: ['scripts/sync-assets.mjs', 'packages/spatial/data/**'],
+    // TanStack Start's `loadEnvPlugin` calls `loadEnv(mode, root, '')`, and under `vp run` Vite reports that to the
+    // runner as a dependency on EVERY environment variable (`getEnvs({ prefix: '' })`), so any ambient variable
+    // (`OLDPWD`, a CI run id) would be a cache miss. Without the runner's client address Vite reports nothing; the
+    // build still reads the variables it needs (`VITE_*` is declared above), and the runner still tracks file reads.
+    buildUnsetEnv: ['VP_RUN_NODE_CLIENT_PATH'],
+    test: [
+      'scripts/setup-source-contract-tests.mjs',
+      // `desktop-local-content.test.ts` and `desktop-transcription.test.ts` read the desktop shell source;
+      // `cloudflare-config.test.ts` reads the preview workflow.
+      'apps/desktop/shell/src/**',
+      '.github/workflows/cloudflare-preview.yml',
+    ],
+  },
+  'packages/data': {
+    // `controller-audience.test.ts` reads the workspace controller source.
+    test: ['packages/workspace-ui/src/**'],
+  },
+  'packages/remote-content': {
+    // Its `test` script runs `bun run build` first, so `dist` is rewritten by the task: it is a product of the
+    // run, not an input (it is a function of `src`, which is an input).
+    rebuildsDistInTest: true,
+  },
+  'packages/ui': {
+    // `tests/shared-ui-boundary.test.ts` scans these sources.
+    test: ['apps/web/src/**', 'packages/workspace-nav/src/**', 'packages/workspace-ui/src/**'],
+  },
+}
+
+export function discoverWorkspaces(root) {
+  const found = []
+  for (const group of WORKSPACE_ROOTS) {
+    const groupDir = join(root, group)
+    if (!existsSync(groupDir)) continue
+    for (const entry of readdirSync(groupDir).toSorted()) {
+      const manifestPath = join(groupDir, entry, 'package.json')
+      if (!existsSync(manifestPath)) continue
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+      found.push({ dir: `${group}/${entry}`, short: entry, name: manifest.name, manifest })
+    }
+  }
+  const names = new Set(found.map((workspace) => workspace.name))
+  for (const workspace of found) {
+    const { manifest } = workspace
+    workspace.dependencies = Object.keys({
+      ...manifest.dependencies,
+      ...manifest.devDependencies,
+      ...manifest.peerDependencies,
+      ...manifest.optionalDependencies,
+    })
+      .filter((name) => names.has(name))
+      .toSorted()
+    workspace.scripts = manifest.scripts ?? {}
+  }
+  return found
+}
+
+function closure(byName, workspace, seen = new Set()) {
+  for (const name of workspace.dependencies) {
+    if (seen.has(name)) continue
+    seen.add(name)
+    closure(byName, byName.get(name), seen)
+  }
+  return seen
+}
+
+const generatedGlobs = (dir, extra = []) =>
+  [...GENERATED, ...extra].map((path) => `!${dir}/${path.includes('*') ? path : `${path}/**`}`)
+
+/** The package's own files, without what a run generates. */
+function own(workspace, { includeDist }) {
+  const rule = PACKAGE_RULES[workspace.dir] ?? {}
+  const generated = [...(rule.generated ?? ['dist'])]
+  const kept = includeDist ? generated.filter((path) => path !== 'dist') : generated
+  return [`${workspace.dir}/**`, ...generatedGlobs(workspace.dir, kept)]
+}
+
+/** A dependency as `tsc`, `vite` and `bun` see it: the built `dist` and its manifest. */
+const builtDependency = (dir) => [`${dir}/dist/**`, `${dir}/package.json`]
+
+/** Everything of a dependency that its dependents' tests can load (`dist`, and `src` through relative imports). */
+const wholeDependency = (workspace) => [
+  `${workspace.dir}/**`,
+  ...generatedGlobs(
+    workspace.dir,
+    PACKAGE_RULES[workspace.dir]?.generated?.filter((p) => p !== 'dist') ?? []
+  ),
+]
+
+const taskName = (workspace, task) => `orch:${workspace.short}:${task}`
+const has = (workspace, script) => typeof workspace.scripts[script] === 'string'
+const run = (workspace, script) => `bun run --cwd ${workspace.dir} ${script}`
+
+/**
+ * A task that only orders others: `vp` has no command-less tasks, so the command is a no-op that is never cached.
+ * Its dependencies run concurrently, up to the concurrency limit.
+ */
+const group = (dependsOn) => ({ command: 'node -e 0', cache: false, dependsOn })
+
+const hasViteBuild = (workspace) => /\bvite build\b/.test(workspace.scripts.build ?? '')
+
+/**
+ * `toolchainId` names Node, Bun and the platform (see orch-toolchain.mjs): it is written into every cached command so
+ * a different toolchain is a different key. `orch:toolchain` checks it on every invocation.
+ */
+export function buildTasks(root, toolchainId) {
+  const workspaces = discoverWorkspaces(root)
+  const byName = new Map(workspaces.map((workspace) => [workspace.name, workspace]))
+  const cached = (command, dependsOn, cache) => ({
+    // `vp` sets `FORCE_COLOR=1` for every cached task, which colours the stderr a test parses from a child
+    // process (packages/db's factory-process test). Turbo passes no such variable, so it is removed.
+    command: `ORCH_TOOLCHAIN=${toolchainId} env ${['FORCE_COLOR', ...(cache.unsetEnv ?? [])].map((name) => `-u ${name}`).join(' ')} ${command}`,
+    dependsOn: ['orch:toolchain', ...dependsOn],
+    cache: { input: [{ auto: true }, ...GLOBAL_INPUTS, ...cache.input], ...cache.rest },
+  })
+  const buildsOf = (names) =>
+    names.map((name) => byName.get(name)).filter((dep) => has(dep, 'build'))
+
+  const tasks = {
+    // Not cached: it runs on every invocation with the PATH the tasks get, and fails unless that PATH holds the
+    // `node`, `bun` and platform named in the other tasks' commands. Then no dependent task runs or touches the cache.
+    'orch:toolchain': {
+      command: `node scripts/orch-toolchain.mjs --expect ${toolchainId}`,
+      cache: false,
+    },
+  }
+  const all = { build: [], typecheck: [], lint: [], test: [] }
+
+  for (const workspace of workspaces) {
+    const direct = buildsOf(workspace.dependencies)
+    const transitive = [...closure(byName, workspace)].map((name) => byName.get(name))
+    const rule = PACKAGE_RULES[workspace.dir] ?? {}
+    const buildDeps = direct.map((dep) => taskName(dep, 'build'))
+    const builtInputs = transitive.flatMap((dep) => builtDependency(dep.dir))
+    const env = hasViteBuild(workspace) || workspace.dir === 'apps/web' ? ['VITE_*'] : []
+
+    if (has(workspace, 'build')) {
+      const name = taskName(workspace, 'build')
+      tasks[name] = cached(run(workspace, 'build'), buildDeps, {
+        unsetEnv: rule.buildUnsetEnv,
+        input: [...own(workspace, { includeDist: false }), ...builtInputs, ...(rule.build ?? [])],
+        rest: { output: [`${workspace.dir}/dist/**`], env },
+      })
+      all.build.push(name)
+    }
+    if (has(workspace, 'typecheck')) {
+      const name = taskName(workspace, 'typecheck')
+      tasks[name] = cached(run(workspace, 'typecheck'), buildDeps, {
+        input: [...own(workspace, { includeDist: false }), ...builtInputs],
+        rest: { env },
+      })
+      all.typecheck.push(name)
+    }
+    if (has(workspace, 'lint')) {
+      const name = taskName(workspace, 'lint')
+      // Turbo's `lint` has no dependencies and its hash holds only the package's files, so a dependency's
+      // `dist` is neither an ordering nor an input here.
+      tasks[name] = cached(run(workspace, 'lint'), [], {
+        input: [
+          ...own(workspace, { includeDist: false }),
+          '!packages/*/dist/**',
+          '!apps/*/dist/**',
+        ],
+        rest: {},
+      })
+      all.lint.push(name)
+    }
+    if (has(workspace, 'test')) {
+      const name = taskName(workspace, 'test')
+      const selfBuild = has(workspace, 'build') ? [taskName(workspace, 'build')] : []
+      tasks[name] = rule.uncachedTest
+        ? { command: run(workspace, 'test'), dependsOn: selfBuild, cache: false }
+        : cached(run(workspace, 'test'), selfBuild, {
+            input: [
+              ...own(workspace, { includeDist: !rule.rebuildsDistInTest }),
+              ...transitive.flatMap((dep) => wholeDependency(dep)),
+              ...(rule.test ?? []),
+              ...TEST_INPUTS,
+            ],
+            rest: {},
+          })
+      all.test.push(name)
+    }
+  }
+
+  for (const kind of Object.keys(all)) tasks[`orch:${kind}`] = group(all[kind])
+  // `turbo run build --filter=@adea-ai/web^...`: everything a package depends on, without the package.
+  for (const workspace of workspaces) {
+    const deps = buildsOf([...closure(byName, workspace)]).map((dep) => taskName(dep, 'build'))
+    if (deps.length > 0) tasks[`orch:deps-of-${workspace.short}:build`] = group(deps)
+  }
+  return tasks
+}

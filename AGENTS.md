@@ -72,7 +72,7 @@ Run from the repository root unless a package directory is specified.
 
 ### Practical development notes
 
-- `test:unit` includes Turborepo package tests and the explicit coverage lane;
+- `test:unit` includes the Vite+ (`vp run`) package tests and the explicit coverage lane;
   running one `bun test` path gives focused evidence for that path.
 - The DB schema, SQL, snapshots and journal live together in `packages/db`.
   `db:migrate` and `db:verify` both execute `src/verify-migrations.ts`, use
@@ -386,7 +386,7 @@ readying a pull request.
 ## Design-system styling (enforced by `@shadcn/lint`)
 
 `@shadcn/lint` runs inside oxlint via `jsPlugins` in the root `.oxlintrc.json`;
-`bun run lint` (per-package `oxlint` through turbo) enforces it. Fix every
+`bun run lint` (per-package `oxlint` through `vp run`) enforces it. Fix every
 shadcn finding the same way you fix a type error.
 
 Consumer source must not suppress restyling, raw-color, arbitrary-value,
