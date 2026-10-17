@@ -68,7 +68,7 @@ describe('canonical assistant event append', () => {
         log.append(
           input({ payload: { messageId: 'message-1', deltaIndex: 0, text: 'half \ud83d pair' } })
         )
-      ).toThrow('unpaired surrogate')
+      ).toThrow('ill-formed Unicode string')
       expect(log.events()).toHaveLength(0)
       expect(published).toHaveLength(0)
       expect(log.append(input())!.seq).toBe('1')
