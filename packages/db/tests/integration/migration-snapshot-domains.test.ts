@@ -491,7 +491,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
     // Exact source/profile/time provenance: identity carries exactly the
     // pinned profile version, rehearsal/source and snapshot id.
     expect(first.document.identity).toEqual({
-      formatVersion: 2,
+      formatVersion: 3,
       rehearsalId: 'rehearsal-domains',
       snapshotId: 'snapshot-repeat',
       source: 'integration',
@@ -785,7 +785,7 @@ describe.skipIf(!provisioningUrl)('migration snapshot capture domains', () => {
 
   test('the pinned contract still reports active-attempt ownership conflicts and lost read state', async () => {
     const base = {
-      formatVersion: 2 as const,
+      formatVersion: 3 as const,
       rehearsalId: 'rehearsal-domains',
       snapshotId: 'snapshot-contract',
       source: 'integration',

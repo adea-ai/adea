@@ -16,13 +16,14 @@ import {
   migrationSnapshotFamilies,
   migrationSnapshotFindingClasses,
   migrationSnapshotFindingDetailKeys,
+  MIGRATION_SNAPSHOT_FORMAT_VERSION,
 } from '@adea-ai/types'
 
 // The comparator is pure: every test feeds frozen documents and asserts on the
 // returned verdict, findings and inventory. No database is involved anywhere.
 
 const BEFORE_IDENTITY = {
-  formatVersion: 2,
+  formatVersion: MIGRATION_SNAPSHOT_FORMAT_VERSION,
   rehearsalId: 'rehearsal-1181',
   snapshotId: 'snapshot-before',
   source: 'unit',
@@ -136,6 +137,31 @@ const event = (
   schemaVersion: 1,
   workspaceId: 'wsp-1',
   workspaceSequence: 1,
+  ...overrides,
+})
+
+const quarantineRecord = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'legacyAudienceQuarantine' }>> = {}
+): MigrationSnapshotRecord => ({
+  channelId: 'ch-1',
+  createdAt: '2026-01-01T00:00:00.000000Z',
+  family: 'legacyAudienceQuarantine',
+  observedAt: '2026-01-01T00:00:00.000000Z',
+  principalId: 'agent-1',
+  principalKind: 'agent',
+  profile: 'legacy-group-v1',
+  quarantineId: 'quarantine-1',
+  reason: 'agent_not_active',
+  sourceChannelCreatedAt: '2025-12-01T00:00:00.000000Z',
+  sourceJoinedAt: '2025-12-02T00:00:00.000000Z',
+  sourceParticipantId: 'participant-1',
+  sourceRowDigest: 'a'.repeat(64),
+  sourceWorkspaceId: 'wsp-1',
+  withdrawnAdmissions: 1,
+  withdrawnAudienceGrants: 0,
+  withdrawnDigest: 'b'.repeat(64),
+  withdrawnEnlistmentGrants: 0,
+  workspaceId: 'wsp-1',
   ...overrides,
 })
 
@@ -1008,6 +1034,7 @@ describe('migration snapshot comparator', () => {
           state: 'prepared',
         },
       ]),
+      legacyAudienceQuarantine: section([quarantineRecord()]),
       nativeSessions: section([
         {
           accountId: 'acct-1',
@@ -1332,7 +1359,7 @@ describe('migration snapshot comparator', () => {
     const before = doc(sections, 'snapshot-before')
     for (const drift of [
       { rehearsalId: 'rehearsal-other' },
-      { formatVersion: 3 },
+      { formatVersion: 4 },
       { source: 'other-system' },
     ]) {
       const after = doc(sections)
@@ -1346,16 +1373,14 @@ describe('migration snapshot comparator', () => {
     }
   })
 
-  test('a snapshot from an older format version is refused by name, never compared (#1222)', () => {
+  test('format 2 snapshots are refused because they cannot prove quarantine provenance (#1222)', () => {
     const sections: MigrationSnapshotSections = { memberships: section([membership('user-1')]) }
     const current = doc(sections, 'snapshot-current')
-    // A version 1 artifact grant carried a revocation flag; reading it as an instant could hide a change.
+    // Format 2 has no quarantine provenance family; treating that missing authority as zero could hide drift.
     const legacy = Object.freeze({
-      identity: Object.freeze({ ...current.identity, formatVersion: 1, snapshotId: 'snapshot-v1' }),
+      identity: Object.freeze({ ...current.identity, formatVersion: 2, snapshotId: 'snapshot-v2' }),
       sections: Object.freeze({
-        artifactReferenceGrants: section([
-          { ...grant(), revoked: true, revokedAt: undefined } as unknown as MigrationSnapshotRecord,
-        ]),
+        memberships: section([membership('user-1')]),
       }),
     }) as unknown as MigrationSnapshotDocument
     for (const [before, after] of [
@@ -1364,24 +1389,74 @@ describe('migration snapshot comparator', () => {
       [legacy, legacy],
     ] as const) {
       expect(() => compareMigrationSnapshots({ before, after })).toThrow(
-        /format incompatible.*version 1 predates version 2/
+        /format incompatible.*version 2 predates version 3/
       )
     }
     const future = Object.freeze({
-      identity: Object.freeze({ ...current.identity, formatVersion: 3 }),
+      identity: Object.freeze({ ...current.identity, formatVersion: 4 }),
       sections: current.sections,
     }) satisfies MigrationSnapshotDocument
     expect(() => compareMigrationSnapshots({ before: current, after: future })).toThrow(
-      /newer than the supported version 2/
+      /newer than the supported version 3/
     )
+  })
+
+  test('quarantine source removal and provenance changes are determinate drift', () => {
+    const before = section([quarantineRecord()])
+    const removed = compare(
+      { legacyAudienceQuarantine: before },
+      { legacyAudienceQuarantine: section([]) }
+    )
+    expect(findingsFor(removed, 'legacyAudienceQuarantine', 'missing_record')).toHaveLength(1)
+    expect(removed.verdict).toBe('divergent')
+
+    const digest = compare(
+      { legacyAudienceQuarantine: before },
+      {
+        legacyAudienceQuarantine: section([
+          quarantineRecord({ sourceRowDigest: 'c'.repeat(64), withdrawnDigest: 'd'.repeat(64) }),
+        ]),
+      }
+    )
+    expect(
+      findingsFor(digest, 'legacyAudienceQuarantine', 'digest_drift')
+        .map(({ detail }) => detail.field)
+        .toSorted()
+    ).toEqual(['sourceRowDigest', 'withdrawnDigest'])
+
+    const reason = compare(
+      { legacyAudienceQuarantine: before },
+      {
+        legacyAudienceQuarantine: section([
+          quarantineRecord({ reason: 'group_channel_not_active' }),
+        ]),
+      }
+    )
+    expect(findingsFor(reason, 'legacyAudienceQuarantine', 'changed_attribute')).toContainEqual(
+      expect.objectContaining({ detail: expect.objectContaining({ field: 'reason' }) })
+    )
+  })
+
+  test('a missing v3 quarantine section is unknown rather than a zero-row proof', () => {
+    const comparison = compare(
+      { legacyAudienceQuarantine: section([quarantineRecord()]) },
+      { memberships: section([membership('user-1')]) }
+    )
+    expect(findingsFor(comparison, 'legacyAudienceQuarantine', 'unknown_domain')).toHaveLength(1)
+    expect(comparison.verdict).toBe('inconclusive')
   })
 
   test('malformed snapshot identity is a typed error', () => {
     const sections: MigrationSnapshotSections = { memberships: section([membership('user-1')]) }
     for (const identity of [
       { formatVersion: 0, rehearsalId: 'r', snapshotId: 's', source: 'x' },
-      { formatVersion: 2, rehearsalId: '', snapshotId: 's', source: 'x' },
-      { formatVersion: 2, rehearsalId: 'r', snapshotId: 's' },
+      {
+        formatVersion: MIGRATION_SNAPSHOT_FORMAT_VERSION,
+        rehearsalId: '',
+        snapshotId: 's',
+        source: 'x',
+      },
+      { formatVersion: MIGRATION_SNAPSHOT_FORMAT_VERSION, rehearsalId: 'r', snapshotId: 's' },
     ]) {
       const broken = Object.freeze({
         identity: Object.freeze(identity) as MigrationSnapshotDocument['identity'],

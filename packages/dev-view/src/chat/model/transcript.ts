@@ -1,4 +1,4 @@
-import { decodeCbor, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
+import { decodeCbor, decodeRuntimeEnvelope } from '@adea-ai/types/dev-runtime-wire'
 import type { DevStreamFrame, RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
 import type { ChatRetentionTruth } from './types'
@@ -213,7 +213,7 @@ export function acceptRuntimeStreamFrame(
   if (frame.type === 'data') {
     try {
       const decoded = decodeCbor(frame.bytes)
-      const event = decodeRuntimeEvent(decoded.value, { source })
+      const event = decodeRuntimeEnvelope(decoded.value, { source })
       if (event.seq !== frame.sequence) return gapped(state, frame.sequence)
       return acceptRuntimeEvent(state, event)
     } catch {

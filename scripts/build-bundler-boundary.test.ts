@@ -25,8 +25,8 @@ function workspaceManifests() {
 
 // Decision 0008 (docs/decisions/0008-build-bundler-vite-vs-bun.md) settled the
 // build and bundler question by measurement: Vite 8 (Rolldown) for the app and
-// library builds, `tsc` for declarations and type-only packages, Turborepo for
-// task caching. Bun keeps install, scripts, tests, and the Electrobun shell; its
+// library builds, `tsc` for declarations and type-only packages, Vite+ (`vp run`, decision
+// 0015) for task caching. Bun keeps install, scripts, tests, and the Electrobun shell; its
 // bundler was rejected on every surface. These assertions keep a second,
 // dormant build path from reappearing next to the shipping one.
 describe('build and bundler boundary', () => {

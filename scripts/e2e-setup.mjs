@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
+import { assertLocalTestTargets } from './test-target-guard.mjs'
 import {
   composePostgresImage,
   runWithPullFallback,
@@ -7,6 +8,9 @@ import {
 } from './docker-pull-backoff.mjs'
 
 const root = resolve(import.meta.dirname, '..')
+
+// An inherited DATABASE_URL must be a local or CI-created target before anything runs.
+assertLocalTestTargets()
 
 // Local development database shared with scripts/test-integration.mjs.
 // Used only when DATABASE_URL is not already set (CI provides its own).

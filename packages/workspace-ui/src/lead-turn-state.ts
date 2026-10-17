@@ -22,6 +22,8 @@ export type LeadTurnView = Readonly<{
   cursor: number
   notice: string | null
   requiresNewAdmission: boolean
+  /** Bounded reason of the last refused readiness check; held until the next check or turn change. */
+  lastRefusal: string | null
 }>
 export type LeadTurnPort = Readonly<{
   latest: (scope: LeadTurnScope) => Promise<{ leadTurn: ApiLeadTurnStatus | null }>
@@ -48,7 +50,11 @@ const empty = (): LeadTurnView => ({
   cursor: 0,
   notice: null,
   requiresNewAdmission: false,
+  lastRefusal: null,
 })
+/** A refusal is reported by the check that made it; a new admission result replaces it. */
+const refusalOf = (turn: ApiLeadTurnStatus) =>
+  turn.reasonCode === 'MODEL_NOT_READY' ? (turn.readinessReason ?? 'READINESS_UNAVAILABLE') : null
 const cancellable = new Set(['starting', 'running', 'awaiting_input', 'cancelling'])
 const terminal = new Set(['completed', 'failed', 'cancelled', 'timed_out'])
 
@@ -120,7 +126,11 @@ export function createLeadTurnViewController(options: {
     turn.schemaVersion === 'adea-lead-turn/v1' &&
     turn.intentId === intentId &&
     turn.messageId === view.turn?.messageId
-  const accept = (turn: ApiLeadTurnStatus) => update({ turn, funding: null })
+  /** A status read does not repeat a refusal, so keep it only while the turn is still unprepared. */
+  const carried = (turn: ApiLeadTurnStatus) =>
+    refusalOf(turn) ?? (turn.state === 'blocked' && !turn.dispatchId ? view.lastRefusal : null)
+  const accept = (turn: ApiLeadTurnStatus) =>
+    update({ turn, funding: null, lastRefusal: refusalOf(turn) })
   const fail = () =>
     update({
       funding: null,
@@ -135,7 +145,11 @@ export function createLeadTurnViewController(options: {
       if (!view.turn) {
         const result = await options.port.latest(scope)
         if (!current(scope)) return
-        update({ turn: result.leadTurn, cursor: 0 })
+        update({
+          turn: result.leadTurn,
+          cursor: 0,
+          lastRefusal: result.leadTurn ? carried(result.leadTurn) : null,
+        })
       }
       const turn = view.turn
       if (!turn) return
@@ -145,7 +159,7 @@ export function createLeadTurnViewController(options: {
         fail()
         return
       }
-      update({ turn: result.leadTurn })
+      update({ turn: result.leadTurn, lastRefusal: carried(result.leadTurn) })
       if (result.leadTurn.dispatchId) {
         const progress = await options.port.progress(scope, turn.intentId, view.cursor)
         if (!current(scope)) return
@@ -157,7 +171,11 @@ export function createLeadTurnViewController(options: {
           fail()
           return
         }
-        update({ turn: progress.leadTurn, cursor: progress.nextSequence })
+        update({
+          turn: progress.leadTurn,
+          cursor: progress.nextSequence,
+          lastRefusal: carried(progress.leadTurn),
+        })
       }
       const binding = leadFundingBinding(view.turn)
       if (

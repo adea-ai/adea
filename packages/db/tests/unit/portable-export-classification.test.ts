@@ -45,6 +45,10 @@ const excluded: Readonly<Record<string, string>> = {
   group_audience_grants: 'authority_grants',
   group_enlistment_grants: 'authority_grants',
   group_sharing_grants: 'authority_grants',
+  // Quarantine rows are internal admission-denial and migration-provenance
+  // evidence. Exporting them would disclose which legacy audiences failed
+  // qualification, so they stay under the existing authority exclusion.
+  legacy_audience_quarantine: 'authority_grants',
   lead_turn_intents: 'runtime_execution_state',
   lead_turn_runtime: 'runtime_execution_state',
   management_authority_consumptions: 'job_effect_approval_evidence',

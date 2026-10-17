@@ -274,6 +274,15 @@ export function projectModelSelectionFunding(
   // Authorization/evidence refs must exist, but never leave the private projection.
   reference(funding.authorizationRef)
   reference(owner.evidenceRef)
+  const source = fundingSource(funding.fundingSource)
+  const ownerKind = enumValue(owner.kind, [
+    'provider_account',
+    'workspace_account',
+    'adea_account',
+  ] as const)
+  // The payer kind must agree with the funding source: bring-your-own cannot be Adea-paid.
+  if (source === 'byo_api' && ownerKind === 'adea_account')
+    return { ...base, state: 'blocked', reasonCode: 'READINESS_UNAVAILABLE' }
   return {
     ...base,
     state: 'ready',

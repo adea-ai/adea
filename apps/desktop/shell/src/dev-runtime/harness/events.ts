@@ -25,8 +25,26 @@ import type {
   RuntimeEventKind,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
+import { canonicalDevCommandJson } from '../../../../../../packages/types/src/dev-runtime'
+import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
 import { createDurableJsonStore } from '../host-store'
-import { decodeRuntimeEvent } from '../../../../../../packages/types/src/dev-runtime-wire'
+import { assertAssistantEventFitsFrame, assertAssistantEventOrder } from './assistant-events'
+import {
+  decodeRuntimeEvent,
+  validateRuntimeEventReplayCandidate,
+  isRuntimeAssistantEventKind,
+  isRuntimeCallEventKind,
+} from '../../../../../../packages/types/src/dev-runtime-wire'
+import {
+  snapshotCallEvent,
+  validateCallEventAdmission,
+  type VerifyCallPermissionEligibility,
+} from './call-events'
+import {
+  assertVisibleSummaryAppend,
+  assertVisibleSummaryReplay,
+  type VisibleSummaryVerifier,
+} from './visible-summaries'
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
 
@@ -74,10 +92,20 @@ function sameScope(left: Scope, right: Scope): boolean {
 
 function project(event: StoredEvent): RuntimeEvent {
   const { scope: _, ...rest } = event
+  validateRuntimeResponseReferences(rest.kind, rest.payload, rest.source)
   return { ...rest }
 }
 
 const seqOf = (event: RuntimeEvent): bigint => BigInt(event.seq)
+
+function isVersionedCall(event: RuntimeEvent): boolean {
+  return (
+    isRuntimeCallEventKind(event.kind) &&
+    event.payload !== null &&
+    typeof event.payload === 'object' &&
+    Object.hasOwn(event.payload, 'schemaVersion')
+  )
+}
 
 function compareRetentionOrder(left: RuntimeEvent, right: RuntimeEvent): number {
   if (left.generation !== right.generation) return left.generation < right.generation ? -1 : 1
@@ -87,10 +115,16 @@ function compareRetentionOrder(left: RuntimeEvent, right: RuntimeEvent): number 
   return left.eventId.localeCompare(right.eventId)
 }
 
-function dedupeKey(
-  event: Pick<RuntimeEvent, 'runtimeSessionId' | 'generation' | 'source' | 'sourceEventId'>
-): string {
-  return `${event.runtimeSessionId}\u0000${event.generation}\u0000${event.source}\u0000${event.sourceEventId}`
+function sameSourceEvent(
+  left: Pick<RuntimeEvent, 'runtimeSessionId' | 'generation' | 'source' | 'sourceEventId'>,
+  right: Pick<RuntimeEvent, 'runtimeSessionId' | 'generation' | 'source' | 'sourceEventId'>
+): boolean {
+  return (
+    left.runtimeSessionId === right.runtimeSessionId &&
+    left.generation === right.generation &&
+    left.source === right.source &&
+    left.sourceEventId === right.sourceEventId
+  )
 }
 
 export type SessionEventInput = Readonly<{
@@ -100,6 +134,7 @@ export type SessionEventInput = Readonly<{
   kind: RuntimeEventKind
   source?: RuntimeEvent['source']
   confidence?: RuntimeEvent['confidence']
+  /** Required for call events; other event kinds retain the metadata default. */
   classification?: RuntimeEvent['classification']
   payload?: unknown
   sourceEventId: string
@@ -128,6 +163,10 @@ export function createSessionEventLog(input: {
   maxPerSession?: number
   /** Overrides the total bound (tests only; production uses the constant). */
   maxTotal?: number
+  /** No production adapter supplies this yet; absent evidence means unknown only. */
+  verifyCallPermissionEligibility?: VerifyCallPermissionEligibility
+  /** Requires genuine authenticated source observations; absent fails closed. */
+  verifyVisibleSummary?: VisibleSummaryVerifier
 }): SessionEventLog {
   const maxPerSession = input.maxPerSession ?? MAX_EVENTS_PER_SESSION
   const maxTotal = input.maxTotal ?? MAX_TOTAL_EVENTS
@@ -156,7 +195,12 @@ export function createSessionEventLog(input: {
 
   const rawEvents = (): RuntimeEvent[] => inScope().map(project)
   const select = (runtimeSessionId: string, generation?: number): RuntimeEvent[] => {
-    const selected = rawEvents().filter(
+    const records = rawEvents()
+    // Retained visible-summary facts are revalidated scope-wide on every read
+    // (origin/main), and retained usage observations quarantine their
+    // generation (#1391).
+    assertVisibleSummaryReplay(records)
+    const selected = records.filter(
       (event) =>
         event.runtimeSessionId === runtimeSessionId &&
         (generation === undefined || event.generation === generation)
@@ -168,11 +212,20 @@ export function createSessionEventLog(input: {
   const all = (): RuntimeEvent[] => {
     const records = rawEvents()
     assertUsageReplayable(records)
+    assertVisibleSummaryReplay(records)
     return records
   }
 
   function appendEvent(sessionInput: SessionEventInput): RuntimeEvent | undefined {
+    validateRuntimeResponseReferences(
+      sessionInput.kind,
+      sessionInput.payload,
+      sessionInput.source ?? 'host'
+    )
     const records = rawEvents()
+    // Replay is revalidated before any append (visible summaries scope-wide,
+    // usage within the target session/generation).
+    assertVisibleSummaryReplay(records)
     assertUsageReplayable(
       records.filter(
         (event) =>
@@ -181,6 +234,11 @@ export function createSessionEventLog(input: {
       )
     )
     const source = sessionInput.source ?? 'host'
+    const latest = BigInt(
+      latestSeqOf(records, sessionInput.runtimeSessionId, sessionInput.generation)
+    )
+    const exhausted = latest >= 18_446_744_073_709_551_615n
+    const nextSeq = (exhausted ? latest : latest + 1n).toString()
     let candidate: RuntimeEvent = {
       schemaVersion: 1,
       eventId: randomUUID(),
@@ -189,9 +247,10 @@ export function createSessionEventLog(input: {
         ? { harnessRunId: sessionInput.harnessRunId }
         : {}),
       generation: sessionInput.generation,
-      seq: (
-        BigInt(latestSeqOf(records, sessionInput.runtimeSessionId, sessionInput.generation)) + 1n
-      ).toString(),
+      // The stored cursor is the next one, so call verifiers and frame budgets
+      // see the real event. An exhausted generation keeps its last valid cursor
+      // here, so an exact retry stays a no-op; a new event is refused below.
+      seq: nextSeq,
       occurredAt: sessionInput.occurredAt ?? new Date().toISOString(),
       receivedAt: new Date().toISOString(),
       source,
@@ -204,12 +263,36 @@ export function createSessionEventLog(input: {
     // Usage has a strict producer contract (#1391). Refuse before persistence,
     // dedupe, retention, or subscriber delivery; other event payloads stay opaque.
     if (candidate.kind === 'usage.observed') candidate = decodeRuntimeEvent(candidate, { source })
-    const duplicate = records.find((event) => dedupeKey(event) === dedupeKey(candidate))
+    if (isVersionedCall(candidate) && sessionInput.classification === undefined)
+      throw new TypeError('event.classification: call observations require explicit classification')
+    // A retry does not create a new call envelope: validate call facts before
+    // comparison and charge the frame budget only for a genuinely new call.
+    // Assistant events are checked here too, so a malformed identity never
+    // reaches dedupe or the cursor. Other kinds keep legacy opaque retention.
+    if (isRuntimeCallEventKind(candidate.kind) || isRuntimeAssistantEventKind(candidate.kind))
+      validateRuntimeEventReplayCandidate(candidate, { source })
+    const duplicate = records.find((event) => sameSourceEvent(event, candidate))
     if (duplicate) {
+      // Calls and assistant messages are keyed by their producing run and
+      // confidence; legacy opaque kinds keep their lenient retry comparison.
+      const sameMetadata =
+        !(isVersionedCall(candidate) || isRuntimeAssistantEventKind(candidate.kind)) ||
+        (duplicate.harnessRunId === candidate.harnessRunId &&
+          duplicate.confidence === candidate.confidence &&
+          duplicate.classification === candidate.classification &&
+          (sessionInput.occurredAt === undefined || duplicate.occurredAt === candidate.occurredAt))
       if (
         duplicate.kind === candidate.kind &&
-        JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
+        (isVersionedCall(candidate)
+          ? JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
+          : canonicalDevCommandJson(duplicate.payload) ===
+            canonicalDevCommandJson(candidate.payload)) &&
+        sameMetadata
       ) {
+        if (isVersionedCall(candidate)) {
+          const replay = snapshotCallEvent(duplicate)
+          validateCallEventAdmission(replay, records, input.verifyCallPermissionEligibility)
+        }
         return undefined
       }
       throw {
@@ -219,6 +302,22 @@ export function createSessionEventLog(input: {
           'a different event already exists under this (session, generation, source, sourceEventId) key',
       }
     }
+    if (isRuntimeCallEventKind(candidate.kind)) {
+      decodeRuntimeEvent(candidate, { source })
+      candidate = snapshotCallEvent(candidate)
+      validateCallEventAdmission(candidate, records, input.verifyCallPermissionEligibility)
+    }
+    assertVisibleSummaryAppend(candidate, records, input.scope, input.verifyVisibleSummary)
+    assertAssistantEventOrder(records, candidate)
+    if (exhausted) {
+      throw {
+        code: 'invalid_state',
+        retryable: false,
+        message: 'runtime event sequence exhausted for this generation',
+      }
+    }
+    // Size the exact stored event: the allocated sequence can add a digit.
+    assertAssistantEventFitsFrame(candidate)
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(
