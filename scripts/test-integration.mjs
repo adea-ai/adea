@@ -209,12 +209,17 @@ try {
       // default conditions. The shared database environment and the same latency-sized ceiling apply.
       // These files install different `mock.module` route/auth seams, so per-file workers keep the
       // route contracts and their module registries from leaking into one another.
+      // Route modules reach `.tsx` through `@adea-ai/data` and the workspace UI. Bun 1.4.3 compiles those as
+      // automatic dev JSX, which solid-js cannot link (no `jsxDEV`), so this run loads the same Solid transform
+      // the package `test` scripts pass with `--preload` (the root bunfig preload line is pinned by the target guard).
       run(
         'bun',
         [
           'test',
           '--parallel',
           '--conditions=react-server',
+          '--preload',
+          resolve(root, 'scripts', 'test-solid-transform.ts'),
           '--timeout',
           String(timeoutMs),
           ...plan.routeFiles.map((file) => resolve(root, file)),

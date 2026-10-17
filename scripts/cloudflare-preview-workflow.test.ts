@@ -107,7 +107,7 @@ describe('cloudflare-preview.yml outcomes', () => {
       'working-directory': 'apps/web',
       'install-working-directory': '.',
       'build-script': 'build:cloudflare',
-      'bun-version': '1.4.0',
+      'bun-version': '1.4.3',
       environment: 'Preview - adea-web',
     })
     expect(Object.keys(preview.secrets).toSorted()).toEqual([
