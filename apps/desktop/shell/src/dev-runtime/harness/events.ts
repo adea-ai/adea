@@ -37,7 +37,7 @@ import {
   isRuntimeCallEventKind,
 } from '../../../../../../packages/types/src/dev-runtime-wire'
 import { createDurableJsonStore } from '../host-store'
-import { assertAssistantEventOrder } from './assistant-events'
+import { assertAssistantEventFitsFrame, assertAssistantEventOrder } from './assistant-events'
 import { admitRuntimeActivityEvent } from './activity-events'
 import { validateInteractionAdmission, validateInteractionCorrelation } from './interactions'
 import {
@@ -329,6 +329,8 @@ export function createSessionEventLog(input: {
     }
     if (isRuntimeActivityEventKind(candidate.kind)) Object.freeze(candidate)
     assertRuntimeEventFrameSize(candidate)
+    // Size the exact stored event: the allocated sequence can add a digit.
+    assertAssistantEventFitsFrame(candidate)
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(

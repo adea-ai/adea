@@ -122,11 +122,13 @@ describe('Dev Runtime operation registry', () => {
     // measure, plan, commit), 233 before dev.github.repositories (the
     // authenticated account's repository listing, the add surface's "From
     // GitHub" import source), 236 after the harness inventory read and its
-    // explicit rescan, 238 after the device-wide default harness read and update: the registry ratchet moves only when an
+    // explicit rescan, 238 after the device-wide default harness read and update, 241 after local
+    // chat attachment upload/open/remove (#1392): the registry ratchet moves only when an
     // operation is deliberately added, and the decoder-key check below is
     // what keeps the list and the decoders in step.
-    // #1393 adds the authorized, generation-fenced follow-up queue operation.
-    expect(devOperations).toHaveLength(239)
+    // #1393 adds the authorized, generation-fenced follow-up queue operation;
+    // the merged registry keeps #1392's attachment operations too: 242.
+    expect(devOperations).toHaveLength(242)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({

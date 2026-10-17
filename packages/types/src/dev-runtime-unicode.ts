@@ -1,15 +1,12 @@
 import { fail, record } from './dev-runtime-validation-internal'
 
+// A high surrogate not followed by a low one, or a low surrogate not preceded
+// by a high one. Code-unit semantics (no `u` flag) are required here.
+const illFormed = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/
+
 /** UTF-8 must preserve the producer's string, never replace a lone surrogate. */
 export function assertWellFormedUnicode(value: string, path: string): void {
-  for (let index = 0; index < value.length; index += 1) {
-    const unit = value.charCodeAt(index)
-    if (unit >= 0xd800 && unit <= 0xdbff) {
-      const next = value.charCodeAt(index + 1)
-      if (!(next >= 0xdc00 && next <= 0xdfff)) fail(path, 'ill-formed Unicode string')
-      index += 1
-    } else if (unit >= 0xdc00 && unit <= 0xdfff) fail(path, 'ill-formed Unicode string')
-  }
+  if (illFormed.test(value)) fail(path, 'ill-formed Unicode string')
 }
 
 /** Called after the contract's JSON bounds; includes envelope values and map keys. */

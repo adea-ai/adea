@@ -7,6 +7,7 @@ export type {
   RuntimeAssistantResultPayload,
   RuntimeAssistantPayloads,
 } from './dev-runtime-assistant'
+import { decodeChatAttachmentEventPayload } from './dev-runtime-attachments'
 import {
   exactKeys,
   fail,
@@ -92,6 +93,8 @@ export const runtimeEventKinds = [
   'turn.reasoning_summary',
   'turn.method_step_summary',
   'turn.result',
+  'attachment.added',
+  'attachment.removed',
   'tool.requested',
   'tool.started',
   'tool.progress',
@@ -296,9 +299,13 @@ export type RuntimeEventProvenance = Readonly<{
 }>
 
 /**
- * Most kind-specific payload validators are reached only through this object.
- * Browser stream and replay have a separate focused queue decoder so they do
- * not pull unrelated kind validators into the lean envelope entry.
+ * Kind-specific payload validators. Everything that interprets a payload (call
+ * observations, visible summaries, cited responses, and any later interaction
+ * or attachment contract) is reached ONLY through this object, so the lean
+ * browser decoder below never imports it. Register new validators here, never
+ * inside `decodeEventEnvelope`. Browser stream and replay have a separate
+ * focused queue decoder so they do not pull unrelated kind validators into
+ * the lean envelope entry.
  */
 type EventSemantics = Readonly<{
   early(
@@ -324,6 +331,11 @@ function decodeQueueEventPayload(
 
 const eventSemantics: EventSemantics = {
   early(item, enforceEnvelopeBounds) {
+    // Lone surrogates in identities would be rewritten by UTF-8/CBOR and so
+    // collapse distinct namespaces; refuse them before admission and dedupe.
+    for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId', 'harnessRunId'] as const)
+      if (item[key] !== undefined) assertWellFormedUnicode(item[key] as string, `event.${key}`)
+    uint64String(item.seq, 'event.seq')
     if (isVersionedCallClaim(item)) validateCall(item, enforceEnvelopeBounds)
     const kind = item.kind as string
     if (isRuntimeAssistantEventKind(kind)) {
@@ -347,6 +359,11 @@ const eventSemantics: EventSemantics = {
       if (item.classification !== 'workspace_private')
         fail('event.classification', 'structured interactions require workspace_private')
       stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+    }
+    if (item.kind === 'attachment.added' || item.kind === 'attachment.removed') {
+      if (item.source !== 'host' || item.confidence !== 'authoritative')
+        fail('event.source', 'attachment facts require authoritative host provenance')
+      decodeChatAttachmentEventPayload(item.kind, item.payload)
     }
     validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
     if (item.kind === 'usage.observed') {
@@ -388,12 +405,13 @@ export function decodeRuntimeEvent(
 }
 
 /**
- * Lean envelope decoder: authenticated envelope, generic payload bounds and
- * focused checks for privacy- and authority-sensitive event claims. Other
- * kind-specific payloads remain opaque unless a consumer narrows them through
- * the explicit contract. Browser stream and replay use
- * `decodeRuntimeBrowserEnvelope` for the additional strict queue contract.
- * Host admission and persistence use `decodeRuntimeEvent`.
+ * Lean envelope decoder: authenticated envelope, generic payload bounds and the
+ * full-frame bound for versioned call and activity claims. It never interprets
+ * a kind's payload, so a consumer that renders or acts on one must narrow it
+ * with the explicit contract (for example `decodeRuntimeCallEvent`); browser
+ * stream and replay use `decodeRuntimeBrowserEnvelope` for the additional
+ * strict queue contract. Host admission and persistence use
+ * `decodeRuntimeEvent`.
  */
 export function decodeRuntimeEnvelope(
   value: unknown,
@@ -738,6 +756,7 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
         if (previousKey && compareBytes(previousKey, keyBytes) >= 0) fail('cbor', 'bad map order')
         previousKey = keyBytes
         if (Object.hasOwn(out, key)) fail('cbor', 'duplicate map key')
+        // Define rather than assign so `__proto__` stays an ordinary own key.
         Object.defineProperty(out, key, {
           value: decode(),
           enumerable: true,

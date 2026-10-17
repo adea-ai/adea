@@ -2,6 +2,7 @@
 // This module is shared by the wire decoder and host append guard; it has no UI
 // or process dependencies. Other payload fields retain the bounded JSON contract.
 import { fail, integerValue, literal, record, stringValue } from './dev-runtime-validation-internal'
+import { assertWellFormedUnicode } from './dev-runtime-unicode'
 
 export type RuntimeAssistantEventKind =
   | 'turn.assistant_delta'
@@ -40,35 +41,26 @@ export function isRuntimeAssistantEventKind(kind: string): kind is RuntimeAssist
   )
 }
 
-/** Refuse an unpaired surrogate: stream replay would turn it into U+FFFD. */
-function wellFormed(text: string, path: string): void {
-  if (/[\ud800-\udfff]/u.test(text)) fail(path, 'unpaired surrogate')
-}
-
 export function decodeRuntimeAssistantPayload<K extends RuntimeAssistantEventKind>(
   kind: K,
   value: unknown
 ): RuntimeAssistantPayloads[K] {
   const payload = record(value, 'event.payload')
   const messageId = stringValue(payload.messageId, 'event.payload.messageId', 1, 256)
-  // With the `u` flag a surrogate-range class matches only an unpaired surrogate,
-  // which UTF-8/CBOR would silently replace and so change the identity.
-  if (/[\p{Cc}\s\ud800-\udfff]/u.test(messageId))
-    fail(
-      'event.payload.messageId',
-      'expected a well-formed opaque identity without whitespace or controls'
-    )
+  // UTF-8/CBOR would silently replace an unpaired surrogate and so change the identity.
+  assertWellFormedUnicode(messageId, 'event.payload.messageId')
+  if (/[\p{Cc}\s]/u.test(messageId))
+    fail('event.payload.messageId', 'expected an opaque identity without whitespace or controls')
+  const text = (key: 'text' | 'summary') => {
+    const path = `event.payload.${key}`
+    assertWellFormedUnicode(stringValue(payload[key], path, 0, 65_536), path)
+  }
   if (kind === 'turn.assistant_delta') {
     integerValue(payload.deltaIndex, 'event.payload.deltaIndex', 0)
-    wellFormed(stringValue(payload.text, 'event.payload.text', 0, 65_536), 'event.payload.text')
+    text('text')
   } else if (kind === 'turn.assistant_message') {
-    wellFormed(stringValue(payload.text, 'event.payload.text', 0, 65_536), 'event.payload.text')
+    text('text')
     literal(payload.supersedes, ['deltas'], 'event.payload.supersedes')
-  } else if (payload.summary !== undefined) {
-    wellFormed(
-      stringValue(payload.summary, 'event.payload.summary', 0, 65_536),
-      'event.payload.summary'
-    )
-  }
+  } else if (payload.summary !== undefined) text('summary')
   return value as RuntimeAssistantPayloads[K]
 }

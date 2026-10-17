@@ -23,12 +23,12 @@ export function sameSummaryItems(
 const visible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden'
 
 /** The cross-workspace run counts refresh this often while the window is visible. */
-export const DEV_SUMMARY_POLL_MS = 30_000
+export const DEV_SUMMARY_POLL_MS = 60_000
 
 /**
  * Polls the counts-only desktop run summary (`dev.summary.workspaces`, ADR
  * 0011) for the sidebar's collapsed workspace chips and "Needs you" strip:
- * once the runtime is ready, every 30s while the document is visible, and
+ * once the runtime is ready, every 60s while the document is visible, and
  * again whenever it becomes visible. Hidden windows issue no reads. A failed
  * read keeps the last observed counts rather than guessing zeros, and a read
  * that observed the same counts keeps the previous array, so an idle poll

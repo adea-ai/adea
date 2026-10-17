@@ -1,3 +1,4 @@
+import { createChatAttachmentStore } from './dev-runtime/attachments/store'
 // Workspace-owned device data only. Files and account-wide credentials are
 // never inferred to be disposable from a directory name or a string match.
 import {
@@ -89,6 +90,13 @@ export function assertWorkspaceDataPath(dataDir: string, path: string) {
 
 export function workspaceLocalData(input: { dataDir: string; scope: Scope; memory: MemoryStore }) {
   const { dataDir, scope, memory } = input
+  const attachments = createChatAttachmentStore({
+    dataDir,
+    scope,
+    assertBinding: () => {
+      throw new Error('workspace_cleanup_internal_only')
+    },
+  })
   assertMemoryWorkspaceId(scope.workspaceId)
   const safePath = (path: string) => assertWorkspaceDataPath(dataDir, path)
   const contentDir = join(dataDir, 'local-content')
@@ -260,11 +268,14 @@ export function workspaceLocalData(input: { dataDir: string; scope: Scope; memor
     followUpData()
     const snapshot = memory.list(scope.workspaceId)
     if (snapshot.unreadable) throw new Error('workspace_cleanup_ambiguous_data')
-    const registryRecords = registries().reduce(
-      (count, item) =>
-        count + item.records.filter((candidate) => sameScope(candidate.scope, scope)).length,
-      0
-    )
+    const attachmentRecords = attachments.validateWorkspacePurge()
+    const registryRecords =
+      attachmentRecords +
+      registries().reduce(
+        (count, item) =>
+          count + item.records.filter((candidate) => sameScope(candidate.scope, scope)).length,
+        0
+      )
     return { contentIds, memoryEntries: snapshot.entries.length, registryRecords }
   }
   return {
@@ -286,6 +297,7 @@ export function workspaceLocalData(input: { dataDir: string; scope: Scope; memor
             )
         item.store.save(item.records.filter((record) => !item.owned.includes(record)))
       }
+      attachments.purgeWorkspace()
       memory.purgeWorkspace(scope.workspaceId)
       if (queued) rmSync(queued, { force: true })
       const refs = index()
