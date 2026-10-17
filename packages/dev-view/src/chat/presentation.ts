@@ -279,6 +279,25 @@ function redactTextRange(
   return result
 }
 
+const normalize = (value: string) => value.replace(/\r\n?/g, '\n')
+
+// Bearer whitespace and PEM dash runs are intentionally unbounded in the
+// canonical redactor. A saturated overlap that starts inside a possible
+// separator is ambiguous: the missing prefix/suffix may complete a match.
+// Fail closed rather than weakening either pattern's semantics.
+const ambiguous = (leftRaw: string, rightRaw: string, context: string) => {
+  const left = normalize(leftRaw)
+  const right = normalize(rightRaw)
+  const leftAtLimit = leftRaw.length >= MAX_CROSS_DELTA_CONTEXT
+  const rightAtLimit = rightRaw.length >= MAX_CROSS_DELTA_CONTEXT
+  const possibleBearerPrefix = /^(?:earer|arer|rer|er|r)\s*$/i.test(left)
+  const ambiguousLeftBoundary =
+    leftAtLimit && (/^\s/.test(left) || possibleBearerPrefix || left.startsWith('-'))
+  const ambiguousPemRightBoundary =
+    rightAtLimit && right.endsWith('-') && context.includes('-----BEGIN ')
+  return ambiguousLeftBoundary || ambiguousPemRightBoundary
+}
+
 /**
  * Sanitize each delta with a bounded look-behind/look-ahead window. Credentials
  * can straddle fragments that remain separate entries, but one long run must
@@ -292,11 +311,11 @@ export function redactAssistantDeltaFragments(
   // Keep references to the payload strings instead of normalizing/copying every
   // complete fragment. Only the bounded slices below are materialized.
   const raw = items.map((item) => assistantDeltaPayloadText(item))
-  return items.map((item, index) => {
-    const fragment = raw[index]
-    if (fragment === undefined) return { truncated: item.bodyTruncated === true }
 
-    const currentRaw = fragment.slice(0, BODY_SCAN_WINDOW)
+  // The raw text on either side of a fragment, across every neighbour in the
+  // streak. Secret redaction needs this broad context whatever run each
+  // neighbour belongs to.
+  const neighbours = (index: number) => {
     let leftRaw = ''
     for (
       let cursor = index - 1;
@@ -319,37 +338,58 @@ export function redactAssistantDeltaFragments(
       const remaining = MAX_CROSS_DELTA_CONTEXT - rightRaw.length
       rightRaw += next.slice(0, remaining)
     }
+    return { leftRaw, rightRaw }
+  }
 
-    // A CRLF split across two fragments is one line feed: the fragment holding
-    // the CR owns it and the fragment that starts with the LF contributes
-    // nothing, so the joined text matches the unsplit payload.
-    const continuesCr = leftRaw.endsWith('\r') && currentRaw.startsWith('\n')
-    const current = (continuesCr ? currentRaw.slice(1) : currentRaw).replace(/\r\n?/g, '\n')
-    const nextContinuesCr =
-      currentRaw.length === fragment.length &&
-      currentRaw.endsWith('\r') &&
-      rightRaw.startsWith('\n')
+  const withheld = (index: number) => {
+    const fragment = raw[index]
+    if (fragment === undefined) return false
+    const { leftRaw, rightRaw } = neighbours(index)
+    const context =
+      normalize(leftRaw) + normalize(fragment.slice(0, BODY_SCAN_WINDOW)) + normalize(rightRaw)
+    return ambiguous(leftRaw, rightRaw, context)
+  }
+
+  // A CRLF split across two fragments is one line feed, but only when both
+  // halves are rendered into the same prose block: the same validated run and
+  // generation, directly adjacent, neither one empty, withheld or cut by the
+  // scan window. The fragment holding the CR owns the line feed and the one
+  // starting with the LF adds nothing, so the joined text matches the unsplit
+  // payload. Any other pair keeps each fragment's own line feeds.
+  const splitCrlf = (index: number) => {
+    if (index <= 0 || index >= items.length) return false
+    const before = raw[index - 1]
+    const after = raw[index]
+    return (
+      before !== undefined &&
+      after !== undefined &&
+      before.length <= BODY_SCAN_WINDOW &&
+      before.endsWith('\r') &&
+      after.startsWith('\n') &&
+      sameRun(items[index - 1]!, items[index]!) &&
+      !withheld(index - 1) &&
+      !withheld(index)
+    )
+  }
+
+  return items.map((item, index) => {
+    const fragment = raw[index]
+    if (fragment === undefined) return { truncated: item.bodyTruncated === true }
+
+    const currentRaw = fragment.slice(0, BODY_SCAN_WINDOW)
+    const { leftRaw, rightRaw } = neighbours(index)
+    const continuesCr = splitCrlf(index)
+    const current = normalize(continuesCr ? currentRaw.slice(1) : currentRaw)
 
     // Measure the budget against raw wire units before CRLF normalization.
     // Otherwise 5,000 raw chars of CRLF whitespace shrink below the fail-closed
     // threshold and can hide an unbounded Bearer separator's discarded prefix.
-    const left = leftRaw.replace(/\r\n?/g, '\n')
-    const right = (nextContinuesCr ? rightRaw.slice(1) : rightRaw).replace(/\r\n?/g, '\n')
+    const left = normalize(leftRaw)
+    const right = normalize(splitCrlf(index + 1) ? rightRaw.slice(1) : rightRaw)
     const context = left + current + right
     const currentStart = left.length
     const currentEnd = currentStart + current.length
-    // Bearer whitespace and PEM dash runs are intentionally unbounded in the
-    // canonical redactor. A saturated overlap that starts inside a possible
-    // separator is ambiguous: the missing prefix/suffix may complete a match.
-    // Fail closed rather than weakening either pattern's semantics.
-    const leftAtLimit = leftRaw.length >= MAX_CROSS_DELTA_CONTEXT
-    const rightAtLimit = rightRaw.length >= MAX_CROSS_DELTA_CONTEXT
-    const possibleBearerPrefix = /^(?:earer|arer|rer|er|r)\s*$/i.test(left)
-    const ambiguousLeftBoundary =
-      leftAtLimit && (/^\s/.test(left) || possibleBearerPrefix || left.startsWith('-'))
-    const ambiguousPemRightBoundary =
-      rightAtLimit && right.endsWith('-') && context.includes('-----BEGIN ')
-    if (ambiguousLeftBoundary || ambiguousPemRightBoundary) return { truncated: true }
+    if (ambiguous(leftRaw, rightRaw, context)) return { truncated: true }
 
     const value = redactTextRange(context, currentStart, currentEnd, redactionSpans(context))
     const body = redact(value, MAX_BODY_TEXT, { window: BODY_SCAN_WINDOW, layout: true })
@@ -364,6 +404,21 @@ export function redactAssistantDeltaFragments(
       ...(continuesCr && current.length === 0 ? { continuation: true } : {}),
     }
   })
+}
+
+/** Whether two projected rows belong to one known harness run and generation. */
+export function sameRun(a: ChatTranscriptItem, b: ChatTranscriptItem): boolean {
+  const left = a.event?.harnessRunId
+  const right = b.event?.harnessRunId
+  return (
+    typeof left === 'string' &&
+    left.trim().length > 0 &&
+    typeof right === 'string' &&
+    right.trim().length > 0 &&
+    left === right &&
+    typeof a.event?.generation === 'number' &&
+    a.event.generation === b.event?.generation
+  )
 }
 
 function labelFromPayload(event: RuntimeEvent): string {

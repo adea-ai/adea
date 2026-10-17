@@ -1773,8 +1773,10 @@ delta's id; deltas without a run id are not guessed to share a block. Each
 fragment is redacted with a bounded window of its neighbours' raw text, so a
 secret split across fragments is not rendered; when the window is saturated
 inside an unbounded Bearer or PEM separator the fragment is withheld and marked
-truncated rather than guessed. Fragment boundaries do not change layout: a CRLF
-split across two fragments is one line feed, as in the unsplit payload. When the
+truncated rather than guessed. Fragment boundaries inside one prose block do not
+change layout: a CRLF split across two adjacent fragments of the same run and
+generation is one line feed, as in the unsplit payload. Fragments of different
+runs, generations or without a run id keep their own line feeds. When the
 transcript window is bounded, Chat says "Showing the latest
 events only."; a sequence gap uses its resync notice rather than claiming a
 checkpoint is required. `turn.assistant_message` and `turn.result` render as

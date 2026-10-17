@@ -196,6 +196,11 @@ const proseForFragments = (fragments: readonly string[]) =>
     ...fragments.map((text, index) => event('turn.assistant_delta', { text }, `d${index}`)),
   ])
 
+const deltaAt = (text: string, id: string, run: string | null, generation = 1) => ({
+  ...event('turn.assistant_delta', text === '' ? { text: '' } : { text }, id, run),
+  generation,
+})
+
 describe('whitespace-only streamed fragments', () => {
   test('secrets split across assistant deltas are redacted after the fragments join', () => {
     const fragments = ['The response contains sk-', 'supersecretvalue1234 and must be hidden.']
@@ -454,6 +459,30 @@ describe('whitespace-only streamed fragments', () => {
     }
     // A CR that ends the stream is still a line break.
     expect(proseForFragments(['a', '\r']).texts).toEqual(['a\n'])
+  })
+
+  test('a CR and an LF in different prose runs each keep their own line feed', () => {
+    const cases = {
+      'different run ids': [deltaAt('a\r', 'd0', 'run-1'), deltaAt('\nb', 'd1', 'run-2')],
+      'changed generation': [deltaAt('a\r', 'd0', 'run-1', 1), deltaAt('\nb', 'd1', 'run-1', 2)],
+      'missing run id on the LF side': [deltaAt('a\r', 'd0', 'run-1'), deltaAt('\nb', 'd1', null)],
+      'missing run id on the CR side': [deltaAt('a\r', 'd0', null), deltaAt('\nb', 'd1', 'run-1')],
+      'no run ids at all': [deltaAt('a\r', 'd0', null), deltaAt('\nb', 'd1', null)],
+    }
+    for (const [name, deltas] of Object.entries(cases)) {
+      const { entries, texts } = proseOf([
+        event('turn.user_input', { text: 'hi' }, 'u1'),
+        ...deltas,
+      ])
+      expect({ name, texts }).toEqual({ name, texts: ['a\n', '\nb'] })
+      expect({ name, blocks: entries.length }).toEqual({ name, blocks: 2 })
+    }
+  })
+
+  test('a CRLF is not rejoined across a fragment that is not part of the prose run', () => {
+    // The empty fragment is its own visible event, so the two halves are not one block.
+    const { texts } = proseForFragments(['a\r', '', '\nb'])
+    expect(texts).toEqual(['a\n', '\nb'])
   })
 
   test('an empty fragment is still a visible event, not prose', () => {

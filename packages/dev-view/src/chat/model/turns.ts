@@ -31,6 +31,7 @@ import type { RuntimeMethodStepSummary, RuntimeReasoningSummary } from '@adea-ai
 import {
   redactAssistantDeltaFragments,
   redactAssistantDeltaGroup,
+  sameRun,
   type ChatResponseReferences,
   type ChatTranscriptItem,
 } from '../presentation'
@@ -109,20 +110,6 @@ export type ChatTurnProjection = Readonly<{
 }>
 
 const LEAD_TURN_ID = 'lead'
-
-function sameRun(a: ChatTranscriptItem, b: ChatTranscriptItem): boolean {
-  const left = a.event?.harnessRunId
-  const right = b.event?.harnessRunId
-  return (
-    typeof left === 'string' &&
-    left.trim().length > 0 &&
-    typeof right === 'string' &&
-    right.trim().length > 0 &&
-    left === right &&
-    typeof a.event?.generation === 'number' &&
-    a.event.generation === b.event?.generation
-  )
-}
 
 function resultFailed(item: ChatTranscriptItem): boolean {
   const payload = item.event?.payload
