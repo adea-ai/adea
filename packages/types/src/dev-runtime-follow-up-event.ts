@@ -1,4 +1,5 @@
 import { fail } from './dev-runtime-validation-internal'
+import { assertWellFormedUnicode } from './dev-runtime-unicode'
 import { usageDataRecord } from './dev-runtime-usage'
 
 export const FOLLOW_UP_QUEUE_MAX_ITEMS = 16
@@ -27,6 +28,7 @@ export type FollowUpQueueEventPayload = Readonly<{
 }>
 
 function validIdentifier(value: unknown, max = 128): value is string {
+  if (typeof value === 'string') assertWellFormedUnicode(value, 'followUps.identifier')
   return (
     typeof value === 'string' &&
     value.length > 0 &&

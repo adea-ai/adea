@@ -5697,7 +5697,7 @@ the general client command contract.
 
 Bounds are 16 pending/claimed items, 16,384 UTF-8 bytes per nonempty text, and
 65,536 UTF-8 bytes across the queue. NUL and other C0 controls except tab/CR/LF
-are refused. IDs are nonblank strings of at most 128 characters. Within one
+are refused. IDs are nonblank strings of at most 128 characters. Request, snapshot, and queue-event identifiers must also contain well-formed Unicode: reject lone high/low surrogates before durable mutation, while preserving valid astral code points without normalization or replacement. Within one
 generation, retain at most 256 used message IDs and 1,024 mutation receipts;
 do not evict delivery tombstones to accept more work. At those limits return
 `limit_exceeded`; an explicitly authorized new generation resets them. Storage
@@ -9111,3 +9111,11 @@ controls. Adea retains only the utility width steps and saved preferences.
 Host CSS restyles the presented grip on Dev surfaces into a tall, skinny,
 translucent rung (icon dropped, hover wash softened) without touching the hit
 target, drag semantics, or keyboard controls.
+
+### Follow-up physical transport and publication witnesses (#1393)
+
+A command timeout or AbortSignal only ends the wait for a structured delivery; it does not prove that a transport stopped writing. The queue retains its existing cross-process delivery claim until the underlying transport promise actually settles. Stop invalidates the session generation and aborts the queue before awaiting ACP close. The signal reaches the lane driver, and an already-aborted handoff is refused before driver invocation. A driver that ignores cancellation keeps the claim: subsequent sends, including a new-generation peer, and workspace purge remain fenced until actual settlement. No timed-out or stopped send later reports accepted, and no deadline or stale heartbeat alone reclaims a live transport.
+
+The sealed queue authenticates an outbox publication witness: prepared, attempted, or delivered. An attempted witness is persisted before append to the separate canonical event log; a delivered witness is persisted before clearing the outbox. A retained exact host queue fact can reconcile an attempted witness without republishing. If an attempted fact has been evicted, recovery refuses `recovery_required` rather than assigning the same queue version a new sequence. A delivered witness can safely clear after complete event eviction without append. Legacy pending outboxes have unknown publication status and require the same retained proof. Authentication covers the witness inside the existing sealed state; no credential/key lifecycle changes are introduced.
+
+Stop captures the original ACP connection ID and generation before its first queue-cleanup await. It closes only that captured binding afterward; a replacement connection becoming ready during cleanup is never selected by the old Stop. The blocked-cleanup registration regression verifies the original connection closes while the replacement remains ready.

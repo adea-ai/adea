@@ -1683,20 +1683,14 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           ? { detail: `confirmation ${body.confirmationId as string}` }
           : {}),
       })
-      // A live ACP lane bound to this session loses its transport authority
-      // with the run; close is best-effort and generation-fenced by the lane.
+      // Capture the exact original transport before queue cleanup can yield.
       const live = lane.readyFor(session.id)
-      if (live) {
-        void lane
-          .close({ acpConnectionId: live.id, expectedGeneration: live.generation })
-          .catch(() => undefined)
-      }
       const nextSession = applySession(session, {
         activeHarnessRunId: undefined,
         lifecycle: 'disconnected',
       })
-      // Advance canonical session authority before waiting on queue cleanup.
-      // Even an unreadable queue cannot deliver against the old generation.
+      // The canonical generation changes before awaiting queue cleanup. Any
+      // old queued delivery is already inert even if its journal is unreadable.
       try {
         await followUps.cancelGeneration(session.id, session.generation)
       } catch {
@@ -1707,6 +1701,14 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           payload: { reason: 'follow-up queue cleanup requires recovery' },
           sourceEventId: `host:queue-stop:${next.id}:${next.version}`,
         })
+      }
+      // A live ACP lane bound to this session loses its transport authority
+      // with the run. Await close so Stop does not report an unsettled close as complete.
+      // The queue independently retains any still-running physical send claim.
+      if (live) {
+        await lane
+          .close({ acpConnectionId: live.id, expectedGeneration: live.generation })
+          .catch(() => undefined)
       }
       appendEventFact({
         session: nextSession,
