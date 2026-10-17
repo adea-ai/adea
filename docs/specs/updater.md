@@ -111,6 +111,15 @@ read version identity from the outer wrapper, which contains extractor metadata
 rather than the installed app's version file. Missing or malformed identity and
 version mismatches fail packaging before artifacts or signed feeds are uploaded.
 
+### Hosted Sim payload boundary
+
+New desktop client builds exclude Agent Sim's engine and private scene assets.
+The release lane inspects the inner installed payload with
+`scripts/check-desktop-sim-payload.mjs --archive` before publishing, and refuses
+legacy engine paths or scene binaries in the client. Sim availability is an
+independent online-first hosted concern. Existing published bundles are not
+modified by this source change.
+
 ### Slim updates
 
 The lane also publishes `Adea-<tag>-macos-arm64-update.tar.zst`: the app layer

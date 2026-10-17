@@ -243,8 +243,8 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(client).toContain('Try again')
     expect(navigation).toContain('<GlobalWorkspaceRail')
     expect(navigation).toContain('<SpatialWorkspace')
-    expect(workspace).toContain('<VirtualUnavailable')
-    expect(workspace).toContain('aria-label="Adea workspace controls"')
+    expect(workspace).toContain('<HostedSimEntry')
+    expect(workspace).toContain('<VirtualRoomControls')
   })
 
   test('puts optional authentication and identity settings behind the global rail', async () => {

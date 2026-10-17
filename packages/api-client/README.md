@@ -14,3 +14,5 @@ uses only a node's signed pull proof, omits cookies/user credentials, rejects
 redirects and bounds time/response bytes. The host supplies the proof from its
 trusted signing-key boundary and must validate the returned envelope, local
 authority and durable inbox before dispatch. A pull is not an execution receipt.
+
+`simConfiguration` and `requestSimLaunch` use the same authentication and abort signal as workspace requests. Sim-only cookies are owned by the separately hosted service and never handled by this client.

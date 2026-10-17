@@ -8,8 +8,7 @@ import { hqHomeManifest, hqWorkManifest, type SceneStartPosition } from '@adea-a
 // re-exports the dialogs and the conventional shell, which would otherwise be
 // preloaded with the virtual scene.
 import { VirtualRoomControls } from '@adea-ai/workspace-ui/virtual-room-controls'
-import { VirtualUnavailable } from '@adea-ai/workspace-ui/virtual-unavailable'
-import { VirtualView } from '@adea-ai/workspace-ui/virtual-view'
+import { HostedSimEntry } from './hosted-sim-entry'
 import type { DevProjectFlow } from '@adea-ai/workspace-ui/create-project-flow'
 import type { WorkspaceNavHost } from '@adea-ai/workspace-ui/conventional-workspace-shell'
 import type { WorkspacePlatformServices } from '@adea-ai/workspace-ui/platform'
@@ -79,24 +78,7 @@ export function WorkspaceShell(props: WorkspaceShellProps) {
         workspaceHost={props.workspaceHost}
       />
       <div class="workspace-scene-viewport">
-        <VirtualView
-          fallback={
-            <>
-              <VirtualUnavailable
-                contained
-                sceneLabel={scene().label}
-                onOpenChat={() => props.onWorkspaceViewChange?.('chat')}
-              />
-
-              <div class="workspace-ui" aria-label="Adea workspace controls">
-                <p class="workspace-scene-caption">
-                  <span class="workspace-scene-caption__dot" aria-hidden="true" />
-                  {scene().label} scene · Virtual view lives in Agent Sim
-                </p>
-              </div>
-            </>
-          }
-        />
+        <HostedSimEntry client={apiClient()} character={props.initialCharacter} scene={sceneId()} />
       </div>
     </main>
   )
