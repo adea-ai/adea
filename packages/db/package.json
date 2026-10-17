@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/db",
-  "version": "0.92.0",
+  "version": "0.95.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -20,7 +20,7 @@
     "lint": "oxlint",
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "bun check -p tsconfig.json",
     "test": "bun test tests/unit",
     "test:integration": "bun run --cwd ../remote-content build && bun run --cwd ../types build && bun run --cwd ../auth build && bun run build && node ../../scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test tests/integration",
     "db:generate": "drizzle-kit generate --config=drizzle.config.ts",

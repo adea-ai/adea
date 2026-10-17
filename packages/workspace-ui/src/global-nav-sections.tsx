@@ -10,6 +10,7 @@ import {
   usePrefetchChannelMessages,
   useReadStateQuery,
   useUpdateChannelMutation,
+  useWorkspaceBootstrapQuery,
 } from '@adea-ai/data'
 import { useWorkspaceState } from '@adea-ai/state'
 import type { ChannelSummary } from '@adea-ai/types'
@@ -32,7 +33,9 @@ const RenameConversationDialog = lazy(() =>
   }))
 )
 const CreateGroupDialog = lazy(() =>
-  import('./create-workspace-dialogs').then((module) => ({ default: module.CreateGroupDialog }))
+  import('./create-workspace-dialogs').then((module) => ({
+    default: module.ConnectedCreateGroupDialog,
+  }))
 )
 
 /**
@@ -101,6 +104,7 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
   const audienceEpoch = useWorkspaceState(
     (state) => state.conversationAudienceEpochs[workspaceId() ?? ''] ?? 0
   )
+  const bootstrap = useWorkspaceBootstrapQuery(props.client)
   const navigation = createMemo(() => {
     const list = settledConversationPage(channels, audienceEpoch())
     return projectWorkspaceNavigation(
@@ -170,13 +174,23 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
         </Show>
         <Show when={creating()}>
           <CreateGroupDialog
+            agents={settledData(agents) ?? []}
             busy={createGroup.isPending}
+            client={props.client}
+            currentUserId={settledData(bootstrap)?.principal.userId}
             onClose={() => setCreating(false)}
-            onCreate={async (title) => {
+            workspaceId={workspaceId() ?? ''}
+            scope={{
+              accountId: settledData(bootstrap)?.principal.userId,
+              epoch: audienceEpoch(),
+              workspaceId: workspaceId(),
+            }}
+            onCreate={async (title, request) => {
               const submittedWorkspaceId = workspaceId()
               const submittedAudienceEpoch = audienceEpoch()
               const result = await createGroup.mutateAsync({
-                idempotencyKey: createClientRequestId(),
+                ...request,
+                idempotencyKey: request?.idempotencyKey ?? createClientRequestId(),
                 title,
               })
               if (

@@ -115,3 +115,32 @@ test('audience invalidation while funding is awaited cannot dispatch from an old
   await expect(page.getByLabel('Start requests')).toHaveText('0')
   await expect(page.getByLabel('Timeline changes')).toHaveText('0')
 })
+
+test('a refused readiness check names its remedy, starts nothing and keeps the independent draft', async ({
+  page,
+}) => {
+  await page.goto(`${url}?refusePrepare=QUOTA_EXHAUSTED`)
+  await page.getByRole('button', { name: 'Review model and payer', exact: true }).click()
+  const notice = page.getByText('Nothing ran and no other model was substituted.', { exact: false })
+  await expect(notice).toContainText('Review provider quota or choose another connection.')
+  await expect(notice).toContainText('Your saved message, draft and lead customization')
+  await expect(page.getByLabel('Prepare requests')).toHaveText('1')
+  await expect(page.getByLabel('Start requests')).toHaveText('0')
+  await expect(page.getByRole('button', { name: 'Start lead turn', exact: true })).toHaveCount(0)
+  // The status read that follows does not repeat the refusal, and the view still reports it.
+  await page.getByRole('button', { name: 'Refresh lead status', exact: true }).click()
+  await expect(notice).toBeVisible()
+  await expect(page.getByLabel('Independent draft')).toHaveValue('Unsent independent draft')
+})
+
+test('a blocked payer read names its remedy and cannot start', async ({ page }) => {
+  await page.goto(`${url}?fundingBlocked=CREDENTIAL_EXPIRED`)
+  await page.getByRole('button', { name: 'Review model and payer', exact: true }).click()
+  await expect(
+    page.getByText('Current payer authorization is blocked.', { exact: false })
+  ).toContainText('Choose a connection with a valid credential in workspace settings.')
+  await expect(page.getByLabel('Current model and payer')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Start lead turn', exact: true })).toHaveCount(0)
+  await expect(page.getByLabel('Start requests')).toHaveText('0')
+  await expect(page.getByLabel('Independent draft')).toHaveValue('Unsent independent draft')
+})

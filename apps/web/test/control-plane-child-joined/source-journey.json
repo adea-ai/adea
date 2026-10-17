@@ -1,0 +1,5 @@
+{
+  "repository": "adea-ai/control-plane",
+  "revision": "0a453d83103a787bdcc6c38a6571de9188f7f559",
+  "dependency": "CP main 0a453d8, the squash merge of CP #1134 (reviewed head 421f225d): the governed child dispatch qualification, which also carries the production child bridge builder and PiChildTerminalSettlement (CP #1137) and the e2e lane speedup (CP #1148). A merged source revision of CP main, not a published package release; used only by the journey suites"
+}

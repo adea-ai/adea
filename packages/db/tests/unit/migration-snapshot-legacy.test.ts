@@ -39,6 +39,10 @@ describe('registered legacy snapshot versions', () => {
     expect(version.migrations.digest).toMatch(/^[0-9a-f]{64}$/)
     expect(version.catalogFingerprint).toMatch(/^[0-9a-f]{64}$/)
     expect(version.migrations.count).toBe(46)
+    expect(version.absentBySchema.legacyAudienceQuarantine).toEqual({
+      reason: expect.stringContaining('0058_legacy_audience_quarantine'),
+      table: 'legacy_audience_quarantine',
+    })
   })
 
   test('every verified table and column is a plain identifier, so it can be checked and quoted safely', () => {

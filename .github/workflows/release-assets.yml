@@ -157,7 +157,7 @@ jobs:
       - name: Install Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.3
           no-cache: true
 
       - name: Pack Agent Sim engine
@@ -230,8 +230,12 @@ jobs:
       - name: Build desktop workspace dependencies
         run: bun run --cwd packages/types build
 
+      # Only a release build defaults to the hosted cloud origin; every other
+      # desktop build targets the local dev server (apps/desktop/scripts/cloud-config.mjs).
       - name: Build bundled client
         working-directory: apps/desktop
+        env:
+          ADEA_DESKTOP_RELEASE_BUILD: 'true'
         run: bun run shell:client:build
 
       # The shell's own workspace ships the Electrobun types the shell
@@ -303,6 +307,11 @@ jobs:
           grep -qx 'Adea.app/Contents/MacOS/bun' <<<"$listing"
           grep -qx 'Adea.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework' <<<"$listing"
           grep -qx 'Adea.app/Contents/Resources/app/client/index.html' <<<"$listing"
+          # The client's recorded build target must be the release build for the
+          # hosted origin (a locally built or hosted-dev client would not be).
+          grep -qx 'Adea.app/Contents/Resources/app/client/adea-desktop-target.json' <<<"$listing"
+          tar --zstd -xOf "$payload" 'Adea.app/Contents/Resources/app/client/adea-desktop-target.json' |
+            node ../scripts/verify-release-target.mjs
           # The supervised terminal sidecar is a bundled component (M10
           # #185/#396): the payload must carry its staged artifact, or the
           # packaged component manifest resolves nothing and the shell boots
@@ -476,6 +485,16 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Only the desktop scripts directory, at the exact release tag: it holds
+      # the verifier and the one cloud-config module it imports. No credentials
+      # are persisted.
+      - name: Checkout release verifier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          sparse-checkout: apps/desktop/scripts
+          persist-credentials: false
+
       - name: Verify uploaded desktop assets
         env:
           GH_TOKEN: ${{ github.token }}
@@ -520,6 +539,12 @@ jobs:
           grep -qx 'Adea.app/Contents/MacOS/bun' <<<"$listing"
           grep -qx 'Adea.app/Contents/Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework' <<<"$listing"
           grep -qx 'Adea.app/Contents/Resources/app/client/index.html' <<<"$listing"
+          # The client's recorded build target must be the release build for the
+          # hosted origin (a locally built or hosted-dev client would not be).
+          # The verifier comes from the checkout of the release ref above.
+          grep -qx 'Adea.app/Contents/Resources/app/client/adea-desktop-target.json' <<<"$listing"
+          tar --zstd -xOf "${archives[0]}" 'Adea.app/Contents/Resources/app/client/adea-desktop-target.json' |
+            node apps/desktop/scripts/verify-release-target.mjs
           grep -qx 'Adea.app/Contents/Resources/app/dev-runtime-sidecar/entry.js' <<<"$listing"
           echo "Release assets verified: unsigned macOS dmg plus self-contained app archive (shell binary, bundled CEF, packaged client, terminal sidecar)."
 

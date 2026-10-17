@@ -103,6 +103,7 @@ export {
   groupAudienceGrants,
   groupEnlistmentGrants,
   groupSharingGrants,
+  legacyAudienceQuarantine,
 } from './group-participation'
 export { taskSubmissionState, taskSubmissions } from './task-submissions'
 export { addressedAgentTurns, type AddressedAgentTurn } from './addressed-agent-turns'

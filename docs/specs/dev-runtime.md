@@ -1373,6 +1373,11 @@ tiny individual requests. Feature components and heavy dependencies retain
 their automatic lazy boundaries. The unchanged Dev byte limit applies to the
 entry and immediately mounted central renderer together; splitting that
 implementation into multiple chunks does not expand its allowance.
+The selected-terminal resolver uses a dynamic import for the canonical reply
+decoder; in the verified web bundle, the initial Dev View entry and layout
+renderer exclude that decoder's runtime-schema dependency. The lazy
+runtime-terminal-pane chunk still imports the same module statically for stream
+decoding.
 Utility slots are independent:
 left and right may each show one pane or be collapsed, and a change on one side
 cannot hide the other side. Utility order, side, visibility, size, collapse,

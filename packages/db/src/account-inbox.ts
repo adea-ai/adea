@@ -15,6 +15,7 @@ import {
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import {
   groupHistoryAccessByUser,
+  channelIsAmongGroups,
   groupHistoryMessageAndThreadVisibleCondition,
   groupSummaryMessageAndThreadVisibleCondition,
   userChannelVisibility,
@@ -188,10 +189,7 @@ function groupHistoryVisible(alias: string, access: ReadonlyMap<string, GroupHis
   const sequence = sql.raw(`${alias}.sequence`)
   const threadRootMessageId = sql.raw(`${alias}.thread_root_message_id`)
   return sql`(
-    ${channelId} not in (${sql.join(
-      [...access.keys()].map((id) => sql`${id}::uuid`),
-      sql`, `
-    )})
+    not ${channelIsAmongGroups(channelId, access.keys())}
     or (
       ${groupHistoryMessageAndThreadVisibleCondition({
         channelId,

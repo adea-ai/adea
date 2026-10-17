@@ -9,7 +9,7 @@ import {
   deriveDirectSessionHandoff,
   handoffTurnNeedsRefresh,
   deriveHandoffModeForSurface,
-  hasOpenApproval,
+  approvalStateFromEvents,
   resolveLeadClaim,
   resolveLeadCoordination,
   handoffActionReducer,
@@ -715,24 +715,29 @@ describe('view/action epoch', () => {
   })
 })
 
-describe('open approvals', () => {
-  test('counts requested against resolved and expired within the window', () => {
-    expect(hasOpenApproval([])).toBe(false)
-    expect(hasOpenApproval([{ kind: 'turn.assistant_message' }])).toBe(false)
-    expect(hasOpenApproval([{ kind: 'approval.requested' }])).toBe(true)
-    expect(hasOpenApproval([{ kind: 'approval.requested' }, { kind: 'approval.resolved' }])).toBe(
-      false
-    )
-    expect(hasOpenApproval([{ kind: 'approval.requested' }, { kind: 'approval.expired' }])).toBe(
-      false
-    )
+describe('approval state from events', () => {
+  test('events never prove an open approval: requests make the state unknown', () => {
+    expect(approvalStateFromEvents([], true)).toBe('none')
+    expect(approvalStateFromEvents([{ kind: 'turn.assistant_message' }], true)).toBe('none')
+    expect(approvalStateFromEvents([{ kind: 'approval.requested' }], true)).toBe('unknown')
+    // A resolution cannot be matched to its request without an identity.
     expect(
-      hasOpenApproval([
-        { kind: 'approval.requested' },
-        { kind: 'approval.requested' },
-        { kind: 'approval.resolved' },
-      ])
-    ).toBe(true)
+      approvalStateFromEvents([{ kind: 'approval.requested' }, { kind: 'approval.resolved' }], true)
+    ).toBe('unknown')
+    expect(
+      approvalStateFromEvents(
+        [
+          { kind: 'approval.requested' },
+          { kind: 'approval.requested' },
+          { kind: 'approval.resolved' },
+        ],
+        true
+      )
+    ).toBe('unknown')
+  })
+
+  test('an incomplete window cannot prove there is no approval', () => {
+    expect(approvalStateFromEvents([], false)).toBe('unknown')
   })
 })
 
