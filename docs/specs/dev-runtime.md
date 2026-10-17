@@ -1769,9 +1769,13 @@ boundary taken from an event kind, and everything after it nests under one
 assistant response until the next prompt. Events before the first prompt form a
 lead turn. Consecutive `turn.assistant_delta` events with the same known harness
 run id and generation are joined into one prose block whose id is the first
-delta's id; deltas without a run id are not guessed to share a block. Redaction
-runs over the joined block so secrets split across delta boundaries are not
-rendered. When the transcript window is bounded, Chat says "Showing the latest
+delta's id; deltas without a run id are not guessed to share a block. Each
+fragment is redacted with a bounded window of its neighbours' raw text, so a
+secret split across fragments is not rendered; when the window is saturated
+inside an unbounded Bearer or PEM separator the fragment is withheld and marked
+truncated rather than guessed. Fragment boundaries do not change layout: a CRLF
+split across two fragments is one line feed, as in the unsplit payload. When the
+transcript window is bounded, Chat says "Showing the latest
 events only."; a sequence gap uses its resync notice rather than claiming a
 checkpoint is required. `turn.assistant_message` and `turn.result` render as
 prose when they carry text.
@@ -1788,10 +1792,15 @@ lines that make no approved/denied claim. A `turn.result` marks a failure only
 when its payload sets `isError`. An unrecognised event kind renders in position
 as a line labelled by its wire kind, without payload content; only
 `credential`-classified events are not drawn. Payload hints and run completion
-cannot authorize grouping or hide an action. Reasoning, sources, citations,
-checkpoints, attachments, context usage, test results and queued follow-ups are
-not drawn, because no producer supplies them; each is a separate backend
-dependency documented in `docs/evidence/chat-canvas-2026-10-15.md`.
+cannot authorize grouping or hide an action. Source-reported reasoning and
+method-step summaries (`turn.reasoning_summary`, `turn.method_step_summary`,
+#1388) and cited answers (`references` on `turn.assistant_message`, #1389) are
+drawn only after `decodeRuntimeEvent` accepts them: one node per summary or
+step, replaced only by a higher revision, and citation markers placed only where
+the displayed text is the exact payload text. Checkpoints, attachments, context
+usage, test results and queued follow-ups are not drawn, because no producer
+supplies them; each is a separate backend dependency documented in
+`docs/evidence/chat-canvas-2026-10-15.md`.
 
 Adea's persisted appearance IDs are the complete published `@adea-ai/themes`
 catalogue, as carried by the published `@adea-ai/ui` ThemeProvider (pinned to an
@@ -2873,7 +2882,8 @@ an earlier response or a completed run. An absent reference object remains
 unknown/no-source; explicitly empty lists are allowed and invent nothing.
 Legacy assistant payloads without `references`, unrelated opaque payloads and
 unknown event retention keep their existing behavior. This producer contract
-does not enable Sources/Inline Citation rendering or parse a harness's prose.
+does not parse a harness's prose; the Chat canvas draws Sources and Inline
+Citation only from validated references (see the Chat section above).
 
 Implementation is isolated in
 `packages/types/src/dev-runtime-response-references.ts`, re-exported through
@@ -2977,9 +2987,9 @@ The isolated contract is `packages/types/src/dev-runtime-visible-summaries.ts`,
 re-exported through `@adea-ai/types/dev-runtime`; producer admission and bounded
 history checks are in the host's `harness/visible-summaries.ts`. Contract and
 durable replay tests are `packages/types/tests/dev-runtime-visible-summaries.test.ts`
-and `apps/desktop/tests/runtime-visible-summaries-replay.test.ts`. This contract
-does not enable shared Reasoning/Chain of Thought presentation or change Chat
-consumer composition.
+and `apps/desktop/tests/runtime-visible-summaries-replay.test.ts`. The Chat canvas
+consumes these summaries through the shared Reasoning and Chain of Thought
+presentation (see the Chat section above); the contract itself does not.
 
 ## Terminal protocol
 
