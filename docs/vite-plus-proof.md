@@ -65,7 +65,15 @@ Graph `orch-r2-v1.48.1` (`node_modules` listing excluded): cold run 39019670060 
 39019923271 failed 14/15 with the same manifest, the miss being `apps/web build` ("'assets' removed from 'apps/web/public'").
 
 Graph `orch-r3-v1.48.1` (`apps/web` and `apps/web/public` listings also excluded from the web build): cold run 39020698367 saved
-(0/15, 1792 files, same sha256).
+(0/15, 1792 files, same sha256). Its warm run 39020942467 failed 14/15 with the same manifest, the miss being `apps/web build`
+("'.vite-temp' removed from 'node_modules'") although `!node_modules` was in the entry.
 
-The two warm runs above are failures, not proof. A warm run passes only with 15/15 hits on a fresh runner and the cold run's manifest; the
-result for the current graph is recorded on the pull request.
+Graph `orch-r5-v1.48.1` (exact-path exclusions of `node_modules/.vite-temp` and the temporary config file added): decoding the
+saved web-build entry of cold run 39021703130 showed `node_modules/.vite-temp` and
+`node_modules/.vite-temp/vite.config.ts.timestamp-…` as directly tracked inferred inputs, which `!node_modules` (an exact-path
+negative) does not cover. Cold run 39022055258 saved (0/15, 1792 files, same sha256
+`2e29f5eb56cd06a505a701192b7163381573276444e100031ae2e2e2aabfa65d`); its saved entry key carries the exclusions and its inferred
+inputs contain no `vite-temp` path.
+
+The earlier warm runs above are failures, not proof. A warm run passes only with 15/15 hits on a fresh runner and the cold run's
+manifest; the result for the current graph is recorded on the pull request.
