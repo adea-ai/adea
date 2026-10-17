@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { createHmac, randomBytes, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -217,6 +217,91 @@ function value(reply: DevReply): Record<string, unknown> {
 }
 
 describe('follow-up production registration and M10 gate', () => {
+  for (const retained of [
+    { runtimeSessionId: 'unrelated-session', generation: 1 },
+    { runtimeSessionId: 'session-1', generation: 0 },
+  ])
+    test(`queue publication ignores quarantined usage outside its exact binding: ${JSON.stringify(retained)}`, async () => {
+      const s = boot(false)
+      try {
+        s.host.events.append({
+          ...retained,
+          kind: 'capability.restored',
+          sourceEventId: 'legacy-usage',
+        })
+        const file = join(s.dataDir, 'dev-runtime', 'harness', 'session-events.json')
+        const stored = JSON.parse(readFileSync(file, 'utf8'))
+        stored.records[0].kind = 'usage.observed'
+        stored.records[0].payload = { tokens: 123 }
+        writeFileSync(file, JSON.stringify(stored))
+        expect(() => s.host.events.events()).toThrow()
+        expect(
+          value(
+            await s.execute(
+              s.command({
+                ...s.target,
+                action: 'enqueue',
+                expectedVersion: 0,
+                messageId: 'healthy',
+                text: 'valid follow up',
+              })
+            )
+          )
+        ).toMatchObject({ version: 1, items: [{ id: 'healthy' }] })
+        expect(value(await s.execute(s.command({ ...s.target, action: 'read' })))).toMatchObject({
+          version: 1,
+        })
+        const saved = JSON.parse(readFileSync(file, 'utf8'))
+        expect(
+          saved.records.find(
+            (event: { sourceEventId: string }) => event.sourceEventId === 'legacy-usage'
+          )
+        ).toEqual(stored.records[0])
+        expect(() =>
+          s.host.events.read(retained.runtimeSessionId, { generation: retained.generation })
+        ).toThrow()
+      } finally {
+        s.cleanup()
+      }
+    })
+
+  test('publication witness searches every retained page of only the target generation', async () => {
+    const s = boot(false)
+    try {
+      for (let i = 0; i < 501; i++)
+        s.host.events.append({
+          ...s.target,
+          generation: 1,
+          kind: 'capability.restored',
+          sourceEventId: `page-${i}`,
+        })
+      const unsubscribe = s.host.events.subscribe('session-1', (event) => {
+        if (event.kind === 'queue.updated') throw new Error('subscriber interrupted after append')
+      })
+      const request = {
+        ...s.target,
+        action: 'enqueue',
+        expectedVersion: 0,
+        messageId: 'later-page',
+        text: 'one follow up',
+      }
+      expect(
+        await s.execute(s.command(request, 'dev.session.followUps', 'later-page-retry'))
+      ).toMatchObject({ ok: false })
+      unsubscribe()
+      expect(
+        value(await s.execute(s.command(request, 'dev.session.followUps', 'later-page-retry')))
+      ).toMatchObject({ version: 1, items: [{ id: 'later-page' }] })
+      expect(
+        s.host.events
+          .read('session-1', { generation: 1, fromSequence: '501', limit: 10 })
+          .filter((event) => event.kind === 'queue.updated')
+      ).toHaveLength(1)
+    } finally {
+      s.cleanup()
+    }
+  })
+
   test('applies the full queue schema on the host before any state change', async () => {
     const s = boot(false)
     try {

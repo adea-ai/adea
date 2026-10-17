@@ -10,7 +10,7 @@ import {
 } from '../src/utility-context'
 import { createSharedDevUtilityOwner } from '../src/utility-owner'
 import type { LayoutStorageModule } from '../src/utility-layout-storage'
-import { readDevUtilityCommand } from '../src/utility-command'
+import { executeDevUtilityCommand, readDevUtilityCommand } from '../src/utility-command'
 import { layoutStorageKeyV2 } from '../src/layout/persistence'
 
 const scope = {
@@ -107,6 +107,49 @@ function waitForLoadedPreferences(
 }
 
 describe('Dev utility request context', () => {
+  test('utility command construction preserves resource omission, scope and registry capabilities', async () => {
+    const commands: Parameters<DevRuntimeService['execute']>[0][] = []
+    const service: DevRuntimeService = {
+      ...fixtureRuntime,
+      execute: async (command) => {
+        commands.push(command)
+        return {
+          schemaVersion: 1,
+          requestId: command.requestId,
+          operation: command.operation,
+          ok: true,
+          value: 'accepted',
+          observedAt: new Date(0).toISOString(),
+        }
+      },
+    }
+    const fences = createDevUtilityFenceSource(
+      createDevUtilityContext(() => ({ ...sessionContext(), runtime: service }))
+    )
+    const fence = fences.capture('scope')!
+    expect(await executeDevUtilityCommand(fence, 'dev.session.list', {})).toBe('accepted')
+    expect(commands[0]).toMatchObject({ scope, capabilities: ['dev.session.read'], body: {} })
+    expect(Object.hasOwn(commands[0]!, 'resource')).toBe(false)
+    const resource = { kind: 'runtime_session', id: 'session-a', generation: 1 }
+    expect(
+      await executeDevUtilityCommand(
+        fence,
+        'dev.session.events',
+        { runtimeSessionId: 'session-a', expectedGeneration: 1, direction: 'read' },
+        resource
+      )
+    ).toBe('accepted')
+    expect(commands[1]).toMatchObject({ scope, resource, capabilities: ['dev.session.read'] })
+    await expect(executeDevUtilityCommand(fence, 'dev.session.events', {})).rejects.toThrow(
+      'requires a resource binding'
+    )
+    await expect(executeDevUtilityCommand(fence, 'dev.session.list', {}, resource)).rejects.toThrow(
+      'does not bind a resource'
+    )
+    expect(commands).toHaveLength(2)
+    fences.dispose()
+  })
+
   test('resource reads discard stale contexts without hiding provider failures', async () => {
     const refusal = new Error('provider refused the session listing')
     let executions = 0
