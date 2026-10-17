@@ -27,6 +27,7 @@ import { createEffect, createMemo, createSignal, lazy, Show, Suspense, type JSX 
 
 import { createClientRequestId } from './request-id'
 import type { DevProjectFlow } from './create-project-flow'
+import type { GroupCreateRequest } from './group-audience'
 import { useWorkspacePersistence } from './use-workspace-persistence'
 import { projectWorkspaceNavigation, reconcileWorkspaceChannelSelection } from './workspace-model'
 import { WorkspaceNavSidebar, type WorkspaceNavHost } from './workspace-nav-sidebar'
@@ -193,10 +194,11 @@ export function VirtualRoomControls(props: {
       routeToChat('conversation')
     }
   }
-  const createGroup = async (title: string) => {
+  const createGroup = async (title: string, request?: GroupCreateRequest) => {
     const authority = selectionAuthority()
     const result = await createGroupMutation.mutateAsync({
-      idempotencyKey: createClientRequestId(),
+      ...request,
+      idempotencyKey: request?.idempotencyKey ?? createClientRequestId(),
       title,
     })
     if (currentSelectionAuthority(authority)) selectChannel(result.channel.id)
@@ -347,6 +349,11 @@ export function VirtualRoomControls(props: {
             onClose={() => setDialog(null)}
             onCreate={createGroup}
             open
+            scope={{
+              accountId: bootstrapData()?.principal.userId,
+              epoch: audienceEpoch(),
+              workspaceId: workspaceId(),
+            }}
           />
         </Show>
       </Suspense>

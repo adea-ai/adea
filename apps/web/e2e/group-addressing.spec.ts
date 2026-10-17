@@ -54,6 +54,29 @@ test('the group header names every participant with its workspace, the audience 
   await expect(roster).toContainText('Next message: No Agent addressed')
 })
 
+test('the header names the people the server holds, and Manage group shows the same roster read-only', async ({
+  page,
+}) => {
+  await open(page)
+  const roster = page.getByRole('navigation', { name: 'People in this conversation' })
+  // The signed-in person is You; the other person is named from the workspace's member list, not assumed away.
+  await expect(roster.getByRole('listitem', { name: 'You' })).toBeVisible()
+  await expect(roster.getByRole('listitem', { name: 'Dana' })).toBeVisible()
+  await roster.getByRole('button', { name: 'Manage group' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Manage Launch review' })
+  const participants = dialog.getByRole('list', { name: 'Participants' })
+  await expect(participants.getByRole('listitem')).toHaveCount(4)
+  await expect(participants).toContainText('You')
+  await expect(participants).toContainText('Dana')
+  await expect(participants).toContainText('Aria · Acme')
+  // No grant issuer exists in the app yet, so the roster is read-only and the dependency is named.
+  await expect(dialog.locator('[data-group-readonly]')).toContainText(
+    'none can be requested from here yet'
+  )
+  await expect(dialog.getByRole('button', { name: 'Save changes' })).toHaveCount(0)
+  await expect(dialog).toContainText('from the moment they join')
+})
+
 test('a message with no recipient chosen addresses no one', async ({ page }) => {
   await open(page)
   await send(page, 'Just thinking out loud')

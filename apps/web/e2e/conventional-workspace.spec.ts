@@ -1428,6 +1428,27 @@ test('connects newly created Projects and group conversations to their canonical
   ).toBeVisible()
 })
 
+test('the production New group dialog does not carry its draft into another workspace', async ({
+  page,
+}) => {
+  await mockConnectedWorkspace(page)
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Create group conversation' }).click()
+  const groupDialog = page.getByRole('dialog', { name: 'New group conversation' })
+  const name = groupDialog.getByLabel('Conversation name')
+  await name.fill('Draft for Work')
+  await expect(name).toHaveValue('Draft for Work')
+  // The overlay covers the sidebar for the pointer, but a workspace can still change under an open dialog
+  // (a notification, a shortcut, another tab's switch): that is a different group, so the draft goes.
+  await workspaceNav(page)
+    .getByRole('button', { name: /^Home( |$)/ })
+    .evaluate((row) => (row as HTMLElement).click())
+  await expect(page).toHaveURL(/scene=home/)
+  // The draft is gone from the state, not only from the field: nothing can be submitted from it.
+  await expect(groupDialog.getByRole('button', { name: 'Create conversation' })).toBeDisabled()
+  await expect(name).toHaveValue('')
+})
+
 test('toggles chat and virtual Project views without losing shared selection or drafts', async ({
   page,
 }) => {

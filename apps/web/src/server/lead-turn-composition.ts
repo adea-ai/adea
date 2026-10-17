@@ -8,6 +8,7 @@ import {
   type ControlPlaneHopDependencies,
 } from './control-plane-client'
 import type { ControlPlaneServiceScope } from './control-plane-credential'
+import { LeadRuntimeRefusal, leadReadinessReason } from './lead-runtime-refusal'
 import { createLeadTurnSdkAdapter } from './lead-turn-sdk-adapter'
 import { installedLeadSdkPort, type LeadSdkMethod, type LeadSdkPort } from './lead-turn-sdk-port'
 import type { LeadTurnProductDependencies } from './lead-turn-product'
@@ -35,7 +36,8 @@ export async function createConfiguredLeadTurnDependencies(
     operation: string,
     parameters: Record<string, unknown>,
     serviceScope: ControlPlaneServiceScope,
-    key?: string
+    key?: string,
+    issuedAt?: string
   ) {
     // The publication callback runs with DB locks and must not acquire another pool connection.
     // Runtime authorization supplies the current mapping; adapter checks it against this captured scope.
@@ -52,6 +54,7 @@ export async function createConfiguredLeadTurnDependencies(
           idempotencyKey: key,
           payload: parameters,
           now,
+          ...(issuedAt ? { issuedAt } : {}),
         })
       : readEnvelope(credential, correlation, operation, parameters, now)
     return port.invoke(method, credential, body, dependencies)
@@ -61,11 +64,12 @@ export async function createConfiguredLeadTurnDependencies(
     operation: string,
     parameters: Record<string, unknown>,
     serviceScope: ControlPlaneServiceScope,
-    key?: string
+    key?: string,
+    issuedAt?: string
   ) {
     // The installed SDK validates the complete response envelope. Runtime transport
     // consumes its data projection; prepare and lookup have their own full-envelope decoders.
-    const response = await invoke(method, operation, parameters, serviceScope, key)
+    const response = await invoke(method, operation, parameters, serviceScope, key, issuedAt)
     if (
       !isRecord(response) ||
       !isRecord(response.data) ||
@@ -91,6 +95,11 @@ export async function createConfiguredLeadTurnDependencies(
     if (!isRecord(response) || !isRecord(response.data) || !isRecord(response.data.funding))
       throw new Error('RUNTIME_RESPONSE_INVALID')
     const value = response.data.funding
+    // A blocked read names the current reason; keep that bounded fact instead of a generic failure.
+    if (value.state === 'blocked' && value.workspaceId === scope!.workspaceId) {
+      const reason = leadReadinessReason(value.reasonCode)
+      if (reason) throw new LeadRuntimeRefusal(reason)
+    }
     if (
       value.state !== 'ready' ||
       value.workspaceId !== scope!.workspaceId ||
@@ -107,23 +116,25 @@ export async function createConfiguredLeadTurnDependencies(
       workspaceId: scope.workspaceId,
       preparationSchema: port.preparationSchema,
       lookupResponseSchema: port.lookupResponseSchema,
-      prepare: (intentId) =>
+      prepare: (intentId, issuedAt) =>
         invoke(
           'preparePiDurableLead',
           'pi-durable.lead.prepare',
           { intentId },
           'execution:accept',
-          `lead-prepare:${intentId}`
+          `lead-prepare:${intentId}`,
+          issuedAt
         ),
       lookup: (intentId) =>
         invoke('lookupPiDurableLead', 'pi-durable.lead.lookup', { intentId }, 'execution:read'),
-      dispatch: (intentId, preparationRef) =>
+      dispatch: (intentId, preparationRef, issuedAt) =>
         dispatchData(
           'dispatchPiDurableLead',
           'pi-durable.lead.dispatch',
           { intentId, preparationRef },
           'execution:accept',
-          `lead-turn:${intentId}`
+          `lead-turn:${intentId}`,
+          issuedAt
         ),
       status: (dispatchId) =>
         dispatchData(
@@ -139,13 +150,14 @@ export async function createConfiguredLeadTurnDependencies(
           { dispatchId, afterSequence },
           'execution:read'
         ),
-      cancel: (dispatchId) =>
+      cancel: (dispatchId, issuedAt) =>
         dispatchData(
           'cancelPiDurableLead',
           'pi-durable.lead.cancel',
           { dispatchId },
           'execution:cancel',
-          `lead-cancel:${dispatchId}`
+          `lead-cancel:${dispatchId}`,
+          issuedAt
         ),
     },
     async (expected) => {

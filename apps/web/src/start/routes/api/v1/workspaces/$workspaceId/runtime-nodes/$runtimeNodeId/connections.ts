@@ -35,6 +35,7 @@ async function get(request: Request, params: { workspaceId: string; runtimeNodeI
   try {
     const result = await listNodeRuntimeConnections(input, adminCorrelation(request), {
       resolveControlPlaneScope: controlPlaneScopeResolver(params.workspaceId),
+      requestSignal: request.signal,
       readRegisteredNode: async () => {
         try {
           return await readRuntimeNode(
@@ -52,6 +53,8 @@ async function get(request: Request, params: { workspaceId: string; runtimeNodeI
       headers: { 'cache-control': 'private, no-store' },
     })
   } catch {
+    if (request.signal.aborted)
+      throw request.signal.reason ?? new DOMException('The operation was aborted', 'AbortError')
     return workspaceUnavailableResponse(request)
   }
 }
