@@ -46,7 +46,7 @@
     "dev": "vite build --watch",
     "lint": "oxlint",
     "test": "bun test --conditions=browser tests/unit",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "bun check -p tsconfig.json"
   },
   "dependencies": {
     "@adea-ai/app-ui": "workspace:*",

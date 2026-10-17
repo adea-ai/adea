@@ -36,7 +36,7 @@
     "lint": "oxlint",
     "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
     "dev": "vite build --watch",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "bun check -p tsconfig.json"
   },
   "dependencies": {
     "@adea-ai/ui": "0.140.0",
