@@ -192,6 +192,56 @@ await context.addInitScript(() => {
     }
   })
   const trace: string[] = []
+  const iframeTrace: unknown[] = []
+  ;(window as unknown as { simIframeTrace: unknown[] }).simIframeTrace = iframeTrace
+  if (window.parent === window) {
+    const ids = new WeakMap<HTMLIFrameElement, number>()
+    let nextId = 0
+    const record = (action: string, element: HTMLIFrameElement, oldValue?: string | null) => {
+      if (!ids.has(element)) ids.set(element, ++nextId)
+      iframeTrace.push({
+        action,
+        id: ids.get(element),
+        at: performance.now(),
+        src: element.getAttribute('src'),
+        oldValue,
+        connected: element.isConnected,
+      })
+    }
+    const observer = new MutationObserver((records) => {
+      for (const mutation of records) {
+        if (mutation.type === 'attributes' && mutation.target instanceof HTMLIFrameElement)
+          record('src', mutation.target, mutation.oldValue)
+        for (const [nodes, action] of [
+          [mutation.removedNodes, 'remove'],
+          [mutation.addedNodes, 'add'],
+        ] as const) {
+          for (const node of nodes) {
+            if (!(node instanceof Element)) continue
+            const frames =
+              node instanceof HTMLIFrameElement
+                ? [node]
+                : Array.from(node.querySelectorAll('iframe'))
+            for (const element of frames) record(action, element)
+          }
+        }
+      }
+    })
+    observer.observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeOldValue: true,
+      attributeFilter: ['src'],
+    })
+    window.addEventListener(
+      'load',
+      (event) => {
+        if (event.target instanceof HTMLIFrameElement) record('load', event.target)
+      },
+      true
+    )
+  }
   let parentOrigin: string | undefined
   let activeSurface: string | undefined
   ;(window as unknown as { simLifecycleTrace: string[] }).simLifecycleTrace = trace
@@ -356,6 +406,9 @@ try {
       assetReads,
       characterLength: saved!.length,
       renderingErrors: errors.length,
+      iframeEvents: await page.evaluate(
+        () => (window as unknown as { simIframeTrace?: unknown[] }).simIframeTrace
+      ),
     })
   )
   expect(errors).toEqual([])
@@ -378,6 +431,7 @@ try {
           state: await child
             .evaluate(() => ({
               lifecycle: (window as unknown as { simLifecycleTrace?: string[] }).simLifecycleTrace,
+              iframes: (window as unknown as { simIframeTrace?: unknown[] }).simIframeTrace,
               root: document.getElementById('sim')?.innerHTML.slice(0, 2500),
               ready: document.readyState,
               bodyBox: document.body.getBoundingClientRect().toJSON(),
