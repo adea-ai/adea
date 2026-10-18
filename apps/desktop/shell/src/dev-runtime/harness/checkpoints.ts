@@ -2,6 +2,7 @@
 // rewind or a transcript edit. Production has no restore adapter yet.
 import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
+import { createFollowUpStorage } from './follow-up-storage'
 import {
   decodeDevCommand,
   type DevCommand,
@@ -191,6 +192,9 @@ export function createConversationCheckpointRuntime(input: {
   restoreTimeoutMs?: number
 }) {
   const now = input.now ?? Date.now
+  // The queue's existing physical claim also serializes checkpoint side effects.
+  // Acquiring it reads no sealed queue payload and needs no credential material.
+  const inputClaims = createFollowUpStorage({ dataDir: input.dataDir, scope: input.scope })
   const iso = () => new Date(now()).toISOString()
   const store = createDurableSqliteStore<AuditRecord>({
     file: join(
@@ -525,6 +529,8 @@ export function createConversationCheckpointRuntime(input: {
       const controller = new AbortController()
       let timer: ReturnType<typeof setTimeout> | undefined
       let dispatched = false
+      let releaseInput: (() => void) | undefined
+      let physical: Promise<CheckpointRestoreOutcome> | undefined
       try {
         const adapter = input.adapter
         if (
@@ -537,6 +543,8 @@ export function createConversationCheckpointRuntime(input: {
             'capability_unavailable',
             'this harness has no verified conversation checkpoint restore adapter'
           )
+        releaseInput = await inputClaims.tryDeliveryClaim(session.id)
+        if (!releaseInput) refuse('invalid_state', 'physical session input is still unsettled')
         assertCurrent()
         let adapterFenced = false
         append({ ...entry, phase: 'dispatching' })
@@ -602,6 +610,7 @@ export function createConversationCheckpointRuntime(input: {
             })
             return result(finish(entry, confirmed))
           })
+        physical = observed
         return await Promise.race([
           observed,
           new Promise<never>((_, reject) => {
@@ -642,6 +651,12 @@ export function createConversationCheckpointRuntime(input: {
       } finally {
         if (timer !== undefined) clearTimeout(timer)
         controller.abort()
+        // Timeout ends only this wait. A late adapter may still perform its
+        // side effect; retain the cross-process claim until actual settlement.
+        if (releaseInput) {
+          if (physical) void physical.then(releaseInput, releaseInput)
+          else releaseInput()
+        }
       }
     }
     const pending = execute().finally(() => {

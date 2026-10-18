@@ -264,12 +264,17 @@ describe('conversation checkpoint restore authority', () => {
   test('fences a takeover while the adapter is preparing; concurrent identical requests dispatch once', async () => {
     let release!: () => void
     let calls = 0
+    let entered!: () => void
+    const preparing = new Promise<void>((resolve) => {
+      entered = resolve
+    })
     const wait = new Promise<void>((resolve) => {
       release = resolve
     })
     const s = setup(
       adapter(async (input) => {
         calls++
+        entered()
         await wait
         return adapter().restore(input)
       })
@@ -281,6 +286,7 @@ describe('conversation checkpoint restore authority', () => {
       .restore({ ...request, idempotencyKey: 'competing-key' })
       .catch((error: unknown) => error)
     const refused = Promise.allSettled([first, second])
+    await preparing
     s.setSession({ ...original, generation: 2, version: 2 })
     release()
     expect(await refused).toEqual([
