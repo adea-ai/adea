@@ -2,6 +2,14 @@
 
 ## [0.96.0](https://github.com/adea-ai/adea/compare/v0.95.0...v0.96.0) (2026-10-18)
 
+### Release scope and known limitations
+
+The desktop package no longer includes the private Agent Sim payload. Fresh installations
+start with Chat and Dev; additional views are opt-in through the App Library.
+Production hosted Sim remains unavailable until entitlement checks, durable launch/session
+storage, and the authorized private host are configured. The included runtime contracts
+do not mean that every native producer or Chat consumer is wired end to end.
+
 
 ### Features
 
