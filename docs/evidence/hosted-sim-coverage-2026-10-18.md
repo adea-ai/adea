@@ -1,12 +1,12 @@
 # Hosted Sim composed coverage evidence
 
-Measured composition: base `596c4f1c2a8150606411ff074868cdc148bdfd45`,
-including main `750e5c1f90d9f626a7b34340695a0fc2a179c926`, plus the selector,
+Measured composition: base `9692ea03ad372a30da6b72823515e0f26d7b4882`,
+including main `b9c89d9cc7042ddd5d9723a48f6c20d1f881bc40`, plus the selector,
 boundary-test and pack-refusal changes published with this receipt.
 
-`bun run test:coverage` ran **1,393 tests / 119 files / zero test failures**,
-**exit 1**. Aggregate: **90.24% functions / 89.30% lines**. The failure is the
-unchanged **80% per-file** goal, not an aggregate or test failure. The 22 deficient
+`bun run test:coverage` ran **1,401 tests / 120 files / zero test failures**,
+**exit 1**. Aggregate: **90.58% functions / 89.76% lines**. The failure is the
+unchanged **80% per-file** goal, not an aggregate or test failure. The 21 deficient
 files are listed below.
 
 ## Scope and enforcement
@@ -30,7 +30,6 @@ on pinned Bun 1.4.3. The controls and boundary tests also pass.
 
 | File                                                               | Functions % | Lines % |
 | ------------------------------------------------------------------ | ----------: | ------: |
-| `apps/web/cloudflare.config.ts`                                    |       60.00 |   45.95 |
 | `apps/web/start/client-policy.mjs`                                 |        0.00 |   41.67 |
 | `packages/auth/src/adapter.ts`                                     |       37.50 |   23.53 |
 | `packages/auth/src/neon-driver.ts`                                 |       66.67 |   50.00 |
@@ -53,6 +52,12 @@ on pinned Bun 1.4.3. The controls and boundary tests also pass.
 | `scripts/sign-desktop-update.mjs`                                  |       80.00 |   70.00 |
 | `scripts/vite-plus-proof.mjs`                                      |       54.55 |   43.40 |
 
+The existing `apps/web/test/cloudflare-config.test.ts` is also selected: its
+eight tests measure the config source at 100% functions and lines. Every prior
+input remains. A run with missing installed dependencies failed; frozen
+installation restored those files, and the subsequent full run above has zero
+test failures. This is not a passing receipt for the earlier damaged-input run.
+
 ## Ownership and separate private qualification
 
 Root coordinated the tooling tests in merged PR #1456. This Sim owner retains
@@ -65,3 +70,7 @@ Private Agent Sim #111 at `341e616` independently passes its complete per-file
 must not be described as private #111 failures, or as passing Adea validation.
 The earlier 31-file result is recorded in the chronological repair evidence;
 this receipt supersedes its current-gap inventory after composition.
+
+[Proposed exclusive test-file allocation](hosted-sim-test-ownership-2026-10-18.md)
+records the read-only ownership check and disjoint runtime/canvas batches. Root
+admission is pending; no source-edit or held-work authority is implied.
