@@ -63,12 +63,13 @@ export function createBetterAuthDriver(api: BetterAuthServerApi): AuthDriver {
       requireData(await api.revokeSession({ token: session.token }))
     },
     async signIn(credentials) {
-      requireData(await api.signInEmail(credentials))
-      return getFreshSession()
+      // The credential call already returned the session it issued (read back
+      // through the cookies it set). Re-reading through the incoming request
+      // headers would resolve the pre-login account, or none at all.
+      return requireData(await api.signInEmail(credentials))
     },
     async signUp(registration) {
-      requireData(await api.signUpEmail(registration))
-      return getFreshSession()
+      return requireData(await api.signUpEmail(registration))
     },
     async signOut() {
       requireData(await api.signOut())

@@ -41,7 +41,13 @@ signing secret, at least 32 characters) and `AUTH_DATABASE_URL` must never be cl
 Google sign-in is enabled only when both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are present.
 Optional `AUTH_SESSION_EXPIRES_IN_SECONDS`, `AUTH_SESSION_UPDATE_AGE_SECONDS`,
 `AUTH_EMAIL_VERIFICATION_REQUIRED`, and `AUTH_SECURE_COOKIES` overrides default to a 7-day session
-refreshed daily, verification off, and secure cookies on whenever the base URL is HTTPS.
+refreshed daily, verification **on**, and secure cookies on whenever the base URL is HTTPS.
+`AUTH_DATABASE_URL` must require TLS on any non-loopback host (`sslmode=require`, `verify-ca`, or
+`verify-full`); a bare hosted URL is rejected. `AUTH_SECURE_COOKIES=false` is accepted only for a
+loopback HTTP base URL. Mailbox proof is required by default: `profile.email` is populated only once
+the provider reports the address verified, so an unverified fresh signup can sign in only when a
+deployment deliberately turns verification off, and never carries email-based authority
+(allowlists, invitations, desktop-session email) until it verifies.
 
 The browser client calls the same-origin `/api/auth/*` proxy, which serves the Better Auth handler.
 State-changing proxy requests require an exact `Origin` match, and Better Auth's own CSRF/origin
@@ -90,6 +96,16 @@ Server modules and Better Auth server entry points are excluded from the client 
 - The server proxy sets secure HTTP-only cookies with `SameSite=Lax`, host-only scope, and a
   per-environment random signing secret. Refresh and revocation-sensitive lookups bypass Better
   Auth's signed session-data cookie cache so expiry and remote revocation fail closed.
+- The service and its PostgreSQL connection are request-owned. Nothing is cached at module scope,
+  and each request closes its connection (or registers `close` with the request scope's cleanup),
+  so a Cloudflare Worker never reuses one request's socket in another.
+- Every `Set-Cookie` Better Auth returns — signup, sign-in, renewal/refresh, account switch,
+  revocation, logout — is persisted through the caller's request context. A credential call reads
+  its session back through the cookie it just issued, never the request's incoming cookie, so a
+  sign-in or account switch cannot resolve the pre-login account.
+- Mailbox proof precedes email-based authority. `profile.email` is populated only for a verified
+  address, so allowlists, invitations, and desktop-session email matching fail closed for a fresh
+  unverified signup.
 - Verification and password-reset links are delivered through an injected, provider-neutral
   transport (`AuthDelivery`). The default transport fails closed when no transport is configured;
   the transport never sends from the auth service itself.
@@ -234,7 +250,8 @@ The self-hosted move follows the same rules:
 
 1. Initialize the provider-owned Better Auth tables on the fresh PostgreSQL instance using the
    provider's supported process. (Remaining work: the schema-init command is not yet wired into a
-   deploy step.)
+   deploy step, and the service must be switched from the raw postgres.js client to a supported
+   Kysely/PostgreSQL dialect — see `packages/auth/README.md`.)
 2. `createBetterAuthDriver` implements `AuthDriver` and retains the provider/subject identity key
    under the `better-auth` provider name.
 3. The `@adea-ai/auth/client` and `@adea-ai/auth/server` constructors are backed by Better Auth.

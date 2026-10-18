@@ -4,7 +4,7 @@ import { readBetterAuthConfig } from '../../src/config'
 
 const base = {
   AUTH_BASE_URL: 'https://auth.adea.dev',
-  AUTH_DATABASE_URL: 'postgres://adea:secret@railway.internal:5432/adea',
+  AUTH_DATABASE_URL: 'postgres://adea:secret@railway.internal:5432/adea?sslmode=require',
   AUTH_SECRET: 'a-secure-better-auth-secret-that-is-long-enough',
   AUTH_TRUSTED_ORIGINS: 'https://adea.dev,adea://auth/callback',
 }
@@ -14,7 +14,9 @@ describe('Better Auth configuration', () => {
     const config = readBetterAuthConfig(base)
     expect(config.baseUrl).toBe('https://auth.adea.dev')
     expect(config.secureCookies).toBe(true)
-    expect(config.emailVerificationRequired).toBe(false)
+    // Mailbox proof is on by default: email-based authority needs a verified address.
+    expect(config.emailVerificationRequired).toBe(true)
+    expect(config.databaseRequiresTls).toBe(true)
     expect(config.sessionExpiresInSeconds).toBe(60 * 60 * 24 * 7)
     expect(config.sessionUpdateAgeSeconds).toBe(60 * 60 * 24)
     expect(config.trustedOrigins).toEqual(['https://adea.dev', 'adea://auth/callback'])
@@ -31,14 +33,43 @@ describe('Better Auth configuration', () => {
     )
   })
 
+  test('requires TLS for a hosted database and permits loopback without it', () => {
+    expect(() =>
+      readBetterAuthConfig({
+        ...base,
+        AUTH_DATABASE_URL: 'postgres://adea:secret@db.railway.app:5432/adea',
+      })
+    ).toThrow('TLS')
+
+    const verifyFull = readBetterAuthConfig({
+      ...base,
+      AUTH_DATABASE_URL: 'postgres://adea:secret@db.railway.app:5432/adea?sslmode=verify-full',
+    })
+    expect(verifyFull.databaseRequiresTls).toBe(true)
+
+    const loopback = readBetterAuthConfig({
+      ...base,
+      AUTH_DATABASE_URL: 'postgres://adea@localhost:5432/adea',
+    })
+    expect(loopback.databaseRequiresTls).toBe(false)
+  })
+
   test('accepts loopback HTTP and downgrades cookies only there', () => {
     const config = readBetterAuthConfig({
       ...base,
       AUTH_BASE_URL: 'http://127.0.0.1:8787',
+      AUTH_DATABASE_URL: 'postgres://adea@localhost:5432/adea',
+      AUTH_SECURE_COOKIES: 'false',
       AUTH_TRUSTED_ORIGINS: 'http://localhost:3000,adea://auth/callback',
     })
     expect(config.secureCookies).toBe(false)
     expect(config.trustedOrigins).toEqual(['http://localhost:3000', 'adea://auth/callback'])
+  })
+
+  test('refuses to disable secure cookies on a hosted base URL', () => {
+    expect(() => readBetterAuthConfig({ ...base, AUTH_SECURE_COOKIES: 'false' })).toThrow(
+      'AUTH_SECURE_COOKIES'
+    )
   })
 
   test('rejects wildcards and credential-bearing origins', () => {
@@ -63,13 +94,12 @@ describe('Better Auth configuration', () => {
   test('honors explicit session and verification overrides', () => {
     const config = readBetterAuthConfig({
       ...base,
-      AUTH_EMAIL_VERIFICATION_REQUIRED: 'true',
-      AUTH_SECURE_COOKIES: 'false',
+      AUTH_EMAIL_VERIFICATION_REQUIRED: 'false',
       AUTH_SESSION_EXPIRES_IN_SECONDS: '3600',
       AUTH_SESSION_UPDATE_AGE_SECONDS: '60',
     })
-    expect(config.emailVerificationRequired).toBe(true)
-    expect(config.secureCookies).toBe(false)
+    expect(config.emailVerificationRequired).toBe(false)
+    expect(config.secureCookies).toBe(true)
     expect(config.sessionExpiresInSeconds).toBe(3600)
     expect(config.sessionUpdateAgeSeconds).toBe(60)
   })

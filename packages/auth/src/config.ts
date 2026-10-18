@@ -8,7 +8,30 @@ export type AuthConfig = Readonly<{
 }>
 
 function isLoopback(hostname: string) {
-  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '[::1]' ||
+    hostname.endsWith('.localhost')
+  )
+}
+
+const REQUIRED_TLS_MODES = new Set(['require', 'verify-ca', 'verify-full'])
+
+/**
+ * True when a database URL is safe to use without transport encryption: either
+ * it points at loopback (a developer machine or a sidecar), or it opts into TLS
+ * explicitly. A hosted PostgreSQL (Railway, RDS, Neon) is never loopback, so a
+ * bare `postgres://user:pass@host/db` is rejected rather than silently connecting
+ * in the clear.
+ */
+function databaseUrlEncrypts(hostname: string, searchParams: URLSearchParams): boolean {
+  if (isLoopback(hostname)) return true
+  const sslmode = (searchParams.get('sslmode') ?? '').toLowerCase()
+  if (REQUIRED_TLS_MODES.has(sslmode)) return true
+  const ssl = (searchParams.get('ssl') ?? '').toLowerCase()
+  return ssl === 'true' || ssl === '1'
 }
 
 export function normalizeTrustedTarget(value: string): string {
@@ -84,6 +107,8 @@ export function readAuthConfig(environment: AuthEnvironment = process.env): Auth
 
 export type BetterAuthConfig = Readonly<{
   baseUrl: string
+  /** True when {@link databaseUrl} must be opened over TLS (any non-loopback host). */
+  databaseRequiresTls: boolean
   databaseUrl: string
   emailVerificationRequired: boolean
   google?: Readonly<{ clientId: string; clientSecret: string }>
@@ -144,6 +169,17 @@ export function readBetterAuthConfig(environment: AuthEnvironment = process.env)
   if (!/^postgres(ql)?:\/\//.test(databaseUrl)) {
     throw new Error('AUTH_DATABASE_URL must be a postgres:// connection string')
   }
+  let database: URL
+  try {
+    database = new URL(databaseUrl)
+  } catch {
+    throw new Error('AUTH_DATABASE_URL must be a valid URL')
+  }
+  if (!databaseUrlEncrypts(database.hostname, database.searchParams)) {
+    throw new Error(
+      'AUTH_DATABASE_URL must require TLS (sslmode=require, verify-ca, or verify-full) outside loopback'
+    )
+  }
 
   const rawOrigins = environment.AUTH_TRUSTED_ORIGINS
   if (!rawOrigins) throw new Error('AUTH_TRUSTED_ORIGINS is required')
@@ -158,24 +194,34 @@ export function readBetterAuthConfig(environment: AuthEnvironment = process.env)
     throw new Error('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together')
   }
 
+  const secureCookies = readBoolean(
+    environment.AUTH_SECURE_COOKIES,
+    'AUTH_SECURE_COOKIES',
+    baseUrl.protocol === 'https:'
+  )
+  const loopbackDevelopment = baseUrl.protocol === 'http:' && isLoopback(baseUrl.hostname)
+  if (!secureCookies && !loopbackDevelopment) {
+    throw new Error('AUTH_SECURE_COOKIES must not be disabled outside loopback development')
+  }
+
   return Object.freeze({
     baseUrl: baseUrl.toString().replace(/\/$/, ''),
+    databaseRequiresTls: !isLoopback(database.hostname),
     databaseUrl,
+    // Mailbox proof is required by default: an unverified address must not carry
+    // email-based authority (allowlists, invitations). A deployment can only turn
+    // this off deliberately.
     emailVerificationRequired: readBoolean(
       environment.AUTH_EMAIL_VERIFICATION_REQUIRED,
       'AUTH_EMAIL_VERIFICATION_REQUIRED',
-      false
+      true
     ),
     ...(googleClientId && googleClientSecret
       ? { google: Object.freeze({ clientId: googleClientId, clientSecret: googleClientSecret }) }
       : {}),
     // Secure cookies are the default; only loopback development over plain HTTP
-    // downgrades them.
-    secureCookies: readBoolean(
-      environment.AUTH_SECURE_COOKIES,
-      'AUTH_SECURE_COOKIES',
-      baseUrl.protocol === 'https:'
-    ),
+    // may downgrade them.
+    secureCookies,
     secret,
     sessionExpiresInSeconds: readPositiveSeconds(
       environment.AUTH_SESSION_EXPIRES_IN_SECONDS,

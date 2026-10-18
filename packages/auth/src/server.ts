@@ -9,49 +9,68 @@ import {
   type AuthRequestContextFactory,
   type BetterAuthInstance,
 } from './better-auth-server'
-import { readBetterAuthConfig, type AuthEnvironment } from './config'
+import { readBetterAuthConfig, type AuthEnvironment, type BetterAuthConfig } from './config'
 import { createUnconfiguredDelivery, type AuthDelivery } from './delivery'
 
 type RouteMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT'
 
-let cachedAuth: BetterAuthInstance | undefined
-let cachedConfig: ReturnType<typeof readBetterAuthConfig> | undefined
+/**
+ * A self-hosted Better Auth service plus the teardown that releases its
+ * database connection.
+ */
+export type BetterAuthService = Readonly<{
+  auth: BetterAuthInstance
+  close(): Promise<void>
+  config: BetterAuthConfig
+}>
 
-function config(environment: AuthEnvironment) {
-  cachedConfig ??= readBetterAuthConfig(environment)
-  return cachedConfig
-}
+export type AuthServiceConsumer = Readonly<{
+  /**
+   * Registers the service teardown with the caller's request scope so a Worker
+   * releases its database socket when the request ends. Without it the caller
+   * owns `close()`.
+   */
+  registerCleanup?: (close: () => Promise<void>) => void
+}>
 
 /**
- * Builds (once per process) the self-hosted Better Auth service for the
- * configured Railway PostgreSQL instance. Verification and reset delivery
- * default to the fail-closed transport; a deployment supplies a real one.
+ * Builds a fresh, request-owned self-hosted Better Auth service for the
+ * configured Railway PostgreSQL instance. Nothing is cached at module scope: a
+ * Cloudflare Worker isolate serves many requests, and a process-global
+ * connection would leak one request's socket into another. The caller closes
+ * the returned service (or registers `close` with its request scope).
  */
 export function createBetterAuthService(
   environment: AuthEnvironment = process.env,
   delivery: AuthDelivery = createUnconfiguredDelivery()
-): BetterAuthInstance {
-  if (!cachedAuth) {
-    const settings = config(environment)
-    cachedAuth = createBetterAuthServer({
-      config: settings,
-      database: createPostgresAuthDatabase(settings.databaseUrl),
-      delivery,
-    })
+): BetterAuthService {
+  const settings = readBetterAuthConfig(environment)
+  const database = createPostgresAuthDatabase(
+    settings.databaseUrl,
+    settings.databaseRequiresTls ? { ssl: 'require' } : {}
+  )
+  return {
+    auth: createBetterAuthServer({ config: settings, database: database.database, delivery }),
+    close: database.close,
+    config: settings,
   }
-  return cachedAuth
 }
 
 /**
  * The server-side auth adapter the application calls. The name is retained for
  * the existing web and desktop call sites; the implementation is now the
- * self-hosted Better Auth service rather than a hosted Neon Auth SDK.
+ * self-hosted Better Auth service rather than a hosted Neon Auth SDK. Pass a
+ * `consumer.registerCleanup` (for example the app's `registerRequestCleanup`)
+ * so the request-owned connection is released with the request.
  */
 export function createNeonServerAdapter(
   context: AuthRequestContextFactory,
-  environment: AuthEnvironment = process.env
+  environment: AuthEnvironment = process.env,
+  consumer: AuthServiceConsumer = {}
 ): AuthAdapter {
-  return createBetterAuthContextAdapter(createBetterAuthService(environment), context)
+  const service = createBetterAuthService(environment)
+  consumer.registerCleanup?.(service.close)
+  return createBetterAuthContextAdapter(service.auth, context)
 }
 
 /** Provider-neutral alias for {@link createNeonServerAdapter}. */
@@ -63,12 +82,12 @@ export async function handleNeonAuthRequest(
   _path?: string,
   environment: AuthEnvironment = process.env
 ): Promise<Response> {
-  return handleBetterAuthRequest(
-    createBetterAuthService(environment),
-    method,
-    request,
-    config(environment)
-  )
+  const service = createBetterAuthService(environment)
+  try {
+    return await handleBetterAuthRequest(service.auth, method, request, service.config)
+  } finally {
+    await service.close()
+  }
 }
 
 /** Provider-neutral alias for {@link handleNeonAuthRequest}. */

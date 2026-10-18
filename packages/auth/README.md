@@ -17,14 +17,31 @@ claiming, authorization, security, callbacks, observability, and provider-migrat
   Better Auth's own CSRF/origin checks. Configuration comes from `readBetterAuthConfig()`:
   `AUTH_BASE_URL` (the public app origin that serves `/api/auth/*`), `AUTH_SECRET` (≥32 chars),
   `AUTH_DATABASE_URL`, `AUTH_TRUSTED_ORIGINS`, plus optional session, verification, secure-cookie,
-  and Google overrides.
+  and Google overrides. `AUTH_DATABASE_URL` must require TLS outside loopback; `AUTH_SECURE_COOKIES`
+  may only be disabled for a loopback HTTP base URL; email verification is required by default and
+  `profile.email` is withheld until the mailbox is verified.
 - `createBetterAuthDriver()` adapts the server or client API to the provider-neutral `AuthDriver`.
   It never exposes a provider token; revocation resolves the normalized session ID to a token
   inside the driver, and refresh bypasses the signed session-data cookie cache.
 - Verification and password-reset messages go through the injected, provider-neutral `AuthDelivery`.
   `createUnconfiguredDelivery()` fails closed; `createRecordingAuthDelivery()` is the synthetic
   test transport. The auth service never sends email itself.
+- The service and its database connection are request-owned. `createBetterAuthService()` caches
+  nothing at module scope and returns a `close()`; request-scoped callers pass
+  `{ registerCleanup }` (the app's `registerRequestCleanup`) so the connection dies with the
+  request. Every `Set-Cookie` Better Auth returns is persisted through the request context, and a
+  credential call reads its own fresh cookie rather than the incoming one.
 - Better Auth response HTTP is `no-store`; auth/session/permission lookups are uncached.
+
+### Known gap: supported PostgreSQL dialect
+
+The value currently handed to Better Auth as its `database` is the raw postgres.js client
+(`createPostgresAuthDatabase`). Better Auth 1.6 treats a callable `database` as an adapter factory
+and calls it, so this composition is **not yet runnable**; a supported Kysely/PostgreSQL dialect
+(for example `pg`'s `Pool`, which Better Auth wraps in `PostgresDialect`) must replace it. That
+requires adding a driver dependency to this package plus a `bun.lock` update, and a
+production-constructor test against a disposable PostgreSQL (schema init, signup/session
+persistence, revocation). Both are tracked for coordination with the database lane.
 
 The historical `createNeonServerAdapter` / `createNeonClientAdapter` / `handleNeonAuthRequest`
 names are retained for the existing web and desktop call sites, with provider-neutral aliases

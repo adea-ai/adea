@@ -5,6 +5,7 @@ export type ProviderSessionInput = {
   }
   user?: {
     email?: string | null
+    emailVerified?: boolean
     id?: string
     name?: string | null
   }
@@ -52,6 +53,12 @@ export function normalizeProviderSession(
 
   const sessionId = value.session?.id
   const subject = value.user?.id
+  // Email is only surfaced once the provider has proven the mailbox. Callers use
+  // `profile.email` for allowlists, invitations, and desktop-session authority,
+  // so an unverified address must not reach them: a fresh signup that never
+  // opened its verification link keeps its subject and display name but carries
+  // no email.
+  const verifiedEmail = value.user?.emailVerified === true ? value.user?.email : undefined
   const expiresAt = value.session?.expiresAt ? new Date(value.session.expiresAt) : undefined
   if (!sessionId || !subject || !expiresAt || Number.isNaN(expiresAt.valueOf())) {
     throw new Error('Authentication provider returned a malformed session')
@@ -65,7 +72,7 @@ export function normalizeProviderSession(
     session: Object.freeze({ expiresAt: expiresAt.toISOString(), id: sessionId }),
     profile: Object.freeze({
       ...(value.user?.name ? { displayName: value.user.name } : {}),
-      ...(value.user?.email ? { email: value.user.email } : {}),
+      ...(verifiedEmail ? { email: verifiedEmail } : {}),
     }),
   })
 }

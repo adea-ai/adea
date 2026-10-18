@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { betterAuth, type BetterAuthOptions } from 'better-auth'
-import { applySetCookies } from 'better-auth/cookies'
+import { applySetCookies, parseSetCookieHeader, toCookieOptions } from 'better-auth/cookies'
 import postgres from 'postgres'
 
 import { createAuthAdapter, type AuthAdapter } from './adapter'
@@ -22,14 +22,32 @@ export type BetterAuthInstance = Readonly<{
 }>
 
 /**
- * The cookie + origin view a caller can supply without importing a server
- * framework. It matches the shape the existing app request-context adapter
- * already exposes, so route code keeps passing the same context.
+ * Cookie attributes a context can persist. It matches the shape the existing
+ * app request-context adapters expose, so route code keeps passing the same
+ * context.
+ */
+export type AuthCookieOptions = Readonly<{
+  domain?: string
+  expires?: Date
+  httpOnly?: boolean
+  maxAge?: number
+  partitioned?: boolean
+  path?: string
+  sameSite?: 'lax' | 'none' | 'strict'
+  secure?: boolean
+}>
+
+/**
+ * The request view a caller must supply without importing a server framework.
+ * `setCookie` is required: the auth service issues, renews, and clears session
+ * cookies, and a context that silently drops them would leave a successful
+ * sign-in with no session.
  */
 export type AuthRequestContext = Readonly<{
   getCookies(): string
   getHeader(name: string): string | null | undefined
   getOrigin(): string
+  setCookie(name: string, value: string, options: AuthCookieOptions): void
 }>
 
 export type AuthRequestContextFactory = () => Promise<AuthRequestContext> | AuthRequestContext
@@ -49,25 +67,45 @@ type BetterAuthSessionPayload = {
 // The real `auth.api` endpoint type is deeply inferred from the options passed
 // to betterAuth(). This structural view records exactly the supported call
 // shapes this module uses, so the composition stays readable and the driver
-// stays decoupled from the inference.
+// stays decoupled from the inference. `returnHeaders: true` asks Better Auth to
+// hand back the response `Set-Cookie` values so the context can persist them;
+// endpoints that do not return headers simply yield their payload.
+type BetterAuthCallResult<T> = T | { headers: Headers; response: T }
+
 type RawBetterAuthApi = {
   getSession(input: {
     headers: Headers
     query?: { disableCookieCache?: boolean; disableRefresh?: boolean }
-  }): Promise<BetterAuthSessionPayload>
+    returnHeaders: true
+  }): Promise<BetterAuthCallResult<BetterAuthSessionPayload>>
   listSessions(input: { headers: Headers }): Promise<Array<{ id: string; token: string }>>
-  revokeSession(input: { body: { token: string }; headers: Headers }): Promise<unknown>
+  revokeSession(input: {
+    body: { token: string }
+    headers: Headers
+    returnHeaders: true
+  }): Promise<BetterAuthCallResult<unknown>>
   signInEmail(input: {
     body: { email: string; password: string }
     headers: Headers
     returnHeaders: true
-  }): Promise<{ headers: Headers; response: unknown }>
-  signOut(input: { headers: Headers }): Promise<unknown>
+  }): Promise<BetterAuthCallResult<unknown>>
+  signOut(input: { headers: Headers; returnHeaders: true }): Promise<BetterAuthCallResult<unknown>>
   signUpEmail(input: {
     body: { email: string; name: string; password: string }
     headers: Headers
     returnHeaders: true
-  }): Promise<{ headers: Headers; response: unknown }>
+  }): Promise<BetterAuthCallResult<unknown>>
+}
+
+function splitCallResult<T>(result: BetterAuthCallResult<T>): {
+  headers: Headers | undefined
+  data: T
+} {
+  if (result && typeof result === 'object' && 'headers' in result && 'response' in result) {
+    const shaped = result as { headers?: Headers; response: T }
+    return { headers: shaped.headers, data: shaped.response }
+  }
+  return { headers: undefined, data: result as T }
 }
 
 function contextToHeaders(context: AuthRequestContext): Headers {
@@ -77,6 +115,35 @@ function contextToHeaders(context: AuthRequestContext): Headers {
   const origin = context.getOrigin()
   if (origin) headers.set('origin', origin)
   return headers
+}
+
+/**
+ * Persists whatever `Set-Cookie` values Better Auth returned into the request
+ * context. Better Auth owns the cookie names, signing, and attributes; this
+ * only routes them onto the framework response. It runs for every call, so a
+ * session renewal or a cleared session cookie issued by a plain read, a
+ * credential call, a revocation, or a sign-out all reach the browser.
+ */
+function persistResponseCookies(
+  context: AuthRequestContext,
+  responseHeaders: Headers | undefined
+): void {
+  const setCookies = responseHeaders?.getSetCookie?.() ?? []
+  for (const raw of setCookies) {
+    for (const [name, attributes] of parseSetCookieHeader(raw)) {
+      const options = toCookieOptions(attributes)
+      context.setCookie(name, attributes.value, {
+        ...(options.domain !== undefined ? { domain: options.domain } : {}),
+        ...(options.expires ? { expires: options.expires } : {}),
+        ...(options.httpOnly !== undefined ? { httpOnly: options.httpOnly } : {}),
+        ...(options.maxAge !== undefined ? { maxAge: options.maxAge } : {}),
+        ...(options.partitioned !== undefined ? { partitioned: options.partitioned } : {}),
+        ...(options.path !== undefined ? { path: options.path } : {}),
+        ...(options.sameSite !== undefined ? { sameSite: options.sameSite } : {}),
+        ...(options.secure !== undefined ? { secure: options.secure } : {}),
+      })
+    }
+  }
 }
 
 /**
@@ -92,39 +159,49 @@ function sessionCookieHeaders(responseHeaders: Headers): Headers {
   return headers
 }
 
-function createServerApi(auth: BetterAuthInstance, headers: Headers) {
+function createServerApi(auth: BetterAuthInstance, context: AuthRequestContext) {
   const api = auth.api as unknown as RawBetterAuthApi
+  const requestHeaders = contextToHeaders(context)
 
   const readSession = async (
     sessionHeaders: Headers,
     options?: { disableCookieCache?: boolean; disableRefresh?: boolean }
   ): Promise<{ data: ProviderSessionInput | null; error: unknown }> => {
     try {
-      return {
-        data: await api.getSession({
+      const result = splitCallResult(
+        await api.getSession({
           headers: sessionHeaders,
+          returnHeaders: true,
           ...(options ? { query: options } : {}),
-        }),
-        error: null,
-      }
+        })
+      )
+      persistResponseCookies(context, result.headers)
+      return { data: result.data, error: null }
     } catch (error) {
       return { data: null, error }
     }
   }
 
+  // A credential call reads its session back through the cookies it just
+  // issued, never the request's incoming cookies. After sign-in the fresh
+  // cookie names the new account; the pre-login cookie may still identify
+  // whichever account (or none) the browser held before.
   const finishCredentialCall = (
-    responseHeaders: Headers
-  ): Promise<{ data: ProviderSessionInput | null; error: unknown }> =>
-    readSession(sessionCookieHeaders(responseHeaders))
+    responseHeaders: Headers | undefined
+  ): Promise<{ data: ProviderSessionInput | null; error: unknown }> => {
+    persistResponseCookies(context, responseHeaders)
+    return readSession(sessionCookieHeaders(responseHeaders ?? new Headers()))
+  }
 
   return {
-    getSession: (options?: Parameters<typeof readSession>[1]) => readSession(headers, options),
+    getSession: (options?: Parameters<typeof readSession>[1]) =>
+      readSession(requestHeaders, options),
     async listSessions(): Promise<{
       data: Array<{ id: string; token: string }> | null
       error: unknown
     }> {
       try {
-        const sessions = await api.listSessions({ headers })
+        const sessions = await api.listSessions({ headers: requestHeaders })
         return { data: sessions.map(({ id, token }) => ({ id, token })), error: null }
       } catch (error) {
         return { data: null, error }
@@ -132,17 +209,24 @@ function createServerApi(auth: BetterAuthInstance, headers: Headers) {
     },
     async revokeSession(input: { token: string }): AuthResponse<unknown> {
       try {
-        return {
-          data: await api.revokeSession({ body: { token: input.token }, headers }),
-          error: null,
-        }
+        const result = splitCallResult(
+          await api.revokeSession({
+            body: { token: input.token },
+            headers: requestHeaders,
+            returnHeaders: true,
+          })
+        )
+        persistResponseCookies(context, result.headers)
+        return { data: result.data, error: null }
       } catch (error) {
         return { data: null, error }
       }
     },
     async signInEmail(credentials: { email: string; password: string }) {
       try {
-        const result = await api.signInEmail({ body: credentials, headers, returnHeaders: true })
+        const result = splitCallResult(
+          await api.signInEmail({ body: credentials, headers: requestHeaders, returnHeaders: true })
+        )
         return finishCredentialCall(result.headers)
       } catch (error) {
         return { data: null, error }
@@ -150,7 +234,13 @@ function createServerApi(auth: BetterAuthInstance, headers: Headers) {
     },
     async signUpEmail(registration: { email: string; name: string; password: string }) {
       try {
-        const result = await api.signUpEmail({ body: registration, headers, returnHeaders: true })
+        const result = splitCallResult(
+          await api.signUpEmail({
+            body: registration,
+            headers: requestHeaders,
+            returnHeaders: true,
+          })
+        )
         return finishCredentialCall(result.headers)
       } catch (error) {
         return { data: null, error }
@@ -158,7 +248,11 @@ function createServerApi(auth: BetterAuthInstance, headers: Headers) {
     },
     async signOut(): AuthResponse<unknown> {
       try {
-        return { data: await api.signOut({ headers }), error: null }
+        const result = splitCallResult(
+          await api.signOut({ headers: requestHeaders, returnHeaders: true })
+        )
+        persistResponseCookies(context, result.headers)
+        return { data: result.data, error: null }
       } catch (error) {
         return { data: null, error }
       }
@@ -170,18 +264,31 @@ export function createBetterAuthServerAdapter(
   auth: BetterAuthInstance,
   headers: Headers
 ): AuthAdapter {
-  return createAuthAdapter(createBetterAuthDriver(createServerApi(auth, headers)), {
-    provider: 'better-auth',
-  })
+  return createAuthAdapter(
+    createBetterAuthDriver(
+      createServerApi(auth, {
+        getCookies: () => headers.get('cookie') ?? '',
+        getHeader: (name) => headers.get(name),
+        getOrigin: () => headers.get('origin') ?? '',
+        // A caller that only hands over request headers has nowhere to put the
+        // response cookies; the context adapter is the supported way to persist
+        // them.
+        setCookie: () => undefined,
+      })
+    ),
+    {
+      provider: 'better-auth',
+    }
+  )
 }
 
 export function createBetterAuthContextAdapter(
   auth: BetterAuthInstance,
   factory: AuthRequestContextFactory
 ): AuthAdapter {
-  // Resolve the context per adapter call so each request reads its own cookies
-  // rather than capturing the first caller's headers.
-  const apiFor = async () => createServerApi(auth, contextToHeaders(await factory()))
+  // Resolve the context per adapter call so each request reads and writes its
+  // own cookies rather than capturing the first caller's context.
+  const apiFor = async () => createServerApi(auth, await factory())
   const driver = createBetterAuthDriver({
     getSession: async (options) => (await apiFor()).getSession(options),
     listSessions: async () => (await apiFor()).listSessions(),
@@ -279,19 +386,39 @@ export function createBetterAuthServer({
   }) as unknown as BetterAuthInstance
 }
 
+export type AuthDatabaseHandle = Readonly<{
+  /** The value handed to Better Auth as its `database`. */
+  database: NonNullable<BetterAuthOptions['database']>
+  /** Releases the connection so the caller can let it die with the request. */
+  close(): Promise<void>
+}>
+
 /**
- * Creates the PostgreSQL client the Better Auth Kysely adapter runs on. The
- * connection stays auth-owned so it can be sized for auth traffic without
- * touching the application database pool.
+ * Creates the PostgreSQL client the Better Auth adapter runs on. The connection
+ * stays auth-owned so it can be sized for auth traffic without touching the
+ * application database pool, and the returned `close()` releases the socket
+ * with the request instead of retaining a process-global pool. A non-loopback
+ * host must be opened with `ssl: 'require'` (enforced by
+ * `config.databaseRequiresTls`).
+ *
+ * NOTE: the value handed to Better Auth is still the postgres.js client. Better
+ * Auth 1.6 treats a callable `database` as an adapter factory, so a supported
+ * Kysely PostgreSQL dialect must replace it before this service is runnable;
+ * that dialect needs an added driver dependency and is tracked as rollout work
+ * (see `packages/auth/README.md`).
  */
 export function createPostgresAuthDatabase(
   databaseUrl: string,
   options: Record<string, unknown> = {}
-): ReturnType<typeof postgres> {
-  return postgres(databaseUrl, {
+): AuthDatabaseHandle {
+  const client = postgres(databaseUrl, {
     max: 1,
     ...options,
   } as Parameters<typeof postgres>[1])
+  return {
+    database: client as unknown as NonNullable<BetterAuthOptions['database']>,
+    close: () => client.end({ timeout: 5 }),
+  }
 }
 
 type RouteMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT'
