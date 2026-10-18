@@ -19,6 +19,10 @@ import type { MemoryStore } from './memory/store'
 import { assertMemoryWorkspaceId } from './memory/store'
 import { createDurableJsonStore } from './dev-runtime/host-store'
 import { detachWorkspaceConnections } from './dev-runtime/connections/store'
+import {
+  createFollowUpStorage,
+  assertFollowUpQueueStoragePath,
+} from './dev-runtime/harness/follow-up-storage'
 
 const CONTENT_ID =
   /^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/
@@ -97,6 +101,17 @@ export function workspaceLocalData(input: { dataDir: string; scope: Scope; memor
   const safePath = (path: string) => assertWorkspaceDataPath(dataDir, path)
   const contentDir = join(dataDir, 'local-content')
   const indexFile = join(contentDir, 'index.json')
+  function followUpData(): string | undefined {
+    let path: string
+    try {
+      path = safePath(assertFollowUpQueueStoragePath(dataDir, scope))
+      if (!regularFile(path)) return undefined
+      createFollowUpStorage({ dataDir, scope }).validateForPurge()
+    } catch {
+      throw new Error('workspace_cleanup_follow_up_data_pending')
+    }
+    return path
+  }
   function index(): Record<string, { id: string; workspaceId: string }> {
     if (!regularFile(safePath(indexFile))) return {}
     const value = JSON.parse(readFileSync(indexFile, 'utf8'))
@@ -250,6 +265,7 @@ export function workspaceLocalData(input: { dataDir: string; scope: Scope; memor
     relatedRecords()
     safePath(join(contentDir, 'memory', '.ownership-check'))
     memory.validateWorkspacePurge(scope.workspaceId)
+    followUpData()
     const snapshot = memory.list(scope.workspaceId)
     if (snapshot.unreadable) throw new Error('workspace_cleanup_ambiguous_data')
     const attachmentRecords = attachments.validateWorkspacePurge()
@@ -266,6 +282,7 @@ export function workspaceLocalData(input: { dataDir: string; scope: Scope; memor
     plan,
     purge(): WorkspaceLocalDataPlan {
       const snapshot = plan() // Fail ambiguous ownership before the first deletion.
+      const queued = followUpData()
       const { associated, templatePaths } = relatedRecords()
       // Related metadata goes first while its owning registry IDs still exist.
       for (const path of templatePaths) rmSync(path, { force: true, recursive: true })
@@ -282,6 +299,7 @@ export function workspaceLocalData(input: { dataDir: string; scope: Scope; memor
       }
       attachments.purgeWorkspace()
       memory.purgeWorkspace(scope.workspaceId)
+      if (queued) rmSync(queued, { force: true })
       const refs = index()
       // Unlink before dropping the index reference: a crash retains enough
       // information to retry an unfinished ciphertext removal.

@@ -46,6 +46,16 @@
       "development": "./src/native-session-inventory.ts",
       "import": "./dist/native-session-inventory.js"
     },
+    "./dev-runtime-follow-ups": {
+      "types": "./dist/dev-runtime-follow-ups.d.ts",
+      "development": "./src/dev-runtime-follow-ups.ts",
+      "import": "./dist/dev-runtime-follow-ups.js"
+    },
+    "./dev-runtime-activity": {
+      "types": "./dist/dev-runtime-activity/index.d.ts",
+      "development": "./src/dev-runtime-activity/index.ts",
+      "import": "./dist/dev-runtime-activity/index.js"
+    },
     "./dev-runtime-registry-dto": {
       "types": "./dist/dev-runtime-registry-dto.d.ts",
       "development": "./src/dev-runtime-registry-dto.ts",

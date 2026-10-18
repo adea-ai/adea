@@ -8,7 +8,7 @@ import {
   type ChatDraftChange,
   type ChatInputAuthority,
 } from './chat-composer'
-import { ChatTranscript, type ChatTranscriptProps } from './chat-transcript'
+import { ChatTranscript, ChatTranscriptNotices, type ChatTranscriptProps } from './chat-transcript'
 import { DirectSessionHandoffControls } from './handoff-controls'
 import {
   deriveDirectSessionHandoff,
@@ -22,9 +22,9 @@ import {
 } from './model/handoff'
 import { statusLabel } from './presentation'
 import './chat.css'
-import { statusDotVariants } from '@adea-ai/ui/components/ui/status-chip'
+import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
 import { Button } from '@adea-ai/ui/components/ui/button'
-import { Heading } from '@adea-ai/ui/components/ui/typography'
+import { Chat, ChatHeader, ChatNotice } from '@adea-ai/ui/components/composites/chat'
 
 /** Handoff section with provably reactive action state: the busy/error
  *  signals are read inside this component's own render, so no captured
@@ -341,103 +341,131 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         }
       : undefined)
 
+  const streamLabel = () =>
+    streamState() === 'connecting' ? 'Connecting' : connected() ? 'Live' : 'Disconnected'
+
   return (
-    <section class="dev-chat" aria-label={`Conversation ${props.conversation.title}`}>
-      <header class="dev-chat__header">
-        <div class="dev-chat__heading">
-          <Heading as="h2" size="card" data-chat-title="">
-            {props.conversation.title}
-          </Heading>
-          <p>
-            Runtime session · generation {props.conversation.generation} ·{' '}
-            {statusLabel(props.conversation.status)}
-          </p>
-        </div>
-        <div class="dev-chat__status" role="status">
-          <span aria-hidden="true" class={statusDotVariants({ tone: 'neutral' })} />
-          <span>
-            {streamState() === 'connecting' ? 'Connecting' : connected() ? 'Live' : 'Disconnected'}
-          </span>
-        </div>
-      </header>
-      <Show when={streamError() || needsReconnect()}>
-        <div class="dev-chat__notice" role="alert">
-          <p>{streamError() ?? 'Transcript needs a fresh runtime event window.'}</p>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void attach()}
-            disabled={!props.model}
-          >
-            Reconnect transcript
-          </Button>
-        </div>
-      </Show>
-      <Show when={suppliedHandoffView()}>
-        {(view) => (
-          <HandoffLiveSection
-            view={view()}
-            onLeadStop={props.onLeadStop ? leadStopAction : undefined}
-            onSessionStop={props.onSessionStop ?? (props.model ? sessionStopAction : undefined)}
-            onRequestHandoff={props.onRequestHandoff ? requestHandoffAction : undefined}
-            onRefreshLead={props.onRefreshLead}
-            onReconnect={
-              props.onReconnectHandoff ?? (props.model ? reconnectHandoffAction : undefined)
-            }
-            leadUnwiredReason="Lead cancellation is not connected in this host: wire onLeadStop to the canonical lead-turn cancel path."
-            actionState={handoffAction}
+    <Chat
+      data-dev-chat=""
+      aria-label={`Conversation ${props.conversation.title}`}
+      header={
+        <ChatHeader
+          title={<span data-chat-title="">{props.conversation.title}</span>}
+          subtitle={
+            <span data-chat-subtitle="">
+              Runtime session · generation {props.conversation.generation} ·{' '}
+              {statusLabel(props.conversation.status)}
+            </span>
+          }
+          status={
+            <StatusChip
+              data-chat-status=""
+              role="status"
+              tone={
+                streamState() === 'connecting' ? 'pending' : connected() ? 'success' : 'warning'
+              }
+              label={streamLabel()}
+            />
+          }
+        />
+      }
+      notices={
+        <>
+          <Show when={streamError() || needsReconnect()}>
+            <ChatNotice
+              tone="warning"
+              live="assertive"
+              title={streamError() ?? 'Transcript needs a fresh runtime event window.'}
+              action={
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void attach()}
+                  disabled={!props.model}
+                >
+                  Reconnect transcript
+                </Button>
+              }
+            />
+          </Show>
+          <ChatTranscriptNotices
+            transcript={transcript()}
+            projection={props.conversation.projection}
+            onJumpToTerminal={props.onJumpToTerminal}
           />
-        )}
-      </Show>
+          <Show when={suppliedHandoffView()}>
+            {(view) => (
+              <HandoffLiveSection
+                view={view()}
+                onLeadStop={props.onLeadStop ? leadStopAction : undefined}
+                onSessionStop={props.onSessionStop ?? (props.model ? sessionStopAction : undefined)}
+                onRequestHandoff={props.onRequestHandoff ? requestHandoffAction : undefined}
+                onRefreshLead={props.onRefreshLead}
+                onReconnect={
+                  props.onReconnectHandoff ?? (props.model ? reconnectHandoffAction : undefined)
+                }
+                leadUnwiredReason="Lead cancellation is not connected in this host: wire onLeadStop to the canonical lead-turn cancel path."
+                actionState={handoffAction}
+              />
+            )}
+          </Show>
+        </>
+      }
+      composer={
+        <For each={[`${props.conversation.runtimeSessionId}:${props.conversation.generation}`]}>
+          {() => (
+            <ChatComposer
+              conversation={props.conversation}
+              authority={props.authority}
+              connected={connected()}
+              awaitingApproval={props.awaitingApproval}
+              busy={props.conversation.status === 'active'}
+              onSend={props.onSend || props.model ? send : undefined}
+              onSteer={props.onSteer}
+              onStop={props.onStop || props.model ? stop : undefined}
+              onDraftChange={changeDraft}
+              decisionRequest={props.decisionRequest}
+              decisionConsumer={props.decisionConsumer}
+              createPasteBlockId={() =>
+                props.model?.createPasteBlockId?.(
+                  props.conversation.runtimeSessionId,
+                  props.conversation.generation
+                ) ?? `chat-paste-${++fallbackPasteBlockId}`
+              }
+              draftRevision={
+                props.draftRevision ??
+                props.model?.draftRevision?.(props.conversation.runtimeSessionId)
+              }
+            />
+          )}
+        </For>
+      }
+    >
       <For each={[`${props.conversation.runtimeSessionId}:${props.conversation.generation}`]}>
-        {() => {
+        {(scopeKey) => {
           const readingIdentity = {
             runtimeSessionId: props.conversation.runtimeSessionId,
             generation: props.conversation.generation,
           }
           return (
-            <>
-              <ChatTranscript
-                events={transcript().events}
-                resetKey={`${readingIdentity.runtimeSessionId}:${readingIdentity.generation}`}
-                projection={props.conversation.projection}
-                transcript={transcript()}
-                onResolveApproval={props.onResolveApproval}
-                onResolveQuestion={props.onResolveQuestion}
-                onJumpToTerminal={props.onJumpToTerminal}
-                readingPosition={props.readingPosition}
-                onReadingPositionChange={(position) =>
-                  props.onReadingPositionChange?.(readingIdentity, position)
-                }
-              />
-              <ChatComposer
-                conversation={props.conversation}
-                authority={props.authority}
-                connected={connected()}
-                awaitingApproval={props.awaitingApproval}
-                busy={props.conversation.status === 'active'}
-                onSend={props.onSend || props.model ? send : undefined}
-                onSteer={props.onSteer}
-                onStop={props.onStop || props.model ? stop : undefined}
-                onDraftChange={changeDraft}
-                decisionRequest={props.decisionRequest}
-                decisionConsumer={props.decisionConsumer}
-                createPasteBlockId={() =>
-                  props.model?.createPasteBlockId?.(
-                    props.conversation.runtimeSessionId,
-                    props.conversation.generation
-                  ) ?? `chat-paste-${++fallbackPasteBlockId}`
-                }
-                draftRevision={
-                  props.draftRevision ??
-                  props.model?.draftRevision?.(props.conversation.runtimeSessionId)
-                }
-              />
-            </>
+            <ChatTranscript
+              events={transcript().events}
+              resetKey={scopeKey}
+              projection={props.conversation.projection}
+              transcript={transcript()}
+              running={props.conversation.status === 'active'}
+              awaitingApproval={props.awaitingApproval}
+              onResolveApproval={props.onResolveApproval}
+              onResolveQuestion={props.onResolveQuestion}
+              readingPosition={props.readingPosition}
+              onReadingPositionChange={(position) =>
+                props.onReadingPositionChange?.(readingIdentity, position)
+              }
+            />
           )
         }}
       </For>
-    </section>
+    </Chat>
   )
 }

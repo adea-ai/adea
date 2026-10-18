@@ -126,7 +126,8 @@ describe('Dev Runtime operation registry', () => {
     // chat attachment upload/open/remove (#1392): the registry ratchet moves only when an
     // operation is deliberately added, and the decoder-key check below is
     // what keeps the list and the decoders in step.
-    expect(devOperations).toHaveLength(241)
+    // #1393 adds the authorized, generation-fenced follow-up queue operation.
+    expect(devOperations).toHaveLength(242)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({
