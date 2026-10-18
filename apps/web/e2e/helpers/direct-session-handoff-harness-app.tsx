@@ -17,6 +17,7 @@ import {
   ChatView,
   type ChatConversation,
   type HandoffLeadAgent,
+  type HandoffChildObservations,
   type HandoffLeadTurn,
 } from '@adea-ai/dev-view/chat'
 import type { HarnessRun, RuntimeEvent } from '@adea-ai/types/dev-runtime'
@@ -106,6 +107,36 @@ function approvalFixture(): Pick<ChatConversation, 'events' | 'retention'> {
       complete: query.get('window') !== 'incomplete',
     },
   }
+}
+
+// Control-plane child observations are fakes here: ?children=complete | partial
+// | none | unavailable mounts each shape of the (display-only) children read.
+function childObservations(): HandoffChildObservations | undefined {
+  const shape = new URLSearchParams(location.search).get('children')
+  const at = '2026-10-18T07:00:00.000Z'
+  const child = (n: number, overrides: object = {}) => ({
+    delegationId: `dlg_0000000${n}aaaaaaaa`,
+    role: n === 1 ? 'reviewer' : 'builder',
+    state: 'running' as const,
+    awaitingInput: false,
+    stopRequested: false,
+    updatedAt: at,
+    ...overrides,
+  })
+  if (shape === 'complete')
+    return {
+      availability: 'available',
+      children: [child(1), child(2, { stopRequested: true })],
+      totalChildren: 2,
+      complete: true,
+    }
+  if (shape === 'partial')
+    return { availability: 'available', children: [child(1)], totalChildren: 4, complete: false }
+  if (shape === 'none')
+    return { availability: 'available', children: [], totalChildren: 0, complete: true }
+  if (shape === 'unavailable')
+    return { availability: 'unavailable', reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE' }
+  return undefined
 }
 
 function explicitAwaiting(): boolean | undefined {
@@ -855,6 +886,7 @@ function Harness() {
           leadTurn: supply().turn,
           leadAgent: supply().agent,
           leadChannelId: supply().channelId,
+          childObservations: childObservations(),
         }}
         onLeadStop={cancelLeadTurn}
         onRequestHandoff={requestHandoff}

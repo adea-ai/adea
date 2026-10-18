@@ -337,6 +337,9 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         leadTurn: supply.leadTurn,
         leadAgent: supply.leadAgent,
         leadChannelId: supply.leadChannelId,
+        childJobs: supply.childJobs,
+        jobCancelWired: supply.jobCancelWired,
+        childObservations: supply.childObservations,
       })
     )
   }

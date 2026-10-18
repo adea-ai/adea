@@ -62,6 +62,71 @@
   font-size: var(--text-xs);
 }
 
+.dev-handoff__holder {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.dev-handoff__evidence,
+.dev-handoff__children {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dev-handoff__evidence-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.375rem 1rem;
+  margin: 0;
+  font-size: var(--text-xs);
+}
+
+.dev-handoff__evidence-list dt {
+  color: var(--muted-foreground);
+}
+
+.dev-handoff__evidence-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.dev-handoff__evidence-note,
+.dev-handoff__children-summary {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: var(--text-xs);
+}
+
+.dev-handoff__child-list,
+.dev-handoff__job-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dev-handoff__child,
+.dev-handoff__job {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  font-size: var(--text-xs);
+}
+
+.dev-handoff__child-role {
+  font-weight: 500;
+}
+
+.dev-handoff__child-id,
+.dev-handoff__child-time {
+  color: var(--muted-foreground);
+}
+
 .dev-handoff__remediation {
   display: block;
 }

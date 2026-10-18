@@ -277,3 +277,143 @@ export function deriveHandoffActivity(
     structured,
   }
 }
+
+// ── Control-plane child observations (#1173) ───────────────────────────────
+//
+// The lead-turn children read (control-plane `getPiDurableLeadChildren`) is a
+// per-read snapshot reported by the control plane. It is DISPLAY-ONLY: it is
+// not a runtime-authenticated observation, carries no generation, and so can
+// never bind a cancel. It exists to show the person which children the lead
+// has delegated to, and to say plainly what the read did not prove: that it
+// was unavailable, or that it is a partial page.
+
+export type HandoffObservedChildState =
+  | 'requested'
+  | 'dispatched'
+  | 'running'
+  | 'awaiting_input'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'manual_intervention'
+
+export type HandoffObservedChild = Readonly<{
+  delegationId: string
+  role: string
+  state: HandoffObservedChildState
+  awaitingInput: boolean
+  stopRequested: boolean
+  updatedAt: string
+  outcome?: Readonly<{
+    state: 'completed' | 'failed' | 'cancelled'
+    failureCode?: string
+    publication: 'pending' | 'published'
+  }>
+}>
+
+export type HandoffChildUnavailableCode =
+  | 'NOT_DISPATCHED'
+  | 'ADMISSION_SERVICE_UNAVAILABLE'
+  | 'RUNTIME_UNAVAILABLE'
+  | 'RUNTIME_RESPONSE_INVALID'
+
+/** What the children read returned: one page, or an unavailable read that
+ *  carries no empty set, count, or completion claim. */
+export type HandoffChildObservations =
+  | Readonly<{
+      availability: 'available'
+      children: readonly HandoffObservedChild[]
+      totalChildren: number
+      complete: boolean
+    }>
+  | Readonly<{ availability: 'unavailable'; reasonCode: HandoffChildUnavailableCode }>
+
+const UNAVAILABLE_REASONS: Readonly<Record<HandoffChildUnavailableCode, string>> = {
+  NOT_DISPATCHED: 'The lead turn has not been dispatched, so it has no children to report.',
+  ADMISSION_SERVICE_UNAVAILABLE: 'The control plane could not be reached, so children are unknown.',
+  RUNTIME_UNAVAILABLE: 'The runtime could not be reached, so children are unknown.',
+  RUNTIME_RESPONSE_INVALID: 'The control plane returned a response that was not usable.',
+}
+
+export type HandoffChildEvidenceRow = Readonly<{
+  delegationId: string
+  role: string
+  /** State words exactly as reported, plus qualifiers that are claims, not facts. */
+  stateText: string
+  qualifiers: readonly string[]
+  updatedAt: string
+}>
+
+export type HandoffChildEvidence =
+  /** No children read was supplied to this view. */
+  | Readonly<{ kind: 'not_connected'; summary: string }>
+  | Readonly<{ kind: 'unavailable'; summary: string }>
+  /** A complete read with no children. */
+  | Readonly<{ kind: 'none'; summary: string }>
+  | Readonly<{
+      kind: 'complete' | 'partial'
+      summary: string
+      rows: readonly HandoffChildEvidenceRow[]
+      totalChildren: number
+    }>
+
+function stateText(child: HandoffObservedChild): string {
+  return child.state.replaceAll('_', ' ')
+}
+
+function qualifiersOf(child: HandoffObservedChild): readonly string[] {
+  const qualifiers: string[] = []
+  if (child.awaitingInput && child.state !== 'awaiting_input') qualifiers.push('awaiting input')
+  if (child.stopRequested) qualifiers.push('stop requested, not confirmed')
+  if (child.outcome !== undefined) {
+    qualifiers.push(
+      child.outcome.publication === 'pending' ? 'outcome not yet published' : 'outcome published'
+    )
+    if (child.outcome.failureCode !== undefined)
+      qualifiers.push(`failure code ${child.outcome.failureCode}`)
+  }
+  return qualifiers
+}
+
+/**
+ * Turns a children read into what the surface may say. Unknown stays
+ * unknown: an unsupplied or unavailable read never reads as "no children",
+ * and an incomplete page names how many children it did not show.
+ */
+export function deriveChildEvidence(
+  observations: HandoffChildObservations | undefined
+): HandoffChildEvidence {
+  if (observations === undefined)
+    return {
+      kind: 'not_connected',
+      summary: 'Child delegations are not connected to this view, so they are not shown.',
+    }
+  if (observations.availability === 'unavailable')
+    return { kind: 'unavailable', summary: UNAVAILABLE_REASONS[observations.reasonCode] }
+  const rows = observations.children.map((child) => ({
+    delegationId: child.delegationId,
+    role: child.role,
+    stateText: stateText(child),
+    qualifiers: qualifiersOf(child),
+    updatedAt: child.updatedAt,
+  }))
+  if (observations.complete && rows.length === 0)
+    return { kind: 'none', summary: 'The control plane reports no child delegations.' }
+  const hidden = Math.max(observations.totalChildren - rows.length, 0)
+  if (!observations.complete)
+    return {
+      kind: 'partial',
+      summary:
+        hidden > 0
+          ? `Showing ${rows.length} of ${observations.totalChildren} children; ${hidden} not shown.`
+          : `Showing ${rows.length} children; the list is not complete.`,
+      rows,
+      totalChildren: observations.totalChildren,
+    }
+  return {
+    kind: 'complete',
+    summary: `${rows.length} ${rows.length === 1 ? 'child' : 'children'} reported.`,
+    rows,
+    totalChildren: observations.totalChildren,
+  }
+}

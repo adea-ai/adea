@@ -149,6 +149,30 @@ work. Until it exists the canvas shows the honest fallback in the right-hand col
   no producer exists for suggestions). Nothing here claims a producer streams these
   events in production.
 
+## Status band, evidence strip and child delegations (#1173/#1177)
+
+The handoff section above the thread now draws what its model already derived:
+
+- **Band.** Mode, generation, who holds the session (the workspace lead, you, or
+  no one) and, after a return, why the turn ended.
+- **Evidence strip.** Last retained event, approval, file, subagent and capability
+  event counts. They are raw events from the retained window, labelled as such; an
+  incomplete window says its counts are lower bounds and a terminal-fallback
+  projection says it reports no structured events.
+- **Child delegations.** The control-plane children read is display-only. A missing
+  read reads "not connected", never "no children"; an unavailable read names its
+  code and shows no count or list; a partial page says how many children it did not
+  show; a stop request is shown as "stop requested, not confirmed". Observed jobs
+  keep their own reasons.
+- **Controls.** Lead stop, session stop, handoff, job cancel and descendant cancel
+  remain separate rows with separate handlers. Job and descendant cancel stay
+  disabled: no cancel handler exists and CP #935/#937 are not delivered. The
+  children read cannot enable them, because it carries no runtime-authenticated
+  generation.
+
+The production supplier does not read the children endpoint yet; the mounted proof
+uses fakes (`?children=complete|partial|none|unavailable` in the handoff harness).
+
 ## Qualification evidence
 
 Browser specs, all against the development fixture (`/?view=chat&chatE2e=visual`):
