@@ -35,7 +35,7 @@ function trackPageErrors(page: Page): string[] {
 async function openCanvas(
   page: Page,
   state: string,
-  options: { theme?: 'light' | 'dark'; width?: number; height?: number } = {}
+  options: { theme?: 'light' | 'dark'; width?: number; height?: number; query?: string } = {}
 ) {
   const theme = options.theme ?? 'light'
   await page.setViewportSize({ width: options.width ?? 1280, height: options.height ?? 800 })
@@ -60,7 +60,7 @@ async function openCanvas(
   await page.route('**/api/v1/**', (route) =>
     route.fulfill({ contentType: 'application/json', json: {} })
   )
-  await page.goto(`/?view=chat&chatE2e=visual&chatState=${state}`)
+  await page.goto(`/?view=chat&chatE2e=visual&chatState=${state}${options.query ?? ''}`)
   await expect(page.locator('[data-chat-visual-state]')).toHaveAttribute(
     'data-chat-visual-state',
     state,
@@ -1006,6 +1006,36 @@ test.describe('earlier messages', () => {
     if ((await older(page).count()) === 0) await load.click()
     await expect(older(page)).toHaveCount(1)
     await expect(page.getByText('Earlier messages could not be loaded')).toHaveCount(0)
+  })
+})
+
+const lastEvent = (page: Page) =>
+  page.getByRole('region', { name: 'Evidence from the retained transcript' }).locator('dd').first()
+
+test.describe('handoff evidence follows the displayed thread', () => {
+  test('a streamed event updates the last event', async ({ page }) => {
+    await openCanvas(page, 'streaming', { query: '&chatHandoff=1' })
+    const before = (await lastEvent(page).textContent()) ?? ''
+    await page.evaluate(() => window.dispatchEvent(new Event('chat-visual:append')))
+    await expect(page.getByText('A later stream update arrived.')).toBeVisible()
+    await expect(lastEvent(page)).not.toHaveText(before)
+    await expect(lastEvent(page)).toContainText('turn.assistant_delta')
+  })
+
+  test('loaded history changes the window completeness the strip reports', async ({ page }) => {
+    await openCanvas(page, 'history', { query: '&chatHandoff=1' })
+    await expect(page.getByText(/counts are lower bounds/)).toBeVisible()
+    const load = page.getByRole('button', { name: 'Load earlier messages' })
+    await expect(older(page).or(load)).toBeVisible()
+    // The scroller may already have asked; a click then has nothing to press.
+    await load.click({ timeout: 2_000 }).catch(() => undefined)
+    await expect(older(page)).toHaveCount(1)
+    await expect(page.getByText(/counts are lower bounds/)).toHaveCount(0)
+  })
+
+  test('history that never loads keeps the counts labelled as lower bounds', async ({ page }) => {
+    await openCanvas(page, 'history-offline', { query: '&chatHandoff=1' })
+    await expect(page.getByText(/counts are lower bounds/)).toBeVisible()
   })
 })
 

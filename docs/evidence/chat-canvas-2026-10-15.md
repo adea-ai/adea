@@ -167,11 +167,13 @@ The handoff section above the thread now draws what its model already derived:
 - **Evidence strip.** Last retained event, approval, file, subagent and capability
   event counts. They are raw events from the retained window, labelled as such; an
   incomplete window says its counts are lower bounds and a terminal-fallback
-  projection says it reports no structured events.
+  projection says it reports no structured events. The strip reads the window the thread
+  displays, so streamed events and loaded history update it.
 - **Child delegations.** The control-plane children read is display-only. A missing
   read reads "not connected", never "no children"; an unavailable read names its
-  code and shows no count or list; a partial page says how many children it did not
-  show; a stop request is shown as "stop requested, not confirmed". Observed jobs
+  code and shows no count or list; a partial page, or a final cursor page that is complete but holds fewer
+  children than the total, says how many it did not show and never reads as
+  "all children"; a stop request is shown as "stop requested, not confirmed". Observed jobs
   keep their own reasons.
 - **Controls.** Lead stop, session stop, handoff, job cancel and descendant cancel
   remain separate rows with separate handlers. Job and descendant cancel stay

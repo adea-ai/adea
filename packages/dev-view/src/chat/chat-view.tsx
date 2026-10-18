@@ -107,18 +107,25 @@ export type ChatViewProps = Readonly<{
 type StreamState = 'idle' | 'connecting' | 'connected' | 'disconnected'
 
 function initialTranscript(conversation: ChatConversation): TranscriptAccumulator {
-  if (conversation.events.length === 0)
-    return createTranscriptAccumulator({
-      runtimeSessionId: conversation.runtimeSessionId,
-      generation: conversation.generation,
-      fromSequence: conversation.retention.oldestSequence ?? '0',
-    })
-  return transcriptWindow(conversation.events, {
-    runtimeSessionId: conversation.runtimeSessionId,
-    generation: conversation.generation,
-    fromSequence: conversation.retention.oldestSequence ?? '0',
-    limit: 1_000,
-  })
+  const accumulator =
+    conversation.events.length === 0
+      ? createTranscriptAccumulator({
+          runtimeSessionId: conversation.runtimeSessionId,
+          generation: conversation.generation,
+          fromSequence: conversation.retention.oldestSequence ?? '0',
+        })
+      : transcriptWindow(conversation.events, {
+          runtimeSessionId: conversation.runtimeSessionId,
+          generation: conversation.generation,
+          fromSequence: conversation.retention.oldestSequence ?? '0',
+          limit: 1_000,
+        })
+  // A window the host reported as incomplete is not complete because it is empty here: the
+  // thread never claims more than the conversation it was built from, until the stream
+  // (which owns the window from then on) says otherwise.
+  return conversation.retention.complete || !accumulator.retention.complete
+    ? accumulator
+    : { ...accumulator, retention: conversation.retention }
 }
 
 export function ChatView(props: ChatViewProps): JSX.Element {
@@ -328,9 +335,16 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     const supply = props.handoff
     if (!supply) return undefined
     const availability = transcript().availability.status
+    // The evidence strip and the approval state read the window the thread displays, which
+    // the stream and history loads update, not the snapshot the conversation was built from.
+    const displayed = transcript()
     return deriveDirectSessionHandoff(
       deriveHandoffInputFromConversation({
-        conversation: props.conversation,
+        conversation: {
+          ...props.conversation,
+          events: displayed.events,
+          retention: displayed.retention,
+        },
         connected: connected(),
         generationCurrent:
           availability !== 'stale_generation' && availability !== 'resync_required',

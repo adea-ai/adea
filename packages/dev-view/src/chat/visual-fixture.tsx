@@ -569,6 +569,9 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                 authority="chat"
                 connected={state !== 'reconnect'}
                 awaitingApproval={state === 'attention' || state === 'rich'}
+                handoff={
+                  new URLSearchParams(window.location.search).has('chatHandoff') ? {} : undefined
+                }
                 usageModel={
                   state === 'results-edge'
                     ? { providerId: 'anthropic', modelId: 'fixture-model' }

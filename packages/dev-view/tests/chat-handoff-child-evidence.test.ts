@@ -64,6 +64,41 @@ describe('child evidence', () => {
     expect(incomplete.summary).toBe('Showing 0 of 3 children; 3 not shown.')
   })
 
+  test('a complete final cursor page with earlier children is not "all children"', () => {
+    const evidence = deriveChildEvidence({
+      availability: 'available',
+      children: [child(), child({ delegationId: 'dlg_bbbbbbbb22222222' })],
+      totalChildren: 5,
+      complete: true,
+    })
+    expect(evidence.kind).toBe('partial')
+    expect(evidence.summary).toBe(
+      'This is the last page of the read: showing 2 of 5 children; 3 on earlier pages not shown.'
+    )
+  })
+
+  test('a complete final page with no rows but a nonzero total never claims none', () => {
+    const evidence = deriveChildEvidence({
+      availability: 'available',
+      children: [],
+      totalChildren: 3,
+      complete: true,
+    })
+    expect(evidence.kind).toBe('partial')
+    expect(evidence.summary).toContain('0 of 3 children')
+  })
+
+  test('a complete read holding every child is complete', () => {
+    expect(
+      deriveChildEvidence({
+        availability: 'available',
+        children: [child()],
+        totalChildren: 1,
+        complete: true,
+      }).kind
+    ).toBe('complete')
+  })
+
   test('a partial page names how many children it did not show', () => {
     const evidence = deriveChildEvidence({
       availability: 'available',

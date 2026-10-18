@@ -397,16 +397,20 @@ export function deriveChildEvidence(
     qualifiers: qualifiersOf(child),
     updatedAt: child.updatedAt,
   }))
-  if (observations.complete && rows.length === 0)
-    return { kind: 'none', summary: 'The control plane reports no child delegations.' }
+  // `complete` says the read reached its last page, not that this page holds every child:
+  // a final cursor page can be complete with earlier children on pages not shown here.
   const hidden = Math.max(observations.totalChildren - rows.length, 0)
-  if (!observations.complete)
+  if (observations.complete && rows.length === 0 && observations.totalChildren === 0)
+    return { kind: 'none', summary: 'The control plane reports no child delegations.' }
+  if (!observations.complete || hidden > 0)
     return {
       kind: 'partial',
       summary:
-        hidden > 0
-          ? `Showing ${rows.length} of ${observations.totalChildren} children; ${hidden} not shown.`
-          : `Showing ${rows.length} children; the list is not complete.`,
+        hidden === 0
+          ? `Showing ${rows.length} children; the list is not complete.`
+          : observations.complete
+            ? `This is the last page of the read: showing ${rows.length} of ${observations.totalChildren} children; ${hidden} on earlier pages not shown.`
+            : `Showing ${rows.length} of ${observations.totalChildren} children; ${hidden} not shown.`,
       rows,
       totalChildren: observations.totalChildren,
     }
