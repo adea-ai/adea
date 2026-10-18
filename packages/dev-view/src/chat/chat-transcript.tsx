@@ -675,6 +675,7 @@ function EntryView(props: {
       <Show when={entry().type === 'approval'}>
         <ChatApproval
           item={(entry() as ChatTurnApproval).item}
+          outcome={(entry() as ChatTurnApproval).outcome}
           onResolve={props.chat.onResolveApproval}
           disabledReason={chatTranscriptActionDisabledReason(
             'approval',
@@ -825,7 +826,7 @@ function QuestionEntry(props: {
   const disabledReason = () =>
     interactionContextDisabledReason(item()) ??
     chatTranscriptActionDisabledReason('question', props.chat.onResolveQuestion)
-  const requested = () => item().state === 'requested'
+  const requested = () => item().state === 'requested' && props.entry.outcome === undefined
   const submit = async (value: QuestionnaireAnswers) => {
     const event = item().event
     const text = value.answer?.text.trim() ?? ''
@@ -849,8 +850,20 @@ function QuestionEntry(props: {
         <Trace>
           <TraceLine
             title={prompt()}
-            meta={item().state ? STATE_WORDS[item().state!] : undefined}
-            status={item().state === 'expired' ? 'cancelled' : undefined}
+            meta={
+              props.entry.outcome
+                ? props.entry.outcome.decision === 'expired'
+                  ? STATE_WORDS.expired
+                  : 'answered'
+                : item().state
+                  ? STATE_WORDS[item().state!]
+                  : undefined
+            }
+            status={
+              (props.entry.outcome?.decision ?? item().state) === 'expired'
+                ? 'cancelled'
+                : undefined
+            }
             data-entry-id={item().id}
             data-event-id={item().id}
           />

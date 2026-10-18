@@ -1248,3 +1248,122 @@ describe('assistant message identity', () => {
     expect(entryByEventId.get('d2')).toBe('d1')
   })
 })
+
+// ─── Approval and question outcomes paired with their request (#1383) ───────
+
+const askApproval = (id: string, requestId = 'req-1') =>
+  event(
+    'approval.requested',
+    {
+      schemaVersion: 1,
+      requestId,
+      eligibility: { eligible: false, reason: 'response_unavailable' },
+      prompt: 'Run the tests?',
+    },
+    id
+  )
+const outcomeOf = (
+  kind: 'approval.resolved' | 'approval.expired' | 'question.resolved',
+  id: string,
+  requestEventId: string,
+  decision: string,
+  requestId = 'req-1'
+) =>
+  event(
+    kind,
+    {
+      schemaVersion: 1,
+      requestId,
+      requestEventId,
+      decision,
+      ...(decision === 'answered' ? { answers: [] } : {}),
+    },
+    id
+  )
+const approvalShape = (built: ReturnType<typeof turns>['turns']) =>
+  built[0]?.entries.map((entry) => `${entry.type}:${entry.id}`)
+
+describe('approval and question outcomes', () => {
+  test('a request says whether this surface may answer it', () => {
+    const [row] = projectTranscriptEvents([askApproval('q1')])
+    expect(row?.interaction).toEqual({
+      phase: 'requested',
+      requestId: 'req-1',
+      responseAvailable: false,
+    })
+  })
+
+  test('an outcome that names the request is drawn on it, not as a second line', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      askApproval('q1'),
+      outcomeOf('approval.resolved', 'o1', 'q1', 'approved'),
+    ])
+    expect(approvalShape(built)).toEqual(['approval:q1'])
+    expect(built[0]?.entries[0]).toMatchObject({ outcome: { decision: 'approved', eventId: 'o1' } })
+    expect(entryByEventId.get('o1')).toBe('q1')
+  })
+
+  test('a denial and an expiry pair the same way', () => {
+    const denied = turns([askApproval('q1'), outcomeOf('approval.resolved', 'o1', 'q1', 'denied')])
+    expect(denied.turns[0]?.entries[0]).toMatchObject({ outcome: { decision: 'denied' } })
+    const expired = turns([askApproval('q1'), outcomeOf('approval.expired', 'o1', 'q1', 'expired')])
+    expect(expired.turns[0]?.entries[0]).toMatchObject({ outcome: { decision: 'expired' } })
+  })
+
+  test('an outcome with another request id is not paired', () => {
+    const { turns: built } = turns([
+      askApproval('q1'),
+      outcomeOf('approval.resolved', 'o1', 'q1', 'approved', 'req-other'),
+    ])
+    expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o1'])
+    expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+  })
+
+  test('an outcome from another generation or session is not paired', () => {
+    const otherGeneration = {
+      ...outcomeOf('approval.resolved', 'o1', 'q1', 'approved'),
+      generation: 2,
+    }
+    const otherSession = {
+      ...outcomeOf('approval.resolved', 'o2', 'q1', 'approved'),
+      runtimeSessionId: 'session-2',
+    }
+    const { turns: built } = turns([askApproval('q1'), otherGeneration, otherSession])
+    expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o1', 'approval:o2'])
+    expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+  })
+
+  test('an outcome whose request left the window stays a line of its own', () => {
+    const { turns: built } = turns([outcomeOf('approval.resolved', 'o1', 'gone', 'approved')])
+    expect(approvalShape(built)).toEqual(['approval:o1'])
+  })
+
+  test('the first outcome settles the request and a second stays visible', () => {
+    const { turns: built } = turns([
+      askApproval('q1'),
+      outcomeOf('approval.resolved', 'o1', 'q1', 'approved'),
+      outcomeOf('approval.resolved', 'o2', 'q1', 'denied'),
+    ])
+    expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o2'])
+    expect(built[0]?.entries[0]).toMatchObject({ outcome: { decision: 'approved', eventId: 'o1' } })
+  })
+
+  test('a question outcome never settles an approval request', () => {
+    const { turns: built } = turns([
+      askApproval('q1'),
+      outcomeOf('question.resolved', 'o1', 'q1', 'answered'),
+    ])
+    expect(approvalShape(built)).toEqual(['approval:q1', 'question:o1'])
+    expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+  })
+
+  test('a legacy payload is never paired by what its text says', () => {
+    const { turns: built } = turns([
+      event('approval.requested', { prompt: 'Run the tests?' }, 'q1'),
+      event('approval.resolved', { requestEventId: 'q1', decision: 'approved' }, 'o1'),
+    ])
+    expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o1'])
+    expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+  })
+})

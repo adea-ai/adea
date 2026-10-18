@@ -19,7 +19,14 @@
 //   session, generation, run and source: the same id from another run or source is a
 //   different message. Events with no `messageId` (rows retained from before it
 //   existed) keep the run-and-generation grouping below.
-// - Nothing is correlated by payload. A `tool.started` and the `tool.completed`
+// - An approval or question outcome (`*.resolved`, `*.expired`) is drawn on its request
+//   only when the wire gate accepted both payloads and they agree: the outcome's
+//   `requestEventId` is the request's canonical event id in the same session and
+//   generation, its `requestId` is the request's own, and both are the same kind of
+//   interaction. The first outcome settles the request; an outcome that pairs with
+//   nothing (its request left the window, or it conflicts) stays a line of its own that
+//   says only what its event kind says. A legacy payload is never paired by its text.
+// - Nothing else is correlated by payload. A `tool.started` and the `tool.completed`
 //   that follows it stay two lines: the spec ("Payload hints and run completion
 //   cannot authorize grouping or hide an action") gives the canvas no validated
 //   call identity, and a spinner on a line whose completion is somewhere below it
@@ -94,8 +101,28 @@ export type ChatTurnActivity = Readonly<{
   item: ChatTranscriptItem
 }>
 
-export type ChatTurnApproval = Readonly<{ type: 'approval'; id: string; item: ChatTranscriptItem }>
-export type ChatTurnQuestion = Readonly<{ type: 'question'; id: string; item: ChatTranscriptItem }>
+/**
+ * How a request ended, once the runtime reported it and the canvas could pair the
+ * report with the request it answers (see `buildChatTurns`).
+ */
+export type ChatTurnOutcome = Readonly<{
+  decision: 'approved' | 'denied' | 'answered' | 'expired'
+  /** The outcome event, so a reveal request for it lands on the request's entry. */
+  eventId: string
+  decidedAt?: string
+}>
+export type ChatTurnApproval = Readonly<{
+  type: 'approval'
+  id: string
+  item: ChatTranscriptItem
+  outcome?: ChatTurnOutcome
+}>
+export type ChatTurnQuestion = Readonly<{
+  type: 'question'
+  id: string
+  item: ChatTranscriptItem
+  outcome?: ChatTurnOutcome
+}>
 export type ChatTurnNotice = Readonly<{ type: 'notice'; id: string; item: ChatTranscriptItem }>
 
 export type ChatTurnEntry =
@@ -178,6 +205,14 @@ function summaryScope(item: ChatTranscriptItem): readonly unknown[] {
 /** A slot whose entry was folded into an earlier one; removed once the turn is built. */
 const FOLDED = Object.freeze({}) as unknown as ChatTurnEntry
 
+type OpenRequest = {
+  entries: ChatTurnEntry[]
+  at: number
+  requestId: string
+  family: 'approval' | 'question'
+  settled: boolean
+}
+
 type MessageProse = {
   entries: ChatTurnEntry[]
   /** Where the message is drawn: the position of its first block. */
@@ -240,6 +275,7 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
 
   const index = (eventId: string, entryId: string) => entryByEventId.set(eventId, entryId)
   const prose = new Map<string, MessageProse>()
+  const requests = new Map<string, OpenRequest>()
 
   const reasoning = new Map<string, ReasoningState>()
   const methods = new Map<string, MethodState>()
@@ -478,6 +514,38 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
       foldMethod(turn, item)
       continue
     }
+    const interaction = item.interaction
+    if (interaction?.phase === 'outcome' && item.event !== undefined) {
+      const family = item.kind.startsWith('approval.') ? 'approval' : 'question'
+      const target = requests.get(
+        JSON.stringify([
+          item.event.runtimeSessionId,
+          item.event.generation,
+          interaction.requestEventId,
+        ])
+      )
+      const entry = target?.entries[target.at]
+      if (
+        target !== undefined &&
+        entry !== undefined &&
+        (entry.type === 'approval' || entry.type === 'question') &&
+        !target.settled &&
+        target.family === family &&
+        target.requestId === interaction.requestId
+      ) {
+        target.settled = true
+        target.entries[target.at] = {
+          ...entry,
+          outcome: {
+            decision: interaction.decision,
+            eventId: item.id,
+            ...(interaction.decidedAt !== undefined ? { decidedAt: interaction.decidedAt } : {}),
+          },
+        }
+        index(item.id, entry.id)
+        continue
+      }
+    }
     if (item.kind === 'turn.assistant_message' || item.kind === 'turn.result') {
       const key = assistantKey(item)
       const known = key === undefined ? undefined : prose.get(key)
@@ -564,10 +632,19 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
             failed: false,
           })
       }
-    } else if (item.role === 'approval') {
-      turn.entries.push({ type: 'approval', id: item.id, item })
-    } else if (item.role === 'question') {
-      turn.entries.push({ type: 'question', id: item.id, item })
+    } else if (item.role === 'approval' || item.role === 'question') {
+      turn.entries.push({ type: item.role, id: item.id, item })
+      if (interaction?.phase === 'requested' && item.event !== undefined)
+        requests.set(
+          JSON.stringify([item.event.runtimeSessionId, item.event.generation, item.id]),
+          {
+            entries: turn.entries,
+            at: turn.entries.length - 1,
+            requestId: interaction.requestId,
+            family: item.role,
+            settled: false,
+          }
+        )
     } else if (item.role === 'status') {
       turn.entries.push({ type: 'notice', id: item.id, item })
     } else {

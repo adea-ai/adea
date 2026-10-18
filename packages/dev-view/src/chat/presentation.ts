@@ -5,7 +5,29 @@ import type {
   RuntimeSession,
   RuntimeVisibleSummary,
 } from '@adea-ai/types/dev-runtime'
+import { decodeRuntimeInteractionPayload } from '@adea-ai/types/dev-runtime'
 import { decodeRuntimeAssistantPayload, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
+
+/**
+ * What a versioned approval or question event says about itself, read only after
+ * the wire gate accepted its payload. Legacy payloads carry none and are never
+ * given one by guessing from their text.
+ *
+ * A request says whether this surface may answer it (`responseAvailable`, the
+ * host fact `eligibility`); an outcome names the request it answers by the
+ * canonical event id (`requestEventId`) and the protocol's own `requestId`. The
+ * canvas pairs the two (see `buildChatTurns`) only when both agree.
+ */
+export type ChatInteraction =
+  | Readonly<{ phase: 'requested'; requestId: string; responseAvailable: boolean }>
+  | Readonly<{
+      phase: 'outcome'
+      requestId: string
+      requestEventId: string
+      decision: 'approved' | 'denied' | 'answered' | 'expired'
+      /** When the host says the decision was made; the actor id is a protocol id and is not shown. */
+      decidedAt?: string
+    }>
 
 /** A bounded, renderable row in the canonical transcript. */
 export type ChatTranscriptItem = Readonly<{
@@ -48,6 +70,8 @@ export type ChatTranscriptItem = Readonly<{
   /** The producer's sources and cited spans, present only when they validated against the exact text. */
   references?: ChatResponseReferences
   state?: 'requested' | 'started' | 'in_progress' | 'completed' | 'failed' | 'resolved' | 'expired'
+  /** Present only for a versioned approval or question the wire gate accepted. */
+  interaction?: ChatInteraction
   event?: RuntimeEvent
 }>
 
@@ -165,6 +189,30 @@ function requestContextFromPayload(event: RuntimeEvent): {
     }
   }
   return { requestContextIncomplete: true }
+}
+
+function interactionFromEvent(event: RuntimeEvent): ChatInteraction | undefined {
+  if (!event.kind.startsWith('approval.') && !event.kind.startsWith('question.')) return undefined
+  let decoded: ReturnType<typeof decodeRuntimeInteractionPayload>
+  try {
+    decoded = decodeRuntimeInteractionPayload(event.kind, event.payload)
+  } catch {
+    return undefined
+  }
+  if (decoded === undefined) return undefined
+  if ('eligibility' in decoded)
+    return {
+      phase: 'requested',
+      requestId: decoded.requestId,
+      responseAvailable: decoded.eligibility.eligible,
+    }
+  return {
+    phase: 'outcome',
+    requestId: decoded.requestId,
+    requestEventId: decoded.requestEventId,
+    decision: decoded.decision,
+    ...(decoded.decidedAt !== undefined ? { decidedAt: decoded.decidedAt } : {}),
+  }
 }
 
 function outputFromPayload(event: RuntimeEvent): string | undefined {
@@ -714,6 +762,7 @@ export function projectTranscriptEvents(
     const body = bodyFromPayload(event)
     const label = labelFromPayload(event)
     const state = stateFor(event.kind)
+    const interaction = interactionFromEvent(event)
     const references =
       body !== undefined && event.kind === 'turn.assistant_message'
         ? responseReferences(event, body.body)
@@ -731,6 +780,7 @@ export function projectTranscriptEvents(
         : {}),
       ...(state !== undefined ? { state } : {}),
       ...(references !== undefined ? { references } : {}),
+      ...(interaction !== undefined ? { interaction } : {}),
       event,
     })
   }
