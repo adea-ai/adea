@@ -9,7 +9,7 @@ import { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { PostgresJsSession } from 'drizzle-orm/postgres-js/session'
 import postgres, { type Sql } from 'postgres'
 
-import { readDatabaseUrl } from './config'
+import { classifyDatabaseUrl, readDatabaseUrl } from './config'
 import * as schema from './schema'
 
 type AppSchema = typeof schema
@@ -74,13 +74,65 @@ function constructDatabase(client: Sql) {
   return db
 }
 
-export function createDatabase(connectionUrl = readDatabaseUrl()) {
-  const client = postgres(connectionUrl, {
-    max: 10,
-    connect_timeout: 10,
-    idle_timeout: 20,
-    prepare: false,
-  })
+// A Worker request holds one short-lived client whose connections all go through
+// Hyperdrive (or a pooler), which owns the origin pool: a handful of edge
+// connections is enough, and Cloudflare's own Postgres.js example caps a Worker
+// client at 5. A long-lived Node server pools directly against PostgreSQL and
+// keeps the previous ceiling.
+const WORKERS_MAX_CONNECTIONS = 5
+const SERVER_MAX_CONNECTIONS = 10
+const WORKERS_USER_AGENT = 'Cloudflare-Workers'
+
+function isWorkersRuntime(): boolean {
+  return globalThis.navigator?.userAgent === WORKERS_USER_AGENT
+}
+
+/**
+ * Driver tuning for one connection URL, split out so it can be asserted without
+ * opening a socket.
+ *
+ * `prepare` follows the connection role, not a blanket toggle: a Neon `-pooler`
+ * endpoint multiplexes transactions and keeps `prepare: false`, while a direct
+ * Railway PostgreSQL connection and a Cloudflare Hyperdrive connection keep
+ * prepared statements. Hyperdrive supports the named prepared statements
+ * Postgres.js emits and documents that `prepare: false` makes the driver probe
+ * parameter types before every query, which its transaction pooling does not
+ * reliably support. No `cache` option is set: the drizzle database below owns
+ * `$cache: undefined`, and no database-level query cache backs auth, session or
+ * permission reads.
+ */
+export interface CreateDatabaseOptions {
+  maxConnections?: number
+  connectTimeoutSeconds?: number
+  idleTimeoutSeconds?: number
+  preparedStatements?: boolean
+}
+
+export function databaseConnectionOptions(
+  connectionUrl: string,
+  options: CreateDatabaseOptions = {}
+): {
+  max: number
+  connect_timeout: number
+  idle_timeout: number
+  prepare: boolean
+} {
+  const { preparedStatements } = classifyDatabaseUrl(connectionUrl)
+  return {
+    max:
+      options.maxConnections ??
+      (isWorkersRuntime() ? WORKERS_MAX_CONNECTIONS : SERVER_MAX_CONNECTIONS),
+    connect_timeout: options.connectTimeoutSeconds ?? 10,
+    idle_timeout: options.idleTimeoutSeconds ?? 20,
+    prepare: options.preparedStatements ?? preparedStatements,
+  }
+}
+
+export function createDatabase(
+  connectionUrl = readDatabaseUrl(),
+  options: CreateDatabaseOptions = {}
+) {
+  const client = postgres(connectionUrl, databaseConnectionOptions(connectionUrl, options))
 
   return {
     client,

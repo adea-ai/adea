@@ -3,7 +3,7 @@ import { npmVersion as drizzleVersion } from 'drizzle-orm/version'
 import { drizzle } from 'drizzle-orm/postgres-js'
 import postgres from 'postgres'
 
-import { createDatabase } from '../../src/connection'
+import { createDatabase, databaseConnectionOptions } from '../../src/connection'
 import * as schema from '../../src/schema'
 import { workspaces } from '../../src/schema'
 
@@ -130,5 +130,75 @@ describe('createDatabase construction', () => {
       await first.close()
       await second.close()
     }
+  })
+
+  test('configures no database-level query cache for auth, session or permission reads', async () => {
+    const { db, close } = createDatabase(URL_FOR_CONSTRUCTION)
+    try {
+      // drizzle reads `$cache` for its cache strategy; a configured cache would
+      // be an object here. The session is handed no cache either, so its own
+      // cache stays drizzle's NoopCache rather than a store.
+      expect((db as unknown as { $cache: unknown }).$cache).toBeUndefined()
+      const session = (db as unknown as { session: { options: unknown } }).session
+      expect(session.options).toEqual({ logger: undefined, cache: undefined })
+    } finally {
+      await close()
+    }
+  })
+})
+
+describe('databaseConnectionOptions', () => {
+  const LOCAL = 'postgresql://app:secret@127.0.0.1:55432/agent_hq?sslmode=disable'
+  const DIRECT_HOSTED = 'postgresql://app:secret@db.example.com:5432/agent_hq?sslmode=require'
+  const NEON_POOLED =
+    'postgresql://app:secret@ep-cool-1234-pooler.us-east-2.aws.neon.tech/agent_hq?sslmode=require'
+
+  test('keeps prepared statements for a direct connection and bounds the pool', () => {
+    expect(databaseConnectionOptions(DIRECT_HOSTED)).toEqual({
+      max: 10,
+      connect_timeout: 10,
+      idle_timeout: 20,
+      prepare: true,
+    })
+  })
+
+  test('keeps the previous ceilings for local development', () => {
+    expect(databaseConnectionOptions(LOCAL)).toMatchObject({ max: 10, prepare: true })
+  })
+
+  test('disables prepared statements only for a transaction-pooled endpoint', () => {
+    expect(databaseConnectionOptions(NEON_POOLED)).toMatchObject({ prepare: false })
+    // A Hyperdrive connection string is not a Neon pooler and keeps prepared
+    // statements even though it has no explicit sslmode.
+    expect(
+      databaseConnectionOptions(
+        'postgresql://app:secret@db.hyperdrive.cloudflare.com:5432/agent_hq'
+      )
+    ).toMatchObject({ prepare: true })
+  })
+
+  test('caps a Cloudflare Worker client at five edge connections', () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    try {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: { userAgent: 'Cloudflare-Workers' },
+        configurable: true,
+        writable: true,
+      })
+      expect(databaseConnectionOptions(DIRECT_HOSTED)).toMatchObject({ max: 5, prepare: true })
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'navigator', original)
+    }
+  })
+
+  test('honors explicit overrides for tests, fixtures and migration roles', () => {
+    expect(
+      databaseConnectionOptions(NEON_POOLED, {
+        maxConnections: 1,
+        preparedStatements: true,
+        connectTimeoutSeconds: 3,
+        idleTimeoutSeconds: 5,
+      })
+    ).toEqual({ max: 1, connect_timeout: 3, idle_timeout: 5, prepare: true })
   })
 })
