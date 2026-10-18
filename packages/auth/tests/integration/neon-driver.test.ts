@@ -84,3 +84,111 @@ describe('Neon SDK driver integration', () => {
     await expect(driver.getSession()).rejects.toThrow('Authentication provider request failed')
   })
 })
+
+function sdkFixture(overrides: Partial<NeonSdk> = {}): NeonSdk {
+  return {
+    getSession: async () => ({ data: providerSession, error: null }),
+    listSessions: async () => ({
+      data: [{ id: 'session-1', token: 'fixture-token' }],
+      error: null,
+    }),
+    refreshToken: async () => ({ data: true, error: null }),
+    revokeSession: async () => ({ data: true, error: null }),
+    signIn: { email: async () => ({ data: true, error: null }) },
+    signUp: { email: async () => ({ data: true, error: null }) },
+    signOut: async () => ({ data: true, error: null }),
+    ...overrides,
+  }
+}
+
+describe('fake-backed Neon SDK failure boundaries', () => {
+  test('signs in before requesting an uncached authenticated session', async () => {
+    const calls: unknown[] = []
+    const credentials = { email: 'fixture@example.invalid', password: 'fixture-only' }
+    const driver = createNeonAuthDriver(
+      sdkFixture({
+        signIn: {
+          email: async (input) => {
+            calls.push(['signIn', input])
+            return { data: true, error: null }
+          },
+        },
+        getSession: async (options) => {
+          calls.push(['session', options])
+          return { data: providerSession, error: null }
+        },
+      })
+    )
+    expect(await driver.signIn(credentials)).toBe(providerSession)
+    expect(calls).toEqual([
+      ['signIn', credentials],
+      ['session', { query: { disableCookieCache: true } }],
+    ])
+  })
+
+  test('does not fetch a fresh session when authentication fails', async () => {
+    let lookups = 0
+    const sdk = sdkFixture({
+      getSession: async () => {
+        lookups += 1
+        return { data: providerSession, error: null }
+      },
+      signIn: { email: async () => ({ data: null, error: { message: 'private fake detail' } }) },
+      signUp: { email: async () => ({ data: null, error: null }) },
+    })
+    const driver = createNeonAuthDriver(sdk)
+    await expect(
+      driver.signIn({ email: 'fixture@example.invalid', password: 'fixture-only' })
+    ).rejects.toThrow('Authentication provider request failed')
+    await expect(
+      driver.signUp({ email: 'fixture@example.invalid', password: 'fixture-only', name: 'Fixture' })
+    ).rejects.toThrow('Authentication provider request failed')
+    expect(lookups).toBe(0)
+  })
+
+  test('keeps anonymous lookup null but refuses a missing session during refresh', async () => {
+    const driver = createNeonAuthDriver(
+      sdkFixture({ getSession: async () => ({ data: null, error: null }) })
+    )
+    expect(await driver.getSession()).toBeNull()
+    await expect(driver.refreshSession()).rejects.toThrow('Authentication provider request failed')
+  })
+
+  test('never revokes a different session when the requested id is absent or listing fails', async () => {
+    let revoked = 0
+    const sdk = sdkFixture({
+      revokeSession: async () => {
+        revoked += 1
+        return { data: true, error: null }
+      },
+    })
+    await expect(createNeonAuthDriver(sdk).revokeSession('absent')).rejects.toThrow(
+      'Authentication session is unavailable'
+    )
+    sdk.listSessions = async () => ({ data: null, error: { message: 'private list detail' } })
+    await expect(createNeonAuthDriver(sdk).revokeSession('session-1')).rejects.toThrow(
+      'Authentication provider request failed'
+    )
+    expect(revoked).toBe(0)
+  })
+
+  test('awaits sign-out and surfaces revoke or sign-out failures through sanitized errors', async () => {
+    let signedOut = 0
+    const sdk = sdkFixture({
+      signOut: async () => {
+        signedOut += 1
+        return { data: true, error: null }
+      },
+    })
+    await createNeonAuthDriver(sdk).signOut()
+    expect(signedOut).toBe(1)
+    sdk.signOut = async () => ({ data: null, error: { message: 'private logout detail' } })
+    sdk.revokeSession = async () => ({ data: null, error: { message: 'private revoke detail' } })
+    await expect(createNeonAuthDriver(sdk).signOut()).rejects.toThrow(
+      'Authentication provider request failed'
+    )
+    await expect(createNeonAuthDriver(sdk).revokeSession('session-1')).rejects.toThrow(
+      'Authentication provider request failed'
+    )
+  })
+})

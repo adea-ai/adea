@@ -1,5 +1,6 @@
-import { expect, test } from 'bun:test'
+import { expect, spyOn, test } from 'bun:test'
 import { execFileSync } from 'node:child_process'
+import * as childProcess from 'node:child_process'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -200,3 +201,83 @@ test(
   },
   realGitTimeout
 )
+
+async function selectorEntry(
+  lane: string,
+  event: unknown,
+  diff: string,
+  eventName = 'pull_request'
+) {
+  const directory = mkdtempSync(join(tmpdir(), 'adea-selector-entry-'))
+  const eventPath = join(directory, 'event.json')
+  const outputPath = join(directory, 'output')
+  writeFileSync(eventPath, typeof event === 'string' ? event : JSON.stringify(event))
+  writeFileSync(outputPath, '')
+  const previous = { argv: process.argv, env: process.env }
+  const output = spyOn(console, 'log').mockImplementation(() => {})
+  const warning = spyOn(console, 'warn').mockImplementation(() => {})
+  const git = spyOn(childProcess, 'execFileSync').mockImplementation(() => diff as never)
+  try {
+    process.argv = [process.execPath, selector, lane]
+    process.env = {
+      GITHUB_EVENT_NAME: eventName,
+      GITHUB_EVENT_PATH: eventPath,
+      GITHUB_OUTPUT: outputPath,
+    }
+    await import(`./ci-lane-selection.mjs?entry=${crypto.randomUUID()}`)
+    return {
+      output: readFileSync(outputPath, 'utf8'),
+      gitCalls: [...git.mock.calls],
+      warnings: warning.mock.calls.flat().join('\n'),
+    }
+  } finally {
+    process.argv = previous.argv
+    process.env = previous.env
+    git.mockRestore()
+    output.mockRestore()
+    warning.mockRestore()
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
+test('instrumented selector binds its diff to exact immutable event refs and preserves NUL paths', async () => {
+  const before = 'a'.repeat(40),
+    after = 'b'.repeat(40)
+  const result = await selectorEntry(
+    'visual',
+    pullRequest(before, after),
+    'packages/ui/name\nwith-newline.ts\0'
+  )
+  expect(result.output).toBe('applicable=true\nworkspace=true\nchat=true\n')
+  expect(result.gitCalls).toHaveLength(1)
+  expect(result.gitCalls[0]?.[0]).toBe('git')
+  expect(result.gitCalls[0]?.[1]).toEqual([
+    'diff',
+    '--no-renames',
+    '--name-only',
+    '-z',
+    before,
+    after,
+  ])
+})
+
+test('instrumented selector skips docs-only input and never guesses an invalid event diff', async () => {
+  const refs = pullRequest('a'.repeat(40), 'b'.repeat(40))
+  expect((await selectorEntry('visual', refs, 'docs/note.md\0')).output).toBe(
+    'applicable=false\nworkspace=false\nchat=false\n'
+  )
+  for (const event of [
+    pullRequest('0'.repeat(40), 'b'.repeat(40)),
+    pullRequest('A'.repeat(40), 'b'.repeat(40)),
+    '{invalid',
+  ]) {
+    const result = await selectorEntry('visual', event, '')
+    expect(result.output).toBe('applicable=true\nworkspace=true\nchat=true\n')
+    expect(result.gitCalls).toHaveLength(0)
+    expect(result.warnings).toContain('Change detection failed')
+  }
+  const dispatched = await selectorEntry('host', {}, '', 'workflow_dispatch')
+  expect(dispatched.output).toBe('applicable=true\n')
+  expect(dispatched.gitCalls).toHaveLength(0)
+  await expect(selectorEntry('unknown', {}, '')).rejects.toThrow('Usage:')
+})
