@@ -219,3 +219,31 @@ private `341e616` export: 10 grants, 281 authorized asset reads, unchanged
 close/reopen, parent-reload and Room-to-HQ assertions remain. Types 33/33 and lint
 19/19 plus root pass. Synchronous and ordinary repeats remain to be recorded;
 this single successful async run is not yet repeated-journey clearance.
+
+### Repeated journeys and background bootstrap
+
+At runtime commit `2cbbb1f`, four consecutive strict journeys passed: async native
+move (10 grants/281 asset reads), synchronous move (9/280), ordinary repeat one
+(7/235), and ordinary repeat two (7/236). Every run preserved the same
+155-character value and recorded zero rendering errors. The final HQ screenshot
+was inspected locally: the scene, character and designer controls render.
+
+Root identified that background documents may suspend paints. Preparation now
+also uses the next task after native load as a fallback; completion is idempotent
+and cancels both scheduled callbacks. The new regression never fires rAF, proves
+the fallback completes, and proves disposal before fallback starts no read even
+if a stale callback is invoked. Genuine configuration failure remains observable.
+Six focused bootstrap tests / 29 assertions pass. Types 33/33, lint 19/19 plus
+root, and full formatting pass. The updated complete async-move journey passes
+with 9 grants, 277 authorized reads and zero rendering errors.
+
+The local unsigned stable-format archive for the current client has 821 entries,
+123,871,920 bytes and SHA-256
+`cf5bdf757ac44b381307df4e195950a3e560481673137643b31181949d154188`.
+The installed 311-file client matches the built client byte-for-byte
+(4,149,362 bytes). Hash comparison against all 1,882 private export files finds
+only four identical JSON scene manifests, each verified against its tracked
+`packages/spatial/data/{home,work}/{editor-overrides,props}.json` source. There
+are zero private engine/runtime/binary-asset matches. No private output or
+screenshot is uploaded. Reconciliation and archive refresh for newer main remain
+separate receipts; these numbers are not relabeled as a later package.

@@ -30,14 +30,22 @@ export async function readSimHostConfiguration(
 export function prepareSimHostDocument(lifecycle: Window): Promise<boolean> {
   return new Promise((resolveReady) => {
     let paint: number | undefined
+    let fallback: number | undefined
+    let finished = false
     const finish = (ready: boolean) => {
+      if (finished) return
+      finished = true
       lifecycle.removeEventListener('load', loaded)
       lifecycle.removeEventListener('pagehide', hidden)
       if (paint !== undefined) lifecycle.cancelAnimationFrame(paint)
+      if (fallback !== undefined) lifecycle.clearTimeout(fallback)
       resolveReady(ready)
     }
     const loaded = () => {
       paint = lifecycle.requestAnimationFrame(() => finish(!lifecycle.closed))
+      // Hidden documents can suspend paints. The next task still lets the
+      // embedding app finish native load handling before configuration work.
+      fallback = lifecycle.setTimeout(() => finish(!lifecycle.closed), 0)
     }
     const hidden = () => finish(false)
     lifecycle.addEventListener('pagehide', hidden, { once: true })

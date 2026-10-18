@@ -75,6 +75,12 @@ test('bootstrap waits until load and the next paint; discarded documents do not 
       expect(id).toBe(17)
       cancelled++
     },
+    setTimeout() {
+      return 19
+    },
+    clearTimeout(id: number) {
+      expect(id).toBe(19)
+    },
   })
   const pending = prepareSimHostDocument(lifecycle as unknown as Window)
   expect(paint).toBeUndefined()
@@ -89,4 +95,46 @@ test('bootstrap waits until load and the next paint; discarded documents do not 
   expect(await discarded).toBe(false)
   lifecycle.dispatchEvent(new Event('load'))
   expect(paint).toBeUndefined()
+})
+
+test('a suspended paint uses the next-task fallback, which disposal cancels before any read', async () => {
+  let fallback: (() => void) | undefined
+  let cancels = 0
+  const lifecycle = Object.assign(new EventTarget(), {
+    closed: false,
+    document: { readyState: 'complete' },
+    requestAnimationFrame() {
+      return 17
+    },
+    cancelAnimationFrame(id: number) {
+      expect(id).toBe(17)
+      cancels++
+    },
+    setTimeout(callback: () => void, delay: number) {
+      expect(delay).toBe(0)
+      fallback = callback
+      return 19
+    },
+    clearTimeout(id: number) {
+      expect(id).toBe(19)
+    },
+  })
+  const ready = prepareSimHostDocument(lifecycle as unknown as Window)
+  fallback!()
+  expect(await ready).toBe(true)
+  let reads = 0
+  const bootstrap = async () => {
+    if (await prepareSimHostDocument(lifecycle as unknown as Window)) {
+      reads++
+      return readSimHostConfiguration(lifecycle, async () => Response.json({ parentOrigins: [] }))
+    }
+    return null
+  }
+  const disposed = bootstrap()
+  const staleFallback = fallback!
+  lifecycle.dispatchEvent(new Event('pagehide'))
+  expect(await disposed).toBeNull()
+  staleFallback()
+  expect(reads).toBe(0)
+  expect(cancels).toBe(2)
 })
