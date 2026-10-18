@@ -28,7 +28,9 @@ function event(id: string, kind: RuntimeEvent['kind'], text: string): RuntimeEve
 }
 
 const question = event('question-1', 'question.requested', 'Which target?')
-const [events, setEvents] = createSignal<readonly RuntimeEvent[]>([question])
+// Prose that belongs to the content font, so the spec can tell it from the chrome.
+const reply = { ...event('reply-1', 'turn.assistant_message', 'Reply prose'), seq: '0' }
+const [events, setEvents] = createSignal<readonly RuntimeEvent[]>([reply, question])
 const [resetKey, setResetKey] = createSignal('session-1:1')
 
 window.chatTranscriptCompositionHarness = {
@@ -36,12 +38,15 @@ window.chatTranscriptCompositionHarness = {
     applyAppearanceFontSettings(document.documentElement, fonts),
   resetFonts: () =>
     applyAppearanceFontSettings(document.documentElement, DEFAULT_APPEARANCE_EDITOR_FONT_SETTINGS),
-  prepend: () => setEvents([event('tool-1', 'tool.completed', 'Opaque tool result'), question]),
+  prepend: () =>
+    setEvents([event('tool-1', 'tool.completed', 'Opaque tool result'), reply, question]),
   reset: () => setResetKey('session-1:2'),
 }
 
 render(
-  () => <ChatTranscript events={events()} resetKey={resetKey()} />,
+  () => (
+    <ChatTranscript events={events()} resetKey={resetKey()} onResolveQuestion={() => undefined} />
+  ),
   document.querySelector('#harness-root')!
 )
 

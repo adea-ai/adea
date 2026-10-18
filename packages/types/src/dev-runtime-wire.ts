@@ -9,6 +9,13 @@ export type {
 } from './dev-runtime-assistant'
 import { decodeChatAttachmentEventPayload } from './dev-runtime-attachments'
 import {
+  decodeRuntimeActivityPayload,
+  isRuntimeActivityEventKind,
+  runtimeActivityEventKinds,
+  type RuntimeActivityEventKind,
+  type RuntimeActivityPayloads,
+} from './dev-runtime-activity'
+import {
   exactKeys,
   fail,
   finiteNumber,
@@ -29,7 +36,7 @@ import {
   type RuntimeCallPayload,
 } from './dev-runtime-call'
 import { cborByteLength } from './dev-runtime-cbor-length'
-import { assertWellFormedUnicode } from './dev-runtime-unicode'
+import { assertJsonUnicode, assertWellFormedUnicode } from './dev-runtime-unicode'
 export {
   decodeRuntimeCallPayload,
   isRuntimeCallEventKind,
@@ -49,10 +56,14 @@ export type {
   RuntimeCallPermissionEligibility,
   RuntimeCallPhase,
 } from './dev-runtime-call'
+export type { FollowUpQueueEventPayload } from './dev-runtime-follow-up-event'
+import { decodeFollowUpQueueEventPayload } from './dev-runtime-follow-up-event'
+
 import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
 import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
 
 export const runtimeEventKinds = [
+  'queue.updated',
   'session.created',
   'session.starting',
   'session.ready',
@@ -90,6 +101,7 @@ export const runtimeEventKinds = [
   'question.expired',
   'file.observed',
   'checkpoint.observed',
+  ...runtimeActivityEventKinds,
   'subagent.observed',
   'usage.observed',
   'terminal.command_started',
@@ -175,6 +187,71 @@ export function decodeRuntimeCallEvent(
   return value as RuntimeCallEvent
 }
 
+export type RuntimeActivityEvent = {
+  [K in RuntimeActivityEventKind]: Omit<
+    RuntimeEvent,
+    'kind' | 'payload' | 'source' | 'confidence'
+  > &
+    Readonly<{
+      source: 'native' | 'acp' | 'authenticated_hook'
+      confidence: 'authoritative'
+      kind: K
+      payload: RuntimeActivityPayloads[K]
+    }>
+}[RuntimeActivityEventKind]
+
+function validateActivity(item: Record<string, unknown>, enforceEnvelopeBounds = true): void {
+  if (!isRuntimeActivityEventKind(item.kind))
+    fail('event.kind', 'expected structured activity kind')
+  decodeRuntimeActivityPayload(item.payload, item.kind)
+  assertJsonUnicode(item)
+  if (item.source === 'host' || item.source === 'terminal_fallback')
+    fail('event.source', 'structured activity requires a native, ACP or owned hook producer')
+  if (item.confidence !== 'authoritative')
+    fail('event.confidence', 'structured activity requires authoritative producer facts')
+  if (enforceEnvelopeBounds) assertRuntimeEventFrameSize(item as RuntimeEvent)
+  if (
+    enforceEnvelopeBounds &&
+    item.source === 'authenticated_hook' &&
+    new TextEncoder().encode(JSON.stringify(item)).byteLength > 8 * 1024
+  )
+    fail('event', 'authenticated hook observation exceeds 8 KiB')
+}
+
+function assertActivityOwnership(
+  item: Record<string, unknown>,
+  provenance: RuntimeEventProvenance
+): void {
+  if (
+    !Array.isArray(provenance.ownedActivityKinds) ||
+    !provenance.ownedActivityKinds.includes(item.kind as RuntimeActivityEventKind)
+  )
+    fail('event.kind', 'structured activity requires out-of-band producer ownership')
+}
+
+/** Explicit opt-in: an opaque legacy row never gains structured activity semantics. */
+export function decodeRuntimeActivityEvent(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): RuntimeActivityEvent {
+  decodeRuntimeEvent(value, provenance)
+  const item = record(value, 'event')
+  validateActivity(item)
+  assertActivityOwnership(item, provenance)
+  return value as RuntimeActivityEvent
+}
+
+/** @internal Validation-only replay input; no new event or frame is returned. */
+export function validateRuntimeActivityReplayCandidate(
+  value: unknown,
+  provenance: RuntimeEventProvenance
+): void {
+  decodeEventEnvelope(value, provenance, false, eventSemantics)
+  const item = record(value, 'event')
+  validateActivity(item, false)
+  assertActivityOwnership(item, provenance)
+}
+
 function validateEventPayload(value: unknown, path: string, depth = 0): void {
   if (depth > 32) fail(path, 'maximum nesting depth exceeded')
   if (typeof value === 'string') {
@@ -200,6 +277,8 @@ function validateEventPayload(value: unknown, path: string, depth = 0): void {
 export type RuntimeEventProvenance = Readonly<{
   /** Source derived from the authenticated transport/adapter, never event JSON. */
   source: RuntimeEvent['source']
+  /** Exact kinds owned by this authenticated adapter, never event JSON. */
+  ownedActivityKinds?: readonly RuntimeActivityEventKind[]
 }>
 
 /**
@@ -216,6 +295,23 @@ type EventSemantics = Readonly<{
 
 const eventSemantics: EventSemantics = {
   early(item, enforceEnvelopeBounds) {
+    if (item.kind === 'queue.updated') {
+      if (item.source !== 'host' || item.confidence !== 'authoritative')
+        fail('event.source', 'queue facts require the authoritative host')
+      const payload = decodeFollowUpQueueEventPayload(item.payload)
+      if (
+        payload.generation !== item.generation ||
+        payload.runtimeSessionId !== item.runtimeSessionId
+      )
+        fail('event.payload', 'queue identity does not match its event')
+    }
+    if (
+      isRuntimeActivityEventKind(item.kind) &&
+      item.payload !== null &&
+      typeof item.payload === 'object' &&
+      Object.hasOwn(item.payload, 'schemaVersion')
+    )
+      validateActivity(item, enforceEnvelopeBounds)
     // Lone surrogates in identities would be rewritten by UTF-8/CBOR and so
     // collapse distinct namespaces; refuse them before admission and dedupe.
     for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId', 'harnessRunId'] as const)
@@ -262,7 +358,10 @@ export function decodeRuntimeEvent(
   value: unknown,
   provenance: RuntimeEventProvenance
 ): RuntimeEvent {
-  return decodeEventEnvelope(value, provenance, true, eventSemantics)
+  const event = decodeEventEnvelope(value, provenance, true, eventSemantics)
+  return event.kind === 'queue.updated'
+    ? Object.freeze({ ...event, payload: decodeFollowUpQueueEventPayload(event.payload) })
+    : event
 }
 
 /**

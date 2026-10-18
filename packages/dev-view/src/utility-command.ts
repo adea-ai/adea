@@ -26,14 +26,15 @@ export async function executeDevUtilityCommand<T>(
   body: Record<string, unknown>,
   resource?: { kind: string; id: string; generation: number }
 ): Promise<T> {
-  if (!fence || !fence.context.scope) throw new DevUtilityContextUnavailableError()
+  const context = fence?.context
+  if (!fence || !context?.scope) throw new DevUtilityContextUnavailableError()
   if (!fence.isCurrent()) throw new DevUtilityContextChangedError()
-  const reply = await fence.context.runtime.execute(
+  const reply = await context.runtime.execute(
     buildDevCommand({
       operation,
-      scope: fence.context.scope,
+      scope: context.scope,
       body,
-      ...(resource ? { resource } : {}),
+      resource,
     })
   )
   if (!fence.isCurrent()) throw new DevUtilityContextChangedError()
@@ -42,16 +43,14 @@ export async function executeDevUtilityCommand<T>(
 }
 
 /** Resource reads discard stale results while preserving real provider failures. */
-export async function readDevUtilityCommand<T>(
+export function readDevUtilityCommand<T>(
   fence: DevUtilityFence,
   operation: DevOperation,
   body: Record<string, unknown>,
   resource?: { kind: string; id: string; generation: number }
 ): Promise<T | undefined> {
-  try {
-    return await executeDevUtilityCommand<T>(fence, operation, body, resource)
-  } catch (error) {
-    if (isDevUtilityContextChanged(error)) return undefined
-    throw error
-  }
+  return executeDevUtilityCommand<T>(fence, operation, body, resource).catch((error: unknown) => {
+    if (!isDevUtilityContextChanged(error)) throw error
+    return undefined
+  })
 }
