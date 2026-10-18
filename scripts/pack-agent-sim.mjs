@@ -14,13 +14,15 @@ export async function packFromEnv({ log = console.log, environment = process.env
   return false
 }
 
+export function reportPackRefusal(error) {
+  console.error(error instanceof Error ? error.message : error)
+  process.exitCode = 1
+}
+
 if (
   process.argv[1] &&
   existsSync(process.argv[1]) &&
   realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
 ) {
-  packFromEnv().catch((error) => {
-    console.error(error instanceof Error ? error.message : error)
-    process.exitCode = 1
-  })
+  packFromEnv().catch(reportPackRefusal)
 }

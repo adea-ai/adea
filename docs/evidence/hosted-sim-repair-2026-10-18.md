@@ -247,3 +247,34 @@ only four identical JSON scene manifests, each verified against its tracked
 are zero private engine/runtime/binary-asset matches. No private output or
 screenshot is uploaded. Reconciliation and archive refresh for newer main remain
 separate receipts; these numbers are not relabeled as a later package.
+
+### Current main and final local runtime receipts
+
+Runtime `0fb51ba` retains the complete interaction-event guard from main
+`cd5b165` unchanged. It passes build 17/17, types 33/33, lint 19/19 plus root,
+formatting, focused tests 251/251 and the complete unit graph 32/32 (including
+815 web tests and 1,661 desktop tests). Doctor passes. Its final synchronous
+move run (9 grants/275 reads) and two ordinary runs (7/227 and 7/235) all pass
+with zero rendering errors; actual Chat/Dev unavailable/offline navigation
+passes with zero offline grants. Main `750e5c1f` adds only four tooling test
+files to that runtime; no interaction guard or Sim runtime source changes.
+
+Fresh unsigned installed archive: 821 entries, 123,873,245 bytes, SHA-256
+`d93370e595c06df86c9b45fc8725c45fef98dec026319f0df8257f5d200eaaeb`.
+Its 311-file client matches the current built client (4,149,370 bytes) byte for
+byte. Comparison against the complete private export again finds only the four
+tracked shared JSON manifests and zero private engine/runtime/binary assets.
+Existing installers are unchanged; the archive remains local and unsigned.
+
+After merged tooling tests and adding the four existing pure-contract suites,
+plus real pack-refusal reporting/CLI tests, the full actual lane runs 1,393 tests
+with zero failures. Its unchanged per-file gate still exits 1: 22 shared files
+remain below 80%, aggregate 90.24% functions / 89.30% lines. The
+[coverage inventory](hosted-sim-coverage-2026-10-18.md) records every percentage.
+The real negative enforcement control still requires 50%/100% to fail and
+100%/100% to pass. No threshold, exclusion, original input or existing assertion
+was removed. The exact suite-inventory assertion now also requires the four
+added paths. The Sim pack guard itself reaches 100% functions / 89.47% lines.
+
+Root retains personal readiness and merge. These local disposable authority and
+storage fixtures establish neither live entitlement nor deployed composition.

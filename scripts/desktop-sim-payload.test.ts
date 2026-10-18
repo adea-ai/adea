@@ -1,11 +1,11 @@
-import { afterEach, expect, test } from 'bun:test'
+import { afterEach, expect, spyOn, test } from 'bun:test'
 import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { inspectArchive, inspectClient, simPayloadOffenders } from './check-desktop-sim-payload.mjs'
-import { packFromEnv } from './pack-agent-sim.mjs'
+import { packFromEnv, reportPackRefusal } from './pack-agent-sim.mjs'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -89,4 +89,37 @@ test('an incomplete client cannot count as a payload-free application', async ()
   const root = await client()
   await rm(join(root, 'index.html'))
   await expect(inspectClient(root)).rejects.toThrow('missing index.html')
+})
+
+test('the legacy pack CLI reports refusal and fails without staging assets', async () => {
+  const previousExitCode = process.exitCode
+  const messages: unknown[] = []
+  const error = spyOn(console, 'error').mockImplementation((message) => messages.push(message))
+  try {
+    await packFromEnv({ environment: { ADEA_AGENT_SIM_DIST: '/not/read' } }).catch(
+      reportPackRefusal
+    )
+    expect(process.exitCode).toBe(1)
+    expect(messages).toEqual([
+      'Agent Sim is hosted separately; ADEA_AGENT_SIM_DIST is no longer a client build input.',
+    ])
+  } finally {
+    error.mockRestore()
+    // Bun retains the native exit status when undefined is restored directly.
+    process.exitCode = 0
+    process.exitCode = previousExitCode
+  }
+  const entry = fileURLToPath(new URL('./pack-agent-sim.mjs', import.meta.url))
+  const refused = spawnSync(process.execPath, [entry], {
+    encoding: 'utf8',
+    env: { ...process.env, ADEA_AGENT_SIM_DIST: '/not/read' },
+  })
+  expect(refused.status).toBe(1)
+  expect(refused.stderr).toContain('Agent Sim is hosted separately')
+  const allowed = spawnSync(process.execPath, [entry], {
+    encoding: 'utf8',
+    env: { ...process.env, ADEA_AGENT_SIM_DIST: '' },
+  })
+  expect(allowed.status).toBe(0)
+  expect(allowed.stdout).toContain('client assets contain scene manifests only')
 })

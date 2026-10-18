@@ -95,6 +95,19 @@ user-approved isolated Sim document policy is `connect-src 'self' blob:`; the
 regression fixes every other directive and leaves the app API policy and private
 asset session gates unchanged. This grants no live deployment authority.
 
+### Unexpected frame reloads
+
+A live iframe can reload when the app moves its DOM subtree. The app wrapper
+replaces that frame once with a new bridge attempt and a fresh authorized launch
+grant. It never resends a consumed launch code or accepts a ready replay in the
+old controller. A repeated unexpected reload shows the existing unavailable
+notice and requires the user to retry. Retired frame listeners are removed.
+
+Bootstrap configuration work waits until native load handling finishes. A
+cancellable next-task fallback permits startup when background documents suspend
+painting; disposing the document cancels pending work. Genuine configuration
+failures stay observable.
+
 ## Remaining production decisions
 
 The production route deliberately has no entitlement authority installed. Existing
@@ -117,11 +130,3 @@ The [parent-save evidence](../evidence/hosted-sim-parent-save-local-2026-10-17.m
 records the actual-client designer round trips and fresh installed payload proof.
 The [production composition proposal](../plans/hosted-sim-production-composition.md)
 specifies the remaining entitlement, storage, runtime policy, and live authority decisions.
-
-### Unexpected frame reloads
-
-A live iframe can reload when the app moves its DOM subtree. The app wrapper
-replaces that frame once with a new bridge attempt and a fresh authorized launch
-grant. It never resends a consumed launch code or accepts a ready replay in the
-old controller. A repeated unexpected reload shows the existing unavailable
-notice and requires the user to retry. Retired frame listeners are removed.
