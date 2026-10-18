@@ -20,6 +20,7 @@ import {
   type HandoffActionKind,
   type HandoffActionState,
 } from './model/handoff'
+import { createHistoryControl, type HistoryControlState } from './model/history-control'
 import { statusLabel } from './presentation'
 import './chat.css'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
@@ -135,6 +136,14 @@ export function ChatView(props: ChatViewProps): JSX.Element {
   // another's.
   const [handoffEpoch, setHandoffEpoch] = createSignal(0)
   const [handoffAction, setHandoffAction] = createSignal(initialHandoffActionState)
+  // Earlier turns: the stream owns the history; this only mirrors whether more remain,
+  // whether a load is running and whether the last one failed, per attachment.
+  const [history, setHistory] = createSignal<HistoryControlState>({
+    hasOlder: false,
+    loading: false,
+    failed: false,
+  })
+  const historyControl = createHistoryControl(setHistory)
   let closeStream: (() => void) | undefined
   let attachment = 0
 
@@ -142,6 +151,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     attachment += 1
     closeStream?.()
     closeStream = undefined
+    historyControl.detach()
   }
 
   const attach = async () => {
@@ -174,6 +184,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
       const unsubscribe = handle.subscribe((next) => {
         if (currentAttachment !== attachment) return
         setTranscript(next)
+        historyControl.refresh()
         if (
           next.availability.status === 'stale_generation' ||
           next.availability.status === 'resync_required'
@@ -187,6 +198,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         handle.close()
       }
       setTranscript(handle.state())
+      historyControl.attach(handle)
       setStreamState('connected')
     } catch (error) {
       if (currentAttachment !== attachment) return
@@ -392,6 +404,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           <ChatTranscriptNotices
             transcript={transcript()}
             projection={props.conversation.projection}
+            historyFailed={history().failed}
             onJumpToTerminal={props.onJumpToTerminal}
           />
           <Show when={suppliedHandoffView()}>
@@ -458,6 +471,9 @@ export function ChatView(props: ChatViewProps): JSX.Element {
               awaitingApproval={props.awaitingApproval}
               onResolveApproval={props.onResolveApproval}
               onResolveQuestion={props.onResolveQuestion}
+              hasOlder={history().hasOlder}
+              loadingOlder={history().loading}
+              onLoadOlder={historyControl.load}
               readingPosition={props.readingPosition}
               onReadingPositionChange={(position) =>
                 props.onReadingPositionChange?.(readingIdentity, position)

@@ -90,6 +90,13 @@ export type ChatTranscriptProps = Readonly<{
   ) => void | Promise<void>
   onResolveQuestion?: (event: RuntimeEvent, answer: string) => void | Promise<void>
   onJumpToTerminal?: () => void
+  /** There are earlier turns the host can load; absent or false draws no control. */
+  hasOlder?: boolean
+  loadingOlder?: boolean
+  /** Load earlier turns; the scroller keeps the reader where they are while they land. */
+  onLoadOlder?: () => void | Promise<void>
+  /** The last attempt to load earlier turns failed; the control stays so the reader can retry. */
+  historyFailed?: boolean
   readingPosition?: Readonly<{ top: number; following: boolean }>
   onReadingPositionChange?: (position: Readonly<{ top: number; following: boolean }>) => void
 }>
@@ -169,7 +176,10 @@ function sameIds(a: readonly string[], b: readonly string[]): boolean {
  * thread (the chat shell's notice row) so they cannot scroll away.
  */
 export function ChatTranscriptNotices(
-  props: Pick<ChatTranscriptProps, 'transcript' | 'projection' | 'onJumpToTerminal'>
+  props: Pick<
+    ChatTranscriptProps,
+    'transcript' | 'projection' | 'onJumpToTerminal' | 'historyFailed'
+  >
 ): JSX.Element {
   const availability = () => props.transcript?.availability
   const historyNotice = () => {
@@ -192,6 +202,13 @@ export function ChatTranscriptNotices(
           tone="danger"
           live="assertive"
           title="This transcript belongs to an older runtime generation."
+        />
+      </Show>
+      <Show when={props.historyFailed}>
+        <ChatNotice
+          tone="warning"
+          live="polite"
+          title="Earlier messages could not be loaded. Try again."
         />
       </Show>
       <Show when={historyNotice()}>
@@ -307,6 +324,9 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
       data-dev-chat-stream=""
       aria-label="Conversation transcript"
       resetKey={props.resetKey}
+      hasOlder={props.hasOlder}
+      loadingOlder={props.loadingOlder}
+      onLoadOlder={props.onLoadOlder}
       initialReadingPosition={props.readingPosition}
       onReadingPositionChange={props.onReadingPositionChange}
       announcement={announcement()}
