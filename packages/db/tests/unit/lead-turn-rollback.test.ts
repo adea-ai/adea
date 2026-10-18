@@ -17,7 +17,7 @@ const authority = {
   channelLifecycleState: 'archived',
   runtimeState: null,
   disposition: 'no_effect_recorded',
-}
+} as const
 
 describe('REQ 154 fence request and authority validation', () => {
   test('accepts a workspace user and a trusted operator with a well-formed id', () => {

@@ -37,7 +37,7 @@ async function spawnFailure(binary: string) {
         },
       ],
     },
-    (record) => records.push(record)
+    (record: unknown) => records.push(record)
   )
   await host?.closed
   expect(status).toBe(1)
@@ -85,7 +85,7 @@ describe('production factory child failures', () => {
           },
         ],
       },
-      (record) => records.push(record)
+      (record: unknown) => records.push(record)
     )
     expect(status).toBe(1)
     expect(JSON.stringify(records)).not.toContain(canary)
@@ -183,7 +183,7 @@ process.exitCode=await runFactoryProof(async()=>verifyInstalledPackagePayload({a
           },
         ],
       },
-      (record) => {
+      (record: unknown) => {
         records.push(record)
       }
     )
@@ -231,7 +231,7 @@ process.exitCode=await runFactoryProof(async()=>verifyInstalledPackagePayload({a
           },
         ],
       },
-      async (record) => {
+      async (record: unknown) => {
         records.push(record)
         throw Error(canary)
       }

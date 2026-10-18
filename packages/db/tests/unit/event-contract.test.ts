@@ -15,20 +15,23 @@ import {
 // synthetic metadata; no private product rows or runtime are read.
 describe('durable workspace event contract', () => {
   test('every registered type resolves its version, aggregate and metadata-only payload', () => {
-    expect(WORKSPACE_EVENT_TYPES).toEqual(Object.keys(WORKSPACE_EVENT_CONTRACTS))
+    expect(WORKSPACE_EVENT_TYPES as readonly string[]).toEqual(
+      Object.keys(WORKSPACE_EVENT_CONTRACTS)
+    )
     for (const eventType of WORKSPACE_EVENT_TYPES) {
       const contract = resolveWorkspaceEventContract(eventType)
       expect(isWorkspaceEventType(eventType)).toBe(true)
       expect(contract).toBe(WORKSPACE_EVENT_CONTRACTS[eventType])
       expect(Number.isSafeInteger(contract.schemaVersion)).toBe(true)
       expect(contract.schemaVersion).toBeGreaterThan(0)
-      const payload = contract.aggregateIdKey ? { [contract.aggregateIdKey]: 'synthetic-id' } : {}
+      const aggregateIdKey = contract.aggregateIdKey
+      const payload = aggregateIdKey ? { [aggregateIdKey]: 'synthetic-id' } : {}
       expect(() => assertCloudSafeEventPayload(eventType, payload)).not.toThrow()
-      if (contract.aggregateIdKey) {
+      if (aggregateIdKey) {
         for (const value of [undefined, null, 42]) {
           expect(() =>
-            assertCloudSafeEventPayload(eventType, { [contract.aggregateIdKey]: value } as never)
-          ).toThrow(`must carry its aggregate id in "${contract.aggregateIdKey}"`)
+            assertCloudSafeEventPayload(eventType, { [aggregateIdKey]: value } as never)
+          ).toThrow(`must carry its aggregate id in "${aggregateIdKey}"`)
         }
       }
     }

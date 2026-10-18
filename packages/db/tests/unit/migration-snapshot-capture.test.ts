@@ -18,10 +18,9 @@ import {
   PAYLOAD_CANONICAL_MAX_WORK,
   PAYLOAD_CANONICAL_MAX_DEPTH,
   resolveMigrationSnapshotCaptureDomains,
-  type MigrationSnapshotRecord,
 } from '../../src/migration-snapshot-capture'
 import { getTableName } from 'drizzle-orm'
-import { migrationSnapshotFamilies } from '@adea-ai/types'
+import { migrationSnapshotFamilies, type MigrationSnapshotRecord } from '@adea-ai/types'
 
 // The capture's pure surface, tested without any database: domain resolution,
 // bounded pagination, payload digests, and the input validation that must run
@@ -574,7 +573,8 @@ describe('captureMigrationSnapshot input validation', () => {
 type SnapshotRow = Record<string, unknown>
 function snapshotFixture(
   rowsByTable: Record<string, SnapshotRow[]>,
-  relation: string | null | undefined = 'app.legacy_audience_quarantine'
+  relation: string | null = 'app.legacy_audience_quarantine',
+  emptyProbe = false
 ) {
   const reads: { table: string; fields: string[]; bound?: number; offset?: number }[] = []
   const rawQueries: unknown[] = []
@@ -608,7 +608,7 @@ function snapshotFixture(
       rawQueries.push(query)
       const { PgDialect } = await import('drizzle-orm/pg-core')
       const compiled = new PgDialect().sqlToQuery(query as never)
-      if (compiled.sql.includes('to_regclass')) return relation === undefined ? [] : [{ relation }]
+      if (compiled.sql.includes('to_regclass')) return emptyProbe ? [] : [{ relation }]
       expect(compiled.sql).toContain('frontiers')
       const [bound, offset] = compiled.params as number[]
       return (rowsByTable.readState ?? []).slice(offset, offset! + bound!)
@@ -852,7 +852,7 @@ describe('snapshot projections through recording database rows', () => {
       identity: IDENTITY,
       requestedDomains: ['readState'],
     })
-    expect(result.document.sections.readState!.records).toEqual(
+    expect<readonly unknown[]>(result.document.sections.readState!.records).toEqual(
       values.map((_, index) => ({
         family: 'readState',
         workspaceId: 'workspace-1',
@@ -899,9 +899,7 @@ describe('snapshot projections through recording database rows', () => {
     })
     expect(result.document.sections.legacyAudienceQuarantine).toBeUndefined()
     expect(result.document.sections.workspaces!.records).toEqual([])
-    // An explicit undefined argument must not be mistaken for the helper default.
-    const fixture = snapshotFixture({})
-    fixture.transaction.execute = async () => [] as never
+    const fixture = snapshotFixture({}, null, true)
     await expect(
       captureMigrationSnapshot(fixture.database, {
         identity: IDENTITY,
