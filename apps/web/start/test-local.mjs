@@ -172,7 +172,7 @@ const generatedPath = resolve(web, 'dist/server/wrangler.json')
 const built = JSON.parse(await readFile(generatedPath, 'utf8'))
 const compatibility = {
   compatibility_date: '2026-08-01',
-  compatibility_flags: ['nodejs_compat', 'global_fetch_strictly_public'],
+  compatibility_flags: ['nodejs_compat', 'global_fetch_strictly_public', 'enable_request_signal'],
 }
 const databaseUrl = (role) =>
   `postgresql://${role}:${role}@127.0.0.1:${databasePort}/agent_hq?sslmode=disable`

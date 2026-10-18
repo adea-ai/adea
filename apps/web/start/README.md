@@ -218,3 +218,34 @@ cleanup is required. Do not reset or delete user data.
 - [TanStack Solid Router search params](https://tanstack.com/router/latest/docs/framework/solid/guide/search-params)
 - [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/)
 - [Decision 0007: SolidJS on TanStack Start](../../../docs/decisions/0007-solid-tanstack-start.md)
+
+## Stream disconnect qualification
+
+Both `wrangler.jsonc` and the release deploy configuration in
+`cloudflare.config.ts` opt in to Cloudflare's `enable_request_signal` flag so
+an incoming disconnect can reach the event route's existing abort handler. That
+handler stops the poll loop, releases its connection slot and lets the retained
+request scope close its database client after in-flight work settles. The route's
+authorization and cleanup ordering are unchanged.
+
+Disconnect notification is write-driven in the native local fixture. An idle
+connection can wait until the next 15-second heartbeat; this is not a promise of
+immediate TCP-disconnect detection or a hosted timing bound. Wrangler's local
+HTTP proxy added another heartbeat interval in the 2026-10-18 diagnostic.
+
+After building, run `bun run --cwd apps/web start:test:disconnect`. It resolves
+workerd from the locked Wrangler dependency and serves the current built Worker
+directly on loopback HTTPS, with an isolated synthetic PostgreSQL database and
+local Hyperdrive TCP binding. The no-flag control must continue polling after
+socket closure; configured idle and active streams must abort, close the original
+stream database connection once, and issue zero SQL in three settled ten-second
+windows. The client closes its response, request and socket explicitly. The
+fixture passes no production credentials, restricts Worker outbound traffic to
+loopback, and removes only its own processes, database and compose volume.
+`start:test:local` includes this regression after the existing browser checks.
+
+The timestamped evidence is in
+[`docs/evidence/worker-disconnect-2026-10-18.json`](../../../docs/evidence/worker-disconnect-2026-10-18.json).
+The captured 12:09 UTC deployment used for diagnosis predates the later release
+#1463 deployment. These local results do not establish current production CPU,
+Hyperdrive usage, Neon cost reductions, or browser hidden/resume behavior.
