@@ -22,12 +22,21 @@ export function failure(status, message, allow) {
 }
 
 /**
+ * Unsupported root PHP scripts have no application route and return a small 404 before SSR.
  * The root document keeps its migration-era HTTP contract: GET/HEAD only.
  * @param {Request} request
  * @returns {Response | null} a failure response, or null when the request may proceed
  */
 export function rootDocumentPolicy(request) {
   const { pathname } = new URL(request.url)
+  // These legacy script probes otherwise enter the document renderer for its 404 page.
+  // Match only these unsupported root paths; API filenames and auth return targets stay intact.
+  if (pathname === '/wp-login.php' || pathname === '/xmlrpc.php') {
+    const response = failure(404, 'Not found')
+    return request.method === 'HEAD'
+      ? new Response(null, { status: response.status, headers: response.headers })
+      : response
+  }
   if (pathname === '/' && request.method !== 'GET' && request.method !== 'HEAD') {
     return failure(405, 'Method not allowed', 'GET, HEAD')
   }
