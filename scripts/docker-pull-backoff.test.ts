@@ -4,7 +4,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { test } from 'bun:test'
+import { spyOn, test } from 'bun:test'
 import {
   captureCommand,
   composeImageVariable,
@@ -407,5 +407,135 @@ test('e2e setup surfaces a missing docker executable as a spawn error', async ()
     })
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /ENOENT/)
+  })
+})
+
+async function withDefaultDocker(
+  mode: 'local' | 'fallback' | 'limited',
+  run: (readCalls: () => Promise<string[]>, messages: string[]) => Promise<void>
+) {
+  await withTempDir(async (directory) => {
+    const bin = join(directory, 'bin')
+    const callsPath = join(directory, 'calls')
+    await writeFile(callsPath, '')
+    await writeDockerStub(
+      bin,
+      [
+        'printf \'%s\\n\' "$*" >> "$DOCKER_CALLS"',
+        'if [ "$1" = image ]; then [ "$DOCKER_MODE" = local ]; exit $?; fi',
+        'if [ "$1" != pull ] || [ "$2" != --quiet ]; then exit 99; fi',
+        `if [ "$DOCKER_MODE" = limited ] || [ "$3" = '${canonicalImage}' ]; then`,
+        "  printf '%s\\n' 'toomanyrequests: Rate exceeded' >&2; exit 1",
+        'fi',
+        'exit 0',
+      ].join('\n')
+    )
+    const previous = process.env
+    const messages: string[] = []
+    const warning = spyOn(console, 'warn').mockImplementation(
+      (message) => void messages.push(String(message))
+    )
+    try {
+      // The default command callbacks can only find this stub; neither a real
+      // Docker daemon nor a registry is contacted, even on the failure path.
+      process.env = { PATH: bin, DOCKER_CALLS: callsPath, DOCKER_MODE: mode }
+      await run(
+        async () => (await readFile(callsPath, 'utf8')).trim().split('\n').filter(Boolean),
+        messages
+      )
+    } finally {
+      process.env = previous
+      warning.mockRestore()
+    }
+  })
+}
+
+test('default backoff uses its timer and warning without hiding the eventual result', async () => {
+  const messages: string[] = []
+  const warning = spyOn(console, 'warn').mockImplementation(
+    (message) => void messages.push(String(message))
+  )
+  try {
+    const { attempt, calls } = scripted([rateLimited, succeeded])
+    assert.equal(await runWithPullBackoff(attempt, { delaysMs: [0] }), succeeded)
+    assert.equal(calls.length, 2)
+    assert.deepEqual(messages, [
+      'Container registry rate-limited an image pull; retry 1 of 1 in 0s.',
+    ])
+  } finally {
+    warning.mockRestore()
+  }
+})
+
+test('default image inspection returns a local image without pulling', async () => {
+  await withDefaultDocker('local', async (readCalls) => {
+    const found = await ensureImage(canonicalImage)
+    assert.equal(found.image, canonicalImage)
+    assert.deepEqual(found.result, { status: 0, stdout: '', stderr: '' })
+    assert.deepEqual(await readCalls(), [`image inspect ${canonicalImage}`])
+  })
+})
+
+test('default inspect and pull callbacks preserve the pinned image through fallback', async () => {
+  await withDefaultDocker('fallback', async (readCalls, messages) => {
+    const found = await ensureImage(canonicalImage)
+    assert.equal(found.image, mirror)
+    assert.equal(found.result.status, 0)
+    assert.ok(messages.some((message) => message.includes('toomanyrequests')))
+    assert.ok(messages.some((message) => message.includes(`trying ${mirror}`)))
+    assert.deepEqual(await readCalls(), [
+      `image inspect ${canonicalImage}`,
+      `pull --quiet ${canonicalImage}`,
+      `pull --quiet ${mirror}`,
+    ])
+  })
+})
+
+test('default fallback pulls a mirror before running with it', async () => {
+  await withDefaultDocker('fallback', async (readCalls) => {
+    const attempted: (string | undefined)[] = []
+    const result = await runWithPullFallback((image) => {
+      attempted.push(image)
+      return image === undefined ? rateLimited : succeeded
+    }, canonicalImage)
+    assert.equal(result, succeeded)
+    assert.deepEqual(attempted, [undefined, mirror])
+    assert.deepEqual(await readCalls(), [`pull --quiet ${mirror}`])
+  })
+})
+
+test('default fallback timer and diagnostics stay bounded when every stub registry is limited', async () => {
+  await withDefaultDocker('limited', async (readCalls, messages) => {
+    let attempts = 0
+    const result = await runWithPullFallback(
+      () => {
+        attempts += 1
+        return rateLimited
+      },
+      canonicalImage,
+      { delaysMs: [0] }
+    )
+    assert.equal(result, rateLimited)
+    assert.equal(attempts, 2)
+    assert.deepEqual(
+      await readCalls(),
+      [mirror, hub, mirror, hub].map((image) => `pull --quiet ${image}`)
+    )
+    assert.equal(messages.filter((message) => message.includes('trying ')).length, 4)
+    assert.equal(messages.filter((message) => message.includes('retry 1 of 1 in 0s')).length, 1)
+    assert.equal(
+      messages.filter((message) => message.includes('failed: toomanyrequests')).length,
+      4
+    )
+  })
+})
+
+test('rejects a compose image without the required explicit fallback variable', async () => {
+  await withTempDir(async (directory) => {
+    await writeFile(
+      join(directory, 'compose.yml'),
+      'services:\n  postgres:\n    image: postgres:18-alpine\n'
+    )
+    assert.throws(() => composePostgresImage(directory), /must define the postgres image as/)
   })
 })
