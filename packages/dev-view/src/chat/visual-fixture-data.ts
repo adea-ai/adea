@@ -1,8 +1,9 @@
 // Canonical event windows for the ChatView visual fixture. Everything here is a
 // plausible RuntimeEvent a host could deliver today: only the payload keys the
 // chat reads (`text`, `name`, `summary`, `question`, `isError`) are used, and
-// nothing models data no producer sends (no checkpoints, token counts or call
-// identities). Source-reported summaries and cited responses use the exact
+// nothing models data no producer sends (no checkpoints or token counts). Tool and
+// subagent calls carry the identity the merged call contract admits (#1387).
+// Source-reported summaries and cited responses use the exact
 // payloads the merged wire contracts admit (#1388 and #1389).
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
@@ -100,6 +101,85 @@ export const richEvents: readonly RuntimeEvent[] = [
 ]
 
 /** The decisive part of this request sits past the 400 characters a card description shows. */
+const call = (
+  seq: string,
+  kind: RuntimeEvent['kind'],
+  payload: Record<string, unknown>,
+  eventId: string,
+  inline = false
+): RuntimeEvent => ({
+  ...event(seq, kind, { schemaVersion: 1, permissionEligibility: 'unknown', ...payload }, eventId),
+  // Inline call content is restricted to the machine that produced it.
+  classification: inline ? 'restricted_local' : 'workspace_private',
+})
+
+/**
+ * Tool and subagent calls with the identity the merged call contract (#1387) adds:
+ * a subagent that parents two tools, a tool that failed inside it, a root tool whose
+ * last word is still running, and a call whose parent never arrived.
+ */
+export const callEvents: readonly RuntimeEvent[] = [
+  event('1', 'turn.user_input', { text: 'Review the change with a subagent.' }),
+  call(
+    '2',
+    'subagent.observed',
+    { callId: 'agent-1', parentCallId: null, phase: 'started', name: 'reviewer' },
+    'call-agent-start'
+  ),
+  call(
+    '3',
+    'tool.started',
+    { callId: 'read-1', parentCallId: 'agent-1', phase: 'started', name: 'read_file' },
+    'call-read-start'
+  ),
+  call(
+    '4',
+    'tool.completed',
+    {
+      callId: 'read-1',
+      parentCallId: 'agent-1',
+      phase: 'completed',
+      durationMs: 420,
+      input: { type: 'inline', value: { path: 'packages/db/migrations/0055.sql' } },
+      output: { type: 'inline', value: { lines: 48 } },
+    },
+    'call-read-done',
+    true
+  ),
+  call(
+    '5',
+    'tool.failed',
+    {
+      callId: 'test-1',
+      parentCallId: 'agent-1',
+      phase: 'failed',
+      name: 'bun_test',
+      durationMs: 1070,
+      output: { type: 'reference', referenceId: 'blob-test-1', byteLength: 4096 },
+    },
+    'call-test-failed'
+  ),
+  call(
+    '6',
+    'subagent.observed',
+    { callId: 'agent-1', parentCallId: null, phase: 'completed', durationMs: 2400 },
+    'call-agent-done'
+  ),
+  call(
+    '7',
+    'tool.progress',
+    { callId: 'lint-1', phase: 'progress', name: 'oxlint' },
+    'call-lint-progress'
+  ),
+  call(
+    '8',
+    'tool.completed',
+    { callId: 'orphan-1', parentCallId: 'lost-parent', phase: 'completed', name: 'format' },
+    'call-orphan-done'
+  ),
+  event('9', 'turn.assistant_message', { text: 'The reviewer found one failing test.' }),
+]
+
 export const LONG_APPROVAL_TAIL = 'FINAL STEP: drop table audit_log (irreversible)'
 export const longApprovalEvents: readonly RuntimeEvent[] = [
   event('1', 'turn.user_input', { text: 'Clean up the audit tables.' }),

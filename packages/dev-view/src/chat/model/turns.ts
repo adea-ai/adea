@@ -26,11 +26,17 @@
 //   interaction. The first outcome settles the request; an outcome that pairs with
 //   nothing (its request left the window, or it conflicts) stays a line of its own that
 //   says only what its event kind says. A legacy payload is never paired by its text.
-// - Nothing else is correlated by payload. A `tool.started` and the `tool.completed`
-//   that follows it stay two lines: the spec ("Payload hints and run completion
-//   cannot authorize grouping or hide an action") gives the canvas no validated
-//   call identity, and a spinner on a line whose completion is somewhere below it
-//   would be a claim nobody made. A line carries a status only when its own event
+// - A tool or subagent observation is correlated only through the producer's call
+//   identity, and only when the wire gate accepted the whole versioned event. The
+//   events of one call (session, generation, run, source, family and `callId`) share
+//   one entry, drawn where the first arrived; its phase moves forward only and a
+//   terminal phase is final. A call whose `parentCallId` names another call of the
+//   same turn and scope is drawn inside it. An absent or unknown parent, a parent
+//   the producer reported two ways, a cycle or an ambiguous parent leave the call
+//   where it arrived; nesting is never guessed from names, order or timing. A call
+//   deeper than `CHAT_CALL_DEPTH_LIMIT` levels is listed beside its deepest drawn
+//   ancestor's children. Any other `tool.*` event (a legacy payload with no
+//   `schemaVersion`) stays its own line and carries a status only when its own event
 //   kind states one (`*.completed`, `*.failed`).
 // - Source-reported summaries are snapshots, not a stream. A `turn.reasoning_summary`
 //   (identity `summaryId`) and a `turn.method_step_summary` (identity `methodId` +
@@ -48,6 +54,7 @@ import {
   assistantMessageKey as assistantKey,
   redactAssistantDeltaGroup,
   sameRun,
+  type ChatCall,
   type ChatResponseReferences,
   type ChatTranscriptItem,
 } from '../presentation'
@@ -101,6 +108,25 @@ export type ChatTurnActivity = Readonly<{
   item: ChatTranscriptItem
 }>
 
+/** How deep a call tree is drawn; a deeper call is listed with its deepest drawn ancestor's children. */
+export const CHAT_CALL_DEPTH_LIMIT = 6
+
+/**
+ * One tool or subagent call: every event the producer sent for its `callId`, merged,
+ * and the calls it parented. `call` is the merged view (see `buildChatTurns`).
+ */
+export type ChatTurnCall = Readonly<{
+  type: 'call'
+  /** Stable for the call's lifetime: its first event's id. */
+  id: string
+  call: ChatCall
+  /** This call's own events, not its children's. */
+  eventIds: readonly string[]
+  children: readonly ChatTurnCall[]
+  /** The producer named two different parents for this call, so it is not nested. */
+  parentConflict?: true
+}>
+
 /**
  * How a request ended, once the runtime reported it and the canvas could pair the
  * report with the request it answers (see `buildChatTurns`).
@@ -130,6 +156,7 @@ export type ChatTurnEntry =
   | ChatTurnReasoning
   | ChatTurnMethod
   | ChatTurnActivity
+  | ChatTurnCall
   | ChatTurnApproval
   | ChatTurnQuestion
   | ChatTurnNotice
@@ -191,6 +218,27 @@ type MethodState = {
     { order: number; summary: RuntimeMethodStepSummary; revision: number; terminal: boolean }
   >
   eventIds: string[]
+}
+
+type CallState = {
+  entries: ChatTurnEntry[]
+  at: number
+  /** The scope the call id is unique in, with the family; parents are looked up in it. */
+  scope: string
+  id: string
+  eventIds: string[]
+  call: ChatCall
+  terminal: boolean
+  parentConflict: boolean
+}
+
+const CALL_PHASE_RANK: Record<ChatCall['phase'], number> = {
+  requested: 0,
+  started: 1,
+  progress: 2,
+  completed: 3,
+  failed: 3,
+  cancelled: 3,
 }
 
 const isTerminal = (status: string) =>
@@ -279,6 +327,119 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
 
   const reasoning = new Map<string, ReasoningState>()
   const methods = new Map<string, MethodState>()
+  const calls = new Map<string, CallState>()
+  const callStates: CallState[] = []
+  const foldCall = (turn: OpenTurn, item: ChatTranscriptItem) => {
+    const call = item.call as ChatCall
+    const scope = JSON.stringify(summaryScope(item))
+    const key = JSON.stringify([scope, call.family, call.callId])
+    const known = calls.get(key)
+    if (!known) {
+      const state: CallState = {
+        entries: turn.entries,
+        at: turn.entries.length,
+        scope,
+        id: item.id,
+        eventIds: [item.id],
+        call,
+        terminal: isTerminal(call.phase),
+        parentConflict: false,
+      }
+      calls.set(key, state)
+      callStates.push(state)
+      turn.entries.push({ type: 'call', id: item.id, call, eventIds: [item.id], children: [] })
+      return
+    }
+    known.eventIds.push(item.id)
+    if (known.terminal) return
+    const merged = known.call
+    const parent = merged.parentCallId === undefined ? call.parentCallId : merged.parentCallId
+    if (
+      merged.parentCallId !== undefined &&
+      call.parentCallId !== undefined &&
+      merged.parentCallId !== call.parentCallId
+    )
+      known.parentConflict = true
+    const advances = CALL_PHASE_RANK[call.phase] >= CALL_PHASE_RANK[merged.phase]
+    known.call = {
+      ...merged,
+      ...(advances ? { phase: call.phase } : {}),
+      ...(parent !== undefined ? { parentCallId: parent } : {}),
+      ...(merged.name === undefined && call.name !== undefined ? { name: call.name } : {}),
+      ...(merged.input === undefined && call.input !== undefined ? { input: call.input } : {}),
+      ...(advances && call.output !== undefined ? { output: call.output } : {}),
+      ...(advances && call.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
+    }
+    known.terminal = isTerminal(known.call.phase)
+  }
+  /** Lay the turn's calls out as trees once every event of the window has been seen. */
+  const nestCalls = () => {
+    const byScope = new Map<string, CallState[]>()
+    for (const state of callStates) {
+      const id = JSON.stringify([state.scope, state.call.callId])
+      byScope.set(id, [...(byScope.get(id) ?? []), state])
+    }
+    const parentOf = new Map<CallState, CallState>()
+    for (const state of callStates) {
+      const parentId = state.call.parentCallId
+      if (typeof parentId !== 'string' || state.parentConflict) continue
+      const candidates = (byScope.get(JSON.stringify([state.scope, parentId])) ?? []).filter(
+        (candidate) => candidate !== state && candidate.entries === state.entries
+      )
+      // Two calls of different families with the parent's id: which one is meant is unknown.
+      if (candidates.length === 1) parentOf.set(state, candidates[0]!)
+    }
+    // Break a cycle at the call that arrived first, so its members still all appear.
+    for (const state of callStates) {
+      const seen = new Set<CallState>([state])
+      for (let up = parentOf.get(state); up !== undefined; up = parentOf.get(up)) {
+        if (seen.has(up)) {
+          parentOf.delete(state)
+          break
+        }
+        seen.add(up)
+      }
+    }
+    const depth = new Map<CallState, number>()
+    const drawnParent = (state: CallState): CallState | undefined => {
+      let parent = parentOf.get(state)
+      while (parent !== undefined && drawnDepth(parent) >= CHAT_CALL_DEPTH_LIMIT - 1)
+        parent = parentOf.get(parent)
+      return parent
+    }
+    const drawnDepth = (state: CallState): number => {
+      const known = depth.get(state)
+      if (known !== undefined) return known
+      const parent = drawnParent(state)
+      const value = parent === undefined ? 0 : drawnDepth(parent) + 1
+      depth.set(state, value)
+      return value
+    }
+    const children = new Map<CallState, CallState[]>()
+    for (const state of callStates) {
+      const parent = drawnParent(state)
+      if (parent !== undefined) children.set(parent, [...(children.get(parent) ?? []), state])
+    }
+    const build = (state: CallState): ChatTurnCall => ({
+      type: 'call',
+      id: state.id,
+      call: state.call,
+      eventIds: [...state.eventIds],
+      children: (children.get(state) ?? []).map(build),
+      ...(state.parentConflict ? { parentConflict: true as const } : {}),
+    })
+    const root = (state: CallState): CallState => {
+      let top = state
+      for (let up = drawnParent(top); up !== undefined; up = drawnParent(up)) top = up
+      return top
+    }
+    for (const state of callStates) {
+      const top = root(state)
+      // A reveal request for any event of the tree lands on the line that is drawn.
+      for (const eventId of state.eventIds) entryByEventId.set(eventId, top.id)
+      state.entries[state.at] = top === state ? build(state) : FOLDED
+    }
+  }
   const foldReasoning = (turn: OpenTurn, item: ChatTranscriptItem) => {
     const summary = item.summary as RuntimeReasoningSummary
     const key = JSON.stringify([summaryScope(item), summary.summaryId])
@@ -506,6 +667,10 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
       continue
     }
     flushDelta()
+    if (item.call !== undefined && item.event !== undefined) {
+      foldCall(turn, item)
+      continue
+    }
     if (item.role === 'reasoning' && item.summary) {
       foldReasoning(turn, item)
       continue
@@ -653,6 +818,7 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
     index(item.id, item.id)
   }
   flushDelta()
+  nestCalls()
   for (const turn of turns)
     if (turn.entries.includes(FOLDED))
       turn.entries = turn.entries.filter((entry) => entry !== FOLDED)
@@ -660,7 +826,11 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
 }
 
 /** The entries that share the turn's one quiet column of lines. */
-export type ChatTurnColumnEntry = ChatTurnActivity | ChatTurnReasoning | ChatTurnMethod
+export type ChatTurnColumnEntry =
+  | ChatTurnActivity
+  | ChatTurnCall
+  | ChatTurnReasoning
+  | ChatTurnMethod
 
 export type ChatTurnSegment =
   | Readonly<{ type: 'activity'; id: string; entries: readonly ChatTurnColumnEntry[] }>
@@ -677,7 +847,12 @@ export function segmentTurnEntries(entries: readonly ChatTurnEntry[]): readonly 
   const segments: ChatTurnSegment[] = []
   let run: ChatTurnColumnEntry[] | undefined
   for (const entry of entries) {
-    if (entry.type === 'activity' || entry.type === 'reasoning' || entry.type === 'method') {
+    if (
+      entry.type === 'activity' ||
+      entry.type === 'call' ||
+      entry.type === 'reasoning' ||
+      entry.type === 'method'
+    ) {
       if (!run) {
         run = []
         segments.push({ type: 'activity', id: entry.id, entries: run })

@@ -10,6 +10,7 @@ import type {
   TranscriptAccumulator,
 } from './model'
 import {
+  callEvents,
   cancelledEvents,
   codeStreamTexts,
   copyEvents,
@@ -59,6 +60,8 @@ export type ChatVisualFixtureState =
   | 'grounded-stopped'
   /** Untrusted text in every summary and reference field. */
   | 'grounded-hostile'
+  /** Tool and subagent calls with producer identity: nested, failed, running and orphaned. */
+  | 'calls'
   /** An approval whose request is longer than the card's description shows. */
   | 'approval-long'
   /** The real accumulator, one event per `chat-visual:append` (or `detail.count`): a turn whose prompt is evicted. */
@@ -84,6 +87,7 @@ const STATE_EVENTS: Partial<Record<ChatVisualFixtureState, readonly RuntimeEvent
   'grounded-stopped': groundedStoppedEvents,
   'grounded-hostile': groundedHostileEvents,
   'approval-long': longApprovalEvents,
+  calls: callEvents,
   'retention-turn': retentionTurnEvents,
   'retention-stream': retentionStreamEvents,
 }

@@ -772,6 +772,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // build mounts the fixture; the param is inert in production.
   const chatVisualState = ():
     | 'approval-long'
+    | 'calls'
     | 'retention-turn'
     | 'retention-stream'
     | 'attention'
@@ -792,6 +793,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     | 'streaming' => {
     const value = currentSearch().chatState
     return value === 'approval-long' ||
+      value === 'calls' ||
       value === 'retention-turn' ||
       value === 'retention-stream' ||
       value === 'attention' ||

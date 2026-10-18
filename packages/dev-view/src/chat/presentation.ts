@@ -6,7 +6,14 @@ import type {
   RuntimeVisibleSummary,
 } from '@adea-ai/types/dev-runtime'
 import { decodeRuntimeInteractionPayload } from '@adea-ai/types/dev-runtime'
-import { decodeRuntimeAssistantPayload, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
+import {
+  decodeRuntimeAssistantPayload,
+  decodeRuntimeEvent,
+  isRuntimeCallEventKind,
+  type RuntimeCallData,
+  type RuntimeCallPayload,
+  type RuntimeCallPhase,
+} from '@adea-ai/types/dev-runtime-wire'
 
 /**
  * What a versioned approval or question event says about itself, read only after
@@ -28,6 +35,30 @@ export type ChatInteraction =
       /** When the host says the decision was made; the actor id is a protocol id and is not shown. */
       decidedAt?: string
     }>
+
+/** A call's input or output as it may be drawn: redacted and bounded, or held elsewhere. */
+export type ChatCallData =
+  | Readonly<{ type: 'inline'; text: string; truncated: boolean }>
+  | Readonly<{ type: 'reference'; byteLength?: number }>
+
+/**
+ * What a versioned tool or subagent observation says about itself, read only after
+ * the wire gate accepted the whole event (native, ACP or owned-hook source, run
+ * identity, schema, size). `callId` is stable within one session, generation, run
+ * and source; `parentCallId` is absent when the producer did not say and `null`
+ * when it observed a root call. Nothing here is an authorization: the permission
+ * eligibility the payload carries is not read.
+ */
+export type ChatCall = Readonly<{
+  family: 'tool' | 'subagent'
+  callId: string
+  parentCallId?: string | null
+  phase: RuntimeCallPhase
+  name?: string
+  input?: ChatCallData
+  output?: ChatCallData
+  durationMs?: number
+}>
 
 /** A bounded, renderable row in the canonical transcript. */
 export type ChatTranscriptItem = Readonly<{
@@ -72,6 +103,8 @@ export type ChatTranscriptItem = Readonly<{
   state?: 'requested' | 'started' | 'in_progress' | 'completed' | 'failed' | 'resolved' | 'expired'
   /** Present only for a versioned approval or question the wire gate accepted. */
   interaction?: ChatInteraction
+  /** Present only for a versioned tool or subagent call the wire gate accepted. */
+  call?: ChatCall
   event?: RuntimeEvent
 }>
 
@@ -212,6 +245,51 @@ function interactionFromEvent(event: RuntimeEvent): ChatInteraction | undefined 
     requestEventId: decoded.requestEventId,
     decision: decoded.decision,
     ...(decoded.decidedAt !== undefined ? { decidedAt: decoded.decidedAt } : {}),
+  }
+}
+
+const CALL_DATA_LIMIT = 4_096
+
+function callData(data: RuntimeCallData | undefined): ChatCallData | undefined {
+  if (data === undefined) return undefined
+  if (data.type === 'reference')
+    return {
+      type: 'reference',
+      ...(data.byteLength !== undefined ? { byteLength: data.byteLength } : {}),
+    }
+  const json = JSON.stringify(data.value, null, 2) ?? 'null'
+  const safe = redactWithProvenance(json, CALL_DATA_LIMIT, {
+    window: BODY_SCAN_WINDOW,
+    layout: true,
+  })
+  return { type: 'inline', text: safe.text, truncated: safe.truncated }
+}
+
+function callFromEvent(event: RuntimeEvent): ChatCall | undefined {
+  if (!isRuntimeCallEventKind(event.kind)) return undefined
+  if (
+    event.payload === null ||
+    typeof event.payload !== 'object' ||
+    !Object.hasOwn(event.payload, 'schemaVersion')
+  )
+    return undefined
+  try {
+    decodeRuntimeEvent(event, { source: event.source })
+  } catch {
+    return undefined
+  }
+  const payload = event.payload as RuntimeCallPayload
+  const input = callData(payload.input)
+  const output = callData(payload.output)
+  return {
+    family: event.kind === 'subagent.observed' ? 'subagent' : 'tool',
+    callId: payload.callId,
+    ...(payload.parentCallId !== undefined ? { parentCallId: payload.parentCallId } : {}),
+    phase: payload.phase,
+    ...(payload.name !== undefined ? { name: redact(payload.name, MAX_LABEL) } : {}),
+    ...(input !== undefined ? { input } : {}),
+    ...(output !== undefined ? { output } : {}),
+    ...(payload.durationMs !== undefined ? { durationMs: payload.durationMs } : {}),
   }
 }
 
@@ -763,6 +841,7 @@ export function projectTranscriptEvents(
     const label = labelFromPayload(event)
     const state = stateFor(event.kind)
     const interaction = interactionFromEvent(event)
+    const call = callFromEvent(event)
     const references =
       body !== undefined && event.kind === 'turn.assistant_message'
         ? responseReferences(event, body.body)
@@ -781,6 +860,7 @@ export function projectTranscriptEvents(
       ...(state !== undefined ? { state } : {}),
       ...(references !== undefined ? { references } : {}),
       ...(interaction !== undefined ? { interaction } : {}),
+      ...(call !== undefined ? { call } : {}),
       event,
     })
   }

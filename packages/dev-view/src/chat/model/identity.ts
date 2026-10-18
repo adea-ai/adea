@@ -27,7 +27,7 @@ import {
 
 export type PresentedEntry = ChatTurnEntry & Readonly<{ key: string }>
 
-type ColumnType = 'activity' | 'reasoning' | 'method'
+type ColumnType = 'activity' | 'call' | 'reasoning' | 'method'
 export type PresentedColumnEntry = Extract<PresentedEntry, { type: ColumnType }>
 export type PresentedStandaloneEntry = Exclude<PresentedEntry, { type: ColumnType }>
 
@@ -96,6 +96,7 @@ class Level {
 }
 
 function eventIdsOf(entry: ChatTurnEntry): readonly string[] {
+  if (entry.type === 'call') return [...entry.eventIds, ...entry.children.flatMap(eventIdsOf)]
   return entry.type === 'text' || entry.type === 'reasoning' || entry.type === 'method'
     ? entry.eventIds
     : [entry.id]

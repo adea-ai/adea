@@ -24,7 +24,7 @@ import {
   type QuestionnaireAnswers,
   type QuestionnaireStatus,
 } from '@adea-ai/ui/components/ui/questionnaire'
-import { Trace, TraceDetail, TraceLine } from '@adea-ai/ui/components/ui/trace'
+import { Trace, TraceDetail, TraceLine, type TraceStatus } from '@adea-ai/ui/components/ui/trace'
 import { ChatEmpty, ChatNotice } from '@adea-ai/ui/components/composites/chat'
 import {
   ChainOfThought,
@@ -54,6 +54,7 @@ import {
   CHAT_ASSISTANT_TEXT_LIMIT,
   type ChatTurnActivity,
   type ChatTurnApproval,
+  type ChatTurnCall,
   type ChatTurnMethod,
   type ChatTurnNotice,
   type ChatTurnQuestion,
@@ -62,6 +63,8 @@ import {
 } from './model/turns'
 import {
   projectTranscriptEvents,
+  type ChatCall,
+  type ChatCallData,
   type ChatResponseSource,
   type ChatTranscriptItem,
 } from './presentation'
@@ -513,6 +516,9 @@ function ActivityColumn(props: {
               <Show when={entry()?.type === 'activity' ? (entry() as ChatTurnActivity) : undefined}>
                 {(activity) => <ActivityLine item={() => byId().get(id) && activity().item} />}
               </Show>
+              <Show when={entry()?.type === 'call'}>
+                <CallLine entry={() => entry() as ChatTurnCall} live={props.live} />
+              </Show>
               <Show when={entry()?.type === 'reasoning'}>
                 <ReasoningLine entry={() => entry() as ChatTurnReasoning} live={props.live} />
               </Show>
@@ -579,6 +585,117 @@ function ReasoningLine(props: {
       data-event-id={props.entry().id}
       data-kind="turn.reasoning_summary"
     />
+  )
+}
+
+function callStatus(call: ChatCall, live: boolean): TraceStatus | undefined {
+  switch (call.phase) {
+    case 'completed':
+      return 'success'
+    case 'failed':
+      return 'error'
+    case 'cancelled':
+      return 'cancelled'
+    case 'requested':
+      return live ? 'pending' : undefined
+    default:
+      return live ? 'running' : undefined
+  }
+}
+
+/** The producer's last phase for a call that can no longer progress is not a claim about now. */
+function callMeta(call: ChatCall, live: boolean): string | undefined {
+  const parts: string[] = []
+  if (!isTerminalStatus(call.phase) && !live) parts.push('not finished')
+  else if (call.phase === 'requested') parts.push('requested')
+  if (isTerminalStatus(call.phase) && call.durationMs !== undefined)
+    parts.push(formatDuration(call.durationMs / 1000) ?? '')
+  const words = parts.filter(Boolean).join(' · ')
+  return words.length > 0 ? words : undefined
+}
+
+function CallData(props: { label: string; data: ChatCallData }): JSX.Element {
+  return (
+    <TraceDetail data-call-data={props.label.toLowerCase()}>
+      <span class="text-muted-foreground">{props.label}</span>
+      <Show
+        when={props.data.type === 'inline' ? props.data : undefined}
+        fallback={
+          <p>
+            Held by reference
+            {(props.data as { byteLength?: number }).byteLength !== undefined
+              ? ` (${(props.data as { byteLength: number }).byteLength} bytes)`
+              : ''}
+            ; not shown here.
+          </p>
+        }
+      >
+        {(inline) => (
+          <>
+            <CodeBlock code={inline().text} language="json" size="sm" wrap maxHeight="12rem" />
+            <Show when={inline().truncated}>
+              <p>Shortened for display.</p>
+            </Show>
+          </>
+        )}
+      </Show>
+    </TraceDetail>
+  )
+}
+
+function CallTree(props: {
+  entries: () => readonly ChatTurnCall[]
+  live: () => boolean
+}): JSX.Element {
+  const ids = createMemo<readonly string[]>(() => props.entries().map((entry) => entry.id), [], {
+    equals: sameIds,
+  })
+  const byId = createMemo(() => new Map(props.entries().map((entry) => [entry.id, entry])))
+  return (
+    <Trace size="sm">
+      <For each={ids()}>
+        {(id) => (
+          <Show when={byId().get(id)}>
+            <CallLine entry={() => byId().get(id)!} live={props.live} />
+          </Show>
+        )}
+      </For>
+    </Trace>
+  )
+}
+
+/** A tool or subagent call the producer identified, with the calls it parented inside it. */
+function CallLine(props: { entry: () => ChatTurnCall; live: () => boolean }): JSX.Element {
+  const call = () => props.entry().call
+  const children = () => props.entry().children
+  const hasDetail = () =>
+    call().input !== undefined || call().output !== undefined || children().length > 0
+  const lineProps = () => ({
+    title: call().name ?? (call().family === 'subagent' ? 'Subagent' : 'Tool call'),
+    description:
+      children().length > 0
+        ? `${children().length} nested ${children().length === 1 ? 'call' : 'calls'}`
+        : undefined,
+    status: callStatus(call(), props.live()),
+    meta: callMeta(call(), props.live()),
+    'data-entry-id': props.entry().id,
+    'data-event-id': props.entry().id,
+    'data-kind': call().family === 'subagent' ? 'subagent.observed' : `tool.${call().phase}`,
+    'data-call-phase': call().phase,
+  })
+  return (
+    <Show when={hasDetail()} fallback={<TraceLine {...lineProps()} />}>
+      <TraceLine
+        {...lineProps()}
+        defaultOpen={children().length > 0 && props.live() && !isTerminalStatus(call().phase)}
+      >
+        <Show when={call().input}>{(input) => <CallData label="Input" data={input()} />}</Show>
+        <Show when={call().output}>{(output) => <CallData label="Output" data={output()} />}</Show>
+        <Show when={children().length > 0}>
+          <CallTree entries={children} live={props.live} />
+        </Show>
+      </TraceLine>
+    </Show>
   )
 }
 

@@ -871,6 +871,89 @@ test.describe('structure and assistive technology', () => {
   }
 })
 
+const call = (page: Page, id: string) => page.locator(`[data-entry-id="${id}"]`)
+
+test.describe('tool and subagent calls', () => {
+  test('calls the producer identified are drawn inside the call that parented them', async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'calls')
+    const agent = call(page, 'call-agent-start')
+    await expect(agent).toHaveAttribute('data-kind', 'subagent.observed')
+    await expect(agent).toHaveAttribute('data-call-phase', 'completed')
+    await expect(agent).toContainText('reviewer')
+    await expect(agent).toContainText('2 nested calls')
+    // Only the three top-level calls are drawn until the subagent is opened.
+    await expect(page.locator('[data-call-phase]')).toHaveCount(3)
+    await agent.getByRole('button').first().click()
+    await expect(page.locator('[data-call-phase]')).toHaveCount(5)
+    await expect(agent.locator('[data-call-phase]')).toHaveCount(2)
+    const read = agent.locator('[data-entry-id="call-read-start"]')
+    await expect(read).toContainText('read_file')
+    await expect(read).toContainText('<1s')
+    await read.getByRole('button').first().click()
+    await expect(read.locator('[data-call-data="input"]')).toContainText('0055.sql')
+    await expect(read.locator('[data-call-data="output"]')).toContainText('"lines": 48')
+    expect(errors).toEqual([])
+  })
+
+  test('a failed call says so, and content held by reference is not pretended to be shown', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'calls')
+    const agent = call(page, 'call-agent-start')
+    await agent.getByRole('button').first().click()
+    const failed = agent.locator('[data-entry-id="call-test-failed"]')
+    await expect(failed).toHaveAttribute('data-status', 'error')
+    await expect(failed.locator('.sr-only').first()).toHaveText('Failed')
+    await failed.getByRole('button').first().click()
+    await expect(failed.locator('[data-call-data="output"]')).toContainText(
+      'Held by reference (4096 bytes); not shown here.'
+    )
+  })
+
+  test('a call with no known parent stays a top-level line, and a last word of progress is not a success', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'calls')
+    const orphan = call(page, 'call-orphan-done')
+    await expect(orphan).toHaveAttribute('data-call-phase', 'completed')
+    await expect(orphan.locator('xpath=ancestor::*[@data-call-phase]')).toHaveCount(0)
+    const progress = call(page, 'call-lint-progress')
+    await expect(progress).toHaveAttribute('data-call-phase', 'progress')
+    await expect(progress).not.toHaveAttribute('data-status', 'success')
+  })
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`no serious accessibility violations with nested calls open (${theme})`, async ({
+      page,
+    }) => {
+      await openCanvas(page, 'calls', { theme })
+      const agent = call(page, 'call-agent-start')
+      await agent.getByRole('button').first().click()
+      await agent.locator('[data-entry-id="call-read-start"]').getByRole('button').first().click()
+      await page.addScriptTag({ content: axe.source })
+      const violations = await page.evaluate(async () => {
+        const runner = (
+          window as unknown as {
+            axe: {
+              run: (c: Element) => Promise<{
+                violations: Array<{ id: string; impact: string | null }>
+              }>
+            }
+          }
+        ).axe
+        const result = await runner.run(document.querySelector('[data-dev-chat]') as Element)
+        return result.violations
+          .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
+          .map((violation) => violation.id)
+      })
+      expect(violations).toEqual([])
+    })
+  }
+})
+
 test.describe('touch, motion and layout', () => {
   test.describe('touch', () => {
     test.use({ hasTouch: true, isMobile: true })
