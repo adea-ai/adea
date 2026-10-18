@@ -70,6 +70,11 @@ function throwIfAborted(signal) {
   if (signal?.aborted) throw abortError(signal)
 }
 
+function throwIfProcessIsStillRunning(result) {
+  if (result.reaped === false || result.groupExited === false)
+    throw result.error ?? new Error('Command process or its owned process group did not exit')
+}
+
 // compose.yml reads the image through ADEA_POSTGRES_IMAGE so a fallback registry can be selected
 // per invocation; the default after `:-` is the canonical pinned reference.
 export const composeImageVariable = 'ADEA_POSTGRES_IMAGE'
@@ -112,12 +117,14 @@ export async function runWithPullFallback(attempt, image, options = {}) {
     throwIfAborted(signal)
     let result = await attempt(undefined)
     throwIfAborted(signal)
+    throwIfProcessIsStillRunning(result)
     if (!isRateLimitedResult(result)) return result
     for (const fallback of fallbacks) {
       throwIfAborted(signal)
       log(`Container registry rate-limited an image pull; trying ${fallback}.`)
       const pulled = await pull(fallback)
       throwIfAborted(signal)
+      throwIfProcessIsStillRunning(pulled)
       if (pulled.status !== 0) {
         const reason =
           `${pulled.stderr ?? ''}`.trim() || pulled.error?.message || `exit ${pulled.status}`
@@ -126,6 +133,7 @@ export async function runWithPullFallback(attempt, image, options = {}) {
       }
       result = await attempt(fallback)
       throwIfAborted(signal)
+      throwIfProcessIsStillRunning(result)
       if (result.status === 0) return result
       log(`Running with ${fallback} failed (exit ${result.status}); trying the next registry.`)
     }
@@ -171,12 +179,22 @@ export async function ensureImage(image, options = {}) {
 
 // Runs one command and captures its output without blocking the event loop, so
 // signal handling and child cleanup keep running while the command is in flight.
+// `processGroup` opts into an owned detached session for commands that may spawn
+// plugins or other children; it stays off by default for unrelated callers.
 // A spawn failure (for example a missing executable) resolves with `error` set
 // instead of rejecting, so the caller decides how to report it.
 export function captureCommand(
   command,
   args,
-  { cwd, env, signal, timeoutMs, terminationGraceMs = 1_000, reapTimeoutMs = 2_000 } = {}
+  {
+    cwd,
+    env,
+    signal,
+    timeoutMs,
+    terminationGraceMs = 1_000,
+    reapTimeoutMs = 2_000,
+    processGroup = false,
+  } = {}
 ) {
   if (signal?.aborted)
     return Promise.resolve({
@@ -188,6 +206,7 @@ export function captureCommand(
       cancelled: true,
       timedOut: false,
       reaped: true,
+      groupExited: true,
     })
 
   return new Promise((resolve) => {
@@ -199,59 +218,110 @@ export function captureCommand(
     let closed = false
     let settled = false
     let terminationStarted = false
+    let childStatus = null
+    let childSignal = null
+    let reapDeadline
     let timeoutTimer
     let terminationTimer
     let reapTimer
 
-    const finish = (status, childSignal, reaped) => {
+    const child = spawn(command, args, {
+      cwd,
+      env,
+      detached: processGroup,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const groupHasExited = () => {
+      if (!processGroup || child.pid === undefined) return true
+      try {
+        process.kill(-child.pid, 0)
+        return false
+      } catch (groupError) {
+        if (groupError.code === 'ESRCH') return true
+        if (groupError.code === 'EPERM') return false
+        error ??= groupError
+        return false
+      }
+    }
+    const finish = (status, exitSignal, reaped, groupExited) => {
       if (settled) return
       settled = true
       clearTimeout(timeoutTimer)
       clearTimeout(terminationTimer)
       clearTimeout(reapTimer)
       signal?.removeEventListener('abort', onAbort)
-      resolve({ status, signal: childSignal, stdout, stderr, error, cancelled, timedOut, reaped })
+      resolve({
+        status,
+        signal: exitSignal,
+        stdout,
+        stderr,
+        error,
+        cancelled,
+        timedOut,
+        reaped,
+        groupExited,
+      })
     }
-
-    const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
-    child.stdout.setEncoding('utf8').on('data', (chunk) => (stdout += chunk))
-    child.stderr.setEncoding('utf8').on('data', (chunk) => (stderr += chunk))
-    child.once('error', (spawnError) => (error = spawnError))
-    child.once('close', (status, childSignal) => {
-      closed = true
-      finish(status, childSignal, true)
-    })
-
+    const checkReaped = () => {
+      if (settled) return
+      const groupExited = groupHasExited()
+      if (closed && groupExited) {
+        finish(childStatus, childSignal, true, true)
+        return
+      }
+      if (Date.now() >= reapDeadline) {
+        error = new Error(
+          groupExited
+            ? `${command} ${args.join(' ')} did not exit after SIGKILL`
+            : `${command} ${args.join(' ')} process group remained after SIGKILL`
+        )
+        finish(childStatus, childSignal ?? 'SIGKILL', closed, groupExited)
+        return
+      }
+      reapTimer = setTimeout(checkReaped, 25)
+    }
+    const signalOwnedProcess = (signalName) => {
+      try {
+        if (processGroup && child.pid !== undefined) process.kill(-child.pid, signalName)
+        else child.kill(signalName)
+      } catch (killError) {
+        if (killError.code !== 'ESRCH') error ??= killError
+      }
+    }
     const terminate = (reason) => {
-      if (closed || settled || terminationStarted) return
+      if (settled || terminationStarted) return
       terminationStarted = true
       if (reason === 'abort') {
         cancelled = true
         error ??= abortError(signal)
-      } else {
+      } else if (reason === 'timeout') {
         timedOut = true
         error ??= new Error(`${command} ${args.join(' ')} timed out after ${timeoutMs}ms`)
+      } else {
+        error ??= new Error(`${command} exited with its owned process group still active`)
       }
-      try {
-        child.kill('SIGTERM')
-      } catch (killError) {
-        error ??= killError
-      }
+      signalOwnedProcess('SIGTERM')
       terminationTimer = setTimeout(() => {
-        if (closed || settled) return
-        try {
-          child.kill('SIGKILL')
-        } catch (killError) {
-          error ??= killError
-        }
-        reapTimer = setTimeout(() => {
-          if (closed || settled) return
-          error = new Error(`${command} ${args.join(' ')} did not exit after SIGKILL`)
-          finish(null, 'SIGKILL', false)
-        }, reapTimeoutMs)
+        if (settled) return
+        signalOwnedProcess('SIGKILL')
+        reapDeadline = Date.now() + reapTimeoutMs
+        checkReaped()
       }, terminationGraceMs)
     }
     const onAbort = () => terminate('abort')
+
+    child.stdout.setEncoding('utf8').on('data', (chunk) => (stdout += chunk))
+    child.stderr.setEncoding('utf8').on('data', (chunk) => (stderr += chunk))
+    child.once('error', (spawnError) => (error = spawnError))
+    child.once('close', (status, exitSignal) => {
+      closed = true
+      childStatus = status
+      childSignal = exitSignal
+      const groupExited = groupHasExited()
+      if (groupExited) finish(status, exitSignal, true, true)
+      else if (terminationStarted && reapDeadline !== undefined) checkReaped()
+      else terminate('orphan')
+    })
 
     signal?.addEventListener('abort', onAbort, { once: true })
     if (signal?.aborted) onAbort()

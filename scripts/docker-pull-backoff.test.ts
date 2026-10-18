@@ -167,6 +167,7 @@ test('interrupting delayed Compose provisioning reaps it before teardown and pre
         process.stderr.write('postgres toomanyrequests: Rate exceeded')
         const finish = setTimeout(() => { log('up:complete'); process.exit(1) }, 10_000)
         process.on('SIGTERM', () => { clearTimeout(finish); log('up:cancel'); process.exit(1) })
+        log('up:ready')
       } else if (command === 'compose' && args.includes('down')) {
         log('down:start')
         process.exit(0)
@@ -188,6 +189,7 @@ test('interrupting delayed Compose provisioning reaps it before teardown and pre
             signal: controller.signal,
             terminationGraceMs: 100,
             reapTimeoutMs: 1_000,
+            processGroup: true,
           }
         )
         return provision
@@ -203,11 +205,12 @@ test('interrupting delayed Compose provisioning reaps it before teardown and pre
       }
     )
     try {
-      await waitForLog(events, 'up:start')
+      await waitForLog(events, 'up:ready')
       controller.abort(new Error('fixture interrupted during provisioning'))
       await assert.rejects(operation, /fixture interrupted during provisioning/)
       assert.equal(provision?.cancelled, true)
       assert.equal(provision?.reaped, true)
+      assert.equal(provision?.groupExited, true)
       assert.equal(pullCalls, 0, 'Cancellation must prevent image fallback and retry commands')
 
       const down = await captureCommand(
@@ -220,7 +223,7 @@ test('interrupting delayed Compose provisioning reaps it before teardown and pre
       )
       assert.equal(down.status, 0)
       lines.push(...(await readFile(events, 'utf8')).trim().split('\n'))
-      assert.deepEqual(lines, ['up:start', 'up:cancel', 'down:start'])
+      assert.deepEqual(lines, ['up:start', 'up:ready', 'up:cancel', 'down:start'])
     } finally {
       if (!controller.signal.aborted) controller.abort()
       await operation.catch(() => {})
@@ -228,46 +231,73 @@ test('interrupting delayed Compose provisioning reaps it before teardown and pre
   })
 })
 
-test('a hung Compose down is bounded, killed, and reaped', async () => {
-  await withTempDir(async (dir) => {
-    const pidFile = join(dir, 'hung-down.pid')
-    const env = { ...process.env, PID_FILE: pidFile }
-    const script = `
+test.skipIf(process.platform === 'win32')(
+  'a hung Compose down kills and reaps its owned process group',
+  async () => {
+    await withTempDir(async (dir) => {
+      const parentPidFile = join(dir, 'hung-down-parent.pid')
+      const descendantPidFile = join(dir, 'hung-down-descendant.pid')
+      const lateSideEffect = join(dir, 'hung-down-late-side-effect')
+      const descendantScript = `
       const fs = require('node:fs')
-      const [command, ...args] = process.argv.slice(1)
-      if (command === 'compose' && args.includes('down')) {
-        fs.writeFileSync(process.env.PID_FILE, String(process.pid))
-        process.on('SIGTERM', () => {})
-        setInterval(() => {}, 1_000)
-      } else {
-        process.exit(1)
-      }
+      fs.writeFileSync(process.env.DESCENDANT_PID_FILE, String(process.pid))
+      process.on('SIGTERM', () => {})
+      setTimeout(() => fs.writeFileSync(process.env.LATE_SIDE_EFFECT, 'late'), 4_000)
+      setInterval(() => {}, 1_000)
     `
-    const startedAt = Date.now()
-    const result = await captureCommand(
-      process.execPath,
-      ['-e', script, 'compose', '-p', 'fixture', 'down'],
-      { env, timeoutMs: 1_000, terminationGraceMs: 100, reapTimeoutMs: 1_000 }
-    )
-    assert.equal(result.timedOut, true)
-    assert.equal(result.reaped, true)
-    assert.equal(result.status, null)
-    assert.equal(result.signal, 'SIGKILL')
-    assert.match(result.error?.message ?? '', /timed out/)
-    const pid = Number(await readFile(pidFile, 'utf8'))
-    assert.throws(
-      () => process.kill(pid, 0),
-      (error: NodeJS.ErrnoException) => error.code === 'ESRCH'
-    )
-    assert.ok(Date.now() - startedAt < 5_000, 'Teardown timeout must remain bounded')
-  })
-})
+      const parentScript = `
+      const { spawn } = require('node:child_process')
+      const fs = require('node:fs')
+      spawn(process.execPath, ['-e', process.env.DESCENDANT_SCRIPT], { stdio: 'inherit' })
+      fs.writeFileSync(process.env.PARENT_PID_FILE, String(process.pid))
+      process.on('SIGTERM', () => {})
+      setInterval(() => {}, 1_000)
+    `
+      const env = {
+        ...process.env,
+        PARENT_PID_FILE: parentPidFile,
+        DESCENDANT_PID_FILE: descendantPidFile,
+        LATE_SIDE_EFFECT: lateSideEffect,
+        DESCENDANT_SCRIPT: descendantScript,
+      }
+      const startedAt = Date.now()
+      const result = await captureCommand(
+        process.execPath,
+        ['-e', parentScript, 'compose', '-p', 'fixture', 'down'],
+        {
+          env,
+          timeoutMs: 2_500,
+          terminationGraceMs: 100,
+          reapTimeoutMs: 1_500,
+          processGroup: true,
+        }
+      )
+      assert.equal(result.timedOut, true)
+      assert.equal(result.reaped, true)
+      assert.equal(result.groupExited, true, 'The Docker CLI and plugin stub group must be gone')
+      assert.equal(result.status, null)
+      assert.equal(result.signal, 'SIGKILL')
+      assert.match(result.error?.message ?? '', /timed out/)
+      assert.ok(Number(await readFile(parentPidFile, 'utf8')) > 0)
+      assert.ok(Number(await readFile(descendantPidFile, 'utf8')) > 0)
+      await delay(1_700)
+      await assert.rejects(readFile(lateSideEffect), { code: 'ENOENT' })
+      assert.ok(
+        Date.now() - startedAt < 6_000,
+        'Teardown and side-effect check must remain bounded'
+      )
+    })
+  },
+  8_000
+)
 
 test('native disconnect fixture reaps interrupted commands before bounded Compose teardown', async () => {
   const source = await readFile(disconnectFixture, 'utf8')
   assert.match(source, /new AbortController\(\)/)
   assert.match(source, /await Promise\.allSettled\(inFlightCommands\)/)
   assert.match(source, /signal: interruptionController\.signal/)
+  assert.match(source, /processGroup = true/)
+  assert.match(source, /!result\.value\.groupExited/)
   assert.match(source, /timeoutMs: composeDownTimeoutMs/)
 })
 

@@ -99,7 +99,7 @@ const captureOwnedCommand = (
   program,
   args,
   env = environment,
-  { cleanup = false, timeoutMs } = {}
+  { cleanup = false, timeoutMs, processGroup = true } = {}
 ) => {
   if (!cleanup) assertNotInterrupted(`before ${program} command`)
   const pending = captureCommand(program, args, {
@@ -107,6 +107,7 @@ const captureOwnedCommand = (
     env,
     signal: cleanup ? undefined : interruptionController.signal,
     timeoutMs,
+    processGroup,
   })
   if (!cleanup) {
     inFlightCommands.add(pending)
@@ -124,7 +125,8 @@ const command = async (program, args, env = environment, options = {}) => {
     result.error ||
     result.cancelled ||
     result.timedOut ||
-    !result.reaped
+    !result.reaped ||
+    !result.groupExited
   ) {
     const details = [
       result.stderr,
@@ -133,6 +135,7 @@ const command = async (program, args, env = environment, options = {}) => {
       result.signal ? `terminated by ${result.signal}` : undefined,
       result.timedOut ? 'command timed out' : undefined,
       !result.reaped ? 'child process was not reaped' : undefined,
+      !result.groupExited ? 'owned process group did not exit' : undefined,
     ]
       .filter(Boolean)
       .join('\n')
@@ -233,10 +236,16 @@ const cleanupOwnedResources = () => {
     const commands = await Promise.allSettled(inFlightCommands)
     for (const result of commands) {
       if (result.status === 'rejected') errors.push(result.reason)
-      else if (!result.value.reaped)
-        errors.push(
-          new Error('An interrupted fixture command was not reaped before Compose teardown')
-        )
+      else {
+        if (!result.value.reaped)
+          errors.push(
+            new Error('An interrupted fixture command was not reaped before Compose teardown')
+          )
+        if (!result.value.groupExited)
+          errors.push(
+            new Error('An interrupted fixture process group remained before Compose teardown')
+          )
+      }
     }
     try {
       await stopWorker()
@@ -292,7 +301,10 @@ try {
         captureOwnedCommand('docker', ['pull', '--quiet', reference], databaseEnvironment),
     }
   )
-  assert.equal(up.status, 0, up.stderr)
+  assert.equal(up.status, 0, up.error?.message || up.stderr)
+  assert.equal(up.error, undefined, 'Compose provisioning must not leave an owned process group')
+  assert.equal(up.reaped, true, 'Compose provisioning CLI must be reaped')
+  assert.equal(up.groupExited, true, 'Compose provisioning plugin process group must exit')
   await command('bun', ['run', '--cwd', 'packages/db', 'db:verify'], databaseEnvironment)
   container = (await command('docker', [...compose, 'ps', '-q', 'postgres'])).trim()
   assert(container)
