@@ -987,3 +987,566 @@ describe('exact limits of summaries and cited responses', () => {
     })
   })
 })
+
+// ─── One assistant message across its deltas, final text and result (#1383) ─
+
+const delta = (messageId: string, deltaIndex: number, text: string, id: string, run = 'run-1') =>
+  event('turn.assistant_delta', { messageId, deltaIndex, text }, id, run)
+const final = (messageId: string, text: string, id: string, run = 'run-1') =>
+  event('turn.assistant_message', { messageId, text, supersedes: 'deltas' }, id, run)
+const result = (messageId: string, id: string, extra: object = {}, run = 'run-1') =>
+  event('turn.result', { messageId, ...extra }, id, run)
+const shapeOf = (built: ReturnType<typeof turns>['turns']) =>
+  built[0]?.entries.map((entry) => `${entry.type}:${entry.id}`)
+
+describe('assistant message identity', () => {
+  test('the final text replaces its deltas in their place and under their id', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Hel', 'd1'),
+      delta('m1', 1, 'lo', 'd2'),
+      final('m1', 'Hello, world.', 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1'])
+    expect(built[0]?.entries[0]).toMatchObject({
+      type: 'text',
+      source: 'message',
+      text: 'Hello, world.',
+      eventIds: ['d1', 'd2', 'a1'],
+    })
+    expect(entryByEventId.get('a1')).toBe('d1')
+    expect(entryByEventId.get('d2')).toBe('d1')
+  })
+
+  test('a final whose deltas are gone is drawn on its own', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      final('m1', 'Hello, world.', 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:a1'])
+  })
+
+  test('a message interrupted by a tool is one block at its first position', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Looking. ', 'd1'),
+      event('tool.started', { name: 'bash' }, 't1'),
+      delta('m1', 1, 'Found it.', 'd2'),
+      final('m1', 'Looking. Found it.', 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'activity:t1'])
+    expect(built[0]?.entries[0]).toMatchObject({
+      text: 'Looking. Found it.',
+      eventIds: ['d1', 'd2', 'a1'],
+    })
+    expect(entryByEventId.get('d2')).toBe('d1')
+  })
+
+  test('two messages of one run stay two blocks, and each final replaces only its own', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'First', 'd1'),
+      delta('m2', 0, 'Second', 'd2'),
+      final('m2', 'Second.', 'a2'),
+      final('m1', 'First.', 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'text:d2'])
+    expect(built[0]?.entries.map((entry) => (entry as { text: string }).text)).toEqual([
+      'First.',
+      'Second.',
+    ])
+  })
+
+  test('the same id from another run, or in another turn, is another message', () => {
+    const otherRun = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'one', 'd1'),
+      final('m1', 'two', 'a1', 'run-2'),
+    ])
+    expect(shapeOf(otherRun.turns)).toEqual(['text:d1', 'text:a1'])
+
+    const nextTurn = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'one', 'd1'),
+      event('turn.user_input', { text: 'again' }, 'u2'),
+      final('m1', 'two', 'a1'),
+    ])
+    expect(nextTurn.turns.map((turn) => turn.entries.map((entry) => entry.id))).toEqual([
+      ['d1'],
+      ['a1'],
+    ])
+  })
+
+  test('a result that references a drawn message ends it and is not a second answer', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Done.', 'd1'),
+      final('m1', 'Done.', 'a1'),
+      result('m1', 'r1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1'])
+    expect(built[0]?.entries[0]).toMatchObject({ failed: false, eventIds: ['d1', 'a1', 'r1'] })
+    expect(entryByEventId.get('r1')).toBe('d1')
+  })
+
+  test('a failing result marks the message it references as failed', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      final('m1', 'It broke.', 'a1'),
+      result('m1', 'r1', { isError: true }),
+    ])
+    expect(shapeOf(built)).toEqual(['text:a1'])
+    expect(built[0]?.entries[0]).toMatchObject({ failed: true })
+  })
+
+  test('a result for a message that was never drawn stays visible as a notice', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      result('m1', 'r1'),
+    ])
+    expect(shapeOf(built)).toEqual(['notice:r1'])
+  })
+
+  test('a summary-bearing result ends the message it references and is not another answer', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Done.', 'd1'),
+      final('m1', 'Done.', 'a1'),
+      result('m1', 'r1', { summary: 'Finished in two steps.' }),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1'])
+    expect(built[0]?.entries[0]).toMatchObject({
+      text: 'Done.',
+      failed: false,
+      summary: 'Finished in two steps.',
+      eventIds: ['d1', 'a1', 'r1'],
+    })
+    expect(entryByEventId.get('r1')).toBe('d1')
+  })
+
+  test('a failing summary-bearing result marks the referenced message as failed', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      final('m1', 'It broke.', 'a1'),
+      result('m1', 'r1', { summary: 'The build failed.', isError: true }),
+    ])
+    expect(shapeOf(built)).toEqual(['text:a1'])
+    expect(built[0]?.entries[0]).toMatchObject({
+      text: 'It broke.',
+      failed: true,
+      summary: 'The build failed.',
+    })
+  })
+
+  test('a result that references no drawn message still shows its summary', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      result('m1', 'r1', { summary: 'Finished in two steps.' }),
+    ])
+    expect(shapeOf(built)).toEqual(['text:r1'])
+  })
+
+  test('a final without supersedes does not replace the partials it names', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Partial answer', 'd1'),
+      event('turn.assistant_message', { messageId: 'm1', text: 'Other text.' }, 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'text:a1'])
+    expect(built[0]?.entries.map((entry) => (entry as { text: string }).text)).toEqual([
+      'Partial answer',
+      'Other text.',
+    ])
+  })
+
+  test('a final that supersedes something other than deltas does not replace them', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Partial answer', 'd1'),
+      event('turn.assistant_message', { messageId: 'm1', text: 'x', supersedes: 'all' }, 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'text:a1'])
+  })
+
+  test('a result or delta whose identity fails its contract is not paired', () => {
+    const badDelta = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      event('turn.assistant_delta', { messageId: 'm1', deltaIndex: -1, text: 'one' }, 'd1'),
+      final('m1', 'two', 'a1'),
+    ])
+    expect(shapeOf(badDelta.turns)).toEqual(['text:d1', 'text:a1'])
+
+    const badResult = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      final('m1', 'Done.', 'a1'),
+      event('turn.result', { messageId: 'm1', summary: 42 }, 'r1'),
+    ])
+    expect(shapeOf(badResult.turns)).toEqual(['text:a1', 'notice:r1'])
+  })
+
+  test('an event that fails the full event contract has no identity, whatever its payload says', () => {
+    // The browser envelope does not check the canonical sequence the host contract requires.
+    const forged = { ...final('m1', 'forged', 'a1'), seq: 'not-a-sequence' }
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Real ', 'd1'),
+      forged,
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'text:a1'])
+    expect(built[0]?.entries[0]).toMatchObject({ text: 'Real ' })
+  })
+
+  test('a valid final with no text replaces the stream it supersedes', () => {
+    for (const blank of ['', '  \n ']) {
+      const { turns: built, entryByEventId } = turns([
+        event('turn.user_input', { text: 'q' }, 'u1'),
+        delta('m1', 0, 'Partial answer', 'd1'),
+        final('m1', blank, 'a1'),
+      ])
+      expect(shapeOf(built)).toEqual(['text:d1'])
+      expect(built[0]?.entries[0]).toMatchObject({
+        source: 'message',
+        text: '',
+        truncated: false,
+        eventIds: ['d1', 'a1'],
+      })
+      expect(entryByEventId.get('a1')).toBe('d1')
+    }
+  })
+
+  test('a blank final with nothing to replace stays a visible line', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      final('m1', '', 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['notice:a1'])
+  })
+
+  test('a carriage return that ends one message does not take the line feed that starts the next', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'a\r', 'd1'),
+      delta('m2', 0, '\nb', 'd2'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'text:d2'])
+    expect(built[0]?.entries.map((entry) => (entry as { text: string }).text)).toEqual([
+      'a\n',
+      '\nb',
+    ])
+  })
+
+  test('a split carriage return and line feed inside one message still reads as one line break', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'a\r', 'd1'),
+      delta('m1', 1, '\nb', 'd2'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1'])
+    expect(built[0]?.entries[0]).toMatchObject({ text: 'a\nb' })
+  })
+
+  test('a fragment that arrives after the final text joins the message without changing it', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Hi', 'd1'),
+      final('m1', 'Hi there.', 'a1'),
+      delta('m1', 1, ' there', 'd2'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1'])
+    expect(built[0]?.entries[0]).toMatchObject({
+      text: 'Hi there.',
+      eventIds: ['d1', 'a1', 'd2'],
+    })
+    expect(entryByEventId.get('d2')).toBe('d1')
+  })
+})
+
+// ─── Approval and question outcomes paired with their request (#1383) ───────
+
+// The host admits a structured interaction only with authoritative provenance from an
+// owning adapter, workspace_private classification and a run identity.
+const interactionEvent = (
+  kind: RuntimeEvent['kind'],
+  payload: unknown,
+  id: string,
+  over: Partial<RuntimeEvent> = {}
+): RuntimeEvent => ({
+  ...event(kind, payload, id),
+  source: 'native',
+  classification: 'workspace_private',
+  ...over,
+})
+const askApproval = (id: string, requestId = 'req-1', over: Partial<RuntimeEvent> = {}) =>
+  interactionEvent(
+    'approval.requested',
+    {
+      schemaVersion: 1,
+      requestId,
+      eligibility: { eligible: false, reason: 'response_unavailable' },
+      prompt: 'Run the tests?',
+    },
+    id,
+    over
+  )
+const outcomeOf = (
+  kind: 'approval.resolved' | 'approval.expired' | 'question.resolved' | 'question.expired',
+  id: string,
+  requestEventId: string,
+  decision: string,
+  requestId = 'req-1',
+  over: Partial<RuntimeEvent> = {},
+  answers: readonly unknown[] = []
+) =>
+  interactionEvent(
+    kind,
+    {
+      schemaVersion: 1,
+      requestId,
+      requestEventId,
+      decision,
+      ...(decision === 'answered' ? { answers } : {}),
+    },
+    id,
+    over
+  )
+const approvalShape = (built: ReturnType<typeof turns>['turns']) =>
+  built[0]?.entries.map((entry) => `${entry.type}:${entry.id}`)
+
+const askQuestions = (over: Partial<RuntimeEvent> = {}) =>
+  interactionEvent(
+    'question.requested',
+    {
+      schemaVersion: 1,
+      requestId: 'req-1',
+      eligibility: { eligible: false, reason: 'response_unavailable' },
+      questions: [
+        { id: 'target', prompt: 'Which target?', required: true, kind: 'text' },
+        {
+          id: 'mode',
+          prompt: 'Which mode?',
+          required: false,
+          kind: 'choice',
+          multiple: false,
+          options: [
+            { id: 'fast', label: 'Fast' },
+            { id: 'safe', label: 'Safe' },
+          ],
+        },
+      ],
+    },
+    'q1',
+    over
+  )
+const answeredWith = (answers: readonly unknown[]) =>
+  outcomeOf('question.resolved', 'o1', 'q1', 'answered', 'req-1', {}, answers)
+
+describe('approval and question outcomes', () => {
+  test('a request says whether this surface may answer it', () => {
+    const [row] = projectTranscriptEvents([askApproval('q1')])
+    expect(row?.interaction).toEqual({
+      phase: 'requested',
+      requestId: 'req-1',
+      responseAvailable: false,
+    })
+  })
+
+  test('an outcome that names the request is drawn on it, not as a second line', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      askApproval('q1'),
+      outcomeOf('approval.resolved', 'o1', 'q1', 'approved'),
+    ])
+    expect(approvalShape(built)).toEqual(['approval:q1'])
+    expect(built[0]?.entries[0]).toMatchObject({ outcome: { decision: 'approved', eventId: 'o1' } })
+    expect(entryByEventId.get('o1')).toBe('q1')
+  })
+
+  test('a denial and an expiry pair the same way', () => {
+    const denied = turns([askApproval('q1'), outcomeOf('approval.resolved', 'o1', 'q1', 'denied')])
+    expect(denied.turns[0]?.entries[0]).toMatchObject({ outcome: { decision: 'denied' } })
+    const expired = turns([askApproval('q1'), outcomeOf('approval.expired', 'o1', 'q1', 'expired')])
+    expect(expired.turns[0]?.entries[0]).toMatchObject({ outcome: { decision: 'expired' } })
+  })
+
+  test('an outcome with another request id is not paired', () => {
+    const { turns: built } = turns([
+      askApproval('q1'),
+      outcomeOf('approval.resolved', 'o1', 'q1', 'approved', 'req-other'),
+    ])
+    expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o1'])
+    expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+  })
+
+  test('an outcome from another generation or session is not paired', () => {
+    const otherGeneration = {
+      ...outcomeOf('approval.resolved', 'o1', 'q1', 'approved'),
+      generation: 2,
+    }
+    const otherSession = {
+      ...outcomeOf('approval.resolved', 'o2', 'q1', 'approved'),
+      runtimeSessionId: 'session-2',
+    }
+    const { turns: built } = turns([askApproval('q1'), otherGeneration, otherSession])
+    expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o1', 'approval:o2'])
+    expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+  })
+
+  test('an outcome whose request left the window stays a line of its own', () => {
+    const { turns: built } = turns([outcomeOf('approval.resolved', 'o1', 'gone', 'approved')])
+    expect(approvalShape(built)).toEqual(['approval:o1'])
+  })
+
+  test('the first outcome settles the request and a second stays visible', () => {
+    const { turns: built } = turns([
+      askApproval('q1'),
+      outcomeOf('approval.resolved', 'o1', 'q1', 'approved'),
+      outcomeOf('approval.resolved', 'o2', 'q1', 'denied'),
+    ])
+    expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o2'])
+    expect(built[0]?.entries[0]).toMatchObject({ outcome: { decision: 'approved', eventId: 'o1' } })
+  })
+
+  test('a question outcome never settles an approval request', () => {
+    const { turns: built } = turns([
+      askApproval('q1'),
+      outcomeOf('question.resolved', 'o1', 'q1', 'answered'),
+    ])
+    expect(approvalShape(built)).toEqual(['approval:q1', 'question:o1'])
+    expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+  })
+
+  describe('an interaction is a fact only as a whole event', () => {
+    test('a hint-grade or merely metadata-classified event is not a structured interaction', () => {
+      const hinted = askApproval('q1', 'req-1', { confidence: 'untrusted_hint' })
+      const metadata = askApproval('q2', 'req-1', { classification: 'workspace_metadata' })
+      expect(projectTranscriptEvents([hinted, metadata]).map((row) => row.interaction)).toEqual([
+        undefined,
+        undefined,
+      ])
+    })
+
+    test('an outcome that is only a hint never settles the request', () => {
+      const { turns: built } = turns([
+        askApproval('q1'),
+        outcomeOf('approval.resolved', 'o1', 'q1', 'approved', 'req-1', {
+          confidence: 'untrusted_hint',
+        }),
+      ])
+      expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o1'])
+      expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+    })
+
+    test('a request without a run identity is not structured', () => {
+      const [row] = projectTranscriptEvents([
+        askApproval('q1', 'req-1', { harnessRunId: undefined }),
+      ])
+      expect(row?.interaction).toBeUndefined()
+    })
+
+    test('an outcome from another source or another run is not this request’s outcome', () => {
+      const otherSource = outcomeOf('approval.resolved', 'o1', 'q1', 'approved', 'req-1', {
+        source: 'acp',
+      })
+      const otherRun = outcomeOf('approval.resolved', 'o2', 'q1', 'approved', 'req-1', {
+        harnessRunId: 'run-2',
+      })
+      const { turns: built } = turns([askApproval('q1'), otherSource, otherRun])
+      expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o1', 'approval:o2'])
+      expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+    })
+
+    test('the same source and run settle it', () => {
+      const { turns: built } = turns([
+        askApproval('q1', 'req-1', { source: 'acp' }),
+        outcomeOf('approval.resolved', 'o1', 'q1', 'approved', 'req-1', { source: 'acp' }),
+      ])
+      expect(built[0]?.entries[0]).toMatchObject({ outcome: { eventId: 'o1' } })
+    })
+  })
+
+  describe('a question outcome is checked against the retained request', () => {
+    test('answers that satisfy the request settle it', () => {
+      const { turns: built } = turns([
+        askQuestions(),
+        answeredWith([
+          { questionId: 'target', text: 'production' },
+          { questionId: 'mode', optionIds: ['safe'] },
+        ]),
+      ])
+      expect(built[0]?.entries[0]).toMatchObject({
+        outcome: { decision: 'answered', eventId: 'o1' },
+      })
+    })
+
+    test('an optional question may be skipped or left out', () => {
+      const { turns: built } = turns([
+        askQuestions(),
+        answeredWith([
+          { questionId: 'target', text: 'production' },
+          { questionId: 'mode', skipped: true },
+        ]),
+      ])
+      expect(built[0]?.entries[0]).toMatchObject({ outcome: { eventId: 'o1' } })
+    })
+
+    test.each([
+      ['no answers while a question is required', []],
+      ['a required question skipped', [{ questionId: 'target', skipped: true }]],
+      [
+        'a question the request never asked',
+        [
+          { questionId: 'target', text: 'production' },
+          { questionId: 'extra', text: 'x' },
+        ],
+      ],
+      [
+        'an option the question does not offer',
+        [
+          { questionId: 'target', text: 'production' },
+          { questionId: 'mode', optionIds: ['turbo'] },
+        ],
+      ],
+      [
+        'a choice answered as text',
+        [
+          { questionId: 'target', text: 'production' },
+          { questionId: 'mode', text: 'safe' },
+        ],
+      ],
+    ] as const)('%s does not settle the request', (_name, answers) => {
+      const { turns: built } = turns([askQuestions(), answeredWith(answers)])
+      expect(approvalShape(built)).toEqual(['question:q1', 'question:o1'])
+      expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+    })
+
+    test('an invalid outcome does not use up the request: a valid one still settles it', () => {
+      const { turns: built } = turns([
+        askQuestions(),
+        answeredWith([]),
+        outcomeOf('question.resolved', 'o2', 'q1', 'answered', 'req-1', {}, [
+          { questionId: 'target', text: 'production' },
+        ]),
+      ])
+      expect(built[0]?.entries[0]).toMatchObject({ outcome: { eventId: 'o2' } })
+    })
+
+    test('an expiry carries no answers and settles', () => {
+      const { turns: built } = turns([
+        askQuestions(),
+        outcomeOf('question.expired', 'o1', 'q1', 'expired'),
+      ])
+      expect(built[0]?.entries[0]).toMatchObject({
+        outcome: { decision: 'expired', eventId: 'o1' },
+      })
+    })
+  })
+
+  test('a legacy payload is never paired by what its text says', () => {
+    const { turns: built } = turns([
+      event('approval.requested', { prompt: 'Run the tests?' }, 'q1'),
+      event('approval.resolved', { requestEventId: 'q1', decision: 'approved' }, 'o1'),
+    ])
+    expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o1'])
+    expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+  })
+})

@@ -5,7 +5,65 @@ import type {
   RuntimeSession,
   RuntimeVisibleSummary,
 } from '@adea-ai/types/dev-runtime'
-import { decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
+import { decodeRuntimeInteractionPayload } from '@adea-ai/types/dev-runtime'
+import {
+  decodeConversationCheckpoint,
+  isRuntimeActivityEventKind,
+} from '@adea-ai/types/dev-runtime'
+import { projectActivityResult, stripTerminalControls, type ChatResult } from './model/results'
+import {
+  decodeRuntimeAssistantPayload,
+  decodeRuntimeEvent,
+  isRuntimeCallEventKind,
+  type RuntimeCallData,
+  type RuntimeCallPayload,
+  type RuntimeCallPhase,
+} from '@adea-ai/types/dev-runtime-wire'
+
+/**
+ * What a versioned approval or question event says about itself, read only after
+ * the wire gate accepted its payload. Legacy payloads carry none and are never
+ * given one by guessing from their text.
+ *
+ * A request says whether this surface may answer it (`responseAvailable`, the
+ * host fact `eligibility`); an outcome names the request it answers by the
+ * canonical event id (`requestEventId`) and the protocol's own `requestId`. The
+ * canvas pairs the two (see `buildChatTurns`) only when both agree.
+ */
+export type ChatInteraction =
+  | Readonly<{ phase: 'requested'; requestId: string; responseAvailable: boolean }>
+  | Readonly<{
+      phase: 'outcome'
+      requestId: string
+      requestEventId: string
+      decision: 'approved' | 'denied' | 'answered' | 'expired'
+      /** When the host says the decision was made; the actor id is a protocol id and is not shown. */
+      decidedAt?: string
+    }>
+
+/** A call's input or output as it may be drawn: redacted and bounded, or held elsewhere. */
+export type ChatCallData =
+  | Readonly<{ type: 'inline'; text: string; truncated: boolean }>
+  | Readonly<{ type: 'reference'; byteLength?: number }>
+
+/**
+ * What a versioned tool or subagent observation says about itself, read only after
+ * the wire gate accepted the whole event (native, ACP or owned-hook source, run
+ * identity, schema, size). `callId` is stable within one session, generation, run
+ * and source; `parentCallId` is absent when the producer did not say and `null`
+ * when it observed a root call. Nothing here is an authorization: the permission
+ * eligibility the payload carries is not read.
+ */
+export type ChatCall = Readonly<{
+  family: 'tool' | 'subagent'
+  callId: string
+  parentCallId?: string | null
+  phase: RuntimeCallPhase
+  name?: string
+  input?: ChatCallData
+  output?: ChatCallData
+  durationMs?: number
+}>
 
 /** A bounded, renderable row in the canonical transcript. */
 export type ChatTranscriptItem = Readonly<{
@@ -22,6 +80,8 @@ export type ChatTranscriptItem = Readonly<{
     | 'reasoning'
     /** A validated source-reported method step snapshot (`turn.method_step_summary`). */
     | 'method'
+    /** A structured activity observation the wire gate accepted (`ChatResult`). */
+    | 'result'
     /** A kind the chat has no dedicated presentation for. Shown, never dropped. */
     | 'other'
   kind: RuntimeEvent['kind']
@@ -48,6 +108,12 @@ export type ChatTranscriptItem = Readonly<{
   /** The producer's sources and cited spans, present only when they validated against the exact text. */
   references?: ChatResponseReferences
   state?: 'requested' | 'started' | 'in_progress' | 'completed' | 'failed' | 'resolved' | 'expired'
+  /** Present only for a versioned approval or question the wire gate accepted. */
+  interaction?: ChatInteraction
+  /** Present only for a versioned tool or subagent call the wire gate accepted. */
+  call?: ChatCall
+  /** Present only for a versioned structured activity the wire gate accepted. */
+  result?: ChatResult
   event?: RuntimeEvent
 }>
 
@@ -129,6 +195,15 @@ function redact(
   return redactWithProvenance(value, limit, options).text
 }
 
+/** Display redaction with the cut it made, for text a caller joins itself (terminal output). */
+export function redactDisplay(
+  value: string,
+  limit: number,
+  options: { window?: number; layout?: boolean } = {}
+): { text: string; truncated: boolean } {
+  return redactWithProvenance(value, limit, { window: BODY_SCAN_WINDOW, ...options })
+}
+
 function textFromPayload(event: RuntimeEvent): string | undefined {
   if (event.payload === null || typeof event.payload !== 'object') return undefined
   const payload = event.payload as Record<string, unknown>
@@ -165,6 +240,241 @@ function requestContextFromPayload(event: RuntimeEvent): {
     }
   }
   return { requestContextIncomplete: true }
+}
+
+function interactionFromEvent(event: RuntimeEvent): ChatInteraction | undefined {
+  if (!event.kind.startsWith('approval.') && !event.kind.startsWith('question.')) return undefined
+  // The whole event, not the payload alone: the host admits a structured interaction only
+  // with authoritative provenance, workspace_private classification and a run identity,
+  // so a payload with the right shape from a hint-grade source is not a fact.
+  try {
+    decodeRuntimeEvent(event, { source: event.source })
+  } catch {
+    return undefined
+  }
+  let decoded: ReturnType<typeof decodeRuntimeInteractionPayload>
+  try {
+    decoded = decodeRuntimeInteractionPayload(event.kind, event.payload)
+  } catch {
+    return undefined
+  }
+  if (decoded === undefined) return undefined
+  if ('eligibility' in decoded)
+    return {
+      phase: 'requested',
+      requestId: decoded.requestId,
+      responseAvailable: decoded.eligibility.eligible,
+    }
+  return {
+    phase: 'outcome',
+    requestId: decoded.requestId,
+    requestEventId: decoded.requestEventId,
+    decision: decoded.decision,
+    ...(decoded.decidedAt !== undefined ? { decidedAt: decoded.decidedAt } : {}),
+  }
+}
+
+const CALL_DATA_LIMIT = 4_096
+const CALL_DATA_DEPTH = 16
+const CALL_DATA_NODES = 2_000
+/** A key that names a credential: its value is withheld whatever it looks like. */
+const SENSITIVE_KEY =
+  /password|passwd|secret|api[-_]?key|authorization|credential|private[-_]?key|cookie|token$/i
+/** What a secret split across several fields would still leave readable once joined. */
+const JOINED_SECRET =
+  /-----BEGIN |\bBearer\s+[A-Za-z0-9._~+/=-]|\b(?:sk|pk|api|token|secret)[-_][A-Za-z0-9._-]{8,}|\/Users\/|\/home\/|[A-Za-z]:\\Users\\/i
+
+/** Most fragments, and most characters, read together from one candidate start. */
+const JOIN_FRAGMENTS = 64
+const JOIN_CHARACTERS = 512
+/**
+ * `barrier` marks where a credential-named key's value was withheld: what is read on
+ * either side of it was never adjacent text, so no reading crosses it.
+ */
+type Fragment = Readonly<{ text: string; key: boolean; barrier?: boolean }>
+
+/**
+ * Reads the fragments from `start` as one text. Whitespace runs collapse to one space and
+ * a fragment left empty costs nothing, so padding cannot use up the budget; the reading
+ * ends at a barrier or at the fragment or character cap. A secret needs only a few
+ * characters from its own start, so a reading that is cut at its cap has either shown
+ * a match already or was never going to: a later start covers anything that begins
+ * further along.
+ */
+function readFragments(fragments: readonly Fragment[], start: number, valuesOnly: boolean): string {
+  let text = ''
+  let used = 0
+  for (let index = start; index < fragments.length; index += 1) {
+    const fragment = fragments[index]!
+    if (fragment.barrier) break
+    if (valuesOnly && fragment.key && index !== start) continue
+    let piece = fragment.text.replace(/\s+/g, ' ')
+    if (text.endsWith(' ') && piece.startsWith(' ')) piece = piece.slice(1)
+    if (piece === '') continue
+    if (used >= JOIN_FRAGMENTS || text.length >= JOIN_CHARACTERS) break
+    used += 1
+    text += piece.slice(0, JOIN_CHARACTERS - text.length)
+  }
+  return text
+}
+
+/**
+ * Whether the scalar fragments of a value, read in order, spell a secret. The pattern
+ * needs a word boundary before `sk-` and the like, so an ordinary word in the fragment
+ * just before the secret's start would hide it from one scan over the whole list.
+ * Every fragment, key or value, is a candidate start: read from there, it is at the
+ * front of the text with its own boundary. Between barriers, these readings: the whole
+ * run (for a secret that starts inside a long fragment), every start with the keys read
+ * in, and every start followed only by values (an ordinary key between the start and
+ * the rest does not separate them; a start that is itself a key keeps it). A secret can
+ * be spelled by any subsequence of fragments, so these are the readings a person could
+ * reconstruct without guessing which fields to drop, not every possible one.
+ */
+export function secretAcrossFragments(fragments: readonly Fragment[]): boolean {
+  const segments: Fragment[][] = [[]]
+  for (const fragment of fragments) {
+    if (fragment.barrier) segments.push([])
+    else segments.at(-1)!.push(fragment)
+  }
+  for (const segment of segments) {
+    if (JOINED_SECRET.test(segment.map((fragment) => fragment.text).join(''))) return true
+    const values = segment
+      .filter((fragment) => !fragment.key)
+      .map((fragment) => fragment.text)
+      .join('')
+    if (JOINED_SECRET.test(values)) return true
+    for (let start = 0; start < segment.length; start += 1) {
+      if (JOINED_SECRET.test(readFragments(segment, start, false))) return true
+      if (JOINED_SECRET.test(readFragments(segment, start, true))) return true
+    }
+  }
+  return false
+}
+
+/**
+ * Redact a call's inline value BEFORE it is written as JSON. JSON escapes a string's
+ * backslashes, quotes and control characters, so a private path or a token with a
+ * control character in it no longer matches its pattern in the serialized text.
+ * Each string leaf (and key) is stripped of terminal controls and redacted as the
+ * string it is; a credential-named key withholds its value; a secret that only forms
+ * when separate fields are read together withholds the whole value.
+ */
+function scrubCallValue(value: unknown): {
+  value: unknown
+  truncated: boolean
+  joined: Fragment[]
+} {
+  let truncated = false
+  let nodes = 0
+  // Every key and scalar in traversal order, read together by `secretAcrossFragments`.
+  // A number or boolean is a fragment like any string.
+  const fragments: Fragment[] = []
+  const text = (raw: string, isKey: boolean): string => {
+    const safe = redactWithProvenance(stripTerminalControls(raw), CALL_DATA_LIMIT, {
+      window: BODY_SCAN_WINDOW,
+      layout: true,
+    })
+    if (safe.truncated) truncated = true
+    fragments.push({ text: safe.text, key: isKey })
+    return safe.text
+  }
+  const walk = (node: unknown, depth: number): unknown => {
+    nodes += 1
+    if (nodes > CALL_DATA_NODES || depth > CALL_DATA_DEPTH) {
+      truncated = true
+      return '[not shown]'
+    }
+    if (typeof node === 'string') return text(node, false)
+    if (node === null || typeof node !== 'object') {
+      const scalar = String(node)
+      fragments.push({ text: scalar, key: false })
+      return node
+    }
+    if (Array.isArray(node)) return node.map((entry) => walk(entry, depth + 1))
+    const out: Record<string, unknown> = {}
+    for (const [key, entry] of Object.entries(node)) {
+      const safeKey = text(key, true)
+      if (SENSITIVE_KEY.test(key)) {
+        fragments.push({ text: '', key: false, barrier: true })
+        out[safeKey] = '[secret redacted]'
+      } else out[safeKey] = walk(entry, depth + 1)
+    }
+    return out
+  }
+  const scrubbed = walk(value, 0)
+  return { value: scrubbed, truncated, joined: fragments }
+}
+
+function callData(data: RuntimeCallData | undefined): ChatCallData | undefined {
+  if (data === undefined) return undefined
+  if (data.type === 'reference')
+    return {
+      type: 'reference',
+      ...(data.byteLength !== undefined ? { byteLength: data.byteLength } : {}),
+    }
+  const scrubbed = scrubCallValue(data.value)
+  if (secretAcrossFragments(scrubbed.joined))
+    return {
+      type: 'inline',
+      text: '[withheld: a secret may span several fields]',
+      truncated: false,
+    }
+  const json = JSON.stringify(scrubbed.value, null, 2) ?? 'null'
+  const safe = redactWithProvenance(json, CALL_DATA_LIMIT, {
+    window: BODY_SCAN_WINDOW,
+    layout: true,
+  })
+  return { type: 'inline', text: safe.text, truncated: safe.truncated || scrubbed.truncated }
+}
+
+function callFromEvent(event: RuntimeEvent): ChatCall | undefined {
+  if (!isRuntimeCallEventKind(event.kind)) return undefined
+  if (
+    event.payload === null ||
+    typeof event.payload !== 'object' ||
+    !Object.hasOwn(event.payload, 'schemaVersion')
+  )
+    return undefined
+  try {
+    decodeRuntimeEvent(event, { source: event.source })
+  } catch {
+    return undefined
+  }
+  const payload = event.payload as RuntimeCallPayload
+  const input = callData(payload.input)
+  const output = callData(payload.output)
+  return {
+    family: event.kind === 'subagent.observed' ? 'subagent' : 'tool',
+    callId: payload.callId,
+    ...(payload.parentCallId !== undefined ? { parentCallId: payload.parentCallId } : {}),
+    phase: payload.phase,
+    ...(payload.name !== undefined ? { name: redact(payload.name, MAX_LABEL) } : {}),
+    ...(input !== undefined ? { input } : {}),
+    ...(output !== undefined ? { output } : {}),
+    ...(payload.durationMs !== undefined ? { durationMs: payload.durationMs } : {}),
+  }
+}
+
+function resultFromEvent(event: RuntimeEvent): ChatResult | undefined {
+  if (!isRuntimeActivityEventKind(event.kind) && event.kind !== 'checkpoint.observed')
+    return undefined
+  if (
+    event.payload === null ||
+    typeof event.payload !== 'object' ||
+    !Object.hasOwn(event.payload, 'schemaVersion')
+  )
+    return undefined
+  try {
+    decodeRuntimeEvent(event, { source: event.source })
+    // The wire gate admits a checkpoint claim by shape only when it is versioned;
+    // read it through its own contract before anything is drawn.
+    if (event.kind === 'checkpoint.observed') decodeConversationCheckpoint(event.payload)
+  } catch {
+    return undefined
+  }
+  return projectActivityResult(event.kind, event.payload, (text, limit, layout) =>
+    redact(text, limit, { window: BODY_SCAN_WINDOW, ...(layout === true ? { layout } : {}) })
+  )
 }
 
 function outputFromPayload(event: RuntimeEvent): string | undefined {
@@ -417,6 +727,8 @@ export function redactAssistantDeltaFragments(
       before.endsWith('\r') &&
       after.startsWith('\n') &&
       sameRun(items[index - 1]!, items[index]!) &&
+      // Two messages are two texts: a CR that ends one does not claim the LF that starts the next.
+      assistantMessageKey(items[index - 1]!) === assistantMessageKey(items[index]!) &&
       !withheld(index - 1) &&
       !withheld(index)
     )
@@ -454,6 +766,50 @@ export function redactAssistantDeltaFragments(
       ...(continuesCr && current.length === 0 ? { continuation: true } : {}),
     }
   })
+}
+
+const assistantKeys = new WeakMap<ChatTranscriptItem, string | null>()
+
+/**
+ * The identity of the assistant message a row belongs to, scoped to its session,
+ * generation, run and source, or `undefined`.
+ *
+ * It is defined only for a delta, a final text or a result whose payload passes the
+ * kind-specific contract (`decodeRuntimeAssistantPayload`): a delta with a contiguous
+ * index, a final that supersedes `deltas`, a result with a well-formed summary. Anything
+ * else, including every row retained from before the identity existed, is opaque and is
+ * grouped by run and generation alone. A row that merely carries a `messageId` string
+ * never gains an identity, so a malformed event cannot replace or join valid text.
+ */
+export function assistantMessageKey(item: ChatTranscriptItem): string | undefined {
+  const cached = assistantKeys.get(item)
+  if (cached !== undefined) return cached ?? undefined
+  let key: string | undefined
+  const event = item.event
+  if (
+    event !== undefined &&
+    (event.kind === 'turn.assistant_delta' ||
+      event.kind === 'turn.assistant_message' ||
+      event.kind === 'turn.result')
+  ) {
+    try {
+      // The full event first: the browser envelope skips the run identity and frame
+      // bounds the host enforces for assistant events.
+      decodeRuntimeEvent(event, { source: event.source })
+      const payload = decodeRuntimeAssistantPayload(event.kind, event.payload)
+      key = JSON.stringify([
+        event.runtimeSessionId,
+        event.generation,
+        event.harnessRunId,
+        event.source,
+        payload.messageId,
+      ])
+    } catch {
+      key = undefined
+    }
+  }
+  assistantKeys.set(item, key ?? null)
+  return key
 }
 
 /** Whether two projected rows belong to one known harness run and generation. */
@@ -658,6 +1014,18 @@ export function projectTranscriptEvents(
       continue
     }
     if (role === 'other') {
+      const result = resultFromEvent(event)
+      if (result !== undefined) {
+        rows.push({
+          id: event.eventId,
+          role: 'result',
+          kind: event.kind,
+          label: event.kind,
+          result,
+          event,
+        })
+        continue
+      }
       rows.push({
         id: event.eventId,
         role,
@@ -671,6 +1039,8 @@ export function projectTranscriptEvents(
     const body = bodyFromPayload(event)
     const label = labelFromPayload(event)
     const state = stateFor(event.kind)
+    const interaction = interactionFromEvent(event)
+    const call = callFromEvent(event)
     const references =
       body !== undefined && event.kind === 'turn.assistant_message'
         ? responseReferences(event, body.body)
@@ -688,6 +1058,8 @@ export function projectTranscriptEvents(
         : {}),
       ...(state !== undefined ? { state } : {}),
       ...(references !== undefined ? { references } : {}),
+      ...(interaction !== undefined ? { interaction } : {}),
+      ...(call !== undefined ? { call } : {}),
       event,
     })
   }

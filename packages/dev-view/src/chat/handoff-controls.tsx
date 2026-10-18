@@ -18,6 +18,7 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { StatusChip, type StatusTone } from '@adea-ai/ui/components/ui/status-chip'
 import { cn } from '@adea-ai/ui/lib/utils'
 
+import type { HandoffActivity, HandoffChildEvidence } from './model/handoff-observation'
 import {
   handoffControlReasonId,
   type DirectSessionHandoffView,
@@ -52,6 +53,23 @@ const BUSY_LABELS: Record<HandoffActionKind, string> = {
   lead_stop: 'Stopping lead…',
   session_stop: 'Stopping session run…',
   handoff_to_lead: 'Handing off…',
+}
+
+const HOLDER_LABELS: Record<DirectSessionHandoffView['holder'], string> = {
+  lead: 'Held by the workspace lead',
+  user: 'Held by you',
+  none: 'No one holds this session',
+}
+
+function utcTime(iso: string): string {
+  const date = new Date(iso)
+  return Number.isNaN(date.getTime())
+    ? iso
+    : `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)} UTC`
+}
+
+function plural(count: number, one: string, many: string): string {
+  return `${count} ${count === 1 ? one : many}`
 }
 
 const ROW_KINDS: readonly HandoffControlKind[] = [
@@ -125,6 +143,133 @@ function ControlRow(
   )
 }
 
+/** Raw events counted from the retained window. They are evidence, never a
+ *  current state: the strip says so and names an incomplete window. */
+function EvidenceStrip(props: { activity: HandoffActivity }): JSX.Element {
+  const a = () => props.activity
+  return (
+    <section class="dev-handoff__evidence" aria-label="Evidence from the retained transcript">
+      <dl class="dev-handoff__evidence-list">
+        <div>
+          <dt>Last event</dt>
+          <dd>
+            <Show when={a().lastEvent} fallback="none in the retained window">
+              {(last) => (
+                <>
+                  {last().kind} #{last().seq} · {utcTime(last().occurredAt)}
+                </>
+              )}
+            </Show>
+          </dd>
+        </div>
+        <div>
+          <dt>Approval events</dt>
+          <dd>
+            {a().structured
+              ? `${a().approvalRequestedEvents} requested, ${a().approvalClosedEvents} closed`
+              : 'not reported by this projection'}
+          </dd>
+        </div>
+        <div>
+          <dt>Files observed</dt>
+          <dd>{a().filesObserved}</dd>
+        </div>
+        <div>
+          <dt>Subagents observed</dt>
+          <dd>{a().subagentsObserved}</dd>
+        </div>
+        <div>
+          <dt>Capability events</dt>
+          <dd>
+            {a().capabilityDegradedEvents} degraded, {a().capabilityRestoredEvents} restored
+          </dd>
+        </div>
+      </dl>
+      <p class="dev-handoff__evidence-note">
+        Counts of raw events in the retained window, not what is open or degraded now.
+        <Show when={!a().windowComplete}>
+          {' '}
+          The window is incomplete, so counts are lower bounds.
+        </Show>
+        <Show when={!a().structured}>
+          {' '}
+          This session is shown from terminal output, which reports no structured events.
+        </Show>
+      </p>
+    </section>
+  )
+}
+
+/** What the control plane said about delegated children. Display only: it
+ *  cannot bind a cancel, and an unavailable or partial read says so. */
+function ChildEvidenceSection(props: {
+  evidence: HandoffChildEvidence
+  jobs: DirectSessionHandoffView['childJobs']
+}): JSX.Element {
+  const rows = () =>
+    props.evidence.kind === 'complete' || props.evidence.kind === 'partial'
+      ? props.evidence.rows
+      : []
+  return (
+    <section class="dev-handoff__children" aria-label="Child delegations">
+      <p
+        class="dev-handoff__children-summary"
+        role="status"
+        data-child-evidence={props.evidence.kind}
+      >
+        {props.evidence.summary}
+      </p>
+      <Show when={rows().length > 0}>
+        <ul class="dev-handoff__child-list">
+          <For each={rows()}>
+            {(row) => (
+              <li class="dev-handoff__child" data-child-state={row.stateText}>
+                <span class="dev-handoff__child-role">{row.role}</span>
+                <Badge variant="outline">{row.stateText}</Badge>
+                <For each={row.qualifiers}>
+                  {(text) => <Badge variant="secondary">{text}</Badge>}
+                </For>
+                <span class="dev-handoff__child-id" title={row.delegationId}>
+                  {row.delegationId.slice(0, 8)}
+                </span>
+                <span class="dev-handoff__child-time">updated {utcTime(row.updatedAt)}</span>
+              </li>
+            )}
+          </For>
+        </ul>
+        <p class="dev-handoff__evidence-note">
+          Reported by the control plane for display. It grants no control over a child.
+        </p>
+      </Show>
+      <Show when={props.jobs.length > 0}>
+        <ul class="dev-handoff__job-list" aria-label="Observed child jobs">
+          <For each={props.jobs}>
+            {(job) => (
+              <li class="dev-handoff__job">
+                <span class="dev-handoff__child-role">{job.label}</span>
+                <Badge variant="outline">{job.state.replaceAll('_', ' ')}</Badge>
+                <span class="dev-handoff__child-time">
+                  {plural(job.descendantCount, 'descendant', 'descendants')}
+                </span>
+                <p class="dev-handoff__reason">
+                  Job:{' '}
+                  {job.job.available
+                    ? 'cancellation is authorized by an authenticated observation.'
+                    : job.job.reason}{' '}
+                  Descendants:{' '}
+                  {job.descendants.available
+                    ? 'cancellation is authorized by an authenticated observation.'
+                    : job.descendants.reason}
+                </p>
+              </li>
+            )}
+          </For>
+        </ul>
+      </Show>
+    </section>
+  )
+}
+
 export function DirectSessionHandoffControls(
   props: DirectSessionHandoffControlsProps
 ): JSX.Element {
@@ -168,6 +313,12 @@ export function DirectSessionHandoffControls(
           )}
         </Show>
       </div>
+      <p class="dev-handoff__holder" data-holder={props.view.holder}>
+        {HOLDER_LABELS[props.view.holder]}
+        <Show when={props.view.returnedReason}>
+          {(reason) => <> · returned because the turn {reason().replaceAll('_', ' ')}</>}
+        </Show>
+      </p>
       <p class="dev-handoff__description">{props.view.description}</p>
       <p class="dev-handoff__preserved">
         One session, transcript, harness, and execution location are preserved; worktree and project
@@ -202,6 +353,10 @@ export function DirectSessionHandoffControls(
           </Show>
         </div>
       </Show>
+      <Show when={props.view.activity}>
+        {(activity) => <EvidenceStrip activity={activity()} />}
+      </Show>
+      <ChildEvidenceSection evidence={props.view.childEvidence} jobs={props.view.childJobs} />
       <div class="dev-handoff__controls">
         <For each={ROW_KINDS}>
           {(kind) => (

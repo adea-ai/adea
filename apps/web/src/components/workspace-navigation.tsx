@@ -774,6 +774,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // build mounts the fixture; the param is inert in production.
   const chatVisualState = ():
     | 'approval-long'
+    | 'calls'
+    | 'results'
+    | 'results-edge'
+    | 'history'
+    | 'history-retry'
+    | 'history-offline'
+    | 'history-split'
+    | 'stream-close'
     | 'retention-turn'
     | 'retention-stream'
     | 'attention'
@@ -792,8 +800,19 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     | 'reconnect'
     | 'rich'
     | 'streaming' => {
+    // The selector names fixture states that only a DEV build can mount; production
+    // keeps none of them.
+    if (!import.meta.env.DEV) return 'conversation'
     const value = currentSearch().chatState
     return value === 'approval-long' ||
+      value === 'calls' ||
+      value === 'results' ||
+      value === 'results-edge' ||
+      value === 'history' ||
+      value === 'history-retry' ||
+      value === 'history-offline' ||
+      value === 'history-split' ||
+      value === 'stream-close' ||
       value === 'retention-turn' ||
       value === 'retention-stream' ||
       value === 'attention' ||

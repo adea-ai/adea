@@ -14,6 +14,7 @@
 // REAL resolver fed by a scripted port backend; no backend, database, or
 // shared service is touched. The vite server binds an ephemeral loopback
 // port and closes after the file.
+import axe from 'axe-core'
 import { expect, test, type Page } from '@playwright/test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -41,10 +42,12 @@ test.beforeAll(async () => {
       {
         name: 'direct-handoff-mounted-fixture',
         configureServer(fixture) {
+          // The page has no icon of its own; without one the browser asks for /favicon.ico,
+          // this server answers 404, and Chromium reports that as a console error.
           fixture.middlewares.use('/__direct-handoff', (_request, response) => {
             response.setHeader('Content-Type', 'text/html')
             response.end(
-              `<html><body><div id="harness-root"></div><script type="module" src="${harness}"></script></body></html>`
+              `<html><head><link rel="icon" href="data:,"></head><body><div id="harness-root"></div><script type="module" src="${harness}"></script></body></html>`
             )
           })
         },
@@ -170,6 +173,99 @@ test.describe('approval state is shown truthfully', () => {
     await expect(section(page).getByText('awaiting approval')).toHaveCount(0)
     await expect(section(page).getByText('approval status unknown')).toHaveCount(0)
     expectNoErrors(none)
+  })
+})
+
+// Evidence strip and child delegations (#1173/#1177): raw event counts are
+// labelled as such, and the children read is display-only with its unavailable
+// and partial states named.
+test.describe('evidence and child delegations are shown truthfully', () => {
+  test('the strip counts raw events and says it is not current state', async ({ page }) => {
+    const errors = await openApprovalHarness(page, 'approvals=requested-resolved')
+    const strip = section(page).getByRole('region', {
+      name: 'Evidence from the retained transcript',
+    })
+    await expect(strip.getByText('1 requested, 1 closed')).toBeVisible()
+    await expect(strip.getByText(/not what is open or degraded now/)).toBeVisible()
+    await expect(strip.getByText('approval.resolved #2')).toBeVisible()
+    expectNoErrors(errors)
+  })
+
+  test('an incomplete window says its counts are lower bounds', async ({ page }) => {
+    const errors = await openApprovalHarness(page, 'window=incomplete')
+    await expect(section(page).getByText(/counts are lower bounds/)).toBeVisible()
+    expectNoErrors(errors)
+  })
+
+  test('with no children read the view says so instead of "no children"', async ({ page }) => {
+    const errors = await openApprovalHarness(page, 'approvals=none')
+    const children = section(page).getByRole('region', { name: 'Child delegations' })
+    await expect(children.getByText(/not connected to this view/)).toBeVisible()
+    await expect(children.getByText(/no child delegations/)).toHaveCount(0)
+    expectNoErrors(errors)
+  })
+
+  test('a complete read lists children with unconfirmed stop requests as claims', async ({
+    page,
+  }) => {
+    const errors = await openApprovalHarness(page, 'children=complete')
+    const children = section(page).getByRole('region', { name: 'Child delegations' })
+    await expect(children.getByText('2 children reported.')).toBeVisible()
+    await expect(children.getByText('reviewer')).toBeVisible()
+    await expect(children.getByText('stop requested, not confirmed')).toBeVisible()
+    await expect(children.getByText(/grants no control over a child/)).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Cancel job', exact: true })).toBeDisabled()
+    await expect(
+      page.getByRole('button', { name: 'Cancel descendants', exact: true })
+    ).toBeDisabled()
+    expectNoErrors(errors)
+  })
+
+  test('a partial read names how many children it did not show', async ({ page }) => {
+    const errors = await openApprovalHarness(page, 'children=partial')
+    await expect(section(page).getByText('Showing 1 of 4 children; 3 not shown.')).toBeVisible()
+    expectNoErrors(errors)
+  })
+
+  test('an unavailable read shows no count and no empty list', async ({ page }) => {
+    const errors = await openApprovalHarness(page, 'children=unavailable')
+    const children = section(page).getByRole('region', { name: 'Child delegations' })
+    await expect(children.getByText(/control plane could not be reached/)).toBeVisible()
+    await expect(children.getByRole('listitem')).toHaveCount(0)
+    expectNoErrors(errors)
+  })
+
+  test('the strip and the children list have no serious accessibility violations', async ({
+    page,
+  }) => {
+    const errors = await openApprovalHarness(page, 'approvals=requested-resolved&children=complete')
+    await page.addScriptTag({ content: axe.source })
+    const violations = await page.evaluate(async () => {
+      const runner = (
+        window as unknown as {
+          axe: {
+            run: (c: Element) => Promise<{
+              violations: Array<{ id: string; nodes: Array<{ target: unknown[] }> }>
+            }>
+          }
+        }
+      ).axe
+      const result = await runner.run(document.querySelector('.dev-handoff') as Element)
+      return result.violations.map((violation) => ({
+        id: violation.id,
+        targets: violation.nodes.map((node) => node.target.join(' ')),
+      }))
+    })
+    expect(violations).toEqual([])
+    expectNoErrors(errors)
+  })
+
+  test('a complete read with no children says there are none', async ({ page }) => {
+    const errors = await openApprovalHarness(page, 'children=none')
+    await expect(
+      section(page).getByText('The control plane reports no child delegations.')
+    ).toBeVisible()
+    expectNoErrors(errors)
   })
 })
 

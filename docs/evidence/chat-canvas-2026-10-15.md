@@ -17,14 +17,72 @@ The shared components live in `adea-ai/ui` (coverage matrix:
   under one assistant response until the next prompt. Events before the first
   prompt form a lead turn. Consecutive `turn.assistant_delta` events from one
   harness run and generation are one prose block (id = the first delta's id).
-- **One quiet column.** Tool, file, subagent, usage and unknown events are Trace
-  lines in one column under the response. Only the two things the person must act
-  on (a `requested` approval, a `question.requested`) draw a card.
-- **Honest status.** A line carries a status only from its own event kind
-  (`*.completed` success, `*.failed` error). `started`, `requested` and
-  `progress` show as words with a neutral mark. A spinner and "Working" come only
-  from the host's session lifecycle (`active`); while an approval is pending the
-  line reads "Waiting for a response from you".
+- **One quiet column.** File and unknown events are Trace lines in one column
+  under the response. Tool and subagent events that carry a validated call identity
+  are nested call trees (`Tool`, `Subagent`); structured results are drawn by the
+  shared Terminal, Test Results, Stack Trace, File Tree, Plan and Task components.
+  Only the two things the person must act on (a `requested` approval, a
+  `question.requested`) draw a card.
+- **Honest status.** A line carries a status only from what its producer sent
+  (`completed` success, `failed` error). `started`, `requested` and `progress`
+  show as words, and a call is drawn as running only while the session is live;
+  afterwards it reads "not finished". A spinner and "Working" come only from the
+  host's session lifecycle (`active`); while an approval is pending the line
+  reads "Waiting for a response from you".
+- **Calls and results.** Calls fold by `callId` (phase only moves forward, a
+  terminal phase is final; an output, duration, name, input or parent observed after
+  the end still fills what was never observed and never rewrites what was) and nest under a `parentCallId` within the same turn
+  and scope; an ambiguous, conflicting or cyclic parent leaves the call at the top
+  level, depth is capped at 6, and an input or output that is a reference or
+  shortened says so, on a tool and on a subagent alike. Inline call data is
+  redacted leaf by leaf before it is written as JSON (JSON escaping would otherwise
+  hide a Windows path or a token with a control character from the patterns), a
+  credential-named key withholds its value, and a secret that only forms across
+  fields withholds the whole value; numbers and booleans count as fragments, and a
+  fragment in a key or between keys is joined too: every key and value is a candidate
+  start, read with whitespace collapsed and empty fragments free, so padding cannot use
+  up the budget. A withheld credential value is a barrier no reading crosses. Terminal chunks are ordered by
+  sequence within their own stream (`stdout`, `stderr`, `combined`), joined, stripped of
+  control sequences and redacted once, so a secret split across chunks or hidden in
+  an escape sequence is still redacted; output after the finish still extends the
+  text and never changes the outcome. A snapshot is replaced by a later one until the
+  producer gives a terminal status; `complete: true` only says a list is whole. Permission eligibility is never read as
+  authorization.
+- **Reported figures.** A `usage.observed` snapshot belongs to one provider and
+  model. The newest accepted snapshot of the model the host names (`usageModel`)
+  feeds the shared Context trigger beside the composer; a model id without a provider is
+  used only when one provider reported it, and two providers sharing the id draw nothing;
+  with no model named, the
+  figures are drawn only if the generation reported a single model, so another
+  model's occupancy is never shown as this conversation's. A figure the producer
+  did not send is omitted, never zero. The reported cost stays the producer's exact
+  decimal text and is shown beside the trigger as text; the shared Context takes
+  only a number, so it is not passed there. A `checkpoint.observed` is a
+  marker in the column with no restore action, because no host operation reaches
+  the canvas.
+- **Older messages.** A bounded history control loads earlier events through the
+  existing `MessageScroller`; one request at a time per epoch, a failure keeps the
+  position and offers a retry. `MessageScroller` keeps the reader's place by turn, so
+  a reply split across history pages (one turn whose withheld placeholder becomes the
+  restored reply) would move the view; the transcript pins the first visible entry by
+  node across each load and puts back whatever it still drifted unless the reader
+  scrolled meanwhile. A mounted regression reads the middle of a long reply, loads
+  both earlier pages with the real control and holds the offset within 2px, focus kept.
+- **A stream that ends is not live.** Every `close` frame and every `error` frame is
+  recorded, and so is a transport close. The chat leaves "Live", says Disconnected
+  (with the host's reason for anything but a stale generation) and reconnects; when
+  the cursor was refused (an `incompatible` close, or a close after a `sequence_gap` or
+  `resync_required` error) it reconnects without the rejected `newestSequence`. The state
+  a handle opens with is judged by the same logic as every later one, so a handle that
+  ended before anyone subscribed is never shown as live, and the refusal is spent only by
+  an attachment that gets going: a recovery that fails to open, or opens already ended,
+  asks from the beginning again.
+- **Interactions are checked as events.** An approval or question is drawn only after
+  `decodeRuntimeEvent` accepts the whole event (authoritative provenance, private
+  classification, a harness run), not just its payload; an assistant message is keyed
+  the same way. An outcome settles a request only in the same binding, adapter
+  source and harness run, and a question outcome only when its answers satisfy the
+  retained request (a required question never settles with no answer).
 - **Authority is unchanged.** Approve, Deny and Submit answer go through the same
   `onResolveApproval`/`onResolveQuestion` callbacks; with none supplied the controls
   stay visible and disabled with the reason in words. Answering is a round trip;
@@ -52,51 +110,53 @@ The shared components live in `adea-ai/ui` (coverage matrix:
 shared component exists and is demonstrated in `adea-ai/ui` stories, but the
 Adea chat does not draw it because no producer supplies its data.
 
-| Group        | Pattern          | Adea chat       | Binding or the missing contract                                                                                |
-| ------------ | ---------------- | --------------- | -------------------------------------------------------------------------------------------------------------- |
-| Conversation | Chat             | Live            | `ChatView` frame: header, notices, thread, composer                                                            |
-| Conversation | Message          | Live            | user and assistant turns from `buildChatTurns`                                                                 |
-| Conversation | Prompt Input     | Live (existing) | `AtomicChatComposer`, unchanged: draft, send, Stop/Steer where authorized                                      |
-| Conversation | Suggestion       | Available       | no prompt-suggestion producer                                                                                  |
-| Activity     | Chain of Thought | Live            | `turn.method_step_summary` (#1388): keyed steps, source-reported title, text, status and duration              |
-| Activity     | Reasoning        | Live            | `turn.reasoning_summary` (#1388): one node per summary id, replaced by a higher revision; never inferred       |
-| Activity     | Tool             | Partly live     | tool events render as Trace lines; no call identity to pair started with completed, so no inputs/outputs panel |
-| Activity     | Subagent         | Partly live     | `subagent.*` events render as lines; no nesting contract                                                       |
-| Activity     | Task             | Available       | no task-list event                                                                                             |
-| Activity     | Plan             | Available       | no plan event                                                                                                  |
-| Activity     | Queue            | Available       | the host has no queue operation (`dev-runtime.md`)                                                             |
-| Results      | Terminal         | Available       | no structured command-output event                                                                             |
-| Results      | Stack Trace      | Available       | no failure payload schema                                                                                      |
-| Results      | Test Results     | Available       | no structured test-run payload                                                                                 |
-| Results      | File Tree        | Available       | no changed-files event                                                                                         |
-| Grounding    | Sources          | Live            | `turn.assistant_message` `references.sources` (#1389), shown with the answer they belong to                    |
-| Grounding    | Inline Citation  | Live            | `references.citations` offsets, placed by `placeCitationMarkers` only where the text still is the payload text |
-| Controls     | Confirmation     | Live            | `approval.requested` (requested state only)                                                                    |
-| Controls     | Checkpoint       | Available       | no restorable-checkpoint contract                                                                              |
-| Controls     | Context          | Available       | `usage.observed` payload is opaque                                                                             |
-| Controls     | Model Selector   | Live (existing) | the composer's harness/model pins                                                                              |
+| Group        | Pattern          | Adea chat        | Binding or the missing contract                                                                                                        |
+| ------------ | ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Conversation | Chat             | Live             | `ChatView` frame: header, notices, thread, composer                                                                                    |
+| Conversation | Message          | Live             | `buildChatTurns`; a streamed message and its final `turn.assistant_message` are one turn by `messageId`/`supersedes`                   |
+| Conversation | Prompt Input     | Live (existing)  | `AtomicChatComposer`, unchanged: draft, send, Stop/Steer where authorized                                                              |
+| Conversation | Suggestion       | Available        | no prompt-suggestion producer                                                                                                          |
+| Activity     | Chain of Thought | Live             | `turn.method_step_summary` (#1388): keyed steps, source-reported title, text, status and duration                                      |
+| Activity     | Reasoning        | Live             | `turn.reasoning_summary` (#1388): one node per summary id, replaced by a higher revision; never inferred                               |
+| Activity     | Tool             | Live             | `tool.*` with a validated versioned call (#1387): one node per `callId`, nested, redacted bounded input/output                         |
+| Activity     | Subagent         | Live             | `subagent.observed` calls nest children by `parentCallId`; legacy events stay lines                                                    |
+| Activity     | Task             | Live             | `task.observed` (#1394)                                                                                                                |
+| Activity     | Plan             | Live             | `plan.observed` (#1394); progress is computed only when the producer marks the list complete                                           |
+| Activity     | Queue            | Available        | `dev.session.followUps` exists host-side but no dev-view conversation model or platform action exposes it                              |
+| Results      | Terminal         | Live             | `terminal.output` chunks, ordered, joined, control-stripped, redacted once                                                             |
+| Results      | Stack Trace      | Live             | `failure.observed`                                                                                                                     |
+| Results      | Test Results     | Live             | `test_run.observed`; counts as sent, each suite's reported status listed apart from the tests it holds, running states only while live |
+| Results      | File Tree        | Live             | `files.changed`; copied or untracked changes carry no mark the producer did not send                                                   |
+| Grounding    | Sources          | Live             | `turn.assistant_message` `references.sources` (#1389), shown with the answer they belong to                                            |
+| Grounding    | Inline Citation  | Live             | `references.citations` offsets, placed by `placeCitationMarkers` only where the text still is the payload text                         |
+| Controls     | Confirmation     | Live             | requested, approved, denied, expired or unavailable, paired by the correlated outcome (#1395)                                          |
+| Controls     | Checkpoint       | Live (marker)    | `checkpoint.observed` through `decodeConversationCheckpoint`; no restore control, the host op is not reachable                         |
+| Controls     | Context          | Live (read-only) | newest `usage.observed` of the named model in the generation; cost kept as the producer's decimal text, beside it                      |
+| Controls     | Model Selector   | Live (existing)  | the composer's harness/model pins                                                                                                      |
 
 Questionnaire is live for `question.requested` (free text only). Attachment is not
-drawn because no attachment action works end to end.
+drawn: `dev.session.attachment*` exists host-side but no dev-view model or platform
+action reaches the canvas, so no attach control is shown. The same holds for Queue
+and checkpoint restore. Suggestion has no producer.
 
 ## Backend and contract dependencies
 
 Each of these is a separate, tracked follow-up; none is claimed complete by this
 work. Until it exists the canvas shows the honest fallback in the right-hand column.
 
-| Missing contract                                                                                                                             | Issue                                                | Today's behaviour                                                                                                                                                                               |
-| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Delta to message supersession (a stable message identity so a streamed message and its final `turn.assistant_message` are one)               | [#1386](https://github.com/adea-ai/adea/issues/1386) | both render                                                                                                                                                                                     |
-| Call identity and phase for `tool.*` and `subagent.*` events                                                                                 | [#1387](https://github.com/adea-ai/adea/issues/1387) | separate lines; no spinner pairing, no inputs/outputs                                                                                                                                           |
-| User-visible reasoning summaries (contract merged on main; drawn)                                                                            | [#1388](https://github.com/adea-ai/adea/issues/1388) | drawn only from a validated, source-reported summary                                                                                                                                            |
-| Sources and citations (contract merged on main; drawn)                                                                                       | [#1389](https://github.com/adea-ai/adea/issues/1389) | drawn only from producer references; text never creates a citation                                                                                                                              |
-| Restorable checkpoints                                                                                                                       | [#1390](https://github.com/adea-ai/adea/issues/1390) | none shown                                                                                                                                                                                      |
-| Token and context usage with a documented payload                                                                                            | [#1391](https://github.com/adea-ai/adea/issues/1391) | none shown                                                                                                                                                                                      |
-| Attachments with a working upload/open path                                                                                                  | [#1392](https://github.com/adea-ai/adea/issues/1392) | none                                                                                                                                                                                            |
-| Queued follow-ups (a queue operation)                                                                                                        | [#1393](https://github.com/adea-ai/adea/issues/1393) | none; Steer and Stop only where authorized                                                                                                                                                      |
-| Test-run, terminal, stack-trace, changed-file, plan and task payload schemas                                                                 | [#1394](https://github.com/adea-ai/adea/issues/1394) | lines only                                                                                                                                                                                      |
-| Question schema (options, multi-question) and approval outcome/request correlation (`approval.resolved` naming the request and the decision) | [#1395](https://github.com/adea-ai/adea/issues/1395) | free-text questions; a quiet line for later approval events, no approved/denied claim                                                                                                           |
-| Older-history loading (a checkpoint that returns earlier events) and production `turn.user_input` text                                       | [#1396](https://github.com/adea-ai/adea/issues/1396) | `onLoadOlder` is wired in the shared scroller only, the host shows the bounded-history notice; the register records a delivery receipt without text, so the canvas draws what the event carries |
+| Missing contract                                                                                                                             | Issue                                                | Today's behaviour                                                                                                                           |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Delta to message supersession (a stable message identity so a streamed message and its final `turn.assistant_message` are one)               | [#1386](https://github.com/adea-ai/adea/issues/1386) | consumed: one turn by message identity (`a71fae68`)                                                                                         |
+| Call identity and phase for `tool.*` and `subagent.*` events                                                                                 | [#1387](https://github.com/adea-ai/adea/issues/1387) | consumed: nested call tree, redacted bounded input/output                                                                                   |
+| User-visible reasoning summaries (contract merged on main; drawn)                                                                            | [#1388](https://github.com/adea-ai/adea/issues/1388) | drawn only from a validated, source-reported summary                                                                                        |
+| Sources and citations (contract merged on main; drawn)                                                                                       | [#1389](https://github.com/adea-ai/adea/issues/1389) | drawn only from producer references; text never creates a citation                                                                          |
+| Restorable checkpoints                                                                                                                       | [#1390](https://github.com/adea-ai/adea/issues/1390) | consumed as a marker only; restore is not offered                                                                                           |
+| Token and context usage with a documented payload                                                                                            | [#1391](https://github.com/adea-ai/adea/issues/1391) | consumed: Context trigger from the newest accepted `usage.observed`                                                                         |
+| Attachments with a working upload/open path                                                                                                  | [#1392](https://github.com/adea-ai/adea/issues/1392) | none                                                                                                                                        |
+| Queued follow-ups (a queue operation)                                                                                                        | [#1393](https://github.com/adea-ai/adea/issues/1393) | none; Steer and Stop only where authorized                                                                                                  |
+| Test-run, terminal, stack-trace, changed-file, plan and task payload schemas                                                                 | [#1394](https://github.com/adea-ai/adea/issues/1394) | consumed: Terminal, Test Results, Stack Trace, File Tree, Plan, Task                                                                        |
+| Question schema (options, multi-question) and approval outcome/request correlation (`approval.resolved` naming the request and the decision) | [#1395](https://github.com/adea-ai/adea/issues/1395) | consumed: free-text questions and paired approval outcomes; an unpaired outcome stays a quiet line                                          |
+| Older-history loading (a checkpoint that returns earlier events) and production `turn.user_input` text                                       | [#1396](https://github.com/adea-ai/adea/issues/1396) | consumed: history control loads earlier events through the scroller; production `turn.user_input` text is still only what the event carries |
 
 ### Summaries and cited answers
 
@@ -122,9 +182,36 @@ work. Until it exists the canvas shows the honest fallback in the right-hand col
 - **The unmarked count is per span.** Spans that end together share one marker; the
   note counts producer spans whose end received a marker (`placeCitationMarkers`
   returns `ends`), not marker positions.
-- **Still absent on purpose.** Usage, checkpoints, queue, attachments, and the
-  streaming-to-final supersession, tool/subagent nesting and approval outcomes (see
-  the dependency matrix). #1417 is draft and unverified, so nothing from it is consumed.
+- **Still absent on purpose.** Queue, attachments, checkpoint restore and prompt
+  suggestions (#1392 and #1393 are not wired: no operation reaches the canvas, and
+  no producer exists for suggestions). Nothing here claims a producer streams these
+  events in production.
+
+## Status band, evidence strip and child delegations (#1173/#1177)
+
+The handoff section above the thread now draws what its model already derived:
+
+- **Band.** Mode, generation, who holds the session (the workspace lead, you, or
+  no one) and, after a return, why the turn ended.
+- **Evidence strip.** Last retained event, approval, file, subagent and capability
+  event counts. They are raw events from the retained window, labelled as such; an
+  incomplete window says its counts are lower bounds and a terminal-fallback
+  projection says it reports no structured events. The strip reads the window the thread
+  displays, so streamed events and loaded history update it.
+- **Child delegations.** The control-plane children read is display-only. A missing
+  read reads "not connected", never "no children"; an unavailable read names its
+  code and shows no count or list; a partial page, or a final cursor page that is complete but holds fewer
+  children than the total, says how many it did not show and never reads as
+  "all children"; a stop request is shown as "stop requested, not confirmed". Observed jobs
+  keep their own reasons.
+- **Controls.** Lead stop, session stop, handoff, job cancel and descendant cancel
+  remain separate rows with separate handlers. Job and descendant cancel stay
+  disabled: no cancel handler exists and CP #935/#937 are not delivered. The
+  children read cannot enable them, because it carries no runtime-authenticated
+  generation.
+
+The production supplier does not read the children endpoint yet; the mounted proof
+uses fakes (`?children=complete|partial|none|unavailable` in the handoff harness).
 
 ## Qualification evidence
 
@@ -146,6 +233,27 @@ Browser specs, all against the development fixture (`/?view=chat&chatE2e=visual`
   `direct-session-handoff` (404 console error) and the Dev to Chat switch test (401).
 - Unit: `chat-turns.test.ts` (including whitespace-only streamed fragments, spaces, newlines, tabs and fence fragments projected through to the turn, with redaction and bounds) and `chat-surface.test.ts`.
 
+Consumption slice for #1383 (this branch, 2026-10-18):
+
+- Unit (`packages/dev-view`, `bun run test`): 1121 pass, 0 fail before the
+  checkpoint/Context slice, with `chat-history-control` (8), `chat-turns-calls`
+  (15), `chat-turns-results` and `chat-usage` (7) covering epoch fencing, call
+  folding and nesting, cycles, depth, terminal ordering, split-secret and ANSI
+  redaction, checkpoint settlement and usage figures.
+- Browser (`chat-canvas.spec.ts`): groups for tool and subagent calls, structured
+  results (including the checkpoint marker and Context trigger, which opens its
+  figures and returns focus on Escape), outcome cards, adapters that keep what the
+  producer said (a subagent's input and references, a failed suite beside a passing
+  test, a failed incomplete plan, files with no totals, a named model's context and
+  exact cost text), and earlier messages (load once above the turn on screen; a
+  failed load says so, keeps the control and does not retry in a loop); 65 passed
+  with `chat-transcript-composition`.
+- Lint, format and typecheck of the touched packages are clean.
+- 22 browser-lane failures (12 visual-snapshot variants, nine in `chat-view.spec.ts`,
+  one in `chat-continuity.spec.ts`) reproduce identically on `main`'s
+  `packages/dev-view`; they are pre-existing and not caused by this branch.
+- Hosted CI has not run: the pull request is a draft.
+
 Shared-UI qualification (focused Playwright specs for trace, code block, message
 text, message scroller and questionnaire; unit tests for the parser and every
 pattern's model; Storybook scenarios) is listed in the `adea-ai/ui` PR.
@@ -158,6 +266,12 @@ Plain `vite build` in `apps/web`, then `node start/check-client.mjs`, compared w
 185,325 and 185,325; start-up 683,758 to 683,873 raw. No cap changed and no gate
 was weakened. The development fixtures are `import.meta.env.DEV` only and cost
 nothing in production.
+
+For the consumption slice: `check-client.mjs` and `scripts/check-dev-view-bundle.mjs`
+both pass (chat route 191,955 raw / 62,706 gzip; dev shell 161,032 / 55,587), but the
+production client does not include the dev-view chat transcript, so those gates do
+not measure this work. The shared composites add about 5 KB gzip to the library
+dist. No cap was raised.
 
 ## Screenshots
 

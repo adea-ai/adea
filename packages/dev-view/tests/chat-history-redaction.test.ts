@@ -160,3 +160,55 @@ test('a pending history read preserves privacy and concurrent live appends throu
   expect(displayed(state).text).toContain('Visible after the boundary.')
   loader.close()
 })
+
+// One message whose deltas straddle the seam between the window on screen and the
+// older pages: the oldest retained event is a mid-message delta, so what the reader
+// sees has to follow what the backfill restored, page by page, through the real loader.
+function splitMessage(seq: number): RuntimeEvent {
+  const parts = ['The build ', 'failed in ', 'two places.']
+  return event(seq, parts[seq - 2])
+}
+function userPrompt(): RuntimeEvent {
+  return { ...event(1), kind: 'turn.user_input', payload: { text: 'What failed?' } }
+}
+const blocks = (state: TranscriptAccumulator) =>
+  buildChatTurns(projectTranscriptEvents(state.events, undefined, state)).turns.flatMap((turn) =>
+    turn.entries.filter((entry) => entry.type === 'text')
+  )
+
+test('a message split across history pages is withheld until its start is restored, then drawn once', async () => {
+  let state = initial(4)
+  state = { ...state, events: [splitMessage(4)], assistantContextLost: true }
+  const requests: unknown[] = []
+  const loader = createRuntimeHistoryLoader({
+    state: () => state,
+    commit: (next) => {
+      state = next
+    },
+    read: async (request) => {
+      requests.push(request)
+      return 'cursor' in request
+        ? { ...page(3, [userPrompt(), splitMessage(2)], false) }
+        : page(4, [splitMessage(3)])
+    },
+  })
+  // The only retained event is the end of the message: nothing of it may be shown.
+  expect(blocks(state).every((entry) => entry.type === 'text' && entry.text === '')).toBe(true)
+  expect(displayed(state).text).not.toContain('two places.')
+
+  await loader.loadOlder()
+  // The page reached the middle of the same message: its start is still unknown.
+  expect(state.events.map((entry) => entry.seq)).toEqual(['3', '4'])
+  expect(state.assistantContextLost).toBe(true)
+  expect(displayed(state).text).not.toContain('failed in')
+  expect(displayed(state).text).not.toContain('two places.')
+
+  await loader.loadOlder()
+  expect(requests).toEqual([{ beforeSequence: '4' }, { cursor: 'older' }])
+  expect(state.assistantContextLost).toBe(false)
+  const drawn = blocks(state)
+  expect(drawn).toHaveLength(1)
+  expect(drawn[0]).toMatchObject({ text: 'The build failed in two places.', source: 'delta' })
+  expect(loader.hasOlder()).toBe(false)
+  loader.close()
+})
