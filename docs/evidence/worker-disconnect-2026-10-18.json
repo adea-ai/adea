@@ -1,7 +1,7 @@
 {
   "date": "2026-10-18",
   "complete": false,
-  "repairBase": "5371af4fe",
+  "repairBase": "5371af4fe4ace26dfba5008656ae797854f68b9a",
   "scope": "Repository source opt-in for existing incoming-abort handling; no live configuration change or deployment",
   "capturedDiagnosticBaseline": {
     "deploymentCreatedAt": "2026-10-18T12:09:20.307788Z",
@@ -95,7 +95,8 @@
     "localFlags": "same opt-in",
     "routeChanges": false,
     "authorityChanges": false,
-    "cleanupOrderingChanges": false
+    "cleanupOrderingChanges": false,
+    "productionConfigurationPaths": ["apps/web/wrangler.jsonc", "apps/web/cloudflare.config.ts"]
   },
   "retainedRegression": {
     "command": "bun run --cwd apps/web start:test:disconnect",
@@ -107,7 +108,35 @@
       "Original stream backend connection closes once after abort",
       "Three ten-second settled windows each have zero SQL"
     ],
-    "validation": "pending current source qualification"
+    "validation": "passed",
+    "workerdVersion": "1.20261001.1",
+    "node": "24.21.0",
+    "bun": "1.4.3",
+    "currentBuildCases": [
+      {
+        "label": "without-signal",
+        "active": false,
+        "control": true,
+        "statementsAfterDisconnect": 5
+      },
+      {
+        "label": "idle",
+        "active": false,
+        "abortAfterDisconnectMs": 6961,
+        "closedConnections": 1,
+        "settledWindowStatements": [0, 0, 0]
+      },
+      {
+        "label": "active",
+        "active": true,
+        "abortAfterDisconnectMs": 773,
+        "closedConnections": 1,
+        "settledWindowStatements": [0, 0, 0]
+      }
+    ],
+    "observedOriginalBackendClose": "Exactly once per configured stream, using its PostgreSQL event-read backend PID; checkpoint precedes socket destruction.",
+    "fixtureResultSHA256": "3beeabab91dc7e955cceb60f8cdd341117a09870d033ee22d2476d1267924ede",
+    "generatedOutput": "Built module copies use the standard dist directory; the existing source authentication boundary remains unchanged."
   },
   "limits": "Hosted edge abort timing and billing effects remain unmeasured. Small local samples do not establish a universal timing bound. Native worker flags permit cancellation notification but not immediate detection before a response write. No PlanetScale migration, Neon changes or production operation is included.",
   "safety": {
@@ -119,12 +148,75 @@
     "repositoryChangesOnly": true
   },
   "remaining": [
-    "Required current source checks and native regression qualification",
-    "Hosted readiness/review and separate owner-approved rollout",
-    "Passive production CPU, Hyperdrive and Neon cost verification",
-    "Real-browser hidden/resume behavior"
+    "Root exact-head review, Advance Queue readiness and hosted required validation",
+    "Separate owner-approved deployment followed by passive production CPU/Hyperdrive/Neon verification",
+    "Real-browser hidden/resume behavior and hosted disconnect timing"
   ],
   "references": [
     "https://developers.cloudflare.com/workers/configuration/compatibility-flags/#enable-requestsignal-for-incoming-requests"
-  ]
+  ],
+  "sourceRepairQualified": true,
+  "sourceQualifiedHead": "55b9ecae75e5bdbcd6cfac227a6efd83a63cf3d8",
+  "pullRequest": "https://github.com/adea-ai/adea/pull/1464",
+  "validation": {
+    "build": {
+      "command": "bun run build",
+      "tasksPassed": 17
+    },
+    "lint": {
+      "command": "bun run lint",
+      "tasksPassed": 19,
+      "freshRootOxlint": "zero warnings/errors"
+    },
+    "types": {
+      "command": "bun run typecheck",
+      "tasksPassed": 33
+    },
+    "host": {
+      "command": "bun run --cwd apps/web start:test",
+      "testsPassed": 25
+    },
+    "bundle": {
+      "command": "bun run --cwd apps/web start:check-bundle",
+      "result": "passed unchanged guards"
+    },
+    "unitGraph": {
+      "command": "vp run orch:test (test:unit graph phase)",
+      "tasksPassed": 32
+    },
+    "coverage": {
+      "command": "bun run test:coverage",
+      "testsPassed": 1554,
+      "testsFailed": 0,
+      "assertions": 17105,
+      "files": 125,
+      "functionsPercent": 98.66,
+      "linesPercent": 97.9
+    },
+    "deploymentConfig": {
+      "command": "bun test apps/web/test/cloudflare-config.test.ts",
+      "testsPassed": 9,
+      "assertions": 57
+    },
+    "browserHost": {
+      "command": "node apps/web/start/test-local.mjs",
+      "browserTestsPassed": 46,
+      "restrictedEntry": "passed",
+      "restrictedGuestApi": "passed"
+    },
+    "native": {
+      "command": "bun run --cwd apps/web start:test:disconnect",
+      "result": "all three cases passed"
+    },
+    "format": {
+      "command": "bun run format:check",
+      "result": "passed"
+    },
+    "docs": {
+      "command": "bun test scripts/docs-boundary.test.ts",
+      "testsPassed": 4,
+      "assertions": 15
+    },
+    "hooks": "Normal global-to-repository chained hooks passed; source commit hook also passed33 type tasks."
+  }
 }
