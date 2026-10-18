@@ -1,0 +1,171 @@
+{
+  "baselineHead": "dce4f487eb6e4d58964ea839666fc819ef68668f",
+  "configurationSha256": "dda2dfa0c19a972ebc439062a5183962e547f69cd09433e68a2c33bbacfccf0d",
+  "method": "Real production builds with disposable generateBundle module receipts; static closures and all incremental route/pane closures measured by the unchanged repository bundle inspector. Module identities normalized to portable repository/dependency paths.",
+  "baselineTotal": {
+    "rawBytes": 3183903,
+    "gzipBytes": 976514,
+    "fileCount": 162
+  },
+  "candidateTotal": {
+    "rawBytes": 3165535,
+    "gzipBytes": 964085,
+    "fileCount": 147
+  },
+  "allComparedModuleSetsUnchanged": true,
+  "closures": {
+    "startup": {
+      "renderedModuleCount": 389,
+      "beforeModuleSetSha256": "3eaecf0faf0e5aad1abce992b761c515420b6bd1397d1e969ca44188e5389c55",
+      "afterModuleSetSha256": "3eaecf0faf0e5aad1abce992b761c515420b6bd1397d1e969ca44188e5389c55",
+      "addedModules": [],
+      "removedModules": [],
+      "before": {
+        "rawBytes": 688376,
+        "gzipBytes": 225898,
+        "fileCount": 33
+      },
+      "after": {
+        "rawBytes": 683899,
+        "gzipBytes": 219876,
+        "fileCount": 18
+      }
+    },
+    "virtual": {
+      "renderedModuleCount": 64,
+      "beforeModuleSetSha256": "1a81d93c9e0c8e0f44ce4bb035498e81f5aab49fa774f5fab296a0346925111c",
+      "afterModuleSetSha256": "1a81d93c9e0c8e0f44ce4bb035498e81f5aab49fa774f5fab296a0346925111c",
+      "addedModules": [],
+      "removedModules": [],
+      "before": {
+        "rawBytes": 110679,
+        "gzipBytes": 38167,
+        "fileCount": 12
+      },
+      "after": {
+        "rawBytes": 108535,
+        "gzipBytes": 37239,
+        "fileCount": 12
+      }
+    },
+    "chat": {
+      "renderedModuleCount": 107,
+      "beforeModuleSetSha256": "2a900a1259137599fa3fbd1f7b4084f37b8e05bbd61169f845a3da4997316651",
+      "afterModuleSetSha256": "2a900a1259137599fa3fbd1f7b4084f37b8e05bbd61169f845a3da4997316651",
+      "addedModules": [],
+      "removedModules": [],
+      "before": {
+        "rawBytes": 192957,
+        "gzipBytes": 63098,
+        "fileCount": 20
+      },
+      "after": {
+        "rawBytes": 190220,
+        "gzipBytes": 62011,
+        "fileCount": 20
+      }
+    },
+    "appLibrary": {
+      "renderedModuleCount": 4,
+      "beforeModuleSetSha256": "305d9f82e39a36e34ca979dbb73a92085df4857eddb05b983182e324bf588fa5",
+      "afterModuleSetSha256": "305d9f82e39a36e34ca979dbb73a92085df4857eddb05b983182e324bf588fa5",
+      "addedModules": [],
+      "removedModules": [],
+      "before": {
+        "rawBytes": 11216,
+        "gzipBytes": 4465,
+        "fileCount": 4
+      },
+      "after": {
+        "rawBytes": 11237,
+        "gzipBytes": 4498,
+        "fileCount": 4
+      }
+    },
+    "devShell": {
+      "renderedModuleCount": 87,
+      "beforeModuleSetSha256": "087f5dda788977adff3152ce1f5fb3063fabdcd61c49ba93ff770f15826c4fb9",
+      "afterModuleSetSha256": "087f5dda788977adff3152ce1f5fb3063fabdcd61c49ba93ff770f15826c4fb9",
+      "addedModules": [],
+      "removedModules": [],
+      "before": {
+        "rawBytes": 161748,
+        "gzipBytes": 55863,
+        "fileCount": 21
+      },
+      "after": {
+        "rawBytes": 159768,
+        "gzipBytes": 54999,
+        "fileCount": 21
+      }
+    },
+    "devUtilityPanes": {
+      "renderedModuleCount": 61,
+      "beforeModuleSetSha256": "d55a7823fec50e9f45882ad9d808217161417afc2eb7c0460f0b33cb2e85eee9",
+      "afterModuleSetSha256": "d55a7823fec50e9f45882ad9d808217161417afc2eb7c0460f0b33cb2e85eee9",
+      "addedModules": [],
+      "removedModules": [],
+      "before": {
+        "rawBytes": 182414,
+        "gzipBytes": 59528,
+        "fileCount": 10
+      },
+      "after": {
+        "rawBytes": 181276,
+        "gzipBytes": 58992,
+        "fileCount": 10
+      }
+    },
+    "sharedUtilityOpen": {
+      "renderedModuleCount": 95,
+      "beforeModuleSetSha256": "c8bcc8e9141d8cb9d43e5e07c251038cd4b1323090ee9e17e06b4c34556e5dbd",
+      "afterModuleSetSha256": "c8bcc8e9141d8cb9d43e5e07c251038cd4b1323090ee9e17e06b4c34556e5dbd",
+      "addedModules": [],
+      "removedModules": [],
+      "before": {
+        "rawBytes": 184830,
+        "gzipBytes": 60414,
+        "fileCount": 20
+      },
+      "after": {
+        "rawBytes": 183826,
+        "gzipBytes": 59944,
+        "fileCount": 20
+      }
+    },
+    "devTerminal": {
+      "renderedModuleCount": 155,
+      "beforeModuleSetSha256": "aa1a8a406facae80be0fdb0a35f1f56a6e7c094a81b514714cd49fffb0415647",
+      "afterModuleSetSha256": "aa1a8a406facae80be0fdb0a35f1f56a6e7c094a81b514714cd49fffb0415647",
+      "addedModules": [],
+      "removedModules": [],
+      "before": {
+        "rawBytes": 784111,
+        "gzipBytes": 209674,
+        "fileCount": 31
+      },
+      "after": {
+        "rawBytes": 781440,
+        "gzipBytes": 208444,
+        "fileCount": 31
+      }
+    },
+    "devEditor": {
+      "renderedModuleCount": 107,
+      "beforeModuleSetSha256": "b6157437fd0807ba2b83cab55cd62b45afecace255d3575787cfeb379a3481bb",
+      "afterModuleSetSha256": "b6157437fd0807ba2b83cab55cd62b45afecace255d3575787cfeb379a3481bb",
+      "addedModules": [],
+      "removedModules": [],
+      "before": {
+        "rawBytes": 502606,
+        "gzipBytes": 162635,
+        "fileCount": 26
+      },
+      "after": {
+        "rawBytes": 500551,
+        "gzipBytes": 161739,
+        "fileCount": 26
+      }
+    }
+  }
+}

@@ -396,3 +396,50 @@ startup suggests about 4.8 KB gzip could be recovered by chunk co-location.
 This is an estimate, not a passing build. Shared Vite configuration must be
 coordinated before editing; any candidate must retain all route/lazy-boundary,
 byte and private-module guards and pass a fresh real production build.
+
+### Bounded startup co-location resolves the gzip gate
+
+Coordinating root assigned the single-file Vite co-location scope after the
+previous owner completed. A fresh worktree overlap inventory found no dirty
+claims on `apps/web/vite.config.ts`. The change adds one exact-path startup
+foundation group with recursive dependency inclusion disabled. It does not
+change imports, dynamic boundaries, budgets, exclusions, decoder source or
+private-module policy. Exact paths deliberately avoid pulling future exports
+from entire dependency directories into startup.
+
+The real `bun run --cwd apps/web start:verify` passes all 25 host tests, the
+production build and UI-source check, web types, and the unchanged production
+bundle gate. That CLI build measures 147 JavaScript files / 3,165,535 raw /
+964,186 gzip bytes, below 971,776. A paired diagnostic build with emitted-module
+receipts measures 976,514 gzip before and 964,085 after; startup drops from
+225,898 to 219,876 gzip bytes. The additional 101-byte difference between build
+receipts is retained rather than presenting them as one exact artifact.
+
+The [portable emitted-graph receipt](hosted-sim-colocation-2026-10-18.json)
+records matching rendered-module set hashes before/after for startup and every
+measured incremental closure: Virtual, Chat, App Library, Dev shell, utility
+panes, shared utility opening, terminals and editor. Every compared set is
+identical: zero modules added or removed, and no optional module made eager.
+The unchanged private-module, strict decoder, graph attribution and byte guards
+all pass. A broader core-package experiment failed the unchanged shared-utility
+raw cap (185,371 > 185,344); it was rejected and was never applied to repository
+source. No guard was waived.
+
+The actual compiled production Worker/client also passes the opt-in journey
+through a disposable localhost proxy with synthetic APIs: fresh Chat/Dev,
+enable/disable and reload persistence, preserved legacy preferences, zero Sim
+API/entry requests before opening Virtual, and independent Chat/Dev while Sim
+is unavailable or offline with zero offline grants and zero rendering errors.
+An initial proxy attempt retained encoding headers after response decompression;
+that fixture failed visibly, then its response forwarding was corrected. App
+error assertions were unchanged. This is compiled local evidence, not live
+provider or production completion. The disposable Worker has been stopped.
+
+Formatting and zero-warning lint pass; focused bundle/build-boundary/docs and
+negative-coverage controls pass 33 tests / 304 assertions. The Dev entry/layout
+guard passes at 72,512 raw / 24,049 gzip bytes combined. The final full unit graph
+and corrected coverage repeat are in progress when this checked draft update
+is published. The prior full composition passed both; their fresh result will
+be recorded separately. The fresh native archive receipt above is unchanged:
+the bounded edit affects the web Vite configuration, while desktop has its own
+independent Vite configuration and unchanged build inputs.

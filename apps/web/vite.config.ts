@@ -42,6 +42,47 @@ function lucideDevShimAlias() {
   }
 }
 
+// Rendered modules already in both workspace startup closures. Exact paths keep
+// later library exports and optional feature modules out of this shared group;
+// dependencies are not pulled recursively. Requalify the emitted graphs when
+// changing this list, rather than broadening it to whole package directories.
+const workspaceFoundationModules = [
+  /\/apps\/web\/src\/lib\/desktop-bridge\.ts$/,
+  /\/node_modules\/@adea-ai\/themes\/dist\/(?:accents\.js|derive\.js|oklch\.js|policy\.js|schema\.js)$/,
+  /\/node_modules\/@adea-ai\/themes\/dist\/adapters\/shadcn\.js$/,
+  /\/node_modules\/@adea-ai\/ui\/src\/components\/composites\/action-button\/action-button\.tsx$/,
+  /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/button\/button\.tsx$/,
+  /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/spinner\/spinner\.tsx$/,
+  /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/tooltip\/tooltip\.tsx$/,
+  /\/node_modules\/@adea-ai\/ui\/src\/lib\/(?:accent-presets\.ts|accent-roles\.ts|cn-tables\.generated\.ts|overlay\.ts|theme-accents\.ts|theme-css\.ts|theme-defaults\.generated\.ts|theme-defaults\.ts|theme-records\.ts|tooltip-focus-gate\.ts|utils\.ts|variants\.ts)$/,
+  /\/node_modules\/@corvu\/utils\/dist\/chunk\/U42ECMND\.jsx$/,
+  /\/node_modules\/@floating-ui\/core\/dist\/floating-ui\.core\.mjs$/,
+  /\/node_modules\/@floating-ui\/dom\/dist\/floating-ui\.dom\.mjs$/,
+  /\/node_modules\/@floating-ui\/utils\/dist\/(?:floating-ui\.utils\.dom\.mjs|floating-ui\.utils\.mjs)$/,
+  /\/node_modules\/@internationalized\/number\/dist\/private\/NumberFormatter\.mjs$/,
+  /\/node_modules\/@kobalte\/core\/dist\/chunk\/(?:3DLZMX4Z\.jsx|5WXHJDCZ\.jsx|AAA75RJW\.jsx|E53DB7BS\.jsx|FLVHQV4A\.jsx|FN6EICGO\.jsx|IARUYOQZ\.jsx|IGYOA2ZZ\.jsx|JNCCF6MP\.jsx|LP6E37CW\.jsx|OGE3DKII\.jsx|V3Y2TT5R\.jsx)$/,
+  /\/node_modules\/@kobalte\/utils\/dist\/index\.js$/,
+  /\/node_modules\/@solid-primitives\/props\/dist\/combineProps\.js$/,
+  /\/node_modules\/@solid-primitives\/refs\/dist\/index\.js$/,
+  /\/node_modules\/@solid-primitives\/utils\/dist\/index\.js$/,
+  /\/node_modules\/@tanstack\/query-core\/build\/modern\/(?:environmentManager\.js|focusManager\.js|hydration\.js|infiniteQueryBehavior\.js|mutation\.js|mutationCache\.js|mutationObserver\.js|notifyManager\.js|onlineManager\.js|queriesObserver\.js|query\.js|queryCache\.js|queryClient\.js|queryObserver\.js|removable\.js|retryer\.js|subscribable\.js|timeoutManager\.js|utils\.js)$/,
+  /\/node_modules\/@tanstack\/router-core\/dist\/esm\/(?:invariant\.js|link\.js|path\.js|redirect\.js|root\.js|route\.js|utils\.js)$/,
+  /\/node_modules\/@tanstack\/solid-query\/build\/index\.js$/,
+  /\/node_modules\/@tanstack\/solid-router\/dist\/source\/(?:ClientOnly\.jsx|fileRoute\.js|lazyRouteComponent\.jsx|link\.jsx|matchContext\.jsx|route\.jsx|routerContext\.jsx|useLoaderData\.jsx|useLoaderDeps\.jsx|useMatch\.jsx|useNavigate\.jsx|useParams\.jsx|useRouteContext\.js|useRouter\.jsx|useSearch\.jsx|utils\.js)$/,
+  /\/node_modules\/class-variance-authority\/dist\/index\.mjs$/,
+  /\/node_modules\/clsx\/dist\/clsx\.mjs$/,
+  /\/node_modules\/cn\/dist\/engine\.js$/,
+  /\/node_modules\/lucide-solid\/dist\/source\/(?:Icon\.jsx|context\.jsx)$/,
+  /\/node_modules\/lucide-solid\/dist\/source\/icons\/(?:arrow-down\.jsx|check\.jsx|chevron-down\.jsx|chevron-right\.jsx|loader-circle\.jsx|plus\.jsx|sliders-horizontal\.jsx|square\.jsx)$/,
+  /\/node_modules\/solid-js\/dist\/solid\.js$/,
+  /\/node_modules\/solid-js\/store\/dist\/store\.js$/,
+  /\/node_modules\/solid-js\/web\/dist\/web\.js$/,
+  /\/node_modules\/solid-presence\/dist\/index\.jsx$/,
+  /\/packages\/data\/src\/(?:addressed-turns\.ts|dev-runtime\.ts|events\.ts|index\.ts|project-query-keys\.ts|provider\.tsx|runtime-nodes\.ts|sharing\.ts)$/,
+  /\/packages\/spatial\/dist\/sim-bridge\/character\.js$/,
+  /\/packages\/state\/src\/index\.ts$/,
+]
+
 function protectClientGraph(): Plugin {
   return {
     name: 'adea-start-client-boundary',
@@ -119,6 +160,15 @@ export default defineConfig(({ command }) => ({
               // request. Leave feature components and their dependencies to
               // automatic splitting instead of grouping a whole icon catalogue.
               groups: [
+                {
+                  name: 'workspace-foundation',
+                  priority: 100,
+                  test: (id) =>
+                    workspaceFoundationModules.some((pattern) =>
+                      pattern.test(id.replaceAll('\\', '/'))
+                    ),
+                  includeDependenciesRecursively: false,
+                },
                 {
                   name: 'lazy-ui',
                   test: /@adea-ai\/ui\/src\/components\/ui\/(label\/label|skeleton\/skeleton|status-chip\/status-chip|badge\/badge|empty\/empty)\.tsx$/,
