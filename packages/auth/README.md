@@ -33,15 +33,15 @@ claiming, authorization, security, callbacks, observability, and provider-migrat
   credential call reads its own fresh cookie rather than the incoming one.
 - Better Auth response HTTP is `no-store`; auth/session/permission lookups are uncached.
 
-### Known gap: supported PostgreSQL dialect
+### PostgreSQL adapter
 
-The value currently handed to Better Auth as its `database` is the raw postgres.js client
-(`createPostgresAuthDatabase`). Better Auth 1.6 treats a callable `database` as an adapter factory
-and calls it, so this composition is **not yet runnable**; a supported Kysely/PostgreSQL dialect
-(for example `pg`'s `Pool`, which Better Auth wraps in `PostgresDialect`) must replace it. That
-requires adding a driver dependency to this package plus a `bun.lock` update, and a
-production-constructor test against a disposable PostgreSQL (schema init, signup/session
-persistence, revocation). Both are tracked for coordination with the database lane.
+`createPostgresAuthDatabase()` supplies an auth-owned `pg.Pool` directly to Better Auth's built-in
+Kysely PostgreSQL adapter. `pg` and its TypeScript definitions are pinned in this package because
+Bun uses isolated workspace installs. TLS options stay in the validated connection URL so
+node-postgres can apply the requested SSL mode. The PostgreSQL integration test uses
+`AUTH_POSTGRES_TEST_URL` only when it points to a loopback database; it creates a temporary schema,
+runs Better Auth's supported programmatic migration, and verifies signup, persisted session, and
+revocation against the real adapter.
 
 The historical `createNeonServerAdapter` / `createNeonClientAdapter` / `handleNeonAuthRequest`
 names are retained for the existing web and desktop call sites, with provider-neutral aliases

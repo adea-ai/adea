@@ -2,7 +2,7 @@ import 'server-only'
 
 import { betterAuth, type BetterAuthOptions } from 'better-auth'
 import { applySetCookies, parseSetCookieHeader, toCookieOptions } from 'better-auth/cookies'
-import postgres from 'postgres'
+import { Pool, type PoolConfig } from 'pg'
 
 import { createAuthAdapter, type AuthAdapter } from './adapter'
 import { createBetterAuthDriver } from './better-auth-driver'
@@ -394,30 +394,25 @@ export type AuthDatabaseHandle = Readonly<{
 }>
 
 /**
- * Creates the PostgreSQL client the Better Auth adapter runs on. The connection
- * stays auth-owned so it can be sized for auth traffic without touching the
- * application database pool, and the returned `close()` releases the socket
- * with the request instead of retaining a process-global pool. A non-loopback
- * host must be opened with `ssl: 'require'` (enforced by
- * `config.databaseRequiresTls`).
- *
- * NOTE: the value handed to Better Auth is still the postgres.js client. Better
- * Auth 1.6 treats a callable `database` as an adapter factory, so a supported
- * Kysely PostgreSQL dialect must replace it before this service is runnable;
- * that dialect needs an added driver dependency and is tracked as rollout work
- * (see `packages/auth/README.md`).
+ * Creates the PostgreSQL pool the built-in Better Auth Kysely adapter supports.
+ * The pool stays auth-owned so it can be sized for auth traffic without
+ * touching the application database pool, and the returned `close()` releases
+ * its connections with the request instead of retaining a process-global pool.
+ * The validated connection URL carries the TLS mode; node-postgres parses its
+ * SSL options from that URL.
  */
 export function createPostgresAuthDatabase(
   databaseUrl: string,
-  options: Record<string, unknown> = {}
+  options: PoolConfig = {}
 ): AuthDatabaseHandle {
-  const client = postgres(databaseUrl, {
+  const client = new Pool({
+    connectionString: databaseUrl,
     max: 1,
     ...options,
-  } as Parameters<typeof postgres>[1])
+  })
   return {
-    database: client as unknown as NonNullable<BetterAuthOptions['database']>,
-    close: () => client.end({ timeout: 5 }),
+    database: client,
+    close: () => client.end(),
   }
 }
 

@@ -45,10 +45,9 @@ export function createBetterAuthService(
   delivery: AuthDelivery = createUnconfiguredDelivery()
 ): BetterAuthService {
   const settings = readBetterAuthConfig(environment)
-  const database = createPostgresAuthDatabase(
-    settings.databaseUrl,
-    settings.databaseRequiresTls ? { ssl: 'require' } : {}
-  )
+  // `readBetterAuthConfig` verifies the URL opts into TLS for hosted databases.
+  // Keep its SSL query parameters intact so `pg` applies that exact policy.
+  const database = createPostgresAuthDatabase(settings.databaseUrl)
   return {
     auth: createBetterAuthServer({ config: settings, database: database.database, delivery }),
     close: database.close,
