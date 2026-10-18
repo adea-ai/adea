@@ -10,8 +10,11 @@
 //     predates the field, and the reason the SDK must be released and bumped BEFORE CP deploys.
 // PI_FACTORY_INSTALL says what is installed and is also required:
 //   registry                       Adea's lockfile SDK is byte-identical to the candidate (the
-//                                  post-bump gate: use with expect=accepts).
-//   registry-predating-candidate   Adea's lockfile SDK is expected to differ (use with rejects).
+//                                  current consumer acceptance gate: use with expect=accepts).
+//   isolated-legacy-sdk            Legacy compatibility evidence: the exact registry SDK that
+//                                  predates the field, installed in ./legacy-sdk outside Adea's
+//                                  dependency graph and swapped in by its tsconfig override. Expected to
+//                                  differ from the candidate (use with rejects; accepts must fail).
 //   candidate-overlay              The packed candidate archives in a throwaway checkout. Pre-release
 //                                  evidence only; it says nothing about Adea's lockfile.
 // Pin CP with PI_FACTORY_SOURCE_PIN=source-allowance-candidate.json. Scripted ports other than CP's,
@@ -31,14 +34,17 @@ if (pin.revision === '7d36f9bb78e32be9cb2e508884f010a9ad670c6b')
   throw new Error('SET_PI_FACTORY_SOURCE_PIN_TO_A_CP_HEAD_THAT_DISCLOSES_CHILD_ALLOWANCE')
 const installKind = process.env.PI_FACTORY_INSTALL
 const expectation = process.env.PI_FACTORY_EXPECT_SDK
-if (!['registry', 'registry-predating-candidate', 'candidate-overlay'].includes(installKind))
+if (!['registry', 'isolated-legacy-sdk', 'candidate-overlay'].includes(installKind))
   throw new Error('PI_FACTORY_INSTALL_REQUIRED')
 if (!['accepts', 'rejects'].includes(expectation)) throw new Error('PI_FACTORY_EXPECT_SDK_REQUIRED')
 // An install that is the candidate itself, or the post-bump registry SDK, must accept the field.
-if (installKind !== 'registry-predating-candidate' && expectation !== 'accepts')
+if (installKind !== 'isolated-legacy-sdk' && expectation !== 'accepts')
   throw new Error('CANDIDATE_OR_RELEASED_SDK_MUST_BE_EXPECTED_TO_ACCEPT')
 const mustAccept = expectation === 'accepts'
-const webRequire = createRequire(new URL('../../package.json', import.meta.url))
+const legacy = installKind === 'isolated-legacy-sdk'
+const webRequire = createRequire(
+  new URL(legacy ? './legacy-sdk/package.json' : '../../package.json', import.meta.url)
+)
 const sdkEntry = realpathSync(webRequire.resolve('@adea-ai/sdk'))
 const { ControlApiOperations } = await import(sdkEntry)
 const responseSchema = ControlApiOperations.preparePiDurableLead.responseSchema
@@ -154,6 +160,21 @@ for (const mode of ['profile', 'none']) {
           reasonCode: prepared.reasonCode,
         })
       )
+      // The product's own SDK port must be the install under test, not only this file's import.
+      const portAccepts = (() => {
+        try {
+          installedLeadSdkPort.preparationSchema.parse(captured.data)
+          return true
+        } catch {
+          return false
+        }
+      })()
+      expect(portAccepts).toBe(accepts)
+      // A legacy install that does not differ from the candidate would prove nothing.
+      if (legacy)
+        expect(
+          installed.packages.flatMap((entry) => entry.differingFiles ?? []).length
+        ).toBeGreaterThan(0)
       // The measurement must equal the stated expectation before anything else is judged.
       expect(accepts).toBe(mustAccept)
       if (mustAccept) {

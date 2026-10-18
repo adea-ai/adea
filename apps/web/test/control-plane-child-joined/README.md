@@ -205,14 +205,27 @@ Run hygiene: the host is terminated if graceful cleanup stalls; its owned dispos
 removed only after the process is reaped. Adea's fixture workspace is archived and its temporary
 session expires.
 
-## Child allowance boundary (CP draft #1136)
+## Child allowance boundary (CP #1136)
 
-CP #1136 adds an optional `childAllowance` (`stated` with USD microunits and tokens, or
-`not_stated`) to the lead `prepare` response. The preparation schema in the SDK is strict, so the
-SDK that accepts the field must be released and Adea bumped to it **before** the CP change is
-deployed. `child-allowance-boundary.test.mjs` prepares and dispatches the lead through the
-installed SDK over HTTP to CP's control API at the #1136 head, for a profile that states an
-allowance and one that states none.
+CP #1136 (merged as `efd457a3`, released in CP 1.104.0, `69e6e746`) adds an optional
+`childAllowance` (`stated` with USD microunits and tokens, or `not_stated`) to the lead `prepare`
+response. The preparation schema in the SDK is strict, so the SDK that accepts the field had to be
+released and Adea bumped to it **before** the CP change is deployed. That release is out (`@adea-ai/sdk`
+1.20.0, `@adea-ai/runtime-sdk` 1.17.0) and Adea is on it. `child-allowance-boundary.test.mjs` prepares
+and dispatches the lead through an installed SDK over HTTP to CP's control API at the pinned CP
+revision (`source-allowance-candidate.json`), for a profile that states an allowance and one that
+states none.
+
+Two kinds of evidence, kept apart:
+
+- **Current consumer acceptance** (`registry`, expects `accepts`): the SDK Adea actually installs from
+  its own lockfile must be byte-identical to the one CP builds at the pinned revision (every file
+  but `package.json`) and must accept the field. This is the gate. It passes now, post-bump.
+- **Legacy compatibility evidence** (`isolated-legacy-sdk`, expects `rejects`): the negative
+  control for the consumer an SDK release would otherwise strand. The SDK that predates the field
+  (sdk 1.19.1, runtime-sdk 1.16.1, contracts 1.21.4, pinned exactly in `legacy-sdk/`, see its README)
+  is installed outside Adea's dependency graph and swapped in for this test process only. It must
+  reject the field and the turn must fail closed. It is not evidence about Adea's lockfile.
 
 The expectation is explicit and required, so a broken SDK cannot pass by being measured and then
 excused. `PI_FACTORY_EXPECT_SDK` and `PI_FACTORY_INSTALL` have no defaults:
@@ -222,46 +235,52 @@ excused. `PI_FACTORY_EXPECT_SDK` and `PI_FACTORY_INSTALL` have no defaults:
   must still parse, a half statement must not, and **dispatch must run the lead**. Nothing is
   skipped.
 - `rejects`: the measured acceptance must be false and the turn must fail closed (`blocked` /
-  `RUNTIME_UNAVAILABLE`, no preparation reference, no dispatch, 0 physical sends). This is the
-  negative control for a registry SDK that predates the field.
-- `candidate-overlay` and the post-bump `registry` install may only be expected to `accept`; the
-  suite refuses to start otherwise.
+  `RUNTIME_UNAVAILABLE`, no preparation reference, no dispatch, 0 physical sends).
+- In both, the product's own SDK port must give the same answer as the suite's schema probe, so the
+  install under test is the one the product really uses. A legacy install must differ from the
+  candidate, or it proves nothing.
+- `candidate-overlay` and the `registry` install may only be expected to `accept`; the suite refuses
+  to start otherwise.
 
-| `PI_FACTORY_INSTALL`           | What is installed                                                                                                | Allowed expectation                          |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `registry`                     | Adea's lockfile SDK, checked byte-identical to the candidate (every file but `package.json`): the post-bump gate | `accepts`                                    |
-| `registry-predating-candidate` | Adea's lockfile SDK, expected to differ from the candidate; the differing files are printed                      | `rejects`, or `accepts` to prove the failure |
-| `candidate-overlay`            | The packed candidate archives in a throwaway checkout (pre-release evidence only)                                | `accepts`                                    |
+| `PI_FACTORY_INSTALL`  | What is installed                                                                                                 | Allowed expectation                          |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `registry`            | Adea's lockfile SDK, checked byte-identical to the candidate (every file but `package.json`): the current gate    | `accepts`                                    |
+| `isolated-legacy-sdk` | The pinned pre-field SDK in `legacy-sdk/`, expected to differ from the candidate; the differing files are printed | `rejects`, or `accepts` to prove the failure |
+| `candidate-overlay`   | The packed candidate archives in a throwaway checkout (pre-release evidence only)                                 | `accepts`                                    |
 
 ```sh
-# Pin to the #1136 head; the manifest comes from `node scripts/pack-pi-durable-candidate.mjs <dir>`
-# in the clean, built CP checkout at that head.
-DATABASE_URL=... ADEA_CONTROL_PLANE_SOURCE=<cp at d0cc27c3> PI_FACTORY_BUN=<bun 1.4.2> \
-PI_FACTORY_MANIFEST=<candidate>/manifest.json \
-  bun run test:integration:control-plane-child-allowance            # registry + accepts: the post-bump gate
-  bun run test:integration:control-plane-child-allowance-predating  # lockfile SDK + rejects: negative control
+# The manifest comes from `node scripts/pack-pi-durable-candidate.mjs <dir>` in the clean, built CP
+# checkout at the pinned revision (69e6e746, the CP 1.104.0 release commit).
+export DATABASE_URL=... ADEA_CONTROL_PLANE_SOURCE=<cp at 69e6e746> PI_FACTORY_BUN=<bun 1.4.2> \
+       PI_FACTORY_MANIFEST=<candidate>/manifest.json
+bun run test:integration:control-plane-child-allowance             # registry + accepts: current consumer gate
+bun run test:integration:control-plane-child-allowance-legacy-sdk  # isolated legacy SDK + rejects: negative control
 ```
 
-The first script is the gate that must pass after the SDK release and the Adea bump, and it fails
-until then (today the lockfile SDK is not byte-identical to the candidate, so it stops at the
-identity check). Local results at `d0cc27c3`, 2026-10-14, before the lockfile moved to sdk 1.18.1 and
-contracts 1.21.3 (#1416); they were not re-run for the journey change and the versions below are
-those of that date:
+The second script installs `legacy-sdk/` from its own lockfile (`bun install --frozen-lockfile`) and
+passes `legacy-sdk/tsconfig.override.json` to `bun test --tsconfig-override`, which maps
+`@adea-ai/sdk` to that install; Bun prints a harmless `directory mismatch` notice for the flag. It
+replaces the earlier `-predating` script, which used Adea's lockfile SDK and so could not keep
+failing closed once Adea moved to an SDK that accepts the field.
 
-| Run                                                                                                                                    | Expectation | Result                                                                                                                                                                  |
-| -------------------------------------------------------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| lockfile SDK (sdk 1.18.0, runtime-sdk 1.15.1), `-predating` script                                                                     | `rejects`   | 8 of 8 pass: `blocked` / `RUNTIME_UNAVAILABLE`; seven files differ (runtime-sdk `dist/pi-durable-lead.*`, sdk `dist/operations.d.ts*`, `openapi/control-plane.v3.json`) |
-| packed candidate archives, throwaway checkout (`candidate-overlay`)                                                                    | `accepts`   | 8 of 8 pass, twice: `prepared`, typed field equal to the profile statement, dispatch runs                                                                               |
-| **negative** lockfile SDK, `registry-predating-candidate`                                                                              | `accepts`   | **fails**: the acceptance assertion, the typed-field test and the dispatch test fail in both modes                                                                      |
-| **negative** broken candidate: candidate whose runtime-sdk lacks the field, with a manifest that matches it so package identity passes | `accepts`   | **fails** at the same assertions with `installedAccepts: false` (the earlier either-outcome version would have passed)                                                  |
-| **negative** overlay, `rejects`; or no expectation / no install kind                                                                   | -           | the suite refuses to start (`CANDIDATE_OR_RELEASED_SDK_MUST_BE_EXPECTED_TO_ACCEPT`, `PI_FACTORY_EXPECT_SDK_REQUIRED`)                                                   |
+Receipts, 2026-10-18, CP `69e6e746`, Adea `main` `0a21100a` plus the bump, Bun 1.4.2, local PostgreSQL
+with all 59 migrations:
 
-The overlay is pre-release evidence for a change no published package carries. It is not evidence
-about Adea's lockfile or a release: the candidate keeps the published version numbers (sdk 1.18.0,
-runtime-sdk 1.15.1), which a release will change, and Adea's own checks (clean install, lockfile,
-typecheck, unit lanes) have not run against it. The qualification is complete only when
-`test:integration:control-plane-child-allowance` passes on the default registry install after the
-bump.
+| Run                                                                                            | Expectation | Result                                                                                                                                                                                                       |
+| ---------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `registry`: Adea's lockfile (sdk 1.20.0, runtime-sdk 1.17.0, contracts 1.21.4)                 | `accepts`   | 8 of 8 pass, twice, both modes: `differingFiles: []`, `prepared`, typed field equal to the profile statement, dispatch runs                                                                                  |
+| `isolated-legacy-sdk` (sdk 1.19.1, runtime-sdk 1.16.1, contracts 1.21.4)                       | `rejects`   | 8 of 8 pass, twice, both modes: `blocked` / `RUNTIME_UNAVAILABLE`, 0 physical sends; seven files differ (runtime-sdk `dist/pi-durable-lead.*`, sdk `dist/operations.d.ts*`, `openapi/control-plane.v3.json`) |
+| **negative** `isolated-legacy-sdk`, `accepts`                                                  | `accepts`   | **fails** (6 of 8): the acceptance, typed-field and dispatch assertions                                                                                                                                      |
+| **negative** `registry` or `candidate-overlay`, `rejects`; or no expectation / no install kind | -           | the suite refuses to start (`CANDIDATE_OR_RELEASED_SDK_MUST_BE_EXPECTED_TO_ACCEPT`, `PI_FACTORY_EXPECT_SDK_REQUIRED`, `PI_FACTORY_INSTALL_REQUIRED`)                                                         |
+
+Earlier pre-release evidence, at the draft head `d0cc27c3` (2026-10-14, sdk 1.18.0, runtime-sdk
+1.15.1): the packed candidate archives in a throwaway checkout (`candidate-overlay`) passed 8 of 8
+twice, and a candidate whose runtime-sdk lacked the field, with a matching manifest, failed the
+`accepts` assertions with `installedAccepts: false`. That overlay was never evidence about Adea's
+lockfile or a release; the registry gate above replaces it.
+
+The suites below (`child`, `child-sdk`, `journey`) pin older CP revisions and package versions and
+are tracked separately; this section's commands do not depend on them.
 
 ## Lead-to-child journey (#1173)
 
@@ -378,11 +397,11 @@ exercise it with real process restarts.
 - Repin `source.json` to a published CP release once one carries #1123 and #1131 (CP main
   `7d36f9bb` is a source revision). Neither changed a published package's version, so the installed
   SDK checks above do not depend on it.
-- Backend contract: CP draft #1136 (head `d0cc27c3`) adds an optional `childAllowance` to the lead
-  `prepare` response. See "Child allowance boundary" above. This proof stays pinned to the merged
-  `7d36f9bb`, which predates the field. Adea has not shipped any display of it: that needs a
-  published SDK, a persistence change (the prepare record has no JSON column), a line beside the
-  payer confirmation and the canvas update. Authoring and publishing production lead profile
+- Backend contract: CP #1136 (merged as `efd457a3`, released in CP 1.104.0) adds an optional
+  `childAllowance` to the lead `prepare` response, and Adea is on the SDK that accepts it. See
+  "Child allowance boundary" above. The older proofs stay pinned to the merged `7d36f9bb`, which
+  predates the field. Adea has not shipped any display of it: that needs a persistence change (the
+  prepare record has no JSON column), a line beside the payer confirmation and the canvas update. Authoring and publishing production lead profile
   definitions with a stated allowance is CP catalog work, not Adea's.
 - Open design point from CP #1123 (CP-owned): whether a child's plan ceiling must fit within the
   parent's stated allowance.
