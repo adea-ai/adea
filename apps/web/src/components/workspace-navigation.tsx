@@ -796,6 +796,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     | 'reconnect'
     | 'rich'
     | 'streaming' => {
+    // The selector names fixture states that only a DEV build can mount; production
+    // keeps none of them.
+    if (!import.meta.env.DEV) return 'conversation'
     const value = currentSearch().chatState
     return value === 'approval-long' ||
       value === 'calls' ||
