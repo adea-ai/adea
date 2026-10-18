@@ -495,6 +495,15 @@ describe('tool and subagent calls', () => {
       expect(inputText([{ 'sk-abcd': { efgh: null } }])).toContain('withheld')
     })
 
+    test('a key that starts a secret keeps it past ordinary keys before the rest', () => {
+      const text = inputText({ note: 0, 'sk-': { 'a key with spaces': 'abcdefgh' } })
+      expect(text).toContain('withheld')
+      expect(text).not.toContain('abcdefgh')
+      expect(inputText({ 'sk-': { first: 1, second: 2, 'a key': ['abcd', 'efgh12'] } })).toContain(
+        'withheld'
+      )
+    })
+
     test('whitespace padding cannot hide a secret from the scan', () => {
       const padded = inputText(['note', `Bearer${' '.repeat(600)}`, 'abcd12345678'])
       expect(padded).toContain('withheld')

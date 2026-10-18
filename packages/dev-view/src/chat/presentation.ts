@@ -307,7 +307,7 @@ function readFragments(fragments: readonly Fragment[], start: number, valuesOnly
   for (let index = start; index < fragments.length; index += 1) {
     const fragment = fragments[index]!
     if (fragment.barrier) break
-    if (valuesOnly && fragment.key) continue
+    if (valuesOnly && fragment.key && index !== start) continue
     let piece = fragment.text.replace(/\s+/g, ' ')
     if (text.endsWith(' ') && piece.startsWith(' ')) piece = piece.slice(1)
     if (piece === '') continue
@@ -323,10 +323,12 @@ function readFragments(fragments: readonly Fragment[], start: number, valuesOnly
  * needs a word boundary before `sk-` and the like, so an ordinary word in the fragment
  * just before the secret's start would hide it from one scan over the whole list.
  * Every fragment, key or value, is a candidate start: read from there, it is at the
- * front of the text with its own boundary. Between barriers, three readings: the whole
+ * front of the text with its own boundary. Between barriers, these readings: the whole
  * run (for a secret that starts inside a long fragment), every start with the keys read
- * in, and every start with the keys left out (a key between two values does not
- * separate them).
+ * in, and every start followed only by values (an ordinary key between the start and
+ * the rest does not separate them; a start that is itself a key keeps it). A secret can
+ * be spelled by any subsequence of fragments, so these are the readings a person could
+ * reconstruct without guessing which fields to drop, not every possible one.
  */
 export function secretAcrossFragments(fragments: readonly Fragment[]): boolean {
   const segments: Fragment[][] = [[]]
@@ -343,8 +345,7 @@ export function secretAcrossFragments(fragments: readonly Fragment[]): boolean {
     if (JOINED_SECRET.test(values)) return true
     for (let start = 0; start < segment.length; start += 1) {
       if (JOINED_SECRET.test(readFragments(segment, start, false))) return true
-      if (!segment[start]!.key && JOINED_SECRET.test(readFragments(segment, start, true)))
-        return true
+      if (JOINED_SECRET.test(readFragments(segment, start, true))) return true
     }
   }
   return false
