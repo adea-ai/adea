@@ -28,6 +28,7 @@ import {
   retentionStreamEvents,
   retentionStreamScript,
   retentionTurnEvents,
+  resultEvents,
   retentionTurnScript,
   richEvents,
 } from './visual-fixture-data'
@@ -62,6 +63,8 @@ export type ChatVisualFixtureState =
   | 'grounded-hostile'
   /** Tool and subagent calls with producer identity: nested, failed, running and orphaned. */
   | 'calls'
+  /** Structured results: terminal output, a failing test run with a stack, files, a plan and a task. */
+  | 'results'
   /** An approval whose request is longer than the card's description shows. */
   | 'approval-long'
   /** The real accumulator, one event per `chat-visual:append` (or `detail.count`): a turn whose prompt is evicted. */
@@ -88,6 +91,7 @@ const STATE_EVENTS: Partial<Record<ChatVisualFixtureState, readonly RuntimeEvent
   'grounded-hostile': groundedHostileEvents,
   'approval-long': longApprovalEvents,
   calls: callEvents,
+  results: resultEvents,
   'retention-turn': retentionTurnEvents,
   'retention-stream': retentionStreamEvents,
 }

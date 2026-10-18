@@ -954,6 +954,76 @@ test.describe('tool and subagent calls', () => {
   }
 })
 
+test.describe('structured results', () => {
+  test('terminal output, a test run with its stack, files, a plan and a task are drawn as such', async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'results')
+    const terminal = call(page, 'res-term-start')
+    await expect(terminal).toHaveAttribute('data-result', 'terminal')
+    await expect(terminal).toContainText('bun test packages/db')
+    await expect(terminal).toContainText('exit 1')
+    await expect(terminal).toHaveAttribute('data-status', 'error')
+    await terminal.getByRole('button').first().click()
+    await expect(terminal).toContainText('(fail) keeps applied history across a rebase')
+
+    const tests = call(page, 'res-tests')
+    await expect(tests).toContainText('3 passed · 1 failed')
+    await expect(tests).toHaveAttribute('data-status', 'error')
+    await tests.getByRole('button').first().click()
+    await expect(tests.locator('[data-result-failure="f-1"]')).toContainText(
+      'expected journal entry 0054 to be unchanged'
+    )
+    await expect(tests.getByRole('list', { name: 'Stack frames' })).toContainText(
+      'compareJournal packages/db/src/journal.ts:41:9'
+    )
+
+    const files = call(page, 'res-files')
+    await expect(files).toContainText('2 files · +12 −3')
+    await files.getByRole('button').first().click()
+    await expect(files).toContainText('renamed from packages/db/src/check.ts')
+
+    const plan = call(page, 'res-plan')
+    await expect(plan).toContainText('Fix the journal check')
+    await plan.getByRole('button').first().click()
+    await expect(plan.locator('[data-work-item="i-1"]')).toHaveAttribute('data-status', 'success')
+    await expect(plan.locator('[data-work-item="i-3"]')).not.toHaveAttribute(
+      'data-status',
+      'success'
+    )
+    await expect(call(page, 'res-task')).toContainText('Follow up on the rollout order')
+    expect(errors).toEqual([])
+  })
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`no serious accessibility violations with every result open (${theme})`, async ({
+      page,
+    }) => {
+      await openCanvas(page, 'results', { theme })
+      for (const id of ['res-term-start', 'res-tests', 'res-files', 'res-plan'])
+        await call(page, id).getByRole('button').first().click()
+      await page.addScriptTag({ content: axe.source })
+      const violations = await page.evaluate(async () => {
+        const runner = (
+          window as unknown as {
+            axe: {
+              run: (c: Element) => Promise<{
+                violations: Array<{ id: string; impact: string | null }>
+              }>
+            }
+          }
+        ).axe
+        const result = await runner.run(document.querySelector('[data-dev-chat]') as Element)
+        return result.violations
+          .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
+          .map((violation) => violation.id)
+      })
+      expect(violations).toEqual([])
+    })
+  }
+})
+
 test.describe('touch, motion and layout', () => {
   test.describe('touch', () => {
     test.use({ hasTouch: true, isMobile: true })

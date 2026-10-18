@@ -180,6 +180,141 @@ export const callEvents: readonly RuntimeEvent[] = [
   event('9', 'turn.assistant_message', { text: 'The reviewer found one failing test.' }),
 ]
 
+const result = (
+  seq: string,
+  kind: RuntimeEvent['kind'],
+  payload: Record<string, unknown>,
+  eventId: string
+): RuntimeEvent => event(seq, kind, { schemaVersion: 1, ...payload }, eventId)
+
+/**
+ * Structured results with the payloads the merged activity contract admits (#1394):
+ * a command's output, a failing test run with a stack, changed files, a plan and a task.
+ */
+export const resultEvents: readonly RuntimeEvent[] = [
+  event('1', 'turn.user_input', { text: 'Run the tests and plan the fix.' }),
+  result(
+    '2',
+    'terminal.output',
+    {
+      terminalId: 'term-1',
+      commandId: 'cmd-1',
+      sequence: '1',
+      phase: 'started',
+      status: 'running',
+      stream: 'combined',
+      command: 'bun test packages/db',
+    },
+    'res-term-start'
+  ),
+  result(
+    '3',
+    'terminal.output',
+    {
+      terminalId: 'term-1',
+      commandId: 'cmd-1',
+      sequence: '2',
+      phase: 'output',
+      status: 'running',
+      stream: 'stdout',
+      text: '(pass) applies every migration twice\n(fail) keeps applied history across a rebase\n',
+    },
+    'res-term-out'
+  ),
+  result(
+    '4',
+    'terminal.output',
+    {
+      terminalId: 'term-1',
+      commandId: 'cmd-1',
+      sequence: '3',
+      phase: 'finished',
+      status: 'failed',
+      stream: 'combined',
+      exitCode: 1,
+      durationMs: 1070,
+    },
+    'res-term-end'
+  ),
+  result(
+    '5',
+    'test_run.observed',
+    {
+      testRunId: 'run-1',
+      status: 'failed',
+      summary: { passed: 3, failed: 1 },
+      tests: [
+        { testId: 't-1', name: 'applies every migration twice', status: 'passed' },
+        {
+          testId: 't-2',
+          name: 'keeps applied history across a rebase',
+          status: 'failed',
+          failureIds: ['f-1'],
+        },
+      ],
+      failures: [
+        {
+          failureId: 'f-1',
+          name: 'AssertionError',
+          message: 'expected journal entry 0054 to be unchanged',
+          testId: 't-2',
+          stack: {
+            frames: [
+              {
+                functionName: 'compareJournal',
+                path: 'packages/db/src/journal.ts',
+                line: 41,
+                column: 9,
+              },
+              { native: true },
+            ],
+          },
+        },
+      ],
+    },
+    'res-tests'
+  ),
+  result(
+    '6',
+    'files.changed',
+    {
+      changeSetId: 'changes-1',
+      files: [
+        { path: 'packages/db/src/journal.ts', change: 'modified', additions: 12, deletions: 3 },
+        {
+          path: 'packages/db/src/journal-check.ts',
+          change: 'renamed',
+          previousPath: 'packages/db/src/check.ts',
+        },
+      ],
+      summary: { files: 2, additions: 12, deletions: 3 },
+    },
+    'res-files'
+  ),
+  result(
+    '7',
+    'plan.observed',
+    {
+      planId: 'plan-1',
+      status: 'in_progress',
+      title: 'Fix the journal check',
+      items: [
+        { id: 'i-1', title: 'Reproduce the failure', status: 'completed' },
+        { id: 'i-2', title: 'Keep applied entries unchanged', status: 'in_progress' },
+        { id: 'i-3', title: 'Add a regression test', status: 'pending' },
+      ],
+    },
+    'res-plan'
+  ),
+  result(
+    '8',
+    'task.observed',
+    { taskId: 'task-1', title: 'Follow up on the rollout order', status: 'pending' },
+    'res-task'
+  ),
+  event('9', 'turn.assistant_message', { text: 'One migration test fails; the plan is above.' }),
+]
+
 export const LONG_APPROVAL_TAIL = 'FINAL STEP: drop table audit_log (irreversible)'
 export const longApprovalEvents: readonly RuntimeEvent[] = [
   event('1', 'turn.user_input', { text: 'Clean up the audit tables.' }),

@@ -6,6 +6,8 @@ import type {
   RuntimeVisibleSummary,
 } from '@adea-ai/types/dev-runtime'
 import { decodeRuntimeInteractionPayload } from '@adea-ai/types/dev-runtime'
+import { isRuntimeActivityEventKind } from '@adea-ai/types/dev-runtime'
+import { projectActivityResult, type ChatResult } from './model/results'
 import {
   decodeRuntimeAssistantPayload,
   decodeRuntimeEvent,
@@ -75,6 +77,8 @@ export type ChatTranscriptItem = Readonly<{
     | 'reasoning'
     /** A validated source-reported method step snapshot (`turn.method_step_summary`). */
     | 'method'
+    /** A structured activity observation the wire gate accepted (`ChatResult`). */
+    | 'result'
     /** A kind the chat has no dedicated presentation for. Shown, never dropped. */
     | 'other'
   kind: RuntimeEvent['kind']
@@ -105,6 +109,8 @@ export type ChatTranscriptItem = Readonly<{
   interaction?: ChatInteraction
   /** Present only for a versioned tool or subagent call the wire gate accepted. */
   call?: ChatCall
+  /** Present only for a versioned structured activity the wire gate accepted. */
+  result?: ChatResult
   event?: RuntimeEvent
 }>
 
@@ -184,6 +190,15 @@ function redact(
   options: { window?: number; layout?: boolean } = {}
 ): string {
   return redactWithProvenance(value, limit, options).text
+}
+
+/** Display redaction with the cut it made, for text a caller joins itself (terminal output). */
+export function redactDisplay(
+  value: string,
+  limit: number,
+  options: { window?: number; layout?: boolean } = {}
+): { text: string; truncated: boolean } {
+  return redactWithProvenance(value, limit, { window: BODY_SCAN_WINDOW, ...options })
 }
 
 function textFromPayload(event: RuntimeEvent): string | undefined {
@@ -291,6 +306,24 @@ function callFromEvent(event: RuntimeEvent): ChatCall | undefined {
     ...(output !== undefined ? { output } : {}),
     ...(payload.durationMs !== undefined ? { durationMs: payload.durationMs } : {}),
   }
+}
+
+function resultFromEvent(event: RuntimeEvent): ChatResult | undefined {
+  if (!isRuntimeActivityEventKind(event.kind)) return undefined
+  if (
+    event.payload === null ||
+    typeof event.payload !== 'object' ||
+    !Object.hasOwn(event.payload, 'schemaVersion')
+  )
+    return undefined
+  try {
+    decodeRuntimeEvent(event, { source: event.source })
+  } catch {
+    return undefined
+  }
+  return projectActivityResult(event.kind, event.payload, (text, limit, layout) =>
+    redact(text, limit, { window: BODY_SCAN_WINDOW, ...(layout === true ? { layout } : {}) })
+  )
 }
 
 function outputFromPayload(event: RuntimeEvent): string | undefined {
@@ -827,6 +860,18 @@ export function projectTranscriptEvents(
       continue
     }
     if (role === 'other') {
+      const result = resultFromEvent(event)
+      if (result !== undefined) {
+        rows.push({
+          id: event.eventId,
+          role: 'result',
+          kind: event.kind,
+          label: event.kind,
+          result,
+          event,
+        })
+        continue
+      }
       rows.push({
         id: event.eventId,
         role,

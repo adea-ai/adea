@@ -55,6 +55,7 @@ import {
   type ChatTurnActivity,
   type ChatTurnApproval,
   type ChatTurnCall,
+  type ChatTurnResult,
   type ChatTurnMethod,
   type ChatTurnNotice,
   type ChatTurnQuestion,
@@ -70,6 +71,13 @@ import {
 } from './presentation'
 import type { TranscriptAccumulator } from './model'
 import { transcriptHistoryNotice } from './model/transcript'
+import type {
+  ChatResult,
+  ChatResultFailure,
+  ChatResultStatus,
+  ChatWorkItem,
+  ChatWorkStatus,
+} from './model/results'
 import { ChatApproval } from './chat-approval'
 import { chatTranscriptActionDisabledReason } from './transcript-availability'
 
@@ -519,6 +527,9 @@ function ActivityColumn(props: {
               <Show when={entry()?.type === 'call'}>
                 <CallLine entry={() => entry() as ChatTurnCall} live={props.live} />
               </Show>
+              <Show when={entry()?.type === 'result'}>
+                <ResultLine entry={() => entry() as ChatTurnResult} live={props.live} />
+              </Show>
               <Show when={entry()?.type === 'reasoning'}>
                 <ReasoningLine entry={() => entry() as ChatTurnReasoning} live={props.live} />
               </Show>
@@ -696,6 +707,348 @@ function CallLine(props: { entry: () => ChatTurnCall; live: () => boolean }): JS
         </Show>
       </TraceLine>
     </Show>
+  )
+}
+
+const RESULT_KINDS: Record<ChatResult['type'], string> = {
+  terminal: 'terminal.output',
+  test_run: 'test_run.observed',
+  failure: 'failure.observed',
+  files: 'files.changed',
+  plan: 'plan.observed',
+  task: 'task.observed',
+}
+
+/** `unknown` and `skipped` make no claim a mark could carry; a running word is a last word. */
+function testStatus(status: ChatResultStatus, live: boolean): TraceStatus | undefined {
+  switch (status) {
+    case 'passed':
+      return 'success'
+    case 'failed':
+      return 'error'
+    case 'cancelled':
+      return 'cancelled'
+    case 'pending':
+      return live ? 'pending' : undefined
+    case 'running':
+      return live ? 'running' : undefined
+    default:
+      return undefined
+  }
+}
+
+function workStatus(status: ChatWorkStatus, live: boolean): TraceStatus | undefined {
+  switch (status) {
+    case 'completed':
+      return 'success'
+    case 'failed':
+      return 'error'
+    case 'cancelled':
+      return 'cancelled'
+    case 'pending':
+      return live ? 'pending' : undefined
+    case 'in_progress':
+      return live ? 'running' : undefined
+    default:
+      return undefined
+  }
+}
+
+const WORK_WORDS: Record<ChatWorkStatus, string | undefined> = {
+  unknown: undefined,
+  pending: 'pending',
+  in_progress: 'in progress',
+  completed: undefined,
+  failed: undefined,
+  cancelled: undefined,
+}
+
+/** A word for a status whose mark would otherwise promise a state the session no longer has. */
+function stoppedWord(status: ChatResultStatus | ChatWorkStatus, live: boolean): string | undefined {
+  if (live) return undefined
+  if (status === 'running' || status === 'in_progress') return 'not finished'
+  return undefined
+}
+
+function countWords(
+  counts:
+    | Readonly<{
+        total?: number
+        passed?: number
+        failed?: number
+        skipped?: number
+        pending?: number
+        durationMs?: number
+      }>
+    | undefined
+): string | undefined {
+  if (counts === undefined) return undefined
+  const parts = [
+    counts.passed !== undefined ? `${counts.passed} passed` : undefined,
+    counts.failed !== undefined ? `${counts.failed} failed` : undefined,
+    counts.skipped !== undefined ? `${counts.skipped} skipped` : undefined,
+    counts.pending !== undefined ? `${counts.pending} pending` : undefined,
+    counts.total !== undefined ? `of ${counts.total}` : undefined,
+  ].filter((part) => part !== undefined)
+  return parts.length > 0 ? parts.join(' · ') : undefined
+}
+
+function FailureDetail(props: { failure: ChatResultFailure }): JSX.Element {
+  return (
+    <TraceDetail data-result-failure={props.failure.failureId}>
+      <Show when={props.failure.name}>{(name) => <strong>{name()}</strong>}</Show>
+      <p class="whitespace-pre-wrap break-words">{props.failure.message}</p>
+      <Show when={props.failure.frames.length > 0}>
+        <ol aria-label="Stack frames" class="m-0 list-none p-0 font-mono text-xs">
+          <For each={props.failure.frames}>
+            {(frame) => (
+              <li class="break-all">
+                {frame.label}
+                <Show when={frame.line !== undefined}>
+                  {`:${frame.line}${frame.column !== undefined ? `:${frame.column}` : ''}`}
+                </Show>
+              </li>
+            )}
+          </For>
+        </ol>
+      </Show>
+      <Show when={props.failure.raw}>
+        {(raw) => <CodeBlock code={raw()} language="text" size="sm" wrap maxHeight="12rem" />}
+      </Show>
+    </TraceDetail>
+  )
+}
+
+function WorkItems(props: { items: readonly ChatWorkItem[]; live: boolean }): JSX.Element {
+  return (
+    <Trace size="sm">
+      <For each={props.items}>
+        {(item) => (
+          <TraceLine
+            title={item.title}
+            description={item.description}
+            status={workStatus(item.status, props.live)}
+            meta={WORK_WORDS[item.status] ?? stoppedWord(item.status, props.live)}
+            data-work-item={item.id}
+          />
+        )}
+      </For>
+    </Trace>
+  )
+}
+
+function ResultLine(props: { entry: () => ChatTurnResult; live: () => boolean }): JSX.Element {
+  const result = () => props.entry().result
+  const common = () => ({
+    'data-entry-id': props.entry().id,
+    'data-event-id': props.entry().id,
+    'data-kind': RESULT_KINDS[result().type],
+    'data-result': result().type,
+  })
+  return (
+    <>
+      <Show
+        when={
+          result().type === 'terminal' ? (result() as ChatResult & { type: 'terminal' }) : undefined
+        }
+      >
+        {(terminal) => {
+          const status = (): TraceStatus | undefined => {
+            switch (terminal().status) {
+              case 'succeeded':
+                return 'success'
+              case 'failed':
+                return 'error'
+              case 'cancelled':
+                return 'cancelled'
+              case 'running':
+                return props.live() ? 'running' : undefined
+              default:
+                return undefined
+            }
+          }
+          const meta = () =>
+            [
+              terminal().status === 'running' && !props.live() ? 'not finished' : undefined,
+              terminal().exitCode !== undefined ? `exit ${terminal().exitCode}` : undefined,
+              terminal().durationMs !== undefined
+                ? formatDuration(terminal().durationMs! / 1000)
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(' · ') || undefined
+          return (
+            <TraceLine
+              {...common()}
+              title={terminal().command ?? 'Terminal output'}
+              status={status()}
+              meta={meta()}
+            >
+              <Show when={terminal().text.length > 0}>
+                <CodeBlock
+                  code={terminal().text}
+                  language="text"
+                  size="sm"
+                  wrap
+                  maxHeight="12rem"
+                />
+              </Show>
+              <Show when={terminal().cut}>
+                <TraceDetail>Later output is not shown.</TraceDetail>
+              </Show>
+              <Show
+                when={
+                  terminal().streams.includes('stdout') && terminal().streams.includes('stderr')
+                }
+              >
+                <TraceDetail>Standard output and error are interleaved.</TraceDetail>
+              </Show>
+            </TraceLine>
+          )
+        }}
+      </Show>
+      <Show
+        when={
+          result().type === 'test_run' ? (result() as ChatResult & { type: 'test_run' }) : undefined
+        }
+      >
+        {(run) => (
+          <TraceLine
+            {...common()}
+            title="Test run"
+            description={countWords(run().summary)}
+            status={testStatus(run().status, props.live())}
+            meta={
+              stoppedWord(run().status, props.live()) ??
+              (run().status === 'skipped' ? 'skipped' : undefined)
+            }
+          >
+            <For each={run().failures}>{(failure) => <FailureDetail failure={failure} />}</For>
+            <Show when={run().tests.length > 0}>
+              <Trace size="sm" aria-label="Tests">
+                <For each={run().tests}>
+                  {(test) => (
+                    <TraceLine
+                      title={test.name}
+                      status={testStatus(test.status, props.live())}
+                      meta={test.status === 'skipped' ? 'skipped' : undefined}
+                      data-test-id={test.testId}
+                    />
+                  )}
+                </For>
+              </Trace>
+            </Show>
+            <Show when={run().suites.length > 0}>
+              <Trace size="sm" aria-label="Suites">
+                <For each={run().suites}>
+                  {(suite) => (
+                    <TraceLine
+                      title={suite.name}
+                      status={testStatus(suite.status, props.live())}
+                      data-suite-id={suite.suiteId}
+                    />
+                  )}
+                </For>
+              </Trace>
+            </Show>
+            <Show when={run().complete === false}>
+              <TraceDetail>The producer marked this report incomplete.</TraceDetail>
+            </Show>
+          </TraceLine>
+        )}
+      </Show>
+      <Show
+        when={
+          result().type === 'failure' ? (result() as ChatResult & { type: 'failure' }) : undefined
+        }
+      >
+        {(failure) => (
+          <TraceLine
+            {...common()}
+            title={failure().name ?? 'Failure'}
+            description={failure().message.split('\n')[0]?.slice(0, 120)}
+            status="error"
+          >
+            <FailureDetail failure={failure()} />
+          </TraceLine>
+        )}
+      </Show>
+      <Show
+        when={result().type === 'files' ? (result() as ChatResult & { type: 'files' }) : undefined}
+      >
+        {(files) => {
+          const total = () => files().summary?.files ?? files().files.length
+          const description = () => {
+            const summary = files().summary
+            const lines =
+              summary?.additions !== undefined || summary?.deletions !== undefined
+                ? ` · +${summary?.additions ?? 0} −${summary?.deletions ?? 0}`
+                : ''
+            return `${total()} ${total() === 1 ? 'file' : 'files'}${lines}`
+          }
+          return (
+            <TraceLine {...common()} title="Changed files" description={description()}>
+              <Trace size="sm">
+                <For each={files().files}>
+                  {(file) => (
+                    <TraceLine
+                      title={file.path}
+                      description={
+                        file.previousPath !== undefined
+                          ? `${file.change} from ${file.previousPath}`
+                          : file.change
+                      }
+                      meta={
+                        file.additions !== undefined || file.deletions !== undefined
+                          ? `+${file.additions ?? 0} −${file.deletions ?? 0}`
+                          : undefined
+                      }
+                    />
+                  )}
+                </For>
+              </Trace>
+              <Show when={files().complete === false || files().files.length < total()}>
+                <TraceDetail>Only part of the change set is listed.</TraceDetail>
+              </Show>
+            </TraceLine>
+          )
+        }}
+      </Show>
+      <Show
+        when={result().type === 'plan' ? (result() as ChatResult & { type: 'plan' }) : undefined}
+      >
+        {(plan) => (
+          <TraceLine
+            {...common()}
+            title={plan().title ?? 'Plan'}
+            status={workStatus(plan().status, props.live())}
+            meta={WORK_WORDS[plan().status] ?? stoppedWord(plan().status, props.live())}
+          >
+            <WorkItems items={plan().items} live={props.live()} />
+            <Show when={plan().complete === false}>
+              <TraceDetail>The producer marked this plan incomplete.</TraceDetail>
+            </Show>
+          </TraceLine>
+        )}
+      </Show>
+      <Show
+        when={result().type === 'task' ? (result() as ChatResult & { type: 'task' }) : undefined}
+      >
+        {(task) => (
+          <TraceLine
+            {...common()}
+            title={task().title}
+            description={task().description}
+            status={workStatus(task().status, props.live())}
+            meta={WORK_WORDS[task().status] ?? stoppedWord(task().status, props.live())}
+          >
+            <Show when={task().todos.length > 0}>
+              <WorkItems items={task().todos} live={props.live()} />
+            </Show>
+          </TraceLine>
+        )}
+      </Show>
+    </>
   )
 }
 

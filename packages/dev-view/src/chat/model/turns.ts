@@ -38,6 +38,16 @@
 //   ancestor's children. Any other `tool.*` event (a legacy payload with no
 //   `schemaVersion`) stays its own line and carries a status only when its own event
 //   kind states one (`*.completed`, `*.failed`).
+// - A structured result (`terminal.output`, `test_run.observed`, `failure.observed`,
+//   `files.changed`, `plan.observed`, `task.observed`) is drawn only after the wire
+//   gate accepted the whole event. Snapshots of one identity (terminal and command,
+//   test run, change set, plan, task) share one entry at the position of the first;
+//   a later snapshot replaces it by arrival unless the producer already ended it
+//   (a terminal status, a finished command, `complete: true`), after which it only
+//   joins the entry's event ids. Terminal chunks extend the output by their
+//   `sequence`, an old or repeated sequence is ignored, and the text is redacted
+//   once over the joined start of the output, never chunk by chunk. A failure is a
+//   fact and keeps its own entry.
 // - Source-reported summaries are snapshots, not a stream. A `turn.reasoning_summary`
 //   (identity `summaryId`) and a `turn.method_step_summary` (identity `methodId` +
 //   `stepId`) each carry the whole current text and a revision. The canvas draws one
@@ -50,6 +60,7 @@
 //   `other` entry with its kind as the label, in position.
 import type { RuntimeMethodStepSummary, RuntimeReasoningSummary } from '@adea-ai/types/dev-runtime'
 import {
+  redactDisplay,
   redactAssistantDeltaFragments,
   assistantMessageKey as assistantKey,
   redactAssistantDeltaGroup,
@@ -58,6 +69,13 @@ import {
   type ChatResponseReferences,
   type ChatTranscriptItem,
 } from '../presentation'
+import {
+  resultIdentity,
+  resultSettled,
+  TERMINAL_TEXT_LIMIT,
+  type ChatResult,
+  type ChatTerminalResult,
+} from './results'
 
 /** Longest assistant block the canvas renders; longer text is cut and says so. */
 export const CHAT_ASSISTANT_TEXT_LIMIT = 32_768
@@ -106,6 +124,19 @@ export type ChatTurnActivity = Readonly<{
   type: 'activity'
   id: string
   item: ChatTranscriptItem
+}>
+
+/**
+ * A structured result the producer observed (terminal output, test run, failure,
+ * changed files, plan, task). Snapshots of one identity share an entry; terminal
+ * chunks extend it. See `buildChatTurns`.
+ */
+export type ChatTurnResult = Readonly<{
+  type: 'result'
+  /** Stable for the result's lifetime: its first event's id. */
+  id: string
+  result: ChatResult
+  eventIds: readonly string[]
 }>
 
 /** How deep a call tree is drawn; a deeper call is listed with its deepest drawn ancestor's children. */
@@ -157,6 +188,7 @@ export type ChatTurnEntry =
   | ChatTurnMethod
   | ChatTurnActivity
   | ChatTurnCall
+  | ChatTurnResult
   | ChatTurnApproval
   | ChatTurnQuestion
   | ChatTurnNotice
@@ -219,6 +251,31 @@ type MethodState = {
   >
   eventIds: string[]
 }
+
+type ResultState = {
+  entries: ChatTurnEntry[]
+  at: number
+  id: string
+  eventIds: string[]
+  result: ChatResult
+  /** Terminal only: the unredacted start of the output, bounded to the scan window. */
+  raw: string
+  lastSequence: bigint
+  streams: Set<string>
+}
+
+function terminalDisplay(state: ResultState, next: ChatTerminalResult): ChatTerminalResult {
+  const shown = redactDisplay(state.raw, TERMINAL_TEXT_LIMIT, { layout: true })
+  return {
+    ...next,
+    text: shown.text,
+    cut: shown.truncated || state.raw.length >= TERMINAL_RAW_LIMIT,
+    streams: [...state.streams] as ChatTerminalResult['streams'],
+  }
+}
+
+/** The most raw terminal text kept to join and redact: the wire's own string maximum. */
+const TERMINAL_RAW_LIMIT = 65_536
 
 type CallState = {
   entries: ChatTurnEntry[]
@@ -327,6 +384,59 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
 
   const reasoning = new Map<string, ReasoningState>()
   const methods = new Map<string, MethodState>()
+  const results = new Map<string, ResultState>()
+  const foldResult = (turn: OpenTurn, item: ChatTranscriptItem) => {
+    const result = item.result as ChatResult
+    const identity = resultIdentity(result)
+    const key = identity === undefined ? undefined : JSON.stringify([summaryScope(item), identity])
+    const known = key === undefined ? undefined : results.get(key)
+    const payload = item.event?.payload as { text?: string; sequence?: string } | undefined
+    const chunk = typeof payload?.text === 'string' ? payload.text : ''
+    const sequence = result.type === 'terminal' ? BigInt(payload?.sequence ?? '0') : 0n
+    if (!known) {
+      const state: ResultState = {
+        entries: turn.entries,
+        at: turn.entries.length,
+        id: item.id,
+        eventIds: [item.id],
+        result,
+        raw: chunk.replace(/\r\n?/g, '\n').slice(0, TERMINAL_RAW_LIMIT),
+        lastSequence: sequence,
+        streams: new Set(result.type === 'terminal' ? result.streams : []),
+      }
+      if (result.type === 'terminal') state.result = terminalDisplay(state, result)
+      turn.entries.push({ type: 'result', id: item.id, result: state.result, eventIds: [item.id] })
+      if (key !== undefined) results.set(key, state)
+      index(item.id, item.id)
+      return
+    }
+    known.eventIds.push(item.id)
+    index(item.id, known.id)
+    if (!resultSettled(known.result)) {
+      if (result.type === 'terminal') {
+        // An old or repeated chunk adds nothing; the stream is ordered by `sequence`.
+        if (sequence > known.lastSequence) {
+          known.lastSequence = sequence
+          if (known.raw.length < TERMINAL_RAW_LIMIT)
+            known.raw = (known.raw + chunk.replace(/\r\n?/g, '\n')).slice(0, TERMINAL_RAW_LIMIT)
+          for (const stream of result.streams) known.streams.add(stream)
+          const previous = known.result as ChatTerminalResult
+          known.result = terminalDisplay(known, {
+            ...result,
+            ...(result.command === undefined && previous.command !== undefined
+              ? { command: previous.command }
+              : {}),
+          })
+        }
+      } else known.result = result
+    }
+    known.entries[known.at] = {
+      type: 'result',
+      id: known.id,
+      result: known.result,
+      eventIds: [...known.eventIds],
+    }
+  }
   const calls = new Map<string, CallState>()
   const callStates: CallState[] = []
   const foldCall = (turn: OpenTurn, item: ChatTranscriptItem) => {
@@ -671,6 +781,10 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
       foldCall(turn, item)
       continue
     }
+    if (item.result !== undefined && item.event !== undefined) {
+      foldResult(turn, item)
+      continue
+    }
     if (item.role === 'reasoning' && item.summary) {
       foldReasoning(turn, item)
       continue
@@ -829,6 +943,7 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
 export type ChatTurnColumnEntry =
   | ChatTurnActivity
   | ChatTurnCall
+  | ChatTurnResult
   | ChatTurnReasoning
   | ChatTurnMethod
 
@@ -850,6 +965,7 @@ export function segmentTurnEntries(entries: readonly ChatTurnEntry[]): readonly 
     if (
       entry.type === 'activity' ||
       entry.type === 'call' ||
+      entry.type === 'result' ||
       entry.type === 'reasoning' ||
       entry.type === 'method'
     ) {

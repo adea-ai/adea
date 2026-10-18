@@ -773,6 +773,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const chatVisualState = ():
     | 'approval-long'
     | 'calls'
+    | 'results'
     | 'retention-turn'
     | 'retention-stream'
     | 'attention'
@@ -794,6 +795,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     const value = currentSearch().chatState
     return value === 'approval-long' ||
       value === 'calls' ||
+      value === 'results' ||
       value === 'retention-turn' ||
       value === 'retention-stream' ||
       value === 'attention' ||
