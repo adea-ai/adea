@@ -18,6 +18,15 @@ export { normalizeEmail } from './normalize'
 type AuthResponse<T> = Promise<{ data: T | null; error: unknown }>
 type CredentialCallResult = Promise<{ data: unknown; error: unknown }>
 
+type CredentialPayload = {
+  token?: unknown
+  user?: { id?: string }
+}
+
+function readCredentialPayload(data: unknown): CredentialPayload {
+  return data && typeof data === 'object' ? (data as CredentialPayload) : {}
+}
+
 /**
  * The subset of Better Auth's browser client this adapter uses.
  *
@@ -52,26 +61,36 @@ export type BetterAuthBrowserClient = {
 export function createNeonClientAdapter(
   client: BetterAuthBrowserClient = createAuthClient()
 ): AuthAdapter {
-  // `signIn.email` / `signUp.email` return `{ redirect, token, url, user }` (or
-  // `{ token: null, user }` when verification is required) — never a session —
-  // so returning the credential payload would reach the shared normalizer
-  // without `session.id`/`expiresAt` and throw "malformed session" on every
-  // successful sign-in. Read the session the call just established through
-  // `getSession`, which reflects the cookie the response set, and normalize
-  // that instead.
+  // `signIn.email` / `signUp.email` return the credential payload, never a
+  // session: `{ redirect, token, url, user }` on success and `{ token: null,
+  // user }` for a verification-required signup. Returning the payload would
+  // reach the shared normalizer without `session.id`/`expiresAt` and throw
+  // "malformed session". Read the session the call established through
+  // `getSession` — but only when the payload shows a session was issued.
   const credentialSession = async (
     call: () => CredentialCallResult
   ): Promise<{ data: ProviderSessionInput | null; error: unknown }> => {
     const result = await call()
     if (result.error) return { data: null, error: result.error }
+    const payload = readCredentialPayload(result.data)
+    if (!payload.token) {
+      // Verification-pending signup: the account was created but no session was
+      // issued. Reading `getSession` here would return whatever account cookie
+      // the browser already held — an unrelated, pre-existing session — so
+      // surface the mailbox step instead.
+      return { data: null, error: new AuthProviderError(AUTH_ERROR_CODES.emailNotVerified) }
+    }
     const session = await client.getSession()
     if (session.error) return { data: null, error: session.error }
     if (!session.data) {
-      // The credential call succeeded but established no session: Better Auth's
-      // verification-required signup. Surface the mailbox step with the shared
-      // code the form maps to "confirm your email" instead of a misleading
-      // malformed-session failure.
-      return { data: null, error: new AuthProviderError(AUTH_ERROR_CODES.emailNotVerified) }
+      return { data: null, error: new AuthProviderError(AUTH_ERROR_CODES.sessionNotFound) }
+    }
+    // Never hand back a session that does not belong to the account the
+    // credential call just authenticated.
+    const credentialSubject = payload.user?.id
+    const sessionSubject = session.data.user?.id
+    if (credentialSubject && sessionSubject && credentialSubject !== sessionSubject) {
+      return { data: null, error: new AuthProviderError(AUTH_ERROR_CODES.sessionNotFound) }
     }
     return { data: session.data, error: null }
   }

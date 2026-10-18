@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Client } from 'pg'
 
 import { readBetterAuthConfig } from '../../src/config'
@@ -13,13 +13,36 @@ const base = {
 // `pg` parses the connection string in the Client constructor (through the
 // pinned pg-connection-string), so the resolved host/ssl are exactly the
 // parameters the pool would connect with — read without opening a socket.
-function pgTarget(url: string): { host?: string; ssl: boolean } {
+function pgParameters(url: string): { host?: string; ssl?: unknown } {
   const client = new Client({ connectionString: url })
-  const parameters = (
-    client as unknown as { connectionParameters: { host?: string; ssl?: unknown } }
-  ).connectionParameters
+  return (client as unknown as { connectionParameters: { host?: string; ssl?: unknown } })
+    .connectionParameters
+}
+
+function pgTarget(url: string): { host?: string; ssl: boolean } {
+  const parameters = pgParameters(url)
   return { host: parameters.host, ssl: Boolean(parameters.ssl) }
 }
+
+// A URL that names no TLS parameter falls back to `PGSSLMODE`; clear it (and
+// `PGHOST`) so the effective settings are those of the URL alone, matching the
+// review's "no SSL environment override" case.
+const PG_ENV_KEYS = ['PGHOST', 'PGSSLMODE'] as const
+const savedPgEnv = new Map<string, string | undefined>()
+
+beforeAll(() => {
+  for (const key of PG_ENV_KEYS) {
+    savedPgEnv.set(key, process.env[key])
+    delete process.env[key]
+  }
+})
+
+afterAll(() => {
+  for (const [key, value] of savedPgEnv) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
+})
 
 describe('Better Auth configuration', () => {
   test('reads a fresh Railway deployment with secure defaults', () => {
@@ -106,6 +129,44 @@ describe('Better Auth configuration', () => {
     expect(
       readBetterAuthConfig({ ...base, AUTH_DATABASE_URL: loopbackOverride }).databaseRequiresTls
     ).toBe(false)
+  })
+
+  test('rejects empty TLS overrides that pg treats as plaintext', () => {
+    const emptySslmode = 'postgres://adea:secret@db.railway.app:5432/adea?sslmode='
+    expect(pgTarget(emptySslmode).ssl).toBe(false)
+    expect(() => readBetterAuthConfig({ ...base, AUTH_DATABASE_URL: emptySslmode })).toThrow(
+      'empty sslmode'
+    )
+
+    const emptyCert = 'postgres://adea:secret@db.railway.app:5432/adea?sslcert='
+    expect(pgTarget(emptyCert).ssl).toBe(false)
+    expect(() => readBetterAuthConfig({ ...base, AUTH_DATABASE_URL: emptyCert })).toThrow(
+      'empty sslcert'
+    )
+
+    const emptyKey = 'postgres://adea:secret@db.railway.app:5432/adea?sslkey='
+    expect(pgTarget(emptyKey).ssl).toBe(false)
+    expect(() => readBetterAuthConfig({ ...base, AUTH_DATABASE_URL: emptyKey })).toThrow(
+      'empty sslkey'
+    )
+
+    const emptyRoot = 'postgres://adea:secret@db.railway.app:5432/adea?sslrootcert='
+    expect(pgTarget(emptyRoot).ssl).toBe(false)
+    expect(() => readBetterAuthConfig({ ...base, AUTH_DATABASE_URL: emptyRoot })).toThrow(
+      'empty sslrootcert'
+    )
+  })
+
+  test('rejects TLS modes that disable certificate verification', () => {
+    // Both forms turn TLS on but disable certificate verification; strict
+    // verification must reject them rather than accept them as TLS.
+    for (const query of ['sslmode=no-verify', 'uselibpqcompat=true&sslmode=require']) {
+      const url = `postgres://adea:secret@db.railway.app:5432/adea?${query}`
+      expect(pgParameters(url).ssl).toMatchObject({ rejectUnauthorized: false })
+      expect(() => readBetterAuthConfig({ ...base, AUTH_DATABASE_URL: url })).toThrow(
+        'certificate verification'
+      )
+    }
   })
 
   test('accepts loopback HTTP and downgrades cookies only there', () => {

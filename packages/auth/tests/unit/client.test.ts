@@ -86,12 +86,20 @@ describe('Better Auth browser client adapter', () => {
     expect(result.profile.email).toBe(user.email)
   })
 
-  test('verification-required sign-up reports the mailbox step, not a malformed session', async () => {
+  test('verification-pending signup does not adopt a pre-existing account session', async () => {
     // With requireEmailVerification, `signUp.email` returns `{ token: null,
-    // user }` and establishes no session, so the follow-up `getSession` is null.
+    // user }` and establishes no session. The browser still holds another
+    // account's cookie, so reading `getSession` would return that unrelated
+    // account as this signup's result.
+    const otherUser = { ...user, id: 'other-subject', email: 'other@example.test' }
+    const otherSession = { ...session, id: 'other-session', userId: otherUser.id }
+    let reads = 0
     const client = fakeClient({
       signUp: { email: async () => ({ data: { token: null, user }, error: null }) },
-      getSession: async () => ({ data: null, error: null }),
+      getSession: async () => {
+        reads += 1
+        return { data: { session: otherSession, user: otherUser }, error: null }
+      },
     })
     const failure = await capture(
       createNeonClientAdapter(client).signUp({
@@ -102,6 +110,25 @@ describe('Better Auth browser client adapter', () => {
     )
     expect(failure).toMatchObject({ code: AUTH_ERROR_CODES.emailNotVerified })
     expect((failure as { isCredentialRejection: boolean }).isCredentialRejection).toBe(true)
+    // The pre-existing cookie must never be read, let alone returned.
+    expect(reads).toBe(0)
+  })
+
+  test('a session that does not match the credential subject is refused', async () => {
+    // Successful sign-in for `user`, but the cookie still resolves to a stale
+    // account; the mismatched session must not be handed back.
+    const staleUser = { ...user, id: 'stale-subject', email: 'stale@example.test' }
+    const staleSession = { ...session, id: 'stale-session', userId: staleUser.id }
+    const client = fakeClient({
+      getSession: async () => ({ data: { session: staleSession, user: staleUser }, error: null }),
+    })
+    const failure = await capture(
+      createNeonClientAdapter(client).signIn({
+        email: user.email,
+        password: 'test password long enough',
+      })
+    )
+    expect(failure).toMatchObject({ code: AUTH_ERROR_CODES.sessionNotFound })
   })
 
   test('a rejected credential call keeps its provider code and never reads a session', async () => {

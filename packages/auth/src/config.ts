@@ -1,3 +1,5 @@
+import { Client } from 'pg'
+
 export type AuthEnvironment = Record<string, string | undefined>
 
 export type AuthConfig = Readonly<{
@@ -32,59 +34,56 @@ type PostgresTarget = Readonly<{
   ssl: boolean
 }>
 
+// TLS query parameters that must never carry an empty value. `pg` treats an
+// empty `sslmode`/`sslcert`/`sslkey`/`sslrootcert` as absent, so a URL that
+// looks like it opts into TLS can silently connect in the clear.
+const NON_EMPTY_TLS_PARAMETERS = ['sslcert', 'sslkey', 'sslrootcert', 'sslmode'] as const
+
+function assertNonEmptyTlsParameters(url: URL): void {
+  for (const name of NON_EMPTY_TLS_PARAMETERS) {
+    if (url.searchParams.get(name) === '') {
+      throw new Error(`AUTH_DATABASE_URL must not set an empty ${name}`)
+    }
+  }
+}
+
 /**
- * Reproduces the URL-parameter handling of the pinned `pg-connection-string`
- * (2.14.1) that `pg` itself uses, so validation sees the host and SSL state the
- * pool will actually connect with. Reading the first value of each parameter
- * would disagree with the driver in either direction:
+ * Reads the host and SSL state the pinned `pg` client — and therefore the pool
+ * this service builds — will actually connect with, then rejects the forms that
+ * must never reach a hosted database:
  *
- * - query parameters are last-value-wins, so `?sslmode=require&sslmode=disable`
- *   resolves to `disable`;
- * - `sslmode=disable` overrides `ssl=true`, so `?sslmode=disable&ssl=true`
- *   resolves to plaintext;
- * - an explicit `host` parameter overrides the URL authority, so a loopback URL
- *   can still name a remote host.
+ * - empty TLS parameters, which `pg` ignores rather than enables;
+ * - `sslmode=no-verify` (or any other setting that disables certificate
+ *   verification);
+ * - an effective plaintext connection to a non-loopback host.
  *
- * Tests assert this against a real `pg` client's parsed connection parameters.
+ * It asks `pg` itself for the effective settings rather than re-implementing
+ * `pg-connection-string`'s parsing, so last-value-wins `sslmode`,
+ * `sslmode=disable` overriding `ssl=true`, and a query `host` override all
+ * resolve exactly as the driver resolves them. No socket is opened.
  */
-function readPostgresTarget(databaseUrl: string): PostgresTarget {
-  const url = new URL(databaseUrl)
-  const query = new Map<string, string>()
-  for (const [key, value] of url.searchParams.entries()) query.set(key, value)
-
-  const authority = url.hostname.replace(/^\[(.+)\]$/, '$1')
-  // `pg-connection-string` keeps the query value verbatim, and `searchParams`
-  // has already percent-decoded it once, so it is not decoded again here.
-  const host = query.get('host') ?? decodeURIComponent(authority)
-
-  let ssl: boolean | Record<string, unknown> | undefined
-  const sslParam = query.get('ssl')
-  if (sslParam === 'true' || sslParam === '1') ssl = true
-  if (sslParam === '0') ssl = false
-  // Any certificate option (or `sslmode` itself) engages SSL; the sslmode
-  // switch below can still turn it off.
-  if (
-    query.has('sslcert') ||
-    query.has('sslkey') ||
-    query.has('sslrootcert') ||
-    query.has('sslmode')
-  ) {
-    ssl = {}
-  }
-  if (query.get('sslnegotiation') === 'direct' && ssl === undefined) ssl = true
-
-  switch (query.get('sslmode')) {
-    case 'disable':
-      ssl = false
-      break
-    case 'no-verify':
-      ssl = { rejectUnauthorized: false }
-      break
-    default:
-      break
+function readPostgresTarget(url: URL): PostgresTarget {
+  assertNonEmptyTlsParameters(url)
+  if (url.searchParams.get('sslmode') === 'no-verify') {
+    throw new Error('AUTH_DATABASE_URL must not disable TLS certificate verification')
   }
 
-  return { host, ssl: Boolean(ssl) }
+  // `pg` parses the connection string in the Client constructor; reading its
+  // connection parameters is the effective configuration with no network.
+  const client = new Client({ connectionString: url.toString() })
+  const parameters = (
+    client as unknown as {
+      connectionParameters: {
+        host?: string
+        ssl?: boolean | { rejectUnauthorized?: boolean }
+      }
+    }
+  ).connectionParameters
+  const ssl = parameters.ssl
+  if (typeof ssl === 'object' && ssl !== null && ssl.rejectUnauthorized === false) {
+    throw new Error('AUTH_DATABASE_URL must not disable TLS certificate verification')
+  }
+  return { host: parameters.host ?? '', ssl: Boolean(ssl) }
 }
 
 export function normalizeTrustedTarget(value: string): string {
@@ -222,12 +221,13 @@ export function readBetterAuthConfig(environment: AuthEnvironment = process.env)
   if (!/^postgres(ql)?:\/\//.test(databaseUrl)) {
     throw new Error('AUTH_DATABASE_URL must be a postgres:// connection string')
   }
-  let target: PostgresTarget
+  let database: URL
   try {
-    target = readPostgresTarget(databaseUrl)
+    database = new URL(databaseUrl)
   } catch {
     throw new Error('AUTH_DATABASE_URL must be a valid URL')
   }
+  const target = readPostgresTarget(database)
   if (!isLocalDatabaseHost(target.host) && !target.ssl) {
     throw new Error(
       'AUTH_DATABASE_URL must require TLS (sslmode=require, verify-ca, or verify-full) outside loopback'
