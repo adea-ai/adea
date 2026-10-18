@@ -16,6 +16,9 @@ Worker setup, secrets, and caching.
   Requests for the unsupported root scripts `/wp-login.php` and `/xmlrpc.php`
   receive a small private/no-store 404 before document rendering. API paths,
   invitation paths and auth return targets retain their existing handlers.
+  Secret-store hydration still precedes this policy; the rejection avoids SSR,
+  not all upstream Worker work. HEAD returns the same status/private headers
+  with an empty body; GET and POST retain the small text response.
 - `src/start/routes/` holds the route tree: the root document, the auth
   documents, and every API route that previously lived in the Next app. API
   routes are ordinary `createFileRoute(...)` files with `server.handlers`

@@ -20,7 +20,7 @@
         "characters": 234
       }
     },
-    "deployedEntrySHA256": "f052b59478468a1b22c98a423974ade2415255771e2d994520eb5793d87196e6"
+    "currentScriptEntrySHA256": "f052b59478468a1b22c98a423974ade2415255771e2d994520eb5793d87196e6"
   },
   "method": {
     "runtime": "workerd1.20261012.1 via pinnedWrangler4.147.0; local-only fixtures",
@@ -136,7 +136,9 @@
       "apps/web/start/README.md"
     ],
     "behavior": "Only unsupported root /wp-login.php and /xmlrpc.php bypass document SSR with private/no-store404. Query strings do not expand matching; valid API paths/auth targets preserve handling.",
-    "addressesAuthenticatedSummaryOverruns": false
+    "addressesAuthenticatedSummaryOverruns": false,
+    "upstreamWorkRetained": "captureWorkerBindings, captureWaitUntil and hydrateSecretStoreBindings still run before rootDocumentPolicy; this avoids SSR, not all upstream work.",
+    "headContract": "HEAD returns null body with404/private headers. GET/POST retain9-byte Not found response. Earlier unit assertion requiring HEAD body was corrected after coordinator review; no wire-level leakage claim."
   },
   "productionTelemetryProvidedByCoordinator": {
     "rolling24hInvocations": 1186,
@@ -145,7 +147,8 @@
     "lastFailedRoute": "account/summary",
     "lastFailedVersion": "ff34a1a5-0309-47d5-9ad6-5c414b90e96d",
     "latestDeploymentRequests": 28,
-    "conclusion": "Sparse and non-comparable samples do not establish recovery or current deployment failure."
+    "conclusion": "Sparse and non-comparable samples do not establish recovery or current deployment failure.",
+    "asOf": "2026-10-18T15:20:00Z"
   },
   "remaining": [
     "Full deployed-bundle source provenance and representative signed-in provider flow.",

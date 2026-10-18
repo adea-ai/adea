@@ -170,7 +170,7 @@ describe('dynamic response policy', () => {
         assert.equal(response.status, 404)
         noStore(response)
         assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8')
-        assert.equal(await response.text(), 'Not found')
+        assert.equal(await response.text(), method === 'HEAD' ? '' : 'Not found')
       }
     }
   })

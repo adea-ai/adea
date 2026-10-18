@@ -32,7 +32,10 @@ export function rootDocumentPolicy(request) {
   // These legacy script probes otherwise enter the document renderer for its 404 page.
   // Match only these unsupported root paths; API filenames and auth return targets stay intact.
   if (pathname === '/wp-login.php' || pathname === '/xmlrpc.php') {
-    return failure(404, 'Not found')
+    const response = failure(404, 'Not found')
+    return request.method === 'HEAD'
+      ? new Response(null, { status: response.status, headers: response.headers })
+      : response
   }
   if (pathname === '/' && request.method !== 'GET' && request.method !== 'HEAD') {
     return failure(405, 'Method not allowed', 'GET, HEAD')
