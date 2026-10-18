@@ -313,7 +313,7 @@ describe('assistant events must fit one runtime-events-v1 frame', () => {
           input({
             runtimeSessionId,
             sourceEventId: `prior-${index}`,
-            kind: 'checkpoint.observed',
+            kind: 'run.ready',
             payload: {},
           })
         )
@@ -369,9 +369,7 @@ describe('assistant events must fit one runtime-events-v1 frame', () => {
     const exactAt99 = fillerFor(65_536, 98, 'session-1')
     withLog((log) => {
       for (let index = 0; index < 98; index += 1)
-        log.append(
-          input({ sourceEventId: `prior-${index}`, kind: 'checkpoint.observed', payload: {} })
-        )
+        log.append(input({ sourceEventId: `prior-${index}`, kind: 'run.ready', payload: {} }))
       const fits = maxIds({
         runtimeSessionId: 'session-1',
         payload: delta('a'.repeat(exactAt99)),
@@ -379,7 +377,7 @@ describe('assistant events must fit one runtime-events-v1 frame', () => {
       const stored = log.append(fits)!
       expect(stored.seq).toBe('99')
       expect(frame(stored)).toBe(65_536)
-      log.append(input({ sourceEventId: 'prior-98', kind: 'checkpoint.observed', payload: {} }))
+      log.append(input({ sourceEventId: 'prior-98', kind: 'run.ready', payload: {} }))
       // An exact retry after the cursor reached three digits is still ignored.
       expect(log.append(fits)).toBeUndefined()
       expect(log.latestSequence('session-1', 1)).toBe('100')

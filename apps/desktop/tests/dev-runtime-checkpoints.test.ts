@@ -245,6 +245,7 @@ describe('conversation checkpoint restore authority', () => {
       harnessRunId: 'other-run',
       generation: 1,
       sourceEventId: 'foreign-event',
+      classification: 'workspace_private',
       kind: 'checkpoint.observed',
       payload: s.checkpoint.payload,
     })!

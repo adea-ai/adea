@@ -7,6 +7,7 @@ import type {
   Scope,
   TerminalRecord,
 } from '@adea-ai/types/dev-runtime'
+import { decodeDevReply } from '@adea-ai/types/dev-runtime'
 import { devOperationMetadataFor_dev_terminal_list } from '@adea-ai/types/dev-runtime-operation-metadata'
 import { buildDevCommandFromMetadata } from '../browser/command-core'
 
@@ -73,8 +74,8 @@ export async function resolveSelectedTerminal(options: {
         (reply.value as { items: unknown[] }).items.length > 500
       )
         return unavailable('limit_exceeded')
-      // Keep reply validation lazy without delaying the first runtime read.
-      const { decodeDevReply } = await import('@adea-ai/types/dev-runtime')
+      // Keep a cancellation point before validation publishes a late reply.
+      await Promise.resolve()
       if (signal?.aborted) return unavailable('cancelled')
       const decoded = decodeDevReply(reply)
       if (!decoded.ok) return unavailable(decoded.error.code)
