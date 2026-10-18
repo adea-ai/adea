@@ -10,6 +10,7 @@ import {
   decodeRuntimeEnvelope,
   decodeRuntimeEvent,
   encodeCbor,
+  runtimeEventKinds,
 } from '../src/dev-runtime-wire'
 
 function event(overrides: Record<string, unknown> = {}) {
@@ -155,6 +156,27 @@ describe('cborByteLength', () => {
 })
 
 describe('lean envelope decoder', () => {
+  test('accepts every exported runtime event kind and rejects unknown kinds', () => {
+    for (const kind of runtimeEventKinds) {
+      const source = kind === 'queue.updated' ? 'host' : 'acp'
+      const payload =
+        kind === 'queue.updated'
+          ? {
+              schemaVersion: 1,
+              runtimeSessionId: 'session-1',
+              generation: 1,
+              version: 0,
+              change: 'enqueue',
+              items: [],
+            }
+          : {}
+      const classification = kind === 'queue.updated' ? 'workspace_metadata' : undefined
+      const value = event({ kind, source, payload, ...(classification ? { classification } : {}) })
+      expect(decodeRuntimeEnvelope(value, { source }).kind).toBe(kind)
+    }
+    expect(() => decodeRuntimeEnvelope(event({ kind: 'session.unknown' }), provenance)).toThrow()
+  })
+
   test('accepts a valid envelope without interpreting kind-specific payloads', () => {
     const malformedCall = event({ payload: { schemaVersion: 1, callId: 'call 1 with spaces' } })
     expect(() => decodeRuntimeEvent(malformedCall, provenance)).toThrow()
@@ -186,6 +208,25 @@ describe('lean envelope decoder', () => {
     ).toThrow()
   })
 
+  test('rejects malformed Unicode in envelope metadata, generic payload values and keys', () => {
+    expect(() => decodeRuntimeEnvelope(event({ eventId: 'event-\ud800' }), provenance)).toThrow(
+      'ill-formed Unicode'
+    )
+    expect(() =>
+      decodeRuntimeEnvelope(
+        event({ kind: 'turn.result', payload: { text: 'result-\ud800' } }),
+        provenance
+      )
+    ).toThrow('ill-formed Unicode')
+    const payloadWithMalformedKey = JSON.parse('{"bad\\ud800":"value"}')
+    expect(() =>
+      decodeRuntimeEnvelope(
+        event({ kind: 'turn.result', payload: payloadWithMalformedKey }),
+        provenance
+      )
+    ).toThrow('ill-formed Unicode')
+  })
+
   test('keeps the complete frame bound for versioned call claims, not for legacy payloads', () => {
     const data = { type: 'inline', value: ['x'.repeat(16_384), 'x'.repeat(16_377)] }
     const oversized = event({
@@ -208,7 +249,7 @@ describe('lean envelope decoder', () => {
     expect(decodeRuntimeEnvelope(legacy, provenance)).toBe(legacy)
   })
 
-  test('the browser entry bundle excludes every kind-specific validator', async () => {
+  test('the lean and browser queue decoder entries exclude every kind-specific validator and stay under the existing size ceiling', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'adea-envelope-'))
     try {
       const entry = join(directory, 'entry.ts')
@@ -221,6 +262,8 @@ describe('lean envelope decoder', () => {
       const result = await Bun.build({ entrypoints: [entry], minify: true, target: 'browser' })
       expect(result.success).toBe(true)
       const text = await result.outputs[0]!.text()
+      // The generic lean decoder stays small; browser stream and replay add
+      // their queue contract through decodeRuntimeBrowserEnvelope.
       // Interaction, attachment and any later contract validators belong behind
       // `eventSemantics` in dev-runtime-wire.ts; reaching them from the lean
       // decoder moves their bytes into the shared utility bundle.
@@ -230,10 +273,28 @@ describe('lean envelope decoder', () => {
         'maximum cited response',
         'duplicate source ID',
         'event.summary',
-        'ill-formed Unicode',
+        'queue facts require the authoritative host',
       ])
         expect(text).not.toContain(marker)
+      expect(text).toContain('ill-formed Unicode')
       expect(text.length).toBeLessThan(8_500)
+
+      const browserEntry = join(directory, 'browser-entry.ts')
+      writeFileSync(
+        browserEntry,
+        `import { decodeRuntimeBrowserEnvelope } from ${JSON.stringify(
+          resolve(import.meta.dir, '../src/dev-runtime-wire.ts')
+        )}\nglobalThis.browser = decodeRuntimeBrowserEnvelope\n`
+      )
+      const browserResult = await Bun.build({
+        entrypoints: [browserEntry],
+        minify: true,
+        target: 'browser',
+      })
+      expect(browserResult.success).toBe(true)
+      const browserText = await browserResult.outputs[0]!.text()
+      expect(browserText).toContain('queue facts require the authoritative host')
+      expect(browserText.length).toBeLessThan(8_500)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

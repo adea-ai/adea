@@ -121,7 +121,7 @@ export default defineConfig(({ command }) => ({
               groups: [
                 {
                   name: 'lazy-ui',
-                  test: /@adea-ai\/ui\/src\/components\/ui\/(label\/label|skeleton\/skeleton|status-chip\/status-chip)\.tsx$/,
+                  test: /@adea-ai\/ui\/src\/components\/ui\/(label\/label|skeleton\/skeleton|status-chip\/status-chip|badge\/badge|empty\/empty)\.tsx$/,
                   includeDependenciesRecursively: false,
                   minShareCount: 2,
                 },
