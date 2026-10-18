@@ -533,8 +533,8 @@ describe('persistence schema', () => {
       [[artifacts.taskId], [tasks.id], 'set null'],
       [[artifacts.agentId], [agents.id], 'set null'],
     ])
-    // Source and audience are distinct columns even though both target the
-    // same workspace identity. A swapped binding must not pass as equivalent.
+    // Source and audience both need independent workspace foreign keys;
+    // collapsing either reference onto the other column must fail.
     expectReferences(artifactReferenceGrants, [
       [[artifactReferenceGrants.sourceWorkspaceId], [workspaces.id], 'cascade'],
       [[artifactReferenceGrants.audienceWorkspaceId], [workspaces.id], 'cascade'],
