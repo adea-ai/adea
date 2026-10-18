@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { getTableConfig } from 'drizzle-orm/pg-core'
+import {
+  getTableConfig,
+  type AnyPgColumn,
+  type PgTable,
+  type UpdateDeleteAction,
+} from 'drizzle-orm/pg-core'
 
 import * as schemaIndex from '../../src/schema'
 
@@ -28,6 +33,40 @@ import {
   workspaceEvents,
   workspaces,
 } from '../../src/schema'
+
+type ReferenceContract = readonly [
+  columns: readonly AnyPgColumn[],
+  foreignColumns: readonly AnyPgColumn[],
+  onDelete: UpdateDeleteAction,
+]
+
+function expectReferences(table: PgTable, contracts: readonly ReferenceContract[]) {
+  // Drizzle clones source columns for table-level composite keys. Match their
+  // owning table by identity and ordered SQL names; referenced columns below
+  // must still be the exact exported identity objects.
+  const keys = getTableConfig(table).foreignKeys.map((key) => ({ key, reference: key.reference() }))
+  expect(keys).toHaveLength(contracts.length)
+  for (const [columns, foreignColumns, onDelete] of contracts) {
+    const matches = keys.filter(
+      ({ reference }) =>
+        reference.columns.length === columns.length &&
+        reference.columns.every(
+          (column, index) =>
+            column.table === columns[index]?.table && column.name === columns[index]?.name
+        )
+    )
+    expect(matches).toHaveLength(1)
+    const match = matches[0]
+    if (!match)
+      throw new Error(`Missing foreign key for ${columns.map(({ name }) => name).join(', ')}`)
+    expect(match.key.onDelete).toBe(onDelete)
+    expect(match.reference.foreignTable).toBe(foreignColumns[0]?.table)
+    expect(match.reference.foreignColumns).toHaveLength(foreignColumns.length)
+    foreignColumns.forEach((column, index) =>
+      expect(match.reference.foreignColumns[index]).toBe(column)
+    )
+  }
+}
 
 describe('persistence schema', () => {
   test('keeps foundational tables in the app schema', () => {
@@ -260,5 +299,356 @@ describe('persistence schema', () => {
       }
     }
     expect(found.toSorted()).toEqual(allowed.toSorted())
+  })
+  test('preserves conversation evidence while participant and mention rows follow deletion', () => {
+    expectReferences(channels, [
+      [[channels.workspaceId], [workspaces.id], 'cascade'],
+      [[channels.projectId], [projects.id], 'restrict'],
+      [[channels.agentId], [agents.id], 'set null'],
+      [[channels.taskId], [tasks.id], 'set null'],
+    ])
+    // Message bodies, senders and reply ancestors remain referenced evidence;
+    // deleting a Task only detaches its optional conversation association.
+    expectReferences(messages, [
+      [[messages.workspaceId], [workspaces.id], 'cascade'],
+      [[messages.channelId], [channels.id], 'restrict'],
+      [[messages.senderUserId], [users.id], 'restrict'],
+      [[messages.senderAgentId], [agents.id], 'restrict'],
+      [[messages.bodyContentRefId], [contentRefs.id], 'restrict'],
+      [[messages.threadRootMessageId], [messages.id], 'restrict'],
+      [[messages.replyToMessageId], [messages.id], 'restrict'],
+      [[messages.taskId], [tasks.id], 'set null'],
+    ])
+    expectReferences(channelParticipants, [
+      [[channelParticipants.workspaceId], [workspaces.id], 'cascade'],
+      [[channelParticipants.channelId], [channels.id], 'cascade'],
+      [[channelParticipants.userId], [users.id], 'cascade'],
+      [[channelParticipants.agentId], [agents.id], 'cascade'],
+    ])
+    expectReferences(messageMentions, [
+      [[messageMentions.workspaceId], [workspaces.id], 'cascade'],
+      [[messageMentions.messageId], [messages.id], 'cascade'],
+      [[messageMentions.userId], [users.id], 'cascade'],
+      [[messageMentions.agentId], [agents.id], 'cascade'],
+    ])
+    expectReferences(messageArtifactReferences, [
+      [[messageArtifactReferences.workspaceId], [workspaces.id], 'cascade'],
+      [[messageArtifactReferences.messageId], [messages.id], 'cascade'],
+      [[messageArtifactReferences.artifactId], [artifacts.id], 'restrict'],
+    ])
+  })
+
+  test('binds live group grants to principals while preserving quarantined principal provenance', () => {
+    const {
+      groupAdmissions,
+      groupAudienceGrants,
+      groupEnlistmentGrants,
+      groupSharingGrants,
+      legacyAudienceQuarantine,
+    } = schemaIndex
+    expectReferences(groupAudienceGrants, [
+      [[groupAudienceGrants.workspaceId], [workspaces.id], 'cascade'],
+      [[groupAudienceGrants.channelId], [channels.id], 'cascade'],
+      [[groupAudienceGrants.userId], [users.id], 'cascade'],
+    ])
+    expectReferences(groupEnlistmentGrants, [
+      [[groupEnlistmentGrants.workspaceId], [workspaces.id], 'cascade'],
+      [[groupEnlistmentGrants.channelId], [channels.id], 'cascade'],
+      [[groupEnlistmentGrants.agentId], [agents.id], 'cascade'],
+    ])
+    expectReferences(groupSharingGrants, [
+      [[groupSharingGrants.workspaceId], [workspaces.id], 'cascade'],
+      [[groupSharingGrants.channelId], [channels.id], 'cascade'],
+      [[groupSharingGrants.userId], [users.id], 'cascade'],
+      [[groupSharingGrants.agentId], [agents.id], 'cascade'],
+    ])
+    expectReferences(groupAdmissions, [
+      [[groupAdmissions.workspaceId], [workspaces.id], 'cascade'],
+      [[groupAdmissions.channelId], [channels.id], 'cascade'],
+      [[groupAdmissions.userId], [users.id], 'cascade'],
+      [[groupAdmissions.agentId], [agents.id], 'cascade'],
+    ])
+    // Exactly these two references: removing a former principal must not
+    // cascade away the quarantine evidence that keeps that audience denied.
+    expectReferences(legacyAudienceQuarantine, [
+      [[legacyAudienceQuarantine.workspaceId], [workspaces.id], 'cascade'],
+      [[legacyAudienceQuarantine.channelId], [channels.id], 'cascade'],
+    ])
+  })
+
+  test('keeps task creator, private objective and execution-node history attached to their identities', () => {
+    const { taskExecutionAttempts, runtimeNodes } = schemaIndex
+    expectReferences(tasks, [
+      [[tasks.workspaceId], [workspaces.id], 'cascade'],
+      [[tasks.creatorUserId], [users.id], 'restrict'],
+      [[tasks.agentId], [agents.id], 'set null'],
+      [[tasks.projectId], [projects.id], 'set null'],
+      [[tasks.objectiveContentRefId], [contentRefs.id], 'restrict'],
+    ])
+    expectReferences(taskDependencies, [
+      [[taskDependencies.workspaceId], [workspaces.id], 'cascade'],
+      [[taskDependencies.taskId], [tasks.id], 'cascade'],
+      [[taskDependencies.dependsOnTaskId], [tasks.id], 'cascade'],
+    ])
+    expectReferences(taskMutations, [
+      [[taskMutations.workspaceId], [workspaces.id], 'cascade'],
+      [[taskMutations.taskId], [tasks.id], 'cascade'],
+    ])
+    expectReferences(taskExecutionAttempts, [
+      [[taskExecutionAttempts.workspaceId], [workspaces.id], 'cascade'],
+      [[taskExecutionAttempts.taskId], [tasks.id], 'cascade'],
+      [[taskExecutionAttempts.runtimeNodeId], [runtimeNodes.id], 'restrict'],
+    ])
+  })
+
+  test('binds runtime credentials and delivery requests to the intended node and workspace', () => {
+    const {
+      runtimeNodes,
+      runtimeNodeKeys,
+      runtimeNodeChallenges,
+      runtimeNodeExchangeCredentials,
+      runtimeNodeDeliveryRequests,
+    } = schemaIndex
+    expectReferences(runtimeNodes, [
+      [[runtimeNodes.workspaceId], [workspaces.id], 'cascade'],
+      [[runtimeNodes.ownerUserId], [users.id], 'restrict'],
+    ])
+    expectReferences(runtimeNodeKeys, [
+      [[runtimeNodeKeys.runtimeNodeId], [runtimeNodes.id], 'cascade'],
+    ])
+    expectReferences(runtimeNodeChallenges, [
+      [[runtimeNodeChallenges.workspaceId], [workspaces.id], 'cascade'],
+      [[runtimeNodeChallenges.runtimeNodeId], [runtimeNodes.id], 'cascade'],
+      [[runtimeNodeChallenges.createdByUserId], [users.id], 'cascade'],
+    ])
+    expectReferences(runtimeNodeExchangeCredentials, [
+      [[runtimeNodeExchangeCredentials.workspaceId], [workspaces.id], 'cascade'],
+      [[runtimeNodeExchangeCredentials.challengeId], [runtimeNodeChallenges.id], 'cascade'],
+    ])
+    expectReferences(runtimeNodeDeliveryRequests, [
+      [[runtimeNodeDeliveryRequests.signingKeyId], [runtimeNodeKeys.id], 'no action'],
+      [
+        [runtimeNodeDeliveryRequests.workspaceId, runtimeNodeDeliveryRequests.runtimeNodeId],
+        [runtimeNodes.workspaceId, runtimeNodes.id],
+        'cascade',
+      ],
+    ])
+  })
+
+  test('scopes read cursors to their workspace, reader, conversation and thread ancestor', () => {
+    const { channelReadStates, threadReadStates } = schemaIndex
+    expectReferences(channelReadStates, [
+      [[channelReadStates.workspaceId], [workspaces.id], 'cascade'],
+      [[channelReadStates.userId], [users.id], 'cascade'],
+      [[channelReadStates.channelId], [channels.id], 'cascade'],
+    ])
+    expectReferences(threadReadStates, [
+      [[threadReadStates.workspaceId], [workspaces.id], 'cascade'],
+      [[threadReadStates.userId], [users.id], 'cascade'],
+      [[threadReadStates.channelId], [channels.id], 'cascade'],
+      [[threadReadStates.threadRootMessageId], [messages.id], 'cascade'],
+    ])
+  })
+
+  test('retains deletion authority, holds and executor evidence instead of cascading audit history', () => {
+    const {
+      retentionHolds,
+      retentionDeletionAuthorizations,
+      retentionCleanupReceipts,
+      retentionDeletionDispatches,
+      runtimeNodes,
+    } = schemaIndex
+    expectReferences(retentionHolds, [
+      [[retentionHolds.workspaceId], [workspaces.id], 'restrict'],
+      [[retentionHolds.placedByUserId], [users.id], 'restrict'],
+      [[retentionHolds.releasedByUserId], [users.id], 'restrict'],
+    ])
+    expectReferences(retentionDeletionAuthorizations, [
+      [[retentionDeletionAuthorizations.workspaceId], [workspaces.id], 'restrict'],
+      [[retentionDeletionAuthorizations.grantedByUserId], [users.id], 'restrict'],
+      [[retentionDeletionAuthorizations.revokedByUserId], [users.id], 'restrict'],
+    ])
+    expectReferences(retentionCleanupReceipts, [
+      [[retentionCleanupReceipts.workspaceId], [workspaces.id], 'restrict'],
+      [
+        [retentionCleanupReceipts.authorizationId],
+        [retentionDeletionAuthorizations.id],
+        'restrict',
+      ],
+      [
+        [retentionCleanupReceipts.workspaceId, retentionCleanupReceipts.runtimeNodeId],
+        [runtimeNodes.workspaceId, runtimeNodes.id],
+        'no action',
+      ],
+    ])
+    expectReferences(retentionDeletionDispatches, [
+      [[retentionDeletionDispatches.workspaceId], [workspaces.id], 'restrict'],
+      [
+        [retentionDeletionDispatches.authorizationId],
+        [retentionDeletionAuthorizations.id],
+        'restrict',
+      ],
+    ])
+  })
+  test('retains workspace and temporary-claim ownership while user credentials follow their account', () => {
+    const { authIdentities, desktopSessions, workspaceInvitations, workspaceDeletions } =
+      schemaIndex
+    expectReferences(workspaces, [[[workspaces.ownerUserId], [users.id], 'restrict']])
+    expectReferences(workspaceMemberships, [
+      [[workspaceMemberships.workspaceId], [workspaces.id], 'restrict'],
+      [[workspaceMemberships.userId], [users.id], 'restrict'],
+    ])
+    expectReferences(workspaceInvitations, [
+      [[workspaceInvitations.workspaceId], [workspaces.id], 'cascade'],
+      [[workspaceInvitations.invitedByUserId], [users.id], 'restrict'],
+      [[workspaceInvitations.acceptedByUserId], [users.id], 'restrict'],
+    ])
+    expectReferences(workspaceDeletions, [
+      [[workspaceDeletions.ownerUserId], [users.id], 'cascade'],
+    ])
+    expectReferences(temporaryUserSessions, [
+      [[temporaryUserSessions.userId], [users.id], 'restrict'],
+      [[temporaryUserSessions.claimedByUserId], [users.id], 'restrict'],
+    ])
+    expectReferences(authIdentities, [[[authIdentities.userId], [users.id], 'cascade']])
+    expectReferences(desktopAuthorizationCodes, [
+      [[desktopAuthorizationCodes.userId], [users.id], 'cascade'],
+    ])
+    expectReferences(desktopSessions, [[[desktopSessions.userId], [users.id], 'cascade']])
+  })
+
+  test('keeps physical content in its owning workspace and detaches optional project associations', () => {
+    const { projectMembers } = schemaIndex
+    expectReferences(contentRefs, [[[contentRefs.workspaceId], [workspaces.id], 'cascade']])
+    expectReferences(contentReplicas, [
+      [[contentReplicas.workspaceId], [workspaces.id], 'cascade'],
+      [
+        [contentReplicas.workspaceId, contentReplicas.contentRefId],
+        [contentRefs.workspaceId, contentRefs.id],
+        'cascade',
+      ],
+    ])
+    expectReferences(artifacts, [
+      [[artifacts.workspaceId], [workspaces.id], 'cascade'],
+      [[artifacts.taskId], [tasks.id], 'set null'],
+      [[artifacts.agentId], [agents.id], 'set null'],
+    ])
+    // Source and audience both need independent workspace foreign keys;
+    // collapsing either reference onto the other column must fail.
+    expectReferences(artifactReferenceGrants, [
+      [[artifactReferenceGrants.sourceWorkspaceId], [workspaces.id], 'cascade'],
+      [[artifactReferenceGrants.audienceWorkspaceId], [workspaces.id], 'cascade'],
+    ])
+    expectReferences(agents, [
+      [[agents.workspaceId], [workspaces.id], 'cascade'],
+      [[agents.projectId], [projects.id], 'set null'],
+    ])
+    expectReferences(projects, [[[projects.workspaceId], [workspaces.id], 'cascade']])
+    expectReferences(projectMembers, [
+      [[projectMembers.workspaceId], [workspaces.id], 'cascade'],
+      [[projectMembers.projectId], [projects.id], 'cascade'],
+      [[projectMembers.userId], [users.id], 'cascade'],
+    ])
+  })
+
+  test('keeps event dispatch and authority consumption workspace bound without cascading audit principals', () => {
+    const { workspaceEventDispatches, workspaceEventSequences, managementAuthorityConsumptions } =
+      schemaIndex
+    expectReferences(workspaceEvents, [[[workspaceEvents.workspaceId], [workspaces.id], 'cascade']])
+    expectReferences(workspaceEventSequences, [
+      [[workspaceEventSequences.workspaceId], [workspaces.id], 'cascade'],
+    ])
+    expectReferences(workspaceEventDispatches, [
+      [[workspaceEventDispatches.workspaceId], [workspaces.id], 'cascade'],
+      [[workspaceEventDispatches.eventId], [workspaceEvents.id], 'cascade'],
+    ])
+    expectReferences(commandOutbox, [[[commandOutbox.workspaceId], [workspaces.id], 'cascade']])
+    expectReferences(managementAuthorityConsumptions, [
+      [[managementAuthorityConsumptions.workspaceId], [workspaces.id], 'cascade'],
+    ])
+    // Audit and remote inbox provenance is stored without a cascading local
+    // principal relationship; deleting an account must not erase that record.
+    expectReferences(authorizationAuditRecords, [])
+    expectReferences(eventInbox, [])
+  })
+
+  test('retains admitted turn and published-message provenance when referenced principals are deleted', () => {
+    const { addressedAgentTurns, leadTurnIntents, leadTurnRuntime } = schemaIndex
+    expectReferences(addressedAgentTurns, [
+      [[addressedAgentTurns.workspaceId], [workspaces.id], 'restrict'],
+      [[addressedAgentTurns.channelId], [channels.id], 'restrict'],
+      [[addressedAgentTurns.triggerMessageId], [messages.id], 'restrict'],
+      [[addressedAgentTurns.agentId], [agents.id], 'restrict'],
+      [[addressedAgentTurns.addresserUserId], [users.id], 'restrict'],
+      [[addressedAgentTurns.responseMessageId], [messages.id], 'restrict'],
+      [[addressedAgentTurns.intentId], [leadTurnIntents.id], 'restrict'],
+    ])
+    expectReferences(leadTurnIntents, [
+      [[leadTurnIntents.workspaceId], [workspaces.id], 'restrict'],
+      [[leadTurnIntents.channelId], [channels.id], 'restrict'],
+      [[leadTurnIntents.messageId], [messages.id], 'restrict'],
+      [[leadTurnIntents.actorUserId], [users.id], 'restrict'],
+      [[leadTurnIntents.agentId], [agents.id], 'restrict'],
+    ])
+    expectReferences(leadTurnRuntime, [
+      [[leadTurnRuntime.intentId], [leadTurnIntents.id], 'restrict'],
+      [[leadTurnRuntime.publishedMessageId], [messages.id], 'restrict'],
+    ])
+  })
+
+  test('binds coordination revisions and citations to the exact plan, workspace, channel and revision', () => {
+    const { coordinationPlans, coordinationPlanRevisions, coordinationPlanCitations } = schemaIndex
+    expectReferences(coordinationPlans, [
+      [[coordinationPlans.workspaceId], [workspaces.id], 'restrict'],
+      [[coordinationPlans.channelId], [channels.id], 'restrict'],
+      [[coordinationPlans.createdByUserId], [users.id], 'restrict'],
+    ])
+    expectReferences(coordinationPlanRevisions, [
+      [[coordinationPlanRevisions.authorUserId], [users.id], 'restrict'],
+      [
+        [
+          coordinationPlanRevisions.planId,
+          coordinationPlanRevisions.workspaceId,
+          coordinationPlanRevisions.channelId,
+        ],
+        [coordinationPlans.id, coordinationPlans.workspaceId, coordinationPlans.channelId],
+        'restrict',
+      ],
+    ])
+    expectReferences(coordinationPlanCitations, [
+      [
+        [coordinationPlanCitations.planId, coordinationPlanCitations.revision],
+        [coordinationPlanRevisions.planId, coordinationPlanRevisions.revision],
+        'restrict',
+      ],
+    ])
+  })
+
+  test('keeps queued task, agent, runtime node and command references in the submission workspace', () => {
+    const { taskSubmissions, runtimeNodes } = schemaIndex
+    expectReferences(taskSubmissions, [
+      [[taskSubmissions.workspaceId], [workspaces.id], 'cascade'],
+      [[taskSubmissions.actorUserId], [users.id], 'restrict'],
+      [
+        [taskSubmissions.workspaceId, taskSubmissions.taskId],
+        [tasks.workspaceId, tasks.id],
+        'cascade',
+      ],
+      [
+        [taskSubmissions.workspaceId, taskSubmissions.agentId],
+        [agents.workspaceId, agents.id],
+        'no action',
+      ],
+      [
+        [taskSubmissions.workspaceId, taskSubmissions.runtimeNodeId],
+        [runtimeNodes.workspaceId, runtimeNodes.id],
+        'no action',
+      ],
+      [
+        [taskSubmissions.workspaceId, taskSubmissions.commandId],
+        [commandOutbox.workspaceId, commandOutbox.id],
+        'no action',
+      ],
+    ])
   })
 })
