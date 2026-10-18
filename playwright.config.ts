@@ -22,11 +22,13 @@ const baseURL =
 // The E2E web server boots the app, which needs a migrated database. CI and
 // local shells without DATABASE_URL fall back to the compose Postgres that
 // scripts/e2e-setup.mjs starts (same defaults as test-integration.mjs).
+const e2eDatabaseUrl =
+  process.env.DATABASE_URL ??
+  'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable'
 const e2eDatabaseEnvironment = process.env.DATABASE_URL
   ? {}
   : {
-      DATABASE_URL:
-        'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',
+      DATABASE_URL: e2eDatabaseUrl,
       DATABASE_URL_UNPOOLED:
         'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',
       DATABASE_MIGRATION_URL:
@@ -75,6 +77,13 @@ export default defineConfig({
         url: baseURL,
         reuseExistingServer: !process.env.CI && isolatedPort === undefined,
         timeout: 120_000,
-        env: { ...process.env, ...e2eDatabaseEnvironment },
+        env: {
+          ...process.env,
+          ...e2eDatabaseEnvironment,
+          // Local Hyperdrive otherwise keeps wrangler.jsonc's fixed port,
+          // splitting Worker requests from the Node fixture's test database.
+          // https://developers.cloudflare.com/hyperdrive/configuration/local-development/
+          CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: e2eDatabaseUrl,
+        },
       },
 })

@@ -1,7 +1,8 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 
-import { createGroupChannel, createMessage } from '../../../packages/db/src/conversations'
+import { createMessage } from '../../../packages/db/src/conversations'
+import { createGroupChannelFromSelection } from '../../../packages/db/src/group-grant-issuer'
 import { createDatabase, type DatabaseConnection } from '../../../packages/db/src/connection'
 import { createTask } from '../../../packages/db/src/tasks'
 import {
@@ -140,10 +141,15 @@ test.describe('the task board stays in the accessibility tree across sheet close
   }
 
   async function seedConversation(workspaceId: string, owner: Principal, title: string) {
-    return createGroupChannel(connection.db, workspaceId, owner, {
+    // Use the product's grant issuer so the creator has the live audience
+    // admission required by message reads and writes, not just a legacy row.
+    const { channel } = await createGroupChannelFromSelection(connection.db, workspaceId, owner, {
       idempotencyKey: `board-accessibility-${crypto.randomUUID()}`,
+      now: new Date().toISOString(),
+      selection: { agents: [], humans: [] },
       title,
     })
+    return channel
   }
 
   async function seedMessage(
@@ -182,7 +188,7 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await seedMessage(homeWorkspaceId, conversation.id, owner, 'Accessibility anchor.', task.id)
 
     await openSignedInApp(page)
-    const row = page.getByRole('button', { name: /Board Accessibility Lane/ })
+    const row = page.getByRole('button', { name: 'Board Accessibility Lane', exact: true })
     await expect(row).toBeVisible()
     await row.click()
     await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
@@ -369,7 +375,7 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await seedMessage(homeWorkspaceId, conversation.id, owner, 'Race anchor two.', second.id)
 
     await openSignedInApp(page)
-    const row = page.getByRole('button', { name: /Board Close Race Lane/ })
+    const row = page.getByRole('button', { name: 'Board Close Race Lane', exact: true })
     await expect(row).toBeVisible()
     await row.click()
     await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
@@ -436,7 +442,7 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await seedMessage(homeWorkspaceId, conversation.id, owner, 'Frame swap anchor.', task.id)
 
     await openSignedInApp(page)
-    await page.getByRole('button', { name: /Board Frame Swap Lane/ }).click()
+    await page.getByRole('button', { name: 'Board Frame Swap Lane', exact: true }).click()
     await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
     await page.getByRole('button', { name: `Task · ${TASK_TITLE}` }).click()
     const taskSheet = page.getByRole('dialog', { name: 'Edit task' })
@@ -491,7 +497,7 @@ test.describe('the task board stays in the accessibility tree across sheet close
     await seedMessage(homeWorkspaceId, conversation.id, owner, 'Leave anchor.', task.id)
 
     await openSignedInApp(page)
-    await page.getByRole('button', { name: /Board Leave Lane/ }).click()
+    await page.getByRole('button', { name: 'Board Leave Lane', exact: true }).click()
     await expect(page.getByRole('textbox', { name: 'Message' }).first()).toBeVisible()
     await page.getByRole('button', { name: `Task · ${TASK_TITLE}` }).click()
     const taskSheet = page.getByRole('dialog', { name: 'Edit task' })
