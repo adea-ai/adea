@@ -182,7 +182,30 @@ export function ChatView(props: ChatViewProps): JSX.Element {
       : (transcript().retention.newestSequence ??
         props.conversation.retention.newestSequence ??
         '0')
-    cursorRejected = false
+    // The refusal is spent only by an attachment that gets going: a failed open, or a handle
+    // that has already ended, leaves the next attempt starting from the beginning too.
+    let settled = false
+    // The one place a transcript state is judged, for the state a handle opens with and for
+    // every later one: an ended or stale stream is never shown as live.
+    const observe = (next: TranscriptAccumulator): boolean => {
+      setTranscript(next)
+      if (
+        next.availability.status !== 'stale_generation' &&
+        next.availability.status !== 'resync_required' &&
+        next.streamClosed === undefined
+      )
+        return false
+      cursorRejected = next.streamClosed?.cursorRejected === true || (!settled && cursorRejected)
+      detach()
+      setStreamState('disconnected')
+      if (next.streamClosed !== undefined && next.availability.status !== 'stale_generation')
+        setStreamError(
+          next.streamClosed.cursorRejected
+            ? 'The live stream was closed because the host refused its position. Reconnect to reload the latest events.'
+            : 'The live stream closed. Reconnect to continue.'
+        )
+      return true
+    }
     try {
       const handle = await model.openTranscript(runtimeSessionId, {
         fromSequence: resumeFrom,
@@ -200,29 +223,16 @@ export function ChatView(props: ChatViewProps): JSX.Element {
       // was open, whether or not anything was streaming.
       const unsubscribe = handle.subscribe((next) => {
         if (currentAttachment !== attachment) return
-        setTranscript(next)
         historyControl.refresh()
-        if (
-          next.availability.status === 'stale_generation' ||
-          next.availability.status === 'resync_required' ||
-          next.streamClosed !== undefined
-        ) {
-          cursorRejected = next.streamClosed?.cursorRejected === true
-          detach()
-          setStreamState('disconnected')
-          if (next.streamClosed !== undefined && next.availability.status !== 'stale_generation')
-            setStreamError(
-              next.streamClosed.cursorRejected
-                ? 'The live stream was closed because the host refused its position. Reconnect to reload the latest events.'
-                : 'The live stream closed. Reconnect to continue.'
-            )
-        }
+        observe(next)
       })
       closeStream = () => {
         unsubscribe()
         handle.close()
       }
-      setTranscript(handle.state())
+      if (observe(handle.state())) return
+      settled = true
+      cursorRejected = false
       historyControl.attach(handle)
       setStreamState('connected')
     } catch (error) {

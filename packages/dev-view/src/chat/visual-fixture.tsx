@@ -495,11 +495,15 @@ function closableModel(): Pick<ChatConversationModel, 'openTranscript' | 'send' 
     openTranscript: async (_runtimeSessionId, options) => {
       const opens = ((window as unknown as { chatStreamOpens?: string[] }).chatStreamOpens ??= [])
       opens.push(options?.fromSequence ?? '')
+      // `chatStreamScript` scripts the next opens: `fail` rejects, `closed` returns a handle
+      // that ended before anyone subscribed, `refused` one the host ended by refusing the cursor.
+      const script = (window as unknown as { chatStreamScript?: string[] }).chatStreamScript
+      const step = script?.shift() ?? 'ok'
+      if (step === 'fail') throw new Error('Runtime stream unavailable.')
       let state = createTranscriptAccumulator({ runtimeSessionId: sessionId, generation: 3 })
       for (const item of transcriptEvents) state = acceptRuntimeEvent(state, item)
       const listeners = new Set<(state: TranscriptAccumulator) => void>()
-      const onClose = (closeEvent: Event) => {
-        const detail = (closeEvent as CustomEvent<{ code: string; error?: string }>).detail
+      const end = (detail: { code: string; error?: string }) => {
         if (detail.error !== undefined)
           state = acceptRuntimeStreamFrame(
             state,
@@ -520,6 +524,10 @@ function closableModel(): Pick<ChatConversationModel, 'openTranscript' | 'send' 
         )
         for (const listener of listeners) listener(state)
       }
+      const onClose = (closeEvent: Event) =>
+        end((closeEvent as CustomEvent<{ code: string; error?: string }>).detail)
+      if (step === 'closed') end({ code: 'normal' })
+      if (step === 'refused') end({ code: 'incompatible', error: 'sequence_gap' })
       window.addEventListener('chat-visual:close', onClose)
       return {
         state: () => state,

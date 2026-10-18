@@ -483,6 +483,44 @@ describe('tool and subagent calls', () => {
       expect(inputText([...filler, 'sk-', 'abcdefghij'])).toContain('withheld')
     })
 
+    test('a secret spelled across nested keys is withheld', () => {
+      const text = inputText({ note: 0, 'sk-': { abcd: { efgh: '' } } })
+      expect(text).toContain('withheld')
+      expect(text).not.toContain('efgh')
+    })
+
+    test('a secret spelled across keys and values, in any mix, is withheld', () => {
+      expect(inputText({ lead: 'x', 'sk-': { abcdefgh: 1 } })).toContain('withheld')
+      expect(inputText({ a: 1, b: ['Bearer ', { token123: true }] })).toContain('withheld')
+      expect(inputText([{ 'sk-abcd': { efgh: null } }])).toContain('withheld')
+    })
+
+    test('whitespace padding cannot hide a secret from the scan', () => {
+      const padded = inputText(['note', `Bearer${' '.repeat(600)}`, 'abcd12345678'])
+      expect(padded).toContain('withheld')
+      expect(padded).not.toContain('abcd12345678')
+      const spread = inputText([
+        'note',
+        'Bearer',
+        ...Array.from({ length: 200 }, () => ' '),
+        'abcd1234',
+      ])
+      expect(spread).toContain('withheld')
+      const empty = inputText([
+        'note',
+        'sk-',
+        ...Array.from({ length: 200 }, () => ''),
+        'abcdefghij',
+      ])
+      expect(empty).toContain('withheld')
+    })
+
+    test('a withheld credential value does not join the keys around it', () => {
+      const text = inputText({ api_key: 'abc', max_tokens_per_request: 100, mode: 'plain' })
+      expect(text).not.toContain('withheld')
+      expect(text).toContain('max_tokens_per_request')
+    })
+
     test('ordinary fragments stay readable', () => {
       const text = inputText(['note', 'skate', 12345678, 'ask-me-later'])
       expect(text).not.toContain('withheld')

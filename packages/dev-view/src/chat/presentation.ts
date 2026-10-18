@@ -287,40 +287,65 @@ const JOINED_SECRET =
 /** Most fragments, and most characters, read together from one candidate start. */
 const JOIN_FRAGMENTS = 64
 const JOIN_CHARACTERS = 512
+/**
+ * `barrier` marks where a credential-named key's value was withheld: what is read on
+ * either side of it was never adjacent text, so no reading crosses it.
+ */
+type Fragment = Readonly<{ text: string; key: boolean; barrier?: boolean }>
 
-type Fragment = Readonly<{ text: string; key: boolean }>
-
-const readFrom = (fragments: readonly string[], start: number) =>
-  fragments
-    .slice(start, start + JOIN_FRAGMENTS)
-    .join('')
-    .slice(0, JOIN_CHARACTERS)
+/**
+ * Reads the fragments from `start` as one text. Whitespace runs collapse to one space and
+ * a fragment left empty costs nothing, so padding cannot use up the budget; the reading
+ * ends at a barrier or at the fragment or character cap. A secret needs only a few
+ * characters from its own start, so a reading that is cut at its cap has either shown
+ * a match already or was never going to: a later start covers anything that begins
+ * further along.
+ */
+function readFragments(fragments: readonly Fragment[], start: number, valuesOnly: boolean): string {
+  let text = ''
+  let used = 0
+  for (let index = start; index < fragments.length; index += 1) {
+    const fragment = fragments[index]!
+    if (fragment.barrier) break
+    if (valuesOnly && fragment.key) continue
+    let piece = fragment.text.replace(/\s+/g, ' ')
+    if (text.endsWith(' ') && piece.startsWith(' ')) piece = piece.slice(1)
+    if (piece === '') continue
+    if (used >= JOIN_FRAGMENTS || text.length >= JOIN_CHARACTERS) break
+    used += 1
+    text += piece.slice(0, JOIN_CHARACTERS - text.length)
+  }
+  return text
+}
 
 /**
  * Whether the scalar fragments of a value, read in order, spell a secret. The pattern
  * needs a word boundary before `sk-` and the like, so an ordinary word in the fragment
  * just before the secret's start would hide it from one scan over the whole list.
- * Every fragment start is a candidate start: read from there, that fragment is at the
- * front of the text with its own boundary. Three readings, each bounded so the work
- * stays linear in the number of fragments: the values alone (a key between two
- * fragments does not separate them), the whole list with keys read in, and each key
- * followed by the values after it (a fragment may be a key; other keys are names, not
- * part of the secret).
+ * Every fragment, key or value, is a candidate start: read from there, it is at the
+ * front of the text with its own boundary. Between barriers, three readings: the whole
+ * run (for a secret that starts inside a long fragment), every start with the keys read
+ * in, and every start with the keys left out (a key between two values does not
+ * separate them).
  */
 export function secretAcrossFragments(fragments: readonly Fragment[]): boolean {
-  const values = fragments.filter((fragment) => !fragment.key).map((fragment) => fragment.text)
-  if (JOINED_SECRET.test(values.join(''))) return true
-  if (JOINED_SECRET.test(fragments.map((fragment) => fragment.text).join(''))) return true
-  for (let start = 0; start < values.length; start += 1)
-    if (JOINED_SECRET.test(readFrom(values, start))) return true
-  for (let index = 0; index < fragments.length; index += 1) {
-    const fragment = fragments[index]!
-    if (!fragment.key) continue
-    const following = fragments
-      .slice(index + 1)
-      .filter((entry) => !entry.key)
-      .map((entry) => entry.text)
-    if (JOINED_SECRET.test(readFrom([fragment.text, ...following], 0))) return true
+  const segments: Fragment[][] = [[]]
+  for (const fragment of fragments) {
+    if (fragment.barrier) segments.push([])
+    else segments.at(-1)!.push(fragment)
+  }
+  for (const segment of segments) {
+    if (JOINED_SECRET.test(segment.map((fragment) => fragment.text).join(''))) return true
+    const values = segment
+      .filter((fragment) => !fragment.key)
+      .map((fragment) => fragment.text)
+      .join('')
+    if (JOINED_SECRET.test(values)) return true
+    for (let start = 0; start < segment.length; start += 1) {
+      if (JOINED_SECRET.test(readFragments(segment, start, false))) return true
+      if (!segment[start]!.key && JOINED_SECRET.test(readFragments(segment, start, true)))
+        return true
+    }
   }
   return false
 }
@@ -368,7 +393,10 @@ function scrubCallValue(value: unknown): {
     const out: Record<string, unknown> = {}
     for (const [key, entry] of Object.entries(node)) {
       const safeKey = text(key, true)
-      out[safeKey] = SENSITIVE_KEY.test(key) ? '[secret redacted]' : walk(entry, depth + 1)
+      if (SENSITIVE_KEY.test(key)) {
+        fragments.push({ text: '', key: false, barrier: true })
+        out[safeKey] = '[secret redacted]'
+      } else out[safeKey] = walk(entry, depth + 1)
     }
     return out
   }

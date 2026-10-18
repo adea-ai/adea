@@ -1105,6 +1105,12 @@ const close = (page: Page, detail: { code: string; error?: string }) =>
     detail
   )
 
+const script = (page: Page, steps: readonly string[]) =>
+  page.addInitScript((value) => {
+    ;(window as unknown as { chatStreamScript?: string[] }).chatStreamScript = [...value]
+  }, steps)
+const reconnect = (page: Page) => page.getByRole('button', { name: 'Reconnect transcript' })
+
 test.describe('a stream that ends is not shown as live', () => {
   test('an ordinary close says disconnected and reconnects from where it was', async ({ page }) => {
     const errors = trackPageErrors(page)
@@ -1143,6 +1149,55 @@ test.describe('a stream that ends is not shown as live', () => {
     await page.getByRole('button', { name: 'Reconnect transcript' }).click()
     await expect.poll(async () => (await opens(page)).length).toBe(3)
     expect((await opens(page))[2]).not.toBe('0')
+  })
+
+  test('a handle that has already ended when it is returned is not shown as live', async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page)
+    await script(page, ['closed'])
+    await openCanvas(page, 'stream-close')
+    await expect(status(page)).toHaveText(/Disconnected/)
+    await expect(status(page)).not.toHaveText(/Live/)
+    await expect(page.getByText('The live stream closed. Reconnect to continue.')).toBeVisible()
+    await reconnect(page).click()
+    await expect(status(page)).toHaveText(/Live/)
+    expect(await opens(page)).toHaveLength(2)
+    expect(errors).toEqual([])
+  })
+
+  test('a returned handle that ended on a refused cursor recovers from the beginning', async ({
+    page,
+  }) => {
+    await script(page, ['ok', 'refused', 'ok'])
+    await openCanvas(page, 'stream-close')
+    await expect(status(page)).toHaveText(/Live/)
+    await close(page, { code: 'normal' })
+    await reconnect(page).click()
+    await expect(status(page)).toHaveText(/Disconnected/)
+    await expect(page.getByText(/host refused its position/)).toBeVisible()
+    await reconnect(page).click()
+    await expect(status(page)).toHaveText(/Live/)
+    const opened = await opens(page)
+    expect(opened).toHaveLength(3)
+    expect(opened[1]).not.toBe('0')
+    expect(opened[2]).toBe('0')
+  })
+
+  test('a recovery that fails to open keeps asking from the beginning', async ({ page }) => {
+    await script(page, ['ok', 'fail', 'fail', 'ok'])
+    await openCanvas(page, 'stream-close')
+    await expect(status(page)).toHaveText(/Live/)
+    await close(page, { code: 'incompatible', error: 'sequence_gap' })
+    await reconnect(page).click()
+    await expect(page.getByText('Runtime stream unavailable.')).toBeVisible()
+    await reconnect(page).click()
+    await expect(page.getByText('Runtime stream unavailable.')).toBeVisible()
+    await reconnect(page).click()
+    await expect(status(page)).toHaveText(/Live/)
+    const opened = await opens(page)
+    expect(opened).toHaveLength(4)
+    expect(opened.slice(1)).toEqual(['0', '0', '0'])
   })
 })
 

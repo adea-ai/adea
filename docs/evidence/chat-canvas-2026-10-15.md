@@ -39,7 +39,9 @@ The shared components live in `adea-ai/ui` (coverage matrix:
   hide a Windows path or a token with a control character from the patterns), a
   credential-named key withholds its value, and a secret that only forms across
   fields withholds the whole value; numbers and booleans count as fragments, and a
-  fragment in a key or between keys is joined too. Terminal chunks are ordered by
+  fragment in a key or between keys is joined too: every key and value is a candidate
+  start, read with whitespace collapsed and empty fragments free, so padding cannot use
+  up the budget. A withheld credential value is a barrier no reading crosses. Terminal chunks are ordered by
   sequence within their own stream (`stdout`, `stderr`, `combined`), joined, stripped of
   control sequences and redacted once, so a secret split across chunks or hidden in
   an escape sequence is still redacted; output after the finish still extends the
@@ -70,7 +72,11 @@ The shared components live in `adea-ai/ui` (coverage matrix:
   recorded, and so is a transport close. The chat leaves "Live", says Disconnected
   (with the host's reason for anything but a stale generation) and reconnects; when
   the cursor was refused (an `incompatible` close, or a close after a `sequence_gap` or
-  `resync_required` error) it reconnects without the rejected `newestSequence`.
+  `resync_required` error) it reconnects without the rejected `newestSequence`. The state
+  a handle opens with is judged by the same logic as every later one, so a handle that
+  ended before anyone subscribed is never shown as live, and the refusal is spent only by
+  an attachment that gets going: a recovery that fails to open, or opens already ended,
+  asks from the beginning again.
 - **Interactions are checked as events.** An approval or question is drawn only after
   `decodeRuntimeEvent` accepts the whole event (authoritative provenance, private
   classification, a harness run), not just its payload; an assistant message is keyed
