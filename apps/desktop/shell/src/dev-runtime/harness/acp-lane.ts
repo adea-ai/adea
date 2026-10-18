@@ -140,6 +140,7 @@ export type StoredAcpConnection = Readonly<{
 }>
 
 export type AcpLaneInput = {
+  assertSessionInputAvailable?: (runtimeSessionId: string) => void
   scope: DevScope
   dataDir: string
   driver: AcpLaneDriver
@@ -597,6 +598,7 @@ export function createAcpLane(input: AcpLaneInput): AcpLane {
           code: 'delivery_ambiguous',
           message: 'prompt delivery was cancelled before handoff',
         }
+      input.assertSessionInputAvailable?.(deliverInput.runtimeSessionId)
       const result = await input.driver.deliverPrompt({
         connectionId: record.id,
         processIdentity: record.processIdentity ?? record.id,
