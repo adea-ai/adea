@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.97.0](https://github.com/adea-ai/adea/compare/v0.96.0...v0.97.0) (2026-10-18)
+
+
+### Features
+
+* **workspace-ui:** mount the self-hosted pane in Workspace Details ([#188](https://github.com/adea-ai/adea/issues/188)) ([#1461](https://github.com/adea-ai/adea/issues/1461)) ([3db98b2](https://github.com/adea-ai/adea/commit/3db98b2b5b96190776f28bb99b4f4366ec5abf00))
+
 ## [0.96.0](https://github.com/adea-ai/adea/compare/v0.95.0...v0.96.0) (2026-10-18)
 
 ### Release scope and known limitations
