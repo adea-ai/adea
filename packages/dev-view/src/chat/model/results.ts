@@ -36,13 +36,38 @@ export type ChatResultFailure = Readonly<{
   name?: string
   testId?: string
   frames: readonly Readonly<{
-    label: string
+    functionName?: string
+    /** A worktree-relative path or an HTTPS address, as the producer observed it. */
+    location?: string
     line?: number
     column?: number
     native?: boolean
   }>[]
   raw?: string
 }>
+
+/** The stack as text for the shared StackTrace: the producer's own text, else one line per frame. */
+export function stackText(failure: ChatResultFailure): string | undefined {
+  if (failure.raw !== undefined) return failure.raw
+  if (failure.frames.length === 0) return undefined
+  return failure.frames
+    .map((frame) => {
+      const place =
+        frame.location === undefined
+          ? frame.native === true
+            ? 'native'
+            : undefined
+          : `${frame.location}${frame.line !== undefined ? `:${frame.line}` : ''}${
+              frame.line !== undefined && frame.column !== undefined ? `:${frame.column}` : ''
+            }`
+      if (frame.functionName !== undefined)
+        return place === undefined
+          ? `    at ${frame.functionName}`
+          : `    at ${frame.functionName} (${place})`
+      return `    at ${place ?? '<anonymous>'}`
+    })
+    .join('\n')
+}
 
 export type ChatWorkItem = Readonly<{
   id: string
@@ -94,6 +119,7 @@ export type ChatTestRunResult = Readonly<{
     status: ChatResultStatus
     suiteId?: string
     durationMs?: number
+    failureIds?: readonly string[]
   }>[]
   failures: readonly ChatResultFailure[]
   complete?: boolean
@@ -181,6 +207,18 @@ export function resultSettled(result: ChatResult): boolean {
 }
 
 export const TERMINAL_TEXT_LIMIT = 16_384
+
+// Terminal control sequences are removed before redaction, not after: a control
+// byte or an escape sequence inserted inside a token would otherwise split it
+// from the pattern that recognises a secret, and the display filter would then
+// delete the break and show the token whole.
+const TERMINAL_CONTROLS =
+  // oxlint-disable-next-line no-control-regex
+  /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g
+
+export function stripTerminalControls(text: string): string {
+  return text.replace(TERMINAL_CONTROLS, '')
+}
 const MESSAGE_LIMIT = 2_048
 const NAME_LIMIT = 256
 const PATH_LIMIT = 512
@@ -217,18 +255,12 @@ function failureOf(
     testId: record.testId,
     frames: (record.stack?.frames ?? []).map((frame) =>
       definite({
-        label: redact(
-          [
-            frame.functionName,
-            frame.path ?? frame.url,
-            frame.native === true && frame.path === undefined && frame.url === undefined
-              ? '[native]'
-              : undefined,
-          ]
-            .filter((part) => part !== undefined)
-            .join(' ') || '[native]',
-          PATH_LIMIT
-        ),
+        functionName:
+          frame.functionName === undefined ? undefined : redact(frame.functionName, PATH_LIMIT),
+        location:
+          frame.path === undefined && frame.url === undefined
+            ? undefined
+            : redact((frame.path ?? frame.url) as string, PATH_LIMIT),
         line: frame.line,
         column: frame.column,
         native: frame.native,
@@ -265,7 +297,7 @@ export function projectActivityResult(
   switch (kind) {
     case 'terminal.output': {
       const p = payload as RuntimeActivityPayloads['terminal.output']
-      const text = redact(p.text ?? '', TERMINAL_TEXT_LIMIT, true)
+      const text = redact(stripTerminalControls(p.text ?? ''), TERMINAL_TEXT_LIMIT, true)
       return definite({
         type: 'terminal' as const,
         terminalId: p.terminalId,
@@ -302,6 +334,7 @@ export function projectActivityResult(
             status: test.status,
             suiteId: test.suiteId,
             durationMs: test.durationMs,
+            failureIds: test.failureIds,
           })
         ),
         failures: (p.failures ?? []).map((failure) => failureOf(failure, redact)),

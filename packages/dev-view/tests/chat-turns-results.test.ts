@@ -151,6 +151,20 @@ describe('structured results', () => {
     expect(shown).toContain('[private path]')
   })
 
+  test('an escape sequence cannot hide a secret from redaction', () => {
+    const { turns } = build([
+      prompt('u1'),
+      chunk('k1', 1, 'key sk-abcd\u001b[0mefgh12345678 \u001b]0;title\u0007done\n'),
+    ])
+    const result = results(turns[0]!.entries)[0]?.result
+    const shown = result?.type === 'terminal' ? result.text : ''
+    expect(shown).not.toContain('efgh12345678')
+    expect(shown).toContain('[secret redacted]')
+    expect(shown).toContain('done')
+    expect(shown).not.toContain('title')
+    expect(shown).not.toContain('[0m')
+  })
+
   test('output past the display bound keeps its start and says that later output is not shown', () => {
     const { turns } = build([
       prompt('u1'),
@@ -224,7 +238,7 @@ describe('structured results', () => {
       failures: [
         {
           message: 'expected 2, got 3',
-          frames: [{ label: 'subtract src/math.ts', line: 7, column: 3 }],
+          frames: [{ functionName: 'subtract', location: 'src/math.ts', line: 7, column: 3 }],
         },
       ],
     })

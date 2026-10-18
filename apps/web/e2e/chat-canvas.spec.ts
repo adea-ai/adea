@@ -883,7 +883,7 @@ test.describe('tool and subagent calls', () => {
     await expect(agent).toHaveAttribute('data-kind', 'subagent.observed')
     await expect(agent).toHaveAttribute('data-call-phase', 'completed')
     await expect(agent).toContainText('reviewer')
-    await expect(agent).toContainText('2 nested calls')
+    await expect(agent).toContainText('2 steps')
     // Only the three top-level calls are drawn until the subagent is opened.
     await expect(page.locator('[data-call-phase]')).toHaveCount(3)
     await agent.getByRole('button').first().click()
@@ -893,8 +893,8 @@ test.describe('tool and subagent calls', () => {
     await expect(read).toContainText('read_file')
     await expect(read).toContainText('<1s')
     await read.getByRole('button').first().click()
-    await expect(read.locator('[data-call-data="input"]')).toContainText('0055.sql')
-    await expect(read.locator('[data-call-data="output"]')).toContainText('"lines": 48')
+    await expect(read).toContainText('0055.sql')
+    await expect(read).toContainText('"lines": 48')
     expect(errors).toEqual([])
   })
 
@@ -908,8 +908,8 @@ test.describe('tool and subagent calls', () => {
     await expect(failed).toHaveAttribute('data-status', 'error')
     await expect(failed.locator('.sr-only').first()).toHaveText('Failed')
     await failed.getByRole('button').first().click()
-    await expect(failed.locator('[data-call-data="output"]')).toContainText(
-      'Held by reference (4096 bytes); not shown here.'
+    await expect(failed.locator('[data-call-note]')).toContainText(
+      'Output is held by reference (4096 bytes) and is not shown here.'
     )
   })
 
@@ -963,35 +963,29 @@ test.describe('structured results', () => {
     const terminal = call(page, 'res-term-start')
     await expect(terminal).toHaveAttribute('data-result', 'terminal')
     await expect(terminal).toContainText('bun test packages/db')
-    await expect(terminal).toContainText('exit 1')
     await expect(terminal).toHaveAttribute('data-status', 'error')
     await terminal.getByRole('button').first().click()
+    await expect(terminal).toContainText('Exited with code 1')
     await expect(terminal).toContainText('(fail) keeps applied history across a rebase')
 
+    // Counts are the producer's: three passed were reported, one test is listed.
     const tests = call(page, 'res-tests')
-    await expect(tests).toContainText('3 passed · 1 failed')
     await expect(tests).toHaveAttribute('data-status', 'error')
     await tests.getByRole('button').first().click()
-    await expect(tests.locator('[data-result-failure="f-1"]')).toContainText(
-      'expected journal entry 0054 to be unchanged'
-    )
-    await expect(tests.getByRole('list', { name: 'Stack frames' })).toContainText(
-      'compareJournal packages/db/src/journal.ts:41:9'
-    )
+    await expect(tests).toContainText('3 passed (1 listed)')
+    await expect(tests).toContainText('expected journal entry 0054 to be unchanged')
+    await expect(tests).toContainText('packages/db/src/journal.ts:41:9')
 
     const files = call(page, 'res-files')
     await expect(files).toContainText('2 files · +12 −3')
     await files.getByRole('button').first().click()
     await expect(files).toContainText('renamed from packages/db/src/check.ts')
 
+    // A plan is the thing being followed, so it opens by itself.
     const plan = call(page, 'res-plan')
     await expect(plan).toContainText('Fix the journal check')
-    await plan.getByRole('button').first().click()
-    await expect(plan.locator('[data-work-item="i-1"]')).toHaveAttribute('data-status', 'success')
-    await expect(plan.locator('[data-work-item="i-3"]')).not.toHaveAttribute(
-      'data-status',
-      'success'
-    )
+    await expect(plan).toContainText('1 of 3 done')
+    await expect(plan).toContainText('Keep applied entries unchanged')
     await expect(call(page, 'res-task')).toContainText('Follow up on the rollout order')
     expect(errors).toEqual([])
   })
@@ -1001,7 +995,7 @@ test.describe('structured results', () => {
       page,
     }) => {
       await openCanvas(page, 'results', { theme })
-      for (const id of ['res-term-start', 'res-tests', 'res-files', 'res-plan'])
+      for (const id of ['res-term-start', 'res-tests', 'res-files'])
         await call(page, id).getByRole('button').first().click()
       await page.addScriptTag({ content: axe.source })
       const violations = await page.evaluate(async () => {

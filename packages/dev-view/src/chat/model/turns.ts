@@ -72,6 +72,7 @@ import {
 import {
   resultIdentity,
   resultSettled,
+  stripTerminalControls,
   TERMINAL_TEXT_LIMIT,
   type ChatResult,
   type ChatTerminalResult,
@@ -265,7 +266,9 @@ type ResultState = {
 }
 
 function terminalDisplay(state: ResultState, next: ChatTerminalResult): ChatTerminalResult {
-  const shown = redactDisplay(state.raw, TERMINAL_TEXT_LIMIT, { layout: true })
+  const shown = redactDisplay(stripTerminalControls(state.raw), TERMINAL_TEXT_LIMIT, {
+    layout: true,
+  })
   return {
     ...next,
     text: shown.text,
