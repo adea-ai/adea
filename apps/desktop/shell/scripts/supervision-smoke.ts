@@ -54,6 +54,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve as resolvePath } from 'node:path'
+import { resolveSmokeAppBundle } from './smoke-app-bundle'
 
 import {
   BUN_INSTALL_LABEL,
@@ -1019,12 +1020,16 @@ async function main(): Promise<number> {
   // fallback, never packaged evidence.
   const explicitBundle = argValue('--app-bundle')
   const artifactPath = argValue('--artifact')
-  const appBundle =
+  const detectedBundle =
     explicitBundle ??
     findAppBundle(join(HERE, '..', 'build')) ??
     findAppBundle(join(HERE, '..', '..', '..', 'apps', 'desktop', 'shell', 'build'))
-  if (appBundle) {
+  let cleanupBundle: (() => void) | undefined
+  if (detectedBundle) {
     try {
+      const installed = await resolveSmokeAppBundle(detectedBundle)
+      cleanupBundle = installed.cleanup
+      const appBundle = installed.appBundle
       const packaged = resolvePackagedComponents(appBundle)
       mode = { name: 'packaged', appBundle, packaged }
       // Absorb the OS's one-time first-exec verification of the freshly
@@ -1032,6 +1037,7 @@ async function main(): Promise<number> {
       const warm = Bun.spawnSync([appBundle + '/Contents/MacOS/bun', '--version'])
       if (warm.exitCode !== 0) throw new Error('the bundled Bun runtime failed to execute')
     } catch (error) {
+      cleanupBundle?.()
       console.error(
         'supervision-smoke: the app bundle was found but its packaged manifest failed resolution:',
         error instanceof Error ? error.message : error
@@ -1041,59 +1047,63 @@ async function main(): Promise<number> {
   } else {
     mode = { name: 'dev-fallback', appBundle: null, packaged: null }
   }
-  console.log(
-    `MODE: ${mode.name}${mode.appBundle ? ` (${mode.appBundle})` : ' (dev stand-in sidecar entry — not packaged evidence)'}`
-  )
+  try {
+    console.log(
+      `MODE: ${mode.name}${mode.appBundle ? ` (${mode.appBundle})` : ' (dev stand-in sidecar entry — not packaged evidence)'}`
+    )
 
-  if (mode.packaged) await proof0InstallLocationResolution(mode.packaged.identity)
-  currentProof = 'proof-1-launch-record-identity'
-  await proof1LaunchRecordIdentity()
-  currentProof = 'proof-2-observed-exit'
-  await proof2ObservedExit()
-  currentProof = 'proof-3-sigkill-escalation'
-  await proof3SigkillEscalation()
-  currentProof = 'proof-4-reconcile-after-restart'
-  await proof4ReconcileAfterRestart()
-  currentProof = 'proof-5-live-events-crash-storm'
-  await proof5LiveEventsCrashStorm()
-  currentProof = 'proof-6-managed-pi-component'
-  await proof6ManagedPiComponent()
+    if (mode.packaged) await proof0InstallLocationResolution(mode.packaged.identity)
+    currentProof = 'proof-1-launch-record-identity'
+    await proof1LaunchRecordIdentity()
+    currentProof = 'proof-2-observed-exit'
+    await proof2ObservedExit()
+    currentProof = 'proof-3-sigkill-escalation'
+    await proof3SigkillEscalation()
+    currentProof = 'proof-4-reconcile-after-restart'
+    await proof4ReconcileAfterRestart()
+    currentProof = 'proof-5-live-events-crash-storm'
+    await proof5LiveEventsCrashStorm()
+    currentProof = 'proof-6-managed-pi-component'
+    await proof6ManagedPiComponent()
 
-  if (artifactPath) {
-    const artifact = {
-      lane: 'supervision-smoke',
-      spec: 'docs/specs/dev-runtime.md#local-stack-supervision',
-      mode: mode.name,
-      appBundle: mode.appBundle,
-      packaged: mode.packaged
-        ? {
-            version: mode.packaged.identity.version,
-            channel: mode.packaged.identity.channel,
-            resolutions: mode.packaged.identity.resolutions,
-          }
-        : null,
-      startedAt,
-      finishedAt: new Date().toISOString(),
-      bun: process.versions.bun,
-      command: 'bun apps/desktop/shell/scripts/supervision-smoke.ts',
-      totals: {
-        checks: evidence.length,
-        failed: failures.length,
-      },
-      evidence,
+    if (artifactPath) {
+      const artifact = {
+        lane: 'supervision-smoke',
+        spec: 'docs/specs/dev-runtime.md#local-stack-supervision',
+        mode: mode.name,
+        appBundle: mode.appBundle,
+        packaged: mode.packaged
+          ? {
+              version: mode.packaged.identity.version,
+              channel: mode.packaged.identity.channel,
+              resolutions: mode.packaged.identity.resolutions,
+            }
+          : null,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        bun: process.versions.bun,
+        command: 'bun apps/desktop/shell/scripts/supervision-smoke.ts',
+        totals: {
+          checks: evidence.length,
+          failed: failures.length,
+        },
+        evidence,
+      }
+      mkdirSync(dirname(artifactPath), { recursive: true })
+      writeFileSync(artifactPath, JSON.stringify(artifact, null, 2) + '\n', { mode: 0o600 })
+      console.log(`artifact: ${artifactPath}`)
     }
-    mkdirSync(dirname(artifactPath), { recursive: true })
-    writeFileSync(artifactPath, JSON.stringify(artifact, null, 2) + '\n', { mode: 0o600 })
-    console.log(`artifact: ${artifactPath}`)
-  }
 
-  if (failures.length > 0) {
-    console.error(`SUPERVISION-SMOKE FAILED: ${failures.length} check(s) failed`)
-    for (const failure of failures) console.error(`  - ${failure}`)
-    return 1
+    if (failures.length > 0) {
+      console.error(`SUPERVISION-SMOKE FAILED: ${failures.length} check(s) failed`)
+      for (const failure of failures) console.error(`  - ${failure}`)
+      return 1
+    }
+    console.log('SUPERVISION-SMOKE PASS')
+    return 0
+  } finally {
+    cleanupBundle?.()
   }
-  console.log('SUPERVISION-SMOKE PASS')
-  return 0
 }
 
 main()

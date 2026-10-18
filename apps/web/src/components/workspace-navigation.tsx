@@ -31,6 +31,7 @@ import {
 } from '@adea-ai/data'
 import { useWorkspaceEventStream } from '@adea-ai/data/provider'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
+import { parseSimCharacterValue } from '@adea-ai/spatial/sim-bridge'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Toaster } from '@adea-ai/ui/components/ui/toast'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -690,14 +691,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   )
   createEffect(() => {
     setRailPreferences(
-      readRailPreferences(typeof window === 'undefined' ? undefined : window.localStorage)
+      readRailPreferences(() => (typeof window === 'undefined' ? undefined : window.localStorage))
     )
   })
   const persistRailPreferences = (next: RailPreferencesV1) => {
     const requested = requestedAppId()
     const wasLibrary = libraryOpen()
     setRailPreferences(next)
-    writeRailPreferences(window.localStorage, next)
+    writeRailPreferences(() => window.localStorage, next)
     const destination = resolveWorkspaceApp(next, requested)
     if (!destination) openAppLibrary(true)
     else if (!wasLibrary && destination.id !== requested) changeApp(destination.id, true)
@@ -753,6 +754,8 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     return props.activeWorkspace?.scene ?? (value === 'work' ? 'work' : 'home')
   }
   const currentSearch = () => search() as WorkspaceSearch
+  const currentCharacter = () =>
+    parseSimCharacterValue(currentSearch().character) ?? props.virtualProps.initialCharacter
   createEffect(() => {
     const query = currentSearch()
     setRoomDesignerEnabled(query.roomDesigner !== undefined && query.roomDesigner !== '0')
@@ -1623,7 +1626,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         }}
         activeWorkspace={props.activeWorkspace}
         onViewChange={(id) => changeApp(id)}
-        onViewIntent={preloadView}
+        onViewIntent={(nextView) => {
+          if (resolveWorkspaceApp(railPreferences(), nextView)?.id === nextView)
+            preloadView(nextView)
+        }}
         onPanelIntent={preloadPanel}
         reorder={{
           onDrop: (id, targetId, position) => {
@@ -1761,6 +1767,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                       fallback={
                         <SpatialWorkspace
                           {...props.virtualProps}
+                          initialCharacter={currentCharacter()}
                           archiveAction={archiveAction}
                           restoreFocusRef={sidebarOpener}
                           apiClient={props.client}
@@ -1781,14 +1788,15 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                             client={props.client}
                             restoreFocusRef={sidebarOpener}
                             onOpenChat={() => changeView('chat')}
-                            initialCharacter={props.virtualProps.initialCharacter}
+                            initialCharacter={currentCharacter()}
                             initialScene={scene()}
                             onClose={() => setRoomDesignerRoute(false)}
                           />
                         }
                       >
                         <CharacterDesignerWorkspace
-                          initialCharacter={props.virtualProps.initialCharacter}
+                          client={props.client}
+                          initialCharacter={currentCharacter()}
                           onClose={() => changeApp('virtual')}
                         />
                       </Show>

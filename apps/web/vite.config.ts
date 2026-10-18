@@ -42,6 +42,79 @@ function lucideDevShimAlias() {
   }
 }
 
+// Each exact-path cohort had the same static reachability from all original
+// client/auth/workspace entry roots. Keep bootstrap separate from workspace
+// data/state: a workspace-union comparison alone cannot establish that boundary.
+// Dependencies are never included recursively; requalify individual entries
+// and actual auth/guest requests when changing these pinned module cohorts.
+const entryFoundationGroups = [
+  {
+    name: 'boot',
+    modules: [
+      /\/apps\/web\/src\/lib\/desktop-bridge\.ts$/,
+      /\/apps\/web\/src\/start\/(?:client\.tsx|routeTree\.gen\.ts|router\.tsx|search-codec\.mjs)$/,
+      /\/apps\/web\/src\/start\/routes\/(?:__root\.tsx|index\.tsx|invite\.tsx)$/,
+      /\/apps\/web\/src\/start\/routes\/auth\/sign-in\.tsx$/,
+      /\/apps\/web\/src\/start\/routes\/auth\/desktop\/complete\.tsx$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/text-link\/text-link\.tsx$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/typography\/typography\.tsx$/,
+      /\/node_modules\/@solidjs\/meta\/dist\/index\.jsx$/,
+      /\/node_modules\/@tanstack\/history\/dist\/esm\/index\.js$/,
+      /\/node_modules\/@tanstack\/router-core\/dist\/esm\/(?:invariant\.js|link\.js|load-client\.js|new-process-route-tree\.js|not-found\.js|path\.js|qss\.js|redirect\.js|rewrite\.js|root\.js|route\.js|router\.js|scroll-restoration\.js|searchParams\.js|sieve-cache\.js|stores\.js|utils\.js)$/,
+      /\/node_modules\/@tanstack\/router-core\/dist\/esm\/scroll-restoration-script\/client\.js$/,
+      /\/node_modules\/@tanstack\/router-core\/dist\/esm\/ssr\/(?:bodyScripts\.js|ssr-match-id\.js)$/,
+      /\/node_modules\/@tanstack\/router-core\/dist\/esm\/ssr\/serializer\/(?:RawStream\.js|RawStreamJSONPlugin\.js|RawStreamRPCPlugin\.js|ShallowErrorPlugin\.js|makeSerovalPlugin\.js|rawStreamCodec\.js|seroval-plugins\.js|transformer\.js)$/,
+      /\/node_modules\/@tanstack\/solid-router\/dist\/source\/(?:Asset\.jsx|CatchBoundary\.jsx|ClientOnly\.jsx|Match\.jsx|Matches\.jsx|RouterProvider\.jsx|SafeFragment\.jsx|ScriptOnce\.jsx|Scripts\.jsx|Transitioner\.jsx|fileRoute\.js|lazyRouteComponent\.jsx|link\.jsx|matchContext\.jsx|not-found\.jsx|renderRouteNotFound\.jsx|route\.jsx|router\.js|routerContext\.jsx|routerStores\.js|scroll-restoration\.jsx|useLoaderData\.jsx|useLoaderDeps\.jsx|useMatch\.jsx|useNavigate\.jsx|useParams\.jsx|useRouteContext\.js|useRouter\.jsx|useSearch\.jsx|utils\.js)$/,
+      /\/node_modules\/@tanstack\/solid-start-client\/dist\/esm\/(?:StartClient\.js|hydrateStart\.js)$/,
+      /\/node_modules\/@tanstack\/start-client-core\/dist\/esm\/(?:constants\.js|empty-plugin-adapters\.js|getDefaultSerovalPlugins\.js|getStartOptions\.js)$/,
+      /\/node_modules\/@tanstack\/start-client-core\/dist\/esm\/client\/(?:ServerFunctionSerializationAdapter\.js|hydrateStart\.js)$/,
+      /\/node_modules\/@tanstack\/start-client-core\/dist\/esm\/client-rpc\/(?:createClientRpc\.js|frame-decoder\.js|serverFnFetcher\.js)$/,
+      /\/node_modules\/seroval-plugins\/dist\/web-CDQeyEaf\.js$/,
+      /\/node_modules\/seroval\/dist\/index\.js$/,
+      /\/packages\/spatial\/dist\/(?:index\.js|manifests\.js|telemetry\.js)$/,
+    ],
+  },
+  {
+    name: 'tooltip',
+    modules: [
+      /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/tooltip\/tooltip\.tsx$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/lib\/(?:overlay\.ts|tooltip-focus-gate\.ts)$/,
+      /\/node_modules\/@corvu\/utils\/dist\/chunk\/U42ECMND\.jsx$/,
+      /\/node_modules\/@floating-ui\/core\/dist\/floating-ui\.core\.mjs$/,
+      /\/node_modules\/@floating-ui\/dom\/dist\/floating-ui\.dom\.mjs$/,
+      /\/node_modules\/@floating-ui\/utils\/dist\/(?:floating-ui\.utils\.dom\.mjs|floating-ui\.utils\.mjs)$/,
+      /\/node_modules\/@internationalized\/number\/dist\/private\/NumberFormatter\.mjs$/,
+      /\/node_modules\/@kobalte\/core\/dist\/chunk\/(?:3DLZMX4Z\.jsx|5WXHJDCZ\.jsx|AAA75RJW\.jsx|E53DB7BS\.jsx|FN6EICGO\.jsx|IARUYOQZ\.jsx|IGYOA2ZZ\.jsx|JNCCF6MP\.jsx|LP6E37CW\.jsx|OGE3DKII\.jsx|V3Y2TT5R\.jsx)$/,
+      /\/node_modules\/@kobalte\/utils\/dist\/index\.js$/,
+      /\/node_modules\/@solid-primitives\/props\/dist\/combineProps\.js$/,
+      /\/node_modules\/solid-presence\/dist\/index\.jsx$/,
+    ],
+  },
+  {
+    name: 'theme',
+    modules: [
+      /\/node_modules\/@adea-ai\/themes\/dist\/(?:accents\.js|derive\.js|oklch\.js|policy\.js|schema\.js)$/,
+      /\/node_modules\/@adea-ai\/themes\/dist\/adapters\/shadcn\.js$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/lib\/(?:accent-roles\.ts|theme-accents\.ts|theme-css\.ts|theme-defaults\.generated\.ts|theme-defaults\.ts|theme-records\.ts)$/,
+    ],
+  },
+  {
+    name: 'mount',
+    modules: [
+      /\/apps\/web\/src\/components\/workspace-entry\.tsx$/,
+      /\/apps\/web\/src\/start\/(?:workspace-mount\.tsx|workspace-selection\.mjs)$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/components\/theme\/(?:theme-catalogue-source\.ts|theme-context\.ts|theme-document-core\.ts|theme-persistence\.ts|theme-provider-core\.tsx|theme-provider-lazy\.tsx|theme-provider-value\.ts|theme-state-core\.ts)$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/lib\/(?:accent-presets\.ts|appearance-font-settings\.ts|font-catalog\.ts|font-zoom\.ts|preference-store\.ts|theme-engine-light\.ts|theme-engine\.ts|theme-surface\.ts)$/,
+      /\/node_modules\/lucide-solid\/dist\/source\/icons\/(?:music-2\.jsx|music\.jsx)$/,
+      /\/packages\/app-core\/dist\/workspace-scene\.js$/,
+      /\/packages\/audio\/src\/(?:config\.ts|controller\.ts|sound\.tsx)$/,
+      /\/packages\/spatial\/dist\/scene-spawn\.js$/,
+      /\/packages\/ui\/src\/components\/(?:appearance-codec\.ts|appearance-host\.tsx|custom-theme-library\.ts)$/,
+      /\/packages\/workspace-ui\/src\/(?:rail-preferences\.ts|workspace-apps\.ts)$/,
+    ],
+  },
+] as const
+
 function protectClientGraph(): Plugin {
   return {
     name: 'adea-start-client-boundary',
@@ -119,6 +192,13 @@ export default defineConfig(({ command }) => ({
               // request. Leave feature components and their dependencies to
               // automatic splitting instead of grouping a whole icon catalogue.
               groups: [
+                ...entryFoundationGroups.map(({ name, modules }) => ({
+                  name,
+                  priority: 100,
+                  test: (id: string) =>
+                    modules.some((pattern) => pattern.test(id.replaceAll('\\', '/'))),
+                  includeDependenciesRecursively: false,
+                })),
                 {
                   name: 'lazy-ui',
                   test: /@adea-ai\/ui\/src\/components\/ui\/(label\/label|skeleton\/skeleton|status-chip\/status-chip|badge\/badge|empty\/empty)\.tsx$/,
@@ -139,15 +219,6 @@ export default defineConfig(({ command }) => ({
                 {
                   name: 'utility-host',
                   test: /packages\/dev-view\/src\/(?:utility-(?:host\.tsx|command\.ts)|agents\/harness-status-model\.ts|files\/status-cache\.ts)$/,
-                  includeDependenciesRecursively: false,
-                },
-                // The theme record helpers, their CSS projection and the
-                // defaults they read share every importer today. The lazy theme
-                // importer reaches only the records, which would otherwise split
-                // the projection into a request of its own.
-                {
-                  name: 'theme-records',
-                  test: /@adea-ai\/(ui\/src\/lib\/theme-(css|accents|records|defaults|defaults\.generated)\.ts|themes\/dist\/(schema|derive|adapters\/shadcn)\.js)$/,
                   includeDependenciesRecursively: false,
                 },
                 // The shared appearance editor reaches Kobalte's radio internals

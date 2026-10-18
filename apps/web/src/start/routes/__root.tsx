@@ -15,6 +15,7 @@ export type WorkspaceSearch = {
   app?: 'kanban' | 'source-control' | 'library'
   channel?: string
   characterDesigner?: string
+  character?: string
   /** Development-only ChatView visual fixture selector (#536 evidence lane). */
   chatE2e?: string
   chatState?: string

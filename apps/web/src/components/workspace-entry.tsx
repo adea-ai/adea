@@ -1,4 +1,6 @@
 import lazyComponent from './lazy-component'
+import { readRailPreferences } from '@adea-ai/workspace-ui/rail-preferences'
+import { resolveWorkspaceApp } from '@adea-ai/workspace-ui/workspace-apps'
 import type { WorkspaceShellProps } from './workspace-shell'
 
 // Warm the chunks the mounted lane is about to need. Without this, the boot
@@ -10,21 +12,25 @@ import type { WorkspaceShellProps } from './workspace-shell'
 if (typeof window !== 'undefined') {
   const params = new URLSearchParams(window.location.search)
   void import('./workspace-navigation-entry')
-  const view = params.get('view')
   const roomDesigner = params.get('roomDesigner')
   const characterDesigner = params.get('characterDesigner')
   // The dev view keeps its single dynamic boundary in workspace-navigation
   // (scripts/dev-view-boundary.test.ts), so it is not warmed here.
-  if (
-    view === 'virtual' ||
-    (roomDesigner !== null && roomDesigner !== '0') ||
+  const preferences = readRailPreferences(() => window.localStorage)
+  const requested =
+    params.get('app') ??
+    ((roomDesigner !== null && roomDesigner !== '0') ||
     (characterDesigner !== null && characterDesigner !== '0')
-  ) {
+      ? 'virtual'
+      : params.get('view')) ??
+    'chat'
+  const destination = resolveWorkspaceApp(preferences, requested)
+  if (requested !== 'library' && destination?.id === 'virtual') {
     void import('./workspace-shell')
     if (roomDesigner !== null && roomDesigner !== '0') void import('./room-designer-entry')
     if (characterDesigner !== null && characterDesigner !== '0')
       void import('./character-designer-entry')
-  } else if (view !== 'dev') {
+  } else if (requested !== 'library' && destination?.id === 'chat') {
     void import('./conventional-workspace-entry')
   }
   // Chat is the fallback surface every lane can reach: once the predicted view
@@ -34,7 +40,8 @@ if (typeof window !== 'undefined') {
     typeof requestIdleCallback === 'function'
       ? requestIdleCallback
       : (run: () => void) => setTimeout(run, 2_000)
-  idle(() => void import('./conventional-workspace-entry'))
+  if (resolveWorkspaceApp(preferences, 'chat')?.id === 'chat')
+    idle(() => void import('./conventional-workspace-entry'))
 }
 
 // The workspace entry stays a deferred chunk: a failed import surfaces as the

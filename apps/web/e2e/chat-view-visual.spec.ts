@@ -36,6 +36,12 @@ async function applyTheme(page: Page, theme: Theme) {
   await page.addInitScript((selected: Theme) => {
     localStorage.clear()
     localStorage.setItem('theme', selected)
+    // Existing-profile screenshots retain their explicit optional views.
+    // Fresh Chat/Dev-only preferences are covered by the guest/default gates.
+    localStorage.setItem(
+      'adea:rail-preferences:v1',
+      JSON.stringify({ version: 1, order: ['virtual', 'chat', 'dev', 'kanban'], hidden: [] })
+    )
   }, theme)
 }
 

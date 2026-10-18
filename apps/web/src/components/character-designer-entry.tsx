@@ -1,26 +1,19 @@
-import { VirtualUnavailable } from '@adea-ai/workspace-ui/virtual-unavailable'
-import { VirtualView } from '@adea-ai/workspace-ui/virtual-view'
+import type { AgentHqApiClient } from '@adea-ai/api-client'
+import { HostedSimEntry } from './hosted-sim-entry'
 
-export function CharacterDesignerEntry(props: { initialCharacter: string; onClose: () => void }) {
-  // The pack's cold character-studio surface, behind the same entitlement
-  // gate as the standard virtual view. Falls back to the offline card on
-  // packs without the surface or unentitled deployments.
+export function CharacterDesignerEntry(props: {
+  initialCharacter: string
+  onClose: () => void
+  client: AgentHqApiClient
+}) {
   return (
     <main class="workspace-shell workspace-shell--contextual">
       <div class="workspace-scene-viewport">
-        <VirtualView
+        <HostedSimEntry
+          client={props.client}
           surface="character-designer"
-          mountOptions={{
-            character: props.initialCharacter,
-            onClose: props.onClose,
-          }}
-          fallback={
-            <VirtualUnavailable
-              contained
-              sceneLabel="Character designer"
-              onOpenChat={props.onClose}
-            />
-          }
+          character={props.initialCharacter}
+          onClose={props.onClose}
         />
       </div>
     </main>

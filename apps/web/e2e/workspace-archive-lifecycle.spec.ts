@@ -1,3 +1,4 @@
+import { retainOptionalWorkspaceViews } from './helpers/workspace-view-preferences'
 import { expect, test, type Page } from '@playwright/test'
 
 /**
@@ -171,3 +172,8 @@ for (const view of ['Virtual view', 'Dev view'] as const) {
     await expect(page.getByRole('region', { name: /^Notifications/ })).toHaveCount(1)
   })
 }
+
+// This suite exercises explicitly enabled optional views in an existing profile.
+test.beforeEach(async ({ page }) => {
+  await retainOptionalWorkspaceViews(page)
+})

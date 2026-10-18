@@ -233,7 +233,7 @@ export function AppLibraryPage(props: {
           <Heading as="h1" size="display" id="workspace-app-library-title">
             App Library
           </Heading>
-          <p>Choose the views and tools in your workspace.</p>
+          <p>Chat and Dev are on by default. Enable other views here.</p>
         </div>
         <div class="workspace-app-library__controls">
           <InputGroup class="w-64 max-w-full flex-1 basis-48">
