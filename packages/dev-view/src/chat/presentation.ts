@@ -5,7 +5,7 @@ import type {
   RuntimeSession,
   RuntimeVisibleSummary,
 } from '@adea-ai/types/dev-runtime'
-import { decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
+import { decodeRuntimeAssistantPayload, decodeRuntimeEvent } from '@adea-ai/types/dev-runtime-wire'
 
 /** A bounded, renderable row in the canonical transcript. */
 export type ChatTranscriptItem = Readonly<{
@@ -417,6 +417,8 @@ export function redactAssistantDeltaFragments(
       before.endsWith('\r') &&
       after.startsWith('\n') &&
       sameRun(items[index - 1]!, items[index]!) &&
+      // Two messages are two texts: a CR that ends one does not claim the LF that starts the next.
+      assistantMessageKey(items[index - 1]!) === assistantMessageKey(items[index]!) &&
       !withheld(index - 1) &&
       !withheld(index)
     )
@@ -454,6 +456,47 @@ export function redactAssistantDeltaFragments(
       ...(continuesCr && current.length === 0 ? { continuation: true } : {}),
     }
   })
+}
+
+const assistantKeys = new WeakMap<ChatTranscriptItem, string | null>()
+
+/**
+ * The identity of the assistant message a row belongs to, scoped to its session,
+ * generation, run and source, or `undefined`.
+ *
+ * It is defined only for a delta, a final text or a result whose payload passes the
+ * kind-specific contract (`decodeRuntimeAssistantPayload`): a delta with a contiguous
+ * index, a final that supersedes `deltas`, a result with a well-formed summary. Anything
+ * else, including every row retained from before the identity existed, is opaque and is
+ * grouped by run and generation alone. A row that merely carries a `messageId` string
+ * never gains an identity, so a malformed event cannot replace or join valid text.
+ */
+export function assistantMessageKey(item: ChatTranscriptItem): string | undefined {
+  const cached = assistantKeys.get(item)
+  if (cached !== undefined) return cached ?? undefined
+  let key: string | undefined
+  const event = item.event
+  if (
+    event !== undefined &&
+    (event.kind === 'turn.assistant_delta' ||
+      event.kind === 'turn.assistant_message' ||
+      event.kind === 'turn.result')
+  ) {
+    try {
+      const payload = decodeRuntimeAssistantPayload(event.kind, event.payload)
+      key = JSON.stringify([
+        event.runtimeSessionId,
+        event.generation,
+        event.harnessRunId,
+        event.source,
+        payload.messageId,
+      ])
+    } catch {
+      key = undefined
+    }
+  }
+  assistantKeys.set(item, key ?? null)
+  return key
 }
 
 /** Whether two projected rows belong to one known harness run and generation. */

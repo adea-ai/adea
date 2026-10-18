@@ -748,8 +748,25 @@ function TextEntry(props: { entry: ChatTurnText; streaming: boolean }): JSX.Elem
       <Show when={props.entry.truncated}>
         <TruncationNote contextUnavailable={props.entry.text.length === 0} />
       </Show>
+      <Show
+        when={
+          props.entry.source === 'message' &&
+          props.entry.text.length === 0 &&
+          !props.entry.truncated
+        }
+      >
+        <Marker variant="note" label="The runtime sent an empty message." />
+      </Show>
       <Show when={props.entry.failed}>
-        <Marker variant="note" tone="danger" label="The runtime reported an error for this turn." />
+        <Marker
+          variant="note"
+          tone="danger"
+          label={
+            props.entry.summary
+              ? `The runtime reported an error for this turn: ${props.entry.summary}`
+              : 'The runtime reported an error for this turn.'
+          }
+        />
       </Show>
       <Show when={sources().length > 0}>
         <Sources sources={sources()} />

@@ -1107,6 +1107,132 @@ describe('assistant message identity', () => {
     expect(shapeOf(built)).toEqual(['notice:r1'])
   })
 
+  test('a summary-bearing result ends the message it references and is not another answer', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Done.', 'd1'),
+      final('m1', 'Done.', 'a1'),
+      result('m1', 'r1', { summary: 'Finished in two steps.' }),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1'])
+    expect(built[0]?.entries[0]).toMatchObject({
+      text: 'Done.',
+      failed: false,
+      summary: 'Finished in two steps.',
+      eventIds: ['d1', 'a1', 'r1'],
+    })
+    expect(entryByEventId.get('r1')).toBe('d1')
+  })
+
+  test('a failing summary-bearing result marks the referenced message as failed', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      final('m1', 'It broke.', 'a1'),
+      result('m1', 'r1', { summary: 'The build failed.', isError: true }),
+    ])
+    expect(shapeOf(built)).toEqual(['text:a1'])
+    expect(built[0]?.entries[0]).toMatchObject({
+      text: 'It broke.',
+      failed: true,
+      summary: 'The build failed.',
+    })
+  })
+
+  test('a result that references no drawn message still shows its summary', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      result('m1', 'r1', { summary: 'Finished in two steps.' }),
+    ])
+    expect(shapeOf(built)).toEqual(['text:r1'])
+  })
+
+  test('a final without supersedes does not replace the partials it names', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Partial answer', 'd1'),
+      event('turn.assistant_message', { messageId: 'm1', text: 'Other text.' }, 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'text:a1'])
+    expect(built[0]?.entries.map((entry) => (entry as { text: string }).text)).toEqual([
+      'Partial answer',
+      'Other text.',
+    ])
+  })
+
+  test('a final that supersedes something other than deltas does not replace them', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Partial answer', 'd1'),
+      event('turn.assistant_message', { messageId: 'm1', text: 'x', supersedes: 'all' }, 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'text:a1'])
+  })
+
+  test('a result or delta whose identity fails its contract is not paired', () => {
+    const badDelta = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      event('turn.assistant_delta', { messageId: 'm1', deltaIndex: -1, text: 'one' }, 'd1'),
+      final('m1', 'two', 'a1'),
+    ])
+    expect(shapeOf(badDelta.turns)).toEqual(['text:d1', 'text:a1'])
+
+    const badResult = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      final('m1', 'Done.', 'a1'),
+      event('turn.result', { messageId: 'm1', summary: 42 }, 'r1'),
+    ])
+    expect(shapeOf(badResult.turns)).toEqual(['text:a1', 'notice:r1'])
+  })
+
+  test('a valid final with no text replaces the stream it supersedes', () => {
+    for (const blank of ['', '  \n ']) {
+      const { turns: built, entryByEventId } = turns([
+        event('turn.user_input', { text: 'q' }, 'u1'),
+        delta('m1', 0, 'Partial answer', 'd1'),
+        final('m1', blank, 'a1'),
+      ])
+      expect(shapeOf(built)).toEqual(['text:d1'])
+      expect(built[0]?.entries[0]).toMatchObject({
+        source: 'message',
+        text: '',
+        truncated: false,
+        eventIds: ['d1', 'a1'],
+      })
+      expect(entryByEventId.get('a1')).toBe('d1')
+    }
+  })
+
+  test('a blank final with nothing to replace stays a visible line', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      final('m1', '', 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['notice:a1'])
+  })
+
+  test('a carriage return that ends one message does not take the line feed that starts the next', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'a\r', 'd1'),
+      delta('m2', 0, '\nb', 'd2'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'text:d2'])
+    expect(built[0]?.entries.map((entry) => (entry as { text: string }).text)).toEqual([
+      'a\n',
+      '\nb',
+    ])
+  })
+
+  test('a split carriage return and line feed inside one message still reads as one line break', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'a\r', 'd1'),
+      delta('m1', 1, '\nb', 'd2'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1'])
+    expect(built[0]?.entries[0]).toMatchObject({ text: 'a\nb' })
+  })
+
   test('a fragment that arrives after the final text joins the message without changing it', () => {
     const { turns: built, entryByEventId } = turns([
       event('turn.user_input', { text: 'q' }, 'u1'),

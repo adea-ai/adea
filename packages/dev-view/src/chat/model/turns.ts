@@ -38,6 +38,7 @@
 import type { RuntimeMethodStepSummary, RuntimeReasoningSummary } from '@adea-ai/types/dev-runtime'
 import {
   redactAssistantDeltaFragments,
+  assistantMessageKey as assistantKey,
   redactAssistantDeltaGroup,
   sameRun,
   type ChatResponseReferences,
@@ -59,6 +60,8 @@ export type ChatTurnText = Readonly<{
   eventIds: readonly string[]
   /** Sources and cited spans the producer sent with this final message, when they validated. */
   references?: ChatResponseReferences
+  /** The summary a `turn.result` sent for this message, bounded; the message's end, not a second answer. */
+  summary?: string
 }>
 
 export type ChatTurnReasoning = Readonly<{
@@ -172,26 +175,6 @@ function summaryScope(item: ChatTranscriptItem): readonly unknown[] {
   return [event?.runtimeSessionId, event?.generation, event?.harnessRunId, event?.source]
 }
 
-/** The producer's identity for an assistant message, when the wire event carries one. */
-function assistantMessageId(item: ChatTranscriptItem): string | undefined {
-  if (
-    item.kind !== 'turn.assistant_delta' &&
-    item.kind !== 'turn.assistant_message' &&
-    item.kind !== 'turn.result'
-  )
-    return undefined
-  const payload = item.event?.payload
-  if (payload === null || typeof payload !== 'object') return undefined
-  const id = (payload as Record<string, unknown>).messageId
-  return typeof id === 'string' && id.length > 0 ? id : undefined
-}
-
-/** One message in one scope; undefined for events that predate the identity. */
-function assistantKey(item: ChatTranscriptItem): string | undefined {
-  const id = assistantMessageId(item)
-  return id === undefined ? undefined : JSON.stringify([summaryScope(item), id])
-}
-
 /** A slot whose entry was folded into an earlier one; removed once the turn is built. */
 const FOLDED = Object.freeze({}) as unknown as ChatTurnEntry
 
@@ -205,6 +188,17 @@ type MessageProse = {
   later: { at: number; ids: string[] }[]
   eventIds: string[]
   failed: boolean
+  summary?: string
+}
+
+/** The most of a result's summary kept with its message. */
+const RESULT_SUMMARY_LIMIT = 500
+
+function boundedSummary(body: string): string {
+  const characters = Array.from(body)
+  return characters.length <= RESULT_SUMMARY_LIMIT
+    ? body
+    : characters.slice(0, RESULT_SUMMARY_LIMIT).join('')
 }
 
 /**
@@ -488,28 +482,38 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
       const key = assistantKey(item)
       const known = key === undefined ? undefined : prose.get(key)
       const mine = known !== undefined && known.entries === turn.entries ? known : undefined
-      if (item.kind === 'turn.result' && mine !== undefined && item.body === undefined) {
+      if (item.kind === 'turn.result' && mine !== undefined) {
         // The result references a message already drawn: it ends that message, it is
-        // not a second answer. Only a failure it reports changes how the message reads.
+        // not a second answer, whether or not it carries a summary. A failure it
+        // reports marks that message; its summary stays with the message.
         mine.eventIds.push(item.id)
         mine.failed ||= resultFailed(item)
+        if (item.body !== undefined) mine.summary = boundedSummary(item.body)
         turn.entries[mine.at] = {
           ...(turn.entries[mine.at] as ChatTurnText),
           failed: mine.failed,
           eventIds: [...mine.eventIds],
+          ...(mine.summary !== undefined ? { summary: mine.summary } : {}),
         }
         index(item.id, mine.id)
         continue
       }
-      if (item.body === undefined) {
+      // A final that passed the supersession contract is the whole message. When it is
+      // blank (`body` is undefined) it still replaces the stream: the message is empty,
+      // and the deltas it replaces must not stay on screen as if they were its text.
+      const supersedes = item.kind === 'turn.assistant_message' && mine !== undefined
+      if (item.body === undefined && !supersedes) {
         turn.entries.push({ type: 'notice', id: item.id, item })
       } else {
-        const { text, truncated } = join([item.body], item.bodyTruncated === true)
+        const { text, truncated } =
+          item.body === undefined
+            ? { text: '', truncated: false }
+            : join([item.body], item.bodyTruncated === true)
         // Spans are in the coordinates of the body; once the display cut shortens
         // it, a span reaching past the cut cites words that are no longer shown.
         // It stays counted in `cited` and is reported as unmarked.
         const references =
-          item.references !== undefined && text.length < item.body.length
+          item.references !== undefined && item.body !== undefined && text.length < item.body.length
             ? {
                 ...item.references,
                 citations: item.references.citations.filter(
@@ -527,7 +531,7 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
           eventIds: [item.id],
           ...(references !== undefined ? { references } : {}),
         }
-        if (item.kind === 'turn.assistant_message' && mine !== undefined) {
+        if (supersedes) {
           // The final text replaces the stream it supersedes, in the stream's place and
           // under its id, so the drawn block keeps its node and position.
           for (const later of mine.later) {
@@ -543,6 +547,7 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
             id: mine.id,
             failed: mine.failed,
             eventIds: [...mine.eventIds],
+            ...(mine.summary !== undefined ? { summary: mine.summary } : {}),
           }
           index(item.id, mine.id)
           continue
