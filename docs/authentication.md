@@ -250,8 +250,8 @@ The self-hosted move follows the same rules:
 
 1. Initialize the provider-owned Better Auth tables on the fresh PostgreSQL instance using the
    provider's supported process. (Remaining work: the schema-init command is not yet wired into a
-   deploy step, and the service must be switched from the raw postgres.js client to a supported
-   Kysely/PostgreSQL dialect — see `packages/auth/README.md`.)
+   deploy step. The service already uses Better Auth's built-in Kysely PostgreSQL adapter through
+   the auth-owned `pg.Pool` from `createPostgresAuthDatabase()` — see `packages/auth/README.md`.)
 2. `createBetterAuthDriver` implements `AuthDriver` and retains the provider/subject identity key
    under the `better-auth` provider name.
 3. The `@adea-ai/auth/client` and `@adea-ai/auth/server` constructors are backed by Better Auth.

@@ -35,7 +35,7 @@ export type StartRequestHelpers = Readonly<{
 }>
 
 /**
- * Adapts TanStack Start's request storage to the Neon Auth toolkit's
+ * Adapts TanStack Start's request storage to the auth package's
  * framework-neutral RequestContext. Mirrors the bundled Next.js adapter:
  * cookies are read from the incoming request, writes go to the outgoing
  * response, and the origin is never invented when the request omits one.

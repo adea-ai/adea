@@ -20,6 +20,7 @@ function messageForFailure(code: string | null, mode: AuthMode): string {
         ? 'That email is already registered. Sign in instead, or use a different address.'
         : 'That email and password combination did not match. Check both and try again.'
     case 'email_not_confirmed':
+    case 'email_not_verified':
       return 'Confirm your email address first — check your inbox for the verification message.'
     case 'user_already_exists':
     case 'user_already_exists_use_another_email':

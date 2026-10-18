@@ -17,21 +17,74 @@ function isLoopback(hostname: string) {
   )
 }
 
-const REQUIRED_TLS_MODES = new Set(['require', 'verify-ca', 'verify-full'])
+/**
+ * True when a host can be reached without transport encryption: loopback (a
+ * developer machine or a sidecar), or a Unix domain socket, whose host is a
+ * filesystem path beginning with `/`. Any other host is remote and must be
+ * reached over TLS.
+ */
+function isLocalDatabaseHost(host: string): boolean {
+  return host.startsWith('/') || isLoopback(host)
+}
+
+type PostgresTarget = Readonly<{
+  host: string
+  ssl: boolean
+}>
 
 /**
- * True when a database URL is safe to use without transport encryption: either
- * it points at loopback (a developer machine or a sidecar), or it opts into TLS
- * explicitly. A hosted PostgreSQL (Railway, RDS, Neon) is never loopback, so a
- * bare `postgres://user:pass@host/db` is rejected rather than silently connecting
- * in the clear.
+ * Reproduces the URL-parameter handling of the pinned `pg-connection-string`
+ * (2.14.1) that `pg` itself uses, so validation sees the host and SSL state the
+ * pool will actually connect with. Reading the first value of each parameter
+ * would disagree with the driver in either direction:
+ *
+ * - query parameters are last-value-wins, so `?sslmode=require&sslmode=disable`
+ *   resolves to `disable`;
+ * - `sslmode=disable` overrides `ssl=true`, so `?sslmode=disable&ssl=true`
+ *   resolves to plaintext;
+ * - an explicit `host` parameter overrides the URL authority, so a loopback URL
+ *   can still name a remote host.
+ *
+ * Tests assert this against a real `pg` client's parsed connection parameters.
  */
-function databaseUrlEncrypts(hostname: string, searchParams: URLSearchParams): boolean {
-  if (isLoopback(hostname)) return true
-  const sslmode = (searchParams.get('sslmode') ?? '').toLowerCase()
-  if (REQUIRED_TLS_MODES.has(sslmode)) return true
-  const ssl = (searchParams.get('ssl') ?? '').toLowerCase()
-  return ssl === 'true' || ssl === '1'
+function readPostgresTarget(databaseUrl: string): PostgresTarget {
+  const url = new URL(databaseUrl)
+  const query = new Map<string, string>()
+  for (const [key, value] of url.searchParams.entries()) query.set(key, value)
+
+  const authority = url.hostname.replace(/^\[(.+)\]$/, '$1')
+  // `pg-connection-string` keeps the query value verbatim, and `searchParams`
+  // has already percent-decoded it once, so it is not decoded again here.
+  const host = query.get('host') ?? decodeURIComponent(authority)
+
+  let ssl: boolean | Record<string, unknown> | undefined
+  const sslParam = query.get('ssl')
+  if (sslParam === 'true' || sslParam === '1') ssl = true
+  if (sslParam === '0') ssl = false
+  // Any certificate option (or `sslmode` itself) engages SSL; the sslmode
+  // switch below can still turn it off.
+  if (
+    query.has('sslcert') ||
+    query.has('sslkey') ||
+    query.has('sslrootcert') ||
+    query.has('sslmode')
+  ) {
+    ssl = {}
+  }
+  if (query.get('sslnegotiation') === 'direct' && ssl === undefined) ssl = true
+
+  switch (query.get('sslmode')) {
+    case 'disable':
+      ssl = false
+      break
+    case 'no-verify':
+      ssl = { rejectUnauthorized: false }
+      break
+    default:
+      break
+  }
+
+  return { host, ssl: Boolean(ssl) }
 }
 
 export function normalizeTrustedTarget(value: string): string {
@@ -169,13 +222,13 @@ export function readBetterAuthConfig(environment: AuthEnvironment = process.env)
   if (!/^postgres(ql)?:\/\//.test(databaseUrl)) {
     throw new Error('AUTH_DATABASE_URL must be a postgres:// connection string')
   }
-  let database: URL
+  let target: PostgresTarget
   try {
-    database = new URL(databaseUrl)
+    target = readPostgresTarget(databaseUrl)
   } catch {
     throw new Error('AUTH_DATABASE_URL must be a valid URL')
   }
-  if (!databaseUrlEncrypts(database.hostname, database.searchParams)) {
+  if (!isLocalDatabaseHost(target.host) && !target.ssl) {
     throw new Error(
       'AUTH_DATABASE_URL must require TLS (sslmode=require, verify-ca, or verify-full) outside loopback'
     )
@@ -206,7 +259,7 @@ export function readBetterAuthConfig(environment: AuthEnvironment = process.env)
 
   return Object.freeze({
     baseUrl: baseUrl.toString().replace(/\/$/, ''),
-    databaseRequiresTls: !isLoopback(database.hostname),
+    databaseRequiresTls: !isLocalDatabaseHost(target.host),
     databaseUrl,
     // Mailbox proof is required by default: an unverified address must not carry
     // email-based authority (allowlists, invitations). A deployment can only turn
