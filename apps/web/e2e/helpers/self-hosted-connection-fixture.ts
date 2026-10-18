@@ -54,6 +54,8 @@ export type FakeState = {
   revokeIgnored: boolean
   /** Hold the next revoke until `release()` is called. */
   holdRevoke: boolean
+  /** How the account bootstrap read answers: the signed-in account (default), a failure, or a temporary guest. */
+  bootstrap: 'account' | 'failure' | 'temporary'
   requests: { method: string; path: string }[]
 }
 
@@ -113,6 +115,7 @@ export function createFakeState(hosts: FakeHost[]): FakeState {
     pairingLifetimeMs: 10 * MINUTE,
     revokeIgnored: false,
     holdRevoke: false,
+    bootstrap: 'account',
     requests: [],
   }
 }
@@ -225,6 +228,19 @@ export function createFakeFetch(state: FakeState): typeof fetch {
     const method = init?.method ?? 'GET'
     state.requests.push({ method, path: url.pathname })
     const hosts = state.hosts[key(state)] ?? []
+    if (method === 'POST' && url.pathname === '/api/workspaces/bootstrap') {
+      if (state.bootstrap === 'failure')
+        return respond({ code: 'unavailable', message: 'sensitive-error-canary' }, 503)
+      return respond({
+        activeWorkspace: null,
+        principal:
+          state.bootstrap === 'temporary'
+            ? { temporary: true }
+            : { displayName: state.account, temporary: false, userId: state.account },
+        sessionRotated: false,
+        workspaces: [],
+      })
+    }
     const match =
       /^\/api\/v1\/workspaces\/([^/]+)\/runtime-nodes(?:\/([^/]+)\/connections)?$/u.exec(
         url.pathname

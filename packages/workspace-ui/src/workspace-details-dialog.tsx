@@ -52,6 +52,11 @@ const CloudConnectionsPane = lazy(() =>
 const RuntimeNodesPane = lazy(() =>
   import('./control-plane-hosts').then((module) => ({ default: module.RuntimeNodesPane }))
 )
+const SelfHostedConnectionsSection = lazy(() =>
+  import('./control-plane-hosts').then((module) => ({
+    default: module.SelfHostedConnectionsSection,
+  }))
+)
 const LeadModelPane = lazy(() =>
   import('./control-plane-hosts').then((module) => ({ default: module.LeadModelPane }))
 )
@@ -323,6 +328,12 @@ export function WorkspaceDetailsDialog(props: {
                   </Suspense>
                   <Suspense fallback={<p role="status">Loading execution hosts…</p>}>
                     <RuntimeNodesPane client={apiClient()} workspaceId={props.workspace.id} />
+                  </Suspense>
+                  <Suspense fallback={<p role="status">Loading self-hosted hosts…</p>}>
+                    <SelfHostedConnectionsSection
+                      client={apiClient()}
+                      workspaceId={props.workspace.id}
+                    />
                   </Suspense>
                   <Suspense fallback={<p role="status">Loading agent models…</p>}>
                     <LeadModelPane client={apiClient()} workspaceId={props.workspace.id} />

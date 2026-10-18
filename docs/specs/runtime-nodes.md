@@ -308,6 +308,18 @@ Expiry shows only that the deadline passed, not that no host used the pairing. A
 Plane report is used only when both its node id and Control Plane ref match the host; any
 other report supplies no eligibility, capability, access or proof facts.
 
+Where it is mounted: Workspace Details → Connections renders the pane through
+`self-hosted-connections-section`, loaded lazily with the other Control Plane host panes. The
+pane needs the signed-in account's id to reset on an account change; the section takes it from
+the shared workspace bootstrap read (`principal.userId`). While that read is pending, after it
+fails, or for a temporary principal with no account id, the section says so and renders no host
+list or read. The mount supplies no operations: the typed client has no pairing, rename or
+revoke call and no host-choice store is connected, so those render as unavailable with their
+reasons. Reaching them is a backend and wiring change, not a UI one. The mounted dialog is
+exercised in `apps/web/e2e/self-hosted-workspace-details.spec.ts` against an in-page fake
+client; that proves the mount, account and workspace changes, refusal and recovery on that
+fake, not any packaged build, soak or VPS.
+
 ## Durable events
 
 Every state change is recorded through the one publication path
