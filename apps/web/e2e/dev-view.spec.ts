@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { retainOptionalWorkspaceViews } from './helpers/workspace-view-preferences'
 
 async function exerciseContextualSidebarToggle(page: Page) {
   // The toggle renames between its expand and collapse variants the moment
@@ -304,6 +305,7 @@ test('Dev mobile sidebar closes after leaf selection and restores the global ope
 test('the global shell owns exactly one right utility host across Dev, Chat, and Virtual', async ({
   page,
 }) => {
+  await retainOptionalWorkspaceViews(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved')
   const rail = page.getByRole('navigation', { name: 'Global navigation' })

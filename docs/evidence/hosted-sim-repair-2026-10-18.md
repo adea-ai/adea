@@ -527,3 +527,43 @@ gzip bytes and is retained as a separate exact artifact. The full
 17,093 assertions, 98.66% functions / 97.90% lines, zero deficient files at the
 unchanged 80% per-file floors. Zero-warning lint passes. The remaining gzip
 headroom is deliberately reported as tight; no limit was increased.
+
+### Hosted-CI fixture follow-up after root-reviewed `62160ca9`
+
+Root resumed this sole owner for three concrete hosted failures: navigation
+history (desktop/mobile) in run `39100270030`, the cross-view utility host in
+E2E shard 2 of run `39100270473`, and twelve Chat visual snapshots in run
+`39100269979`. The first two journeys requested Virtual without explicitly
+enabling it. Their setup now opts into the existing returning-user view record;
+all history, repeated query-value, unknown-query and utility-host assertions
+remain. Navigation also checks the current unconfigured hosted-Sim notice,
+`Agent Sim is not set up here`, rather than the retired local-engine status.
+
+Visual artifact `12126283186` (`visual-lane-evidence`) was downloaded and its
+expected/actual/diff images inspected before editing. Light desktop and dark
+mobile examples show only the global rail changing from explicit Virtual,
+Chat, Dev and Kanban to fresh Chat/Dev defaults. Direct pixel comparison across
+all twelve pairs confirms every difference lies inside `(8,161)–(47,351)`.
+The Chat surface itself is unchanged. The existing-profile Chat visual fixture
+now writes that explicit view record together with its theme after clearing
+storage, preserving its original screenshot subject. **No snapshot image or
+pixel threshold changed.** Fresh-default tests retain independent contexts.
+
+Qualification with Node 24.21.0 / Bun 1.4.3: zero-warning lint passes 19/19 plus
+root; full types pass 33/33. The actual repaired navigation/history and global
+utility test sources pass all four desktop/mobile cases through a disposable
+API fixture. Existing fresh-guest tests pass 5/5. The complete Chat visual suite
+passes 13/13 against unchanged Darwin baselines. It also passes 13/13 against
+unchanged Linux baselines using the cached Playwright `v1.63.0-noble` ARM64
+browser image, with a sanitized read-only test/baseline copy and the pinned
+local Mac app server. This browser check is not represented as the hosted
+Linux x64 full lane or a real-provider/DB integration run.
+
+Two initial local container mount/output setup errors and one temporary wrapper
+module-loader error occurred before tests ran; the disposable runner was fixed
+and rerun without weakening application guards or assertions. Root must review
+the new exact head and rerun hosted checks. Auto-merge is kept off. Private
+#115 remains ownership-blocked and has not been mutated. The only runtime
+configuration remains root-reviewed `62160ca9`; this follow-up changes test
+fixtures and this chronological receipt only, preserving Chat/Dev defaults and
+the previously qualified entry/loading boundaries.
