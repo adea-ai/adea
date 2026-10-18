@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import {
   FactoryFixtureFailure,
+  boundedFactoryWait,
   factoryFailureRecord,
   runFactoryProof,
   startFactoryChild,
@@ -36,7 +37,7 @@ async function spawnFailure(binary: string) {
         },
       ],
     },
-    (record) => records.push(record)
+    (record: unknown) => records.push(record)
   )
   await host?.closed
   expect(status).toBe(1)
@@ -84,7 +85,7 @@ describe('production factory child failures', () => {
           },
         ],
       },
-      (record) => records.push(record)
+      (record: unknown) => records.push(record)
     )
     expect(status).toBe(1)
     expect(JSON.stringify(records)).not.toContain(canary)
@@ -182,7 +183,7 @@ process.exitCode=await runFactoryProof(async()=>verifyInstalledPackagePayload({a
           },
         ],
       },
-      (record) => {
+      (record: unknown) => {
         records.push(record)
       }
     )
@@ -230,7 +231,7 @@ process.exitCode=await runFactoryProof(async()=>verifyInstalledPackagePayload({a
           },
         ],
       },
-      async (record) => {
+      async (record: unknown) => {
         records.push(record)
         throw Error(canary)
       }
@@ -261,4 +262,109 @@ process.exitCode=await runFactoryProof(async()=>verifyInstalledPackagePayload({a
     expect(status).toBe(1)
     expect(completed).toBe(true)
   })
+})
+
+test('bounded waits settle values and errors, and timeouts use only an allow-listed code', async () => {
+  expect(await boundedFactoryWait(Promise.resolve('ready'), 1000, 'HOST_LAUNCH_TIMEOUT')).toBe(
+    'ready'
+  )
+  const failure = new Error('synthetic rejected wait')
+  await expect(
+    boundedFactoryWait(Promise.reject(failure), 1000, 'HOST_LAUNCH_TIMEOUT')
+  ).rejects.toBe(failure)
+  await expect(
+    boundedFactoryWait(new Promise(() => {}), 1, 'HOST_CONTROL_TIMEOUT')
+  ).rejects.toMatchObject({ code: 'HOST_CONTROL_TIMEOUT' })
+  expect(new FactoryFixtureFailure('untrusted-code').code).toBe('PROOF_FAILED')
+  expect(factoryFailureRecord('dispatch', { code: 'ERR_ASSERTION' }, 2)).toMatchObject({
+    code: 'PROOF_ASSERTION_FAILED',
+    readerRequests: 2,
+  })
+})
+
+function syntheticChild(program: string) {
+  return startFactoryChild(process.execPath, ['--eval', program], { cwd: directory })
+}
+const childPrelude = `const {createInterface}=require('node:readline'); const lines=createInterface({input:process.stdin}); console.log('ignored raw line'); console.log(JSON.stringify({baseUrl:'http://127.0.0.1:1'}));`
+
+test('owned synthetic child settles ready, correlates controls and closes idempotently', async () => {
+  const host = syntheticChild(
+    childPrelude +
+      `lines.on('line', line=>{ const {id,command}=JSON.parse(line); console.log(JSON.stringify({controlId:'unmatched',data:'ignored'})); console.log(JSON.stringify({controlId:id,data:{command}})); if(command==='close') lines.close(); });`
+  )
+  try {
+    await expect(host.control('evidence')).rejects.toMatchObject({
+      code: 'HOST_CONTROL_UNAVAILABLE',
+    })
+    expect(await host.ready()).toEqual({ baseUrl: 'http://127.0.0.1:1' })
+    expect(await host.ready()).toEqual({ baseUrl: 'http://127.0.0.1:1' })
+    await expect(host.control('invalid')).rejects.toMatchObject({
+      code: 'HOST_CONTROL_UNAVAILABLE',
+    })
+    expect(await host.control('evidence')).toEqual({ command: 'evidence' })
+    expect(await host.control('drain')).toEqual({ command: 'drain' })
+  } finally {
+    await host.closeOwned()
+  }
+  await host.closed
+  await host.closeOwned()
+  await expect(host.control('evidence')).rejects.toMatchObject({ code: 'HOST_CONTROL_UNAVAILABLE' })
+})
+
+test('an owned child exiting during a control refuses the pending reply and is reaped', async () => {
+  const host = syntheticChild(childPrelude + `lines.on('line', ()=>process.exit(7));`)
+  try {
+    await host.ready()
+    await expect(host.control('evidence')).rejects.toMatchObject({
+      code: 'HOST_EXIT_BEFORE_CONTROL_REPLY',
+    })
+  } finally {
+    await host.closeOwned()
+  }
+  await host.closed
+})
+
+test('successful proof runs every cleanup and diagnostic output exceptions cannot escape', async () => {
+  const steps: string[] = []
+  expect(
+    await runFactoryProof(
+      async () => {
+        steps.push('work')
+      },
+      {
+        phase: () => 'prepare',
+        readerRequests: () => 0,
+        actions: [
+          () => {
+            steps.push('cleanup')
+          },
+        ],
+      },
+      () => {
+        throw new Error('unexpected diagnostic')
+      }
+    )
+  ).toBe(0)
+  expect(steps).toEqual(['work', 'cleanup'])
+  let cleaned = false
+  expect(
+    await runFactoryProof(
+      async () => {
+        throw new Error(canary)
+      },
+      {
+        phase: () => 'dispatch',
+        readerRequests: () => 0,
+        actions: [
+          () => {
+            cleaned = true
+          },
+        ],
+      },
+      () => {
+        throw new Error(canary)
+      }
+    )
+  ).toBe(1)
+  expect(cleaned).toBe(true)
 })
