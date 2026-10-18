@@ -121,7 +121,7 @@ export default defineConfig(({ command }) => ({
               groups: [
                 {
                   name: 'lazy-ui',
-                  test: /@adea-ai\/ui\/src\/components\/ui\/(label\/label|skeleton\/skeleton|status-chip\/status-chip)\.tsx$/,
+                  test: /@adea-ai\/ui\/src\/components\/ui\/(label\/label|skeleton\/skeleton|status-chip\/status-chip|badge\/badge|empty\/empty)\.tsx$/,
                   includeDependenciesRecursively: false,
                   minShareCount: 2,
                 },
@@ -131,6 +131,7 @@ export default defineConfig(({ command }) => ({
                 {
                   name: 'dev-runtime-contract',
                   test: /packages\/types\/dist\/dev-runtime-(wire|validation-internal)\.js$/,
+                  includeDependenciesRecursively: false,
                 },
                 // The contextual host and its lazy panes share this small command
                 // helper and lazy status models. Co-locate their wrappers without hoisting
