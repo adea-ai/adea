@@ -40,6 +40,15 @@ async function mockTwoWorkspaceBootstrap(page: Page) {
     if (!sessionStorage.getItem('adea:e2e-initialized')) {
       localStorage.clear()
       localStorage.setItem('theme', 'light')
+      // Explicit existing-user choices; fresh profiles default to Chat and Dev.
+      localStorage.setItem(
+        'adea:rail-preferences:v1',
+        JSON.stringify({
+          version: 1,
+          order: ['virtual', 'chat', 'dev', 'kanban'],
+          hidden: [],
+        })
+      )
       sessionStorage.setItem('adea:e2e-initialized', 'true')
     }
   })
@@ -145,11 +154,9 @@ test('the virtual-view handoff preserves the scene in the URL', async ({ page })
   // region and controls, and every other build renders the documented offline
   // fallback. Both are correct outcomes of the same handoff.
   await expect(
-    page.getByRole('region', { name: 'Virtual Room' }).or(
-      page.getByRole('status', {
-        name: 'Virtual view unavailable',
-      })
-    )
+    page
+      .getByRole('region', { name: 'Virtual Room' })
+      .or(page.getByText('Agent Sim is not set up here', { exact: true }))
   ).toBeVisible({ timeout: 30_000 })
 })
 

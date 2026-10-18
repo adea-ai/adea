@@ -29,11 +29,15 @@ test('a guest can use a workspace before opening the optional persistence flow',
   const userMenu = page.getByRole('button', { name: 'User settings' })
   await expect(userMenu).toBeVisible({ timeout: 20_000 })
   await expect(userMenu.locator('svg.lucide-user-round')).toHaveCount(1)
-  // The virtual view renders the engine-unavailable fallback in builds
-  // without Agent Sim; the designer entry points it used to host are gone.
-  await expect(page.getByRole('status', { name: 'Virtual view unavailable' })).toBeVisible({
-    timeout: 20_000,
-  })
+  // A fresh guest requesting a disabled optional view lands in Chat.
+  const freshRail = page.getByRole('navigation', { name: 'Global navigation' })
+  await expect(freshRail.getByRole('button', { name: 'Chat view', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  )
+  await expect(freshRail.getByRole('button', { name: 'Dev view', exact: true })).toBeVisible()
+  await expect(freshRail.getByRole('button', { name: 'Virtual view', exact: true })).toHaveCount(0)
+  await expect(page.locator('[data-agent-sim-hosted]')).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Open character designer' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Open user menu for Sign in' })).toHaveCount(0)
   await expect(page.locator('.workspace-statusbar')).toHaveCount(0)
@@ -242,7 +246,7 @@ test('workspace search shortcut repeatedly focuses the disabled-chat App Library
   const library = page.getByRole('main', { name: 'App Library' })
   await library.getByRole('button', { name: 'Enable Virtual' }).click()
   await library.getByRole('button', { name: 'Open Virtual' }).click()
-  await expect(page.getByRole('status', { name: 'Virtual view unavailable' })).toBeVisible({
+  await expect(page.getByText('Agent Sim is not set up here', { exact: true })).toBeVisible({
     timeout: 20_000,
   })
   await page

@@ -1,3 +1,4 @@
+import { retainOptionalWorkspaceViews } from './helpers/workspace-view-preferences'
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 
@@ -539,4 +540,9 @@ test.describe('the task board stays in the accessibility tree across sheet close
     expect(await page.locator('.workspace-frame').getAttribute('aria-hidden')).toBe('true')
     await page.locator('.workspace-frame').evaluate((frame) => frame.removeAttribute('aria-hidden'))
   })
+})
+
+// This suite exercises explicitly enabled optional views in an existing profile.
+test.beforeEach(async ({ page }) => {
+  await retainOptionalWorkspaceViews(page)
 })

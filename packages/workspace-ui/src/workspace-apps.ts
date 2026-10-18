@@ -1,5 +1,9 @@
 import type { RailPreferencesV1 } from './rail-preferences'
-import { reorderRailItemsRelativeTo, setRailItemHidden } from './rail-preferences'
+import {
+  defaultRailPreferences,
+  reorderRailItemsRelativeTo,
+  setRailItemHidden,
+} from './rail-preferences'
 import type { WorkspaceView } from './workspace-view-toggle'
 
 export type WorkspaceAppId = WorkspaceView | 'kanban' | 'source-control'
@@ -8,47 +12,41 @@ export type WorkspaceApp = Readonly<{
   name: string
   description: string
   view: WorkspaceView
-  enabledByDefault: boolean
 }>
 
-/** Build-owned destinations. External plugin metadata cannot register routes. */
+/** Build-owned destinations. Only Chat/Dev are defaults; every extra requires
+ * its explicit stored ID, including future registry entries. External plugin
+ * metadata cannot register routes. */
 export const workspaceApps: readonly WorkspaceApp[] = Object.freeze([
   {
     id: 'virtual',
     name: 'Virtual',
     description: 'Rooms and the spatial workspace.',
     view: 'virtual',
-    enabledByDefault: true,
   },
   {
     id: 'chat',
     name: 'Chat',
     description: 'Conversations with your agents.',
     view: 'chat',
-    enabledByDefault: true,
   },
   {
     id: 'dev',
     name: 'Dev',
     description: 'Projects, worktrees, terminals and developer tools.',
     view: 'dev',
-    enabledByDefault: true,
   },
   {
     id: 'kanban',
     name: 'Kanban',
     description: 'Plan and track tasks on a full-width board.',
     view: 'chat',
-    // The board is the only place tasks are listed, so it is on unless the
-    // person turns it off in the App Library.
-    enabledByDefault: true,
   },
   {
     id: 'source-control',
     name: 'Source control',
     description: 'Pull requests, reviews, checks and merges across your GitHub projects.',
     view: 'dev',
-    enabledByDefault: false,
   },
 ])
 
@@ -91,7 +89,7 @@ export function reorderWorkspaceAppsRelativeTo(
   for (const app of workspaceApps) {
     if (order.includes(app.id)) continue
     order.push(app.id)
-    if (!app.enabledByDefault) hidden.add(app.id)
+    if (!defaultRailPreferences.order.includes(app.id)) hidden.add(app.id)
   }
 
   const complete = {
@@ -108,7 +106,9 @@ export function reorderWorkspaceAppsRelativeTo(
 export function enabledWorkspaceApps(preferences: RailPreferencesV1): readonly WorkspaceApp[] {
   const hidden = new Set(preferences.hidden)
   return orderedWorkspaceApps(preferences).filter(
-    (app) => !hidden.has(app.id) && (app.enabledByDefault || preferences.order.includes(app.id))
+    (app) =>
+      !hidden.has(app.id) &&
+      (defaultRailPreferences.order.includes(app.id) || preferences.order.includes(app.id))
   )
 }
 
@@ -131,5 +131,9 @@ export function resolveWorkspaceApp(
   requested: string
 ): WorkspaceApp | undefined {
   const enabled = enabledWorkspaceApps(preferences)
-  return enabled.find((app) => app.id === requested) ?? enabled[0]
+  return (
+    enabled.find((app) => app.id === requested) ??
+    enabled.find((app) => app.id === 'chat') ??
+    enabled.find((app) => app.id === 'dev')
+  )
 }

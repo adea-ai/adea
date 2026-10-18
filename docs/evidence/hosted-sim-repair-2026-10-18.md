@@ -327,3 +327,34 @@ or explicit budget-policy decision remains necessary before app readiness.
 Root reports private #111's exact reviewed head merged to `9746854a`; that scope
 is frozen. Root owns the later #114 reconciliation. No alternate merge route,
 release, live composition or deployment is part of this task.
+
+### Optional workspace views, following the user's expanded scope
+
+Fresh preferences now expose Chat and Dev only. Virtual, Kanban, Source control
+(the actual registry label), and future extra registry entries require an
+explicit App Library enable action. Valid version-1 records retain their listed
+views, hidden choices, unknown IDs and ordering. Reset restores core-only
+preferences; disabled/unknown routes fall back to enabled Chat, then Dev, then
+Library. Browser storage access failure preserves usable in-memory defaults.
+Early entry warming and rail intent warming both consult enabled destinations,
+so a disabled Virtual/designer deep link cannot initialize or fetch Sim.
+
+The three focused preference suites plus documentation routing pass 28 tests /
+105 assertions. Formatting, zero-warning lint (19/19), types (33/33), and workspace
+build (17/17) pass with the pinned public toolchain. The actual built desktop
+client passes fresh defaults, explicit enable/disable, reload persistence,
+legacy records, no Sim API or entry requests before opening Virtual, and
+Chat/Dev navigation while Sim is unavailable and offline. The enabled-Sim
+fixture separately passes the real private-export designer save/reopen/reload,
+delayed acknowledgement and asynchronous iframe-move/retry journey: nine
+grants, 273 authorized asset reads, 155-character saved value, zero rendering
+errors. These runs use disposable local authority/storage; neither proves live
+service rollout. Existing optional-view browser suites now seed explicit
+returning-user preferences; their full DB/visual lanes have not been rerun here.
+
+The production aggregate guard still fails: 976,461 gzip bytes exceeds the
+unchanged 971,776 limit by 4,685 bytes. No budget, exclusion, or guard was relaxed.
+The admitted coverage owners' test commits and additive selectors still need
+composition through coordinating root before the corrected shared coverage
+lane can be requalified. The last native archive receipt predates this optional
+view update and is not represented as its package proof.

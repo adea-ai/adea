@@ -88,11 +88,68 @@ page.on('console', (message) => {
   if (message.type() === 'error') errors.push(message.text())
 })
 try {
+  const rail = page.locator('[data-global-rail]')
+  const library = page.getByRole('main', { name: 'App Library', exact: true })
+  const views = rail.getByRole('group', { name: 'Workspace views' }).locator('[data-row-id]')
+  const simRequests = () => requests.filter((path) => path.startsWith('/api/sim/'))
+  await page.goto(origin)
+  await expect(rail.getByRole('button', { name: 'Chat view', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true'
+  )
+  await expect(views).toHaveCount(2)
+  await expect(views.nth(0)).toHaveAttribute('aria-label', 'Chat view')
+  await expect(views.nth(1)).toHaveAttribute('aria-label', 'Dev view')
+  await rail.getByRole('button', { name: 'Dev view', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Developer workspace panes' })).toBeVisible({
+    timeout: 30_000,
+  })
+  await page.goto(`${origin}/?view=virtual&characterDesigner=1&roomDesigner=1`)
+  await expect(page).toHaveURL(/view=chat/)
+  await expect(page.locator('[data-agent-sim-hosted], iframe')).toHaveCount(0)
+  expect(simRequests()).toEqual([])
+  expect(
+    requests.filter((path) =>
+      /hosted-sim-entry|room-designer-entry|character-designer-entry/.test(path)
+    )
+  ).toEqual([])
+
+  await rail.getByRole('button', { name: 'App Library', exact: true }).click()
+  for (const name of ['Virtual', 'Kanban', 'Source control'])
+    await library.getByRole('button', { name: `Enable ${name}`, exact: true }).click()
+  await expect(views).toHaveCount(5)
+  expect(simRequests()).toEqual([])
+  await page.reload()
+  await expect(library.getByRole('button', { name: 'Open Virtual', exact: true })).toBeVisible()
+  await expect(views).toHaveCount(5)
+  expect(simRequests()).toEqual([])
+  for (const name of ['Virtual', 'Kanban', 'Source control'])
+    await library.getByRole('button', { name: `Disable ${name}`, exact: true }).click()
   await page.goto(`${origin}/?view=virtual`)
+  await expect(page).toHaveURL(/view=chat/)
+  expect(simRequests()).toEqual([])
+
+  // A real legacy record represents explicit existing choices, including
+  // preserved unknown IDs and a deliberate hidden app; reading must not reset it.
+  const legacy = {
+    version: 1,
+    order: ['virtual', 'dev', 'chat', 'kanban', 'source-control', 'app:future'],
+    hidden: ['kanban', 'source-control', 'app:hidden'],
+  }
+  await page.evaluate((preferences) => {
+    localStorage.setItem('adea:rail-preferences:v1', JSON.stringify(preferences))
+  }, legacy)
+  await page.reload()
+  await expect(rail.getByRole('button', { name: 'Virtual view', exact: true })).toBeVisible()
+  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(0)
+  expect(
+    await page.evaluate(() => JSON.parse(localStorage.getItem('adea:rail-preferences:v1')!))
+  ).toEqual(legacy)
+  expect(simRequests()).toEqual([])
+  await rail.getByRole('button', { name: 'Virtual view', exact: true }).click()
   await expect(page.getByText('Agent Sim is unavailable right now', { exact: true })).toBeVisible({
     timeout: 30_000,
   })
-  const rail = page.locator('[data-global-rail]')
   await rail.getByRole('button', { name: 'Chat view', exact: true }).click()
   await expect(page).toHaveURL(/view=chat/)
   await expect(page.locator('[data-agent-sim-hosted]')).toHaveCount(0)
@@ -116,6 +173,10 @@ try {
   console.log(
     JSON.stringify({
       evidence: 'actual built client with synthetic API/bridge; local only',
+      freshChatDevOnly: true,
+      optInPersistenceAndDisabledRouteFallback: true,
+      legacyExplicitChoicesPreserved: true,
+      noOptionalInitializationBeforeOpen: true,
       simUnavailableAndOffline: true,
       actualChatDevNavigation: true,
       grantsWhileOffline: 0,

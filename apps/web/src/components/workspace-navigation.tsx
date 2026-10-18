@@ -691,14 +691,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   )
   createEffect(() => {
     setRailPreferences(
-      readRailPreferences(typeof window === 'undefined' ? undefined : window.localStorage)
+      readRailPreferences(() => (typeof window === 'undefined' ? undefined : window.localStorage))
     )
   })
   const persistRailPreferences = (next: RailPreferencesV1) => {
     const requested = requestedAppId()
     const wasLibrary = libraryOpen()
     setRailPreferences(next)
-    writeRailPreferences(window.localStorage, next)
+    writeRailPreferences(() => window.localStorage, next)
     const destination = resolveWorkspaceApp(next, requested)
     if (!destination) openAppLibrary(true)
     else if (!wasLibrary && destination.id !== requested) changeApp(destination.id, true)
@@ -1626,7 +1626,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         }}
         activeWorkspace={props.activeWorkspace}
         onViewChange={(id) => changeApp(id)}
-        onViewIntent={preloadView}
+        onViewIntent={(nextView) => {
+          if (resolveWorkspaceApp(railPreferences(), nextView)?.id === nextView)
+            preloadView(nextView)
+        }}
         onPanelIntent={preloadPanel}
         reorder={{
           onDrop: (id, targetId, position) => {

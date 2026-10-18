@@ -3,7 +3,7 @@ import type { WorkspaceView } from './workspace-view-toggle'
 /**
  * Global rail customization (Dev Runtime spec, "Appearance and App Library"):
  * ordering and visibility of the rail's view entries, persisted as a
- * versioned record. Chat/Dev/Virtual are built-in core views — hideable only
+ * versioned record. Chat/Dev are default core views — hideable only
  * while inactive and always recoverable via App Library or Reset Navigation;
  * optional app contributions ride the same record and are preserved even when
  * the contribution itself is unknown to this build.
@@ -34,17 +34,17 @@ export const RAIL_PREFERENCES_QUARANTINE_KEY = 'adea:rail-preferences:quarantine
  */
 export const defaultRailPreferences: RailPreferencesV1 = Object.freeze({
   version: 1,
-  order: Object.freeze(['virtual', 'chat', 'dev']),
+  order: Object.freeze(['chat', 'dev']),
   hidden: Object.freeze([]),
 })
 
 export function railItemsForViews(
-  views: readonly WorkspaceView[] = ['virtual', 'chat', 'dev']
+  views: readonly WorkspaceView[] = ['chat', 'dev']
 ): readonly RailItem[] {
   return views.map((view) => ({
     id: view,
     label: VIEW_LABELS[view] ?? view,
-    kind: 'core-view',
+    kind: view === 'virtual' ? 'optional-app' : 'core-view',
   }))
 }
 
@@ -87,24 +87,27 @@ export function normalizeRailPreferences(raw: unknown): NormalizedRailPreference
 }
 
 type PreferenceStorage = Pick<Storage, 'getItem' | 'setItem'>
+type PreferenceStorageSource = PreferenceStorage | (() => PreferenceStorage | undefined) | undefined
 
-export function readRailPreferences(storage: PreferenceStorage | undefined): RailPreferencesV1 {
+export function readRailPreferences(storage: PreferenceStorageSource): RailPreferencesV1 {
   if (!storage) return defaultRailPreferences
   try {
-    const raw = storage.getItem(RAIL_PREFERENCES_STORAGE_KEY)
+    const selected = typeof storage === 'function' ? storage() : storage
+    if (!selected) return defaultRailPreferences
+    const raw = selected.getItem(RAIL_PREFERENCES_STORAGE_KEY)
     if (raw === null) return defaultRailPreferences
     let parsed: unknown
     try {
       parsed = JSON.parse(raw)
     } catch {
       // Preserve malformed text byte-for-byte for diagnostics/recovery.
-      storage.setItem(RAIL_PREFERENCES_QUARANTINE_KEY, raw)
+      selected.setItem(RAIL_PREFERENCES_QUARANTINE_KEY, raw)
       return defaultRailPreferences
     }
     const normalized = normalizeRailPreferences(parsed)
     if (normalized.retainedRaw !== undefined) {
       try {
-        storage.setItem(RAIL_PREFERENCES_QUARANTINE_KEY, JSON.stringify(normalized.retainedRaw))
+        selected.setItem(RAIL_PREFERENCES_QUARANTINE_KEY, JSON.stringify(normalized.retainedRaw))
       } catch {
         // Storage remains best-effort; the active view still fails closed.
       }
@@ -116,12 +119,13 @@ export function readRailPreferences(storage: PreferenceStorage | undefined): Rai
 }
 
 export function writeRailPreferences(
-  storage: PreferenceStorage | undefined,
+  storage: PreferenceStorageSource,
   preferences: RailPreferencesV1
 ): void {
   if (!storage) return
   try {
-    storage.setItem(RAIL_PREFERENCES_STORAGE_KEY, JSON.stringify(preferences))
+    const selected = typeof storage === 'function' ? storage() : storage
+    selected?.setItem(RAIL_PREFERENCES_STORAGE_KEY, JSON.stringify(preferences))
   } catch {
     // Persistence is best-effort; the in-memory customization still applies.
   }

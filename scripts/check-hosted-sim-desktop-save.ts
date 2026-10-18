@@ -162,6 +162,16 @@ await context.addInitScript(() => {
 })
 const page = await context.newPage()
 await context.addInitScript(() => {
+  // This journey exercises explicitly enabled Sim, independently of fresh defaults.
+  if (window.parent === window && localStorage.getItem('adea:rail-preferences:v1') === null)
+    localStorage.setItem(
+      'adea:rail-preferences:v1',
+      JSON.stringify({
+        version: 1,
+        order: ['chat', 'dev', 'virtual'],
+        hidden: [],
+      })
+    )
   const delayed = new WeakSet<object>()
   if (window.parent === window)
     window.addEventListener(

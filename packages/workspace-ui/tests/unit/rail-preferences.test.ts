@@ -31,13 +31,13 @@ describe('rail preferences', () => {
   test('defaults keep the canonical core-view order and hide nothing', () => {
     expect(defaultRailPreferences).toEqual({
       version: 1,
-      order: ['virtual', 'chat', 'dev'],
+      order: ['chat', 'dev'],
       hidden: [],
     })
     expect(resolveRailItems(defaultRailPreferences, items).map((item) => item.id)).toEqual([
-      'virtual',
       'chat',
       'dev',
+      'virtual',
       'app:roadmap',
     ])
   })
@@ -61,8 +61,8 @@ describe('rail preferences', () => {
   test('hidden items drop out, but the active view never disappears', () => {
     const hidden = setRailItemHidden(defaultRailPreferences, 'chat', true)
     expect(resolveRailItems(hidden, items, 'dev').map((item) => item.id)).toEqual([
-      'virtual',
       'dev',
+      'virtual',
       'app:roadmap',
     ])
     // Chat is active: it stays visible despite being hidden.
@@ -159,7 +159,7 @@ describe('rail preferences', () => {
 
   test('a record missing a core id is completed, never truncated', () => {
     const normalized = normalizeRailPreferences({ version: 1, order: ['dev'], hidden: [] })
-    expect(normalized.value.order).toEqual(['dev', 'virtual', 'chat'])
+    expect(normalized.value.order).toEqual(['dev', 'chat'])
   })
 
   test('storage round-trips and a blocked or corrupt store degrades to defaults', () => {

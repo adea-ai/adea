@@ -39,6 +39,12 @@ rebuilding the rail, toolbar, resizing, or collapse behavior.
 
 ## Global rail
 
+Fresh device preferences enable Chat and Dev only. App Library enables Virtual,
+Kanban, Source control and future extra destinations through the shared persisted
+order/hidden record. Existing explicit choices survive without a schema reset.
+Disabled destinations fall back to Chat or Dev, or Library when both are hidden;
+they do not initialize optional views or hosted Sim resources.
+
 The `GlobalWorkspaceRail` stays mounted across workspace views. Ctrl/Cmd+K
 calls its host-owned `onOpenSearch` action, so the host can open Chat search or
 focus the App Library search when Chat is disabled. Workspace selection uses

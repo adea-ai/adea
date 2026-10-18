@@ -7913,8 +7913,9 @@ alone is insufficient.
 [Owner correction #757](../research/shell-app-library-owner-corrections.md)
 separates **App Library** from the external **Plugins** marketplace. Library is
 an always-reachable full-screen destination directly below the rail's app
-icons. Virtual, Chat, Dev and Kanban are bundled and enabled by default;
-Source control is a compiled optional destination, enabled explicitly. Kanban
+icons. Fresh installs enable Chat and Dev only. Virtual, Kanban and Source
+control are compiled optional destinations, enabled explicitly in Library;
+future extra destinations are opt-in too. Kanban
 is the only full task list (the workspace sidebar has no Tasks entry; open tasks
 appear only as leaves under their project, and closed ones leave the sidebar):
 it mounts the task board full width, with no workspace sidebar, through a
@@ -7939,11 +7940,17 @@ session into the existing source-control surface at full width, without
 rewriting the Dev pane preferences. Code browsing remains available in Dev.
 
 Enablement reuses the versioned rail order/hidden record, preserving unknown
-IDs and quarantined data. A default-on app is enabled unless hidden; an
-optional app is enabled only when its compiled ID is explicitly in that
-record's order and is not hidden. Disabling an active
-app resolves to another enabled app; if every app is disabled, Library remains
-available to re-enable them. Enablement never installs external code, deletes
+IDs and quarantined data. The version-one record remains readable: explicitly
+listed extra destinations, hidden choices and their order survive reload and
+migration unchanged. Missing or unreadable records use Chat/Dev defaults;
+normalization never appends optional IDs. Only the canonical Chat/Dev core IDs
+can default on; new registry destinations require a stored explicit ID and
+must not be hidden. Reordering or browsing Library never enables an extra.
+Disabling an active app resolves to an enabled Chat, then Dev; if both are
+disabled, Library remains available rather than initializing another optional
+app. Disabled destinations and stale designer links cannot mount or preload
+their optional entries. Chat/Dev need no Sim configuration, grant or entitlement
+check until the user enables and opens Virtual. Enablement never installs external code, deletes
 app data, replaces a RuntimeSession, or stops its harness. External metadata
 cannot register or retarget a workspace destination.
 

@@ -476,6 +476,15 @@ async function mockWorkspace(page: Page, empty = false) {
     if (!sessionStorage.getItem('adea:e2e-initialized')) {
       localStorage.clear()
       localStorage.setItem('theme', 'light')
+      // Explicit returning-user profile for optional-view journeys.
+      localStorage.setItem(
+        'adea:rail-preferences:v1',
+        JSON.stringify({
+          version: 1,
+          order: ['virtual', 'chat', 'dev', 'kanban'],
+          hidden: [],
+        })
+      )
       sessionStorage.setItem('adea:e2e-initialized', 'true')
     }
   })
@@ -619,6 +628,15 @@ async function mockConnectedWorkspace(page: Page) {
     if (!sessionStorage.getItem('adea:e2e-initialized')) {
       localStorage.clear()
       localStorage.setItem('theme', 'light')
+      // Explicit existing-user choices; fresh profiles default to Chat and Dev.
+      localStorage.setItem(
+        'adea:rail-preferences:v1',
+        JSON.stringify({
+          version: 1,
+          order: ['virtual', 'chat', 'dev', 'kanban'],
+          hidden: [],
+        })
+      )
       sessionStorage.setItem('adea:e2e-initialized', 'true')
     }
   })
@@ -1511,7 +1529,7 @@ test('toggles chat and virtual Project views without losing shared selection or 
   // fallback. Both are correct, so the gate accepts either and only checks the
   // engine's room controls when the engine is actually there.
   const virtualRoom = page.getByRole('region', { name: 'Virtual Room' })
-  const engineFallback = page.getByRole('status', { name: 'Virtual view unavailable' })
+  const engineFallback = page.getByText('Agent Sim is not set up here', { exact: true })
   await expect(virtualRoom.or(engineFallback)).toBeVisible({ timeout: 30_000 })
   // Virtual view renders the same shared contextual sidebar as chat (main gave
   // it a separate "Virtual navigation" aside, which is why this used to assert
@@ -3102,14 +3120,12 @@ for (const designer of ['roomDesigner', 'characterDesigner'] as const) {
     await mockConnectedWorkspace(page)
     await page.goto(`/?view=chat&${designer}=1`)
     const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
-    await expect(
-      page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })
-    ).toBeVisible()
+    await expect(page.getByText('Agent Sim is not set up here', { exact: true })).toBeVisible()
     // Edit mode drops the contextual sidebar on purpose: the designer fills the
     // viewport, and the top bar plus the designer's own close are the way back.
     await expect(sidebar).toHaveCount(0)
     await expect(page.getByRole('main')).toHaveCount(1)
-    const fallback = page.getByRole('status', { name: 'Virtual view unavailable' })
+    const fallback = page.locator('.workspace-scene-viewport').locator('div').first()
     expect(
       await fallback.evaluate((element) => {
         const viewport = element.closest('.workspace-scene-viewport')!
@@ -3145,9 +3161,7 @@ for (const designer of ['roomDesigner', 'characterDesigner'] as const) {
     await expect(page).not.toHaveURL(/(?:roomDesigner|characterDesigner)=1/)
     await page.goBack()
     await expect(page).toHaveURL(new RegExp(`${designer}=1`))
-    await expect(
-      page.getByRole('heading', { name: 'Virtual view lives in Agent Sim' })
-    ).toBeVisible()
+    await expect(page.getByText('Agent Sim is not set up here', { exact: true })).toBeVisible()
     await expect(sidebar).toHaveCount(0)
     await expect(rail).toBeVisible()
     await expect(
@@ -3736,7 +3750,7 @@ test.describe('touch workspace sidebar actions', () => {
     const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
     const globalNavigation = page.getByRole('navigation', { name: 'Global navigation' })
     const virtualRoom = page.getByRole('region', { name: 'Virtual Room' })
-    const engineFallback = page.getByRole('status', { name: 'Virtual view unavailable' })
+    const engineFallback = page.getByText('Agent Sim is not set up here', { exact: true })
     await expect(virtualRoom.or(engineFallback)).toBeVisible({ timeout: 30_000 })
     await expect(navigationToggle).toBeVisible()
 
@@ -3988,7 +4002,7 @@ test('optional apps open actual task and source control views without hiding the
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   const library = page.getByRole('main', { name: 'App Library' })
-  // Kanban is on by default: it is the only place tasks are listed.
+  // This returning-user fixture explicitly enables Kanban for task navigation.
   await expect(library.getByRole('button', { name: 'Disable Kanban', exact: true })).toBeVisible()
   await library.getByRole('button', { name: 'Open Kanban', exact: true }).click()
   await expect(page).toHaveURL(/app=kanban/)
@@ -4064,9 +4078,9 @@ test('Kanban leaves the prior Chat surface intact and rail keyboard reorders per
   await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible()
   await rail.getByRole('button', { name: 'App Library', exact: true }).click()
   await library.getByRole('button', { name: 'Reset Navigation', exact: true }).click()
-  await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Virtual view')
-  // Reset restores the defaults, and Kanban is one of them.
-  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(1)
+  await expect(views.getByRole('button').first()).toHaveAttribute('aria-label', 'Chat view')
+  // Reset restores core-only defaults; extras require an explicit opt-in.
+  await expect(rail.getByRole('button', { name: 'Kanban', exact: true })).toHaveCount(0)
 })
 
 test('App Library drag and keyboard ordering shares rail placements and persists hidden apps', async ({
