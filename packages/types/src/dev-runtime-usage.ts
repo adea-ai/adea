@@ -1,3 +1,4 @@
+import { assertWellFormedUnicode } from './dev-runtime-unicode'
 import {
   exactKeys,
   fail,
@@ -40,6 +41,7 @@ export function usageDataRecord(value: unknown, path: string): Record<string, un
 
 function modelIdentifier(value: unknown, path: string): void {
   const text = stringValue(value, path, 1, 256)
+  assertWellFormedUnicode(text, path)
   const hasControl = Array.from(text).some((character) => {
     const code = character.charCodeAt(0)
     return code < 32 || (code >= 127 && code <= 159)

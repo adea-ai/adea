@@ -3575,7 +3575,9 @@ type RuntimeUsageObservedPayload = {
 
 - A payload is a reported snapshot for exactly one provider/model and runtime
   session generation. Both model identifiers are required, 1–256 characters,
-  without controls or surrounding whitespace. If model identity is unknown,
+  without controls or surrounding whitespace. They must contain well-formed
+  Unicode: lone surrogate code units are refused before snapshot/admission;
+  valid astral pairs survive UTF-8/CBOR round trips unchanged. If model identity is unknown,
   the producer MUST NOT emit a usage observation. `generation` is a nonnegative
   safe integer and MUST equal the enclosing event's generation. Session and
   optional harness-run identity come from the event envelope.
