@@ -13,6 +13,13 @@ const references = () => ({
   sources: [{ id: 'earth', title: 'Earth', url: 'https://example.com/earth', snippet: 'Round.' }],
   citations: [{ sourceId: 'earth', start: 0, end: 14 }],
 })
+// Assistant events always carry the validated identity (#1386); the cited
+// payload extends that contract rather than replacing it.
+const identity = { messageId: 'message-1', supersedes: 'deltas' } as const
+const withIdentity = (payload: unknown): unknown =>
+  payload !== null && typeof payload === 'object' && !Array.isArray(payload)
+    ? { ...identity, ...payload }
+    : payload
 const response = (payload: unknown = { text, references: references() }): RuntimeEvent => ({
   schemaVersion: 1,
   eventId: 'response-1',
@@ -27,7 +34,7 @@ const response = (payload: unknown = { text, references: references() }): Runtim
   confidence: 'authoritative',
   classification: 'workspace_private',
   kind: 'turn.assistant_message',
-  payload,
+  payload: withIdentity(payload),
 })
 const decode = (payload: unknown) => decodeRuntimeEvent(response(payload), { source: 'acp' })
 
@@ -42,14 +49,29 @@ describe('response references at the wire boundary', () => {
     expect(decodeRuntimeEvent(event, { source: 'acp' })).toEqual(event)
   })
 
-  test('keeps old no-source payloads opaque and does not invent references', () => {
-    for (const payload of [{ text: 'No sources.' }, { content: 'Older message' }, {}]) {
-      expect(decode(payload).payload).toEqual(payload)
-      expect(decode(payload).payload).not.toHaveProperty('references')
-    }
+  test('does not invent references for a final without them', () => {
+    expect(decode({ text: 'No sources.' }).payload).toEqual(withIdentity({ text: 'No sources.' }))
+    expect(decode({ text: 'No sources.' }).payload).not.toHaveProperty('references')
     expect(
       decode({ text: '', references: { schemaVersion: 1, sources: [], citations: [] } })
     ).toBeDefined()
+  })
+
+  test('fails closed on cited or legacy assistant payloads without message identity', () => {
+    const cited = { text, references: references() }
+    expect(() => decodeRuntimeEvent({ ...response(), payload: cited }, { source: 'acp' })).toThrow()
+    expect(() =>
+      decodeRuntimeEvent(
+        { ...response(), payload: { ...identity, ...cited, supersedes: 'x' } },
+        {
+          source: 'acp',
+        }
+      )
+    ).toThrow()
+    for (const payload of [{ text: 'No sources.' }, { content: 'Older message' }, {}])
+      expect(() => decodeRuntimeEvent({ ...response(), payload }, { source: 'acp' })).toThrow()
+    for (const payload of [{ content: 'Older message' }, {}])
+      expect(() => decode(payload)).toThrow()
   })
 
   test('rejects unsupported versions, unknown reference fields and missing response text', () => {
@@ -139,7 +161,9 @@ describe('response references at the wire boundary', () => {
       { sourceId: 'earth', start: 0, end: 14 },
       { sourceId: 'other', start: 0, end: 14 },
     ]
-    expect(decode({ text, references: refs }).payload).toEqual({ text, references: refs })
+    expect(decode({ text, references: refs }).payload).toEqual(
+      withIdentity({ text, references: refs })
+    )
   })
 
   test('rejects unpaired surrogates that a UTF-8 replay would replace', () => {
@@ -170,7 +194,7 @@ describe('response references at the wire boundary', () => {
         { ...response({ text }), source: 'terminal_fallback', confidence: 'bounded_projection' },
         { source: 'terminal_fallback' }
       ).payload
-    ).toEqual({ text })
+    ).toEqual(withIdentity({ text }))
   })
 
   test('does not reinterpret unrelated opaque payloads', () => {
@@ -229,7 +253,9 @@ describe('producer URL policy', () => {
   ])('accepts an absolute public web address without rewriting it: %s', (url) => {
     const refs = references()
     refs.sources[0]!.url = url
-    expect(decode({ text, references: refs }).payload).toEqual({ text, references: refs })
+    expect(decode({ text, references: refs }).payload).toEqual(
+      withIdentity({ text, references: refs })
+    )
   })
 })
 
@@ -246,7 +272,7 @@ describe('response bounds', () => {
       end: i + 1,
     }))
     const payload = { text: 'a'.repeat(128), references: { schemaVersion: 1, sources, citations } }
-    expect(decode(payload).payload).toEqual(payload)
+    expect(decode(payload).payload).toEqual(withIdentity(payload))
     expect(sources[0]).not.toHaveProperty('snippet')
   })
 
@@ -254,7 +280,7 @@ describe('response bounds', () => {
     const refs = { schemaVersion: 1, sources: [], citations: [] }
     const overhead = new TextEncoder().encode(JSON.stringify({ text: '', references: refs })).length
     const payload = { text: 'x'.repeat(CITED_RESPONSE_BYTES_MAX - overhead), references: refs }
-    expect(decode(payload).payload).toEqual(payload)
+    expect(decode(payload).payload).toEqual(withIdentity(payload))
     expect(() => decode({ ...payload, text: `${payload.text}x` })).toThrow()
   })
   test('rejects excessive source/citation counts and field lengths', () => {

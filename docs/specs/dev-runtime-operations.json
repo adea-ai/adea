@@ -1268,6 +1268,24 @@
       "body": "{ runtimeSessionId: string; expectedGeneration: integer; reason?: string(0..512) }",
       "reply": "ArchiveRecord"
     },
+    "dev.session.attachmentOpen": {
+      "capabilities": ["dev.session.read"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; attachmentId: string(1..256) }",
+      "reply": "ChatAttachmentOpenResult"
+    },
+    "dev.session.attachmentRemove": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; attachmentId: string(1..256) }",
+      "reply": "ChatAttachment"
+    },
+    "dev.session.attachmentUpload": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; upload: ChatAttachmentUpload }",
+      "reply": "ChatAttachment"
+    },
     "dev.session.cancelHarness": {
       "capabilities": ["dev.session.manage"],
       "resource": "runtime_session:required",
@@ -1289,6 +1307,12 @@
         "protocol": "runtime-events-v1",
         "direction": "read"
       }
+    },
+    "dev.session.followUps": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "FollowUpQueueRequest",
+      "reply": "FollowUpQueueSnapshot"
     },
     "dev.session.get": {
       "capabilities": ["dev.session.read"],

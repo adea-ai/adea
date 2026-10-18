@@ -406,6 +406,8 @@ type RuntimeEventKind =
   | 'turn.reasoning_summary'
   | 'turn.method_step_summary'
   | 'turn.result'
+  | 'attachment.added'
+  | 'attachment.removed'
   | 'tool.requested'
   | 'tool.started'
   | 'tool.progress'
@@ -421,6 +423,7 @@ type RuntimeEventKind =
   | 'checkpoint.observed'
   | 'subagent.observed'
   | 'usage.observed'
+  | 'queue.updated'
   | 'terminal.command_started'
   | 'terminal.command_finished'
   | 'terminal.cwd_changed'
@@ -1741,30 +1744,70 @@ newer revision cannot clear it. Async delivery captures the expanded text and
 paired blocks before awaiting and clears only the still-current matching draft.
 Shared UI owns input, IME handling, pending presentation, paste editing and
 action-row composition. Agent/profile, Auto/Customize pins, resolved location
-and authorized Stop/Steer/launch controls are host slots. This host has no
-queue operation, so it does not advertise one.
+and authorized Stop/Steer/launch controls are host slots. The authorized
+`dev.session.followUps` host queue contract is defined below; no queue UI is
+mounted or advertised until a consumer binds the actual supported operation
+and its truthful delivery state.
 Desktop Chat retains a bounded presentation-only reading-position snapshot per
 session and generation in the active authenticated model host. Scope replacement
 clears these snapshots and rejects late writes from the previous scope. A
 snapshot records the scroll offset and whether the reader was following live
 output; it does not create another transcript or session authority.
-Inline approval/question and terminal-jump controls use published shared Button
-and Input primitives; runtime event projection and authorized response callbacks
-remain application-owned.
-The mounted transcript uses the published shared ConversationSurface to restore
-that snapshot and report native scrolling and cleanup through the host callback,
-carrying the immutable mounted session identity. Shared follow intent stops on
+Inline approval/question and terminal-jump controls use the published shared
+Confirmation, Questionnaire and Button primitives; runtime event projection and
+authorized response callbacks remain application-owned.
+The mounted transcript uses the published shared MessageScroller (which wraps
+ConversationSurface) to restore that snapshot and report native scrolling and
+cleanup through the host callback, carrying the immutable mounted session
+identity. Shared follow intent stops on
 upward reader movement even inside the jump-control visibility threshold; new
 events preserve the parked offset until the reader explicitly resumes following.
 The jump control returns to the latest event and focuses the native transcript.
-During append-only streaming, existing transcript row DOM nodes stay mounted so
-the live region adds only the new row instead of replaying prior announcements.
-The published shared TranscriptComposition owns keyed row rendering, with the
-canonical session/generation as its explicit reset scope. The host clears local
-question answers on scope reset and retains response-authority checks. Current
-opaque runtime payloads provide no validated call phase, interaction eligibility,
-synthesis or final-answer boundary; rows therefore stay visible and unfolded.
-Payload hints and run completion cannot authorize grouping or hide an action.
+During append-only streaming, existing transcript DOM nodes (turns, activity
+columns, lines and prose blocks) stay mounted, keyed by stable ids, so the live
+region adds only the new content instead of replaying prior announcements. The
+canonical session/generation is the explicit reset scope. The host clears local
+question answers on scope reset and retains response-authority checks.
+
+The canvas draws turns: a `turn.user_input` event opens a turn, which is the one
+boundary taken from an event kind, and everything after it nests under one
+assistant response until the next prompt. Events before the first prompt form a
+lead turn. Consecutive `turn.assistant_delta` events with the same known harness
+run id and generation are joined into one prose block whose id is the first
+delta's id; deltas without a run id are not guessed to share a block. Each
+fragment is redacted with a bounded window of its neighbours' raw text, so a
+secret split across fragments is not rendered; when the window is saturated
+inside an unbounded Bearer or PEM separator the fragment is withheld and marked
+truncated rather than guessed. Fragment boundaries inside one prose block do not
+change layout: a CRLF split across two adjacent fragments of the same run and
+generation is one line feed, as in the unsplit payload. Fragments of different
+runs, generations or without a run id keep their own line feeds. When the
+transcript window is bounded, Chat says "Showing the latest
+events only."; a sequence gap uses its resync notice rather than claiming a
+checkpoint is required. `turn.assistant_message` and `turn.result` render as
+prose when they carry text.
+Current opaque runtime payloads provide no validated call identity or phase,
+interaction eligibility, synthesis or final-answer boundary, and no
+delta-to-message supersession contract; so no event is correlated with another
+by payload, a delta block and a later message both render, and no event is
+hidden. A line shows a status only when its own event kind states one
+(`*.completed`, `*.failed`); `started`, `requested` and `progress` carry no
+success claim. A spinner is drawn only from the host's session lifecycle
+(`active`), never from the absence of a later event. Only a `requested` approval
+draws the Confirmation card; later `resolved` or `expired` events are quiet
+lines that make no approved/denied claim. A `turn.result` marks a failure only
+when its payload sets `isError`. An unrecognised event kind renders in position
+as a line labelled by its wire kind, without payload content; only
+`credential`-classified events are not drawn. Payload hints and run completion
+cannot authorize grouping or hide an action. Source-reported reasoning and
+method-step summaries (`turn.reasoning_summary`, `turn.method_step_summary`,
+#1388) and cited answers (`references` on `turn.assistant_message`, #1389) are
+drawn only after `decodeRuntimeEvent` accepts them: one node per summary or
+step, replaced only by a higher revision, and citation markers placed only where
+the displayed text is the exact payload text. Checkpoints, attachments, context
+usage, test results and queued follow-ups are not drawn, because no producer
+supplies them; each is a separate backend dependency documented in
+`docs/evidence/chat-canvas-2026-10-15.md`.
 
 Adea's persisted appearance IDs are the complete published `@adea-ai/themes`
 catalogue, as carried by the published `@adea-ai/ui` ThemeProvider (pinned to an
@@ -2055,7 +2098,7 @@ is `buildDevNavSource` in `sidebar/dev-nav-model.ts`:
   session-derived rows excluded, at most 50 ids).
 - **Counts** for collapsed workspaces and the "Needs you" strip add the
   desktop `dev.summary.workspaces` counts (polled by the desktop lane every
-  30s while the document is visible and again when it becomes visible) to the
+  60s while the document is visible and again when it becomes visible) to the
   cloud account summary's mentions and unread channels.
 
 Runtime reads are bounded and fail closed: one scope-wide worktree list and
@@ -2295,7 +2338,7 @@ projection; `unavailable` is empty for the local owner. Scoped capability
 subsets arrive with remote callers (M14 runtime nodes), which authenticate as
 a different identity class than this trusted local channel. The normative
 [`dev-runtime-operations.json`](./dev-runtime-operations.json) registry provides
-all 232 operation names, exact body shapes, exact reply types, complete required
+all 242 operation names, exact body shapes, exact reply types, complete required
 capability sets, resource requirement/kind, and stream protocol/direction. Code
 generation and decoders use that registry; prose or a handler cannot add or
 weaken an operation. `apps/web/src/lib/desktop-dev-runtime.ts`
@@ -2666,7 +2709,7 @@ audit classification, and deny-by-default tests in the same change.
 | `dev.connections`            | `get`, `setGitHosting`, `setHarnessAccount`                                                                                                                                                                                                                                                                            |
 | `dev.worktree`               | `list`, `create`, `retryBootstrap`, `lease`, `releaseLease`, `mergePlan`, `mergeCommit`, `archive`, `unarchive`, `rename`, `diffSummary`, `cleanupPlan`, `cleanupCommit`, `cleanupResume`, `cleanupJobs`                                                                                                               |
 | `dev.terminal`               | `create`, `attach`, `detach`, `input`, `resize`, `signal`, `terminate`, `checkpoint`, `search`, `historyDelete`, `list`, `shellProfiles`                                                                                                                                                                               |
-| `dev.session`                | `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                                                                                         |
+| `dev.session`                | `attachmentUpload`, `attachmentOpen`, `attachmentRemove`, `create`, `get`, `list`, `launchDefault`, `launchHarness`, `resumeHarness`, `cancelHarness`, `events`, `transferInput`, `archive`, `unarchive`                                                                                                               |
 | `dev.summary`                | `workspaces`                                                                                                                                                                                                                                                                                                           |
 | `dev.harness`                | `managedPiStatus`, `managedPiInstall`, `acpConnect`, `acpConnections`, `acpClose`, `preferences`, `preferenceUpdate`, `preferenceReset`, `runStatus`, `runs`, `accountProfiles.list`, `accountProfiles.create`, `accountProfiles.delete`                                                                               |
 | `dev.memory`                 | `propose`                                                                                                                                                                                                                                                                                                              |
@@ -2744,12 +2787,16 @@ Required kinds:
   `completed`, `failed`, `cancelled`;
 - turn `user_input`, `assistant_delta`, `assistant_message`, `result`,
   `reasoning_summary`, `method_step_summary`;
+- attachment `added`, `removed` (authoritative host facts, references only);
 - tool `requested`, `started`, `progress`, `completed`, `failed`;
 - approval/question `requested`, `resolved`, `expired`;
 - file/checkpoint/subagent/usage `observed`;
+- authoritative host `queue.updated` snapshots (see #1393 below);
 - terminal `command_started`, `command_finished`, `cwd_changed`,
   `transcript_reference`;
 - capability `degraded`, `restored`.
+- structured activity `test_run.observed`, `terminal.output`,
+  `failure.observed`, `files.changed`, `plan.observed`, `task.observed`.
 
 Precedence is native/ACP, then authenticated Adea hook for its owned event, then
 terminal fallback. A lower source cannot overwrite a higher-source fact. Raw
@@ -2783,10 +2830,454 @@ Event constraints:
 - gaps return `resync_required` with checkpoint anchor; clients never advance
   past an unexplained gap.
 
+### Structured activity producer contracts (#1394)
+
+`packages/types/src/dev-runtime-activity/` owns the six version-1 payload
+schemas. The focused `@adea-ai/types/dev-runtime-activity` entry exports their
+types, bounds, status vocabularies and shape decoder; the full runtime entry
+re-exports the same implementations. These Adea-specific schemas are not
+supplied by the mapped donor lifecycle/write-gate units; no donor code is
+copied. The wire entry's `decodeRuntimeActivityEvent` validates the envelope,
+schema and producer ownership before returning typed activity facts.
+
+| Kind                | Required observed data                                                 | Optional observed data                                                               |
+| ------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `test_run.observed` | `testRunId`, explicit status                                           | Summary counts/duration, suites, test cases, failures, collection completeness       |
+| `terminal.output`   | Terminal/command IDs, canonical uint64 sequence, phase, status, stream | Exact text, command label, worktree-relative cwd, exit code, observed duration       |
+| `failure.observed`  | Failure ID and message                                                 | Error name, test reference, raw stack and structured frames                          |
+| `files.changed`     | Change-set ID and files with explicit change kinds                     | Rename/copy origin, line-count claims, summary counts, collection completeness       |
+| `plan.observed`     | Plan ID, explicit status and ordered items with IDs/titles/statuses    | Plan title, item descriptions, summary counts, collection completeness               |
+| `task.observed`     | Task ID, title and explicit status                                     | Parent/plan references, description, todos with IDs/titles/statuses, inert HTTPS URL |
+
+Every payload requires `schemaVersion: 1` and rejects unknown keys, versions,
+non-JSON values, duplicate record identities and malformed records. IDs are
+opaque 1–256 character tokens beginning with an ASCII alphanumeric and then
+ASCII alphanumerics, `.`, `_`, `:` or `-`. They grant no authority over a cloud
+task, command, file or source. An absent field remains absent; no decoder
+inserts a count, duration, completion, location, test result or success.
+Every new structured string and map key, including envelope identifiers, MUST
+be well-formed Unicode. Lone UTF-16 surrogates are refused before comparison or
+admission; the CBOR encoder also refuses them instead of substituting U+FFFD.
+Valid surrogate pairs and an explicitly supplied U+FFFD remain unchanged.
+
+Test statuses are `unknown`, `pending`, `running`, `passed`, `failed`,
+`skipped`, `cancelled`. Work statuses are `unknown`, `pending`, `in_progress`,
+`completed`, `failed`, `cancelled`. Parent/summary statuses and counts are
+independent producer claims; they MUST NOT be calculated or reconciled from
+the retained child rows. Missing/partial collections do not establish a total.
+Counts and observed durations are nonnegative safe integers. Test/suite and
+failure references may point outside the retained partial list and do not
+establish that an unlisted row exists or was successful.
+
+Payload JSON has a 64 KiB encoded UTF-8 maximum, depth 12, 4,096 value nodes,
+256 array/object entries per container and 16,384 UTF-16 code units per string.
+The encoder budget includes key escaping and JSON punctuation and is checked
+incrementally before encoding. Narrower bounds are 64 suites, 256 tests,
+64 failures, 64 stack frames, 256 changed files, and 128 plan items or todos.
+Titles/test names are at most 512 code units, descriptions 4,096, error messages
+8,192, source URLs 2,048, and portable relative paths 1,024. The entire
+canonical-CBOR `RuntimeEvent`, including IDs, timestamps, provenance and every
+payload field, MUST also fit the existing 65,536-byte runtime-events data-frame
+grant before admission. Independent field or JSON budgets do not waive this
+aggregate check. An authenticated-hook event additionally fits an 8 KiB JSON
+envelope; its adapter still owns the raw hook-frame bound.
+
+Paths are canonical portable worktree-relative data: no absolute/drive/UNC or
+home paths, traversal/dot/empty segments, backslashes, controls/bidi controls,
+encoded traversal/separators, Git-internal paths, reserved device names or
+ambiguous trailing dot/space. The terminal cwd alone permits `.` as an explicit
+worktree root. Stack locations are either a relative path or an inert public
+HTTPS source URL, never both; a column needs a line and line/column need a
+location. URLs reject credentials, IP/loopback/local addresses, unsafe schemes,
+whitespace/backslashes, malformed escapes and raw/encoded controls. No path or
+URL authorizes navigation, retrieval, execution or filesystem access; a future
+resolver must separately prove scope, classification and network/filesystem
+admission, including DNS and redirects.
+The bidi ban includes U+061C, U+200E, U+200F, U+202A–U+202E and U+2066–U+2069
+in paths and both raw and percent-decoded URL text.
+
+Terminal phases are `started`, `output`, `finished`. Started/output status is
+`unknown` or `running`; finished status is `unknown`, `succeeded`, `failed` or
+`cancelled`. Output requires exact text, including inert markup/ANSI; there is
+no semantic parsing. An exit code may appear only on a finished observation,
+and even zero never implies success. Chunk identity binds session, generation,
+optional harness run, producer source, terminal, command, stream and sequence.
+Identical retained chunks are ignored; conflicting content or classification
+is refused. Missing/evicted chunks or a terminal phase do not synthesize other
+output or success.
+
+New host-log activity appends receive a separate trusted adapter provenance
+argument and explicitly supplied source, confidence and classification; host
+lifecycle defaults do not fill those facts. Known activity requires authoritative native/ACP/owned-hook
+provenance and an exact `ownedActivityKinds` allowlist from that adapter;
+capabilities, process exit, payload fields and host lifecycle receipts cannot
+provide ownership. Validation and aggregate size checks precede persistence,
+retention, sequence consumption and subscription delivery. Published snapshots
+are detached and deeply frozen. A repeated source event with changed run,
+classification, explicit observation time, kind or canonical payload is an
+`idempotency_conflict`; key order and host-assigned IDs/times do not create new
+facts.
+
+Replay candidates still validate all schema, Unicode, provenance, ownership
+and identity/content constraints before duplicate comparison. An identical
+source event or terminal chunk returns only a duplicate result and creates no
+new envelope. It MUST NOT be rejected because a provisional new host sequence
+or receipt would be larger (for example, sequence 9 becoming 10). Changed
+valid claims conflict; malformed claims and missing ownership are refused.
+Every new record then passes the full 65,536-byte CBOR and, when applicable,
+8 KiB hook envelope checks before receiving a publishable event value.
+
+Generic replay continues returning an opaque `RuntimeEvent`: legacy payloads
+without a version remain bounded and readable, and well-formed versioned rows
+can remain plain Trace lines without an ownership allowlist. Versioned claims
+are shape/provenance/size checked, but only the explicit activity decoder and
+host admission establish owned typed facts. Legacy data is never upgraded and
+new legacy appends are refused. No production adapter currently emits these
+six kinds; no runner, terminal parser, UI renderer, queue or reasoning producer
+is added. The integration handoff lists the shared aggregation conflicts in
+[the #1394 evidence note](../evidence/runtime-activity-contract-refs1394.md).
+
+### Structured questions and correlated outcomes (#1395)
+
+`packages/types/src/dev-runtime-interactions.ts` defines the versioned producer
+contract for the six approval/question kinds. A payload with `schemaVersion: 1`
+MUST pass its kind-specific decoder; unknown keys and versions are refused.
+Legacy text or unversioned objects remain opaque: they establish neither a
+structured question, response eligibility, nor an approved/denied outcome.
+An unversioned payload carrying `eligibility` is refused rather than elevated to
+a host permission fact. This contract does not change Chat presentation or
+introduce an approval/question response operation.
+
+A versioned request carries a nonblank `requestId` from the owning protocol and
+the host's validated `eligibility`. An approval request also carries `prompt`.
+A question request carries 1–32 questions with unique nonblank `id`, `prompt`,
+explicit `required`, and one of:
+
+- `kind: 'text'` for a free-text answer;
+- `kind: 'choice'`, explicit `multiple`, and 1–32 options with unique nonblank
+  `id`, `label`, and optional `description`.
+
+IDs are bounded to 256 characters, prompts to 4,096, option labels to 512, and
+option descriptions to 2,048. Questions may mix required choices and optional
+free text within one request. Option IDs are scoped to their question; question
+IDs are scoped to their request. No display label serves as identity.
+
+Every versioned outcome MUST carry both the protocol `requestId` and the
+canonical `requestEventId` of the exact requested event. Decisions are explicit:
+`approval.resolved` uses `approved | denied`, `question.resolved` uses
+`answered`, and either `expired` kind uses `expired` (never approved or denied).
+`actorId` and UTC `decidedAt` are optional facts from the authenticated owning
+adapter; the host MUST NOT fill them from the viewer, receipt clock, or event
+ordering when the source does not know them. Actor IDs have the same 256-character
+bound. They are observations, not grants of response authority.
+
+A question resolution carries at most 32 uniquely keyed answers. Each names
+`questionId` and exactly one of `text` (1–65,536 characters), `optionIds`
+(1–32 unique IDs), or `skipped: true`. Admission checks these answers against
+the retained request: required questions must be answered, skipped answers are
+allowed only for optional questions, unknown questions/options are refused,
+text/choice forms must match, and a single-choice question accepts exactly one
+option. Omitted optional questions are unanswered. Expiry carries no answers.
+The enclosing event's 256 KiB encoded payload budget also applies.
+
+For example, the payloads for one optional-note question and its known answer
+are:
+
+```ts
+// question.requested (canonical eventId: 'event-1')
+{
+  schemaVersion: 1,
+  requestId: 'provider-request-1',
+  questions: [{ id: 'notes', prompt: 'Any notes?', required: false, kind: 'text' }],
+  eligibility: { eligible: false, reason: 'response_unavailable' },
+}
+// question.resolved; actor/time remain absent when unknown
+{
+  schemaVersion: 1,
+  requestId: 'provider-request-1',
+  requestEventId: 'event-1',
+  decision: 'answered',
+  answers: [{ questionId: 'notes', text: 'Keep the existing defaults.' }],
+}
+```
+
+The host admits versioned interactions only from the trusted adapter append
+path, with authoritative provenance, `workspace_private` classification, and
+a `harnessRunId`. Immediately before persistence/publication it resolves the
+existing canonical session and rechecks account/workspace/runtime-node scope,
+session identity, current generation, current harness run, and archive state.
+New requests require a ready or active session; an already admitted request may
+still receive its observed outcome when that same generation/run completes.
+It requires a retained request in that same binding and from the same adapter
+source; a lower event tier cannot close another source's request. Missing
+retained requests return `resync_required`. Kind/ID/source mismatches are
+`identity_mismatch`; a reused request ID is `idempotency_conflict`. A second
+distinct outcome is `already_completed`. Exact source-event replay stays
+idempotent, including across restart. Refusals persist and publish nothing.
+Interaction decoding returns a detached, recursively frozen snapshot of bounded
+enumerable data. Accessors, symbol/non-enumerable properties, serialization
+hooks, sparse arrays and cycles are refused; accessor/serialization hooks are
+never invoked. The
+existing 256 KiB encoded payload and 64 KiB string bounds still apply. Admission
+uses this inert event/payload snapshot consistently for correlation, dedupe,
+persistence, subscribers and return values; replay reads detach/freeze versioned
+interaction payloads too. Opaque legacy interaction JSON is also snapshotted
+under its existing generic bounds, so a hidden hook cannot turn it into an
+unadmitted versioned record during storage. It remains opaque and grants no
+response eligibility. Caller aliases and session-resolver callbacks cannot
+rewrite previously validated questions, choices or outcomes.
+
+Eligibility is deliberately fail-closed while the M11 response command is
+absent: the only admitted fact is
+`{ eligible: false, reason: 'response_unavailable' }`. `eligible: true`, caller
+authority fields, missing reasons, or a claimed callback cannot create
+permission. Positive eligibility and dispatch require the separately owned
+M11 authorization contract described above: authenticated scope and capability,
+canonical session/generation/run/request binding, current input owner, expiry,
+and single-use/idempotency enforcement revalidated at the side effect. An
+observed resolution from an owning native/ACP/hook adapter does not imply that
+Chat was authorized to submit that response. No PTY response or parallel
+approval authority is introduced by this producer contract.
+
+`packages/types/tests/dev-runtime-interactions.test.ts` pins the schema and
+wire boundary; `apps/desktop/tests/dev-runtime-interactions.test.ts` pins host
+admission, correlation, answer validation, restart/replay, and retention refusal.
+
+### Assistant message identity (#1386)
+
+The known `turn.assistant_delta`, `turn.assistant_message`, and `turn.result`
+kinds require a nonempty `harnessRunId` and a validated payload `messageId`.
+The opaque ID is 1–256 UTF-16 code units without whitespace, control characters,
+or unpaired surrogates, so UTF-8/CBOR round trips preserve it exactly.
+A native/ACP/authenticated-hook adapter allocates a stable source message ID
+before the first event (or persists a host-allocated mapping when the source
+has no message ID), retains it across retries/reconnects, and uses it for that
+message's deltas, final, and result. Never derive it from text, timestamps,
+receive order, or the current run alone: a run may contain multiple messages.
+A new message gets a new ID. Terminal fallback can bind its own bounded text
+observations but cannot assert another source's identity or emit a result.
+
+```ts
+type RuntimeAssistantDeltaPayload = {
+  messageId: string
+  deltaIndex: number // safe integer >= 0, contiguous per scoped message
+  text: string
+}
+type RuntimeAssistantMessagePayload = {
+  messageId: string
+  text: string // complete replacement, not another delta
+  supersedes: 'deltas'
+}
+type RuntimeAssistantResultPayload = {
+  messageId: string
+  summary?: string
+}
+```
+
+Delta and final `text` and result `summary` must be well-formed UTF-16: an
+unpaired surrogate would be rewritten by UTF-8/CBOR replay, so adapters split
+deltas at code-point boundaries. The whole stored assistant event, in canonical CBOR including the envelope
+and any extra or `references` fields on any of the three kinds, is at most
+64 KiB (65,536 bytes), the `runtime-events-v1` frame limit, so an appended
+message can always be streamed and replayed. JSON size is no proxy: CBOR
+expands numbers (a `0.1` is nine bytes) and the envelope adds its own. The host
+measures the exact event to be stored, with its allocated sequence, before
+persistence or publication; an oversize event fails with an explicit error, is
+never truncated, and consumes no sequence. An exact retry of a stored event
+stays a no-op even after the cursor gains a digit. A complete answer beyond the
+bound cannot be finalized under this contract; a chunked-final contract is
+separate work. Other payload fields remain bounded JSON; these reserved fields
+are validated by `decodeRuntimeEvent` and by the canonical log before
+persistence or live publication. Missing or malformed identity fails closed. Retained assistant
+payloads must also pass kind-specific validation before their message identity
+can establish ordering, confidence or settlement fences for new appends. A
+malformed retained payload remains opaque historical data and cannot block a
+valid new event merely because it contains the same `messageId`. Legacy opaque
+assistant records cannot establish supersession and must not be silently
+assigned an identity. At this increment there is no production structured
+assistant-event subscription/emitter; future adapters must provide this
+contract. Host lifecycle facts remain insufficient to fabricate an answer.
+
+The message key is the tuple `(runtimeSessionId, generation, harnessRunId,
+source, payload.messageId)` within the authenticated account/workspace/node
+scope. Equal IDs in another run, generation, session, or source are different
+messages. Neither a lower-confidence source nor a payload field can overwrite
+another source's text. Within one message key, new events may retain or raise
+confidence but cannot lower it; a weaker observation cannot append to, supersede,
+or close stronger text (`invalid_state`). Only `turn.assistant_message` with `supersedes: 'deltas'`
+replaces the deltas for that exact key. Its complete `text` remains usable when
+all deltas have fallen out of retention. A `turn.result` references the same
+key and closes it, but never replaces text, implies success, or proves that a
+final assistant message exists. Results without a final are valid (for example,
+a failed/cancelled source operation); retain the partial text as partial.
+
+For new appends, delta indexes start at zero and increase by one for each
+message independently; events for other messages and tools may interleave.
+A missing index is `resync_required` and appends nothing. An already-used index
+under a new source event ID is `idempotency_conflict`. A final may arrive
+without preceding deltas because it is self-contained. Once a final exists,
+only that message's result may follow; after its result no further text,
+second final, or second result may append. Invalid settlement is `invalid_state`.
+An exact retry using the original `sourceEventId` is checked before settlement
+and returns no event, allocates no sequence, and publishes nothing. Dedupe binds
+kind, canonical key-order-independent payload, harness run, confidence, and
+classification; a supplied source timestamp must also match. Opaque IDs cannot
+collide through delimiter characters in the tuple encoding. Changed content
+under that key is `idempotency_conflict`. Sequence allocation follows dedupe;
+an exact retry at uint64 exhaustion is still a no-op, while a new event at that
+boundary fails `invalid_state` rather than wrapping the generation's cursor.
+
+Replay is a read of original stored events, never a new append: event IDs,
+message IDs, delta indexes, generation, and sequences remain unchanged. Order
+by the canonical generation/uint64 sequence, never `occurredAt`, arrival time,
+or message ID. An inclusive replay cursor can redeliver the boundary event;
+consumers dedupe by canonical event identity/sequence before accumulating text.
+A replay starting at a final can immediately replace only its matching partial
+message, without having seen its deltas. It does not need delta zero. A replay
+starting mid-delta cannot claim complete text. An unexplained transport gap or
+`resync` discards incomplete accumulated deltas and requires a fresh bounded
+replay/checkpoint; never concatenate partial text across the missing range or
+across generations. Existing stream resync and replay-end heartbeat rules apply.
+Identity/order checks use the canonical log's retained window, including after
+restart: a retained final/result still fences late deltas even when delta zero
+has been evicted. Retention is not a permanent idempotency ledger. Adapters must
+not re-ingest evicted source history as new live events or reuse message IDs;
+source-cursor recovery outside that window requires resync rather than a new ID
+for the same response.
+
+### Versioned tool and subagent call observations (#1387)
+
+`packages/types/src/dev-runtime-call.ts` owns the Adea-specific call contract;
+the mapped donor lifecycle/write-gate units do not supply this versioned,
+bounded Adea wire schema. No donor code is copied for this contract.
+`decodeRuntimeCallEvent` on the existing wire and aggregate entry points
+validates the envelope, transport provenance, and the following payload:
+
+```ts
+type RuntimeCallPayload = {
+  schemaVersion: 1
+  callId: string
+  parentCallId?: string | null
+  phase: 'requested' | 'started' | 'progress' | 'completed' | 'failed' | 'cancelled'
+  permissionEligibility: 'unknown' | 'requires_approval' | 'not_required'
+  name?: string
+  input?: RuntimeCallData
+  output?: RuntimeCallData
+  durationMs?: number
+}
+type RuntimeCallData =
+  | { type: 'inline'; value: Json }
+  | { type: 'reference'; referenceId: string; byteLength?: number; sha256?: string }
+```
+
+- Call identity includes the event's `runtimeSessionId`, `generation`,
+  `harnessRunId`, `source`, and the payload's `callId`;
+  `harnessRunId` is required for validated calls. Calls from separate
+  runs, sources or generations MUST NOT pair. IDs are opaque 1–256 character
+  tokens starting with an ASCII alphanumeric, followed by ASCII alphanumerics,
+  `.`, `_`, `:` or `-`; they are neither paths nor URLs.
+- Each `tool.*` phase MUST equal its own kind suffix. `subagent.observed`
+  carries an explicit phase from the above set. No missing observation implies
+  a spinner, a completion, or a phase transition. This is an observation
+  contract, not a lifecycle state machine. Validated calls require a native,
+  ACP or owned-hook source; host lifecycle and terminal fallback cannot supply
+  call facts, even with unknown permission eligibility.
+- An absent parent means no relationship is established. `null` is an
+  explicitly observed root. A call cannot parent itself; the host refuses a
+  changed known parent, a tool/subagent identity collision, or a cycle proved
+  by its retained same-namespace observations. It does not claim to validate
+  evicted or unobserved history and does not require a parent/start row to be
+  retained before accepting a child/completion.
+- Missing input, output and duration remain absent. Inline JSON is bounded
+  independently for each input/output: 32 KiB of encoded UTF-8 JSON, depth 16,
+  2,048 nodes, 256 array/object entries per container, 16,384 UTF-16 code units
+  per string and 256 per nonempty key. Nonfinite numbers, non-JSON values and
+  sparse arrays are refused. The enclosing 256 KiB event limit still applies.
+  Independently valid input/output fields MUST also fit together with all
+  event IDs, timestamps, provenance and metadata in one canonical-CBOR event
+  of at most 65,536 bytes, the unchanged runtime-events data-frame grant.
+  `assertRuntimeEventFrameSize` enforces this aggregate envelope bound before
+  persistence or publication, including UTF-8 expansion. It measures the
+  canonical encoding with `cborByteLength`, a size-only calculator tested
+  byte-for-byte against `encodeCbor`, so decoders do not carry the full encoder. A producer must use
+  bounded references or less inline data when the whole event does not fit;
+  individual field budgets never justify increasing the transport cap.
+  The [aggregate budget evidence](../evidence/runtime-call-frame-budget-refs1387.md)
+  pins the combined-field, exact-limit, UTF-8 and real-channel cases.
+- References contain an opaque ID, optional nonnegative safe-integer byte
+  length and optional lowercase SHA-256 digest. They grant no file/network
+  access or proof that bytes exist; a future resolver must independently
+  authorize, classify and bound retrieval. Names are 1–256 code units and
+  duration is observed nonnegative safe-integer milliseconds, never a
+  difference between arrival timestamps.
+- Call observations require an explicit event classification; they never
+  inherit the generic event log's `workspace_metadata` default. Credential-
+  classified calls are refused before persistence or publication, and any
+  inline input/output requires `restricted_local` classification. References
+  carry only opaque metadata here; the referenced content remains subject to
+  independent authorization and classification by a future resolver.
+- Eligibility MUST be explicit, with `unknown` when the producer lacks the
+  fact. Known values require authoritative native/ACP/owned-hook provenance
+  and, at host-log admission, an affirmative out-of-band
+  `verifyCallPermissionEligibility` result from the owning adapter. Source
+  names, advertised capabilities, payload labels and booleans do not supply
+  this evidence. No production adapter currently supplies that verifier.
+  `not_required` is a permission observation; it is not an approval grant or
+  proof that all content is noninteractive or safe to fold.
+- New host-log call appends MUST pass this contract before persistence,
+  sequence consumption, eviction or subscriber notification. The admitted
+  snapshot is detached and deeply frozen before verifier/subscriber code sees
+  it. The generic envelope decoder retains legacy payloads without a `schemaVersion` as
+  bounded opaque data; the strict call decoder refuses them. A versioned call
+  claim is fully checked even through the generic decoder. Unknown versions
+  fail closed and cannot acquire validated call semantics. An exact retry of a
+  retained legacy opaque call remains deduplicated without promoting it; new
+  call records must use the versioned contract.
+- A repeated call `sourceEventId` with a changed run, confidence,
+  classification, explicitly supplied observation time, kind or payload is
+  `idempotency_conflict`, never an ignored duplicate. Host-assigned event ID,
+  receive time and sequence are not producer facts and are excluded from this
+  comparison.
+- Retry candidates validate the complete schema, Unicode and provenance before
+  identity/content comparison, without assigning a new persisted envelope
+  budget to an existing event. Exact duplicate source tuples reuse the retained
+  event for eligibility/continuity validation; its permission verifier still
+  applies. A duplicate at sequence 9 therefore remains idempotent when the next
+  host sequence would be 10. Every genuinely new record then passes the full
+  envelope budget before callbacks, persistence or publication. Source tuples
+  compare their fields directly, never an ambiguous delimiter-joined key.
+- Structured call strings, keys and envelope values require well-formed
+  Unicode; lone surrogates are rejected without replacement. The CBOR encoder
+  applies the same rule, while valid scalar text remains byte-for-byte intact.
+
+Decoder entry points. `decodeRuntimeEvent` is the complete decoder used by host
+admission, persistence and replay: envelope, generic payload bounds and every
+kind-specific contract (calls, visible summaries, cited responses, and any later
+interaction or attachment contract). `decodeRuntimeEnvelope` is the lean decoder
+for browser stream and transcript consumers: it enforces the authenticated
+envelope, the generic payload bounds and the full-frame bound for versioned call
+claims, but does not interpret a kind's payload. A consumer that renders or acts
+on a payload MUST narrow it with the explicit contract (for example
+`decodeRuntimeCallEvent`) rather than trust the envelope decode. Kind-specific
+validators are reachable only through `eventSemantics` in
+`packages/types/src/dev-runtime-wire.ts`; new contracts register there so the
+shared utility bundle never carries them. `dev-runtime-envelope.test.ts` bundles
+the lean entry and fails if a validator or a size regression reaches it.
+
+This change adds no native/ACP subscription or tool/subagent emitter. Existing
+production lifecycle receipts do not become call facts. UI rendering, folding,
+nesting and approval-response authority remain separate integration work;
+neither UI #416 nor consumer PR #1385 is modified by this contract.
+
 ### Response sources and inline citation references (#1389)
 
-`turn.assistant_message` MAY carry a self-contained cited response. Its
-payload is exactly `{ text: string, references: RuntimeResponseReferences }`:
+`turn.assistant_message` MAY carry a self-contained cited response. It is the
+final message of [Assistant message identity](#assistant-message-identity-1386)
+plus references, so its payload is exactly `{ messageId: string, text: string,
+supersedes: 'deltas', references: RuntimeResponseReferences }`. Appends and
+wire events without that identity are refused like any other assistant final.
+The reference contract validates `text` and `references`; the identity fields
+are validated by the assistant contract:
 
 ```ts
 type RuntimeResponseReferences = {
@@ -2796,8 +3287,9 @@ type RuntimeResponseReferences = {
 }
 ```
 
-The response identity is its canonical `(runtimeSessionId, generation,
-eventId)`, retaining `harnessRunId`, source and source-event identity. Sources
+The response identity is its message key `(runtimeSessionId, generation,
+harnessRunId, source, messageId)`; the canonical `(runtimeSessionId,
+generation, eventId)` identifies the stored final. Sources
 and citations MUST travel atomically with that response's exact `text` in
 both live delivery and replay. A source ID is case-sensitive, unique within
 that response, 1–128 ASCII characters matching
@@ -2844,9 +3336,14 @@ claim is true. Producers that cannot supply validated references MUST omit
 `references`; consumers MUST NOT infer sources from Markdown links, tool text,
 an earlier response or a completed run. An absent reference object remains
 unknown/no-source; explicitly empty lists are allowed and invent nothing.
-Legacy assistant payloads without `references`, unrelated opaque payloads and
-unknown event retention keep their existing behavior. This producer contract
-does not enable Sources/Inline Citation rendering or parse a harness's prose.
+Legacy assistant payloads without `references` and unknown event retention
+keep their existing behavior; a final without `references` keeps no sources.
+Unrelated opaque payloads keep their existing behavior. A retained row written
+before message identity existed still passes the reference check on replay but
+stays opaque to the assistant lifecycle. This producer contract does not parse
+a harness's prose or enable Sources/Inline Citation rendering on its own; the
+Chat canvas draws Sources and Inline Citation only from validated references
+(see the Chat section above).
 
 Implementation is isolated in
 `packages/types/src/dev-runtime-response-references.ts`, re-exported through
@@ -2950,9 +3447,9 @@ The isolated contract is `packages/types/src/dev-runtime-visible-summaries.ts`,
 re-exported through `@adea-ai/types/dev-runtime`; producer admission and bounded
 history checks are in the host's `harness/visible-summaries.ts`. Contract and
 durable replay tests are `packages/types/tests/dev-runtime-visible-summaries.test.ts`
-and `apps/desktop/tests/runtime-visible-summaries-replay.test.ts`. This contract
-does not enable shared Reasoning/Chain of Thought presentation or change Chat
-consumer composition.
+and `apps/desktop/tests/runtime-visible-summaries-replay.test.ts`. The Chat canvas
+consumes these summaries through the shared Reasoning and Chain of Thought
+presentation (see the Chat section above); the contract itself does not.
 
 ## Terminal protocol
 
@@ -4164,6 +4661,161 @@ an ambiguous side effect.
 Multi-file metadata/history changes stage all writes and restore prior disk and
 memory state if any commit fails. No deletion error is logged-and-ignored.
 
+## Local chat attachments (#1392)
+
+The local desktop host serves `dev.session.attachmentUpload`,
+`dev.session.attachmentOpen`, and `dev.session.attachmentRemove` through the
+existing authenticated runtime command channel. Upload/remove require the
+existing `dev.session.manage` capability; open requires `dev.session.read`.
+No new permission, cloud credential, remote storage account, external upload,
+filesystem grant, or OS application handoff is created. Every command binds the
+account/workspace/runtime-node scope, canonical runtime session, and live
+session generation in both body and resource envelope. Foreign records read as
+`not_found`; a stale generation is refused before any mutation or byte release.
+An archived session accepts no new upload. Open/remove retain the same live
+identity/generation checks, including for archived-session cleanup.
+
+The request/response DTOs live in `dev-runtime-attachments.ts` and are validated
+by the generated operation decoders and strict success-reply decoders. Upload
+success requires `available`, remove success requires `removed`, and an open
+reply can contain only an available attachment:
+
+```ts
+type ChatAttachmentUpload = {
+  name: string
+  mediaType: string
+  contentBase64: string
+}
+type ChatAttachmentReference = {
+  attachmentId: string // host-minted lowercase UUID, never a path or URL
+  mediaType: 'text/plain'
+  byteLength: number
+  state: 'available' | 'removed'
+}
+type ChatAttachment = ChatAttachmentReference & {
+  runtimeSessionId: string
+  generation: number
+  name: string
+  digestSha256: string
+  createdAt: string
+  removedAt?: string
+}
+type ChatAttachmentOpenResult = {
+  attachment: ChatAttachment
+  contentBase64: string
+  disposition: 'inert_text'
+}
+```
+
+This increment supports nonempty valid UTF-8 `text/plain` attachments up to
+128 KiB, with `.txt`, `.log`, `.md`, or `.json` display extensions. All open
+results are inert text: a Markdown/JSON extension is not permission to render
+HTML, execute code, launch an application, or dereference a URL. Unsupported
+media/extensions, invalid UTF-8, NUL, and control characters other than tab,
+CR and LF return `unsupported_capability`. Binary/image/HTML/SVG/archive and
+larger-transfer support is unavailable. The limit is an explicit local control-
+channel limit, not an invented bulk-stream capability. Canonical base64 is
+bounded to 174,764 characters; noncanonical padding and decoded-size overflow
+are rejected. The maximum supported request fits the channel's 256 KiB control
+frame bound without a new transport.
+
+Display names are ASCII, 1–128 characters, begin with a letter/digit, and
+contain only letters/digits, dot, space, underscore and hyphen. Path separators,
+colon, `..`, leading dot, trailing dot/space, control characters and reserved
+Windows device names are refused. Display metadata never chooses a storage
+path. Clients supply bytes they already possess; the host never reads an
+arbitrary caller-named file. Open returns authorized bytes and an opaque UUID,
+never an absolute path, `file:` URL, public URL, bearer download token, or OS
+launch receipt.
+
+### Local authority, bounds and removal
+
+The scope-partitioned SQLite database lives below
+`<dataDir>/dev-runtime/attachments/<sha256(account,workspace,node)>.sqlite3`.
+Its directory is owner-only, files are owner-only regular files, and database
+opens use SQLite's no-follow flag. Unsafe/symlinked directories, database files,
+journals, or key files refuse rather than being followed. The host reads the
+existing owner-only 32-byte device key without minting, rotating, deleting, or
+changing it; an unavailable key is `capability_unavailable`. As in the current
+[local-content implementation](./local-content.md), this key remains file-backed,
+not an OS-keyring claim.
+
+HKDF-SHA256 derives a scope-specific attachment key with a fixed versioned
+context. Per-record AES-256-GCM uses a fresh nonce and associated data binding
+schema version, full scope, session, generation and attachment UUID. Filename,
+content digest and bytes are sealed together. Schema and owner-header initialization
+commit atomically; unrelated or future SQLite schemas are retained unread rather
+than adopted or reconfigured. The owner header is authenticated;
+a re-labelled/copied database or ciphertext cannot open in another scope.
+Request fingerprints and transcript-outbox metadata use a separate derived MAC
+key. Errors and channel audit entries contain stable error codes and identity
+facts, never filenames, content, encoded bytes or host paths.
+
+Each scope retains at most 256 records, including removal tombstones, and at
+most 16 MiB of live decoded bytes. Quotas are checked inside the write
+transaction. Removal frees live-byte budget, seals a metadata-only tombstone,
+and removes byte access; it does not free the record/idempotency slot. Reusing a
+removed upload key never resurrects content. These are bounded local storage
+limits; there is no automatic retention/GC promise. The existing owner-proven
+workspace cleanup path validates the attachment store before any purge, then
+removes its records/outbox with that workspace's other native data. It preserves
+sibling scopes and reusable device credentials; additional account/node scopes
+for the same workspace, unreadable ciphertext, or ambiguous ownership block
+cleanup rather than claiming success.
+
+### Idempotency, interruption, ordering and transcript records
+
+Upload requires a nonempty printable idempotency key of at most 128 characters
+(letters/digits, dot, underscore, colon or hyphen). Its scope/session/generation-
+bound canonical content fingerprint makes a same-content retry return the same
+attachment UUID, including after host reopen. Different content or metadata under
+that key is `idempotency_conflict`. A successful remove is idempotent by the
+bound attachment UUID and returns the same tombstone on retry. Open/remove are
+synchronous transactions, so an open that linearizes before removal can return
+its authorized snapshot; an open after committed removal returns `not_found`.
+The live session generation is checked again immediately before commit.
+
+Pending transcript facts are recovered before a fresh mutation. Upload/remove
+atomically commit their encrypted record and a durable transcript outbox item before returning success. Publication uses stable source event IDs
+and the canonical session log, then marks the outbox delivered. Interruption
+before commit rolls back bytes and outbox together. A retry after commit but
+before publication publishes the original event; after publication but before
+the delivered marker, canonical dedupe suppresses a second event. The retry key
+and content fingerprint are authenticated inside each sealed record, including
+tombstones. The outbox MAC covers its prepared/attempted/delivered state; even
+rows marked delivered must authenticate before being skipped. An authenticated
+prepared row proves no publication was attempted and can publish above any
+retained history floor on retry. Before crossing
+the event-log commit boundary, the host durably authenticates the publication
+attempt. If that attempt's source event is absent from retained history, including
+an entirely evicted generation, recovery refuses `recovery_required` rather than
+inventing a new event cursor. This also fails closed if interruption happened
+between recording the attempt and actually appending the event. Local database
+edits without the key cannot substitute retry content or forge a delivery marker.
+The repaired draft uses attachment-store format 2; earlier draft stores are
+preserved and refused with `unsupported_version`, without automatic migration
+of metadata that the old format did not authenticate. SQLite
+uses immediate transactions, WAL and full synchronization; each operation closes
+its database handle and clears its derived key buffer.
+
+`attachment.added` and `attachment.removed` carry exactly
+`{ attachment: ChatAttachmentReference }`. Only authoritative `host` provenance
+can assert them; their state must match the kind. They are workspace-private
+metadata facts that reference a local upload/removal, not evidence that an
+assistant/harness received, opened or understood content. Filenames, content
+hashes, encoded bodies, paths and URLs are excluded from transcript payloads.
+References preserve their UUID/session/generation and canonical event sequence
+on replay; no consumer may treat a transcript reference as an access grant.
+Open/remove always reauthorize the bound session at use time.
+
+The production host composition and authenticated local operations are wired.
+Composer picker/chips, request-to-message attachment association, harness delivery,
+image/binary/bulk transfer, remote/cloud storage and packaged owner-journey
+qualification remain separate integration work. The consumer must offer no
+unsupported action and make no delivered-to-agent claim from these events.
+UI416, consumer1385 and transcript-history1396 are not changed by this producer
+increment.
+
 ## Files and search
 
 The visible Files projection composes the shared UI `Tree`, `TreeRow`, and
@@ -4850,6 +5502,145 @@ returns that run), fenced to one active run per session, and emits
 creates records addressed as version 0 and fences updates by optimistic
 version (`stale_version`); setting a default clears its sibling defaults in
 the same scope slice.
+
+### Authorized queued follow-ups (#1393)
+
+`dev.session.followUps` is one host operation under the existing
+`dev.session.manage` capability and a `runtime_session` resource binding.
+Its `FollowUpQueueRequest` always carries `runtimeSessionId`,
+`expectedGeneration`, and one exact action:
+
+| Action    | Additional required fields             | Behavior                                                                          |
+| --------- | -------------------------------------- | --------------------------------------------------------------------------------- |
+| `read`    | none                                   | Return the current generation's authorized queue snapshot.                        |
+| `enqueue` | `expectedVersion`, `messageId`, `text` | Append a bounded follow-up without interrupting a running turn.                   |
+| `remove`  | `expectedVersion`, `messageId`         | Remove one pending or ambiguous item; an in-flight claim cannot be withdrawn.     |
+| `reorder` | `expectedVersion`, `messageIds`        | Supply every pending ID exactly once, in its new order; no claimed item may move. |
+| `deliver` | `expectedVersion`                      | Claim and hand off one head item at a freshly authorized observed input boundary. |
+
+Mutations require the envelope's existing printable-ASCII `idempotencyKey`
+(1–128 characters). Each transport retry still needs a fresh authenticated
+nonce. An identical key/body replays the **current** snapshot without repeating
+the mutation or delivery; reuse for another body is `idempotency_conflict`.
+Exact replay precedes version comparison, while scope, channel, expiry and live
+generation admission always precede replay. New changes use optimistic queue
+`expectedVersion`; concurrent writers cannot silently overwrite each other.
+The shared canonical command decoder validates the bounded envelope and the
+`runtimeSessionId`/`expectedGeneration` fields needed to bind the body to its
+resource. The execution host then applies the full
+`decodeFollowUpQueueRequest` schema before authorization, locking, or state
+changes; unknown actions, extra fields, and malformed action-specific versions
+fail closed there. This host-only schema keeps queue action validation out of
+the general client command contract.
+
+Bounds are 16 pending/claimed items, 16,384 UTF-8 bytes per nonempty text, and
+65,536 UTF-8 bytes across the queue. NUL and other C0 controls except tab/CR/LF
+are refused. IDs are nonblank strings of at most 128 characters. Request, snapshot, and queue-event identifiers must also contain well-formed Unicode: reject lone high/low surrogates before durable mutation, while preserving valid astral code points without normalization or replacement. Within one
+generation, retain at most 256 used message IDs and 1,024 mutation receipts;
+do not evict delivery tombstones to accept more work. At those limits return
+`limit_exceeded`; an explicitly authorized new generation resets them. Storage
+retains at most 128 session queues per account/workspace/runtime-node scope.
+An initial read records a sealed generation fence (version 0); an older host
+instance cannot replace a newer retained generation with its stale projection.
+
+The snapshot is `{ schemaVersion: 1, runtimeSessionId, generation, version,
+delivery, items, lastDelivery? }`. Each item is `{ id, text, bytes, state }`,
+where state is `queued | dispatching | ambiguous`. `delivery` is
+`unavailable | busy | ready`, derived from the actual bound run/transport,
+never a process name, terminal idle appearance, or a guessed capability.
+`lastDelivery`, when known, is `{ messageId, status: 'accepted'|'ambiguous' }`.
+The complete Dev Runtime entry exports the queue types. Strict
+request/snapshot/reply/event-payload decoders are exported from the focused
+`dev-runtime-follow-ups` entry; consumers that validate a queue reply use
+`decodeFollowUpQueueReply`. The general wire decoder checks authoritative-host
+provenance, envelope identity, and the absence of prompt-text fields for
+`queue.updated`. The host event log applies the full queue-event payload
+decoder both before append and while projecting persisted/replayed events.
+Returned snapshots and queue-event payloads are detached and frozen so caller
+mutation cannot change the admitted queue facts.
+
+Delivery is **explicit and one at a time**. Enqueue-time authority is not a
+background execution grant: there is no automatic drain or timer. A fresh
+`deliver` command must re-pass M10 admission after acquiring the cross-process
+mutation lock. A synchronous channel/expiry/lifecycle fence and the canonical
+session generation are checked immediately before effects, before handoff,
+after the await, and again after waiting to finalize its receipt. The live run
+must be observed `awaiting_input`, be the canonical session's selected active
+run in the same scope, and have
+a ready structured connection for the same installation. Capture that
+connection's actual ID/generation; replacement makes the old attempt inert.
+Run generations and session generations are independent domains: launching a
+run at generation 1 advances the canonical session generation. Binding uses
+`activeHarnessRunId` plus the run's session/scope identity, while the command
+still fences the canonical session generation and actual connection identity.
+The driver must implement the existing structured `deliverPrompt` seam.
+Absent key, run, or real structured transport yields typed unavailability or
+state refusal; there is no PTY fallback, invented queue capability, or UI.
+
+Claim the head and persist its idempotency/observed-run-version fence **before**
+offering text to the transport. A successful handoff removes it and records
+`accepted`, meaning only the authenticated driver accepted that exact byte
+count, not that a model consumed the message or produced a reply. Each observed
+run version admits at most one attempt; another item needs a new observed
+input boundary (same-state status replay does not create one). Timeout (5 s),
+negative/unknown result or an interrupted claim is ambiguous and is never
+retried automatically, including after host restart. A retained `dispatching`
+claim is proof of a possible send, not proof of a currently running call.
+The host holds a separate cross-process delivery lock from before claiming
+through receipt finalization, including the publication and handoff gap.
+Under the queue mutation lock, recovery first replays the durable outbox,
+then tries to acquire that delivery lock without waiting. An active owner
+keeps the item `dispatching`; it cannot be removed. If the lock is available
+(including recovery of a provably dead owner), persist and publish
+`delivery_ambiguous` with a new queue version. Read that current version and
+explicitly remove the ambiguous item; neither recovery nor idempotent replay
+sends it. A publication failure before handoff releases ownership too, even
+though recovery conservatively cannot claim that the item was never sent.
+Heartbeat age alone never permits stealing a delivery lock from a live
+same-node process. Unknown owner identity remains blocked for explicit
+operator recovery; elapsed time does not establish that a send is safe.
+Ambiguous items block further delivery until explicitly removed or Stop starts
+a new generation; removal does not recycle their IDs. Reorder/remove cannot
+silently retract bytes already offered by an in-flight claim.
+
+Stop (`dev.session.cancelHarness`) retains its existing authorization and
+changes the canonical session generation before awaiting queue cleanup. It
+then cancels/discards that old generation's remaining queue before returning;
+an in-flight item has an ambiguous receipt and late completion cannot report
+accepted or deliver a second item. An unreadable cleanup journal produces a
+degraded recovery fact; the old generation is still inert. Steer remains its
+existing separately authorized host slot: enqueue never invokes it, and no
+Steer operation is invented. Queue delivery refuses working/approval/unknown,
+archived and disconnected states. Future Steer implementations must preserve
+these run/connection fences rather than drain this queue as a side effect.
+
+Every mutation publishes a strict `queue.updated` replacement snapshot with
+IDs, ordering, byte counts, item states, `change`, and any delivery receipt;
+**text is omitted**. It is an authoritative host fact with workspace-metadata
+classification, and payload session/generation must equal the event envelope.
+`change` is `enqueue | remove | reorder | delivery_started | delivery_accepted |
+delivery_ambiguous | cancelled`. Queue version advances for each change,
+including claim and completion separately. An encrypted durable outbox precedes
+event append; interrupted publication replays the same generation/version
+source ID through canonical deduplication before another mutation proceeds.
+It cannot silently lose a committed mutation or send twice to repair an event.
+
+Queue state is owner-only, sealed AES-256-GCM under the **existing** local
+content device key, with a fresh nonce and AAD binding format, full scope,
+session and generation. This feature never creates, rotates, overwrites or
+changes access to key material. Ciphertext lives in scope-digest files under
+`dev-runtime/harness/follow-ups/`; the existing host cross-process mutation
+owner serializes each scope. Corrupt/unknown state is retained and refused,
+not replaced with an empty queue. Retained corruption copies and stranded
+temporary writes remain explicit `recovery_required` barriers even when the
+original file is absent; they cannot reset idempotency or generation fences.
+The existing authorized workspace cleanup
+validates ownership/authentication and rejects an active lock or unreadable
+ciphertext before deleting anything; it removes only that scope's queue file,
+preserving sibling queues and reusable keys. This inherits the transitional
+device-key storage limits in [local content](./local-content.md), not the
+unimplemented OS-keyring target. No transcript-content contract from #1396 or
+consumer UI adoption is changed by this operation.
 
 ### Observed run status
 
@@ -6623,6 +7414,27 @@ private file content. Audit records contain IDs, operation, actor, scope,
 result/error code, byte/count summaries, and redacted target labels.
 Chat transcript projection also drops any `credential`-classified event before
 rendering, including a malformed producer's otherwise renderable event kind.
+The bounded chat accumulator carries one boolean when eviction or a replay floor
+removes the prefix of its leading assistant-delta streak. Projection then withholds
+that whole leading streak until a canonical non-delta event; it exposes only an
+explicit truncation marker, never a raw suffix, payload-derived label or event
+reference. The flag follows later eviction within the same streak and clears at
+a known event boundary. No evicted credential text or unbounded provenance list
+is retained. Only copied run/generation metadata survives on withheld rows, so
+the bounded response block can keep its identity while showing an explicit
+unavailable-context notice. Trimming history must never undo earlier
+cross-fragment redaction.
+Approval and question requests have a separate redacted request-context projection;
+question wording takes precedence over incidental summary text. The existing
+4,096-character display and bounded redaction scan limits remain. If that context
+is missing or exceeds the display bound, the UI explicitly says it is incomplete
+and disables approval/question submission, including the callback path. Inspection
+must never label a clipped preview as the full request. Sanitizer provenance
+records both input-window truncation and clipping after redaction replacements,
+which can expand short tokens; either fences response callbacks. An exact-limit
+sanitized value is complete only if no additional visible code point is dropped. Tool-output copy uses a
+separate redacted layout-preserving projection within the same limit: LF and tabs
+survive, CRLF is normalized to LF, and unsafe controls are removed.
 
 ## Error contract
 
@@ -8085,6 +8897,21 @@ files in the same commit:
   signed attach → `opened` → bounded CBOR replay → live push → ack →
   single-use attach replay refusal → generation-fenced `stale_generation`
   close);
+- `packages/types/tests/dev-runtime-assistant.test.ts` and
+  `apps/desktop/tests/dev-runtime-assistant-events.test.ts` pin #1386 identity,
+  explicit final supersession, per-message delta order, canonical retries,
+  tuple isolation, uint64 exhaustion, and retained final fences across restart;
+  the #1386 case in `apps/desktop/tests/dev-runtime-harness-events.test.ts`
+  proves resync can replay a final with its original identity after excluding
+  its deltas, followed by a replay-end heartbeat and run-isolated live events;
+- `packages/types/tests/dev-runtime-attachments.test.ts`,
+  `apps/desktop/tests/dev-runtime-chat-attachments.test.ts` and
+  `apps/desktop/tests/dev-runtime-chat-attachments-channel.test.ts` pin #1392
+  bounded metadata/bytes, strict host-owned transcript references, signed
+  admission, no egress, encryption, scope/generation fences, interruption,
+  idempotency, open/remove ordering, quotas and ambiguous recovery;
+  composition and workspace-local-data tests exercise the production provider
+  and authenticated native purge integrations;
 - `apps/desktop/tests/dev-runtime-harness-prompt.test.ts` pins the
   launch→prompt-delivery residues: exactly-once fenced delivery into the
   session PTY through the `prompt_delivery` input authority (with provenance
@@ -8142,3 +8969,11 @@ controls. Adea retains only the utility width steps and saved preferences.
 Host CSS restyles the presented grip on Dev surfaces into a tall, skinny,
 translucent rung (icon dropped, hover wash softened) without touching the hit
 target, drag semantics, or keyboard controls.
+
+### Follow-up physical transport and publication witnesses (#1393)
+
+A command timeout or AbortSignal only ends the wait for a structured delivery; it does not prove that a transport stopped writing. The queue retains its existing cross-process delivery claim until the underlying transport promise actually settles. Stop invalidates the session generation and aborts the queue before awaiting ACP close. The signal reaches the lane driver, and an already-aborted handoff is refused before driver invocation. A driver that ignores cancellation keeps the claim: subsequent sends, including a new-generation peer, and workspace purge remain fenced until actual settlement. No timed-out or stopped send later reports accepted, and no deadline or stale heartbeat alone reclaims a live transport.
+
+The sealed queue authenticates an outbox publication witness: prepared, attempted, or delivered. An attempted witness is persisted before append to the separate canonical event log; a delivered witness is persisted before clearing the outbox. A retained exact host queue fact can reconcile an attempted witness without republishing. If an attempted fact has been evicted, recovery refuses `recovery_required` rather than assigning the same queue version a new sequence. A delivered witness can safely clear after complete event eviction without append. Legacy pending outboxes have unknown publication status and require the same retained proof. Authentication covers the witness inside the existing sealed state; no credential/key lifecycle changes are introduced.
+
+Stop captures the original ACP connection ID and generation before its first queue-cleanup await. It closes only that captured binding afterward; a replacement connection becoming ready during cleanup is never selected by the old Stop. The blocked-cleanup registration regression verifies the original connection closes while the replacement remains ready.

@@ -20,3 +20,22 @@ clients should import them from the focused video subpath so a lazy relay view
 does not load the operation registry. The full contract delegates registry
 decoders to the same implementation, so server reply validation and lazy
 client views keep one validation rule set.
+
+The complete Dev Runtime entry exports the `FollowUpQueueRequest`,
+`FollowUpQueueSnapshot`, and `FollowUpQueueEventPayload` types. Host and queue
+consumers that need the full validators should import them from the focused
+`dev-runtime-follow-ups` entry; it also exports `decodeFollowUpQueueReply`.
+The focused wire entry checks `queue.updated` authority, identity, and prompt
+redaction, while the host event log applies the complete payload validator
+before persistence and replay. These host snapshots contain queue
+identity/order/outcomes without prompt text. See the
+[queue contract](../../docs/specs/dev-runtime.md#authorized-queued-follow-ups-1393)
+for bounded storage, generation/version fences, explicit delivery, replay,
+and interaction with Stop/Steer. No consumer control or unsupported transport
+capability is supplied by these types.
+
+`dev-runtime-activity` exports bounded test-run, command-output, failure/stack,
+changed-files, plan and task payload schemas. The wire entry's
+`decodeRuntimeActivityEvent` additionally requires authenticated producer
+ownership; generic replay retains opaque rows without inventing counts or
+statuses. See the Dev Runtime spec's structured activity producer contract.

@@ -119,12 +119,35 @@ export default defineConfig(({ command }) => ({
               // request. Leave feature components and their dependencies to
               // automatic splitting instead of grouping a whole icon catalogue.
               groups: [
+                // Shared models already belong to the lazy utility-pane closure.
+                // Consolidate wrappers without pulling pane components or model
+                // dependencies into the group or mixing them with shared UI.
+                {
+                  name: 'dev-utility-models',
+                  test: /packages\/dev-view\/src\/(agents\/harness-status-model|files\/status-cache|utility-command)\.ts$/,
+                  includeDependenciesRecursively: false,
+                  minShareCount: 2,
+                },
+                {
+                  name: 'shared-lazy-primitives',
+                  test: /@adea-ai\/ui\/src\/components\/ui\/(label\/label|skeleton\/skeleton|status-chip\/status-chip)\.tsx$/,
+                  includeDependenciesRecursively: false,
+                  minShareCount: 2,
+                },
                 // The runtime contract's decoders are imported by the Dev shell
                 // and by lazy panes; left to automatic splitting the wire and
                 // validation modules each become their own request.
                 {
                   name: 'dev-runtime-contract',
                   test: /packages\/types\/dist\/dev-runtime-(wire|validation-internal)\.js$/,
+                },
+                // The contextual host and its lazy panes share this small command
+                // helper. Co-locate them without hoisting eager context or runtime
+                // decoder dependencies across their existing boundaries.
+                {
+                  name: 'utility-host',
+                  test: /packages\/dev-view\/src\/utility-(?:host\.tsx|command\.ts)$/,
+                  includeDependenciesRecursively: false,
                 },
                 // The theme record helpers, their CSS projection and the
                 // defaults they read share every importer today. The lazy theme

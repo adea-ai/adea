@@ -133,6 +133,8 @@ export function SharedDevUtilityHost(props: {
   const selected = () => visiblePane()?.pane ?? 'browser'
   const title = () => paneItems().find((item) => item.pane === selected())?.title ?? 'Utilities'
   const runtimeReady = () => context().runtime.state().status === 'ready'
+  const fullWidthLabel = () =>
+    visiblePane()?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'
 
   const paneBody = (selectedPane: DevUtilityPane) => {
     const pane =
@@ -221,8 +223,8 @@ export function SharedDevUtilityHost(props: {
             type="button"
             variant="ghost"
             size="icon-sm"
-            tooltip={visiblePane()?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'}
-            aria-label={visiblePane()?.fullWidth ? 'Restore utility pane' : 'Expand utility pane'}
+            tooltip={fullWidthLabel()}
+            aria-label={fullWidthLabel()}
             aria-expanded={visiblePane()?.fullWidth ?? false}
             onClick={() =>
               props.owner.setUtilityPaneFullWidth(

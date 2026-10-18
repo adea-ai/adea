@@ -1,4 +1,23 @@
 import {
+  decodeChatAttachmentUpload,
+  decodeChatAttachmentOpenResult,
+  decodeChatAttachmentMutationResult,
+} from './dev-runtime-attachments'
+export {
+  chatAttachmentLimits,
+  chatAttachmentMediaTypes,
+  decodeChatAttachment,
+  decodeChatAttachmentUpload,
+  decodeChatAttachmentReference,
+  decodeChatAttachmentOpenResult,
+} from './dev-runtime-attachments'
+export type {
+  ChatAttachmentUpload,
+  ChatAttachmentReference,
+  ChatAttachment,
+  ChatAttachmentOpenResult,
+} from './dev-runtime-attachments'
+import {
   devOperationDefinitions,
   devOperations,
   devRuntimeTransportMethods,
@@ -30,6 +49,11 @@ export {
   decodeWorktree,
 } from './dev-runtime-registry-dto'
 import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
+export type {
+  FollowUpQueueRequest,
+  FollowUpQueueSnapshot,
+  FollowUpQueueEventPayload,
+} from './dev-runtime-follow-ups'
 import { isMacPermissionId, type MacPermissionId } from './desktop-permissions'
 import {
   decodeScope,
@@ -69,8 +93,24 @@ export {
 export type { DevStreamVideoRelayChunk } from './dev-runtime-video'
 export {
   dataClassifications,
+  decodeRuntimeAssistantPayload,
+  isRuntimeAssistantEventKind,
   decodeCbor,
   decodeRuntimeEvent,
+  decodeRuntimeActivityEvent,
+  decodeRuntimeEnvelope,
+  decodeRuntimeCallEvent,
+  assertRuntimeEventFrameSize,
+  RUNTIME_EVENT_CBOR_BYTES_MAX,
+  decodeRuntimeCallPayload,
+  isRuntimeCallEventKind,
+  runtimeCallEventKinds,
+  runtimeCallPhases,
+  RUNTIME_CALL_INLINE_BYTES_MAX,
+  RUNTIME_CALL_JSON_NODES_MAX,
+  RUNTIME_CALL_JSON_DEPTH_MAX,
+  RUNTIME_CALL_JSON_ENTRIES_MAX,
+  RUNTIME_CALL_JSON_STRING_MAX,
   encodeCbor,
   runtimeEventKinds,
 } from './dev-runtime-wire'
@@ -92,10 +132,41 @@ export type {
 } from './dev-runtime-visible-summaries'
 export type {
   DataClassification,
+  RuntimeAssistantEventKind,
+  RuntimeAssistantDeltaPayload,
+  RuntimeAssistantMessagePayload,
+  RuntimeAssistantResultPayload,
+  RuntimeAssistantPayloads,
   RuntimeEvent,
   RuntimeEventKind,
   RuntimeEventProvenance,
+  RuntimeActivityEvent,
+  RuntimeCallEvent,
+  RuntimeCallEventKind,
+  RuntimeCallData,
+  RuntimeCallJson,
+  RuntimeCallPayload,
+  RuntimeCallPermissionEligibility,
+  RuntimeCallPhase,
 } from './dev-runtime-wire'
+export {
+  decodeRuntimeInteractionPayload,
+  runtimeInteractionKinds,
+  validateRuntimeQuestionAnswers,
+} from './dev-runtime-interactions'
+export type {
+  RuntimeApprovalRequest,
+  RuntimeApprovalResolution,
+  RuntimeInteractionExpiry,
+  RuntimeInteractionKind,
+  RuntimeInteractionPayload,
+  RuntimeQuestion,
+  RuntimeQuestionAnswer,
+  RuntimeQuestionOption,
+  RuntimeQuestionRequest,
+  RuntimeQuestionResolution,
+  RuntimeResponseEligibility,
+} from './dev-runtime-interactions'
 export {
   CITED_RESPONSE_BYTES_MAX,
   RESPONSE_CITATION_MAX,
@@ -2198,6 +2269,17 @@ function decodeResourcePreferenceFields(value: unknown, path: string, stored: bo
 }
 
 function namedType(name: string, value: unknown, path: string): unknown {
+  if (name === 'FollowUpQueueRequest') {
+    // Keep the shared command decoder able to bind this body to its session
+    // resource without pulling the queue's full schema into every client.
+    // The host operation provider applies decodeFollowUpQueueRequest before
+    // authorization, locking, or mutation.
+    const item = record(value, path)
+    stringValue(item.runtimeSessionId, `${path}.runtimeSessionId`, 1, 256)
+    integerValue(item.expectedGeneration, `${path}.expectedGeneration`, 0)
+    return value
+  }
+  if (name === 'ChatAttachmentUpload') return decodeChatAttachmentUpload(value, path)
   if (
     name === 'FileIdentity' ||
     name === 'RootBookmark' ||
@@ -4433,6 +4515,9 @@ function decodeDevRuntimePage(
 // Success reply decoders, installed by the slice that owns each operation's
 // DTO. Every operation without an entry keeps failing closed in decodeDevReply.
 const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => unknown>> = {
+  'dev.session.attachmentUpload': (value) => decodeChatAttachmentMutationResult(value, 'available'),
+  'dev.session.attachmentOpen': (value) => decodeChatAttachmentOpenResult(value),
+  'dev.session.attachmentRemove': (value) => decodeChatAttachmentMutationResult(value, 'removed'),
   // Project registry (#398): import/create mint Project records, scan returns
   // a bounded preview page. update/archive/unbind reply with the Project
   // binding record (same decoder; unbind returns the removed binding).
@@ -4947,7 +5032,10 @@ export function decodeDevCommand(value: unknown): DevCommand {
   return value as DevCommand
 }
 
-export function decodeDevReply(value: unknown): DevReply {
+export function decodeDevReply(
+  value: unknown,
+  operationValueDecoders?: Readonly<Partial<Record<DevOperation, (value: unknown) => unknown>>>
+): DevReply {
   const item = record(value, 'reply')
   if (item.schemaVersion !== 1) fail('reply.schemaVersion', 'expected 1')
   const operation = item.operation
@@ -4963,13 +5051,15 @@ export function decodeDevReply(value: unknown): DevReply {
       'reply'
     )
     timestamp(item.observedAt, 'reply.observedAt')
-    const decodeValue = devReplyValueDecoders[item.operation as DevOperation]
+    const operationDecoder = operationValueDecoders?.[item.operation as DevOperation]
+    const decodeValue = operationDecoder ?? devReplyValueDecoders[item.operation as DevOperation]
     if (!decodeValue)
       fail(
         'reply.value',
         'success DTO decoder is unavailable until the operation-owning provider slice installs it'
       )
-    decodeValue(item.value)
+    const decodedValue = decodeValue(item.value)
+    if (operationDecoder) return { ...item, value: decodedValue } as unknown as DevReply
   } else if (item.ok === false) {
     exactKeys(item, ['schemaVersion', 'operation', 'requestId', 'ok', 'error'], [], 'reply')
     decodeError(item.error)
@@ -5506,3 +5596,36 @@ export function devStreamAttachProofMessage(input: {
     input.attach.fromSequence,
   ])
 }
+
+export {
+  decodeRuntimeActivityPayload,
+  isRuntimeActivityEventKind,
+  runtimeActivityEventKinds,
+  runtimeTestStatuses,
+  runtimeWorkStatuses,
+  runtimeFileChangeKinds,
+  ACTIVITY_PAYLOAD_BYTES_MAX,
+  ACTIVITY_JSON_NODES_MAX,
+  ACTIVITY_JSON_DEPTH_MAX,
+  ACTIVITY_TEXT_MAX,
+} from './dev-runtime-activity'
+export type {
+  RuntimeActivityEventKind,
+  RuntimeActivityPayloads,
+  RuntimeFailureRecord,
+  RuntimeFailurePayload,
+  RuntimeStackFrame,
+  RuntimeStackTrace,
+  RuntimeTestRunPayload,
+  RuntimeTestSummary,
+  RuntimeTestSuite,
+  RuntimeTestCase,
+  RuntimeTestStatus,
+  RuntimeTerminalOutputPayload,
+  RuntimeChangedFilesPayload,
+  RuntimeFileChange,
+  RuntimePlanPayload,
+  RuntimeTaskPayload,
+  RuntimeWorkStatus,
+  RuntimeWorkItem,
+} from './dev-runtime-activity'

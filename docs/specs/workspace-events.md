@@ -323,7 +323,10 @@ desktop sessions share one path, and the cursor travels explicitly.
   group under `['workspaces', workspaceId, 'runtime-nodes']`. They do not imply
   execution acceptance or change canonical Message/history availability.
 - Reconnects back off 1s→30s with jitter, reset after a stable connection, and
-  never faster than the server asks.
+  never faster than the server asks. Hidden browser documents cancel the stream
+  and pending retry; visibility resumes one stream from the retained signed
+  cursor. Pausing changes no authorization or replay decision. A stale cursor
+  still receives the server's ordinary resync response.
 - One subscription is mounted in the workspace navigation shell — above view
   switching — so conventional, spatial, and dev surfaces read the same query
   state without reconnecting on each surface change, and transient UI
@@ -528,3 +531,8 @@ This proves liveness, never execution acceptance.
   0045 SQL to realistic old-shape copies and requires every pre-existing column of Agents,
   channels, participants, messages, mentions, read states, memberships and events to survive.
 - `apps/web/test/agent-edit-request.test.ts`: strict revision, field and placement parsing.
+
+Visibility suspension preserves an already pending reconnect deadline. Showing
+or manually reconnecting before that deadline re-arms only the remaining delay,
+including the server retry floor; hidden time counts toward the deadline. An
+active stream aborted by hiding has no pending retry and resumes immediately.
