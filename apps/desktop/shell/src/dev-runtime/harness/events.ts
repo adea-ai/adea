@@ -1,3 +1,6 @@
+import { isRuntimeActivityEventKind } from '../../../../../../packages/types/src/dev-runtime-activity'
+import { admitRuntimeActivityEvent } from './activity-events'
+import type { RuntimeEventProvenance } from '../../../../../../packages/types/src/dev-runtime-wire'
 // Canonical runtime-session event log (#400): the durable, append-only,
 // sequence-ordered store behind `dev.session.events` and the
 // `runtime-events-v1` stream.
@@ -21,13 +24,21 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 import type {
+  FollowUpQueueEventPayload,
   RuntimeEvent,
   RuntimeEventKind,
+  RuntimeSession,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
 import { canonicalDevCommandJson } from '../../../../../../packages/types/src/dev-runtime'
 import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
+import { decodeFollowUpQueueEventPayload } from '../../../../../../packages/types/src/dev-runtime-follow-ups'
 import { createDurableJsonStore } from '../host-store'
+import {
+  snapshotInteractionEvent,
+  validateInteractionAdmission,
+  validateInteractionCorrelation,
+} from './interactions'
 import { assertAssistantEventFitsFrame, assertAssistantEventOrder } from './assistant-events'
 import {
   decodeRuntimeEvent,
@@ -90,10 +101,31 @@ function sameScope(left: Scope, right: Scope): boolean {
   )
 }
 
+function decodeQueueUpdate(
+  event: Pick<
+    RuntimeEvent,
+    'kind' | 'runtimeSessionId' | 'generation' | 'source' | 'confidence' | 'payload'
+  >
+): FollowUpQueueEventPayload | undefined {
+  if (event.kind !== 'queue.updated') return undefined
+  if (event.source !== 'host' || event.confidence !== 'authoritative')
+    throw new TypeError('queue.updated requires an authoritative host event')
+  const payload = decodeFollowUpQueueEventPayload(event.payload)
+  if (
+    payload.runtimeSessionId !== event.runtimeSessionId ||
+    payload.generation !== event.generation
+  )
+    throw new TypeError('queue.updated identity does not match its event')
+  return payload
+}
+
 function project(event: StoredEvent): RuntimeEvent {
   const { scope: _, ...rest } = event
+  const queuePayload = decodeQueueUpdate(rest)
   validateRuntimeResponseReferences(rest.kind, rest.payload, rest.source)
-  return { ...rest }
+  return queuePayload
+    ? { ...rest, payload: queuePayload }
+    : (snapshotInteractionEvent(rest) ?? { ...rest })
 }
 
 const seqOf = (event: RuntimeEvent): bigint => BigInt(event.seq)
@@ -143,7 +175,7 @@ export type SessionEventInput = Readonly<{
 
 export type SessionEventLog = Readonly<{
   /** Appends one event; an identical duplicate returns `undefined`. */
-  append(input: SessionEventInput): RuntimeEvent | undefined
+  append(input: SessionEventInput, provenance?: RuntimeEventProvenance): RuntimeEvent | undefined
   /** Bounded ascending read from `fromSequence` (inclusive). */
   read(
     runtimeSessionId: string,
@@ -159,6 +191,9 @@ export type SessionEventLog = Readonly<{
 export function createSessionEventLog(input: {
   dataDir: string
   scope: Scope
+  /** The existing session authority. Required for versioned interactions;
+   * legacy opaque events remain readable without inventing that authority. */
+  resolveSession?: (runtimeSessionId: string) => RuntimeSession | undefined
   /** Overrides the per-session bound (tests only; production uses the constant). */
   maxPerSession?: number
   /** Overrides the total bound (tests only; production uses the constant). */
@@ -216,15 +251,38 @@ export function createSessionEventLog(input: {
     return records
   }
 
-  function appendEvent(sessionInput: SessionEventInput): RuntimeEvent | undefined {
+  function appendEvent(
+    sessionInput: SessionEventInput,
+    provenance?: RuntimeEventProvenance
+  ): RuntimeEvent | undefined {
+    if (isRuntimeActivityEventKind(sessionInput.kind)) {
+      for (const key of ['source', 'confidence', 'classification'] as const) {
+        if (sessionInput[key] === undefined)
+          throw new TypeError(
+            `event.${key}: structured activity requires an explicit producer fact`
+          )
+      }
+    }
     validateRuntimeResponseReferences(
       sessionInput.kind,
       sessionInput.payload,
       sessionInput.source ?? 'host'
     )
+    const source = sessionInput.source ?? 'host'
+    const confidence = sessionInput.confidence ?? 'authoritative'
+    const queuePayload = decodeQueueUpdate({
+      kind: sessionInput.kind,
+      runtimeSessionId: sessionInput.runtimeSessionId,
+      generation: sessionInput.generation,
+      source,
+      confidence,
+      payload: sessionInput.payload ?? {},
+    })
+    validateRuntimeResponseReferences(sessionInput.kind, sessionInput.payload, source)
     const records = rawEvents()
-    // Replay is revalidated before any append (visible summaries scope-wide,
-    // usage within the target session/generation).
+    // Replay is revalidated before any append: visible summaries scope-wide
+    // (origin/main), usage within the target session/generation (#1391), so a
+    // quarantined generation never blocks recovery appends into a healthy one.
     assertVisibleSummaryReplay(records)
     assertUsageReplayable(
       records.filter(
@@ -233,7 +291,6 @@ export function createSessionEventLog(input: {
           event.generation === sessionInput.generation
       )
     )
-    const source = sessionInput.source ?? 'host'
     const latest = BigInt(
       latestSeqOf(records, sessionInput.runtimeSessionId, sessionInput.generation)
     )
@@ -255,14 +312,27 @@ export function createSessionEventLog(input: {
       receivedAt: new Date().toISOString(),
       source,
       sourceEventId: sessionInput.sourceEventId,
-      confidence: sessionInput.confidence ?? 'authoritative',
+      confidence,
       classification: sessionInput.classification ?? 'workspace_metadata',
       kind: sessionInput.kind,
-      payload: sessionInput.payload ?? {},
+      payload: queuePayload ?? sessionInput.payload ?? {},
     }
     // Usage has a strict producer contract (#1391). Refuse before persistence,
     // dedupe, retention, or subscriber delivery; other event payloads stay opaque.
     if (candidate.kind === 'usage.observed') candidate = decodeRuntimeEvent(candidate, { source })
+    if (isRuntimeActivityEventKind(candidate.kind)) {
+      const admission = admitRuntimeActivityEvent(
+        candidate,
+        provenance ?? { source },
+        records,
+        sessionInput.occurredAt !== undefined
+      )
+      if (admission.duplicate) return undefined
+      candidate = admission.event
+    }
+    candidate = snapshotInteractionEvent(candidate) ?? candidate
+    const interaction = validateInteractionAdmission(candidate, input.scope, input.resolveSession)
+    if (interaction) candidate = interaction.event
     if (isVersionedCall(candidate) && sessionInput.classification === undefined)
       throw new TypeError('event.classification: call observations require explicit classification')
     // A retry does not create a new call envelope: validate call facts before
@@ -283,6 +353,7 @@ export function createSessionEventLog(input: {
           (sessionInput.occurredAt === undefined || duplicate.occurredAt === candidate.occurredAt))
       if (
         duplicate.kind === candidate.kind &&
+        (!interaction || duplicate.harnessRunId === candidate.harnessRunId) &&
         (isVersionedCall(candidate)
           ? JSON.stringify(duplicate.payload) === JSON.stringify(candidate.payload)
           : canonicalDevCommandJson(duplicate.payload) ===
@@ -302,6 +373,8 @@ export function createSessionEventLog(input: {
           'a different event already exists under this (session, generation, source, sourceEventId) key',
       }
     }
+    if (interaction) validateInteractionCorrelation(candidate, interaction, records)
+
     if (isRuntimeCallEventKind(candidate.kind)) {
       decodeRuntimeEvent(candidate, { source })
       candidate = snapshotCallEvent(candidate)
@@ -321,7 +394,7 @@ export function createSessionEventLog(input: {
     // Retention: oldest-first per session beyond the per-session bound, then
     // a total bound across the scope so the durable file stays bounded.
     const sessionEvents = records.filter(
-      (event) => event.runtimeSessionId === sessionInput.runtimeSessionId
+      (event) => event.runtimeSessionId === candidate.runtimeSessionId
     )
     let bounded = records
     if (sessionEvents.length + 1 > maxPerSession) {
@@ -347,7 +420,7 @@ export function createSessionEventLog(input: {
       ...bounded.map((event) => ({ ...event, scope: input.scope })),
     ]
     store.save(stored)
-    for (const cb of subscribers.get(sessionInput.runtimeSessionId) ?? []) cb(candidate)
+    for (const cb of subscribers.get(candidate.runtimeSessionId) ?? []) cb(candidate)
     return candidate
   }
 

@@ -1478,6 +1478,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
     stream: { protocol: 'runtime-events-v1', direction: 'read' },
   },
+  'dev.session.followUps': {
+    body: 'FollowUpQueueRequest',
+    capabilities: ['dev.session.manage'],
+    reply: 'FollowUpQueueSnapshot',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    stream: null,
+  },
   'dev.session.get': {
     body: '{ runtimeSessionId: string }',
     capabilities: ['dev.session.read'],
