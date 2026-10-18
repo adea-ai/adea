@@ -80,6 +80,16 @@ export function prependRuntimeHistory(
     if (BigInt(merged[i]!.seq) !== BigInt(merged[i - 1]!.seq) + 1n)
       invalid('resync_required', 'Transcript history has an unexplained gap.')
   const events = merged.slice(-CHAT_EVENT_RETENTION_LIMIT)
+  // Backfill can replace a known boundary with a streak whose prefix is still
+  // outside this page. Derive provenance from the final retained window, not
+  // the old first event; a trimmed predecessor is the only available boundary.
+  const dropped = merged.length - events.length
+  const assistantContextLost =
+    events[0]?.kind === 'turn.assistant_delta' &&
+    events[0].seq !== '1' &&
+    (dropped > 0
+      ? merged[dropped - 1]?.kind === 'turn.assistant_delta'
+      : events[0]?.seq !== state.events[0]?.seq || state.assistantContextLost === true)
   const oldestSequence = events[0]?.seq
   const newestSequence = events.at(-1)?.seq
   const complete =
@@ -98,6 +108,7 @@ export function prependRuntimeHistory(
               : state.retainedFloorSequence,
         }),
     events,
+    assistantContextLost,
     availability: complete
       ? { status: 'available' }
       : {

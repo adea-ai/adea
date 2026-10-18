@@ -7493,7 +7493,13 @@ a known event boundary. No evicted credential text or unbounded provenance list
 is retained. Only copied run/generation metadata survives on withheld rows, so
 the bounded response block can keep its identity while showing an explicit
 unavailable-context notice. Trimming history must never undo earlier
-cross-fragment redaction.
+cross-fragment redaction. Backward history prepends recompute this provenance
+from the merged window after retention slicing. A newly leading assistant streak
+with an unknown prefix stays withheld across pages and concurrent live appends;
+loading sequence 1 or a canonical non-delta boundary restores redaction context.
+When slicing drops a just-recovered prefix, the retained predecessor determines
+whether the remaining streak still lacks context. The live replay cursor is
+unchanged and no missing prefix text is retained.
 Approval and question requests have a separate redacted request-context projection;
 question wording takes precedence over incidental summary text. The existing
 4,096-character display and bounded redaction scan limits remain. If that context
@@ -9057,6 +9063,7 @@ legacy rows or bypasses call/summary provenance checks.
 A `checkpoint_required` stream frame identifies the beginning of the bounded replay window. Its `checkpointSequence` is the maximum of the requested cursor, the newest 500-event window start and the actual retained floor; it does not independently prove retention loss. The client must not promote this cursor to `retainedFloorSequence`. Only a validated history page's `retainedFromSequence` supplies that floor. With events 1–600 retained and a fresh attach from 0, replay starts at 101, and Load older remains available to retrieve 1–100 through the authenticated history operation. A real pruned floor stops further reads after its authoritative page is accepted; replay resync does not replace an already verified history floor.
 
 Chat composes authenticated backward-history decoding over the shared live event stream. The History utility pane uses the live stream core directly; its live-only view does not load the transcript history decoder. The canonical history decoder is exposed through the focused `@adea-ai/types/dev-runtime-history` entry so that unrelated aggregate reply decoders keep their deferred terminal boundary. Full history-page validation and all bundle guards remain unchanged.
+
 ### Follow-up physical transport and publication witnesses (#1393)
 
 A command timeout or AbortSignal only ends the wait for a structured delivery; it does not prove that a transport stopped writing. The queue retains its existing cross-process delivery claim until the underlying transport promise actually settles. Stop invalidates the session generation and aborts the queue before awaiting ACP close. The signal reaches the lane driver, and an already-aborted handoff is refused before driver invocation. A driver that ignores cancellation keeps the claim: subsequent sends, including a new-generation peer, and workspace purge remain fenced until actual settlement. No timed-out or stopped send later reports accepted, and no deadline or stale heartbeat alone reclaims a live transport.
