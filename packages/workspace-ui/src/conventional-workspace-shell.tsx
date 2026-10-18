@@ -828,7 +828,9 @@ export function ConventionalWorkspaceShell(props: {
               </Show>
               <Show when={(props.manageSettings ?? true) && dialog() === 'workspace-settings'}>
                 <WorkspaceDetailsDialog
-                  accountPrincipalId={() => (accountAuthenticated() ? sessionIdentity() : null)}
+                  accountPrincipalId={() =>
+                    accountAuthenticated() ? (services()?.account?.principalId?.() ?? null) : null
+                  }
                   onClose={() => setDialog(null)}
                   open
                   services={services()}

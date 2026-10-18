@@ -176,3 +176,48 @@ test('a stale bootstrap answer for the previous account cannot change the sectio
   expect(await text(page)).not.toContain('Home server')
   expect(errors).toEqual([])
 })
+
+// A host-list read for one account or workspace is still in flight when the dialog moves to
+// another. The answer belongs to the scope that asked, so it must not appear in the new one.
+async function holdRefresh(page: Page) {
+  await run(page, `(s) => { s.state.holdList = true }`)
+  await page.getByRole('button', { name: 'Refresh hosts' }).first().click()
+  // The fake consumes the hold when the read reaches it, so the read is now in flight.
+  await expect.poll(() => run(page, `(s) => s.state.holdList`)).toBe(false)
+}
+const settle = (page: Page) => page.evaluate(() => new Promise((done) => setTimeout(done, 400)))
+
+test('a held host-list answer for the previous account cannot appear after an account switch', async ({
+  page,
+}) => {
+  const errors = await open(page)
+  await expect(hosts(page)).toHaveCount(4)
+  await holdRefresh(page)
+  await run(page, `(s) => s.setAccount('user-b')`)
+  await expect(page.getByText('No self-hosted host is registered in this workspace.')).toBeVisible()
+  await run(page, `(s) => s.releaseList()`)
+  await settle(page)
+  await expect(hosts(page)).toHaveCount(0)
+  expect(await text(page)).not.toContain('Home server')
+  // Back on the first account its own list is read again.
+  await run(page, `(s) => s.setAccount('user-a')`)
+  await expect(hosts(page)).toHaveCount(4)
+  expect(errors).toEqual([])
+})
+
+test('a held host-list answer for the previous workspace cannot appear after a workspace switch', async ({
+  page,
+}) => {
+  const errors = await open(page)
+  await expect(hosts(page)).toHaveCount(4)
+  await holdRefresh(page)
+  await run(page, `(s) => s.setWorkspace('ws-2')`)
+  await expect(page.getByText('No self-hosted host is registered in this workspace.')).toBeVisible()
+  await run(page, `(s) => s.releaseList()`)
+  await settle(page)
+  await expect(hosts(page)).toHaveCount(0)
+  expect(await text(page)).not.toContain('Home server')
+  await run(page, `(s) => s.setWorkspace('ws-1')`)
+  await expect(hosts(page)).toHaveCount(4)
+  expect(errors).toEqual([])
+})
