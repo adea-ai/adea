@@ -1,171 +1,1620 @@
 {
   "baselineHead": "dce4f487eb6e4d58964ea839666fc819ef68668f",
-  "configurationSha256": "dda2dfa0c19a972ebc439062a5183962e547f69cd09433e68a2c33bbacfccf0d",
-  "method": "Real production builds with disposable generateBundle module receipts; static closures and all incremental route/pane closures measured by the unchanged repository bundle inspector. Module identities normalized to portable repository/dependency paths.",
+  "configurationSha256": "a8156711a0d96018f6b7e9c0d4ab91c8ab6847c3ec7119db857f506ac2f35456",
+  "method": "Actual generateBundle facade identities and static imports from paired compiled builds. Every original entry/dynamic-entry facade is compared independently, not just the workspace union. Module identities are normalized to portable paths.",
+  "originalEntriesCompared": 67,
+  "allIndividualModuleSetsUnchanged": true,
   "baselineTotal": {
     "rawBytes": 3183903,
     "gzipBytes": 976514,
     "fileCount": 162
   },
   "candidateTotal": {
-    "rawBytes": 3165535,
-    "gzipBytes": 964085,
-    "fileCount": 147
+    "rawBytes": 3176278,
+    "gzipBytes": 971064,
+    "fileCount": 157
   },
-  "allComparedModuleSetsUnchanged": true,
-  "closures": {
-    "startup": {
-      "renderedModuleCount": 389,
-      "beforeModuleSetSha256": "3eaecf0faf0e5aad1abce992b761c515420b6bd1397d1e969ca44188e5389c55",
-      "afterModuleSetSha256": "3eaecf0faf0e5aad1abce992b761c515420b6bd1397d1e969ca44188e5389c55",
-      "addedModules": [],
-      "removedModules": [],
+  "entries": [
+    {
+      "entryModule": "<repository>/apps/web/src/start/client.tsx",
+      "isEntry": true,
+      "isDynamicEntry": false,
       "before": {
-        "rawBytes": 688376,
-        "gzipBytes": 225898,
-        "fileCount": 33
+        "renderedModuleCount": 109,
+        "renderedModuleSetSha256": "549ebad1070598ce99783138479c3a663aeae1ff1f63abd40617d13c9820cdb0",
+        "rawBytes": 184547,
+        "gzipBytes": 67444,
+        "chunkCount": 9
       },
       "after": {
-        "rawBytes": 683899,
-        "gzipBytes": 219876,
-        "fileCount": 18
-      }
+        "renderedModuleCount": 109,
+        "renderedModuleSetSha256": "549ebad1070598ce99783138479c3a663aeae1ff1f63abd40617d13c9820cdb0",
+        "rawBytes": 183677,
+        "gzipBytes": 66096,
+        "chunkCount": 7
+      },
+      "addedModules": [],
+      "removedModules": []
     },
-    "virtual": {
-      "renderedModuleCount": 64,
-      "beforeModuleSetSha256": "1a81d93c9e0c8e0f44ce4bb035498e81f5aab49fa774f5fab296a0346925111c",
-      "afterModuleSetSha256": "1a81d93c9e0c8e0f44ce4bb035498e81f5aab49fa774f5fab296a0346925111c",
-      "addedModules": [],
-      "removedModules": [],
+    {
+      "entryModule": "<dependencies>/@adea-ai/ui/src/components/composites/about-dialog/index.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
       "before": {
-        "rawBytes": 110679,
-        "gzipBytes": 38167,
-        "fileCount": 12
+        "renderedModuleCount": 275,
+        "renderedModuleSetSha256": "2038f4bf80ca3f9414943c94c1025d45ac318b87025cbed4d81c40cb1310683a",
+        "rawBytes": 494631,
+        "gzipBytes": 168561,
+        "chunkCount": 29
       },
       "after": {
-        "rawBytes": 108535,
-        "gzipBytes": 37239,
-        "fileCount": 12
-      }
+        "renderedModuleCount": 275,
+        "renderedModuleSetSha256": "2038f4bf80ca3f9414943c94c1025d45ac318b87025cbed4d81c40cb1310683a",
+        "rawBytes": 492595,
+        "gzipBytes": 165368,
+        "chunkCount": 24
+      },
+      "addedModules": [],
+      "removedModules": []
     },
-    "chat": {
-      "renderedModuleCount": 107,
-      "beforeModuleSetSha256": "2a900a1259137599fa3fbd1f7b4084f37b8e05bbd61169f845a3da4997316651",
-      "afterModuleSetSha256": "2a900a1259137599fa3fbd1f7b4084f37b8e05bbd61169f845a3da4997316651",
-      "addedModules": [],
-      "removedModules": [],
+    {
+      "entryModule": "<repository>/apps/web/src/components/account-directory-sidebar.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
       "before": {
-        "rawBytes": 192957,
-        "gzipBytes": 63098,
-        "fileCount": 20
+        "renderedModuleCount": 331,
+        "renderedModuleSetSha256": "1b173a93644d26336ef81e5cc0d0520256c32d0e690afa30f83ac6dc4fbcc715",
+        "rawBytes": 645425,
+        "gzipBytes": 212785,
+        "chunkCount": 37
       },
       "after": {
-        "rawBytes": 190220,
-        "gzipBytes": 62011,
-        "fileCount": 20
-      }
+        "renderedModuleCount": 331,
+        "renderedModuleSetSha256": "1b173a93644d26336ef81e5cc0d0520256c32d0e690afa30f83ac6dc4fbcc715",
+        "rawBytes": 642694,
+        "gzipBytes": 209422,
+        "chunkCount": 32
+      },
+      "addedModules": [],
+      "removedModules": []
     },
-    "appLibrary": {
-      "renderedModuleCount": 4,
-      "beforeModuleSetSha256": "305d9f82e39a36e34ca979dbb73a92085df4857eddb05b983182e324bf588fa5",
-      "afterModuleSetSha256": "305d9f82e39a36e34ca979dbb73a92085df4857eddb05b983182e324bf588fa5",
-      "addedModules": [],
-      "removedModules": [],
+    {
+      "entryModule": "<repository>/packages/dev-view/src/resources/activity-pane.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
       "before": {
-        "rawBytes": 11216,
-        "gzipBytes": 4465,
-        "fileCount": 4
+        "renderedModuleCount": 347,
+        "renderedModuleSetSha256": "e0b79b4ed8a3636917703fff573f43256ea6b5912459324d18a23928e97083ff",
+        "rawBytes": 668577,
+        "gzipBytes": 219783,
+        "chunkCount": 42
       },
       "after": {
-        "rawBytes": 11237,
-        "gzipBytes": 4498,
-        "fileCount": 4
-      }
+        "renderedModuleCount": 347,
+        "renderedModuleSetSha256": "e0b79b4ed8a3636917703fff573f43256ea6b5912459324d18a23928e97083ff",
+        "rawBytes": 665551,
+        "gzipBytes": 216299,
+        "chunkCount": 37
+      },
+      "addedModules": [],
+      "removedModules": []
     },
-    "devShell": {
-      "renderedModuleCount": 87,
-      "beforeModuleSetSha256": "087f5dda788977adff3152ce1f5fb3063fabdcd61c49ba93ff770f15826c4fb9",
-      "afterModuleSetSha256": "087f5dda788977adff3152ce1f5fb3063fabdcd61c49ba93ff770f15826c4fb9",
-      "addedModules": [],
-      "removedModules": [],
+    {
+      "entryModule": "<dependencies>/@xterm/addon-search/lib/addon-search.mjs",
+      "isEntry": false,
+      "isDynamicEntry": true,
       "before": {
-        "rawBytes": 161748,
-        "gzipBytes": 55863,
-        "fileCount": 21
+        "renderedModuleCount": 1,
+        "renderedModuleSetSha256": "d25f80f87b08ca6a76f87ef47ba6bc4b28228100695a471b7b764bc2044a9c06",
+        "rawBytes": 31879,
+        "gzipBytes": 9695,
+        "chunkCount": 1
       },
       "after": {
-        "rawBytes": 159768,
-        "gzipBytes": 54999,
-        "fileCount": 21
-      }
+        "renderedModuleCount": 1,
+        "renderedModuleSetSha256": "d25f80f87b08ca6a76f87ef47ba6bc4b28228100695a471b7b764bc2044a9c06",
+        "rawBytes": 31879,
+        "gzipBytes": 9695,
+        "chunkCount": 1
+      },
+      "addedModules": [],
+      "removedModules": []
     },
-    "devUtilityPanes": {
-      "renderedModuleCount": 61,
-      "beforeModuleSetSha256": "d55a7823fec50e9f45882ad9d808217161417afc2eb7c0460f0b33cb2e85eee9",
-      "afterModuleSetSha256": "d55a7823fec50e9f45882ad9d808217161417afc2eb7c0460f0b33cb2e85eee9",
-      "addedModules": [],
-      "removedModules": [],
+    {
+      "entryModule": "<dependencies>/@xterm/addon-webgl/lib/addon-webgl.mjs",
+      "isEntry": false,
+      "isDynamicEntry": true,
       "before": {
-        "rawBytes": 182414,
-        "gzipBytes": 59528,
-        "fileCount": 10
+        "renderedModuleCount": 1,
+        "renderedModuleSetSha256": "8ed19e04b294430a704eb636ca006903dff8d0c851db4f5f708096b20da79612",
+        "rawBytes": 113385,
+        "gzipBytes": 30758,
+        "chunkCount": 1
       },
       "after": {
-        "rawBytes": 181276,
-        "gzipBytes": 58992,
-        "fileCount": 10
-      }
+        "renderedModuleCount": 1,
+        "renderedModuleSetSha256": "8ed19e04b294430a704eb636ca006903dff8d0c851db4f5f708096b20da79612",
+        "rawBytes": 113385,
+        "gzipBytes": 30758,
+        "chunkCount": 1
+      },
+      "addedModules": [],
+      "removedModules": []
     },
-    "sharedUtilityOpen": {
-      "renderedModuleCount": 95,
-      "beforeModuleSetSha256": "c8bcc8e9141d8cb9d43e5e07c251038cd4b1323090ee9e17e06b4c34556e5dbd",
-      "afterModuleSetSha256": "c8bcc8e9141d8cb9d43e5e07c251038cd4b1323090ee9e17e06b4c34556e5dbd",
-      "addedModules": [],
-      "removedModules": [],
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/agent-roster.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
       "before": {
-        "rawBytes": 184830,
-        "gzipBytes": 60414,
-        "fileCount": 20
+        "renderedModuleCount": 381,
+        "renderedModuleSetSha256": "7c326be061a4b972107c1869599e066462691dc2d3be2932a967041fcdd24ec7",
+        "rawBytes": 726736,
+        "gzipBytes": 241363,
+        "chunkCount": 54
       },
       "after": {
-        "rawBytes": 183826,
-        "gzipBytes": 59944,
-        "fileCount": 20
-      }
+        "renderedModuleCount": 381,
+        "renderedModuleSetSha256": "7c326be061a4b972107c1869599e066462691dc2d3be2932a967041fcdd24ec7",
+        "rawBytes": 723656,
+        "gzipBytes": 237737,
+        "chunkCount": 49
+      },
+      "addedModules": [],
+      "removedModules": []
     },
-    "devTerminal": {
-      "renderedModuleCount": 155,
-      "beforeModuleSetSha256": "aa1a8a406facae80be0fdb0a35f1f56a6e7c094a81b514714cd49fffb0415647",
-      "afterModuleSetSha256": "aa1a8a406facae80be0fdb0a35f1f56a6e7c094a81b514714cd49fffb0415647",
-      "addedModules": [],
-      "removedModules": [],
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/app-library-page.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
       "before": {
-        "rawBytes": 784111,
-        "gzipBytes": 209674,
-        "fileCount": 31
+        "renderedModuleCount": 325,
+        "renderedModuleSetSha256": "087f4a503cb12dc6cd4d86a7660c2511bab507634165acf78656dc5917bebf51",
+        "rawBytes": 631778,
+        "gzipBytes": 208855,
+        "chunkCount": 36
       },
       "after": {
-        "rawBytes": 781440,
-        "gzipBytes": 208444,
-        "fileCount": 31
-      }
+        "renderedModuleCount": 325,
+        "renderedModuleSetSha256": "087f4a503cb12dc6cd4d86a7660c2511bab507634165acf78656dc5917bebf51",
+        "rawBytes": 629037,
+        "gzipBytes": 205494,
+        "chunkCount": 31
+      },
+      "addedModules": [],
+      "removedModules": []
     },
-    "devEditor": {
-      "renderedModuleCount": 107,
-      "beforeModuleSetSha256": "b6157437fd0807ba2b83cab55cd62b45afecace255d3575787cfeb379a3481bb",
-      "afterModuleSetSha256": "b6157437fd0807ba2b83cab55cd62b45afecace255d3575787cfeb379a3481bb",
-      "addedModules": [],
-      "removedModules": [],
+    {
+      "entryModule": "<repository>/packages/dev-view/src/appearance/index.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
       "before": {
-        "rawBytes": 502606,
-        "gzipBytes": 162635,
-        "fileCount": 26
+        "renderedModuleCount": 411,
+        "renderedModuleSetSha256": "a529f4d43ae750c0c368d28a70636d1263da4de3e0a28e7968ed36c06c6e6a84",
+        "rawBytes": 765614,
+        "gzipBytes": 245825,
+        "chunkCount": 47
       },
       "after": {
-        "rawBytes": 500551,
-        "gzipBytes": 161739,
-        "fileCount": 26
+        "renderedModuleCount": 411,
+        "renderedModuleSetSha256": "a529f4d43ae750c0c368d28a70636d1263da4de3e0a28e7968ed36c06c6e6a84",
+        "rawBytes": 762383,
+        "gzipBytes": 242245,
+        "chunkCount": 42
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/browser/browser-pane.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 371,
+        "renderedModuleSetSha256": "15689a16f39fd9743164bc672f8fe32f8a866cbe16b986a1f0ac025e4ab36aca",
+        "rawBytes": 720191,
+        "gzipBytes": 236226,
+        "chunkCount": 45
+      },
+      "after": {
+        "renderedModuleCount": 371,
+        "renderedModuleSetSha256": "15689a16f39fd9743164bc672f8fe32f8a866cbe16b986a1f0ac025e4ab36aca",
+        "rawBytes": 717162,
+        "gzipBytes": 232742,
+        "chunkCount": 40
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/apps/web/src/components/character-designer-entry.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 68,
+        "renderedModuleSetSha256": "cc89185c09a09d29c8d92f421e501b894b1f731c333410857d1c606996212d02",
+        "rawBytes": 191667,
+        "gzipBytes": 60732,
+        "chunkCount": 9
+      },
+      "after": {
+        "renderedModuleCount": 68,
+        "renderedModuleSetSha256": "cc89185c09a09d29c8d92f421e501b894b1f731c333410857d1c606996212d02",
+        "rawBytes": 191667,
+        "gzipBytes": 60732,
+        "chunkCount": 9
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/auth/dist/client.js",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 68,
+        "renderedModuleSetSha256": "1ba62fa8b1ea1627d8f288629bfa5358e825d666d3d1ead27d6bd18bacc56659",
+        "rawBytes": 67814,
+        "gzipBytes": 21508,
+        "chunkCount": 1
+      },
+      "after": {
+        "renderedModuleCount": 68,
+        "renderedModuleSetSha256": "1ba62fa8b1ea1627d8f288629bfa5358e825d666d3d1ead27d6bd18bacc56659",
+        "rawBytes": 67814,
+        "gzipBytes": 21508,
+        "chunkCount": 1
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/editor/code-editor.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 60,
+        "renderedModuleSetSha256": "afe48ea3242ecbdf753daf899cd9b5867ac6b0cc48ea3ea7c9ffc40ce5f64eb2",
+        "rawBytes": 152973,
+        "gzipBytes": 55633,
+        "chunkCount": 15
+      },
+      "after": {
+        "renderedModuleCount": 60,
+        "renderedModuleSetSha256": "afe48ea3242ecbdf753daf899cd9b5867ac6b0cc48ea3ea7c9ffc40ce5f64eb2",
+        "rawBytes": 152623,
+        "gzipBytes": 54724,
+        "chunkCount": 13
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/apps/web/src/start/routes/auth/desktop/complete.tsx?tsr-split=component",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 129,
+        "renderedModuleSetSha256": "ecab6b3262645fe039527bf2b070c3eba4eaf21a74fead730b52f847390a525a",
+        "rawBytes": 194484,
+        "gzipBytes": 71511,
+        "chunkCount": 13
+      },
+      "after": {
+        "renderedModuleCount": 129,
+        "renderedModuleSetSha256": "ecab6b3262645fe039527bf2b070c3eba4eaf21a74fead730b52f847390a525a",
+        "rawBytes": 193608,
+        "gzipBytes": 70158,
+        "chunkCount": 11
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/connections-pane.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 164,
+        "renderedModuleSetSha256": "6a67854416add61340b811de3c7df0caaa4e32c0cee66e2ddea817409219bd34",
+        "rawBytes": 305007,
+        "gzipBytes": 111222,
+        "chunkCount": 24
+      },
+      "after": {
+        "renderedModuleCount": 164,
+        "renderedModuleSetSha256": "6a67854416add61340b811de3c7df0caaa4e32c0cee66e2ddea817409219bd34",
+        "rawBytes": 303760,
+        "gzipBytes": 108945,
+        "chunkCount": 20
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/control-plane-catalog.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 283,
+        "renderedModuleSetSha256": "fc6b272585b023eeafe7cf431b55483238887c1c4e32a8dc3f380e080f034a9e",
+        "rawBytes": 542472,
+        "gzipBytes": 184415,
+        "chunkCount": 38
+      },
+      "after": {
+        "renderedModuleCount": 283,
+        "renderedModuleSetSha256": "fc6b272585b023eeafe7cf431b55483238887c1c4e32a8dc3f380e080f034a9e",
+        "rawBytes": 540366,
+        "gzipBytes": 181186,
+        "chunkCount": 33
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/control-plane-hosts.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 200,
+        "renderedModuleSetSha256": "f8daa58d5a39f21d88045b270a44e8dc0bf81975f3082cf8af0e27cadeac1aae",
+        "rawBytes": 424412,
+        "gzipBytes": 143023,
+        "chunkCount": 29
+      },
+      "after": {
+        "renderedModuleCount": 200,
+        "renderedModuleSetSha256": "f8daa58d5a39f21d88045b270a44e8dc0bf81975f3082cf8af0e27cadeac1aae",
+        "rawBytes": 423165,
+        "gzipBytes": 140745,
+        "chunkCount": 25
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/apps/web/src/components/conventional-workspace-entry.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 370,
+        "renderedModuleSetSha256": "fd9cf6cd7257963177abdb4f6c28d91310b475a3db73dfbc090b8e8d99352e1a",
+        "rawBytes": 696890,
+        "gzipBytes": 230326,
+        "chunkCount": 47
+      },
+      "after": {
+        "renderedModuleCount": 370,
+        "renderedModuleSetSha256": "fd9cf6cd7257963177abdb4f6c28d91310b475a3db73dfbc090b8e8d99352e1a",
+        "rawBytes": 693907,
+        "gzipBytes": 226743,
+        "chunkCount": 42
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/create-workspace-dialogs.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 315,
+        "renderedModuleSetSha256": "75c894ac6fbc2071daebee0f54e56b26fd0f843d28a3b34c67a6c495e21d2c38",
+        "rawBytes": 580920,
+        "gzipBytes": 194431,
+        "chunkCount": 41
+      },
+      "after": {
+        "renderedModuleCount": 315,
+        "renderedModuleSetSha256": "75c894ac6fbc2071daebee0f54e56b26fd0f843d28a3b34c67a6c495e21d2c38",
+        "rawBytes": 578777,
+        "gzipBytes": 191171,
+        "chunkCount": 36
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/appearance/custom-theme-import.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 413,
+        "renderedModuleSetSha256": "7aeff153788a6da0c5820720616c112c46a1dfa38d9b5f3913addb269c68a4ce",
+        "rawBytes": 771743,
+        "gzipBytes": 248304,
+        "chunkCount": 48
+      },
+      "after": {
+        "renderedModuleCount": 413,
+        "renderedModuleSetSha256": "7aeff153788a6da0c5820720616c112c46a1dfa38d9b5f3913addb269c68a4ce",
+        "rawBytes": 768459,
+        "gzipBytes": 244686,
+        "chunkCount": 43
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/sidebar/dev-nav-actions.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 11,
+        "renderedModuleSetSha256": "f9255f3870bf31a0c8b3318ea6171617ba48e1686985a43cb966a7bdc9d8b786",
+        "rawBytes": 5607,
+        "gzipBytes": 2142,
+        "chunkCount": 3
+      },
+      "after": {
+        "renderedModuleCount": 11,
+        "renderedModuleSetSha256": "f9255f3870bf31a0c8b3318ea6171617ba48e1686985a43cb966a7bdc9d8b786",
+        "rawBytes": 5607,
+        "gzipBytes": 2142,
+        "chunkCount": 3
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/sidebar/dev-nav-dialogs.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 430,
+        "renderedModuleSetSha256": "feef5699f969518e592056841d4c8d3d7ed6772d0871f8cddae3888a826a40d4",
+        "rawBytes": 838866,
+        "gzipBytes": 277826,
+        "chunkCount": 65
+      },
+      "after": {
+        "renderedModuleCount": 430,
+        "renderedModuleSetSha256": "feef5699f969518e592056841d4c8d3d7ed6772d0871f8cddae3888a826a40d4",
+        "rawBytes": 835159,
+        "gzipBytes": 274062,
+        "chunkCount": 60
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/devices/devices-pane.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 358,
+        "renderedModuleSetSha256": "41b20ed817e478a90b387d0eaa057671fa90c6b574eec8818186854ea995fb2c",
+        "rawBytes": 672043,
+        "gzipBytes": 220874,
+        "chunkCount": 42
+      },
+      "after": {
+        "renderedModuleCount": 358,
+        "renderedModuleSetSha256": "41b20ed817e478a90b387d0eaa057671fa90c6b574eec8818186854ea995fb2c",
+        "rawBytes": 669016,
+        "gzipBytes": 217390,
+        "chunkCount": 37
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/editor/editor-mirror.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 12,
+        "renderedModuleSetSha256": "cf1e2c01c5959573e3e37e35f1680dbb5b0520af4479cf9d7ae96a38d71acaa1",
+        "rawBytes": 313335,
+        "gzipBytes": 99731,
+        "chunkCount": 1
+      },
+      "after": {
+        "renderedModuleCount": 12,
+        "renderedModuleSetSha256": "cf1e2c01c5959573e3e37e35f1680dbb5b0520af4479cf9d7ae96a38d71acaa1",
+        "rawBytes": 313335,
+        "gzipBytes": 99731,
+        "chunkCount": 1
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/files/file-stream.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 1,
+        "renderedModuleSetSha256": "7fbbce4513521bd348f60b522edbe64aec43905e4872fc519bf00b05e48d9ec0",
+        "rawBytes": 1731,
+        "gzipBytes": 747,
+        "chunkCount": 1
+      },
+      "after": {
+        "renderedModuleCount": 1,
+        "renderedModuleSetSha256": "7fbbce4513521bd348f60b522edbe64aec43905e4872fc519bf00b05e48d9ec0",
+        "rawBytes": 1731,
+        "gzipBytes": 747,
+        "chunkCount": 1
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/files/files-pane.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 391,
+        "renderedModuleSetSha256": "c08d8c3aace829e03e09e7a7f4958ada2122a238d2557b37779543c0407f2441",
+        "rawBytes": 743198,
+        "gzipBytes": 244230,
+        "chunkCount": 49
+      },
+      "after": {
+        "renderedModuleCount": 391,
+        "renderedModuleSetSha256": "c08d8c3aace829e03e09e7a7f4958ada2122a238d2557b37779543c0407f2441",
+        "rawBytes": 739911,
+        "gzipBytes": 240634,
+        "chunkCount": 44
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/global-nav-sections.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 311,
+        "renderedModuleSetSha256": "da27791b57713a23995308532f29a7da5ad7846c67df55d8fed3f563b7dcb3e9",
+        "rawBytes": 564836,
+        "gzipBytes": 191706,
+        "chunkCount": 36
+      },
+      "after": {
+        "renderedModuleCount": 311,
+        "renderedModuleSetSha256": "da27791b57713a23995308532f29a7da5ad7846c67df55d8fed3f563b7dcb3e9",
+        "rawBytes": 562064,
+        "gzipBytes": 188174,
+        "chunkCount": 31
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/group-addressing.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 377,
+        "renderedModuleSetSha256": "48073eee83a8eaaa9abba1f676d9a8f0aa10c22e7169cdbc4b1096774ec444e6",
+        "rawBytes": 723765,
+        "gzipBytes": 239703,
+        "chunkCount": 51
+      },
+      "after": {
+        "renderedModuleCount": 377,
+        "renderedModuleSetSha256": "48073eee83a8eaaa9abba1f676d9a8f0aa10c22e7169cdbc4b1096774ec444e6",
+        "rawBytes": 720547,
+        "gzipBytes": 236002,
+        "chunkCount": 46
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/agents/harness-status-section.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 349,
+        "renderedModuleSetSha256": "47867b3089d7aab0d338b1a7efb7947a684a9fd594b5f4a4f8101a77871e9d34",
+        "rawBytes": 678442,
+        "gzipBytes": 222289,
+        "chunkCount": 42
+      },
+      "after": {
+        "renderedModuleCount": 349,
+        "renderedModuleSetSha256": "47867b3089d7aab0d338b1a7efb7947a684a9fd594b5f4a4f8101a77871e9d34",
+        "rawBytes": 675416,
+        "gzipBytes": 218805,
+        "chunkCount": 37
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/apps/web/src/start/routes/invite.tsx?tsr-split=component",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 147,
+        "renderedModuleSetSha256": "6601cb81c32b849d7a36bf85ae60f0be679c16d377d7d4ead913a4ed6061e0b0",
+        "rawBytes": 294678,
+        "gzipBytes": 97072,
+        "chunkCount": 13
+      },
+      "after": {
+        "renderedModuleCount": 147,
+        "renderedModuleSetSha256": "6601cb81c32b849d7a36bf85ae60f0be679c16d377d7d4ead913a4ed6061e0b0",
+        "rawBytes": 293807,
+        "gzipBytes": 95722,
+        "chunkCount": 11
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/layout/layout-view.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 282,
+        "renderedModuleSetSha256": "80cfdfaa862106926dd9e6c7b78c57fcf378656bc6febeb2e093cb75227dc301",
+        "rawBytes": 511177,
+        "gzipBytes": 173657,
+        "chunkCount": 30
+      },
+      "after": {
+        "renderedModuleCount": 282,
+        "renderedModuleSetSha256": "80cfdfaa862106926dd9e6c7b78c57fcf378656bc6febeb2e093cb75227dc301",
+        "rawBytes": 509196,
+        "gzipBytes": 170488,
+        "chunkCount": 25
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/lead-chat.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 87,
+        "renderedModuleSetSha256": "a7c2f5ece2b44ff28dd0ecb1b07f02ede16b277922b44a5bcaa642a96bac9a01",
+        "rawBytes": 231932,
+        "gzipBytes": 79184,
+        "chunkCount": 13
+      },
+      "after": {
+        "renderedModuleCount": 87,
+        "renderedModuleSetSha256": "a7c2f5ece2b44ff28dd0ecb1b07f02ede16b277922b44a5bcaa642a96bac9a01",
+        "rawBytes": 231582,
+        "gzipBytes": 78271,
+        "chunkCount": 11
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/memory-pane.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 192,
+        "renderedModuleSetSha256": "93d558cbd6eb23a21d70ee77def3fd86458da498a53532eba1d107b21e264815",
+        "rawBytes": 335622,
+        "gzipBytes": 120646,
+        "chunkCount": 32
+      },
+      "after": {
+        "renderedModuleCount": 192,
+        "renderedModuleSetSha256": "93d558cbd6eb23a21d70ee77def3fd86458da498a53532eba1d107b21e264815",
+        "rawBytes": 334312,
+        "gzipBytes": 118335,
+        "chunkCount": 28
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<dependencies>/@adea-ai/ui/src/components/layout/contextual-sidebar/mobile-contextual-sidebar.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 256,
+        "renderedModuleSetSha256": "8f44cb722658a7226aa12f1766fa5e6592d0d8f8e75d0b85fa53e740e8a82e57",
+        "rawBytes": 489370,
+        "gzipBytes": 166262,
+        "chunkCount": 28
+      },
+      "after": {
+        "renderedModuleCount": 256,
+        "renderedModuleSetSha256": "8f44cb722658a7226aa12f1766fa5e6592d0d8f8e75d0b85fa53e740e8a82e57",
+        "rawBytes": 487334,
+        "gzipBytes": 163074,
+        "chunkCount": 23
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/permissions/index.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 146,
+        "renderedModuleSetSha256": "9559908ac2320bb7be5259b0f76e6d18b774debc8e1f2ff7eadd01beb375a84b",
+        "rawBytes": 255477,
+        "gzipBytes": 94087,
+        "chunkCount": 17
+      },
+      "after": {
+        "renderedModuleCount": 146,
+        "renderedModuleSetSha256": "9559908ac2320bb7be5259b0f76e6d18b774debc8e1f2ff7eadd01beb375a84b",
+        "rawBytes": 254256,
+        "gzipBytes": 91824,
+        "chunkCount": 13
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/plugins-dialog.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 363,
+        "renderedModuleSetSha256": "a0b47a295a1b603c695344958fdba08bce987e85a947645ae229d8476bb19f68",
+        "rawBytes": 721028,
+        "gzipBytes": 239638,
+        "chunkCount": 49
+      },
+      "after": {
+        "renderedModuleCount": 363,
+        "renderedModuleSetSha256": "a0b47a295a1b603c695344958fdba08bce987e85a947645ae229d8476bb19f68",
+        "rawBytes": 718118,
+        "gzipBytes": 236183,
+        "chunkCount": 44
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/project-share-dialog.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 288,
+        "renderedModuleSetSha256": "2f7f98ed39cc84feb01af13127061dfc83c2521e01266f51325141bf56ce7084",
+        "rawBytes": 554384,
+        "gzipBytes": 189721,
+        "chunkCount": 38
+      },
+      "after": {
+        "renderedModuleCount": 288,
+        "renderedModuleSetSha256": "2f7f98ed39cc84feb01af13127061dfc83c2521e01266f51325141bf56ce7084",
+        "rawBytes": 552156,
+        "gzipBytes": 186438,
+        "chunkCount": 33
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/sidebar/repo-registry-panel.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 173,
+        "renderedModuleSetSha256": "2d014db1c932ff2c41fb8e1d1f32e74bfa542b9fd57ab7a8eb96b2d646679fc4",
+        "rawBytes": 331092,
+        "gzipBytes": 116692,
+        "chunkCount": 27
+      },
+      "after": {
+        "renderedModuleCount": 173,
+        "renderedModuleSetSha256": "2d014db1c932ff2c41fb8e1d1f32e74bfa542b9fd57ab7a8eb96b2d646679fc4",
+        "rawBytes": 329844,
+        "gzipBytes": 114414,
+        "chunkCount": 23
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<dependencies>/@adea-ai/ui/src/components/layout/split-layout/resize-controller.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 16,
+        "renderedModuleSetSha256": "f70591a07ae4f5059311995daf2a39aeeec87895c9bbaa6454884b3ff28833fb",
+        "rawBytes": 46978,
+        "gzipBytes": 17728,
+        "chunkCount": 5
+      },
+      "after": {
+        "renderedModuleCount": 16,
+        "renderedModuleSetSha256": "f70591a07ae4f5059311995daf2a39aeeec87895c9bbaa6454884b3ff28833fb",
+        "rawBytes": 46978,
+        "gzipBytes": 17728,
+        "chunkCount": 5
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<dependencies>/@adea-ai/ui/src/components/layout/split-layout/resize-controller-retry-2.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 16,
+        "renderedModuleSetSha256": "c05474ce82cd643e470f5a7861e3f5bc06d8e445b3a998e6763defdfd184bd77",
+        "rawBytes": 46906,
+        "gzipBytes": 17637,
+        "chunkCount": 4
+      },
+      "after": {
+        "renderedModuleCount": 16,
+        "renderedModuleSetSha256": "c05474ce82cd643e470f5a7861e3f5bc06d8e445b3a998e6763defdfd184bd77",
+        "rawBytes": 46906,
+        "gzipBytes": 17637,
+        "chunkCount": 4
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<dependencies>/@adea-ai/ui/src/components/layout/split-layout/resize-controller-retry.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 16,
+        "renderedModuleSetSha256": "f70591a07ae4f5059311995daf2a39aeeec87895c9bbaa6454884b3ff28833fb",
+        "rawBytes": 46978,
+        "gzipBytes": 17728,
+        "chunkCount": 5
+      },
+      "after": {
+        "renderedModuleCount": 16,
+        "renderedModuleSetSha256": "f70591a07ae4f5059311995daf2a39aeeec87895c9bbaa6454884b3ff28833fb",
+        "rawBytes": 46978,
+        "gzipBytes": 17728,
+        "chunkCount": 5
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/resources/resources-janitor.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 390,
+        "renderedModuleSetSha256": "1ea63256d1d700fa20cab14ca74426c57fe10d4153f68a67e3089383ae8c64ed",
+        "rawBytes": 787152,
+        "gzipBytes": 257864,
+        "chunkCount": 57
+      },
+      "after": {
+        "renderedModuleCount": 390,
+        "renderedModuleSetSha256": "1ea63256d1d700fa20cab14ca74426c57fe10d4153f68a67e3089383ae8c64ed",
+        "rawBytes": 783740,
+        "gzipBytes": 254167,
+        "chunkCount": 52
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/resources/resources-pane.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 387,
+        "renderedModuleSetSha256": "bff8457aede4c79ec7bba35214e73c73e7203782cc13e9bc1ad44e5436ec4ac9",
+        "rawBytes": 778201,
+        "gzipBytes": 254544,
+        "chunkCount": 55
+      },
+      "after": {
+        "renderedModuleCount": 387,
+        "renderedModuleSetSha256": "bff8457aede4c79ec7bba35214e73c73e7203782cc13e9bc1ad44e5436ec4ac9",
+        "rawBytes": 774790,
+        "gzipBytes": 250849,
+        "chunkCount": 50
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/resources/resources-sheet.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 258,
+        "renderedModuleSetSha256": "76dadadfa1d8a7d9278658a2ae26e803e15cdf5f5ea0a5eeb06e12ce492311eb",
+        "rawBytes": 493651,
+        "gzipBytes": 168225,
+        "chunkCount": 30
+      },
+      "after": {
+        "renderedModuleCount": 258,
+        "renderedModuleSetSha256": "76dadadfa1d8a7d9278658a2ae26e803e15cdf5f5ea0a5eeb06e12ce492311eb",
+        "rawBytes": 491380,
+        "gzipBytes": 164929,
+        "chunkCount": 25
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/apps/web/src/components/room-designer-entry.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 68,
+        "renderedModuleSetSha256": "ddcdd299769fd0288deb68fd5d9f09b028c8f46045927b9f2aa150ad42600703",
+        "rawBytes": 191692,
+        "gzipBytes": 60745,
+        "chunkCount": 9
+      },
+      "after": {
+        "renderedModuleCount": 68,
+        "renderedModuleSetSha256": "ddcdd299769fd0288deb68fd5d9f09b028c8f46045927b9f2aa150ad42600703",
+        "rawBytes": 191692,
+        "gzipBytes": 60745,
+        "chunkCount": 9
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/apps/web/src/start/routes/index.tsx?tsr-split=component",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 112,
+        "renderedModuleSetSha256": "022872cb019fadccc85487853d883984f52c26461fa37439ecac33caa5a77212",
+        "rawBytes": 187239,
+        "gzipBytes": 68844,
+        "chunkCount": 11
+      },
+      "after": {
+        "renderedModuleCount": 112,
+        "renderedModuleSetSha256": "022872cb019fadccc85487853d883984f52c26461fa37439ecac33caa5a77212",
+        "rawBytes": 186087,
+        "gzipBytes": 67373,
+        "chunkCount": 9
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/terminal/runtime-terminal-pane.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 66,
+        "renderedModuleSetSha256": "55be987b64383fd30f36bf55965ffeb48691d16ab7142437569bf425340a19df",
+        "rawBytes": 307539,
+        "gzipBytes": 80258,
+        "chunkCount": 12
+      },
+      "after": {
+        "renderedModuleCount": 66,
+        "renderedModuleSetSha256": "55be987b64383fd30f36bf55965ffeb48691d16ab7142437569bf425340a19df",
+        "rawBytes": 307304,
+        "gzipBytes": 80143,
+        "chunkCount": 12
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/history/session-history-section.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 371,
+        "renderedModuleSetSha256": "57a5a7c0f293f76a7c46854054592cb90139e5b9eb17cbfdc325161d3d6cb746",
+        "rawBytes": 724015,
+        "gzipBytes": 237874,
+        "chunkCount": 44
+      },
+      "after": {
+        "renderedModuleCount": 371,
+        "renderedModuleSetSha256": "57a5a7c0f293f76a7c46854054592cb90139e5b9eb17cbfdc325161d3d6cb746",
+        "rawBytes": 720988,
+        "gzipBytes": 234389,
+        "chunkCount": 39
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/apps/web/src/start/routes/auth/sign-in.tsx?tsr-split=component",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 163,
+        "renderedModuleSetSha256": "2afb9796950dd59f92fc352ae04e4f94008f681d0a517f41407efb007f036c71",
+        "rawBytes": 286449,
+        "gzipBytes": 105345,
+        "chunkCount": 24
+      },
+      "after": {
+        "renderedModuleCount": 163,
+        "renderedModuleSetSha256": "2afb9796950dd59f92fc352ae04e4f94008f681d0a517f41407efb007f036c71",
+        "rawBytes": 285231,
+        "gzipBytes": 103065,
+        "chunkCount": 20
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/source-control-app/index.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 445,
+        "renderedModuleSetSha256": "1e9a223c900a201eca62120026a5c7818e39ad15feab9fc8f92751b1bdc6edc5",
+        "rawBytes": 892364,
+        "gzipBytes": 290317,
+        "chunkCount": 66
+      },
+      "after": {
+        "renderedModuleCount": 445,
+        "renderedModuleSetSha256": "1e9a223c900a201eca62120026a5c7818e39ad15feab9fc8f92751b1bdc6edc5",
+        "rawBytes": 889332,
+        "gzipBytes": 286806,
+        "chunkCount": 61
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/source-control/source-control-pane.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 367,
+        "renderedModuleSetSha256": "b7e96a89341470fc88460480ba696c1788af0c40b3df58d8bb14cb817dfe4982",
+        "rawBytes": 690944,
+        "gzipBytes": 227583,
+        "chunkCount": 46
+      },
+      "after": {
+        "renderedModuleCount": 367,
+        "renderedModuleSetSha256": "b7e96a89341470fc88460480ba696c1788af0c40b3df58d8bb14cb817dfe4982",
+        "rawBytes": 687917,
+        "gzipBytes": 224102,
+        "chunkCount": 41
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/index.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 403,
+        "renderedModuleSetSha256": "c15b0d79cb101f8457d6e8d90bbd8f5f600e8ed4b28553656442008d5ef1364a",
+        "rawBytes": 766060,
+        "gzipBytes": 254111,
+        "chunkCount": 52
+      },
+      "after": {
+        "renderedModuleCount": 403,
+        "renderedModuleSetSha256": "c15b0d79cb101f8457d6e8d90bbd8f5f600e8ed4b28553656442008d5ef1364a",
+        "rawBytes": 762614,
+        "gzipBytes": 250475,
+        "chunkCount": 47
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/layout/storage.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 4,
+        "renderedModuleSetSha256": "43804e6d8e202d2aa887c1eb1e5ea210f71e3c0c7c891c7f0b5ac935952ed8b1",
+        "rawBytes": 10721,
+        "gzipBytes": 3616,
+        "chunkCount": 2
+      },
+      "after": {
+        "renderedModuleCount": 4,
+        "renderedModuleSetSha256": "43804e6d8e202d2aa887c1eb1e5ea210f71e3c0c7c891c7f0b5ac935952ed8b1",
+        "rawBytes": 10721,
+        "gzipBytes": 3616,
+        "chunkCount": 2
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/task-board.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 394,
+        "renderedModuleSetSha256": "3ccc11388cc39a8cca7c1d8f3c502eb38747c070c58df33c4de0c3167a960553",
+        "rawBytes": 726519,
+        "gzipBytes": 241830,
+        "chunkCount": 52
+      },
+      "after": {
+        "renderedModuleCount": 394,
+        "renderedModuleSetSha256": "3ccc11388cc39a8cca7c1d8f3c502eb38747c070c58df33c4de0c3167a960553",
+        "rawBytes": 723290,
+        "gzipBytes": 238126,
+        "chunkCount": 47
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/task-detail.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 412,
+        "renderedModuleSetSha256": "93efee50269a92b93d953eb4c706c1c618a56b14878d1e99c16d693201582a0b",
+        "rawBytes": 785771,
+        "gzipBytes": 263480,
+        "chunkCount": 60
+      },
+      "after": {
+        "renderedModuleCount": 412,
+        "renderedModuleSetSha256": "93efee50269a92b93d953eb4c706c1c618a56b14878d1e99c16d693201582a0b",
+        "rawBytes": 782346,
+        "gzipBytes": 259690,
+        "chunkCount": 55
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/terminal/terminal-pane.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 345,
+        "renderedModuleSetSha256": "dc5afb5c1b6bcde5713b2b9d461053727d807a5349c3d90697414c4992aab562",
+        "rawBytes": 1114944,
+        "gzipBytes": 321127,
+        "chunkCount": 40
+      },
+      "after": {
+        "renderedModuleCount": 345,
+        "renderedModuleSetSha256": "dc5afb5c1b6bcde5713b2b9d461053727d807a5349c3d90697414c4992aab562",
+        "rawBytes": 1112637,
+        "gzipBytes": 317797,
+        "chunkCount": 35
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<dependencies>/@adea-ai/ui/src/lib/theme-catalogue.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 50,
+        "renderedModuleSetSha256": "1b9580a7de12102d30c08b5ebd8101ca9b8180824b6c3287e64c6fd6dcec48f0",
+        "rawBytes": 91416,
+        "gzipBytes": 22510,
+        "chunkCount": 4
+      },
+      "after": {
+        "renderedModuleCount": 50,
+        "renderedModuleSetSha256": "1b9580a7de12102d30c08b5ebd8101ca9b8180824b6c3287e64c6fd6dcec48f0",
+        "rawBytes": 91288,
+        "gzipBytes": 21905,
+        "chunkCount": 3
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/utility-archive-operations.ts",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 327,
+        "renderedModuleSetSha256": "71e27b968c2bb6d747739b28096a2c018528e29d4c0f1cefce552274e33f69ba",
+        "rawBytes": 625194,
+        "gzipBytes": 206350,
+        "chunkCount": 35
+      },
+      "after": {
+        "renderedModuleCount": 327,
+        "renderedModuleSetSha256": "71e27b968c2bb6d747739b28096a2c018528e29d4c0f1cefce552274e33f69ba",
+        "rawBytes": 622464,
+        "gzipBytes": 202986,
+        "chunkCount": 30
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/dev-view/src/utility-archive-shelf.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 348,
+        "renderedModuleSetSha256": "ba5dea954b29fbb019005429d6d4e7beed63aa2c41910bb0d1aa0b8003a9b0b3",
+        "rawBytes": 644090,
+        "gzipBytes": 213560,
+        "chunkCount": 40
+      },
+      "after": {
+        "renderedModuleCount": 348,
+        "renderedModuleSetSha256": "ba5dea954b29fbb019005429d6d4e7beed63aa2c41910bb0d1aa0b8003a9b0b3",
+        "rawBytes": 641265,
+        "gzipBytes": 210154,
+        "chunkCount": 35
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/workspace-details-dialog.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 316,
+        "renderedModuleSetSha256": "810c3efc8b02485126689fb0dcadad717ab71c5df6912a4c903ea72572590a57",
+        "rawBytes": 618182,
+        "gzipBytes": 206867,
+        "chunkCount": 43
+      },
+      "after": {
+        "renderedModuleCount": 316,
+        "renderedModuleSetSha256": "810c3efc8b02485126689fb0dcadad717ab71c5df6912a4c903ea72572590a57",
+        "rawBytes": 615639,
+        "gzipBytes": 203483,
+        "chunkCount": 38
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-nav/src/workspace-draft-row.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 262,
+        "renderedModuleSetSha256": "3b76d82863c11079880a451e496f38053e09ee9e5021df3a63320bc1228ec719",
+        "rawBytes": 484075,
+        "gzipBytes": 164575,
+        "chunkCount": 28
+      },
+      "after": {
+        "renderedModuleCount": 262,
+        "renderedModuleSetSha256": "3b76d82863c11079880a451e496f38053e09ee9e5021df3a63320bc1228ec719",
+        "rawBytes": 482093,
+        "gzipBytes": 161404,
+        "chunkCount": 23
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/workspace-help-center.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 277,
+        "renderedModuleSetSha256": "2b43b4913bdebd67dcb335eeb5b930ed6d37b5d796096b909111d9fbb2426ec1",
+        "rawBytes": 497465,
+        "gzipBytes": 169528,
+        "chunkCount": 30
+      },
+      "after": {
+        "renderedModuleCount": 277,
+        "renderedModuleSetSha256": "2b43b4913bdebd67dcb335eeb5b930ed6d37b5d796096b909111d9fbb2426ec1",
+        "rawBytes": 495432,
+        "gzipBytes": 166341,
+        "chunkCount": 25
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/apps/web/src/start/workspace-mount.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 213,
+        "renderedModuleSetSha256": "cd211990bebe268523b6243f8aa110b934d537e154897f490e4e28d10695350b",
+        "rawBytes": 393551,
+        "gzipBytes": 136552,
+        "chunkCount": 21
+      },
+      "after": {
+        "renderedModuleCount": 213,
+        "renderedModuleSetSha256": "cd211990bebe268523b6243f8aa110b934d537e154897f490e4e28d10695350b",
+        "rawBytes": 391651,
+        "gzipBytes": 133423,
+        "chunkCount": 16
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/apps/web/src/components/workspace-navigation-entry.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 321,
+        "renderedModuleSetSha256": "a1169c616ae43917cb7a3e6becf07bd4c6206c4a5bc6eac868ce2d65ca4fa27c",
+        "rawBytes": 620562,
+        "gzipBytes": 204390,
+        "chunkCount": 32
+      },
+      "after": {
+        "renderedModuleCount": 321,
+        "renderedModuleSetSha256": "a1169c616ae43917cb7a3e6becf07bd4c6206c4a5bc6eac868ce2d65ca4fa27c",
+        "rawBytes": 617832,
+        "gzipBytes": 201027,
+        "chunkCount": 27
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/workspace-settings.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 322,
+        "renderedModuleSetSha256": "3c0ee790b7a3ad4afb5ccc8dba2472c8d27de5421b4652c44ab0b9039cdacfc2",
+        "rawBytes": 564547,
+        "gzipBytes": 195598,
+        "chunkCount": 47
+      },
+      "after": {
+        "renderedModuleCount": 322,
+        "renderedModuleSetSha256": "3c0ee790b7a3ad4afb5ccc8dba2472c8d27de5421b4652c44ab0b9039cdacfc2",
+        "rawBytes": 562273,
+        "gzipBytes": 192285,
+        "chunkCount": 42
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/apps/web/src/components/workspace-shell.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 324,
+        "renderedModuleSetSha256": "5fde2a0f45f36067190d0376164a77cfed28f0882b78faa46d9fe3e6d049d406",
+        "rawBytes": 613553,
+        "gzipBytes": 204806,
+        "chunkCount": 38
+      },
+      "after": {
+        "renderedModuleCount": 324,
+        "renderedModuleSetSha256": "5fde2a0f45f36067190d0376164a77cfed28f0882b78faa46d9fe3e6d049d406",
+        "rawBytes": 610780,
+        "gzipBytes": 201269,
+        "chunkCount": 33
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "entryModule": "<repository>/packages/workspace-ui/src/workspace-utility-dialogs.tsx",
+      "isEntry": false,
+      "isDynamicEntry": true,
+      "before": {
+        "renderedModuleCount": 380,
+        "renderedModuleSetSha256": "121b1a85de3c40fe8ef7265100148bb21569af5ec774560fb5da606680219480",
+        "rawBytes": 727930,
+        "gzipBytes": 242668,
+        "chunkCount": 51
+      },
+      "after": {
+        "renderedModuleCount": 380,
+        "renderedModuleSetSha256": "121b1a85de3c40fe8ef7265100148bb21569af5ec774560fb5da606680219480",
+        "rawBytes": 724892,
+        "gzipBytes": 239060,
+        "chunkCount": 46
+      },
+      "addedModules": [],
+      "removedModules": []
+    }
+  ],
+  "manualDynamicRootsCompared": 5,
+  "manualDynamicRoots": [
+    {
+      "originalChunk": "start-assets/modal-dialog-Dwtza3SY.js",
+      "candidateChunk": "start-assets/modal-dialog-DvVgNXlU.js",
+      "matching": "Unique emitted chunk containing every original rendered implementation module",
+      "before": {
+        "renderedModuleCount": 256,
+        "renderedModuleSetSha256": "fe846093fa51f73500a3e32f661d6b3ab1cf4365d22c883f8d390f9bfe4aeb49",
+        "rawBytes": 487116,
+        "gzipBytes": 165473,
+        "chunkCount": 27
+      },
+      "after": {
+        "renderedModuleCount": 256,
+        "renderedModuleSetSha256": "fe846093fa51f73500a3e32f661d6b3ab1cf4365d22c883f8d390f9bfe4aeb49",
+        "rawBytes": 485080,
+        "gzipBytes": 162278,
+        "chunkCount": 22
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "originalChunk": "start-assets/platform-CApvQ7rQ.js",
+      "candidateChunk": "start-assets/platform-CApvQ7rQ.js",
+      "matching": "Unique emitted chunk containing every original rendered implementation module",
+      "before": {
+        "renderedModuleCount": 3,
+        "renderedModuleSetSha256": "14e851f63cdfa9cc13bee68eded0fef2e5ccfd912021565d333656a8a669f877",
+        "rawBytes": 1670,
+        "gzipBytes": 926,
+        "chunkCount": 3
+      },
+      "after": {
+        "renderedModuleCount": 3,
+        "renderedModuleSetSha256": "14e851f63cdfa9cc13bee68eded0fef2e5ccfd912021565d333656a8a669f877",
+        "rawBytes": 1670,
+        "gzipBytes": 926,
+        "chunkCount": 3
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "originalChunk": "start-assets/plugins-Dsr15C1J.js",
+      "candidateChunk": "start-assets/plugins-DBxFxPGN.js",
+      "matching": "Unique emitted chunk containing every original rendered implementation module",
+      "before": {
+        "renderedModuleCount": 255,
+        "renderedModuleSetSha256": "3cd6dc262211ffa3006dc9bcb72e4d7a6f0b8cbcf3f8273fc8ee008e39ab5f87",
+        "rawBytes": 497693,
+        "gzipBytes": 167544,
+        "chunkCount": 25
+      },
+      "after": {
+        "renderedModuleCount": 255,
+        "renderedModuleSetSha256": "3cd6dc262211ffa3006dc9bcb72e4d7a6f0b8cbcf3f8273fc8ee008e39ab5f87",
+        "rawBytes": 495712,
+        "gzipBytes": 164374,
+        "chunkCount": 20
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "originalChunk": "start-assets/utility-host-JagBqRs3.js",
+      "candidateChunk": "start-assets/utility-host-vKaxMjVN.js",
+      "matching": "Unique emitted chunk containing every original rendered implementation module",
+      "before": {
+        "renderedModuleCount": 340,
+        "renderedModuleSetSha256": "fa7456c5313b1c9739c9896a960a5d65b391156475ee5b1210f485186afb0ebc",
+        "rawBytes": 658949,
+        "gzipBytes": 216017,
+        "chunkCount": 39
+      },
+      "after": {
+        "renderedModuleCount": 340,
+        "renderedModuleSetSha256": "fa7456c5313b1c9739c9896a960a5d65b391156475ee5b1210f485186afb0ebc",
+        "rawBytes": 655923,
+        "gzipBytes": 212535,
+        "chunkCount": 34
+      },
+      "addedModules": [],
+      "removedModules": []
+    },
+    {
+      "originalChunk": "start-assets/workspace-lead-status-AbMfU2Yu.js",
+      "candidateChunk": "start-assets/workspace-lead-status-AbMfU2Yu.js",
+      "matching": "Unique emitted chunk containing every original rendered implementation module",
+      "before": {
+        "renderedModuleCount": 29,
+        "renderedModuleSetSha256": "88f3fa9abf3b289b09081f8cdea73c63b355ba7d86a9554c852368de3d0a275d",
+        "rawBytes": 101522,
+        "gzipBytes": 34621,
+        "chunkCount": 7
+      },
+      "after": {
+        "renderedModuleCount": 29,
+        "renderedModuleSetSha256": "88f3fa9abf3b289b09081f8cdea73c63b355ba7d86a9554c852368de3d0a275d",
+        "rawBytes": 101522,
+        "gzipBytes": 34621,
+        "chunkCount": 7
+      },
+      "addedModules": [],
+      "removedModules": []
+    }
+  ],
+  "supersededGrouping": {
+    "runtimeCommit": "1bab2b85bf08398fd43b0b41e36cb394c83927ea",
+    "status": "rejected by root review: unchanged workspace union hid an initial/auth bootstrap loading regression",
+    "indexBeforeGzipBytes": 67444,
+    "indexAfterGzipBytes": 117591,
+    "indexAddedWorkspaceModules": 71
+  },
+  "observedCompiledBrowserRequests": {
+    "scope": "Actual compiled Workers/client through localhost-only fixtures. Auth form/keyboard and continue-as-guest navigation exercised without credential submission. Denied document uses unchanged entry gate with a disposable localhost unlisted provider identity, not a live provider. All errors asserted, and no workspace/Sim requests on auth or denied. First guest requests are cumulative across the auth-to-guest handoff before opening Dev or optional views. Gzip is the sum of gzip sizes of requested chunks, not measured wire compression.",
+    "phases": {
+      "authBeforeWorkspace": {
+        "before": {
+          "javaScriptRequests": 25,
+          "rawBytes": 354263,
+          "gzipBytes": 126853,
+          "moduleCount": 231,
+          "moduleSetSha256": "bdd6b62a9def5cb9c94c9578411a30e1b20f9040483d464e1d0d9718658d6e68"
+        },
+        "after": {
+          "javaScriptRequests": 21,
+          "rawBytes": 353045,
+          "gzipBytes": 124573,
+          "moduleCount": 231,
+          "moduleSetSha256": "bdd6b62a9def5cb9c94c9578411a30e1b20f9040483d464e1d0d9718658d6e68"
+        },
+        "addedModules": [],
+        "removedModules": [],
+        "renderingErrors": 0
+      },
+      "authToFirstGuestCumulative": {
+        "before": {
+          "javaScriptRequests": 67,
+          "rawBytes": 924569,
+          "gzipBytes": 305827,
+          "moduleCount": 515,
+          "moduleSetSha256": "37140e413dc596db139eae78bd9767e474c2f2f77e3268bcf8d0e8a24f8073f7"
+        },
+        "after": {
+          "javaScriptRequests": 62,
+          "rawBytes": 920740,
+          "gzipBytes": 301996,
+          "moduleCount": 515,
+          "moduleSetSha256": "37140e413dc596db139eae78bd9767e474c2f2f77e3268bcf8d0e8a24f8073f7"
+        },
+        "addedModules": [],
+        "removedModules": [],
+        "renderingErrors": 0
+      },
+      "deniedDocument": {
+        "before": {
+          "javaScriptRequests": 11,
+          "rawBytes": 187239,
+          "gzipBytes": 68844,
+          "moduleCount": 112,
+          "moduleSetSha256": "022872cb019fadccc85487853d883984f52c26461fa37439ecac33caa5a77212"
+        },
+        "after": {
+          "javaScriptRequests": 9,
+          "rawBytes": 186087,
+          "gzipBytes": 67373,
+          "moduleCount": 112,
+          "moduleSetSha256": "022872cb019fadccc85487853d883984f52c26461fa37439ecac33caa5a77212"
+        },
+        "addedModules": [],
+        "removedModules": [],
+        "renderingErrors": 0
       }
     }
+  },
+  "realProductionVerification": {
+    "command": "bun run --cwd apps/web start:verify",
+    "tests": 25,
+    "javaScriptFiles": 157,
+    "rawBytes": 3176278,
+    "gzipBytes": 971148,
+    "unchangedGzipLimit": 971776,
+    "headroomBytes": 628
+  },
+  "completeUnitValidation": {
+    "command": "bun run test:unit",
+    "viteTasksPassed": 32,
+    "coverageTestsPassed": 1553,
+    "coverageFunctionsPercent": 98.66,
+    "coverageLinesPercent": 97.9,
+    "belowUnchanged80PercentPerFileFloor": 0
   }
 }

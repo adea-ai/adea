@@ -42,46 +42,78 @@ function lucideDevShimAlias() {
   }
 }
 
-// Rendered modules already in both workspace startup closures. Exact paths keep
-// later library exports and optional feature modules out of this shared group;
-// dependencies are not pulled recursively. Requalify the emitted graphs when
-// changing this list, rather than broadening it to whole package directories.
-const workspaceFoundationModules = [
-  /\/apps\/web\/src\/lib\/desktop-bridge\.ts$/,
-  /\/node_modules\/@adea-ai\/themes\/dist\/(?:accents\.js|derive\.js|oklch\.js|policy\.js|schema\.js)$/,
-  /\/node_modules\/@adea-ai\/themes\/dist\/adapters\/shadcn\.js$/,
-  /\/node_modules\/@adea-ai\/ui\/src\/components\/composites\/action-button\/action-button\.tsx$/,
-  /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/button\/button\.tsx$/,
-  /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/spinner\/spinner\.tsx$/,
-  /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/tooltip\/tooltip\.tsx$/,
-  /\/node_modules\/@adea-ai\/ui\/src\/lib\/(?:accent-presets\.ts|accent-roles\.ts|cn-tables\.generated\.ts|overlay\.ts|theme-accents\.ts|theme-css\.ts|theme-defaults\.generated\.ts|theme-defaults\.ts|theme-records\.ts|tooltip-focus-gate\.ts|utils\.ts|variants\.ts)$/,
-  /\/node_modules\/@corvu\/utils\/dist\/chunk\/U42ECMND\.jsx$/,
-  /\/node_modules\/@floating-ui\/core\/dist\/floating-ui\.core\.mjs$/,
-  /\/node_modules\/@floating-ui\/dom\/dist\/floating-ui\.dom\.mjs$/,
-  /\/node_modules\/@floating-ui\/utils\/dist\/(?:floating-ui\.utils\.dom\.mjs|floating-ui\.utils\.mjs)$/,
-  /\/node_modules\/@internationalized\/number\/dist\/private\/NumberFormatter\.mjs$/,
-  /\/node_modules\/@kobalte\/core\/dist\/chunk\/(?:3DLZMX4Z\.jsx|5WXHJDCZ\.jsx|AAA75RJW\.jsx|E53DB7BS\.jsx|FLVHQV4A\.jsx|FN6EICGO\.jsx|IARUYOQZ\.jsx|IGYOA2ZZ\.jsx|JNCCF6MP\.jsx|LP6E37CW\.jsx|OGE3DKII\.jsx|V3Y2TT5R\.jsx)$/,
-  /\/node_modules\/@kobalte\/utils\/dist\/index\.js$/,
-  /\/node_modules\/@solid-primitives\/props\/dist\/combineProps\.js$/,
-  /\/node_modules\/@solid-primitives\/refs\/dist\/index\.js$/,
-  /\/node_modules\/@solid-primitives\/utils\/dist\/index\.js$/,
-  /\/node_modules\/@tanstack\/query-core\/build\/modern\/(?:environmentManager\.js|focusManager\.js|hydration\.js|infiniteQueryBehavior\.js|mutation\.js|mutationCache\.js|mutationObserver\.js|notifyManager\.js|onlineManager\.js|queriesObserver\.js|query\.js|queryCache\.js|queryClient\.js|queryObserver\.js|removable\.js|retryer\.js|subscribable\.js|timeoutManager\.js|utils\.js)$/,
-  /\/node_modules\/@tanstack\/router-core\/dist\/esm\/(?:invariant\.js|link\.js|path\.js|redirect\.js|root\.js|route\.js|utils\.js)$/,
-  /\/node_modules\/@tanstack\/solid-query\/build\/index\.js$/,
-  /\/node_modules\/@tanstack\/solid-router\/dist\/source\/(?:ClientOnly\.jsx|fileRoute\.js|lazyRouteComponent\.jsx|link\.jsx|matchContext\.jsx|route\.jsx|routerContext\.jsx|useLoaderData\.jsx|useLoaderDeps\.jsx|useMatch\.jsx|useNavigate\.jsx|useParams\.jsx|useRouteContext\.js|useRouter\.jsx|useSearch\.jsx|utils\.js)$/,
-  /\/node_modules\/class-variance-authority\/dist\/index\.mjs$/,
-  /\/node_modules\/clsx\/dist\/clsx\.mjs$/,
-  /\/node_modules\/cn\/dist\/engine\.js$/,
-  /\/node_modules\/lucide-solid\/dist\/source\/(?:Icon\.jsx|context\.jsx)$/,
-  /\/node_modules\/lucide-solid\/dist\/source\/icons\/(?:arrow-down\.jsx|check\.jsx|chevron-down\.jsx|chevron-right\.jsx|loader-circle\.jsx|plus\.jsx|sliders-horizontal\.jsx|square\.jsx)$/,
-  /\/node_modules\/solid-js\/dist\/solid\.js$/,
-  /\/node_modules\/solid-js\/store\/dist\/store\.js$/,
-  /\/node_modules\/solid-js\/web\/dist\/web\.js$/,
-  /\/node_modules\/solid-presence\/dist\/index\.jsx$/,
-  /\/packages\/data\/src\/(?:addressed-turns\.ts|dev-runtime\.ts|events\.ts|index\.ts|project-query-keys\.ts|provider\.tsx|runtime-nodes\.ts|sharing\.ts)$/,
-  /\/packages\/spatial\/dist\/sim-bridge\/character\.js$/,
-  /\/packages\/state\/src\/index\.ts$/,
-]
+// Each exact-path cohort had the same static reachability from all original
+// client/auth/workspace entry roots. Keep bootstrap separate from workspace
+// data/state: a workspace-union comparison alone cannot establish that boundary.
+// Dependencies are never included recursively; requalify individual entries
+// and actual auth/guest requests when changing these pinned module cohorts.
+const entryFoundationGroups = [
+  {
+    name: 'boot',
+    modules: [
+      /\/apps\/web\/src\/lib\/desktop-bridge\.ts$/,
+      /\/apps\/web\/src\/start\/(?:client\.tsx|routeTree\.gen\.ts|router\.tsx|search-codec\.mjs)$/,
+      /\/apps\/web\/src\/start\/routes\/(?:__root\.tsx|index\.tsx|invite\.tsx)$/,
+      /\/apps\/web\/src\/start\/routes\/auth\/sign-in\.tsx$/,
+      /\/apps\/web\/src\/start\/routes\/auth\/desktop\/complete\.tsx$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/text-link\/text-link\.tsx$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/typography\/typography\.tsx$/,
+      /\/node_modules\/@solidjs\/meta\/dist\/index\.jsx$/,
+      /\/node_modules\/@tanstack\/history\/dist\/esm\/index\.js$/,
+      /\/node_modules\/@tanstack\/router-core\/dist\/esm\/(?:invariant\.js|link\.js|load-client\.js|new-process-route-tree\.js|not-found\.js|path\.js|qss\.js|redirect\.js|rewrite\.js|root\.js|route\.js|router\.js|scroll-restoration\.js|searchParams\.js|sieve-cache\.js|stores\.js|utils\.js)$/,
+      /\/node_modules\/@tanstack\/router-core\/dist\/esm\/scroll-restoration-script\/client\.js$/,
+      /\/node_modules\/@tanstack\/router-core\/dist\/esm\/ssr\/(?:bodyScripts\.js|ssr-match-id\.js)$/,
+      /\/node_modules\/@tanstack\/router-core\/dist\/esm\/ssr\/serializer\/(?:RawStream\.js|RawStreamJSONPlugin\.js|RawStreamRPCPlugin\.js|ShallowErrorPlugin\.js|makeSerovalPlugin\.js|rawStreamCodec\.js|seroval-plugins\.js|transformer\.js)$/,
+      /\/node_modules\/@tanstack\/solid-router\/dist\/source\/(?:Asset\.jsx|CatchBoundary\.jsx|ClientOnly\.jsx|Match\.jsx|Matches\.jsx|RouterProvider\.jsx|SafeFragment\.jsx|ScriptOnce\.jsx|Scripts\.jsx|Transitioner\.jsx|fileRoute\.js|lazyRouteComponent\.jsx|link\.jsx|matchContext\.jsx|not-found\.jsx|renderRouteNotFound\.jsx|route\.jsx|router\.js|routerContext\.jsx|routerStores\.js|scroll-restoration\.jsx|useLoaderData\.jsx|useLoaderDeps\.jsx|useMatch\.jsx|useNavigate\.jsx|useParams\.jsx|useRouteContext\.js|useRouter\.jsx|useSearch\.jsx|utils\.js)$/,
+      /\/node_modules\/@tanstack\/solid-start-client\/dist\/esm\/(?:StartClient\.js|hydrateStart\.js)$/,
+      /\/node_modules\/@tanstack\/start-client-core\/dist\/esm\/(?:constants\.js|empty-plugin-adapters\.js|getDefaultSerovalPlugins\.js|getStartOptions\.js)$/,
+      /\/node_modules\/@tanstack\/start-client-core\/dist\/esm\/client\/(?:ServerFunctionSerializationAdapter\.js|hydrateStart\.js)$/,
+      /\/node_modules\/@tanstack\/start-client-core\/dist\/esm\/client-rpc\/(?:createClientRpc\.js|frame-decoder\.js|serverFnFetcher\.js)$/,
+      /\/node_modules\/seroval-plugins\/dist\/web-CDQeyEaf\.js$/,
+      /\/node_modules\/seroval\/dist\/index\.js$/,
+      /\/packages\/spatial\/dist\/(?:index\.js|manifests\.js|telemetry\.js)$/,
+    ],
+  },
+  {
+    name: 'tooltip',
+    modules: [
+      /\/node_modules\/@adea-ai\/ui\/src\/components\/ui\/tooltip\/tooltip\.tsx$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/lib\/(?:overlay\.ts|tooltip-focus-gate\.ts)$/,
+      /\/node_modules\/@corvu\/utils\/dist\/chunk\/U42ECMND\.jsx$/,
+      /\/node_modules\/@floating-ui\/core\/dist\/floating-ui\.core\.mjs$/,
+      /\/node_modules\/@floating-ui\/dom\/dist\/floating-ui\.dom\.mjs$/,
+      /\/node_modules\/@floating-ui\/utils\/dist\/(?:floating-ui\.utils\.dom\.mjs|floating-ui\.utils\.mjs)$/,
+      /\/node_modules\/@internationalized\/number\/dist\/private\/NumberFormatter\.mjs$/,
+      /\/node_modules\/@kobalte\/core\/dist\/chunk\/(?:3DLZMX4Z\.jsx|5WXHJDCZ\.jsx|AAA75RJW\.jsx|E53DB7BS\.jsx|FN6EICGO\.jsx|IARUYOQZ\.jsx|IGYOA2ZZ\.jsx|JNCCF6MP\.jsx|LP6E37CW\.jsx|OGE3DKII\.jsx|V3Y2TT5R\.jsx)$/,
+      /\/node_modules\/@kobalte\/utils\/dist\/index\.js$/,
+      /\/node_modules\/@solid-primitives\/props\/dist\/combineProps\.js$/,
+      /\/node_modules\/solid-presence\/dist\/index\.jsx$/,
+    ],
+  },
+  {
+    name: 'theme',
+    modules: [
+      /\/node_modules\/@adea-ai\/themes\/dist\/(?:accents\.js|derive\.js|oklch\.js|policy\.js|schema\.js)$/,
+      /\/node_modules\/@adea-ai\/themes\/dist\/adapters\/shadcn\.js$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/lib\/(?:accent-roles\.ts|theme-accents\.ts|theme-css\.ts|theme-defaults\.generated\.ts|theme-defaults\.ts|theme-records\.ts)$/,
+    ],
+  },
+  {
+    name: 'mount',
+    modules: [
+      /\/apps\/web\/src\/components\/workspace-entry\.tsx$/,
+      /\/apps\/web\/src\/start\/(?:workspace-mount\.tsx|workspace-selection\.mjs)$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/components\/theme\/(?:theme-catalogue-source\.ts|theme-context\.ts|theme-document-core\.ts|theme-persistence\.ts|theme-provider-core\.tsx|theme-provider-lazy\.tsx|theme-provider-value\.ts|theme-state-core\.ts)$/,
+      /\/node_modules\/@adea-ai\/ui\/src\/lib\/(?:accent-presets\.ts|appearance-font-settings\.ts|font-catalog\.ts|font-zoom\.ts|preference-store\.ts|theme-engine-light\.ts|theme-engine\.ts|theme-surface\.ts)$/,
+      /\/node_modules\/lucide-solid\/dist\/source\/icons\/(?:music-2\.jsx|music\.jsx)$/,
+      /\/packages\/app-core\/dist\/workspace-scene\.js$/,
+      /\/packages\/audio\/src\/(?:config\.ts|controller\.ts|sound\.tsx)$/,
+      /\/packages\/spatial\/dist\/scene-spawn\.js$/,
+      /\/packages\/ui\/src\/components\/(?:appearance-codec\.ts|appearance-host\.tsx|custom-theme-library\.ts)$/,
+      /\/packages\/workspace-ui\/src\/(?:rail-preferences\.ts|workspace-apps\.ts)$/,
+    ],
+  },
+] as const
 
 function protectClientGraph(): Plugin {
   return {
@@ -160,15 +192,13 @@ export default defineConfig(({ command }) => ({
               // request. Leave feature components and their dependencies to
               // automatic splitting instead of grouping a whole icon catalogue.
               groups: [
-                {
-                  name: 'workspace-foundation',
+                ...entryFoundationGroups.map(({ name, modules }) => ({
+                  name,
                   priority: 100,
-                  test: (id) =>
-                    workspaceFoundationModules.some((pattern) =>
-                      pattern.test(id.replaceAll('\\', '/'))
-                    ),
+                  test: (id: string) =>
+                    modules.some((pattern) => pattern.test(id.replaceAll('\\', '/'))),
                   includeDependenciesRecursively: false,
-                },
+                })),
                 {
                   name: 'lazy-ui',
                   test: /@adea-ai\/ui\/src\/components\/ui\/(label\/label|skeleton\/skeleton|status-chip\/status-chip|badge\/badge|empty\/empty)\.tsx$/,
@@ -189,15 +219,6 @@ export default defineConfig(({ command }) => ({
                 {
                   name: 'utility-host',
                   test: /packages\/dev-view\/src\/(?:utility-(?:host\.tsx|command\.ts)|agents\/harness-status-model\.ts|files\/status-cache\.ts)$/,
-                  includeDependenciesRecursively: false,
-                },
-                // The theme record helpers, their CSS projection and the
-                // defaults they read share every importer today. The lazy theme
-                // importer reaches only the records, which would otherwise split
-                // the projection into a request of its own.
-                {
-                  name: 'theme-records',
-                  test: /@adea-ai\/(ui\/src\/lib\/theme-(css|accents|records|defaults|defaults\.generated)\.ts|themes\/dist\/(schema|derive|adapters\/shadcn)\.js)$/,
                   includeDependenciesRecursively: false,
                 },
                 // The shared appearance editor reaches Kobalte's radio internals

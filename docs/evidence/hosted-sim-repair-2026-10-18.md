@@ -473,3 +473,57 @@ production deployment/infrastructure changes explicitly. Local synthetic
 services do not establish live completion. Real-provider/DB-backed integration,
 DB-backed optional-view E2E, cross-platform visual baselines, signed release and
 production deployment were not performed in this bounded local qualification.
+
+### Root review correction: preserve individual bootstrap/auth entries
+
+**The `1bab2b85` / `8c3635ec` co-location qualification above is rejected and
+superseded.** Root correctly identified that an unchanged workspace startup
+union does not establish unchanged initial/auth loading. Individual inspection
+found 71 workspace-related modules pulled into the initial index bootstrap:
+67,444 → 117,591 static gzip bytes. The branch remained draft and was not
+approved, readied or merged on that evidence.
+
+The repair uses four exact-path cohorts whose original static reachability was
+identical across every entry root. Bootstrap stays separate from workspace
+mount data/state, and tooltip/theme helpers retain their own original entry
+cohorts. Recursive dependency inclusion remains disabled. No budget, exclusion,
+dynamic import, decoder implementation or private-module guard was changed.
+
+The stronger [portable graph receipt](hosted-sim-colocation-2026-10-18.json)
+compares every original entry independently by actual emitted facade identity:
+**67 entry/dynamic-entry facades plus five manually grouped dynamic roots,
+zero modules added or removed in every comparison**. It includes individual
+raw/gzip bytes and module-set hashes, not only the workspace union. In the
+paired builds the initial client index drops from 67,444 to 66,096 static gzip,
+desktop-auth completion from 71,511 to 70,158, workspace mount from 136,552 to
+133,423, and navigation entry from 204,390 to 201,027. The Neon client SDK
+closure is unchanged at 21,508 gzip bytes.
+
+Actual compiled baseline and candidate Workers/client both pass auth form and
+keyboard interaction, continue-without-account into first guest Chat/Dev, and
+the entire optional-view persistence/no-Sim-before-open/offline journey. Auth
+JS requests drop from 25 to 21, with identical observed rendered module sets.
+Cumulative unique JS requests across auth → first guest (before opening Dev or
+optional views) drop from 67 to 62, also with identical module sets. Requested
+chunk gzip sums drop from 126,853 to 124,573 for auth and 305,827 to 301,996 for
+that cumulative handoff; these sums are not represented as measured wire
+compression.
+
+Both builds also pass the **actual compiled denied document** through the
+unchanged entry gate with a disposable localhost-only provider returning an
+unlisted fixture identity. No real provider, account or credential access is
+involved. The early-access notice renders with zero page/console errors, no
+workspace rail, and zero workspace/Sim/API initialization. Denied JS requests
+drop from 11 to 9 with identical observed module sets; the requested-chunk gzip
+sum drops from 68,844 to 67,373. No security gate was bypassed in application
+source or production configuration.
+
+The corrected source passes real `bun run --cwd apps/web start:verify`: 25 host
+tests, production build/UI-source check, web types and every existing bundle
+check. Its CLI output is **157 JS files / 3,176,278 raw / 971,148 gzip bytes**,
+628 bytes below the unchanged 971,776 cap. Paired diagnostic output is 971,064
+gzip bytes and is retained as a separate exact artifact. The full
+`bun run test:unit` repeat passes 32/32 tasks and 1,553 coverage tests / 125 files /
+17,093 assertions, 98.66% functions / 97.90% lines, zero deficient files at the
+unchanged 80% per-file floors. Zero-warning lint passes. The remaining gzip
+headroom is deliberately reported as tight; no limit was increased.
