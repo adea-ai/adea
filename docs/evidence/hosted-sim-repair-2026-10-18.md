@@ -147,3 +147,30 @@ real disposable private-pack export contract. All 185 tests pass, aggregate
 goals except `scripts/orch-toolchain.mjs` (90.00% functions / 76.42% lines).
 Toolchain source remains unchanged pending overlap coordination. Root's shared
 Adea DB/schema coverage ownership coordination also remains pending.
+
+## Catalog teardown diagnosis and private qualification
+
+A synchronous test-only console trace, preserving every original call and the
+strict error assertion, identifies the remaining GLTF error as Room designer
+after `pagehide`. Private source `ee28724caab0856697eccb8b4def862f139ad0f9`
+repairs the separate shared catalog loader: embedded GLB buffer-view images use
+Three's native document-image decoder, while external and specialized image
+backends remain unchanged. A real GLTF-parser controlled fixture reproduces
+the default missing-map/loading-error behavior and verifies repaired map
+retention, genuine error reporting and external bitmap decoding. The scene
+bitmap-loader cancellation repair remains in place.
+
+Private full unit passes 26/26 tasks plus 40 scripts. Full per-file coverage
+passes 190 tests / 3,049 assertions, retaining the 80% goals for every measured
+file. Types/lint/format/export pass. Real ImageBitmapLoader controlled tests also
+verify abort, decoding settlement, genuine failures and balanced accounting;
+global fixtures are protected by `finally`. Strict actual-client repeats on the
+fresh catalog export are in progress at this publication.
+
+A concurrent writer normally merged main's reviewed #1403 checkpoint changes
+into the existing Adea draft (`b586bfcc`). The diagnostic commit `cd96e1f64` was
+preserved by normal merge `14f7289479e0c7cd568621260d43f0edbb5fa3ba`; no force
+push or overlapping edit occurred. After required local dependency files went
+missing, the old owned installation was preserved and frozen install restored
+it; full typecheck and the normal commit hook pass again. A separate fresh
+private export replaces the incomplete earlier local export for further tests.

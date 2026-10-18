@@ -192,17 +192,53 @@ await context.addInitScript(() => {
     }
   })
   const trace: string[] = []
+  let parentOrigin: string | undefined
+  let activeSurface: string | undefined
   ;(window as unknown as { simLifecycleTrace: string[] }).simLifecycleTrace = trace
   window.addEventListener('pagehide', () => trace.push('pagehide'))
   window.addEventListener('message', (event) => {
+    if (event.data?.type === 'host.launch') {
+      parentOrigin = event.origin
+      activeSurface = event.data.payload?.surface
+    }
+    if (event.data?.type === 'local.sim.console-error')
+      trace.push(JSON.stringify(event.data.payload))
     if (typeof event.data?.type === 'string')
       trace.push(`${event.data.type}:${event.data.payload?.surface ?? ''}`)
   })
+  // Diagnostic only: retain every real console call and the unchanged error
+  // assertion, while copying its surface identity before teardown destroys it.
+  const originalError = console.error
+  console.error = (...args) => {
+    originalError.apply(console, args)
+    if (parentOrigin && window.parent !== window)
+      window.parent.postMessage(
+        {
+          type: 'local.sim.console-error',
+          payload: { surface: activeSurface, errors: args.map(String), trace: [...trace] },
+        },
+        parentOrigin
+      )
+  }
 })
 const errors: string[] = []
+const errorContexts: Promise<unknown>[] = []
 page.on('pageerror', (error) => errors.push(error.message))
 page.on('console', (message) => {
-  if (message.type() === 'error') errors.push(message.text())
+  if (message.type() === 'error') {
+    errors.push(message.text())
+    const handle = message.args()[0]
+    if (handle)
+      errorContexts.push(
+        handle
+          .evaluate(() => ({
+            url: window.location.href,
+            lifecycle: (window as unknown as { simLifecycleTrace?: string[] }).simLifecycleTrace,
+            root: document.getElementById('sim')?.firstElementChild?.className,
+          }))
+          .catch(() => ({ context: 'destroyed' }))
+      )
+  }
 })
 try {
   expect((await fetch(`${simServer.url.origin}/assets/agent-sim/engine.js`)).status).toBe(401)
@@ -324,7 +360,9 @@ try {
   )
   expect(errors).toEqual([])
 } catch (error) {
-  console.error(JSON.stringify({ requests, errors }))
+  console.error(
+    JSON.stringify({ requests, errors, errorContexts: await Promise.all(errorContexts) })
+  )
   console.error(
     JSON.stringify({
       parentUrl: page.url(),
