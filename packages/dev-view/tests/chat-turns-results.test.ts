@@ -332,6 +332,41 @@ describe('structured results', () => {
     })
   })
 
+  test('a checkpoint is a marker; a legacy payload is not one', () => {
+    const checkpoint = (id: string, over: Record<string, unknown> = {}) =>
+      activity(
+        'checkpoint.observed',
+        {
+          checkpointId: 'cp-1',
+          name: 'Before the fix',
+          createdAt: '2026-10-14T10:00:00.000Z',
+          harnessInstallationId: 'harness-1',
+          restore: { supported: true },
+          ...over,
+        },
+        id
+      )
+    const { turns } = build([
+      prompt('u1'),
+      checkpoint('cp-a'),
+      checkpoint('cp-b'),
+      {
+        ...activity('checkpoint.observed', {}, 'cp-legacy'),
+        payload: { name: 'a legacy checkpoint' },
+      },
+      checkpoint('cp-bad', { checkpointId: '' }),
+    ])
+    expect(turns[0]!.entries.map((entry) => `${entry.type}:${entry.id}`)).toEqual([
+      'result:cp-a',
+      'activity:cp-legacy',
+      'activity:cp-bad',
+    ])
+    expect(results(turns[0]!.entries)[0]).toMatchObject({
+      eventIds: ['cp-a', 'cp-b'],
+      result: { type: 'checkpoint', name: 'Before the fix' },
+    })
+  })
+
   test('a claim the wire gate refuses stays a quiet line with no payload content', () => {
     const { turns } = build([
       prompt('u1'),

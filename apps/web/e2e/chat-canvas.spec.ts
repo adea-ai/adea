@@ -990,6 +990,25 @@ test.describe('structured results', () => {
     expect(errors).toEqual([])
   })
 
+  test('a checkpoint is only a marker, and the reported context is a trigger that opens its figures', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'results')
+    const checkpoint = page.locator('[data-slot="checkpoint"]')
+    await expect(checkpoint).toContainText('Before the journal fix')
+    await expect(checkpoint).toContainText('2026-09-22 10:00 UTC')
+    // No restore operation reaches the canvas, so nothing offers one.
+    await expect(checkpoint.getByRole('button')).toHaveCount(0)
+
+    const trigger = page.locator('[data-slot="context"]')
+    await expect(trigger).toBeVisible()
+    await trigger.click()
+    await expect(page.getByRole('dialog')).toContainText('84,000')
+    await expect(page.getByRole('dialog')).toContainText('200,000')
+    await page.keyboard.press('Escape')
+    await expect(trigger).toBeFocused()
+  })
+
   for (const theme of ['light', 'dark'] as const) {
     test(`no serious accessibility violations with every result open (${theme})`, async ({
       page,

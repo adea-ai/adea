@@ -1,6 +1,7 @@
 import { For, Show, type JSX } from 'solid-js'
 import { TraceDetail, TraceLine, type TraceStatus } from '@adea-ai/ui/components/ui/trace'
 import { formatDuration } from '@adea-ai/ui/components/composites/reasoning'
+import { Checkpoint } from '@adea-ai/ui/components/composites/checkpoint'
 import { FileTree } from '@adea-ai/ui/components/composites/file-tree'
 import { Plan, type PlanStepStatus } from '@adea-ai/ui/components/composites/plan'
 import { StackTrace } from '@adea-ai/ui/components/composites/stack-trace'
@@ -32,6 +33,7 @@ import {
 } from './model/results'
 
 const RESULT_KINDS: Record<ChatResult['type'], string> = {
+  checkpoint: 'checkpoint.observed',
   terminal: 'terminal.output',
   test_run: 'test_run.observed',
   failure: 'failure.observed',
@@ -81,6 +83,14 @@ const runStatus = (status: ChatResultStatus, live: boolean): TraceStatus | undef
 
 const stoppedWord = (status: ChatResultStatus | ChatWorkStatus, live: boolean) =>
   !live && (status === 'running' || status === 'in_progress') ? 'not finished' : undefined
+
+/** `2026-10-14T10:00:00.000Z` → `2026-10-14 10:00 UTC`: the same clock for everyone. */
+function utcTime(iso: string): string {
+  const date = new Date(iso)
+  return Number.isNaN(date.getTime())
+    ? iso
+    : `${date.toISOString().slice(0, 10)} ${date.toISOString().slice(11, 16)} UTC`
+}
 
 function FailureBlock(props: { failure: ChatResultFailure }): JSX.Element {
   const stack = () => stackText(props.failure)
@@ -363,6 +373,15 @@ export function ResultLine(props: {
       <Show when={as('terminal')}>
         {(terminal) => (
           <TerminalResult terminal={terminal()} live={props.live()} common={common()} />
+        )}
+      </Show>
+      <Show when={as('checkpoint')}>
+        {(checkpoint) => (
+          // No `onRestore`: this host does not give the canvas a restore operation, so the
+          // checkpoint is a marker and says nothing about whether it could be returned to.
+          <li {...common()}>
+            <Checkpoint label={checkpoint().name} time={utcTime(checkpoint().createdAt)} />
+          </li>
         )}
       </Show>
       <Show when={as('test_run')}>

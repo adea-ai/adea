@@ -21,6 +21,7 @@ import {
   type HandoffActionState,
 } from './model/handoff'
 import { createHistoryControl, type HistoryControlState } from './model/history-control'
+import { latestUsageFigures } from './model/usage'
 import { statusLabel } from './presentation'
 import './chat.css'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
@@ -430,6 +431,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           {() => (
             <ChatComposer
               conversation={props.conversation}
+              usage={latestUsageFigures(transcript().events, props.conversation.generation)}
               authority={props.authority}
               connected={connected()}
               awaitingApproval={props.awaitingApproval}

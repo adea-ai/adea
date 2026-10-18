@@ -312,7 +312,37 @@ export const resultEvents: readonly RuntimeEvent[] = [
     { taskId: 'task-1', title: 'Follow up on the rollout order', status: 'pending' },
     'res-task'
   ),
-  event('9', 'turn.assistant_message', { text: 'One migration test fails; the plan is above.' }),
+  {
+    ...event(
+      '9',
+      'checkpoint.observed',
+      {
+        schemaVersion: 1,
+        checkpointId: 'checkpoint-1',
+        name: 'Before the journal fix',
+        createdAt: '2026-09-22T10:00:00.000Z',
+        harnessInstallationId: 'harness-1',
+        restore: { supported: false, reason: 'harness_restore_unavailable' },
+      },
+      'res-checkpoint'
+    ),
+    classification: 'workspace_private',
+  },
+  {
+    ...event(
+      '10',
+      'usage.observed',
+      {
+        schemaVersion: 1,
+        model: { providerId: 'anthropic', modelId: 'fixture-model' },
+        generation: 3,
+        context: { used: 84_000, total: 200_000 },
+        breakdown: { input: 61_000, output: 23_000 },
+      },
+      'res-usage'
+    ),
+  },
+  event('11', 'turn.assistant_message', { text: 'One migration test fails; the plan is above.' }),
 ]
 
 export const LONG_APPROVAL_TAIL = 'FINAL STEP: drop table audit_log (irreversible)'

@@ -6,7 +6,10 @@ import type {
   RuntimeVisibleSummary,
 } from '@adea-ai/types/dev-runtime'
 import { decodeRuntimeInteractionPayload } from '@adea-ai/types/dev-runtime'
-import { isRuntimeActivityEventKind } from '@adea-ai/types/dev-runtime'
+import {
+  decodeConversationCheckpoint,
+  isRuntimeActivityEventKind,
+} from '@adea-ai/types/dev-runtime'
 import { projectActivityResult, type ChatResult } from './model/results'
 import {
   decodeRuntimeAssistantPayload,
@@ -309,7 +312,8 @@ function callFromEvent(event: RuntimeEvent): ChatCall | undefined {
 }
 
 function resultFromEvent(event: RuntimeEvent): ChatResult | undefined {
-  if (!isRuntimeActivityEventKind(event.kind)) return undefined
+  if (!isRuntimeActivityEventKind(event.kind) && event.kind !== 'checkpoint.observed')
+    return undefined
   if (
     event.payload === null ||
     typeof event.payload !== 'object' ||
@@ -318,6 +322,9 @@ function resultFromEvent(event: RuntimeEvent): ChatResult | undefined {
     return undefined
   try {
     decodeRuntimeEvent(event, { source: event.source })
+    // The wire gate admits a checkpoint claim by shape only when it is versioned;
+    // read it through its own contract before anything is drawn.
+    if (event.kind === 'checkpoint.observed') decodeConversationCheckpoint(event.payload)
   } catch {
     return undefined
   }

@@ -159,7 +159,16 @@ export type ChatTaskResult = Readonly<{
   todos: readonly ChatWorkItem[]
 }>
 
+/** A restorable-or-not point the host named. The canvas draws the marker; restoring is not offered here. */
+export type ChatCheckpointResult = Readonly<{
+  type: 'checkpoint'
+  checkpointId: string
+  name: string
+  createdAt: string
+}>
+
 export type ChatResult =
+  | ChatCheckpointResult
   | ChatTerminalResult
   | ChatTestRunResult
   | ChatFailureResult
@@ -180,6 +189,8 @@ export function resultIdentity(result: ChatResult): string | undefined {
       return JSON.stringify([result.type, result.planId])
     case 'task':
       return JSON.stringify([result.type, result.taskId])
+    case 'checkpoint':
+      return JSON.stringify([result.type, result.checkpointId])
     case 'failure':
       return undefined
   }
@@ -202,6 +213,7 @@ export function resultSettled(result: ChatResult): boolean {
     case 'task':
       return TERMINAL_WORK.has(result.status)
     case 'failure':
+    case 'checkpoint':
       return true
   }
 }
@@ -311,6 +323,15 @@ export function projectActivityResult(
         exitCode: p.exitCode,
         durationMs: p.durationMs,
       })
+    }
+    case 'checkpoint.observed': {
+      const p = payload as { checkpointId: string; name: string; createdAt: string }
+      return {
+        type: 'checkpoint',
+        checkpointId: p.checkpointId,
+        name: redact(p.name, NAME_LIMIT),
+        createdAt: p.createdAt,
+      }
     }
     case 'test_run.observed': {
       const p = payload as RuntimeActivityPayloads['test_run.observed']
