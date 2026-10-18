@@ -44,12 +44,13 @@ runs Better Auth's supported programmatic migration, and verifies signup, persis
 revocation against the real adapter.
 
 The retained local Worker acceptance (`bun run --cwd apps/web start:test:auth-worker`, also included
-in `start:test:local`) runs the
-production-built Wrangler Worker against a separate auth schema in its disposable PostgreSQL
-project. It uses synthetic config and a recording delivery fixture, verifies concurrent cookie and
-session isolation, logout/revocation visibility, and confirms each auth request closes its
-PostgreSQL backend. The auth fixture uses only loopback HTTPS and PostgreSQL; no real email or
-production credentials are involved.
+in `start:test:local`) runs the production-built Wrangler Worker against a separate auth schema in
+its disposable PostgreSQL project. The Bun preparation phase runs a separate verification-enabled
+signup through an in-memory recording delivery fixture. Worker requests use synthetic config with
+verification disabled; they verify concurrent cookie and session isolation, logout/revocation
+visibility, and that each auth request closes its PostgreSQL backend. The fixture uses only
+loopback HTTPS and PostgreSQL; Worker-side delivery is not tested, and no real email or production
+credentials are involved.
 
 The historical `createNeonServerAdapter` / `createNeonClientAdapter` / `handleNeonAuthRequest`
 names are retained for the existing web and desktop call sites, with provider-neutral aliases

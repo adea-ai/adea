@@ -122,8 +122,11 @@ only four explicitly public environment variables are substituted (no blanket
 `start:test:local` starts a disposable Docker Compose PostgreSQL project,
 applies the reviewed application and Better Auth migrations to isolated
 schemas, runs the production-built Worker under `wrangler dev` on loopback
-HTTPS, and runs the desktop/mobile browser suite against it. The auth fixture
-uses synthetic credentials and a recording delivery transport; it creates two
+HTTPS, and runs the desktop/mobile browser suite against it. Before starting the
+Worker, the Bun preparation phase applies Better Auth's isolated schema migrations
+and runs a separate verification-enabled signup with an in-memory recording
+delivery transport. The Worker itself uses verification-disabled synthetic
+configuration, so its auth requests do not exercise delivery. It creates two
 accounts concurrently, proves their cookies resolve only their own sessions,
 revokes one account's sessions, logs out the other, and verifies each request's
 PostgreSQL backend is closed by the time its response completes. No email or other
