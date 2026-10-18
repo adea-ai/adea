@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 
+import { forbiddenClientModule } from '../../../../apps/web/start/client-policy.mjs'
+
 import { createAuthAdapter } from '../../src/adapter'
 import { createNeonAuthDriver, type NeonSdk } from '../../src/neon-driver'
 
@@ -81,7 +83,9 @@ describe('Neon SDK driver integration', () => {
     } as unknown as NeonSdk
 
     const driver = createNeonAuthDriver(sdk)
-    await expect(driver.getSession()).rejects.toThrow('Authentication provider request failed')
+    await expect(driver.getSession()).rejects.toMatchObject({
+      message: 'Authentication provider request failed',
+    })
   })
 })
 
@@ -139,10 +143,10 @@ describe('fake-backed Neon SDK failure boundaries', () => {
     const driver = createNeonAuthDriver(sdk)
     await expect(
       driver.signIn({ email: 'fixture@example.invalid', password: 'fixture-only' })
-    ).rejects.toThrow('Authentication provider request failed')
+    ).rejects.toMatchObject({ message: 'Authentication provider request failed' })
     await expect(
       driver.signUp({ email: 'fixture@example.invalid', password: 'fixture-only', name: 'Fixture' })
-    ).rejects.toThrow('Authentication provider request failed')
+    ).rejects.toMatchObject({ message: 'Authentication provider request failed' })
     expect(lookups).toBe(0)
   })
 
@@ -151,7 +155,9 @@ describe('fake-backed Neon SDK failure boundaries', () => {
       sdkFixture({ getSession: async () => ({ data: null, error: null }) })
     )
     expect(await driver.getSession()).toBeNull()
-    await expect(driver.refreshSession()).rejects.toThrow('Authentication provider request failed')
+    await expect(driver.refreshSession()).rejects.toMatchObject({
+      message: 'Authentication provider request failed',
+    })
   })
 
   test('never revokes a different session when the requested id is absent or listing fails', async () => {
@@ -166,9 +172,9 @@ describe('fake-backed Neon SDK failure boundaries', () => {
       'Authentication session is unavailable'
     )
     sdk.listSessions = async () => ({ data: null, error: { message: 'private list detail' } })
-    await expect(createNeonAuthDriver(sdk).revokeSession('session-1')).rejects.toThrow(
-      'Authentication provider request failed'
-    )
+    await expect(createNeonAuthDriver(sdk).revokeSession('session-1')).rejects.toMatchObject({
+      message: 'Authentication provider request failed',
+    })
     expect(revoked).toBe(0)
   })
 
@@ -184,11 +190,15 @@ describe('fake-backed Neon SDK failure boundaries', () => {
     expect(signedOut).toBe(1)
     sdk.signOut = async () => ({ data: null, error: { message: 'private logout detail' } })
     sdk.revokeSession = async () => ({ data: null, error: { message: 'private revoke detail' } })
-    await expect(createNeonAuthDriver(sdk).signOut()).rejects.toThrow(
-      'Authentication provider request failed'
-    )
-    await expect(createNeonAuthDriver(sdk).revokeSession('session-1')).rejects.toThrow(
-      'Authentication provider request failed'
-    )
+    await expect(createNeonAuthDriver(sdk).signOut()).rejects.toMatchObject({
+      message: 'Authentication provider request failed',
+    })
+    await expect(createNeonAuthDriver(sdk).revokeSession('session-1')).rejects.toMatchObject({
+      message: 'Authentication provider request failed',
+    })
   })
+})
+
+test('keeps the provider-owned server entry point out of the browser graph', () => {
+  expect(forbiddenClientModule('/node_modules/@neondatabase/auth/dist/next/index.js')).toBe(true)
 })

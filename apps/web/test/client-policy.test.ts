@@ -20,7 +20,6 @@ describe('pure browser dependency boundaries', () => {
     '/repo/apps/web/src/server/auth.ts',
     '/repo/packages/auth/src/config.ts',
     '/node_modules/@adea-ai/auth/dist/server.js',
-    '/node_modules/@neondatabase/auth/dist/next/index.js',
     '/repo/apps/web/src/start/worker.ts',
     '/node_modules/react/index.js',
     '/node_modules/react-dom/client.js',

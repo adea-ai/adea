@@ -259,6 +259,13 @@ test('instrumented selector binds its diff to exact immutable event refs and pre
     before,
     after,
   ])
+  const decoy = await selectorEntry(
+    'visual',
+    pullRequest(before, after),
+    'docs/note\npackages/ui/decoy.ts\0'
+  )
+  expect(decoy.output).toBe('applicable=false\nworkspace=false\nchat=false\n')
+  expect(decoy.gitCalls).toHaveLength(1)
 })
 
 test('instrumented selector skips docs-only input and never guesses an invalid event diff', async () => {
