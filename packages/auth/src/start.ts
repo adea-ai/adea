@@ -12,6 +12,14 @@ export type RequestContext = Readonly<{
   getFramework(): string
 }>
 
+/** The lowercase `SameSite` spellings every cookie writer accepts. */
+export type SameSite = 'lax' | 'none' | 'strict'
+
+/**
+ * The framework-neutral cookie contract. It accepts both the lowercase and the
+ * capitalized `SameSite` spelling so a caller can forward the cookie attributes
+ * a provider emitted verbatim; each adapter normalizes to its writer below.
+ */
 export type CookieOptions = Readonly<{
   domain?: string
   expires?: Date
@@ -19,7 +27,23 @@ export type CookieOptions = Readonly<{
   maxAge?: number
   partitioned?: boolean
   path?: string
-  sameSite?: 'lax' | 'none' | 'strict' | 'Lax' | 'None' | 'Strict'
+  sameSite?: SameSite | 'Lax' | 'None' | 'Strict'
+  secure?: boolean
+}>
+
+/**
+ * The options TanStack Start's request writer accepts: the framework-neutral
+ * fields with `sameSite` restricted to the lowercase spelling it understands.
+ * `createStartRequestContext` normalizes into this shape before the writer, so
+ * an uppercase `Lax`/`None`/`Strict` from a provider still serializes.
+ */
+export type StartCookieOptions = Readonly<{
+  domain?: string
+  expires?: Date
+  httpOnly?: boolean
+  maxAge?: number
+  path?: string
+  sameSite?: SameSite
   secure?: boolean
 }>
 
@@ -31,7 +55,7 @@ export type RequestContextFramework = string
  */
 export type StartRequestHelpers = Readonly<{
   getRequest(): Request
-  setCookie(name: string, value: string, options: CookieOptions): void
+  setCookie(name: string, value: string, options: StartCookieOptions): void
 }>
 
 /**
@@ -56,24 +80,36 @@ export function createStartRequestContext(helpers: StartRequestHelpers): Request
   }
 }
 
-type SerializeOptions = Readonly<{
-  domain?: string
-  expires?: Date
-  httpOnly?: boolean
-  maxAge?: number
-  path?: string
-  sameSite?: CookieOptions['sameSite']
-  secure?: boolean
-}>
+/**
+ * Normalizes a `SameSite` value to the lowercase spelling a cookie writer
+ * accepts. The framework-neutral contract permits the capitalized form, so this
+ * is the single place uppercase becomes lowercase.
+ */
+function normalizeSameSite(sameSite: CookieOptions['sameSite']): SameSite | undefined {
+  switch (sameSite) {
+    case 'lax':
+    case 'Lax':
+      return 'lax'
+    case 'none':
+    case 'None':
+      return 'none'
+    case 'strict':
+    case 'Strict':
+      return 'strict'
+    default:
+      return undefined
+  }
+}
 
-function toSerializeOptions(options: CookieOptions): SerializeOptions {
+function toSerializeOptions(options: CookieOptions): StartCookieOptions {
+  const sameSite = normalizeSameSite(options.sameSite)
   return {
     ...(options.domain !== undefined ? { domain: options.domain } : {}),
     ...(options.expires ? { expires: options.expires } : {}),
     ...(options.httpOnly !== undefined ? { httpOnly: options.httpOnly } : {}),
     ...(options.maxAge !== undefined ? { maxAge: options.maxAge } : {}),
     ...(options.path !== undefined ? { path: options.path } : {}),
-    ...(options.sameSite !== undefined ? { sameSite: options.sameSite } : {}),
+    ...(sameSite !== undefined ? { sameSite } : {}),
     ...(options.secure !== undefined ? { secure: options.secure } : {}),
   }
 }
@@ -96,8 +132,9 @@ export function serializeSessionCookie(
   if (options.expires) parts.push(`Expires=${options.expires.toUTCString()}`)
   if (options.httpOnly) parts.push('HttpOnly')
   if (options.secure) parts.push('Secure')
-  if (options.sameSite) {
-    parts.push(`SameSite=${options.sameSite[0]!.toUpperCase()}${options.sameSite.slice(1)}`)
+  const sameSite = normalizeSameSite(options.sameSite)
+  if (sameSite) {
+    parts.push(`SameSite=${sameSite[0]!.toUpperCase()}${sameSite.slice(1)}`)
   }
   if (options.partitioned) parts.push('Partitioned')
   return parts.join('; ')
