@@ -149,6 +149,9 @@ host = await cp.factory.createProductionFactoryFixture({
         }
       },
       modelAuthority: { leasePrincipalRef, modelAlias: 'reasoning.standard' },
+      // CP's production child binding requires a per-delegation cost-state store (CP #1134).
+      usageOutcomes: (delegationId) =>
+        new cp.sqlite.SqliteChildUsageOutcomeRepository(persistence, delegationId),
       runtime: {
         childProgress: { scan: async () => ({ reconciled: 0, pending: 0 }) },
         consumeParentInbox: async () => {},
