@@ -443,3 +443,33 @@ is published. The prior full composition passed both; their fresh result will
 be recorded separately. The fresh native archive receipt above is unchanged:
 the bounded edit affects the web Vite configuration, while desktop has its own
 independent Vite configuration and unchanged build inputs.
+
+### Final published-repair qualification
+
+Runtime repair commit `1bab2b85bf08398fd43b0b41e36cb394c83927ea` is pushed with
+its remote SHA verified. The complete `bun run test:unit` repeat passes:
+32/32 Vite+ tasks, followed by 1,553 shared coverage tests across 125 files /
+17,093 assertions, zero failures. Aggregate coverage remains 98.66% functions /
+97.90% lines and no file is below either unchanged 80% floor. This supersedes
+the in-progress status in the preceding chronological receipt. Full types
+33/33 also pass in the normal commit hook; formatting and zero-warning lint
+remain passing.
+
+The production output produced by that full task graph independently passes
+`bun run --cwd apps/web start:check-bundle`: 147 files, 3,165,535 raw bytes,
+964,186 gzip bytes, startup 219,884 gzip bytes. The Dev entry/layout gate passes
+at 72,512 raw / 24,045 gzip bytes combined. The native archive SHA-256 remains
+`4979d932ba016201cf7b208cc8949a4da11860d43ab84d65db9b5c7c3eeb48d8`, and
+its unchanged 312-file / 4,157,476-byte desktop client still passes the payload
+guard with zero offenders. The held Vite+ checkout remains at `cdefde7c` with
+its original dirty diff SHA-256 unchanged.
+
+No local gzip or corrected per-file coverage blocker remains. Root owns personal
+review, readiness, hosted checks and merge of draft #1448. The remaining live
+rollout action is pending authorization and was not attempted: define the
+approved authoritative entitlement source/policy and durable atomic launch,
+session and private-asset bindings at the approved isolated host, then authorize
+production deployment/infrastructure changes explicitly. Local synthetic
+services do not establish live completion. Real-provider/DB-backed integration,
+DB-backed optional-view E2E, cross-platform visual baselines, signed release and
+production deployment were not performed in this bounded local qualification.
