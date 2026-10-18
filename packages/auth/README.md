@@ -43,6 +43,14 @@ node-postgres can apply the requested SSL mode. The PostgreSQL integration test 
 runs Better Auth's supported programmatic migration, and verifies signup, persisted session, and
 revocation against the real adapter.
 
+The retained local Worker acceptance (`bun run --cwd apps/web start:test:auth-worker`, also included
+in `start:test:local`) runs the
+production-built Wrangler Worker against a separate auth schema in its disposable PostgreSQL
+project. It uses synthetic config and a recording delivery fixture, verifies concurrent cookie and
+session isolation, logout/revocation visibility, and confirms each auth request closes its
+PostgreSQL backend. The auth fixture uses only loopback HTTPS and PostgreSQL; no real email or
+production credentials are involved.
+
 The historical `createNeonServerAdapter` / `createNeonClientAdapter` / `handleNeonAuthRequest`
 names are retained for the existing web and desktop call sites, with provider-neutral aliases
 (`createAuthServerAdapter`, `createAuthClientAdapter`, `handleAuthRequest`). The legacy Neon-hosted

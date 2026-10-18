@@ -119,6 +119,12 @@ Server modules and Better Auth server entry points are excluded from the client 
   provision the first canonical user identity, but application services must still map the
   provider/subject pair to that identity and run membership and permission checks.
 
+The retained `bun run --cwd apps/web start:test:auth-worker` acceptance runs the production-built Worker
+with a synthetic Better Auth secret, a temporary PostgreSQL schema, and a recording-only delivery
+transport. It checks concurrent signup/session cookie isolation, revocation and logout visibility
+through later Worker requests, and that no auth-owned PostgreSQL backend remains after each
+response. The fixture uses loopback services and sends no email.
+
 ## Adapter use
 
 Server code imports `createNeonServerAdapter` from `@adea-ai/auth/server` (provider-neutral alias:

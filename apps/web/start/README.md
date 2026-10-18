@@ -106,6 +106,7 @@ bun run build:cloudflare
 bun run --cwd apps/web start:check-routes  # URL surface and hashed-asset caching gate
 bunx playwright install chromium
 bun run --cwd apps/web start:test:local
+bun run --cwd apps/web start:test:auth-worker # Local auth Worker test without browser E2E
 ```
 
 `start:verify` builds first because the tracked route tree is generated; rebuild
@@ -119,12 +120,20 @@ only four explicitly public environment variables are substituted (no blanket
 `process.env` or `VITE_*` export).
 
 `start:test:local` starts a disposable Docker Compose PostgreSQL project,
-applies the reviewed migrations to it, runs the production-built Worker under
-`wrangler dev` on loopback HTTPS, and runs the desktop/mobile browser suite
-against it. It then enables the account allowlist and asserts the restricted
-entry redirect, the restricted guest API status, and that the Worker serves a
-real guest session and durable writes. Logs and evidence stay under ignored
-`start/.checks/local-*`; production credentials are never inherited.
+applies the reviewed application and Better Auth migrations to isolated
+schemas, runs the production-built Worker under `wrangler dev` on loopback
+HTTPS, and runs the desktop/mobile browser suite against it. The auth fixture
+uses synthetic credentials and a recording delivery transport; it creates two
+accounts concurrently, proves their cookies resolve only their own sessions,
+revokes one account's sessions, logs out the other, and verifies each request's
+PostgreSQL backend is closed by the time its response completes. No email or other
+external service is contacted. The harness then enables the account allowlist
+and asserts the restricted entry redirect, the restricted guest API status,
+and that the Worker serves a real guest session and durable writes. Logs and
+evidence stay under ignored `start/.checks/local-*`; production credentials are
+never inherited.
+`start:test:auth-worker` runs the same isolated auth Worker and database checks without launching
+the Playwright browser suite.
 
 Local HTTPS is required because production-built sessions use `Secure`
 cookies; do not strip that attribute to make HTTP tests pass. The checks keep

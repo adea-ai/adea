@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
@@ -24,6 +25,9 @@ await mkdir(resolve(start, '.checks'), { recursive: true })
 const evidence = await mkdtemp(resolve(start, '.checks/local-'))
 const tls = createLoopbackCertificate(evidence)
 const project = `adea-start-check-${process.pid}`
+const authSchema = `auth_worker_${randomUUID().replaceAll('-', '')}`
+const authWorkerApplicationName = `adea_auth_worker_${randomUUID().replaceAll('-', '').slice(0, 12)}`
+const authSecret = 'local-worker-auth-secret-for-test-only-123456'
 const workers = []
 // Do not inherit production service credentials or database URLs into test processes.
 const environment = Object.fromEntries(
@@ -179,6 +183,10 @@ const databaseEnvironment = {
   DATABASE_MIGRATION_URL: databaseUrl('agent_hq_local_migration'),
   ADEA_POSTGRES_PORT: String(databasePort),
 }
+const authDatabase = new URL(databaseUrl('agent_hq_local_app'))
+authDatabase.searchParams.set('options', `-c search_path=${authSchema}`)
+authDatabase.searchParams.set('application_name', authWorkerApplicationName)
+const authDatabaseUrl = authDatabase.toString()
 const host = {
   ...compatibility,
   name: `${project}-host`,
@@ -195,24 +203,60 @@ const host = {
   ],
   vars: {
     DATABASE_URL: databaseEnvironment.DATABASE_URL,
+    AUTH_BASE_URL: baseURL,
+    AUTH_DATABASE_URL: authDatabaseUrl,
+    AUTH_EMAIL_VERIFICATION_REQUIRED: 'false',
+    AUTH_SECRET: authSecret,
+    AUTH_SECURE_COOKIES: 'true',
     AUTH_TRUSTED_ORIGINS: baseURL,
   },
 }
 const hostConfig = resolve(evidence, 'host.json')
 await writeLocalWorkerConfig(hostConfig, host)
+const authWorkerTest = 'packages/auth/tests/integration/better-auth-worker-local.mjs'
+const skipBrowser = process.argv.includes('--skip-browser')
+const authTestEnvironment = {
+  ...databaseEnvironment,
+  AUTH_BASE_URL: baseURL,
+  AUTH_DATABASE_URL: authDatabaseUrl,
+  AUTH_EMAIL_VERIFICATION_REQUIRED: 'false',
+  AUTH_SECRET: authSecret,
+  AUTH_SECURE_COOKIES: 'true',
+  AUTH_TRUSTED_ORIGINS: baseURL,
+  AUTH_POSTGRES_TEST_URL: databaseUrl('agent_hq_local_migration'),
+  AUTH_TEST_SCHEMA: authSchema,
+  AUTH_WORKER_APPLICATION_NAME: authWorkerApplicationName,
+}
 try {
   databaseStarted = true
   await composeUpPostgres()
   await run('bun', ['run', '--cwd', 'packages/db', 'db:verify'], root, databaseEnvironment)
+  // Build an isolated Better Auth schema and exercise the synthetic recording
+  // delivery before the production-built Worker receives any auth request.
+  await run(
+    'bun',
+    ['--conditions=react-server', 'run', authWorkerTest, '--prepare'],
+    root,
+    authTestEnvironment
+  )
   startWorker(hostConfig, hostPort, inspector, true)
   const entryStatus = async () => (await localHttps(`${baseURL}/api/web-entry`)).status
   await waitFor(async () => (await localHttps(baseURL)).status === 200, 'Start host')
   assert.equal(await entryStatus(), 200, 'entry gate endpoint serves the policy')
-  await run('bun', ['run', 'start:e2e'], web, {
-    ...environment,
-    ADEA_START_PREVIEW_URL: baseURL,
-    ADEA_START_ISOLATED_TEST_TARGET: '1',
+  await run('bun', ['--conditions=react-server', 'run', authWorkerTest, '--exercise'], root, {
+    ...authTestEnvironment,
+    ADEA_AUTH_WORKER_URL: baseURL,
+    ADEA_AUTH_WORKER_CA: tls.certPath,
   })
+  if (skipBrowser) {
+    console.log('Skipping browser E2E for the auth-only local Worker acceptance.')
+  } else {
+    await run('bun', ['run', 'start:e2e'], web, {
+      ...environment,
+      ADEA_START_PREVIEW_URL: baseURL,
+      ADEA_START_ISOLATED_TEST_TARGET: '1',
+    })
+  }
   // Exercise the actual entry policy after enabling the account allowlist.
   host.vars.ADEA_ALLOWED_EMAILS = 'allowed@example.test'
   await writeLocalWorkerConfig(hostConfig, host)
@@ -234,7 +278,8 @@ try {
   await writeLocalWorkerConfig(hostConfig, host)
   await waitFor(async () => (await entryStatus()) === 200, 'Restored guest gate')
   const report = {
-    browserSuite: 'passed',
+    browserSuite: skipBrowser ? 'skipped by auth-only command' : 'passed',
+    nativeWorkerAuth: 'passed',
     restrictedEntry: 'passed',
     restrictedGuestApi: 'passed',
     node: process.version,
