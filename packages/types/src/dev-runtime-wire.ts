@@ -31,6 +31,13 @@ import {
 import { decodeCheckpointEventPayload } from './dev-runtime-checkpoints'
 import { decodeRuntimeInteractionPayload } from './dev-runtime-interactions'
 import {
+  decodeRuntimeUsageObservedPayload,
+  usageDataRecord,
+  type RuntimeUsageObservedPayload,
+} from './dev-runtime-usage'
+export { decodeRuntimeUsageObservedPayload } from './dev-runtime-usage'
+export type { RuntimeUsageObservedPayload } from './dev-runtime-usage'
+import {
   decodeRuntimeCallPayload,
   isRuntimeCallEventKind,
   type RuntimeCallEventKind,
@@ -125,7 +132,7 @@ export const dataClassifications = [
 ] as const
 export type DataClassification = (typeof dataClassifications)[number]
 
-export type RuntimeEvent = Readonly<{
+export type RuntimeEvent<K extends RuntimeEventKind = RuntimeEventKind> = Readonly<{
   schemaVersion: 1
   eventId: string
   runtimeSessionId: string
@@ -138,8 +145,8 @@ export type RuntimeEvent = Readonly<{
   sourceEventId: string
   confidence: 'authoritative' | 'bounded_projection' | 'untrusted_hint'
   classification: DataClassification
-  kind: RuntimeEventKind
-  payload: unknown
+  kind: K
+  payload: K extends 'usage.observed' ? RuntimeUsageObservedPayload : unknown
 }>
 
 /** Existing runtime-events-v1 data-frame budget; includes the entire encoded event. */
@@ -293,7 +300,8 @@ export type RuntimeEventProvenance = Readonly<{
  * inside `decodeEventEnvelope`.
  */
 type EventSemantics = Readonly<{
-  early(item: Record<string, unknown>, enforceEnvelopeBounds: boolean): void
+  /** May return a normalized replacement payload (usage observations). */
+  early(item: Record<string, unknown>, enforceEnvelopeBounds: boolean): unknown | undefined
   late(item: Record<string, unknown>): void
 }>
 
@@ -353,6 +361,13 @@ const eventSemantics: EventSemantics = {
       decodeChatAttachmentEventPayload(item.kind, item.payload)
     }
     validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
+    // Usage has a strict producer contract (#1391): authoritative reported
+    // figures only, fully validated and normalized before projection. The
+    // replacement payload is admitted, frozen and persisted in their place.
+    if (item.kind !== 'usage.observed') return undefined
+    if (item.confidence !== 'authoritative')
+      fail('event.confidence', 'usage observations require authoritative reported figures')
+    return decodeRuntimeUsageObservedPayload(item.payload, item.generation as number)
   },
   late(item) {
     validateRuntimeResponseReferences(item.kind as string, item.payload, item.source as string)
@@ -416,7 +431,9 @@ function decodeEventEnvelope(
   enforceEnvelopeBounds: boolean,
   semantics?: EventSemantics
 ): RuntimeEvent {
-  const item = record(value, 'event')
+  // A programmatic discriminator must be inert before ANY field is read.
+  // Otherwise a changing `kind` getter can select a different validation path.
+  const item = usageDataRecord(value, 'event')
   exactKeys(
     item,
     [
@@ -476,14 +493,18 @@ function decodeEventEnvelope(
   }
   // Retained legacy events remain opaque. With semantics, a versioned call claim
   // must satisfy the complete contract even through the generic decoder; the lean
-  // decoder still bounds the whole encoded call event.
-  if (semantics) semantics.early(item, enforceEnvelopeBounds)
-  else if (enforceEnvelopeBounds && isVersionedCallClaim(item))
+  // decoder still bounds the whole encoded call event. Kind-specific semantics may
+  // normalize a payload (usage observations are validated and replaced).
+  const payload = semantics
+    ? (semantics.early(item, enforceEnvelopeBounds) ?? item.payload)
+    : item.payload
+  if (!semantics && enforceEnvelopeBounds && isVersionedCallClaim(item))
     assertRuntimeEventFrameSize(item as RuntimeEvent)
-  validateEventPayload(item.payload, 'event.payload')
+  validateEventPayload(payload, 'event.payload')
   semantics?.late(item)
-  if (new TextEncoder().encode(JSON.stringify(item.payload)).byteLength > 256 * 1024)
+  if (new TextEncoder().encode(JSON.stringify(payload)).byteLength > 256 * 1024)
     fail('event.payload', 'maximum encoded size exceeded')
+  if (payload !== item.payload) return Object.freeze({ ...(value as RuntimeEvent), payload })
   return value as RuntimeEvent
 }
 
