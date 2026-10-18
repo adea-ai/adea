@@ -129,12 +129,12 @@ delivery transport. The Worker itself uses verification-disabled synthetic
 configuration, so its auth requests do not exercise delivery. It creates two
 accounts concurrently, proves their cookies resolve only their own sessions,
 revokes one account's sessions, logs out the other, and verifies each request's
-PostgreSQL backend is closed by the time its response completes. No email or other
-external service is contacted. The harness then enables the account allowlist
-and asserts the restricted entry redirect, the restricted guest API status,
-and that the Worker serves a real guest session and durable writes. Logs and
-evidence stay under ignored `start/.checks/local-*`; production credentials are
-never inherited.
+PostgreSQL backend closes within the 10-second polling window after each response
+batch. No email or other external service is contacted. The harness then enables
+the account allowlist and asserts the restricted entry redirect, the restricted
+guest API status, and that the Worker serves a real guest session and durable
+writes. Logs and evidence stay under ignored `start/.checks/local-*`; production
+credentials are never inherited.
 `start:test:auth-worker` runs the same isolated auth Worker and database checks without launching
 the Playwright browser suite.
 

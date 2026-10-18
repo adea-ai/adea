@@ -125,8 +125,8 @@ phase, a separate verification-enabled signup uses an in-memory recording delive
 assert that a verification message is produced; this does not run inside the Worker. The native
 Worker requests use verification-disabled synthetic configuration and test concurrent
 signup/session cookie isolation, revocation and logout visibility through later requests, and that
-no auth-owned PostgreSQL backend remains after each response. Both phases use loopback services and
-send no email; Worker-side delivery is not exercised.
+no auth-owned PostgreSQL backend remains within the 10-second polling window after each response
+batch. Both phases use loopback services and send no email; Worker-side delivery is not exercised.
 
 ## Adapter use
 

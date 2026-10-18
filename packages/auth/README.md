@@ -48,9 +48,9 @@ in `start:test:local`) runs the production-built Wrangler Worker against a separ
 its disposable PostgreSQL project. The Bun preparation phase runs a separate verification-enabled
 signup through an in-memory recording delivery fixture. Worker requests use synthetic config with
 verification disabled; they verify concurrent cookie and session isolation, logout/revocation
-visibility, and that each auth request closes its PostgreSQL backend. The fixture uses only
-loopback HTTPS and PostgreSQL; Worker-side delivery is not tested, and no real email or production
-credentials are involved.
+visibility, and that each response batch leaves no auth PostgreSQL backend within the 10-second
+polling window. The fixture uses only loopback HTTPS and PostgreSQL; Worker-side delivery is not
+tested, and no real email or production credentials are involved.
 
 The historical `createNeonServerAdapter` / `createNeonClientAdapter` / `handleNeonAuthRequest`
 names are retained for the existing web and desktop call sites, with provider-neutral aliases
