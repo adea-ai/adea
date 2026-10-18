@@ -3,10 +3,11 @@ import { createHash } from 'node:crypto'
 
 import { describe, expect, test } from 'bun:test'
 
-import type { AgentHqDatabase } from '../../src/connection'
+import type { AgentHqDatabase, AgentHqTransaction } from '../../src/connection'
 import {
   collectBoundedRecords,
   captureMigrationSnapshot,
+  captureMigrationSnapshotInTransaction,
   migrationSnapshotEventPayloadDigest,
   migrationSnapshotEventPayloadDigestField,
   MIGRATION_SNAPSHOT_PAYLOAD_DIGEST_INCONCLUSIVE_MARKER,
@@ -19,6 +20,7 @@ import {
   resolveMigrationSnapshotCaptureDomains,
   type MigrationSnapshotRecord,
 } from '../../src/migration-snapshot-capture'
+import { getTableName } from 'drizzle-orm'
 import { migrationSnapshotFamilies } from '@adea-ai/types'
 
 // The capture's pure surface, tested without any database: domain resolution,
@@ -563,5 +565,428 @@ describe('captureMigrationSnapshot input validation', () => {
     )
     expect(seen.config).toEqual(MIGRATION_SNAPSHOT_CAPTURE_TRANSACTION_CONFIG)
     expect(seen.config).toEqual({ accessMode: 'read only', isolationLevel: 'repeatable read' })
+  })
+})
+
+// A recording query builder, not a database simulator: row projection, ordering,
+// bounds and schema probes are exercised here. PostgreSQL consistency/locking
+// remain covered by the existing integration proofs.
+type SnapshotRow = Record<string, unknown>
+function snapshotFixture(
+  rowsByTable: Record<string, SnapshotRow[]>,
+  relation: string | null | undefined = 'app.legacy_audience_quarantine'
+) {
+  const reads: { table: string; fields: string[]; bound?: number; offset?: number }[] = []
+  const rawQueries: unknown[] = []
+  let transactionCount = 0
+  const transaction = {
+    select: (fields: Record<string, unknown>) => ({
+      from: (table: Parameters<typeof getTableName>[0]) => {
+        const name = getTableName(table)
+        const read = { table: name, fields: Object.keys(fields) } as (typeof reads)[number]
+        reads.push(read)
+        return {
+          orderBy: () => ({
+            limit: (bound: number) => {
+              read.bound = bound
+              return {
+                offset: async (offset: number) => {
+                  read.offset = offset
+                  return (rowsByTable[name] ?? [])
+                    .slice(offset, offset + bound)
+                    .map((row) =>
+                      Object.fromEntries(Object.keys(fields).map((key) => [key, row[key]]))
+                    )
+                },
+              }
+            },
+          }),
+        }
+      },
+    }),
+    execute: async (query: unknown) => {
+      rawQueries.push(query)
+      const { PgDialect } = await import('drizzle-orm/pg-core')
+      const compiled = new PgDialect().sqlToQuery(query as never)
+      if (compiled.sql.includes('to_regclass')) return relation === undefined ? [] : [{ relation }]
+      expect(compiled.sql).toContain('frontiers')
+      const [bound, offset] = compiled.params as number[]
+      return (rowsByTable.readState ?? []).slice(offset, offset! + bound!)
+    },
+  } as unknown as AgentHqTransaction
+  const database = {
+    transaction: async (
+      operation: (tx: AgentHqTransaction) => Promise<unknown>,
+      config: unknown
+    ) => {
+      transactionCount++
+      expect(config).toEqual(MIGRATION_SNAPSHOT_CAPTURE_TRANSACTION_CONFIG)
+      return operation(transaction)
+    },
+  } as unknown as AgentHqDatabase
+  return { database, transaction, reads, rawQueries, transactionCount: () => transactionCount }
+}
+
+const capturedRow = {
+  id: 'id-1',
+  workspaceId: 'workspace-1',
+  agentId: 'agent-1',
+  userId: 'user-1',
+  channelId: 'channel-1',
+  projectId: 'project-1',
+  taskId: 'task-1',
+  threadRootMessageId: null,
+  messageId: 'message-1',
+  lifecycleState: 'active',
+  visibility: 'workspace',
+  availability: 'available',
+  digestSha256: 'a'.repeat(64),
+  revision: 2,
+  keyVersion: 1,
+  schemaVersion: 1,
+  eventType: 'workspace.created',
+  payload: { safe: true },
+  workspaceSequence: 7,
+  attempt: 1,
+  locationKind: 'local',
+  runtimeNodeId: 'node-1',
+  provider: 'synthetic',
+  subject: 'subject:1',
+  role: 'member',
+  acceptedAt: null,
+  revokedAt: null,
+  expiresAt: new Date('2027-01-01T00:00:00Z'),
+  invitedByUserId: 'owner-1',
+  deletedAt: null,
+  claimedAt: null,
+  controlPlaneWorkspaceId: 'wsp-1',
+  ownerUserId: 'owner-1',
+  artifactId: 'artifact-1',
+  audienceWorkspaceId: 'audience-1',
+  sourceWorkspaceId: 'source-1',
+  checksumSha256: 'b'.repeat(64),
+  grantId: 'grant-1',
+  version: 3,
+  principalKind: 'user',
+  authGrantId: 'auth-1',
+  authGroupId: 'group-1',
+  authRevision: 2,
+  joinedSequence: 7,
+  issuedAt: '2026-01-01T00:00:00.000Z',
+  scope: 'messages',
+  contentRefId: 'ref-1',
+  replicaKind: 'cloud',
+  attemptId: 'attempt-1',
+  cancelRequestedAt: null,
+  executionId: 'execution-1',
+  intentId: 'intent-1',
+  publishedMessageId: null,
+  runtimeSessionId: 'session-1',
+  state: 'prepared',
+  kind: 'desktop',
+  pairingState: 'paired',
+  platform: 'macos',
+  softwareVersion: '1.0.0',
+  ciphertextPurgedAt: null,
+  profileId: 'profile-1',
+  profileRevision: 1,
+  profileVersion: 'version-1',
+  taskVersion: 2,
+  creatorUserId: 'user-1',
+  createdAt: '2026-01-01T00:00:00.123456Z',
+  observedAt: '2026-01-01T00:00:00.123456Z',
+  principalId: 'user-1',
+  profile: 'legacy-v1',
+  reason: 'source_workspace_mismatch',
+  sourceChannelCreatedAt: '2026-01-01T00:00:00Z',
+  sourceJoinedAt: '2026-01-01T00:00:00Z',
+  sourceParticipantId: 'participant-1',
+  sourceRowDigest: 'c'.repeat(64),
+  withdrawnAdmissions: 1,
+  withdrawnAudienceGrants: 2,
+  withdrawnDigest: 'd'.repeat(64),
+  withdrawnEnlistmentGrants: 0,
+  privateCanary: 'SYNTHETIC_PRIVATE_VALUE_MUST_NOT_PROJECT',
+}
+
+const familyProjectionCases = [
+  ['agents', 'agents', { agentId: 'id-1', lifecycleState: 'active', projectId: 'project-1' }],
+  ['channelParticipants', 'channel_participants', { principalId: 'user-1', principalKind: 'user' }],
+  ['channels', 'channels', { channelId: 'id-1', visibility: 'workspace' }],
+  [
+    'contentRefs',
+    'content_refs',
+    { contentRefId: 'id-1', digestSha256: 'a'.repeat(64), keyVersion: 1 },
+  ],
+  [
+    'events',
+    'workspace_events',
+    { eventId: 'id-1', payloadDigest: digestOf({ safe: true }), workspaceSequence: 7 },
+  ],
+  [
+    'executionAttempts',
+    'task_execution_attempts',
+    { taskId: 'task-1', attempt: 1, runtimeNodeId: 'node-1' },
+  ],
+  [
+    'identityBindings',
+    'auth_identities',
+    { provider: 'synthetic', subject: 'subject:1', userId: 'user-1' },
+  ],
+  [
+    'invitations',
+    'workspace_invitations',
+    { invitationId: 'id-1', state: 'pending', role: 'member' },
+  ],
+  [
+    'memberships',
+    'workspace_memberships',
+    { workspaceId: 'workspace-1', userId: 'user-1', role: 'member' },
+  ],
+  ['messages', 'messages', { messageId: 'id-1', deleted: false, threadRootMessageId: null }],
+  [
+    'projectMembers',
+    'project_members',
+    { projectId: 'project-1', userId: 'user-1', role: 'member' },
+  ],
+  ['projects', 'projects', { projectId: 'id-1', visibility: 'workspace' }],
+  ['tasks', 'tasks', { taskId: 'id-1', creatorUserId: 'user-1', version: 3 }],
+  ['temporarySessions', 'temporary_user_sessions', { sessionId: 'id-1', claimed: false }],
+  [
+    'workspaces',
+    'workspaces',
+    { workspaceId: 'id-1', controlPlaneWorkspaceId: 'wsp-1', archived: false },
+  ],
+  [
+    'artifactReferenceGrants',
+    'artifact_reference_grants',
+    { grantId: 'grant-1', checksumSha256: 'b'.repeat(64), revokedAt: null },
+  ],
+  [
+    'groupAdmissions',
+    'group_admissions',
+    { principalId: 'user-1', authGroupId: 'group-1', joinedSequence: 7 },
+  ],
+  [
+    'groupAudienceGrants',
+    'group_audience_grants',
+    { grantId: 'grant-1', userId: 'user-1', revision: 2 },
+  ],
+  [
+    'groupEnlistmentGrants',
+    'group_enlistment_grants',
+    { grantId: 'grant-1', agentId: 'agent-1', revision: 2 },
+  ],
+  [
+    'groupSharingGrants',
+    'group_sharing_grants',
+    { grantId: 'grant-1', principalId: 'user-1', scope: 'messages' },
+  ],
+  [
+    'contentReplicas',
+    'content_replicas',
+    { replicaId: 'id-1', contentRefId: 'ref-1', deleted: false },
+  ],
+  [
+    'leadTurnRuntime',
+    'lead_turn_runtime',
+    { intentId: 'intent-1', cancelRequested: false, runtimeSessionId: 'session-1' },
+  ],
+  [
+    'legacyAudienceQuarantine',
+    'legacy_audience_quarantine',
+    {
+      quarantineId: 'id-1',
+      sourceParticipantId: 'participant-1',
+      createdAt: '2026-01-01T00:00:00.123456Z',
+      withdrawnAdmissions: 1,
+    },
+  ],
+  [
+    'runtimeNodes',
+    'runtime_nodes',
+    { runtimeNodeId: 'id-1', revoked: false, softwareVersion: '1.0.0' },
+  ],
+  [
+    'taskSubmissions',
+    'task_submissions',
+    { submissionId: 'id-1', ciphertextPurged: false, taskVersion: 2 },
+  ],
+] as const
+
+describe('snapshot projections through recording database rows', () => {
+  for (const [family, table, expected] of familyProjectionCases) {
+    test(`${family} preserves identity and metadata and drops unselected fields`, async () => {
+      const rows = [{ ...capturedRow }, { ...capturedRow, id: 'id-0' }]
+      const fixture = snapshotFixture({ [table]: rows })
+      const result = await captureMigrationSnapshot(fixture.database, {
+        identity: IDENTITY,
+        requestedDomains: [family],
+        limitPerFamily: 10,
+      })
+      expect(fixture.transactionCount()).toBe(1)
+      expect(result.domains).toEqual([{ domain: family, status: 'captured', unknownReason: null }])
+      const section = result.document.sections[family]!
+      expect(section).toMatchObject({ limit: 10, truncated: false })
+      expect(section.records).toHaveLength(2)
+      expect(section.records).toContainEqual(expect.objectContaining({ family, ...expected }))
+      expect(JSON.stringify(result)).not.toContain(capturedRow.privateCanary)
+      expect(Object.isFrozen(section)).toBe(true)
+      expect(Object.isFrozen(section.records)).toBe(true)
+      expect(fixture.reads).toEqual([{ table, fields: expect.any(Array), bound: 501, offset: 0 }])
+      expect(fixture.reads[0]!.fields).not.toContain('privateCanary')
+    })
+  }
+
+  test('read frontiers preserve unsafe driver counts instead of rounding or inventing zero', async () => {
+    const values = [7, '8', '9007199254740993', -1, null]
+    const rows = values.map((value, index) => ({
+      workspace_id: 'workspace-1',
+      user_id: `user-${index}`,
+      channel_id: 'channel-1',
+      thread_root_message_id: index === 1 ? 'root-1' : null,
+      last_read_sequence: value,
+      manually_unread: index === 0,
+    }))
+    const result = await captureMigrationSnapshot(snapshotFixture({ readState: rows }).database, {
+      identity: IDENTITY,
+      requestedDomains: ['readState'],
+    })
+    expect(result.document.sections.readState!.records).toEqual(
+      values.map((_, index) => ({
+        family: 'readState',
+        workspaceId: 'workspace-1',
+        userId: `user-${index}`,
+        channelId: 'channel-1',
+        threadRootMessageId: index === 1 ? 'root-1' : null,
+        lastReadSequence: [7, 8, '9007199254740993', '-1', 'null'][index],
+        manuallyUnread: index === 0,
+      }))
+    )
+  })
+
+  test('invitation states use settled evidence and the injected capture clock', async () => {
+    const date = IDENTITY.capturedAt
+    const rows = [
+      { ...capturedRow, id: 'accepted', acceptedAt: date, revokedAt: date, expiresAt: date },
+      { ...capturedRow, id: 'revoked', revokedAt: date, expiresAt: date },
+      { ...capturedRow, id: 'expired', expiresAt: date },
+      { ...capturedRow, id: 'pending' },
+    ]
+    const result = await captureMigrationSnapshot(
+      snapshotFixture({ workspace_invitations: rows }).database,
+      { identity: IDENTITY, requestedDomains: ['invitations'] }
+    )
+    expect(
+      result.document.sections.invitations!.records.map((row) => [row.invitationId, row.state])
+    ).toEqual([
+      ['accepted', 'accepted'],
+      ['expired', 'expired'],
+      ['pending', 'pending'],
+      ['revoked', 'revoked'],
+    ])
+  })
+
+  test('missing quarantine schema is unknown while an empty probe is an error', async () => {
+    const result = await captureMigrationSnapshot(snapshotFixture({}, null).database, {
+      identity: IDENTITY,
+      requestedDomains: ['legacyAudienceQuarantine', 'workspaces'],
+    })
+    expect(result.domains).toContainEqual({
+      domain: 'legacyAudienceQuarantine',
+      status: 'unknown',
+      unknownReason: 'schema_absent',
+    })
+    expect(result.document.sections.legacyAudienceQuarantine).toBeUndefined()
+    expect(result.document.sections.workspaces!.records).toEqual([])
+    // An explicit undefined argument must not be mistaken for the helper default.
+    const fixture = snapshotFixture({})
+    fixture.transaction.execute = async () => [] as never
+    await expect(
+      captureMigrationSnapshot(fixture.database, {
+        identity: IDENTITY,
+        requestedDomains: ['legacyAudienceQuarantine'],
+      })
+    ).rejects.toThrow('schema probe returned no row')
+  })
+
+  test('caller-owned snapshots keep native inventory unknown without an outside composition', async () => {
+    const fixture = snapshotFixture({})
+    const nativeSessionInventory = {
+      authorizedScopes: [
+        { accountId: 'acct-1', runtimeNodeId: 'node-1', workspaceId: 'workspace-1' },
+      ],
+      listRuntimeSessions: async () => ({ items: [] }),
+    }
+    const input = {
+      identity: IDENTITY,
+      requestedDomains: ['nativeSessions'],
+      nativeSessionInventory,
+    }
+    const unknown = await captureMigrationSnapshotInTransaction(fixture.transaction, input)
+    expect(unknown.domains).toEqual([
+      { domain: 'nativeSessions', status: 'unknown', unknownReason: 'inventory_error' },
+    ])
+    expect(unknown.document.sections.nativeSessions).toBeUndefined()
+    const section = { records: [], limit: 10, truncated: false }
+    const composed = await captureMigrationSnapshotInTransaction(fixture.transaction, input, {
+      nativeSessionSection: section,
+    })
+    expect(composed.document.sections.nativeSessions).toBe(section)
+    expect(fixture.transactionCount()).toBe(0)
+  })
+
+  test('runtime inventory completes before the one database transaction, and errors stay unknown', async () => {
+    for (const fails of [false, true]) {
+      const fixture = snapshotFixture({})
+      const result = await captureMigrationSnapshot(fixture.database, {
+        identity: IDENTITY,
+        requestedDomains: ['nativeSessions'],
+        nativeSessionInventory: {
+          authorizedScopes: [
+            { accountId: 'acct-1', runtimeNodeId: 'node-1', workspaceId: 'workspace-1' },
+          ],
+          listRuntimeSessions: async () => {
+            expect(fixture.transactionCount()).toBe(0)
+            if (fails) throw new Error('synthetic unavailable inventory')
+            return { items: [] }
+          },
+        },
+      })
+      expect(fixture.transactionCount()).toBe(1)
+      expect(result.domains).toEqual([
+        {
+          domain: 'nativeSessions',
+          status: fails ? 'unknown' : 'captured',
+          unknownReason: fails ? 'inventory_error' : null,
+        },
+      ])
+      if (fails) expect(result.document.sections.nativeSessions).toBeUndefined()
+      else expect(result.document.sections.nativeSessions!.records).toEqual([])
+    }
+  })
+
+  test('multiple requested sections serialize in contract order and retain explicit truncation', async () => {
+    const fixture = snapshotFixture({
+      workspaces: [
+        { ...capturedRow, id: 'z' },
+        { ...capturedRow, id: 'a' },
+      ],
+      agents: [],
+    })
+    const result = await captureMigrationSnapshot(fixture.database, {
+      identity: IDENTITY,
+      requestedDomains: ['workspaces', 'agents', 'unrecognized'],
+      limitPerFamily: 1,
+    })
+    expect(Object.keys(result.document.sections)).toEqual(['agents', 'workspaces'])
+    expect(result.document.sections.workspaces).toMatchObject({ truncated: true, limit: 1 })
+    expect(result.document.sections.workspaces!.records).toHaveLength(1)
+    expect(result.document.identity).toEqual({
+      formatVersion: 3,
+      rehearsalId: IDENTITY.rehearsalId,
+      snapshotId: IDENTITY.snapshotId,
+      source: IDENTITY.source,
+    })
   })
 })

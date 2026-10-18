@@ -196,3 +196,72 @@ describe('A36 rollback reader boundary', () => {
     }
   })
 })
+
+describe('retained rollback attribution and public fence emission', () => {
+  test('unfenced rows emit no attribution even when stale ancillary fields remain', async () => {
+    const { attributionOf, rollbackFenceEmission } =
+      await import('../../src/lead-turn-rollback-policy')
+    const row = {
+      rollbackFencedAt: null,
+      rollbackFenceActorKind: 'user',
+      rollbackFenceActorRef: userId,
+      rollbackFenceReason: 'rollback_cohort',
+      rollbackFenceAuthority: authority,
+    }
+    expect(attributionOf(row)).toBeUndefined()
+    expect(rollbackFenceEmission(row)).toBeNull()
+  })
+
+  test('emits exact user/operator facts while retained authority stays private', async () => {
+    const { attributionOf, rollbackFenceEmission } =
+      await import('../../src/lead-turn-rollback-policy')
+    for (const kind of ['user', 'operator'] as const) {
+      const ref = kind === 'user' ? userId : 'ops:rollback-1'
+      const row = {
+        rollbackFencedAt: observedAt,
+        rollbackFenceActorKind: kind,
+        rollbackFenceActorRef: ref,
+        rollbackFenceReason: 'rollback_cohort',
+        rollbackFenceAuthority: authority,
+      }
+      const actor = kind === 'user' ? { kind, userId: ref } : { kind, operatorId: ref }
+      expect(attributionOf(row)).toEqual({
+        fencedAt: observedAt.toISOString(),
+        actor,
+        reason: 'rollback_cohort',
+        authority,
+      })
+      expect(rollbackFenceEmission(row)).toEqual({
+        fencedAt: observedAt.toISOString(),
+        actor,
+        reason: 'rollback_cohort',
+      })
+      expect(rollbackFenceEmission(row)).not.toHaveProperty('authority')
+    }
+  })
+
+  test('partial fence attribution or invalid retained authority is refused', async () => {
+    const { attributionOf, rollbackFenceEmission } =
+      await import('../../src/lead-turn-rollback-policy')
+    const row = {
+      rollbackFencedAt: observedAt,
+      rollbackFenceActorKind: 'user',
+      rollbackFenceActorRef: userId,
+      rollbackFenceReason: 'rollback_cohort',
+      rollbackFenceAuthority: authority,
+    }
+    for (const patch of [
+      { rollbackFenceActorRef: null },
+      { rollbackFenceActorKind: null },
+      { rollbackFenceActorKind: 'system' },
+      { rollbackFenceReason: null },
+      { rollbackFenceReason: 'retry' },
+      { rollbackFenceAuthority: {} },
+    ]) {
+      expect(() => attributionOf({ ...row, ...patch })).toThrow('LEAD_TURN_FENCE_EVIDENCE_INVALID')
+      expect(() => rollbackFenceEmission({ ...row, ...patch })).toThrow(
+        'LEAD_TURN_FENCE_EVIDENCE_INVALID'
+      )
+    }
+  })
+})
