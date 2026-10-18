@@ -17,7 +17,7 @@ import type {
 import '@adea-ai/app-ui/dev-view.css'
 import { Show, createEffect, createSignal, on, onCleanup } from 'solid-js'
 
-import { openRuntimeEventStream } from '../chat/model/event-stream'
+import { openRuntimeEventStream } from '../chat/model/event-stream-core'
 import type { ConversationSearchJump } from '../chat/search'
 import { ResumeRefusedError, type ResumeTarget } from './all-sessions-model'
 import type { AllSessionsFeed } from './all-sessions-results'
