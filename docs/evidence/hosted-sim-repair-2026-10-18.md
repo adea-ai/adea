@@ -335,7 +335,9 @@ Fresh preferences now expose Chat and Dev only. Virtual, Kanban, Source control
 explicit App Library enable action. Valid version-1 records retain their listed
 views, hidden choices, unknown IDs and ordering. Reset restores core-only
 preferences; disabled/unknown routes fall back to enabled Chat, then Dev, then
-Library. Browser storage access failure preserves usable in-memory defaults.
+Library. The preference helpers retain core-only defaults and in-memory choices when
+storage access fails. Whole-shell blocked-storage resilience is unproven; the
+utility-owner and Dev entry still access localStorage directly.
 Early entry warming and rail intent warming both consult enabled destinations,
 so a disabled Virtual/designer deep link cannot initialize or fetch Sim.
 
@@ -358,3 +360,39 @@ The admitted coverage owners' test commits and additive selectors still need
 composition through coordinating root before the corrected shared coverage
 lane can be requalified. The last native archive receipt predates this optional
 view update and is not represented as its package proof.
+
+### Reviewed coverage, affected browser checks and fresh package
+
+The normal main merge at `55ec4e504832e1520c90fd2132b41b557d10742b` includes
+root-reviewed test-only #1457/#1458 through main `62fe0a7b9`. Adding exactly the
+four approved coverage inputs resolves every previously deficient file: the
+real lane passes 1,553 tests, 98.66% functions / 97.90% lines, and every file
+meets both unchanged 80% floors. Negative enforcement and exact selector
+inventory pass 24 tests / 306 assertions. The full unit graph passes 32/32.
+
+Affected local mocked browser checks pass five App Library/layout/keyboard
+cases, eight navigation-presentation cases, eight workspace deep-link cases,
+five guest cases and both designer-layout cases. The fresh-guest settings URL
+assertions now retain Chat after disabled Virtual falls back. An initial run
+found those two stale Virtual expectations; subsequent retries hit a dev-server
+heap failure and connection refusals. After compilation settled and the local
+server restarted, all five corrected guest cases and both designers pass.
+These transport failures are recorded as failed runs, not product passes. The
+DB-backed optional-view suites and cross-platform visual baselines are not
+claimed as executed.
+
+Fresh local unsigned stable archive: 822 entries, **123,880,250 bytes**,
+SHA-256 `4979d932ba016201cf7b208cc8949a4da11860d43ab84d65db9b5c7c3eeb48d8`.
+Its 312-file client is 4,157,476 bytes and matches the current built client
+byte-for-byte. The full 1,882-file / 319,389,606-byte private export was used for
+fingerprinting: zero private engine/runtime/binary asset matches, exactly four
+shared tracked JSON scene-manifest matches verified against repository source.
+The path guard also passes with zero Sim payload entries. This is a local
+unsigned packaging proof, not a signed release or live provider rollout.
+
+Aggregate gzip remains the unresolved local gate: 976,461 > 971,776 bytes.
+A diagnostic concatenation of modules already loaded together at workspace
+startup suggests about 4.8 KB gzip could be recovered by chunk co-location.
+This is an estimate, not a passing build. Shared Vite configuration must be
+coordinated before editing; any candidate must retain all route/lazy-boundary,
+byte and private-module guards and pass a fresh real production build.

@@ -75,3 +75,27 @@ this receipt supersedes its current-gap inventory after composition.
 records the read-only ownership check and root-admitted disjoint runtime/canvas
 batches. Owners are restricted to their table test paths; no production-source,
 configuration or held-work authority is implied.
+
+## Reviewed-batch composition: passing per-file qualification
+
+Coordinating root merged test-only #1458 at
+`8204b573aed709be8352bd11845cc9c389550776`, then #1457 at
+`62fe0a7b98ddd049f6e9efea6dd07d63d6624e81`. The Sim branch normally merged that
+main at `55ec4e504832e1520c90fd2132b41b557d10742b`, preserving both batches and
+the optional-view work. The test owners' paths were not edited during integration.
+
+The canvas proposal adds exactly four inputs to the existing coverage command:
+`packages/auth/tests/integration/adapter.test.ts`,
+`packages/auth/tests/integration/neon-driver.test.ts`,
+`apps/web/test/client-policy.test.ts`, and
+`packages/types/tests/workspace-primitives.test.ts`. The two auth suites are
+fake-backed despite their directory names. All prior selectors, plural
+`lines`/`functions` thresholds, and exclusions remain unchanged.
+
+The actual corrected lane passes: **1,553 tests across 125 files, 17,097
+assertions, 98.66% functions / 97.90% lines; zero files below either 80% floor**.
+The real-runner negative control and exact selector-boundary suite also pass
+24 tests / 306 assertions; the control still rejects 50% function coverage with
+100% lines and accepts 100%/100%. The earlier deficient-file inventory above is
+historical and is fully resolved by this composition. No production source,
+threshold, exclusion, or check was weakened to obtain this result.
