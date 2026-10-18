@@ -21,6 +21,8 @@ export function HostedSimEntry(props: {
   character?: string
   onClose?: () => void
 }) {
+  const [frameGeneration, setFrameGeneration] = createSignal(1)
+  const [frameReloadFailed, setFrameReloadFailed] = createSignal(false)
   const [fallbackClient] = createSignal(createApiClient())
   const client = () => props.client ?? fallbackClient()
   const workspaceId = useWorkspaceState((state) => state.selectedWorkspaceId)
@@ -54,7 +56,7 @@ export function HostedSimEntry(props: {
   const notice = () =>
     !isOnline()
       ? describeSimAvailability({ phase: 'offline', attempt: 0 })
-      : configuration()?.failed
+      : configuration()?.failed || frameReloadFailed()
         ? describeSimAvailability({
             phase: 'unavailable',
             reason: 'service_unavailable',
@@ -81,6 +83,36 @@ export function HostedSimEntry(props: {
     onCleanup(() => window.removeEventListener('message', message, { capture: true }))
   }
   onMount(() => {
+    // Moving a live iframe destroys its browsing context in Chromium. The
+    // controller intentionally refuses ready replays, so replace the component
+    // and obtain a fresh grant instead of replaying a consumed launch code.
+    const frames = new Map<HTMLIFrameElement, () => void>()
+    const watchFrames = () => {
+      for (const [element, loaded] of frames) {
+        if (container?.contains(element)) continue
+        element.removeEventListener('load', loaded)
+        frames.delete(element)
+      }
+      for (const element of container?.querySelectorAll('iframe') ?? []) {
+        if (frames.has(element)) continue
+        let loads = 0
+        const loaded = () => {
+          loads++
+          if (loads < 2 || !container?.contains(element)) return
+          if (frameGeneration() === 1) setFrameGeneration(2)
+          else setFrameReloadFailed(true)
+        }
+        frames.set(element, loaded)
+        element.addEventListener('load', loaded)
+      }
+    }
+    const observer = new MutationObserver(watchFrames)
+    if (container) observer.observe(container, { childList: true, subtree: true })
+    watchFrames()
+    onCleanup(() => {
+      observer.disconnect()
+      for (const [element, loaded] of frames) element.removeEventListener('load', loaded)
+    })
     window.addEventListener('online', online)
     window.addEventListener('offline', offline)
     onCleanup(() => {
@@ -106,7 +138,9 @@ export function HostedSimEntry(props: {
                 variant="outline"
                 size="sm"
                 onClick={() => {
-                  void refetch()
+                  setFrameGeneration(1)
+                  setFrameReloadFailed(false)
+                  if (configuration()?.failed) void refetch()
                 }}
               >
                 Try again
@@ -119,39 +153,43 @@ export function HostedSimEntry(props: {
           <p role="status">Checking Agent Sim…</p>
         </Show>
         <Show when={configuration()}>
-          <Show when={props.scene ?? 'home'} keyed>
-            {(scene) => (
-              <HostedAgentSim
-                frameOrigin={origin()}
-                allowLoopbackHttp={configuration()?.allowLoopbackHttp === true}
-                workspaceId={workspaceId() ?? ''}
-                surface={props.surface ?? 'hq'}
-                platform={
-                  typeof window !== 'undefined' && '__adeaDesktop' in window ? 'desktop' : 'web'
-                }
-                character={props.character}
-                requestGrant={(request, signal) => client().requestSimLaunch(request, signal)}
-                onNavigate={({ target }) => navigateSimDesigner(window, target)}
-                onCharacterSave={(character, request) =>
-                  commitSimCharacter(window, character, request, {
-                    workspaceId: workspaceId() ?? '',
-                    surface: props.surface ?? 'hq',
-                    bridgeId: frame?.bridgeId,
-                  })
-                }
-                frameUrl={(next) => {
-                  frame = next
-                  const url = new URL('/frame', next.origin)
-                  // Non-secret mount context stays in the fragment, outside request/referrer logs.
-                  url.hash = new URLSearchParams({
-                    parentOrigin: window.location.origin,
-                    bridgeId: next.bridgeId,
-                    scene,
-                  }).toString()
-                  return url.toString()
-                }}
-                class="size-full"
-              />
+          <Show when={frameGeneration()} keyed>
+            {(_generation) => (
+              <Show when={props.scene ?? 'home'} keyed>
+                {(scene) => (
+                  <HostedAgentSim
+                    frameOrigin={origin()}
+                    allowLoopbackHttp={configuration()?.allowLoopbackHttp === true}
+                    workspaceId={workspaceId() ?? ''}
+                    surface={props.surface ?? 'hq'}
+                    platform={
+                      typeof window !== 'undefined' && '__adeaDesktop' in window ? 'desktop' : 'web'
+                    }
+                    character={props.character}
+                    requestGrant={(request, signal) => client().requestSimLaunch(request, signal)}
+                    onNavigate={({ target }) => navigateSimDesigner(window, target)}
+                    onCharacterSave={(character, request) =>
+                      commitSimCharacter(window, character, request, {
+                        workspaceId: workspaceId() ?? '',
+                        surface: props.surface ?? 'hq',
+                        bridgeId: frame?.bridgeId,
+                      })
+                    }
+                    frameUrl={(next) => {
+                      frame = next
+                      const url = new URL('/frame', next.origin)
+                      // Non-secret mount context stays in the fragment, outside request/referrer logs.
+                      url.hash = new URLSearchParams({
+                        parentOrigin: window.location.origin,
+                        bridgeId: next.bridgeId,
+                        scene,
+                      }).toString()
+                      return url.toString()
+                    }}
+                    class="size-full"
+                  />
+                )}
+              </Show>
             )}
           </Show>
         </Show>

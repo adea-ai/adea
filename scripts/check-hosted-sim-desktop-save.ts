@@ -269,7 +269,10 @@ await context.addInitScript(() => {
 })
 const errors: string[] = []
 const errorContexts: Promise<unknown>[] = []
-page.on('pageerror', (error) => errors.push(error.message))
+page.on('pageerror', (error) => {
+  errors.push(error.message)
+  errorContexts.push(Promise.resolve({ pageError: error.stack }))
+})
 page.on('console', (message) => {
   if (message.type() === 'error') {
     errors.push(message.text())
@@ -375,6 +378,35 @@ try {
   await expect(page).not.toHaveURL(/characterDesigner=1/)
   await readyScene('hq')
   console.log('phase: closed reloaded character designer into HQ')
+  if (process.env.ADEA_SIM_FORCE_FRAME_MOVE === '1') {
+    const before = grants
+    const previousFrame = await page.locator('iframe').getAttribute('src')
+    await page.evaluate(() => {
+      const iframe = document.querySelector('iframe')!
+      const parent = iframe.parentNode!
+      parent.removeChild(iframe)
+      parent.appendChild(iframe)
+    })
+    await expect.poll(() => grants).toBe(before + 1)
+    await expect(page.locator('iframe')).not.toHaveAttribute('src', previousFrame!)
+    await readyScene('hq')
+    await expect(frame().getByRole('button', { name: 'Character', exact: true })).toBeVisible()
+    console.log('phase: native iframe move recovered with a fresh grant')
+    const recoveredGrants = grants
+    await page.evaluate(() => {
+      const iframe = document.querySelector('iframe')!
+      const parent = iframe.parentNode!
+      parent.removeChild(iframe)
+      parent.appendChild(iframe)
+    })
+    await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
+    expect(grants).toBe(recoveredGrants)
+    await page.getByRole('button', { name: 'Try again', exact: true }).click()
+    await expect.poll(() => grants).toBe(recoveredGrants + 1)
+    await readyScene('hq')
+    await expect(frame().getByRole('button', { name: 'Character', exact: true })).toBeVisible()
+    console.log('phase: repeated native reload requires explicit retry and fresh grant')
+  }
   await frame().getByRole('button', { name: 'Room designer', exact: true }).click()
   await expect(page).toHaveURL(/roomDesigner=1/)
   await expect(

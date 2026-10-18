@@ -174,3 +174,27 @@ push or overlapping edit occurred. After required local dependency files went
 missing, the old owned installation was preserved and frozen install restored
 it; full typecheck and the normal commit hook pass again. A separate fresh
 private export replaces the incomplete earlier local export for further tests.
+
+## Native browsing-context replacement candidate
+
+After private `341e616`, two strict actual-built-client journeys passed with zero
+rendering errors; a third reproduced blank HQ with zero errors. Its native DOM
+journal proves the same iframe was removed/reinserted repeatedly, loaded a second
+time, and posted another ready after running. The old controller correctly
+refused that replay and did not reuse the consumed grant.
+
+The app wrapper now allows one fresh component/nonce/grant after a second native
+load of the same iframe. A repeated reload presents the existing unavailable
+notice with explicit retry. Retired listeners are removed. Valid configuration
+is reused on this retry, avoiding a loading-status insertion that moved the new
+frame again; failed configuration still refetches. The shared bridge/controller
+implementation is unchanged. Bootstrap configuration reads now abort on pagehide;
+genuine errors remain observable and listener cleanup has focused tests.
+
+The controlled real-browser regression removes/reinserts the actual iframe,
+checks one fresh grant and a changed frame address, repeats the native reload,
+checks the manual retry gate and fresh grant, then completes the existing strict
+save/reload/designer journey. Earlier candidates passed automatic recovery but
+exposed extra grants on retry and two unhandled fetch errors. Current types
+33/33 and lint 19/19 pass; the latest browser repeat is still pending. No error
+filter, ready-replay relaxation, spent-code reuse or threshold change was added.

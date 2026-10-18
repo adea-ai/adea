@@ -1,4 +1,5 @@
 import { startSimFrame } from './sim-frame'
+import { readSimHostConfiguration } from './sim-host-configuration'
 
 type Runtime = {
   mount(options: {
@@ -14,14 +15,11 @@ type Runtime = {
 }
 
 const root = document.getElementById('sim')
-const configuration = (await fetch('/configuration', {
-  credentials: 'same-origin',
-  cache: 'no-store',
-}).then((response) => response.json())) as { parentOrigins?: unknown; allowLoopbackHttp?: unknown }
+const configuration = await readSimHostConfiguration(window)
 if (
   root &&
-  Array.isArray(configuration.parentOrigins) &&
-  configuration.parentOrigins.every((value) => typeof value === 'string')
+  Array.isArray(configuration?.parentOrigins) &&
+  configuration?.parentOrigins.every((value) => typeof value === 'string')
 ) {
   startSimFrame({
     window,
