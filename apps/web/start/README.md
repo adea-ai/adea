@@ -68,6 +68,8 @@ bytes without changing those boundaries. At the #1385 repair,
 consolidating the existing small shared chunks reduced the measured Dev utility
 closure from 185,636 to 185,165 raw bytes and 16 to 12 files, within the unchanged
 185,344-byte budget. Every route/startup closure remains checked by `start:verify`.
+Runtime-contract grouping is nonrecursive so focused reply DTO dependencies keep
+their existing lazy boundaries.
 
 ## Entry policy
 
@@ -134,6 +136,13 @@ adds host-specific checks (`start/browser/`): the document is really served by
 Start, unknown paths cannot become an unguarded workspace shell, a failed
 workspace import produces a recoverable route error, view switching preserves
 query state, and guest cookies/durable writes/tenant isolation hold.
+
+The root Playwright config gives its managed dev Worker the same validated
+`DATABASE_URL` as the Node fixtures, using Hyperdrive's
+`CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` override. This keeps
+an isolated worktree database from being mixed with `wrangler.jsonc`'s default
+local port. With `PERF_BASE_URL`, the server is managed externally: set that
+override to the same test database when starting it.
 
 ### Visual regression
 

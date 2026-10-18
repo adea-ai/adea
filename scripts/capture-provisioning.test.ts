@@ -58,7 +58,7 @@ import { startCaptureProvisioning } from ${JSON.stringify(helper)}
 const mode = process.argv[2]
 if (mode === 'no-ready') {
   writeFileSync(process.env.CHILD_PID_FILE, String(process.pid))
-  console.log('STARTED WITHOUT READY')
+  console.error('STARTED WITHOUT READY')
   setInterval(() => {}, 1000)
   await new Promise(() => {})
 }
@@ -205,6 +205,10 @@ async function startChild(
     stdout: 'pipe',
   })
   try {
+    // The no-ready proof times the readiness wait, not process startup. Its
+    // separate, bounded stderr acknowledgement follows the PID write, so a
+    // slow spawn cannot expire the 100 ms wait before the child is running.
+    if (mode === 'no-ready') await readUntil(child.stderr, /STARTED WITHOUT READY/)
     const [, name] = await readUntil(
       child.stdout,
       /READY (adea-capture-prov-[0-9a-f]+)/,

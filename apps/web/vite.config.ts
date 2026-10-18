@@ -131,6 +131,7 @@ export default defineConfig(({ command }) => ({
                 {
                   name: 'dev-runtime-contract',
                   test: /packages\/types\/dist\/dev-runtime-(wire|validation-internal)\.js$/,
+                  includeDependenciesRecursively: false,
                 },
                 // The contextual host and its lazy panes share this small command
                 // helper and lazy status models. Co-locate their wrappers without hoisting
