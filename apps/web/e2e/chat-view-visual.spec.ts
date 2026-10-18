@@ -70,7 +70,7 @@ for (const state of states) {
         const fixture = page.locator('[data-chat-visual-state]')
         await expect(fixture).toBeVisible({ timeout: 30_000 })
         await expect(fixture).toHaveAttribute('data-chat-visual-state', state)
-        await expect(page.locator('section.dev-chat')).toBeVisible()
+        await expect(page.locator('[data-dev-chat]')).toBeVisible()
         await forceResolvedTheme(page, theme)
 
         // This fixture has no authoritative Control Plane decision seam.
@@ -80,7 +80,7 @@ for (const state of states) {
         await expect(page.getByRole('button', { name: 'Resolve launch decision' })).toHaveCount(0)
 
         if (state === 'conversation') {
-          await expect(page.getByRole('article')).toHaveCount(5)
+          await expect(page.getByRole('article')).toHaveCount(2)
           await expect(page.getByText('The plan is ready.', { exact: false }).first()).toBeVisible()
           await expect(page.getByRole('textbox', { name: 'Message runtime' })).toBeEnabled()
         } else if (state === 'attention') {
@@ -94,7 +94,7 @@ for (const state of states) {
             page.getByRole('alert').filter({ hasText: 'Transcript gap detected' })
           ).toBeVisible()
           await expect(page.getByRole('button', { name: 'Reconnect transcript' })).toBeVisible()
-          await expect(page.locator('.dev-chat__status')).toContainText('Disconnected')
+          await expect(page.locator('[data-chat-status]')).toContainText('Disconnected')
         }
 
         await expect(page).toHaveScreenshot(`chat-view-${state}-${theme}-${viewport.name}.png`, {
@@ -126,16 +126,16 @@ test('ChatView keeps an existing transcript row mounted when a stream event is a
   await expect(page.locator('[data-chat-visual-state="streaming"]')).toBeVisible({
     timeout: 30_000,
   })
-  await expect(page.getByRole('article')).toHaveCount(5)
-  const firstRow = await page.getByRole('article').first().elementHandle()
+  await expect(page.locator('[data-entry-id]')).toHaveCount(5)
+  const firstRow = await page.locator('[data-entry-id]').first().elementHandle()
   expect(firstRow).not.toBeNull()
 
   // The fixture appends exactly when the spec dispatches its window event,
   // so the mount-stability check never races a wall clock.
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:append')))
-  await expect(page.getByRole('article')).toHaveCount(6, { timeout: 5_000 })
+  await expect(page.locator('[data-entry-id]')).toHaveCount(6, { timeout: 5_000 })
   const firstRowRemainedMounted = await firstRow?.evaluate(
-    (node) => node.isConnected && node === document.querySelector('article.dev-chat__row')
+    (node) => node.isConnected && node === document.querySelector('[data-entry-id]')
   )
   expect(firstRowRemainedMounted).toBe(true)
 })

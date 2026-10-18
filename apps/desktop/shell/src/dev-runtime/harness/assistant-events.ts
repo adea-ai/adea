@@ -1,8 +1,29 @@
 import {
   decodeRuntimeAssistantPayload,
+  encodeCbor,
   isRuntimeAssistantEventKind,
   type RuntimeEvent,
 } from '../../../../../../packages/types/src/dev-runtime-wire'
+
+/** The `runtime-events-v1` grant limit: one canonical-CBOR event per frame. */
+export const RUNTIME_EVENT_FRAME_BYTES_MAX = 65_536
+
+/**
+ * Refuse an assistant event whose canonical-CBOR encoding cannot be streamed.
+ * Call it on the exact event to be stored (final sequence included) before
+ * persistence or publication: JSON size is no proxy, because CBOR expands
+ * numbers (a 3-byte `0.1` becomes 9) and the envelope adds its own bytes.
+ * Nothing is truncated; the append fails and consumes no sequence.
+ */
+export function assertAssistantEventFitsFrame(event: RuntimeEvent): void {
+  if (
+    isRuntimeAssistantEventKind(event.kind) &&
+    encodeCbor(event).byteLength > RUNTIME_EVENT_FRAME_BYTES_MAX
+  )
+    throw new TypeError(
+      `event: maximum encoded assistant event size exceeded (${RUNTIME_EVENT_FRAME_BYTES_MAX} bytes)`
+    )
+}
 
 const confidenceRank = { untrusted_hint: 0, bounded_projection: 1, authoritative: 2 } as const
 

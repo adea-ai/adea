@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path'
 
 import { cborByteLength } from '../src/dev-runtime-cbor-length'
 import {
+  decodeCbor,
   decodeRuntimeCallEvent,
   decodeRuntimeEnvelope,
   decodeRuntimeEvent,
@@ -248,7 +249,7 @@ describe('lean envelope decoder', () => {
     expect(decodeRuntimeEnvelope(legacy, provenance)).toBe(legacy)
   })
 
-  test('lean and browser queue decoder entries stay under the existing size ceiling', async () => {
+  test('the lean and browser queue decoder entries exclude every kind-specific validator and stay under the existing size ceiling', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'adea-envelope-'))
     try {
       const entry = join(directory, 'entry.ts')
@@ -258,15 +259,14 @@ describe('lean envelope decoder', () => {
           resolve(import.meta.dir, '../src/dev-runtime-wire.ts')
         )}\nglobalThis.lean = [decodeCbor, decodeRuntimeEnvelope]\n`
       )
-      const result = await Bun.build({
-        entrypoints: [entry],
-        minify: true,
-        target: 'browser',
-      })
+      const result = await Bun.build({ entrypoints: [entry], minify: true, target: 'browser' })
       expect(result.success).toBe(true)
       const text = await result.outputs[0]!.text()
       // The generic lean decoder stays small; browser stream and replay add
       // their queue contract through decodeRuntimeBrowserEnvelope.
+      // Interaction, attachment and any later contract validators belong behind
+      // `eventSemantics` in dev-runtime-wire.ts; reaching them from the lean
+      // decoder moves their bytes into the shared utility bundle.
       for (const marker of [
         'call observations require',
         'expected opaque call identifier',
@@ -315,6 +315,52 @@ const call = (payload: Record<string, unknown>, overrides: Record<string, unknow
   })
 const reject = (value: unknown) =>
   expect(() => decodeRuntimeCallEvent(value, provenance)).toThrow('Unicode')
+
+describe('inline JSON keys that collide with Object.prototype names', () => {
+  const json =
+    '{"__proto__":{"p":1},"constructor":"c","toString":["t"],"valueOf":{"hasOwnProperty":2}}'
+
+  test('round-trip through the CBOR codec as own keys without touching prototypes', () => {
+    const decoded = decodeCbor(encodeCbor(JSON.parse(json))).value as Record<string, unknown>
+    for (const key of ['__proto__', 'constructor', 'toString', 'valueOf'])
+      expect(Object.hasOwn(decoded, key)).toBe(true)
+    expect(Object.getPrototypeOf(decoded)).toBe(Object.prototype)
+    expect(decoded.constructor).toBe('c')
+    expect(Object.getOwnPropertyDescriptor(decoded, '__proto__')!.value).toEqual({ p: 1 })
+    expect(({} as Record<string, unknown>).p).toBeUndefined()
+  })
+
+  test('accepted call input and output survive the stream decoder, nested', () => {
+    const nested = JSON.parse(`{"outer":${json},"list":[${json}]}`)
+    const value = call(
+      {
+        phase: 'completed',
+        input: { type: 'inline', value: JSON.parse(json) },
+        output: { type: 'inline', value: nested },
+      },
+      { kind: 'tool.completed' }
+    )
+    const parsed = decodeCbor(encodeCbor(value)).value
+    expect(decodeRuntimeCallEvent(parsed, provenance)).toEqual(value)
+    expect(decodeRuntimeEvent(parsed, provenance)).toEqual(value)
+    expect(decodeRuntimeEnvelope(parsed, provenance)).toEqual(value)
+  })
+
+  test('still rejects duplicate keys and non-canonical order', () => {
+    const duplicate = Uint8Array.from([0xa2, 0x61, 0x61, 0x01, 0x61, 0x61, 0x02])
+    expect(() => decodeCbor(duplicate)).toThrow()
+    const unordered = Uint8Array.from([0xa2, 0x61, 0x62, 0x01, 0x61, 0x61, 0x02])
+    expect(() => decodeCbor(unordered)).toThrow()
+    const dupProto = Uint8Array.from([
+      0xa2,
+      ...encodeCbor('__proto__'),
+      0x01,
+      ...encodeCbor('__proto__'),
+      0x02,
+    ])
+    expect(() => decodeCbor(dupProto)).toThrow()
+  })
+})
 
 describe('call Unicode checks cover every producer-supplied string', () => {
   test('refuses lone surrogates in names, inline keys, nested values and envelope metadata', () => {

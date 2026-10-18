@@ -4,10 +4,20 @@ import { createHash } from 'node:crypto'
 import type { RuntimeSession, Scope } from '../../../../../../packages/types/src/dev-runtime'
 import type { ChannelAuthority } from '../channel/authority'
 import type { AcpLane } from './acp-lane'
-import type { SessionEventLog } from './events'
+import { EVENT_PAGE_MAX, type SessionEventLog } from './events'
 import type { RunHistoryStore } from './runs'
 import { RUN_ACTIVE_STATES } from './status'
 import { createFollowUpQueue } from './follow-ups'
+
+function queueSourceEventId(payload: {
+  runtimeSessionId: string
+  generation: number
+  version: number
+}): string {
+  return `host:queue:${createHash('sha256')
+    .update(JSON.stringify([payload.runtimeSessionId, payload.generation, payload.version]))
+    .digest('hex')}`
+}
 
 export function registerFollowUpQueue(input: {
   authority: ChannelAuthority
@@ -63,6 +73,39 @@ export function registerFollowUpQueue(input: {
         ...(connection ? { deliveryBinding: `${connection.id}:${connection.generation}` } : {}),
       }
     },
+    isPublished: (payload) => {
+      // Quarantine is per exact generation, not every queue in the workspace.
+      // Capture an upper bound and inspect all retained pages, never just 500.
+      const through = BigInt(
+        input.events.latestSequence(payload.runtimeSessionId, payload.generation)
+      )
+      const sourceEventId = queueSourceEventId(payload)
+      let fromSequence = '0'
+      while (BigInt(fromSequence) <= through) {
+        const page = input.events.read(payload.runtimeSessionId, {
+          generation: payload.generation,
+          fromSequence,
+          limit: EVENT_PAGE_MAX,
+        })
+        for (const event of page) {
+          if (BigInt(event.seq) > through) return false
+          if (
+            event.runtimeSessionId === payload.runtimeSessionId &&
+            event.generation === payload.generation &&
+            event.source === 'host' &&
+            event.kind === 'queue.updated' &&
+            event.confidence === 'authoritative' &&
+            event.classification === 'workspace_metadata' &&
+            event.sourceEventId === sourceEventId &&
+            JSON.stringify(event.payload) === JSON.stringify(payload)
+          )
+            return true
+        }
+        if (page.length < EVENT_PAGE_MAX) return false
+        fromSequence = (BigInt(page.at(-1)!.seq) + 1n).toString()
+      }
+      return false
+    },
     publish: (payload) => {
       input.events.append({
         runtimeSessionId: payload.runtimeSessionId,
@@ -72,9 +115,7 @@ export function registerFollowUpQueue(input: {
         confidence: 'authoritative',
         classification: 'workspace_metadata',
         payload,
-        sourceEventId: `host:queue:${createHash('sha256')
-          .update(JSON.stringify([payload.runtimeSessionId, payload.generation, payload.version]))
-          .digest('hex')}`,
+        sourceEventId: queueSourceEventId(payload),
       })
     },
     deliver: async ({ runtimeSessionId, generation, runId, text, signal, deliveryBinding }) => {
@@ -100,6 +141,7 @@ export function registerFollowUpQueue(input: {
         runtimeSessionId,
         harnessRunId: runId,
         prompt: text,
+        signal,
       })
       return { ok: result.ok && result.bytes === new TextEncoder().encode(text).byteLength }
     },

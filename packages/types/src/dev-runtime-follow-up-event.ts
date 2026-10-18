@@ -1,4 +1,5 @@
-import { fail } from './dev-runtime-validation-internal'
+import { fail, integerValue } from './dev-runtime-validation-internal'
+import { assertWellFormedUnicode } from './dev-runtime-unicode'
 import { usageDataRecord } from './dev-runtime-usage'
 
 export const FOLLOW_UP_QUEUE_MAX_ITEMS = 16
@@ -27,8 +28,9 @@ export type FollowUpQueueEventPayload = Readonly<{
 }>
 
 function validIdentifier(value: unknown, max = 128): value is string {
+  if (typeof value !== 'string') return false
+  assertWellFormedUnicode(value, 'followUps.identifier')
   return (
-    typeof value === 'string' &&
     value.length > 0 &&
     value.length <= max &&
     value.trim() === value &&
@@ -39,15 +41,12 @@ function validIdentifier(value: unknown, max = 128): value is string {
 /** Prompt-free queue facts shared by the lean browser wire decoder and host. */
 export function validateFollowUpQueueEventPayload(value: unknown): FollowUpQueueEventPayload {
   const item = usageDataRecord(value, 'followUps')
-  const hasReceipt = 'lastDelivery' in item
+  integerValue(item.generation, 'followUps.generation', 0)
+  integerValue(item.version, 'followUps.version', 0)
   if (
-    Object.keys(item).length !== 6 + Number(hasReceipt) ||
+    Object.keys(item).length !== ('lastDelivery' in item ? 7 : 6) ||
     item.schemaVersion !== 1 ||
     !validIdentifier(item.runtimeSessionId, 256) ||
-    !Number.isSafeInteger(item.generation) ||
-    (item.generation as number) < 0 ||
-    !Number.isSafeInteger(item.version) ||
-    (item.version as number) < 0 ||
     ![
       'enqueue',
       'remove',
@@ -67,12 +66,10 @@ export function validateFollowUpQueueEventPayload(value: unknown): FollowUpQueue
   for (const entryValue of item.items) {
     const entry = usageDataRecord(entryValue, 'followUps.items[]')
     const id = entry.id
+    integerValue(entry.bytes, 'followUps.items[].bytes', 1, FOLLOW_UP_TEXT_MAX_BYTES)
     if (
       Object.keys(entry).length !== 3 ||
       !validIdentifier(id) ||
-      !Number.isSafeInteger(entry.bytes) ||
-      (entry.bytes as number) < 1 ||
-      (entry.bytes as number) > FOLLOW_UP_TEXT_MAX_BYTES ||
       !['queued', 'dispatching', 'ambiguous'].includes(entry.state as string) ||
       ids.has(id)
     )

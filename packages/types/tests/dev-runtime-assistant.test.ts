@@ -118,7 +118,7 @@ describe('assistant event identity contract', () => {
     ).toThrow('summary')
   })
 
-  test('refuses unpaired surrogates in text a UTF-8 stream replay would rewrite', () => {
+  test('refuses ill-formed Unicode strings in text a UTF-8 stream replay would rewrite', () => {
     for (const invalid of ['\ud800', '\udc00', 'a\ud800b', 'a\udc00b']) {
       for (const [kind, payload] of [
         ['turn.assistant_delta', { ...delta, text: invalid }],
@@ -126,7 +126,7 @@ describe('assistant event identity contract', () => {
         ['turn.result', { ...result, summary: invalid }],
       ] as const)
         expect(() => decodeRuntimeEvent(event(kind, payload), { source: 'acp' })).toThrow(
-          'unpaired surrogate'
+          'ill-formed Unicode string'
         )
     }
     const paired = { ...final, text: 'rocket 🚀 ok' }
@@ -161,5 +161,35 @@ describe('assistant event identity contract', () => {
         { source: 'terminal_fallback' }
       )
     ).toThrow('event kind')
+  })
+})
+
+const wire = (id: string) => new TextDecoder().decode(new TextEncoder().encode(id))
+
+describe('envelope identifiers are well-formed Unicode', () => {
+  const lone = ['\ud800', '\udc00', 'a\ud83d', '\ude80b']
+  for (const key of ['eventId', 'runtimeSessionId', 'sourceEventId', 'harnessRunId'] as const)
+    test(`${key} rejects ill-formed Unicode strings and keeps valid scalars`, () => {
+      for (const bad of lone)
+        expect(() =>
+          decodeRuntimeEvent(
+            { ...event('turn.assistant_delta', delta), [key]: bad },
+            { source: 'acp' }
+          )
+        ).toThrow('ill-formed Unicode string')
+      const good = {
+        ...event('turn.assistant_delta', delta),
+        [key]: 'id-🚀-é',
+      }
+      expect(decodeRuntimeEvent(good, { source: 'acp' })).toEqual(good)
+      expect(decodeCbor(encodeCbor(good)).value).toEqual(good)
+    })
+
+  test('distinct lone-surrogate run ids cannot collapse to one wire identity', () => {
+    expect(wire('r\ud800')).toBe(wire('r\ud801'))
+    for (const id of ['r\ud800', 'r\ud801'])
+      expect(() =>
+        decodeRuntimeEvent({ ...event('turn.result', result), harnessRunId: id }, { source: 'acp' })
+      ).toThrow('ill-formed Unicode string')
   })
 })

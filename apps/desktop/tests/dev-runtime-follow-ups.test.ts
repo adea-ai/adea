@@ -2,7 +2,12 @@ import { describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { FollowUpQueueRequest } from '../../../packages/types/src/dev-runtime-follow-ups'
+import { createSessionEventLog } from '../shell/src/dev-runtime/harness/events'
+import { createFollowUpStorage } from '../shell/src/dev-runtime/harness/follow-up-storage'
+import type {
+  FollowUpQueueRequest,
+  FollowUpQueueEventPayload,
+} from '../../../packages/types/src/dev-runtime-follow-ups'
 import {
   createFollowUpQueue,
   type FollowUpLiveState,
@@ -39,6 +44,8 @@ function setup() {
     publish: (event: unknown) => {
       events.push(event)
     },
+    isPublished: (event: unknown) =>
+      events.some((entry) => JSON.stringify(entry) === JSON.stringify(event)),
     deliver: async (input: { text: string }) => handoff(input.text),
     deliveryTimeoutMs: 30,
   }
@@ -83,13 +90,14 @@ function setup() {
 }
 
 describe('authorized follow-up queue', () => {
-  test('restart recovers a durable claim after publication failed before any send, allowing explicit removal', async () => {
+  test('restart recovers a retained published claim without resending after the publication callback throws', async () => {
     const s = setup()
     try {
       await s.enqueue('a')
       s.setLive({ state: 'awaiting_input', runVersion: 2 })
       const publish = s.options.publish
-      s.options.publish = () => {
+      s.options.publish = (event) => {
+        publish(event)
         throw new Error('publication interrupted')
       }
       const request = { ...s.target, action: 'deliver' as const, expectedVersion: 1 }
@@ -192,12 +200,17 @@ describe('authorized follow-up queue', () => {
       s.setLive({ state: 'awaiting_input', runVersion: 2 })
       const module = new URL('../shell/src/dev-runtime/harness/follow-ups.ts', import.meta.url).href
       const marker = join(s.dataDir, 'unexpected-send')
+      const eventModule = new URL('../shell/src/dev-runtime/harness/events.ts', import.meta.url)
+        .href
+      const log = createSessionEventLog({ dataDir: s.dataDir, scope })
       const script = `import { createFollowUpQueue } from ${JSON.stringify(module)};
         import { writeFileSync } from 'node:fs';
+        import { createSessionEventLog } from ${JSON.stringify(eventModule)};
+        const log = createSessionEventLog({ dataDir: ${JSON.stringify(s.dataDir)}, scope: ${JSON.stringify(scope)} });
         const queue = createFollowUpQueue({
           dataDir: ${JSON.stringify(s.dataDir)}, scope: ${JSON.stringify(scope)}, key: () => Buffer.alloc(32, 7),
           resolve: () => ({ generation: 1, archived: false, runId: 'run-1', runVersion: 2, state: 'awaiting_input', deliverySupported: true }),
-          publish: (event) => { if (event.change === 'delivery_started') process.exit(0) },
+          publish: (event) => { log.append({ runtimeSessionId: event.runtimeSessionId, generation: event.generation, kind: 'queue.updated', sourceEventId: 'queue:' + event.version, payload: event }); if (event.change === 'delivery_started') process.exit(0) },
           deliver: async () => { writeFileSync(${JSON.stringify(marker)}, 'sent'); return { ok: true } },
         });
         await queue.execute({ runtimeSessionId: 'session-1', expectedGeneration: 1, action: 'deliver', expectedVersion: 1 }, {
@@ -207,7 +220,18 @@ describe('authorized follow-up queue', () => {
       const child = Bun.spawn([process.execPath, '-e', script], { stdout: 'pipe', stderr: 'pipe' })
       expect(await child.exited).toBe(0)
       expect(existsSync(marker)).toBe(false)
-      const restarted = createFollowUpQueue(s.options)
+      const restarted = createFollowUpQueue({
+        ...s.options,
+        isPublished: (payload) =>
+          log
+            .events()
+            .some(
+              (event) =>
+                event.source === 'host' &&
+                event.sourceEventId === `queue:${payload.version}` &&
+                JSON.stringify(event.payload) === JSON.stringify(payload)
+            ),
+      })
       const lockDir = join(s.dataDir, 'dev-runtime', 'worktrees', 'locks')
       const claimFile = readdirSync(lockDir)
         .map((name) => join(lockDir, name))
@@ -499,6 +523,120 @@ describe('authorized follow-up queue', () => {
       await s.execute({ ...s.target, action: 'deliver', expectedVersion: first.version })
       expect(s.delivered).toEqual(['a', 'b'])
     } finally {
+      s.cleanup()
+    }
+  })
+
+  test.each([1, 2])(
+    'publication witness prevents replay after save failure %s and full event eviction',
+    async (failedSave) => {
+      const s = setup()
+      const log = createSessionEventLog({ dataDir: s.dataDir, scope, maxPerSession: 1 })
+      let published = false
+      let saves = 0
+      const options = {
+        ...s.options,
+        key: () => {
+          if (published && ++saves === failedSave) throw new Error('save failed after append')
+          return Buffer.alloc(32, 7)
+        },
+        publish: (payload: FollowUpQueueEventPayload) => {
+          log.append({
+            runtimeSessionId: payload.runtimeSessionId,
+            generation: payload.generation,
+            kind: 'queue.updated',
+            sourceEventId: `queue:${payload.version}`,
+            payload,
+          })
+          published = true
+        },
+        isPublished: (payload: FollowUpQueueEventPayload) =>
+          log
+            .events()
+            .some(
+              (event) =>
+                event.source === 'host' &&
+                event.sourceEventId === `queue:${payload.version}` &&
+                JSON.stringify(event.payload) === JSON.stringify(payload)
+            ),
+      }
+      try {
+        const queue = createFollowUpQueue(options)
+        await expect(
+          queue.execute(
+            { ...s.target, action: 'enqueue', expectedVersion: 0, messageId: 'a', text: 'a' },
+            { idempotencyKey: 'enqueue', authorize: s.authorize }
+          )
+        ).rejects.toThrow('save failed after append')
+        expect(log.events().map((event) => event.kind)).toEqual(['queue.updated'])
+        log.append({
+          runtimeSessionId: 'session-1',
+          generation: 1,
+          kind: 'capability.restored',
+          sourceEventId: 'evict-every-queue-event',
+        })
+        expect(log.events().map((event) => event.kind)).toEqual(['capability.restored'])
+        const reopened = createFollowUpQueue({ ...options, key: s.options.key })
+        const read = reopened.execute({ ...s.target, action: 'read' }, { authorize: s.authorize })
+        if (failedSave === 1)
+          await expect(read).rejects.toMatchObject({ code: 'recovery_required' })
+        else expect((await read).items.map((item) => item.id)).toEqual(['a'])
+        expect(log.latestSequence('session-1', 1)).toBe('2')
+        expect(log.events().some((event) => event.kind === 'queue.updated')).toBe(false)
+      } finally {
+        s.cleanup()
+      }
+    }
+  )
+
+  test('timeout and Stop retain ownership until the first physical write actually settles', async () => {
+    const s = setup()
+    let release!: () => void
+    const wait = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const writes: string[] = []
+    try {
+      s.options.deliveryTimeoutMs = 1
+      await s.enqueue('a')
+      s.setLive({ state: 'awaiting_input', runVersion: 2 })
+      s.setHandoff(async (text) => {
+        if (text === 'a') await wait
+        writes.push(text)
+        return { ok: true }
+      })
+      const timedOut = await s.execute({ ...s.target, action: 'deliver', expectedVersion: 1 })
+      expect(timedOut.lastDelivery?.status).toBe('ambiguous')
+      await s.queue.cancelGeneration('session-1', 1)
+      s.setLive({ generation: 2, state: 'awaiting_input', runVersion: 3 })
+      const peer = createFollowUpQueue(s.options)
+      const target = { runtimeSessionId: 'session-1', expectedGeneration: 2 }
+      await peer.execute(
+        { ...target, action: 'enqueue', expectedVersion: 0, messageId: 'b', text: 'b' },
+        { idempotencyKey: 'next-generation', authorize: s.authorize }
+      )
+      await expect(
+        peer.execute(
+          { ...target, action: 'deliver', expectedVersion: 1 },
+          { idempotencyKey: 'second-send', authorize: s.authorize }
+        )
+      ).rejects.toMatchObject({ code: 'invalid_state' })
+      expect(() => createFollowUpStorage(s.options).validateForPurge()).toThrow(
+        'workspace_cleanup_follow_up_busy'
+      )
+      expect(writes).toEqual([])
+      release()
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(writes).toEqual(['a'])
+      expect(() => createFollowUpStorage(s.options).validateForPurge()).not.toThrow()
+      await peer.execute(
+        { ...target, action: 'deliver', expectedVersion: 1 },
+        { idempotencyKey: 'second-send', authorize: s.authorize }
+      )
+      expect(writes).toEqual(['a', 'b'])
+    } finally {
+      release()
+      await new Promise((resolve) => setImmediate(resolve))
       s.cleanup()
     }
   })
