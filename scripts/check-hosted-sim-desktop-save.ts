@@ -197,8 +197,11 @@ await context.addInitScript(() => {
   if (window.parent === window) {
     const ids = new WeakMap<HTMLIFrameElement, number>()
     let nextId = 0
-    const record = (action: string, element: HTMLIFrameElement, oldValue?: string | null) => {
-      if (!ids.has(element)) ids.set(element, ++nextId)
+    const record = (action: string, element: HTMLIFrameElement, oldValue?: string | null): void => {
+      if (!ids.has(element)) {
+        ids.set(element, ++nextId)
+        element.addEventListener('load', () => record('load', element))
+      }
       iframeTrace.push({
         action,
         id: ids.get(element),
@@ -234,13 +237,6 @@ await context.addInitScript(() => {
       attributeOldValue: true,
       attributeFilter: ['src'],
     })
-    window.addEventListener(
-      'load',
-      (event) => {
-        if (event.target instanceof HTMLIFrameElement) record('load', event.target)
-      },
-      true
-    )
   }
   let parentOrigin: string | undefined
   let activeSurface: string | undefined
@@ -277,6 +273,7 @@ page.on('pageerror', (error) => errors.push(error.message))
 page.on('console', (message) => {
   if (message.type() === 'error') {
     errors.push(message.text())
+    errorContexts.push(Promise.resolve({ location: message.location() }))
     const handle = message.args()[0]
     if (handle)
       errorContexts.push(
