@@ -162,6 +162,32 @@ describe('dynamic response policy', () => {
     assert.equal(rootDocumentPolicy(request('/', { method: 'HEAD' })), null)
     assert.equal(rootDocumentPolicy(request('/other', { method: 'POST' })), null)
   })
+  it('rejects unsupported root PHP scripts before the document renderer', async () => {
+    for (const path of ['/wp-login.php', '/xmlrpc.php', '/wp-login.php?probe=synthetic']) {
+      for (const method of ['GET', 'HEAD', 'POST']) {
+        const response = rootDocumentPolicy(request(path, { method }))
+        assert.ok(response)
+        assert.equal(response.status, 404)
+        noStore(response)
+        assert.equal(response.headers.get('content-type'), 'text/plain; charset=utf-8')
+        assert.equal(await response.text(), 'Not found')
+      }
+    }
+  })
+  it('keeps API paths, auth return targets and other document paths on their existing handlers', () => {
+    for (const path of [
+      '/',
+      '/?view=chat&returnTo=/wp-login.php',
+      '/auth/sign-in?returnTo=/xmlrpc.php',
+      '/invite/synthetic-token',
+      '/api/v1/account/summary',
+      '/api/v1/workspaces/synthetic/files/wp-login.php',
+      '/wp-login.php/child',
+      '/other',
+    ]) {
+      assert.equal(rootDocumentPolicy(request(path)), null)
+    }
+  })
   it('returns no body for HEAD while keeping the status and headers', async () => {
     const response = await finalizeDynamicResponse(
       new Response('body', { status: 200, headers: { 'Content-Type': 'text/html' } }),

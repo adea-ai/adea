@@ -13,6 +13,9 @@ Worker setup, secrets, and caching.
 - `src/start/worker.ts` is the Worker entry. It captures Cloudflare bindings
   (Hyperdrive), enforces the migration-era HTTP policy for dynamic responses,
   and runs the account entry policy before any workspace document is rendered.
+  Requests for the unsupported root scripts `/wp-login.php` and `/xmlrpc.php`
+  receive a small private/no-store 404 before document rendering. API paths,
+  invitation paths and auth return targets retain their existing handlers.
 - `src/start/routes/` holds the route tree: the root document, the auth
   documents, and every API route that previously lived in the Next app. API
   routes are ordinary `createFileRoute(...)` files with `server.handlers`

@@ -1,0 +1,168 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-18",
+  "complete": false,
+  "ownerTask": "01a14ab7-c695-73ef-85de-c0b79d0c20f5",
+  "baselineEvidence": "toolchain-cache-campaign-2026-10-17.json",
+  "referenceCheckoutHead": "232a4a8750f8ce0c699323d84ac88974ca5ef08e",
+  "repairBase": "3db98b2b5b96190776f28bb99b4f4366ec5abf00",
+  "deployedVersion": "5d47969b-876f-49d3-ad88-d23e848dd1f6",
+  "deployedSourceIdentity": {
+    "fullBundleEqualityEstablished": false,
+    "deployedSourceCommit": "unknown; requested from coordinator",
+    "identicalTargetFunctions": {
+      "createDatabase": {
+        "referenceContainsIdenticalFunction": true,
+        "characters": 282
+      },
+      "rootDocumentPolicy": {
+        "referenceContainsIdenticalFunction": true,
+        "characters": 234
+      }
+    },
+    "deployedEntrySHA256": "f052b59478468a1b22c98a423974ade2415255771e2d994520eb5793d87196e6"
+  },
+  "method": {
+    "runtime": "workerd1.20261012.1 via pinnedWrangler4.147.0; local-only fixtures",
+    "cpu": "OS proc_pid_rusage v2 user+system Mach ticks multiplied125/3ns, aggregate isolated runtime and local proxy; not Cloudflare billed CPU",
+    "wall": "separate monotonic client elapsed time",
+    "calibration": "150ms process CPU loop converted150.041ms; error0.03%",
+    "traffic": "Sequential synthetic one-developer guest workspace, one project, one conversation,12 messages; foreign principal remains404",
+    "sql": "First-line statement counter misses multiline catalog discovery; reported SELECT figures are named lower-bound counters, not total SQL or Hyperdrive billing. Separate diagnostic observed catalog discovery.",
+    "v8Profile": {
+      "requests": 10,
+      "samples": 747,
+      "nodes": 441,
+      "topFrames": [
+        "garbage collection",
+        "deriveBits (local PostgreSQL SCRAM authentication)",
+        "Postgres reads and array-type parsing"
+      ],
+      "caveat": "sample time is attribution, not billed CPU; local authentication/cache behavior differs from hosted Hyperdrive"
+    }
+  },
+  "unsupportedRootScriptComparison": [
+    {
+      "case": "unknown-root-php",
+      "requestsPerArm": 5,
+      "referenceCpuMsTotal": 60.604,
+      "candidateCpuMsTotal": 27.147,
+      "referenceWallMsTotal": 54.204,
+      "candidateWallMsTotal": 24.229,
+      "cpuReductionPercent": 55.2,
+      "referenceResponseBytes": 10429,
+      "candidateResponseBytes": 9,
+      "statusesBoth": 404,
+      "loggedSingleLineSqlStatementsBoth": 0
+    },
+    {
+      "case": "unknown-xmlrpc",
+      "requestsPerArm": 5,
+      "referenceCpuMsTotal": 47.456,
+      "candidateCpuMsTotal": 31.408,
+      "referenceWallMsTotal": 41.138,
+      "candidateWallMsTotal": 28.451,
+      "cpuReductionPercent": 33.8,
+      "referenceResponseBytes": 10429,
+      "candidateResponseBytes": 9,
+      "statusesBoth": 404,
+      "loggedSingleLineSqlStatementsBoth": 0
+    }
+  ],
+  "idleBackoffControlledComparison": {
+    "durationSeconds": 60,
+    "reference": "only idlePollDelay reverted to fixed1s; all other optimized code retained",
+    "fixedLoggedSingleLineSelects": 67,
+    "optimizedLoggedSingleLineSelects": 30,
+    "fixedCpuMs": 136.526,
+    "optimizedCpuMs": 96.83,
+    "notCompleteHistoricalBuild": true
+  },
+  "requestCancellation": {
+    "deployedFlagPresent": false,
+    "documentedFlag": "enable_request_signal",
+    "minimalNativeWorkerd": {
+      "disabled": {
+        "before": {
+          "opened": 0,
+          "canceled": 0,
+          "aborted": 0,
+          "ticks": 0
+        },
+        "connected": {
+          "opened": 1,
+          "canceled": 0,
+          "aborted": 0,
+          "ticks": 4
+        },
+        "after": {
+          "opened": 1,
+          "canceled": 0,
+          "aborted": 0,
+          "ticks": 5
+        }
+      },
+      "enabled": {
+        "before": {
+          "opened": 0,
+          "canceled": 0,
+          "aborted": 0,
+          "ticks": 0
+        },
+        "connected": {
+          "opened": 1,
+          "canceled": 0,
+          "aborted": 0,
+          "ticks": 4
+        },
+        "after": {
+          "opened": 1,
+          "canceled": 0,
+          "aborted": 1,
+          "ticks": 5
+        }
+      }
+    },
+    "fullLocalApplicationAfterDisconnect": {
+      "referenceSettled10sLoggedSingleLineSelects": 6,
+      "flagExperimentSettled10sLoggedSingleLineSelects": 2,
+      "conclusion": "Not zero; client close handling also differed. No complete application cancellation fix established; no flag/config change included."
+    }
+  },
+  "repair": {
+    "scope": [
+      "apps/web/src/start/http-policy.mjs",
+      "apps/web/test/start-host.test.ts",
+      "apps/web/start/README.md"
+    ],
+    "behavior": "Only unsupported root /wp-login.php and /xmlrpc.php bypass document SSR with private/no-store404. Query strings do not expand matching; valid API paths/auth targets preserve handling.",
+    "addressesAuthenticatedSummaryOverruns": false
+  },
+  "productionTelemetryProvidedByCoordinator": {
+    "rolling24hInvocations": 1186,
+    "rolling24hCpuOverruns": 307,
+    "lastObservedExceededCpu": "2026-10-17T16:56:06.704Z",
+    "lastFailedRoute": "account/summary",
+    "lastFailedVersion": "ff34a1a5-0309-47d5-9ad6-5c414b90e96d",
+    "latestDeploymentRequests": 28,
+    "conclusion": "Sparse and non-comparable samples do not establish recovery or current deployment failure."
+  },
+  "remaining": [
+    "Full deployed-bundle source provenance and representative signed-in provider flow.",
+    "Complete visible/hidden client cancellation validation through full Worker host and local proxy.",
+    "Real Hyperdrive cache/connection attribution and per-route production CPU metrics after owner-approved rollout.",
+    "Active event delivery cadence/load compared with idle; this run did not simulate a sustained active conversation.",
+    "The PostgreSQL type-discovery experiment needs a separate compatibility review; no connection/auth changes included."
+  ],
+  "safety": {
+    "productionLoadRequests": 0,
+    "deployments": 0,
+    "credentialsChanged": false,
+    "limitsOrBudgetsChanged": false,
+    "authIsolationChanged": false
+  },
+  "references": [
+    "https://developers.cloudflare.com/workers/observability/dev-tools/cpu-usage/",
+    "https://developers.cloudflare.com/workers/configuration/compatibility-flags/#enable-requestsignal-for-incoming-requests"
+  ]
+}
