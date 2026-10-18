@@ -87,6 +87,7 @@ export function HostedSimEntry(props: {
     // controller intentionally refuses ready replays, so replace the component
     // and obtain a fresh grant instead of replaying a consumed launch code.
     const frames = new Map<HTMLIFrameElement, () => void>()
+    const loadCounts = new WeakMap<HTMLIFrameElement, number>()
     const watchFrames = () => {
       for (const [element, loaded] of frames) {
         if (container?.contains(element)) continue
@@ -95,9 +96,9 @@ export function HostedSimEntry(props: {
       }
       for (const element of container?.querySelectorAll('iframe') ?? []) {
         if (frames.has(element)) continue
-        let loads = 0
         const loaded = () => {
-          loads++
+          const loads = (loadCounts.get(element) ?? 0) + 1
+          loadCounts.set(element, loads)
           if (loads < 2 || !container?.contains(element)) return
           if (frameGeneration() === 1) setFrameGeneration(2)
           else setFrameReloadFailed(true)

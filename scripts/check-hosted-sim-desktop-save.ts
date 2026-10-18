@@ -378,27 +378,33 @@ try {
   await expect(page).not.toHaveURL(/characterDesigner=1/)
   await readyScene('hq')
   console.log('phase: closed reloaded character designer into HQ')
-  if (process.env.ADEA_SIM_FORCE_FRAME_MOVE === '1') {
+  if (process.env.ADEA_SIM_FORCE_FRAME_MOVE) {
     const before = grants
     const previousFrame = await page.locator('iframe').getAttribute('src')
-    await page.evaluate(() => {
+    await page.evaluate(async (asynchronous) => {
       const iframe = document.querySelector('iframe')!
       const parent = iframe.parentNode!
       parent.removeChild(iframe)
+      // A timer crosses MutationObserver delivery: history must survive while
+      // the frame listener is absent and the element is temporarily detached.
+      if (asynchronous) await new Promise((nextTurn) => setTimeout(nextTurn, 0))
       parent.appendChild(iframe)
-    })
+    }, process.env.ADEA_SIM_FORCE_FRAME_MOVE === 'async')
     await expect.poll(() => grants).toBe(before + 1)
     await expect(page.locator('iframe')).not.toHaveAttribute('src', previousFrame!)
     await readyScene('hq')
     await expect(frame().getByRole('button', { name: 'Character', exact: true })).toBeVisible()
     console.log('phase: native iframe move recovered with a fresh grant')
     const recoveredGrants = grants
-    await page.evaluate(() => {
+    await page.evaluate(async (asynchronous) => {
       const iframe = document.querySelector('iframe')!
       const parent = iframe.parentNode!
       parent.removeChild(iframe)
+      // A timer crosses MutationObserver delivery: history must survive while
+      // the frame listener is absent and the element is temporarily detached.
+      if (asynchronous) await new Promise((nextTurn) => setTimeout(nextTurn, 0))
       parent.appendChild(iframe)
-    })
+    }, process.env.ADEA_SIM_FORCE_FRAME_MOVE === 'async')
     await expect(page.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
     expect(grants).toBe(recoveredGrants)
     await page.getByRole('button', { name: 'Try again', exact: true }).click()

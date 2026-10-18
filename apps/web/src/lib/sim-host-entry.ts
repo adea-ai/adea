@@ -1,5 +1,5 @@
 import { startSimFrame } from './sim-frame'
-import { readSimHostConfiguration } from './sim-host-configuration'
+import { prepareSimHostDocument, readSimHostConfiguration } from './sim-host-configuration'
 
 type Runtime = {
   mount(options: {
@@ -15,7 +15,9 @@ type Runtime = {
 }
 
 const root = document.getElementById('sim')
-const configuration = await readSimHostConfiguration(window)
+const configuration = (await prepareSimHostDocument(window))
+  ? await readSimHostConfiguration(window)
+  : null
 if (
   root &&
   Array.isArray(configuration?.parentOrigins) &&

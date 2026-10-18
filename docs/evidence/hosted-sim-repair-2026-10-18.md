@@ -198,3 +198,24 @@ save/reload/designer journey. Earlier candidates passed automatic recovery but
 exposed extra grants on retry and two unhandled fetch errors. Current types
 33/33 and lint 19/19 pass; the latest browser repeat is still pending. No error
 filter, ready-replay relaxation, spent-code reuse or threshold change was added.
+
+### Async detach and bootstrap qualification
+
+Root's review identified that removing a listener also lost its closure-local load
+count. Load history now lives in a WeakMap, while the strong listener map contains
+only current descendants. The real-browser async variant detaches across a timer
+turn (and therefore a MutationObserver delivery), then reinserts the same element.
+It verifies a changed frame address and exactly one fresh grant, a second reload
+requiring explicit retry, and a fresh grant after that retry.
+
+Pagehide/closed cancellation alone did not eliminate discarded-document bootstrap
+errors. Configuration work now starts only after native load handling and the
+next paint; an abandoned document starts no configuration read. Five focused tests
+retain genuine-error propagation and cover cleanup, disposal and load/paint order.
+
+The complete async native-move journey passed with the real built client and
+private `341e616` export: 10 grants, 281 authorized asset reads, unchanged
+155-character saved value, **zero rendering errors**. All original delayed-ACK,
+close/reopen, parent-reload and Room-to-HQ assertions remain. Types 33/33 and lint
+19/19 plus root pass. Synchronous and ordinary repeats remain to be recorded;
+this single successful async run is not yet repeated-journey clearance.

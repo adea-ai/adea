@@ -1,8 +1,9 @@
 /** A frame discarded during its configuration read has no host to notify. */
 export async function readSimHostConfiguration(
-  lifecycle: EventTarget,
+  lifecycle: EventTarget & { readonly closed?: boolean },
   request: (input: string, init: RequestInit) => Promise<Response> = fetch
 ): Promise<{ parentOrigins?: unknown; allowLoopbackHttp?: unknown } | null> {
+  if (lifecycle.closed) return null
   const controller = new AbortController()
   const dispose = () => controller.abort()
   lifecycle.addEventListener('pagehide', dispose, { once: true })
@@ -16,11 +17,32 @@ export async function readSimHostConfiguration(
       parentOrigins?: unknown
       allowLoopbackHttp?: unknown
     }
-    return controller.signal.aborted ? null : configuration
+    return controller.signal.aborted || lifecycle.closed ? null : configuration
   } catch (error) {
-    if (controller.signal.aborted) return null
+    if (controller.signal.aborted || lifecycle.closed) return null
     throw error
   } finally {
     lifecycle.removeEventListener('pagehide', dispose)
   }
+}
+
+/** Let the embedding app process the native load before starting network work. */
+export function prepareSimHostDocument(lifecycle: Window): Promise<boolean> {
+  return new Promise((resolveReady) => {
+    let paint: number | undefined
+    const finish = (ready: boolean) => {
+      lifecycle.removeEventListener('load', loaded)
+      lifecycle.removeEventListener('pagehide', hidden)
+      if (paint !== undefined) lifecycle.cancelAnimationFrame(paint)
+      resolveReady(ready)
+    }
+    const loaded = () => {
+      paint = lifecycle.requestAnimationFrame(() => finish(!lifecycle.closed))
+    }
+    const hidden = () => finish(false)
+    lifecycle.addEventListener('pagehide', hidden, { once: true })
+    if (lifecycle.closed) finish(false)
+    else if (lifecycle.document.readyState === 'complete') loaded()
+    else lifecycle.addEventListener('load', loaded, { once: true })
+  })
 }
