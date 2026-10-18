@@ -1,0 +1,123 @@
+# Hosted Sim rendering repair qualification
+
+This follow-up supersedes the rendering/CSP hold in the
+[parent-save qualification](hosted-sim-parent-save-local-2026-10-17.md).
+
+## Ownership and authorization
+
+Both existing owned worktrees were clean at admission. Adea #1448 began at
+`ae4a7b979db72ba90384e70a6fe94b62c9bff6f9`; private AgentSim #111 began at
+`37d73db0374322ad697f637fcbdb9794054736b7` and now publishes coverage regression
+commit `80c82e3c87397c4edda1102d82a9e0f46211a6c7`. Both remote heads and auto-merge OFF
+were verified before publication. Root retains readiness and merge.
+
+Main `b23ddb1d217537b20480291005f8549e17d55be0` was reconciled by normal merge
+`d5a01206f69efba7ebc073963a56f71efb849287`. The merged themes scanner repair is
+unchanged from main; no second implementation was added. Sim character routing
+and the reserved #1450 bridge source are preserved.
+
+The user explicitly approved the isolated document policy repair on 2026-10-18.
+Commit `264f7240498d0abeedcd90b324d6c19d2d6437b2` changes only the Sim document's
+connection directive to `connect-src 'self' blob:`. Every other directive is
+fixed by an exact-policy regression; app API responses acquire no CSP, and
+anonymous asset requests remain refused before private reads. That test failed
+before the repair and passes afterward.
+
+No live deployment, credentials/access, production composition, hostname/DNS,
+release, or broader security-policy changes are authorized or performed.
+
+## Actual built-client rendering and persistence
+
+The rebuilt production desktop SPA is served with explicit disposable API,
+desktop bridge, entitlement and storage fixtures. The fresh private 0.14.10
+export is built from private source commit `37d73db0374322ad697f637fcbdb9794054736b7` and served only on a separate loopback
+cookie host. External network routing remains blocked.
+
+`check-hosted-sim-desktop-save.ts` now also waits for the existing canvas and
+scene-ready signals. It passes the complete journey:
+
+1. Anonymous private runtime access is refused without a storage read.
+2. The character scene becomes ready, edits A are submitted, and delivery of
+   the request is held while edits B are made in the actual designer controls.
+3. Acknowledgement commits A but preserves B as dirty without closing.
+4. Saving B returns to HQ; the HQ scene becomes ready.
+5. HQ reopens the character designer; parent reload restores the same
+   155-character serialized selection in the new launch.
+6. Closing, opening Room designer from HQ, and returning to HQ all reach ready
+   scenes and preserve that selection.
+7. The unchanged final zero-error assertion passes: seven local fixture grants,
+   219 private asset reads, **zero rendering errors**. No CSP bypass or error
+   filtering is used.
+
+A local screenshot was visually checked: the textured HQ floor, greenery and
+character render within the actual app shell. Private pixels and export files
+remain local and are not committed or uploaded.
+
+The separate actual-client unavailable/offline command also passes with the real
+Chat/Dev screens and zero offline Sim grants. These local fixtures are not live
+entitlement, native authority, or offline cloud-execution evidence.
+
+## Qualification repairs and checks
+
+The first frozen install retained an obsolete themes 0.10.6 store link from this
+worktree's earlier dependency tree. The corrected scanner correctly refused it;
+the lockfile resolves only 0.10.10. The old task-local dependency directory was
+preserved outside the checkout and a clean frozen install rebuilt the links.
+The scanner and its regression now pass without changing their assertions.
+
+The broad run also exposed a fixture race in boot diagnostics: a Bun process
+that is intended to exit immediately was still starting when its 600 ms
+observation window ended. The fixture now observes the actual child's exit
+before handing the real handle to the seam. The 600 ms readiness window,
+30-second test limit, every existing exit/journal assertion, and production
+behavior are unchanged. All ten diagnostic tests pass after that repair.
+
+Coverage configuration had a separate enforcement defect: singular `line` and
+`function` keys are ignored by Bun 1.4.3. A disposable fixture confirmed exit 0
+at 50% functions / 100% lines under the old keys, versus exit 1 under documented
+`lines`/`functions`. Both owned repositories now retain the intended 0.8 values
+under the supported keys, with a real-runner regression and a passing 100%
+control. This strengthens enforcement rather than lowering the goal. The
+initial broad coverage run passed 1,302 tests but measured 74.15% functions /
+86.71% lines, so its old exit 0 did not establish the intended function goal.
+
+Adea uses its pinned Node 24.21.0 and Bun 1.4.3; private AgentSim uses its pinned
+Node 24.22.0 and Bun 1.4.3. Executed checks:
+
+- Clean `bun install --frozen-lockfile`: passes, unchanged lockfile.
+- Focused CSP, scanner and documentation checks: 14 pass.
+- Full `bun run test:unit`: the package graph passes 32/32 tasks, including
+  1,620 desktop tests and 794 web tests (15 database-dependent web skips).
+  Its separate coverage phase passes 1,303 tests / zero test failures but exits
+  1 at 74.15% functions / 86.71% lines under the now-enforced 80% goals.
+  The aggregate command therefore remains failed. The initial boot fixture
+  race is repaired; this remaining failure is shared coverage, not rendering.
+- Full `bun run build`: 17/17 tasks pass.
+- Full `bun run typecheck`: 33/33 tasks pass.
+- Full `bun run lint`: 19/19 tasks plus root Oxlint pass, zero warnings/errors.
+- Full formatting and Adea doctor pass.
+- Private build/type/lint/format and all 25 unit tasks pass at `80c82e3`: 95
+  package tests plus 36 script tests. Boundary/export checks also pass at
+  `37d73db`; the follow-up changes only coverage configuration, its regression
+  and documentation. No private runtime source repair was needed.
+- Private doctor retains its existing Code Foundry 1.48.3 caller-regex failure:
+  it recognizes `validation.yml`/`validation-no-codeql.yml`, while this repository
+  deliberately uses `validation-billing.yml`. Billing policy and permissions
+  were not changed to evade the check.
+- Desktop client output: 311 files, 4,144,816 bytes, zero Sim payload files.
+
+The held Vite qualification head remains
+`cdefde7c8aaeb8aa0d27e1976872146f37bc628d`; its original dirty diff retains
+SHA-256 `305e8df7aaed980a47e37eaebc19ee6dc2fbdf67de51a236af2b765414b26eb8`.
+
+## Remaining authority boundary
+
+Production still returns `not_configured` without the approved entitlement
+source and durable store/host composition. The
+[production proposal](../plans/hosted-sim-production-composition.md) distinguishes
+that separate live authority from this completed isolated rendering repair.
+The shared function-coverage deficit remains a qualification blocker: it is
+concentrated in DB/schema and other shared sources outside the existing Sim
+ownership. Scope/owner coordination is required before changing those tests;
+no coverage exclusion or lower goal was introduced. Root's exact-head review
+and applicable passing validation still gate merge.

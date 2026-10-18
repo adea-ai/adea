@@ -371,7 +371,7 @@ describe('test suite boundaries', () => {
     )
 
     const bunfig = readFileSync(resolve(root, 'bunfig.toml'), 'utf8')
-    expect(bunfig).toContain('coverageThreshold = { line = 0.8, function = 0.8 }')
+    expect(bunfig).toContain('coverageThreshold = { lines = 0.8, functions = 0.8 }')
     expect(bunfig).toContain('coverageSkipTestFiles = true')
     // The aggregate must measure this lane's own scope: generated build output
     // and desktop-shell sources (covered by the desktop suite, only imported
