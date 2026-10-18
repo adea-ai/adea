@@ -174,7 +174,7 @@ const TEST_STATUS: Partial<Record<ChatResultStatus, TestCaseStatus>> = {
  * or one this report does not list, is shown under a plain "Tests" group rather than
  * dropped; a failure is attached to the test that names it.
  */
-function testSuites(run: ChatTestRunResult): readonly TestSuite[] {
+function testSuites(run: ChatTestRunResult, live: boolean): readonly TestSuite[] {
   const failures = new Map(run.failures.map((failure) => [failure.failureId, failure]))
   const attach = (test: ChatTestRunResult['tests'][number], failureIds?: readonly string[]) => {
     const linked = (failureIds ?? [])
@@ -183,7 +183,12 @@ function testSuites(run: ChatTestRunResult): readonly TestSuite[] {
     return {
       id: test.testId,
       name: test.name,
-      ...(TEST_STATUS[test.status] !== undefined ? { status: TEST_STATUS[test.status] } : {}),
+      // A test reported as running or pending is the producer's last word; once the
+      // session is no longer live it is listed without a claim about now.
+      ...(TEST_STATUS[test.status] !== undefined &&
+      (live || (test.status !== 'running' && test.status !== 'pending'))
+        ? { status: TEST_STATUS[test.status] }
+        : {}),
       ...(test.durationMs !== undefined ? { durationMs: test.durationMs } : {}),
       ...(linked.length > 0
         ? {
@@ -213,6 +218,19 @@ function testSuites(run: ChatTestRunResult): readonly TestSuite[] {
   return rest === undefined ? suites : [...suites, { id: 'unsuited', name: 'Tests', tests: rest }]
 }
 
+const SUITE_WORDS: Partial<Record<ChatResultStatus, string>> = {
+  passed: 'passed',
+  failed: 'failed',
+  skipped: 'skipped',
+  cancelled: 'cancelled',
+}
+
+/** What the producer said about each suite, apart from the tests it happens to list. */
+function suiteStatusWord(status: ChatResultStatus, live: boolean): string | undefined {
+  if (status === 'running' || status === 'pending') return live ? status : 'not finished'
+  return SUITE_WORDS[status]
+}
+
 function TestRunResult(props: {
   run: ChatTestRunResult
   live: boolean
@@ -223,6 +241,11 @@ function TestRunResult(props: {
     const named = new Set(props.run.tests.flatMap((test) => test.failureIds ?? []))
     return props.run.failures.filter((failure) => !named.has(failure.failureId))
   }
+  const reportedSuites = () =>
+    props.run.suites.flatMap((suite) => {
+      const word = suiteStatusWord(suite.status, props.live)
+      return word === undefined ? [] : [{ suiteId: suite.suiteId, name: suite.name, word }]
+    })
   return (
     <TraceLine
       {...props.common}
@@ -231,10 +254,24 @@ function TestRunResult(props: {
       meta={stoppedWord(props.run.status, props.live)}
     >
       <TestResults
-        suites={testSuites(props.run)}
+        suites={testSuites(props.run, props.live)}
         summary={props.run.summary}
         running={props.live && props.run.status === 'running'}
       />
+      <Show when={reportedSuites().length > 0}>
+        <TraceDetail data-suite-status="">
+          <p class="m-0">Suite status as the producer reported it:</p>
+          <ul class="m-0 list-none p-0">
+            <For each={reportedSuites()}>
+              {(suite) => (
+                <li data-suite-id={suite.suiteId}>
+                  {suite.name}: {suite.word}
+                </li>
+              )}
+            </For>
+          </ul>
+        </TraceDetail>
+      </Show>
       <For each={unattached()}>{(failure) => <FailureBlock failure={failure} />}</For>
       <Show when={props.run.complete === false}>
         <TraceDetail>The producer marked this report incomplete.</TraceDetail>
@@ -247,15 +284,30 @@ function FilesResult(props: {
   files: ChatFilesResult
   common: Record<string, string>
 }): JSX.Element {
-  const total = () => props.files.summary?.files ?? props.files.files.length
+  const listed = () => props.files.files.length
+  // A total, an addition count and a deletion count are the producer's claims: each is
+  // drawn only if it was sent, and the length of the list is never presented as a total.
   const description = () => {
     const summary = props.files.summary
-    const lines =
-      summary?.additions !== undefined || summary?.deletions !== undefined
-        ? ` · +${summary?.additions ?? 0} −${summary?.deletions ?? 0}`
-        : ''
-    return `${total()} ${total() === 1 ? 'file' : 'files'}${lines}`
+    const count =
+      summary?.files !== undefined
+        ? `${summary.files} ${summary.files === 1 ? 'file' : 'files'}${
+            listed() < summary.files ? ` (${listed()} listed)` : ''
+          }`
+        : props.files.complete === true
+          ? `${listed()} ${listed() === 1 ? 'file' : 'files'}`
+          : `${listed()} listed`
+    const lines = [
+      summary?.additions !== undefined ? `+${summary.additions}` : undefined,
+      summary?.deletions !== undefined ? `−${summary.deletions}` : undefined,
+    ].filter(Boolean)
+    return lines.length > 0 ? `${count} · ${lines.join(' ')}` : count
   }
+  const partial = () =>
+    props.files.complete === false ||
+    (props.files.summary?.files !== undefined && listed() < props.files.summary.files)
+  const unstated = () =>
+    props.files.complete === undefined && props.files.summary?.files === undefined
   return (
     <TraceLine {...props.common} title="Changed files" description={description()}>
       <FileTree
@@ -275,8 +327,11 @@ function FilesResult(props: {
           ...(file.deletions !== undefined ? { deletions: file.deletions } : {}),
         }))}
       />
-      <Show when={props.files.complete === false || props.files.files.length < total()}>
+      <Show when={partial()}>
         <TraceDetail>Only part of the change set is listed.</TraceDetail>
+      </Show>
+      <Show when={unstated()}>
+        <TraceDetail>The producer did not say whether this list is complete.</TraceDetail>
       </Show>
     </TraceLine>
   )
@@ -299,27 +354,58 @@ const STEP_STATUS = (status: ChatWorkStatus, live: boolean): PlanStepStatus | un
   }
 }
 
+const WORK_WORDS: Partial<Record<ChatWorkStatus, string>> = {
+  pending: 'pending',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'cancelled',
+}
+
+/** The producer's status for a plan or an item, in words; work under way reads "not finished" once the session stops. */
+const workWord = (status: ChatWorkStatus, live: boolean): string | undefined =>
+  status === 'in_progress' ? (live ? 'in progress' : 'not finished') : WORK_WORDS[status]
+
 function PlanResult(props: {
   plan: ChatPlanResult
   live: boolean
   common: Record<string, string>
 }): JSX.Element {
+  const listed = () => props.plan.items.length
+  // "k of n steps done" is derived from the steps passed in, so it is only true when the
+  // list is the whole plan. When the producer did not say so, the steps carry their own
+  // words and no progress is computed.
+  const whole = () => props.plan.complete === true
+  const claimed = () => props.plan.summary?.total
+  const note = () => {
+    if (whole()) return undefined
+    const counted = claimed() !== undefined ? ` The producer counts ${claimed()} steps.` : ''
+    return props.plan.complete === false
+      ? `The producer marked this plan incomplete: ${listed()} ${listed() === 1 ? 'step is' : 'steps are'} listed, so no progress is computed.${counted}`
+      : `The producer did not say whether this list is complete, so no progress is computed.${counted}`
+  }
+  const meta = () =>
+    [workWord(props.plan.status, props.live), whole() ? undefined : `${listed()} listed`]
+      .filter(Boolean)
+      .join(' · ') || undefined
   return (
     <Plan
       {...props.common}
       title={props.plan.title ?? 'Plan'}
-      meta={stoppedWord(props.plan.status, props.live)}
-      steps={props.plan.items.map((item) => ({
-        id: item.id,
-        label: item.title,
-        ...(item.description !== undefined ? { description: item.description } : {}),
-        ...(STEP_STATUS(item.status, props.live) !== undefined
-          ? { status: STEP_STATUS(item.status, props.live) }
-          : {}),
-      }))}
-      description={
-        props.plan.complete === false ? 'The producer marked this plan incomplete.' : undefined
-      }
+      meta={meta()}
+      steps={props.plan.items.map((item) => {
+        const word = workWord(item.status, props.live)
+        const status = whole() ? STEP_STATUS(item.status, props.live) : undefined
+        const description = [!whole() ? word : undefined, item.description]
+          .filter(Boolean)
+          .join(' — ')
+        return {
+          id: item.id,
+          label: item.title,
+          ...(description.length > 0 ? { description } : {}),
+          ...(status !== undefined ? { status } : {}),
+        }
+      })}
+      description={note()}
     />
   )
 }

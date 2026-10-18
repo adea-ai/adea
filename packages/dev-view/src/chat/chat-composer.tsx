@@ -528,8 +528,31 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
         }
         trailingActions={
           <>
-            <Show when={props.usage !== undefined && hasContextFigures(props.usage)}>
-              <Context {...props.usage} />
+            <Show when={props.usage}>
+              {(usage) => {
+                const figures = () => ({
+                  ...(usage().used !== undefined ? { used: usage().used } : {}),
+                  ...(usage().total !== undefined ? { total: usage().total } : {}),
+                  ...(usage().breakdown !== undefined ? { breakdown: usage().breakdown } : {}),
+                })
+                return (
+                  <span
+                    class="inline-flex items-center gap-1.5"
+                    data-usage-model={usage().model.modelId}
+                  >
+                    <Show when={hasContextFigures(figures())}>
+                      <Context {...figures()} />
+                    </Show>
+                    <Show when={usage().cost}>
+                      {(cost) => (
+                        <span class="text-xs text-muted-foreground" data-usage-cost="">
+                          Cost {cost().amount} {cost().currency}
+                        </span>
+                      )}
+                    </Show>
+                  </span>
+                )
+              }}
             </Show>
             <Show when={props.busy}>
               <Button

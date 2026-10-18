@@ -774,6 +774,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     | 'approval-long'
     | 'calls'
     | 'results'
+    | 'results-edge'
+    | 'history'
+    | 'history-retry'
+    | 'history-offline'
     | 'retention-turn'
     | 'retention-stream'
     | 'attention'
@@ -796,6 +800,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     return value === 'approval-long' ||
       value === 'calls' ||
       value === 'results' ||
+      value === 'results-edge' ||
+      value === 'history' ||
+      value === 'history-retry' ||
+      value === 'history-offline' ||
       value === 'retention-turn' ||
       value === 'retention-stream' ||
       value === 'attention' ||

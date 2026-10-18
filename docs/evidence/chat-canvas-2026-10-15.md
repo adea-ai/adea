@@ -33,13 +33,22 @@ The shared components live in `adea-ai/ui` (coverage matrix:
   terminal phase is final) and nest under a `parentCallId` within the same turn
   and scope; an ambiguous, conflicting or cyclic parent leaves the call at the top
   level, depth is capped at 6, and an input or output that is a reference or
-  shortened says so. Terminal chunks are ordered by sequence, joined, stripped of
+  shortened says so, on a tool and on a subagent alike. Inline call data is
+  redacted leaf by leaf before it is written as JSON (JSON escaping would otherwise
+  hide a Windows path or a token with a control character from the patterns), a
+  credential-named key withholds its value, and a secret that only forms across
+  fields withholds the whole value. Terminal chunks are ordered by sequence, joined, stripped of
   control sequences and redacted once, so a secret split across chunks or hidden in
   an escape sequence is still redacted. Permission eligibility is never read as
   authorization.
-- **Reported figures.** The newest accepted `usage.observed` of the on-screen
-  generation feeds the shared Context trigger beside the composer; a figure the
-  producer did not send is omitted, never zero. A `checkpoint.observed` is a
+- **Reported figures.** A `usage.observed` snapshot belongs to one provider and
+  model. The newest accepted snapshot of the model the host names (`usageModel`)
+  feeds the shared Context trigger beside the composer; with no model named, the
+  figures are drawn only if the generation reported a single model, so another
+  model's occupancy is never shown as this conversation's. A figure the producer
+  did not send is omitted, never zero. The reported cost stays the producer's exact
+  decimal text and is shown beside the trigger as text; the shared Context takes
+  only a number, so it is not passed there. A `checkpoint.observed` is a
   marker in the column with no restore action, because no host operation reaches
   the canvas.
 - **Older messages.** A bounded history control loads earlier events through the
@@ -72,29 +81,29 @@ The shared components live in `adea-ai/ui` (coverage matrix:
 shared component exists and is demonstrated in `adea-ai/ui` stories, but the
 Adea chat does not draw it because no producer supplies its data.
 
-| Group        | Pattern          | Adea chat        | Binding or the missing contract                                                                                      |
-| ------------ | ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
-| Conversation | Chat             | Live             | `ChatView` frame: header, notices, thread, composer                                                                  |
-| Conversation | Message          | Live             | `buildChatTurns`; a streamed message and its final `turn.assistant_message` are one turn by `messageId`/`supersedes` |
-| Conversation | Prompt Input     | Live (existing)  | `AtomicChatComposer`, unchanged: draft, send, Stop/Steer where authorized                                            |
-| Conversation | Suggestion       | Available        | no prompt-suggestion producer                                                                                        |
-| Activity     | Chain of Thought | Live             | `turn.method_step_summary` (#1388): keyed steps, source-reported title, text, status and duration                    |
-| Activity     | Reasoning        | Live             | `turn.reasoning_summary` (#1388): one node per summary id, replaced by a higher revision; never inferred             |
-| Activity     | Tool             | Live             | `tool.*` with a validated versioned call (#1387): one node per `callId`, nested, redacted bounded input/output       |
-| Activity     | Subagent         | Live             | `subagent.observed` calls nest children by `parentCallId`; legacy events stay lines                                  |
-| Activity     | Task             | Live             | `task.observed` (#1394)                                                                                              |
-| Activity     | Plan             | Live             | `plan.observed` (#1394)                                                                                              |
-| Activity     | Queue            | Available        | `dev.session.followUps` exists host-side but no dev-view conversation model or platform action exposes it            |
-| Results      | Terminal         | Live             | `terminal.output` chunks, ordered, joined, control-stripped, redacted once                                           |
-| Results      | Stack Trace      | Live             | `failure.observed`                                                                                                   |
-| Results      | Test Results     | Live             | `test_run.observed`; counts and statuses only as reported                                                            |
-| Results      | File Tree        | Live             | `files.changed`; copied or untracked changes carry no mark the producer did not send                                 |
-| Grounding    | Sources          | Live             | `turn.assistant_message` `references.sources` (#1389), shown with the answer they belong to                          |
-| Grounding    | Inline Citation  | Live             | `references.citations` offsets, placed by `placeCitationMarkers` only where the text still is the payload text       |
-| Controls     | Confirmation     | Live             | requested, approved, denied, expired or unavailable, paired by the correlated outcome (#1395)                        |
-| Controls     | Checkpoint       | Live (marker)    | `checkpoint.observed` through `decodeConversationCheckpoint`; no restore control, the host op is not reachable       |
-| Controls     | Context          | Live (read-only) | newest `usage.observed` of the generation: used/max tokens and breakdown as sent, cost only if it round-trips        |
-| Controls     | Model Selector   | Live (existing)  | the composer's harness/model pins                                                                                    |
+| Group        | Pattern          | Adea chat        | Binding or the missing contract                                                                                                        |
+| ------------ | ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Conversation | Chat             | Live             | `ChatView` frame: header, notices, thread, composer                                                                                    |
+| Conversation | Message          | Live             | `buildChatTurns`; a streamed message and its final `turn.assistant_message` are one turn by `messageId`/`supersedes`                   |
+| Conversation | Prompt Input     | Live (existing)  | `AtomicChatComposer`, unchanged: draft, send, Stop/Steer where authorized                                                              |
+| Conversation | Suggestion       | Available        | no prompt-suggestion producer                                                                                                          |
+| Activity     | Chain of Thought | Live             | `turn.method_step_summary` (#1388): keyed steps, source-reported title, text, status and duration                                      |
+| Activity     | Reasoning        | Live             | `turn.reasoning_summary` (#1388): one node per summary id, replaced by a higher revision; never inferred                               |
+| Activity     | Tool             | Live             | `tool.*` with a validated versioned call (#1387): one node per `callId`, nested, redacted bounded input/output                         |
+| Activity     | Subagent         | Live             | `subagent.observed` calls nest children by `parentCallId`; legacy events stay lines                                                    |
+| Activity     | Task             | Live             | `task.observed` (#1394)                                                                                                                |
+| Activity     | Plan             | Live             | `plan.observed` (#1394); progress is computed only when the producer marks the list complete                                           |
+| Activity     | Queue            | Available        | `dev.session.followUps` exists host-side but no dev-view conversation model or platform action exposes it                              |
+| Results      | Terminal         | Live             | `terminal.output` chunks, ordered, joined, control-stripped, redacted once                                                             |
+| Results      | Stack Trace      | Live             | `failure.observed`                                                                                                                     |
+| Results      | Test Results     | Live             | `test_run.observed`; counts as sent, each suite's reported status listed apart from the tests it holds, running states only while live |
+| Results      | File Tree        | Live             | `files.changed`; copied or untracked changes carry no mark the producer did not send                                                   |
+| Grounding    | Sources          | Live             | `turn.assistant_message` `references.sources` (#1389), shown with the answer they belong to                                            |
+| Grounding    | Inline Citation  | Live             | `references.citations` offsets, placed by `placeCitationMarkers` only where the text still is the payload text                         |
+| Controls     | Confirmation     | Live             | requested, approved, denied, expired or unavailable, paired by the correlated outcome (#1395)                                          |
+| Controls     | Checkpoint       | Live (marker)    | `checkpoint.observed` through `decodeConversationCheckpoint`; no restore control, the host op is not reachable                         |
+| Controls     | Context          | Live (read-only) | newest `usage.observed` of the named model in the generation; cost kept as the producer's decimal text, beside it                      |
+| Controls     | Model Selector   | Live (existing)  | the composer's harness/model pins                                                                                                      |
 
 Questionnaire is live for `question.requested` (free text only). Attachment is not
 drawn: `dev.session.attachment*` exists host-side but no dev-view model or platform
@@ -202,13 +211,16 @@ Consumption slice for #1383 (this branch, 2026-10-18):
   redaction, checkpoint settlement and usage figures.
 - Browser (`chat-canvas.spec.ts`): groups for tool and subagent calls, structured
   results (including the checkpoint marker and Context trigger, which opens its
-  figures and returns focus on Escape), and outcome cards; 56 passed with
-  `chat-transcript-composition`.
+  figures and returns focus on Escape), outcome cards, adapters that keep what the
+  producer said (a subagent's input and references, a failed suite beside a passing
+  test, a failed incomplete plan, files with no totals, a named model's context and
+  exact cost text), and earlier messages (load once above the turn on screen; a
+  failed load says so, keeps the control and does not retry in a loop); 65 passed
+  with `chat-transcript-composition`.
 - Lint, format and typecheck of the touched packages are clean.
 - 22 browser-lane failures (12 visual-snapshot variants, nine in `chat-view.spec.ts`,
   one in `chat-continuity.spec.ts`) reproduce identically on `main`'s
   `packages/dev-view`; they are pre-existing and not caused by this branch.
-- No mounted browser regression exists yet for history pagination.
 - Hosted CI has not run: the pull request is a draft.
 
 Shared-UI qualification (focused Playwright specs for trace, code block, message

@@ -10,7 +10,7 @@ import {
   decodeConversationCheckpoint,
   isRuntimeActivityEventKind,
 } from '@adea-ai/types/dev-runtime'
-import { projectActivityResult, type ChatResult } from './model/results'
+import { projectActivityResult, stripTerminalControls, type ChatResult } from './model/results'
 import {
   decodeRuntimeAssistantPayload,
   decodeRuntimeEvent,
@@ -267,6 +267,55 @@ function interactionFromEvent(event: RuntimeEvent): ChatInteraction | undefined 
 }
 
 const CALL_DATA_LIMIT = 4_096
+const CALL_DATA_DEPTH = 16
+const CALL_DATA_NODES = 2_000
+/** A key that names a credential: its value is withheld whatever it looks like. */
+const SENSITIVE_KEY =
+  /password|passwd|secret|api[-_]?key|authorization|credential|private[-_]?key|cookie|token$/i
+/** What a secret split across several fields would still leave readable once joined. */
+const JOINED_SECRET =
+  /-----BEGIN |\bBearer\s+[A-Za-z0-9._~+/=-]|\b(?:sk|pk|api|token|secret)[-_][A-Za-z0-9._-]{8,}|\/Users\/|\/home\/|[A-Za-z]:\\Users\\/i
+
+/**
+ * Redact a call's inline value BEFORE it is written as JSON. JSON escapes a string's
+ * backslashes, quotes and control characters, so a private path or a token with a
+ * control character in it no longer matches its pattern in the serialized text.
+ * Each string leaf (and key) is stripped of terminal controls and redacted as the
+ * string it is; a credential-named key withholds its value; a secret that only forms
+ * when separate fields are read together withholds the whole value.
+ */
+function scrubCallValue(value: unknown): { value: unknown; truncated: boolean; joined: string } {
+  let truncated = false
+  let nodes = 0
+  const leaves: string[] = []
+  const text = (raw: string): string => {
+    const safe = redactWithProvenance(stripTerminalControls(raw), CALL_DATA_LIMIT, {
+      window: BODY_SCAN_WINDOW,
+      layout: true,
+    })
+    if (safe.truncated) truncated = true
+    leaves.push(safe.text)
+    return safe.text
+  }
+  const walk = (node: unknown, depth: number): unknown => {
+    nodes += 1
+    if (nodes > CALL_DATA_NODES || depth > CALL_DATA_DEPTH) {
+      truncated = true
+      return '[not shown]'
+    }
+    if (typeof node === 'string') return text(node)
+    if (node === null || typeof node !== 'object') return node
+    if (Array.isArray(node)) return node.map((entry) => walk(entry, depth + 1))
+    const out: Record<string, unknown> = {}
+    for (const [key, entry] of Object.entries(node)) {
+      const safeKey = text(key)
+      out[safeKey] = SENSITIVE_KEY.test(key) ? '[secret redacted]' : walk(entry, depth + 1)
+    }
+    return out
+  }
+  const scrubbed = walk(value, 0)
+  return { value: scrubbed, truncated, joined: leaves.join('') }
+}
 
 function callData(data: RuntimeCallData | undefined): ChatCallData | undefined {
   if (data === undefined) return undefined
@@ -275,12 +324,19 @@ function callData(data: RuntimeCallData | undefined): ChatCallData | undefined {
       type: 'reference',
       ...(data.byteLength !== undefined ? { byteLength: data.byteLength } : {}),
     }
-  const json = JSON.stringify(data.value, null, 2) ?? 'null'
+  const scrubbed = scrubCallValue(data.value)
+  if (JOINED_SECRET.test(scrubbed.joined))
+    return {
+      type: 'inline',
+      text: '[withheld: a secret may span several fields]',
+      truncated: false,
+    }
+  const json = JSON.stringify(scrubbed.value, null, 2) ?? 'null'
   const safe = redactWithProvenance(json, CALL_DATA_LIMIT, {
     window: BODY_SCAN_WINDOW,
     layout: true,
   })
-  return { type: 'inline', text: safe.text, truncated: safe.truncated }
+  return { type: 'inline', text: safe.text, truncated: safe.truncated || scrubbed.truncated }
 }
 
 function callFromEvent(event: RuntimeEvent): ChatCall | undefined {

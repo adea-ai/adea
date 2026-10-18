@@ -148,6 +148,15 @@ export type ChatPlanResult = Readonly<{
   title?: string
   items: readonly ChatWorkItem[]
   complete?: boolean
+  /** The producer's own tally, which may count steps the list does not hold. */
+  summary?: Readonly<{
+    total?: number
+    pending?: number
+    inProgress?: number
+    completed?: number
+    failed?: number
+    cancelled?: number
+  }>
 }>
 
 export type ChatTaskResult = Readonly<{
@@ -394,6 +403,7 @@ export function projectActivityResult(
         title: p.title === undefined ? undefined : redact(p.title, NAME_LIMIT),
         items: workItems(p.items, redact),
         complete: p.complete,
+        summary: p.summary,
       })
     }
     case 'task.observed': {

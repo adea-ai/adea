@@ -2,16 +2,23 @@
 //
 // Only an authoritative `usage.observed` event the wire gate accepted counts, and only
 // one of the generation on screen: a figure from an earlier generation describes a
-// window that no longer exists. The newest such event wins. Nothing is derived: a
-// missing figure stays missing (never zero), and a reported cost is passed on only
-// when it survives the number the shared component takes without changing its value.
+// window that no longer exists. A snapshot belongs to one provider and model, so the
+// newest snapshot of the model the caller names wins; with no model named, the figures
+// are shown only when the generation reported exactly one model, because occupancy of
+// another model is not this conversation's context. Nothing is derived: a missing
+// figure stays missing (never zero), and a reported cost stays the producer's exact
+// decimal text, never a number.
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 import {
   decodeRuntimeEvent,
   decodeRuntimeUsageObservedPayload,
 } from '@adea-ai/types/dev-runtime-wire'
 
+export type ChatUsageModel = Readonly<{ providerId?: string; modelId: string }>
+
 export type ChatUsageFigures = Readonly<{
+  /** The provider and model these figures describe. */
+  model: Readonly<{ providerId: string; modelId: string }>
   used?: number
   total?: number
   breakdown?: Readonly<{
@@ -21,41 +28,47 @@ export type ChatUsageFigures = Readonly<{
     cacheWrite?: number
     reasoning?: number
   }>
-  cost?: Readonly<{ amount: number; currency?: string }>
+  /** Exact decimal text and currency as the producer reported them. */
+  cost?: Readonly<{ amount: string; currency: string }>
 }>
 
-/** A decimal string as the same value in a number, or nothing when the number would be a different value. */
-function exactNumber(decimal: string): number | undefined {
-  const value = Number(decimal)
-  if (!Number.isFinite(value)) return undefined
-  const trimmed = decimal.includes('.') ? decimal.replace(/0+$/, '').replace(/\.$/, '') : decimal
-  return String(value) === trimmed ? value : undefined
-}
+const sameModel = (
+  reported: Readonly<{ providerId: string; modelId: string }>,
+  wanted: ChatUsageModel
+): boolean =>
+  reported.modelId === wanted.modelId &&
+  (wanted.providerId === undefined || reported.providerId === wanted.providerId)
 
 export function latestUsageFigures(
   events: readonly RuntimeEvent[],
-  generation: number
+  generation: number,
+  model?: ChatUsageModel
 ): ChatUsageFigures | undefined {
+  const accepted: ReturnType<typeof decodeRuntimeUsageObservedPayload>[] = []
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]!
     if (event.kind !== 'usage.observed' || event.generation !== generation) continue
-    let usage: ReturnType<typeof decodeRuntimeUsageObservedPayload>
     try {
       decodeRuntimeEvent(event, { source: event.source })
-      usage = decodeRuntimeUsageObservedPayload(event.payload, generation)
+      accepted.push(decodeRuntimeUsageObservedPayload(event.payload, generation))
     } catch {
       // Not a usage observation the gate admits: keep looking for an earlier one.
-      continue
-    }
-    const cost = usage.cost === undefined ? undefined : exactNumber(usage.cost.amount)
-    return {
-      ...(usage.context.used !== null ? { used: usage.context.used } : {}),
-      ...(usage.context.total !== null ? { total: usage.context.total } : {}),
-      ...(usage.breakdown !== undefined ? { breakdown: usage.breakdown } : {}),
-      ...(usage.cost !== undefined && cost !== undefined
-        ? { cost: { amount: cost, currency: usage.cost.currency } }
-        : {}),
     }
   }
-  return undefined
+  const usage =
+    model === undefined
+      ? accepted.every((entry) => sameModel(entry.model, accepted[0]!.model))
+        ? accepted[0]
+        : undefined
+      : accepted.find((entry) => sameModel(entry.model, model))
+  if (usage === undefined) return undefined
+  return {
+    model: { providerId: usage.model.providerId, modelId: usage.model.modelId },
+    ...(usage.context.used !== null ? { used: usage.context.used } : {}),
+    ...(usage.context.total !== null ? { total: usage.context.total } : {}),
+    ...(usage.breakdown !== undefined ? { breakdown: usage.breakdown } : {}),
+    ...(usage.cost !== undefined
+      ? { cost: { amount: usage.cost.amount, currency: usage.cost.currency } }
+      : {}),
+  }
 }

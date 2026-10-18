@@ -303,6 +303,7 @@ export const resultEvents: readonly RuntimeEvent[] = [
         { id: 'i-2', title: 'Keep applied entries unchanged', status: 'in_progress' },
         { id: 'i-3', title: 'Add a regression test', status: 'pending' },
       ],
+      complete: true,
     },
     'res-plan'
   ),
@@ -343,6 +344,120 @@ export const resultEvents: readonly RuntimeEvent[] = [
     ),
   },
   event('11', 'turn.assistant_message', { text: 'One migration test fails; the plan is above.' }),
+]
+
+/**
+ * Results whose adapter must not say more than the producer did, in a session that has
+ * stopped: a failed suite with a passing test listed under it, a test and a suite still
+ * "running", a failed plan whose list is incomplete, changed files with no totals, a
+ * subagent whose input and output are held by reference or contain a private path, and
+ * two models' context figures.
+ */
+export const resultEdgeEvents: readonly RuntimeEvent[] = [
+  event('1', 'turn.user_input', { text: 'What did the last run say?' }),
+  call(
+    '2',
+    'subagent.observed',
+    {
+      callId: 'agent-in',
+      parentCallId: null,
+      phase: 'completed',
+      name: 'summarizer',
+      input: {
+        type: 'inline',
+        value: { goal: 'summarize', file: 'C:\\Users\\someone\\notes.txt' },
+      },
+      output: { type: 'reference', referenceId: 'blob-out', byteLength: 8192 },
+    },
+    'edge-agent-in',
+    true
+  ),
+  call(
+    '3',
+    'subagent.observed',
+    {
+      callId: 'agent-ref',
+      parentCallId: null,
+      phase: 'completed',
+      name: 'indexer',
+      input: { type: 'reference', referenceId: 'blob-in', byteLength: 2048 },
+    },
+    'edge-agent-ref'
+  ),
+  result(
+    '4',
+    'test_run.observed',
+    {
+      testRunId: 'run-edge',
+      status: 'failed',
+      suites: [
+        { suiteId: 's-auth', name: 'auth suite', status: 'failed' },
+        { suiteId: 's-ui', name: 'ui suite', status: 'running' },
+      ],
+      tests: [
+        { testId: 't-login', name: 'logs in', status: 'passed', suiteId: 's-auth' },
+        { testId: 't-render', name: 'renders the shell', status: 'running', suiteId: 's-ui' },
+      ],
+    },
+    'edge-tests'
+  ),
+  result(
+    '5',
+    'plan.observed',
+    {
+      planId: 'plan-edge',
+      status: 'failed',
+      title: 'Roll out the fix',
+      items: [{ id: 'e-1', title: 'Write the migration', status: 'completed' }],
+      complete: false,
+      summary: { total: 4, completed: 1, failed: 1 },
+    },
+    'edge-plan'
+  ),
+  result(
+    '6',
+    'files.changed',
+    { changeSetId: 'changes-edge', files: [{ path: 'src/auth.ts', change: 'modified' }] },
+    'edge-files'
+  ),
+  {
+    ...event(
+      '7',
+      'usage.observed',
+      {
+        schemaVersion: 1,
+        model: { providerId: 'anthropic', modelId: 'fixture-model' },
+        generation: 3,
+        context: { used: 30_000, total: 100_000 },
+        cost: { amount: '0.000000123456789', currency: 'USD' },
+      },
+      'edge-usage-a'
+    ),
+  },
+  {
+    ...event(
+      '8',
+      'usage.observed',
+      {
+        schemaVersion: 1,
+        model: { providerId: 'openai', modelId: 'other-model' },
+        generation: 3,
+        context: { used: 5_000, total: 1_000_000 },
+        cost: { amount: '9.99', currency: 'USD' },
+      },
+      'edge-usage-b'
+    ),
+  },
+  event('9', 'turn.assistant_message', { text: 'The run stopped before it finished.' }),
+]
+
+export const historyOlder: readonly RuntimeEvent[] = [
+  event('1', 'turn.user_input', { text: 'First question: what changed?' }),
+  event('2', 'turn.assistant_message', { text: 'The first answer.' }),
+]
+export const historyNewest: readonly RuntimeEvent[] = [
+  event('3', 'turn.user_input', { text: 'Second question: any risks?' }),
+  event('4', 'turn.assistant_message', { text: 'The second answer.' }),
 ]
 
 export const LONG_APPROVAL_TAIL = 'FINAL STEP: drop table audit_log (irreversible)'

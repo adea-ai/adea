@@ -21,7 +21,7 @@ import {
   type HandoffActionState,
 } from './model/handoff'
 import { createHistoryControl, type HistoryControlState } from './model/history-control'
-import { latestUsageFigures } from './model/usage'
+import { latestUsageFigures, type ChatUsageModel } from './model/usage'
 import { statusLabel } from './presentation'
 import './chat.css'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
@@ -84,6 +84,9 @@ export type ChatViewProps = Readonly<{
   onResolveQuestion?: ChatTranscriptProps['onResolveQuestion']
   onJumpToTerminal?: () => void
   autoAttach?: boolean
+  /** The model this conversation runs, when the host knows it. Without one, context figures
+   *  are drawn only if the generation reported a single model. */
+  usageModel?: ChatUsageModel
   handoffView?: DirectSessionHandoffView
   /** Production supplier config: derives the handoff view from the live
    *  conversation plus surface facts, with model-backed default actions.
@@ -434,7 +437,11 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           {() => (
             <ChatComposer
               conversation={props.conversation}
-              usage={latestUsageFigures(transcript().events, props.conversation.generation)}
+              usage={latestUsageFigures(
+                transcript().events,
+                props.conversation.generation,
+                props.usageModel
+              )}
               authority={props.authority}
               connected={connected()}
               awaitingApproval={props.awaitingApproval}

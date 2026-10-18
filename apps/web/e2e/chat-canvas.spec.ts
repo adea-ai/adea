@@ -954,6 +954,61 @@ test.describe('tool and subagent calls', () => {
   }
 })
 
+const older = (page: Page) => page.getByText('First question: what changed?')
+const attempts = (page: Page) =>
+  page.evaluate(
+    () => (window as unknown as { chatHistoryAttempts?: number }).chatHistoryAttempts ?? 0
+  )
+
+test.describe('earlier messages', () => {
+  test('an earlier turn loads once, above the one on screen', async ({ page }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'history')
+    await expect(page.getByText('Second question: any risks?')).toBeVisible()
+    // The reader is at the top of a short thread, so the scroller asks for it; a click
+    // would ask for the same page, never a second one.
+    const load = page.getByRole('button', { name: 'Load earlier messages' })
+    if (await load.isVisible()) await load.click()
+    await expect(older(page)).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Load earlier messages' })).toHaveCount(0)
+    expect(await attempts(page)).toBe(1)
+    const order = await page
+      .locator('[data-dev-chat] [role="article"], [data-dev-chat] article')
+      .evaluateAll((nodes) => nodes.map((node) => node.textContent ?? ''))
+    const first = order.findIndex((text) => text.includes('First question'))
+    const second = order.findIndex((text) => text.includes('Second question'))
+    expect(first).toBeGreaterThanOrEqual(0)
+    expect(first).toBeLessThan(second)
+    expect(errors).toEqual([])
+  })
+
+  test('a failed load says so, keeps the control and does not retry on its own', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'history-offline')
+    await expect(page.getByText('Earlier messages could not be loaded')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Load earlier messages' })).toBeVisible()
+    await expect(older(page)).toHaveCount(0)
+    const settled = await attempts(page)
+    await page.waitForTimeout(1500)
+    expect(await attempts(page)).toBe(settled)
+    expect(settled).toBeLessThanOrEqual(2)
+  })
+
+  test('after a failure the reader can ask again and the turn lands', async ({ page }) => {
+    await openCanvas(page, 'history-retry')
+    await expect(page.getByText('Second question: any risks?')).toBeVisible()
+    await expect
+      .poll(async () => (await older(page).count()) > 0 || (await attempts(page)) >= 1)
+      .toBe(true)
+    // If the first (failing) request has not already been retried, ask again.
+    const load = page.getByRole('button', { name: 'Load earlier messages' })
+    if ((await older(page).count()) === 0) await load.click()
+    await expect(older(page)).toHaveCount(1)
+    await expect(page.getByText('Earlier messages could not be loaded')).toHaveCount(0)
+  })
+})
+
 test.describe('structured results', () => {
   test('terminal output, a test run with its stack, files, a plan and a task are drawn as such', async ({
     page,
@@ -984,7 +1039,7 @@ test.describe('structured results', () => {
     // A plan is the thing being followed, so it opens by itself.
     const plan = call(page, 'res-plan')
     await expect(plan).toContainText('Fix the journal check')
-    await expect(plan).toContainText('1 of 3 done')
+    await expect(plan).toContainText('1 of 3 steps done')
     await expect(plan).toContainText('Keep applied entries unchanged')
     await expect(call(page, 'res-task')).toContainText('Follow up on the rollout order')
     expect(errors).toEqual([])
@@ -1007,6 +1062,77 @@ test.describe('structured results', () => {
     await expect(page.getByRole('dialog')).toContainText('200,000')
     await page.keyboard.press('Escape')
     await expect(trigger).toBeFocused()
+  })
+
+  test.describe('adapters keep what the producer said', () => {
+    test('a subagent keeps its input, its references and the redaction of a private path', async ({
+      page,
+    }) => {
+      const errors = trackPageErrors(page)
+      await openCanvas(page, 'results-edge')
+      const agent = call(page, 'edge-agent-in')
+      await agent.getByRole('button').first().click()
+      const input = agent.locator('[data-call-input]')
+      await input.getByRole('button').first().click()
+      await expect(input).toContainText('summarize')
+      await expect(input).toContainText('[private path]')
+      await expect(input).not.toContainText('someone')
+      // An output held by reference is said to be, not dropped.
+      await expect(agent).toContainText('Output is held by reference (8192 bytes)')
+
+      const held = call(page, 'edge-agent-ref')
+      await held.getByRole('button').first().click()
+      await held.locator('[data-call-input]').getByRole('button').first().click()
+      await expect(held).toContainText('Input is held by reference (2048 bytes)')
+      expect(errors).toEqual([])
+    })
+
+    test('a suite keeps its reported status and nothing claims work is under way once stopped', async ({
+      page,
+    }) => {
+      await openCanvas(page, 'results-edge')
+      const tests = call(page, 'edge-tests')
+      await tests.getByRole('button').first().click()
+      const suites = tests.locator('[data-suite-status]')
+      await expect(suites).toContainText('auth suite: failed')
+      await expect(suites).toContainText('ui suite: not finished')
+      await expect(tests.locator('[data-status="running"]')).toHaveCount(0)
+    })
+
+    test('a failed plan with an incomplete list does not imply completion', async ({ page }) => {
+      await openCanvas(page, 'results-edge')
+      const plan = call(page, 'edge-plan')
+      await expect(plan).toContainText('Roll out the fix')
+      await expect(plan).toContainText('failed · 1 listed')
+      await expect(plan).toContainText('The producer marked this plan incomplete')
+      await expect(plan).toContainText('The producer counts 4 steps')
+      await expect(plan).toContainText('Write the migration')
+      await expect(plan).not.toContainText('done')
+    })
+
+    test('changed files with no totals claim neither a total nor zero lines', async ({ page }) => {
+      await openCanvas(page, 'results-edge')
+      const files = call(page, 'edge-files')
+      await expect(files).toContainText('1 listed')
+      await expect(files).not.toContainText('+0')
+      await expect(files).not.toContainText('1 file ')
+      await files.getByRole('button').first().click()
+      await expect(files).toContainText('did not say whether this list is complete')
+    })
+
+    test("context is the named model's, and its cost keeps the exact decimal text", async ({
+      page,
+    }) => {
+      await openCanvas(page, 'results-edge')
+      await expect(page.locator('[data-usage-model]')).toHaveAttribute(
+        'data-usage-model',
+        'fixture-model'
+      )
+      await expect(page.locator('[data-usage-cost]')).toHaveText('Cost 0.000000123456789 USD')
+      await page.locator('[data-slot="context"]').click()
+      await expect(page.getByRole('dialog')).toContainText('30,000')
+      await expect(page.getByRole('dialog')).not.toContainText('1,000,000')
+    })
   })
 
   for (const theme of ['light', 'dark'] as const) {

@@ -80,6 +80,21 @@ const calls = (entries: readonly ChatTurnEntry[]) =>
 const shape = (entry: ChatTurnCall): string =>
   entry.children.length === 0 ? entry.id : `${entry.id}(${entry.children.map(shape).join(',')})`
 
+const inputText = (value: unknown): string => {
+  const { turns } = build([
+    prompt('u1'),
+    tool(
+      't1',
+      'call-1',
+      'completed',
+      { input: { type: 'inline', value } },
+      { classification: 'restricted_local' }
+    ),
+  ])
+  const input = calls(turns[0]!.entries)[0]?.call.input
+  return input?.type === 'inline' ? input.text : ''
+}
+
 describe('tool and subagent calls', () => {
   test('the events of one call are one entry that stays where the first arrived', () => {
     const { turns, entryByEventId } = build([
@@ -306,6 +321,43 @@ describe('tool and subagent calls', () => {
     expect(text).not.toContain('sk-abcdefgh12345678')
     expect(text).not.toContain('/home/someone')
     expect(call?.call.output).toEqual({ type: 'reference', byteLength: 2048 })
+  })
+
+  describe('inline data is redacted before it is written as JSON', () => {
+    test('a Windows path is private even though JSON doubles its backslashes', () => {
+      const text = inputText({ file: 'C:\\Users\\someone\\notes.txt' })
+      expect(text).toContain('[private path]')
+      expect(text).not.toContain('someone')
+    })
+
+    test('a terminal escape inside a token cannot hide it', () => {
+      const text = inputText({ note: 'use sk-abc\u001b[0mdefgh12345678 now' })
+      expect(text).not.toContain('defgh12345678')
+      expect(text).toContain('[secret redacted]')
+    })
+
+    test('a credential-named key withholds its value, whatever it looks like', () => {
+      const text = inputText({
+        password: 'hunter2',
+        nested: { api_key: 'abc', max_tokens: 100, accessToken: 'plain-looking-value' },
+      })
+      expect(text).not.toContain('hunter2')
+      expect(text).not.toContain('plain-looking-value')
+      expect(text).toContain('"max_tokens": 100')
+    })
+
+    test('a secret that only forms across fields withholds the value', () => {
+      const text = inputText(['sk-abcd', 'efgh12345678'])
+      expect(text).not.toContain('efgh12345678')
+      expect(text).toContain('withheld')
+    })
+
+    test('a PEM block with escaped newlines is redacted', () => {
+      const text = inputText({
+        pem: '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkq\n-----END PRIVATE KEY-----',
+      })
+      expect(text).not.toContain('MIIEvQIBADANBgkq')
+    })
   })
 
   test('long inline data is cut and says so', () => {

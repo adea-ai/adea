@@ -1,6 +1,6 @@
 import { createMemo, For, Show, type JSX } from 'solid-js'
 import { CodeBlock } from '@adea-ai/ui/components/ui/code-block'
-import { Trace, TraceDetail, type TraceStatus } from '@adea-ai/ui/components/ui/trace'
+import { Trace, TraceDetail, TraceLine, type TraceStatus } from '@adea-ai/ui/components/ui/trace'
 import { formatDuration } from '@adea-ai/ui/components/composites/reasoning'
 import { Subagent } from '@adea-ai/ui/components/composites/subagent'
 import { Tool, type ToolStatus } from '@adea-ai/ui/components/composites/tool'
@@ -62,6 +62,38 @@ function CallNotes(props: { call: ChatCall }): JSX.Element {
       (note): note is string => note !== undefined
     )
   return <For each={notes()}>{(note) => <TraceDetail data-call-note="">{note}</TraceDetail>}</For>
+}
+
+/** The input a subagent was given, with what was not shown, as the first step of its body. */
+function SubagentInput(props: { input: ChatCallData }): JSX.Element {
+  return (
+    <TraceLine title="Input" data-call-input="">
+      <Show when={inlineText(props.input)}>
+        {(text) => <CodeBlock code={text()} language="text" size="sm" wrap maxHeight="12rem" />}
+      </Show>
+      <Show when={dataNote('Input', props.input)}>
+        {(note) => <TraceDetail data-call-note="">{note()}</TraceDetail>}
+      </Show>
+    </TraceLine>
+  )
+}
+
+/** The answer a subagent returned, or the note that it was held back or shortened. */
+function SubagentResult(props: { output: ChatCallData }): JSX.Element {
+  return (
+    <>
+      <Show when={inlineText(props.output)}>
+        {(text) => <CodeBlock code={text()} language="text" size="sm" wrap maxHeight="12rem" />}
+      </Show>
+      <Show when={dataNote('Output', props.output)}>
+        {(note) => (
+          <p class="m-0 text-muted-foreground" data-call-note="">
+            {note()}
+          </p>
+        )}
+      </Show>
+    </>
+  )
 }
 
 const sameIds = (a: readonly string[], b: readonly string[]) =>
@@ -128,19 +160,13 @@ export function CallLine(props: { entry: () => ChatTurnCall; live: () => boolean
             ? call().durationMs! / 1000
             : undefined
         }
-        stepCount={children().length > 0 ? children().length : undefined}
+        // The input line is not a step the subagent took.
+        stepCount={children().length}
         result={
-          inlineText(call().output) === undefined ? undefined : (
-            <CodeBlock
-              code={inlineText(call().output)!}
-              language="text"
-              size="sm"
-              wrap
-              maxHeight="12rem"
-            />
-          )
+          call().output === undefined ? undefined : <SubagentResult output={call().output!} />
         }
       >
+        <Show when={call().input}>{(input) => <SubagentInput input={input()} />}</Show>
         <CallLines entries={children} live={props.live} />
       </Subagent>
     </Show>
