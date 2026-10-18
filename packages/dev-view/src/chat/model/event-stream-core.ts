@@ -1,4 +1,4 @@
-import { decodeCbor, decodeRuntimeEnvelope } from '@adea-ai/types/dev-runtime-wire'
+import { decodeCbor, decodeRuntimeEnvelope } from '@adea-ai/types/dev-runtime-browser'
 import type { DevStreamFrame, RuntimeEvent, Scope } from '@adea-ai/types/dev-runtime'
 
 import { buildDevCommand } from '../../browser/command'

@@ -90,6 +90,11 @@
       "types": "./dist/management.d.ts",
       "development": "./src/management.ts",
       "import": "./dist/management.js"
+    },
+    "./dev-runtime-browser": {
+      "types": "./dist/dev-runtime-browser.d.ts",
+      "development": "./src/dev-runtime-browser.ts",
+      "import": "./dist/dev-runtime-browser.js"
     }
   },
   "scripts": {

@@ -1,3 +1,9 @@
+import {
+  isRuntimeActivityEventKind,
+  type RuntimeActivityEventKind,
+} from '../dev-runtime-event-kinds'
+export { runtimeActivityEventKinds, isRuntimeActivityEventKind } from '../dev-runtime-event-kinds'
+export type { RuntimeActivityEventKind } from '../dev-runtime-event-kinds'
 import { fail } from '../dev-runtime-validation-internal'
 import { validateFailureRecord, type RuntimeFailurePayload } from './failure'
 import { validateTestRunPayload, type RuntimeTestRunPayload } from './test-run'
@@ -43,15 +49,6 @@ export type {
   RuntimeWorkItem,
 } from './work'
 
-export const runtimeActivityEventKinds = [
-  'test_run.observed',
-  'terminal.output',
-  'failure.observed',
-  'files.changed',
-  'plan.observed',
-  'task.observed',
-] as const
-export type RuntimeActivityEventKind = (typeof runtimeActivityEventKinds)[number]
 export type RuntimeActivityPayloads = {
   'test_run.observed': RuntimeTestRunPayload
   'terminal.output': RuntimeTerminalOutputPayload
@@ -59,10 +56,6 @@ export type RuntimeActivityPayloads = {
   'files.changed': RuntimeChangedFilesPayload
   'plan.observed': RuntimePlanPayload
   'task.observed': RuntimeTaskPayload
-}
-
-export function isRuntimeActivityEventKind(value: unknown): value is RuntimeActivityEventKind {
-  return runtimeActivityEventKinds.includes(value as RuntimeActivityEventKind)
 }
 
 /** Validates claims without calculating counts, statuses, frames or missing content. */

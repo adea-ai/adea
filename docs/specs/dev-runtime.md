@@ -2833,6 +2833,115 @@ Event constraints:
 - gaps return `resync_required` with checkpoint anchor; clients never advance
   past an unexplained gap.
 
+### Context and token usage observations (#1391)
+
+`usage.observed` has a strict, versioned `RuntimeUsageObservedPayload`. The
+canonical event decoder and the host event log validate it before projection,
+persistence, or subscriber delivery. `RuntimeEvent<'usage.observed'>` gives
+producers the typed payload; other kinds retain their existing opaque payloads.
+The codec and payload type are exported by both `@adea-ai/types/dev-runtime-wire`
+and the complete `@adea-ai/types/dev-runtime` entry.
+
+```ts
+type RuntimeUsageObservedPayload = {
+  schemaVersion: 1
+  model: { providerId: string; modelId: string }
+  generation: number
+  context: { used: number | null; total: number | null }
+  breakdown?: {
+    input?: number
+    output?: number
+    cacheRead?: number
+    cacheWrite?: number
+    reasoning?: number
+  }
+  cost?: { amount: string; currency: string }
+}
+```
+
+- A payload is a reported snapshot for exactly one provider/model and runtime
+  session generation. Both model identifiers are required, 1–256 characters,
+  without controls or surrounding whitespace. They must contain well-formed
+  Unicode: lone surrogate code units are refused before snapshot/admission;
+  valid astral pairs survive UTF-8/CBOR round trips unchanged. If model identity is unknown,
+  the producer MUST NOT emit a usage observation. `generation` is a nonnegative
+  safe integer and MUST equal the enclosing event's generation. Session and
+  optional harness-run identity come from the event envelope.
+- `context.used` is the source-reported **current context occupancy**;
+  `context.total` is that model's source-reported effective context window for
+  this session. Each is independently `null` when unknown. Both keys are
+  required; unknown MUST NOT become zero or a guessed model default. Counts
+  are safe integers: used is nonnegative, total is positive, and used MUST NOT
+  exceed a known total. Reject invalid/overflow values rather than clamp them.
+- `breakdown` contains only known, source-reported cumulative token counts for
+  this model in this generation. Every count is a nonnegative safe integer;
+  omit unknown counters and omit the entire block when none is known.
+  `input` includes cache-read/cache-write tokens; those two counters are
+  disjoint subsets whose sum cannot exceed known input. `reasoning` is a
+  subset of output and cannot exceed known output. A source with different
+  semantics MUST omit counters it cannot faithfully map. Input/output totals
+  can exceed current context occupancy across multiple requests. They MUST NOT
+  be added to derive context usage or a missing total, and cache/reasoning
+  MUST NOT be counted again. Partial breakdowns do not fill missing counters.
+- `cost`, when present, is the source-reported cumulative cost for this model
+  in this generation. `amount` is an exact nonnegative decimal string of at
+  most 64 characters (integer part `0` or no leading zeros, optional decimal
+  point followed by digits; no sign, exponent or whitespace). `currency` is
+  exactly three uppercase ASCII letters supplied by the source. Preserve both
+  verbatim; do not convert to floating point, calculate a rate-card estimate,
+  infer currency, or convert between currencies. Omit the block if unknown.
+- Usage requires `authoritative` confidence from an authenticated source.
+  Terminal fallback cannot emit it. Validation establishes shape and bounds;
+  the authenticated adapter remains responsible for proving the figures and
+  their semantics. Do not relabel estimates as observations.
+- Usage envelopes and nested payload records contain enumerable own data
+  properties only; accessors, hidden serialization hooks and symbols are
+  refused. The usage codec returns a detached, deeply frozen payload, and the
+  event decoder returns a frozen detached usage envelope. The host persists
+  and delivers that same admitted snapshot, so subsequent caller mutation
+  cannot change figures or serialize required keys away. Ordinary JSON values
+  retain their exact meaning. Other event kinds keep their existing behavior.
+- All payload/model/context/breakdown/cost keys are exact; unknown keys,
+  versions, malformed values and generation mismatches fail closed. This is
+  a strict producer-contract change: legacy opaque usage payloads are rejected,
+  rather than translated into fabricated figures. Other event kinds retain
+  their existing envelope and payload rules.
+- Existing schema-version-1 event files are not assumed to satisfy the new
+  usage schema. Before a read, latest-sequence calculation, or append into a
+  generation, validate every retained usage observation in that selected
+  session/generation, even observations before the requested cursor or outside
+  the requested page. An incompatible observation logically quarantines that
+  **whole generation** with typed `recovery_required` (not retryable); no row
+  is dropped, rewritten, resequenced, or replaced with invented usage. Scope-wide
+  event introspection also refuses incompatible retained usage. Healthy
+  sessions and explicitly selected healthy generations remain usable.
+- A stream whose retained generation requires recovery closes `incompatible`
+  with the fixed reason `runtime event history requires recovery` before any
+  replay data, checkpoint/resync frame, completion heartbeat or live
+  subscription. A cursor beyond the incompatible row cannot skip this check.
+  This is a recovery state, not a sequence gap or evidence of complete replay.
+- There is no automatic legacy backfill or migration. Reads preserve the
+  original durable bytes for operator review/export. Recovery requires
+  source-backed compatible records that preserve canonical IDs and sequences,
+  or an explicitly authorized resume/new generation; a new generation does
+  not make the quarantined history readable. Resume preflights the old
+  generation before mutating the run; when quarantined, it records the
+  superseded run's disconnection in the new generation and completes in that
+  command. Repeating the old generation-bound request is stale and cannot
+  create another run. Ordinary status changes refuse before mutating a
+  quarantined generation. Command refusals project the typed error onto the
+  strict wire fields, including the message, on both dispatch lanes.
+  Do not delete a single row or
+  resequence the log to bypass recovery. Normal bounded retention still
+  applies; this contract adds no unbounded quarantine store or hidden copy.
+- Consumers key observations by session, generation and provider/model, use
+  existing event ordering/deduplication, and treat each snapshot as a
+  replacement, never an increment. A newer `null` clears an earlier known
+  figure; do not carry values across models or generations. Draw a context
+  proportion only when both figures are known. No usage producer, provider
+  lookup, model window catalog, pricing table, or Context UI is fabricated by
+  this contract; sources that do not report these facts remain unavailable.
+
 ### Conversation checkpoint evidence and restore (#1390)
 
 Conversation checkpoints are distinct from terminal replay checkpoints and Git
@@ -3397,9 +3506,19 @@ envelope, the generic payload bounds and the full-frame bound for versioned call
 claims, but does not interpret a kind's payload. A consumer that renders or acts
 on a payload MUST narrow it with the explicit contract (for example
 `decodeRuntimeCallEvent`) rather than trust the envelope decode. Kind-specific
-validators are reachable only through `eventSemantics` in
-`packages/types/src/dev-runtime-wire.ts`; new contracts register there so the
-shared utility bundle never carries them. `dev-runtime-envelope.test.ts` bundles
+validators are reachable only through `eventSemantics` in the internal
+`packages/types/src/dev-runtime-event.ts`; new contracts register there so the
+shared utility bundle never carries them. The internal `dev-runtime-envelope.ts`
+owns the unchanged shared envelope checks. `dev-runtime-event-kinds.ts` contains
+only the unchanged call/activity kind lists and predicates, re-exported through
+the existing public contracts; it imports no payload validator.
+`dev-runtime-wire.ts` retains its public exports; the unchanged canonical CBOR
+codec lives in internal `dev-runtime-cbor.ts`. Browser stream/projection consumers
+use `dev-runtime-browser`, which exposes the same existing CBOR and envelope
+decoders without evaluating the full-admission facade. History pages still use the complete
+canonical decoder for every unwithheld event, including all provenance, privacy
+and generation checks. `dev-runtime-history-admission.test.ts` pins that a
+lean-valid envelope cannot bypass kind-specific history admission. `dev-runtime-envelope.test.ts` bundles
 the lean entry and fails if a validator or a size regression reaches it.
 
 This change adds no native/ACP subscription or tool/subagent emitter. Existing

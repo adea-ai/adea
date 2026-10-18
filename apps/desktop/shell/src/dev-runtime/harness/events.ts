@@ -63,6 +63,30 @@ import {
 
 const EVENTS_STORE_FILE = join('dev-runtime', 'harness', 'session-events.json')
 
+/** A retained generation cannot be replayed under the current usage contract. */
+export class RuntimeEventRecoveryRequiredError extends Error {
+  readonly code = 'recovery_required'
+  readonly retryable = false
+
+  constructor() {
+    super('retained runtime event generation requires recovery')
+    this.name = 'RuntimeEventRecoveryRequiredError'
+  }
+}
+
+function assertUsageReplayable(events: readonly RuntimeEvent[]): void {
+  for (const event of events) {
+    if (event.kind !== 'usage.observed') continue
+    try {
+      decodeRuntimeEvent(event, { source: event.source })
+    } catch {
+      // Logical quarantine: preserve the original record and refuse the whole
+      // selected generation. Never drop a sequence or fabricate a replacement.
+      throw new RuntimeEventRecoveryRequiredError()
+    }
+  }
+}
+
 /** Maximum retained events per (scope, runtime session). */
 export const MAX_EVENTS_PER_SESSION = 1000
 /** Maximum retained events across the scope (bounds the durable file). */
@@ -209,8 +233,25 @@ export function createSessionEventLog(input: {
       : events.reduce((max, event) => (seqOf(event) > BigInt(max) ? event.seq : max), '0')
   }
 
+  const rawEvents = (): RuntimeEvent[] => inScope().map(project)
+  const select = (runtimeSessionId: string, generation?: number): RuntimeEvent[] => {
+    const records = rawEvents()
+    // Retained visible-summary facts are revalidated scope-wide on every read
+    // (origin/main), and retained usage observations quarantine their
+    // generation (#1391).
+    assertVisibleSummaryReplay(records)
+    const selected = records.filter(
+      (event) =>
+        event.runtimeSessionId === runtimeSessionId &&
+        (generation === undefined || event.generation === generation)
+    )
+    assertUsageReplayable(selected)
+    return selected
+  }
+
   const all = (): RuntimeEvent[] => {
-    const records = inScope().map(project)
+    const records = rawEvents()
+    assertUsageReplayable(records)
     assertVisibleSummaryReplay(records)
     return records
   }
@@ -243,7 +284,18 @@ export function createSessionEventLog(input: {
       payload: sessionInput.payload ?? {},
     })
     validateRuntimeResponseReferences(sessionInput.kind, sessionInput.payload, source)
-    const records = all()
+    const records = rawEvents()
+    // Replay is revalidated before any append: visible summaries scope-wide
+    // (origin/main), usage within the target session/generation (#1391), so a
+    // quarantined generation never blocks recovery appends into a healthy one.
+    assertVisibleSummaryReplay(records)
+    assertUsageReplayable(
+      records.filter(
+        (event) =>
+          event.runtimeSessionId === sessionInput.runtimeSessionId &&
+          event.generation === sessionInput.generation
+      )
+    )
     const latest = BigInt(
       latestSeqOf(records, sessionInput.runtimeSessionId, sessionInput.generation)
     )
@@ -282,6 +334,9 @@ export function createSessionEventLog(input: {
           ? {}
           : (sessionInput.payload ?? {})),
     }
+    // Usage has a strict producer contract (#1391). Refuse before persistence,
+    // dedupe, retention, or subscriber delivery; other event payloads stay opaque.
+    if (candidate.kind === 'usage.observed') candidate = decodeRuntimeEvent(candidate, { source })
     if (isRuntimeActivityEventKind(candidate.kind)) {
       const admission = admitRuntimeActivityEvent(
         candidate,
@@ -392,11 +447,7 @@ export function createSessionEventLog(input: {
   ): RuntimeEvent[] {
     const limit = Math.min(options?.limit ?? EVENT_PAGE_DEFAULT, EVENT_PAGE_MAX)
     const from = BigInt(options?.fromSequence ?? '0')
-    return all()
-      .filter((event) => event.runtimeSessionId === runtimeSessionId)
-      .filter((event) =>
-        options?.generation !== undefined ? event.generation === options.generation : true
-      )
+    return select(runtimeSessionId, options?.generation)
       .filter((event) => seqOf(event) >= from)
       .toSorted(compareRetentionOrder)
       .slice(0, limit)
@@ -411,7 +462,7 @@ export function createSessionEventLog(input: {
     }),
     read: readEvents,
     latestSequence(runtimeSessionId, generation) {
-      return latestSeqOf(all(), runtimeSessionId, generation)
+      return latestSeqOf(select(runtimeSessionId, generation), runtimeSessionId, generation)
     },
     subscribe(runtimeSessionId, cb) {
       const set = subscribers.get(runtimeSessionId) ?? new Set()

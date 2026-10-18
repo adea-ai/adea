@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 import { cborByteLength } from '../src/dev-runtime-cbor-length'
+import * as browser from '../src/dev-runtime-browser'
 import {
   decodeCbor,
   decodeRuntimeCallEvent,
@@ -155,6 +156,12 @@ describe('cborByteLength', () => {
 })
 
 describe('lean envelope decoder', () => {
+  test('the focused browser entry exposes the existing decoders without an alternate path', () => {
+    expect(Object.keys(browser).toSorted()).toEqual(['decodeCbor', 'decodeRuntimeEnvelope'])
+    expect(browser.decodeCbor).toBe(decodeCbor)
+    expect(browser.decodeRuntimeEnvelope).toBe(decodeRuntimeEnvelope)
+  })
+
   test('accepts a valid envelope without interpreting kind-specific payloads', () => {
     const malformedCall = event({ payload: { schemaVersion: 1, callId: 'call 1 with spaces' } })
     expect(() => decodeRuntimeEvent(malformedCall, provenance)).toThrow()
@@ -208,36 +215,39 @@ describe('lean envelope decoder', () => {
     expect(decodeRuntimeEnvelope(legacy, provenance)).toBe(legacy)
   })
 
-  test('the browser entry bundle excludes every kind-specific validator', async () => {
-    const directory = mkdtempSync(join(tmpdir(), 'adea-envelope-'))
-    try {
-      const entry = join(directory, 'entry.ts')
-      writeFileSync(
-        entry,
-        `import { decodeCbor, decodeRuntimeEnvelope } from ${JSON.stringify(
-          resolve(import.meta.dir, '../src/dev-runtime-wire.ts')
-        )}\nglobalThis.lean = [decodeCbor, decodeRuntimeEnvelope]\n`
-      )
-      const result = await Bun.build({ entrypoints: [entry], minify: true, target: 'browser' })
-      expect(result.success).toBe(true)
-      const text = await result.outputs[0]!.text()
-      // Interaction, attachment and any later contract validators belong behind
-      // `eventSemantics` in dev-runtime-wire.ts; reaching them from the lean
-      // decoder moves their bytes into the shared utility bundle.
-      for (const marker of [
-        'call observations require',
-        'expected opaque call identifier',
-        'maximum cited response',
-        'duplicate source ID',
-        'event.summary',
-        'ill-formed Unicode',
-      ])
-        expect(text).not.toContain(marker)
-      expect(text.length).toBeLessThan(8_500)
-    } finally {
-      rmSync(directory, { recursive: true, force: true })
+  test.each(['dev-runtime-wire', 'dev-runtime-browser'])(
+    'the %s entry bundle excludes every kind-specific validator',
+    async (moduleName) => {
+      const directory = mkdtempSync(join(tmpdir(), 'adea-envelope-'))
+      try {
+        const entry = join(directory, 'entry.ts')
+        writeFileSync(
+          entry,
+          `import { decodeCbor, decodeRuntimeEnvelope } from ${JSON.stringify(
+            resolve(import.meta.dir, `../src/${moduleName}.ts`)
+          )}\nglobalThis.lean = [decodeCbor, decodeRuntimeEnvelope]\n`
+        )
+        const result = await Bun.build({ entrypoints: [entry], minify: true, target: 'browser' })
+        expect(result.success).toBe(true)
+        const text = await result.outputs[0]!.text()
+        // Interaction, attachment and any later contract validators belong behind
+        // `eventSemantics` in dev-runtime-event.ts; reaching them from the lean
+        // decoder moves their bytes into the shared utility bundle.
+        for (const marker of [
+          'call observations require',
+          'expected opaque call identifier',
+          'maximum cited response',
+          'duplicate source ID',
+          'event.summary',
+          'ill-formed Unicode',
+        ])
+          expect(text).not.toContain(marker)
+        expect(text.length).toBeLessThan(8_500)
+      } finally {
+        rmSync(directory, { recursive: true, force: true })
+      }
     }
-  })
+  )
 })
 
 const call = (payload: Record<string, unknown>, overrides: Record<string, unknown> = {}) =>

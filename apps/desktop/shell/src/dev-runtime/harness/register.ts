@@ -62,7 +62,11 @@ import type { MemoryAgentTrace } from '../../memory/provenance'
 import type { HarnessAccountResolution } from '../connections/register'
 import { harnessFamilySpec } from '../discovery/families'
 import type { VaultSecret } from '../vault'
-import { createSessionEventLog, type SessionEventLog } from './events'
+import {
+  createSessionEventLog,
+  RuntimeEventRecoveryRequiredError,
+  type SessionEventLog,
+} from './events'
 import { transcriptEvent, transcriptPromptText } from './transcript-content'
 import { createConversationCheckpointRuntime, type CheckpointRestoreAdapter } from './checkpoints'
 import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver'
@@ -1053,27 +1057,33 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     // Bounded newest-frame replay: at most the newest 500 events of the
     // granted generation, never older than the requested fromSequence.
     const REPLAY_LIMIT = 500n
-    const latest = BigInt(events.latestSequence(runtimeSessionId, generation))
     const requested = BigInt(grant.fromSequence)
-    const windowStart = latest >= REPLAY_LIMIT ? (latest - REPLAY_LIMIT + 1n).toString() : '0'
-    const retainedSequence = BigInt(
-      events.read(runtimeSessionId, { generation, limit: 1 })[0]?.seq ?? '0'
-    )
-    const retainedFloor = retainedSequence > 1n ? retainedSequence : 0n
-    const from = [requested, BigInt(windowStart), retainedFloor]
-      .reduce((a, b) => (a > b ? a : b))
-      .toString()
+    let latest: bigint
+    let from: string
+    let replay: RuntimeEvent[]
+    try {
+      latest = BigInt(events.latestSequence(runtimeSessionId, generation))
+      const windowStart = latest >= REPLAY_LIMIT ? (latest - REPLAY_LIMIT + 1n).toString() : '0'
+      const retainedSequence = BigInt(
+        events.read(runtimeSessionId, { generation, limit: 1 })[0]?.seq ?? '0'
+      )
+      const retainedFloor = retainedSequence > 1n ? retainedSequence : 0n
+      from = [requested, BigInt(windowStart), retainedFloor]
+        .reduce((a, b) => (a > b ? a : b))
+        .toString()
+      replay = events.read(runtimeSessionId, { fromSequence: from, generation, limit: 500 })
+    } catch (error) {
+      if (!(error instanceof RuntimeEventRecoveryRequiredError)) throw error
+      stream.close('incompatible', 'runtime event history requires recovery')
+      return
+    }
     if (BigInt(from) > requested)
       stream.send({
         type: 'resync',
         reason: 'checkpoint_required',
         checkpointSequence: from,
       })
-    for (const event of events.read(runtimeSessionId, {
-      fromSequence: from,
-      generation,
-      limit: 500,
-    })) {
+    for (const event of replay) {
       sendEvent(event)
     }
     // The replay's end marker: the log has no other way to tell a reader that
@@ -1437,6 +1447,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       if (RUN_TERMINAL_STATES.includes(run.state)) {
         throw devError('already_completed', `harness run is already ${run.state}`)
       }
+      // Refuse quarantined history before mutating its run projection.
+      events.latestSequence(session.id, session.generation)
       const observedAt = iso()
       const next = runs.observe({
         runId: run.id,
@@ -1613,9 +1625,27 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         throw devError('identity_mismatch', 'harness run belongs to another runtime session')
       }
       requireLaunchInstallation(prior.installationId)
+      // Explicit resume is a recovery path for incompatible retained usage.
+      // Decide before changing the old run; its quarantined log stays intact.
+      let priorGenerationRequiresRecovery = false
+      try {
+        events.latestSequence(session.id, session.generation)
+      } catch (error) {
+        if (!(error instanceof RuntimeEventRecoveryRequiredError)) throw error
+        priorGenerationRequiresRecovery = true
+      }
       // Resume creates a new run generation under the SAME session; it never
       // reuses the stale run's write authority.
-      if (RUN_ACTIVE_STATES.includes(prior.state)) {
+      const disconnectPrior = RUN_ACTIVE_STATES.includes(prior.state)
+      const recordDisconnection = (target: RuntimeSession) =>
+        appendEventFact({
+          session: target,
+          harnessRunId: prior.id,
+          kind: 'run.disconnected',
+          payload: { harnessRunId: prior.id, reason: 'superseded by resume' },
+          sourceEventId: `host:run-resume-disconnect:${prior.id}`,
+        })
+      if (disconnectPrior) {
         runs.observe({
           runId: prior.id,
           to: 'disconnected',
@@ -1623,13 +1653,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           observedAt: iso(),
           detail: 'superseded by resume',
         })
-        appendEventFact({
-          session: { ...session, generation: session.generation },
-          harnessRunId: prior.id,
-          kind: 'run.disconnected',
-          payload: { harnessRunId: prior.id, reason: 'superseded by resume' },
-          sourceEventId: `host:run-resume-disconnect:${prior.id}`,
-        })
+        if (!priorGenerationRequiresRecovery) recordDisconnection(session)
       }
       const run = createRun({
         session,
@@ -1645,6 +1669,9 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         activeHarnessRunId: run.id,
         lifecycle: 'active',
       })
+      // Reconcile the superseded run in the new generation instead of trying
+      // to append into an intentionally quarantined generation mid-resume.
+      if (disconnectPrior && priorGenerationRequiresRecovery) recordDisconnection(nextSession)
       appendEventFact({
         session: nextSession,
         harnessRunId: run.id,
