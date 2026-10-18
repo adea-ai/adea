@@ -251,7 +251,7 @@ excused. `PI_FACTORY_EXPECT_SDK` and `PI_FACTORY_INSTALL` have no defaults:
 ```sh
 # The manifest comes from `node scripts/pack-pi-durable-candidate.mjs <dir>` in the clean, built CP
 # checkout at the pinned revision (69e6e746, the CP 1.104.0 release commit).
-export DATABASE_URL=... ADEA_CONTROL_PLANE_SOURCE=<cp at 69e6e746> PI_FACTORY_BUN=<bun 1.4.2> \
+export DATABASE_URL=... ADEA_CONTROL_PLANE_SOURCE=<cp at 69e6e746> PI_FACTORY_BUN=<bun 1.4.3, the repository pin> \
        PI_FACTORY_MANIFEST=<candidate>/manifest.json
 bun run test:integration:control-plane-child-allowance             # registry + accepts: current consumer gate
 bun run test:integration:control-plane-child-allowance-legacy-sdk  # isolated legacy SDK + rejects: negative control
@@ -259,12 +259,12 @@ bun run test:integration:control-plane-child-allowance-legacy-sdk  # isolated le
 
 The second script installs `legacy-sdk/` from its own lockfile (`bun install --frozen-lockfile`) and
 passes `legacy-sdk/tsconfig.override.json` to `bun test --tsconfig-override`, which maps
-`@adea-ai/sdk` to that install; Bun prints a harmless `directory mismatch` notice for the flag. It
-replaces the earlier `-predating` script, which used Adea's lockfile SDK and so could not keep
+`@adea-ai/sdk` to that install. Bun 1.4.3, the version `packageManager` pins, prints no diagnostic
+for the flag (Bun 1.4.2 printed a harmless `directory mismatch` notice). It replaces the earlier `-predating` script, which used Adea's lockfile SDK and so could not keep
 failing closed once Adea moved to an SDK that accepts the field.
 
-Receipts, 2026-10-18, CP `69e6e746`, Adea `main` `0a21100a` plus the bump, Bun 1.4.2, local PostgreSQL
-with all 59 migrations:
+Receipts, 2026-10-18, CP `69e6e746`, Adea `main` `0a21100a` plus the bump, Bun 1.4.3 (the repository pin;
+clean `bun install --frozen-lockfile`, no lockfile change), local PostgreSQL 18 with all 59 migrations:
 
 | Run                                                                                            | Expectation | Result                                                                                                                                                                                                       |
 | ---------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

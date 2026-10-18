@@ -15,9 +15,9 @@ dependency graph. Adea's `package.json`, lockfile and `node_modules` are not inv
 `@adea-ai/sdk` to this install for the boundary suite's test process only, so the product's own SDK
 port, the suite's schema probe and the SDK's own `runtime-sdk` import all resolve to the legacy
 graph. The suite then asserts through the product's port that the legacy install is the one in
-effect. Bun prints an `Internal error: directory mismatch ... tsconfig.override.json` notice for
-this flag; it is a Bun diagnostic and the override still applies (the assertions above would fail
-otherwise).
+effect. Bun 1.4.3, the version Adea's `packageManager` pins, prints no diagnostic for this flag (Bun
+1.4.2 printed a harmless `Internal error: directory mismatch ... tsconfig.override.json` notice
+while still applying the override).
 
 Run with `bun run test:integration:control-plane-child-allowance-legacy-sdk` (see the
 "Child allowance boundary" section of the parent README). Do not bump these pins: the fixture is
