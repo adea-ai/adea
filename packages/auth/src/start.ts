@@ -1,6 +1,29 @@
-import type { CookieOptions, RequestContext } from '@neondatabase/auth/server'
+/**
+ * A provider-neutral per-request context: cookies come from the incoming
+ * request and writes go to the outgoing response. It is structural so the
+ * package does not depend on a server framework, and it matches the shape the
+ * self-hosted Better Auth adapter consumes.
+ */
+export type RequestContext = Readonly<{
+  getCookies(): string
+  setCookie(name: string, value: string, options: CookieOptions): void
+  getHeader(name: string): string | null | undefined
+  getOrigin(): string
+  getFramework(): string
+}>
 
-export type { RequestContext } from '@neondatabase/auth/server'
+export type CookieOptions = Readonly<{
+  domain?: string
+  expires?: Date
+  httpOnly?: boolean
+  maxAge?: number
+  partitioned?: boolean
+  path?: string
+  sameSite?: 'lax' | 'none' | 'strict' | 'Lax' | 'None' | 'Strict'
+  secure?: boolean
+}>
+
+export type RequestContextFramework = string
 
 /**
  * The subset of TanStack Start's per-request helpers this adapter needs. The

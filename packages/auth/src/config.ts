@@ -81,3 +81,112 @@ export function readAuthConfig(environment: AuthEnvironment = process.env): Auth
     trustedOrigins: Object.freeze(trustedOrigins),
   })
 }
+
+export type BetterAuthConfig = Readonly<{
+  baseUrl: string
+  databaseUrl: string
+  emailVerificationRequired: boolean
+  google?: Readonly<{ clientId: string; clientSecret: string }>
+  secureCookies: boolean
+  secret: string
+  sessionExpiresInSeconds: number
+  sessionUpdateAgeSeconds: number
+  trustedOrigins: readonly string[]
+}>
+
+function readPositiveSeconds(raw: string | undefined, name: string, fallback: number): number {
+  if (raw === undefined || raw.trim() === '') return fallback
+  const value = Number(raw)
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive whole number of seconds`)
+  }
+  return value
+}
+
+function readBoolean(raw: string | undefined, name: string, fallback: boolean): boolean {
+  if (raw === undefined || raw.trim() === '') return fallback
+  const value = raw.trim().toLowerCase()
+  if (value === 'true' || value === '1') return true
+  if (value === 'false' || value === '0') return false
+  throw new Error(`${name} must be true or false`)
+}
+
+/**
+ * Reads the self-hosted Better Auth configuration for a fresh deployment on a
+ * managed PostgreSQL (Railway) instance. Kept separate from the legacy provider
+ * config so the two environments can coexist while the old one stays
+ * recoverable.
+ */
+export function readBetterAuthConfig(environment: AuthEnvironment = process.env): BetterAuthConfig {
+  const rawBaseUrl = environment.AUTH_BASE_URL
+  if (!rawBaseUrl) throw new Error('AUTH_BASE_URL is required')
+
+  let baseUrl: URL
+  try {
+    baseUrl = new URL(rawBaseUrl)
+  } catch {
+    throw new Error('AUTH_BASE_URL must be a valid URL')
+  }
+  if (
+    baseUrl.protocol !== 'https:' &&
+    !(baseUrl.protocol === 'http:' && isLoopback(baseUrl.hostname))
+  ) {
+    throw new Error('AUTH_BASE_URL must use HTTPS outside loopback development')
+  }
+
+  const secret = environment.AUTH_SECRET
+  if (!secret || secret.length < 32) {
+    throw new Error('AUTH_SECRET must contain at least 32 characters')
+  }
+
+  const databaseUrl = environment.AUTH_DATABASE_URL
+  if (!databaseUrl) throw new Error('AUTH_DATABASE_URL is required')
+  if (!/^postgres(ql)?:\/\//.test(databaseUrl)) {
+    throw new Error('AUTH_DATABASE_URL must be a postgres:// connection string')
+  }
+
+  const rawOrigins = environment.AUTH_TRUSTED_ORIGINS
+  if (!rawOrigins) throw new Error('AUTH_TRUSTED_ORIGINS is required')
+  const trustedOrigins = [
+    ...new Set(rawOrigins.split(',').map((value) => normalizeTrustedTarget(value.trim()))),
+  ]
+  if (trustedOrigins.length === 0) throw new Error('AUTH_TRUSTED_ORIGINS must not be empty')
+
+  const googleClientId = environment.GOOGLE_CLIENT_ID
+  const googleClientSecret = environment.GOOGLE_CLIENT_SECRET
+  if (Boolean(googleClientId) !== Boolean(googleClientSecret)) {
+    throw new Error('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together')
+  }
+
+  return Object.freeze({
+    baseUrl: baseUrl.toString().replace(/\/$/, ''),
+    databaseUrl,
+    emailVerificationRequired: readBoolean(
+      environment.AUTH_EMAIL_VERIFICATION_REQUIRED,
+      'AUTH_EMAIL_VERIFICATION_REQUIRED',
+      false
+    ),
+    ...(googleClientId && googleClientSecret
+      ? { google: Object.freeze({ clientId: googleClientId, clientSecret: googleClientSecret }) }
+      : {}),
+    // Secure cookies are the default; only loopback development over plain HTTP
+    // downgrades them.
+    secureCookies: readBoolean(
+      environment.AUTH_SECURE_COOKIES,
+      'AUTH_SECURE_COOKIES',
+      baseUrl.protocol === 'https:'
+    ),
+    secret,
+    sessionExpiresInSeconds: readPositiveSeconds(
+      environment.AUTH_SESSION_EXPIRES_IN_SECONDS,
+      'AUTH_SESSION_EXPIRES_IN_SECONDS',
+      60 * 60 * 24 * 7
+    ),
+    sessionUpdateAgeSeconds: readPositiveSeconds(
+      environment.AUTH_SESSION_UPDATE_AGE_SECONDS,
+      'AUTH_SESSION_UPDATE_AGE_SECONDS',
+      60 * 60 * 24
+    ),
+    trustedOrigins: Object.freeze(trustedOrigins),
+  })
+}
