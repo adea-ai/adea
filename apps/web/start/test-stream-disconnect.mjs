@@ -87,24 +87,97 @@ const databaseEnvironment = {
 }
 const command = async (program, args, env = environment) => {
   const result = await captureCommand(program, args, { cwd: root, env })
-  if (result.status !== 0) throw new Error(`${program} failed: ${result.stderr || result.stdout}`)
+  if (result.status !== 0) {
+    const details = [
+      result.stderr,
+      result.stdout,
+      result.error?.message,
+      result.signal ? `terminated by ${result.signal}` : undefined,
+    ]
+      .filter(Boolean)
+      .join('\n')
+    throw new Error(
+      `${program} failed${result.status === null ? '' : ` (${result.status})`}: ${details}`
+    )
+  }
   return `${result.stdout}${result.stderr}`
 }
 const compose = ['compose', '-p', project, '-f', 'compose.yml']
 let databaseStarted = false
 let worker
-const stopWorker = async () => {
-  if (!worker) return
+let workerSpawnError
+const workerStopPromises = new WeakMap()
+const workerHasExited = (child) => child.exitCode !== null || child.signalCode !== null
+const processGroupExists = (pid) => {
+  try {
+    process.kill(-pid, 0)
+    return true
+  } catch (error) {
+    if (error.code === 'ESRCH') return false
+    if (error.code === 'EPERM') return true
+    throw error
+  }
+}
+const signalProcessGroup = (pid, signal) => {
+  try {
+    process.kill(-pid, signal)
+    return undefined
+  } catch (error) {
+    if (error.code === 'ESRCH') return undefined
+    return error
+  }
+}
+const waitForProcessGroupExit = async (pid, timeoutMs) => {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (!processGroupExists(pid)) return true
+    await delay(Math.min(50, deadline - Date.now()))
+  }
+  return !processGroupExists(pid)
+}
+const stopWorker = () => {
+  if (!worker) return Promise.resolve()
   const child = worker
-  worker = undefined
-  if (child.exitCode === null && child.signalCode === null) {
-    const exited = new Promise((ok) => child.once('exit', ok))
-    try {
-      process.kill(-child.pid, 'SIGTERM')
-    } catch (error) {
-      if (error.code !== 'ESRCH') throw error
+  const prior = workerStopPromises.get(child)
+  if (prior) return prior
+  const stopping = (async () => {
+    if (child.pid === undefined) {
+      if (workerHasExited(child)) return
+      throw new Error('Native Worker process group is unavailable for cleanup')
     }
-    await exited
+
+    const terminationErrors = []
+    const gracefulError = signalProcessGroup(child.pid, 'SIGTERM')
+    if (gracefulError) terminationErrors.push(gracefulError)
+    if (!(await waitForProcessGroupExit(child.pid, 5_000))) {
+      const forceError = signalProcessGroup(child.pid, 'SIGKILL')
+      if (forceError) terminationErrors.push(forceError)
+      if (!(await waitForProcessGroupExit(child.pid, 2_000)))
+        throw new AggregateError(
+          [
+            ...terminationErrors,
+            new Error(`Native Worker process group ${child.pid} survived SIGKILL`),
+          ],
+          `Could not terminate native Worker process group ${child.pid}`
+        )
+    }
+    if (worker === child) worker = undefined
+  })()
+  workerStopPromises.set(child, stopping)
+  return stopping
+}
+const assertWorkerAlive = (phase) => {
+  assert(worker, `Native Worker is unavailable during ${phase}`)
+  assert.equal(workerSpawnError, undefined, `Native Worker failed during ${phase}`)
+  assert.equal(worker.exitCode, null, `Native Worker exited during ${phase}`)
+  assert.equal(worker.signalCode, null, `Native Worker received a signal during ${phase}`)
+}
+const waitWithWorkerAlive = async (durationMs, phase) => {
+  const deadline = Date.now() + durationMs
+  while (Date.now() < deadline) {
+    assertWorkerAlive(phase)
+    await delay(Math.min(100, deadline - Date.now()))
+    assertWorkerAlive(phase)
   }
 }
 let container
@@ -112,6 +185,52 @@ const postgresLogs = () => command('docker', ['logs', container])
 const statementCount = (log) =>
   [...log.matchAll(/(?:statement:|execute [^:\r\n]+:)\s*(\w+)/gi)].length
 const reports = []
+let cleanupPromise
+const cleanupOwnedResources = () => {
+  if (cleanupPromise) return cleanupPromise
+  cleanupPromise = (async () => {
+    const errors = []
+    try {
+      await stopWorker()
+    } catch (error) {
+      errors.push(error)
+    }
+    if (databaseStarted) {
+      try {
+        await command('docker', [...compose, 'down', '--volumes'], databaseEnvironment)
+      } catch (error) {
+        errors.push(error)
+      }
+    }
+    if (errors.length > 0)
+      throw new AggregateError(errors, 'Could not clean up all disconnect-fixture resources')
+  })()
+  return cleanupPromise
+}
+let interruptionSignal
+const handleInterruption = (signal) => {
+  if (interruptionSignal) return
+  interruptionSignal = signal
+  void cleanupOwnedResources().then(
+    () => process.exit(signal === 'SIGINT' ? 130 : 143),
+    (error) => {
+      console.error(`Disconnect-fixture cleanup failed after ${signal}:`, error)
+      process.exit(signal === 'SIGINT' ? 130 : 143)
+    }
+  )
+}
+const onSigint = () => handleInterruption('SIGINT')
+const onSigterm = () => handleInterruption('SIGTERM')
+process.on('SIGINT', onSigint)
+process.on('SIGTERM', onSigterm)
+const assertNotInterrupted = (phase) =>
+  assert.equal(
+    interruptionSignal,
+    undefined,
+    `Fixture interrupted by ${interruptionSignal} during ${phase}`
+  )
+let runError
+let cleanupError
 try {
   databaseStarted = true
   const up = await runWithPullFallback(
@@ -147,6 +266,7 @@ try {
     { label: 'idle', active: false },
     { label: 'active', active: true },
   ]) {
+    assertNotInterrupted(`before ${scenario.label} scenario`)
     const port = await allocate()
     const baseURL = `https://127.0.0.1:${port}`
     const flags = built.compatibility_flags.filter(
@@ -174,6 +294,7 @@ const config :Workerd.Config = (
     await writeFile(configPath, config)
     const logPath = resolve(evidence, `worker-${scenario.label}.log`)
     const output = createWriteStream(logPath)
+    assertNotInterrupted(`${scenario.label} Worker startup`)
     worker = spawn(binary, ['serve', '--experimental', configPath], {
       cwd: evidence,
       env: environment,
@@ -182,15 +303,14 @@ const config :Workerd.Config = (
     })
     worker.stdout.pipe(output)
     worker.stderr.pipe(output)
-    let startupError
     worker.once('error', (error) => {
-      startupError = error
+      workerSpawnError = error
     })
     const deadline = Date.now() + 30_000
     let ready = false
     while (Date.now() < deadline && !ready) {
-      if (startupError) throw startupError
-      assert.equal(worker.exitCode, null, `Native startup failed; inspect ${logPath}`)
+      if (workerSpawnError) throw workerSpawnError
+      assertWorkerAlive('startup')
       try {
         ready = await new Promise((ok, fail) => {
           const req = httpsRequest(
@@ -226,36 +346,47 @@ const config :Workerd.Config = (
     const { offset, streamBackendPid } = client.databaseCheckpoint
     // The checkpoint precedes socket closure: a fast abort may already have closed
     // the stream's backend by the time this observation allowance ends.
-    await delay(500)
+    await waitWithWorkerAlive(500, 'post-disconnect observation')
     if (scenario.control) {
-      await delay(10_000)
+      await waitWithWorkerAlive(10_000, 'no-flag control observation')
+      assertWorkerAlive('no-flag control SQL inspection')
       const statements = statementCount((await postgresLogs()).slice(offset))
+      assertWorkerAlive('no-flag control SQL inspection')
       assert(statements > 0, 'The no-flag control must detect continued polling')
       assert(!(await readFile(logPath, 'utf8')).includes('DISCONNECT_ABORT '))
-      reports.push({ ...scenario, ...client, statementsAfterDisconnect: statements })
+      reports.push({
+        ...scenario,
+        ...client.receipt,
+        statementsAfterDisconnect: statements,
+      })
     } else {
       // Native disconnect notification is write-driven: idle waits for its next15s heartbeat.
       const abortDeadline = Date.now() + 20_000
       let abortedAt
       while (Date.now() < abortDeadline) {
+        assertWorkerAlive(`${scenario.label} abort observation`)
         const match = (await readFile(logPath, 'utf8')).match(/DISCONNECT_ABORT (\d+)/)
         if (match) {
           abortedAt = Number(match[1])
           break
         }
         await delay(100)
+        assertWorkerAlive(`${scenario.label} abort observation`)
       }
       assert(abortedAt, `Missing native abort; inspect ${logPath}`)
       // Observe the actual closer rather than racing in-flight work with a sleep.
       const closeDeadline = Date.now() + 10_000
       let closedConnections = []
       while (Date.now() < closeDeadline) {
+        assertWorkerAlive(`${scenario.label} database-close observation`)
         const afterAbort = (await postgresLogs()).slice(offset)
+        assertWorkerAlive(`${scenario.label} database-close observation`)
         closedConnections = [...afterAbort.matchAll(/\[(\d+)\] LOG:\s+disconnection:/g)].filter(
           (match) => match[1] === streamBackendPid
         )
         if (closedConnections.length > 0) break
         await delay(100)
+        assertWorkerAlive(`${scenario.label} database-close observation`)
       }
       assert.equal(
         closedConnections.length,
@@ -264,20 +395,27 @@ const config :Workerd.Config = (
       )
       const windows = []
       for (let index = 0; index < 3; index += 1) {
+        assertWorkerAlive(`${scenario.label} settled window ${index} start`)
         const before = (await postgresLogs()).length
-        await delay(10_000)
+        assertWorkerAlive(`${scenario.label} settled window ${index} start`)
+        await waitWithWorkerAlive(10_000, `${scenario.label} settled window ${index}`)
         const statements = statementCount((await postgresLogs()).slice(before))
+        assertWorkerAlive(`${scenario.label} settled window ${index} end`)
         windows.push(statements)
         assert.equal(statements, 0, `SQL continued in settled window ${index}`)
       }
+      assertWorkerAlive(`${scenario.label} fresh API request start`)
+      const healthyRequest = await client.checkHealthyRequest()
+      assertWorkerAlive(`${scenario.label} fresh API request end`)
       reports.push({
         ...scenario,
-        ...client,
+        ...client.receipt,
         abortedAt,
         abortAfterDisconnectMs: abortedAt - client.disconnectedAt,
         streamBackendPid,
         closedConnections: closedConnections.length,
         settledWindowStatements: windows,
+        healthyRequest,
       })
     }
     await writeFile(
@@ -311,6 +449,7 @@ const config :Workerd.Config = (
   )
   console.log(JSON.stringify({ evidence, workerdVersion, reports }))
 } catch (error) {
+  runError = error
   if (container) {
     try {
       const log = (await postgresLogs())
@@ -322,9 +461,20 @@ const config :Workerd.Config = (
       /* Preserve the original failure if diagnostics are unavailable. */
     }
   }
-  throw error
 } finally {
-  await stopWorker()
-  if (databaseStarted)
-    await command('docker', [...compose, 'down', '--volumes'], databaseEnvironment)
+  try {
+    await cleanupOwnedResources()
+  } catch (error) {
+    cleanupError = error
+  } finally {
+    process.off('SIGINT', onSigint)
+    process.off('SIGTERM', onSigterm)
+  }
 }
+if (runError && cleanupError)
+  throw new AggregateError(
+    [runError, cleanupError],
+    'Disconnect fixture failed and cleanup was incomplete'
+  )
+if (runError) throw runError
+if (cleanupError) throw cleanupError

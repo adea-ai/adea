@@ -68,6 +68,23 @@ export async function disconnectStream({ baseURL, certificate, active, label, be
   let streamSocket
   let bytes = 0
   let streamError
+  let streamText = ''
+  const mutationEventIds = []
+  const receivedMutationEvent = (messageId) =>
+    streamText.split(/\r?\n\r?\n/).some((frame) => {
+      if (!frame.split(/\r?\n/).includes('event: workspace.event')) return false
+      const data = frame
+        .split(/\r?\n/)
+        .find((line) => line.startsWith('data: '))
+        ?.slice(6)
+      if (!data) return false
+      try {
+        const event = JSON.parse(data)
+        return event.eventType === 'message.created' && event.payload?.messageId === messageId
+      } catch {
+        return false
+      }
+    })
   try {
     await new Promise((resolve, reject) => {
       streamRequest = httpsRequest(
@@ -81,6 +98,7 @@ export async function disconnectStream({ baseURL, certificate, active, label, be
           response = res
           res.on('data', (chunk) => {
             bytes += chunk.length
+            streamText += chunk.toString('utf8')
           })
           res.on('error', (error) => {
             streamError = error
@@ -107,6 +125,15 @@ export async function disconnectStream({ baseURL, certificate, active, label, be
           { bodyText: `Synthetic disconnect message ${index}` }
         )
         assert([200, 201].includes(message.status))
+        const messageId = message.body?.message?.id
+        assert.equal(typeof messageId, 'string', 'The synthetic message must have an ID')
+        const eventDeadline = Date.now() + 10_000
+        while (!receivedMutationEvent(messageId) && Date.now() < eventDeadline) await delay(50)
+        assert(
+          receivedMutationEvent(messageId),
+          `The stream must deliver the message.created event for ${messageId}`
+        )
+        mutationEventIds.push(messageId)
       }
     }
     assert(bytes > 0, 'The client must consume a real stream before disconnecting')
@@ -119,7 +146,25 @@ export async function disconnectStream({ baseURL, certificate, active, label, be
     streamRequest.destroy()
     streamSocket.destroy()
     await closed
-    return { disconnectedAt, socketClosedAt: Date.now(), bytes, databaseCheckpoint }
+    const socketClosedAt = Date.now()
+    return {
+      disconnectedAt,
+      socketClosedAt,
+      bytes,
+      mutationEventIds,
+      databaseCheckpoint,
+      receipt: { disconnectedAt, socketClosedAt, bytes, mutationEventIds },
+      checkHealthyRequest: async () => {
+        const fresh = await request('/api/workspaces/bootstrap')
+        assert.equal(fresh.status, 200, 'A fresh API request must succeed after the quiet windows')
+        assert.equal(
+          fresh.body?.activeWorkspace?.id,
+          workspaceId,
+          'The healthy API response must belong to the same synthetic workspace'
+        )
+        return { status: fresh.status, workspaceId: fresh.body.activeWorkspace.id }
+      },
+    }
   } finally {
     response?.destroy()
     streamRequest?.destroy()
