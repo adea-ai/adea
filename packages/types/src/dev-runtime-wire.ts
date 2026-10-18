@@ -4,6 +4,7 @@ export {
   RUNTIME_EVENT_CBOR_BYTES_MAX,
   assertRuntimeEventFrameSize,
   decodeRuntimeEnvelope,
+  decodeRuntimeBrowserEnvelope,
 } from './dev-runtime-envelope'
 export type {
   RuntimeEventKind,

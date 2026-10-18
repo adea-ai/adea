@@ -141,13 +141,18 @@ overlap as follows.
   payload without identity fails on append and on the wire. A retained row
   written before identity existed still passes the reference check on replay
   and stays opaque to the assistant lifecycle.
-- The canonical log validates assistant and call candidates (envelope identities,
-  payload contract) before dedupe and cursor allocation. Other kinds keep
-  main's legacy opaque retention, so a retained unknown kind still appends. The
-  #1388/#1389 replay tests give their assistant payloads identity.
-- Append order is: reference validation, assistant/call candidate validation
-  against the next cursor, duplicate/retry check, summary admission, assistant
-  lifecycle checks, exhaustion check, then the exact-frame size check.
+- The canonical log now decodes every candidate envelope, so an event kind
+  outside the wire vocabulary is refused at append instead of being retained
+  where no stream consumer could decode it. The #1388/#1389 replay tests that
+  used a made-up kind now use the known unrelated kind `tool.progress`, and
+  their assistant payloads carry identity. Assistant and call candidates are
+  validated (envelope identities, payload contract) before dedupe and cursor
+  allocation; retained rows of other kinds keep the legacy opaque retention
+  on read.
+- Append order is: reference validation, envelope decode of every candidate,
+  duplicate/retry check, summary admission, assistant lifecycle checks,
+  sequence allocation, then the exact-frame size check on the stored event
+  with its allocated sequence.
 
 Review corrections found while reconciling:
 
@@ -189,6 +194,6 @@ No packaged/live-harness, browser E2E or soak qualification is claimed.
 
 ### Envelope identifier Unicode (review 5559261853)
 
-`decodeRuntimeEvent` now rejects unpaired surrogates in `eventId`, `runtimeSessionId`, `sourceEventId` and `harnessRunId` before admission, dedupe or cursor allocation. The canonical CBOR encoder passes strings through `TextEncoder`, which rewrites a lone surrogate to U+FFFD, so `r\uD800` and `r\uD801` would otherwise share one wire identity while the host kept them distinct. The check uses `packages/types/src/dev-runtime-unicode.ts`, byte-identical to the helper on #1417's branch, so the two branches merge without divergent behaviour. Valid astral and combining identifiers are preserved through append, CBOR and replay.
+`decodeRuntimeEvent` now rejects unpaired surrogates in `eventId`, `runtimeSessionId`, `sourceEventId` and `harnessRunId` before admission, dedupe or cursor allocation. The canonical CBOR encoder passes strings through `TextEncoder`, which rewrites a lone surrogate to U+FFFD, so `r\uD800` and `r\uD801` would otherwise share one wire identity while the host kept them distinct. The check uses `packages/types/src/dev-runtime-unicode.ts`, the shared helper both this branch and #1401 adopted, so the two branches merge without divergent behaviour. Valid astral and combining identifiers are preserved through append, CBOR and replay.
 
 Bundle budget after merging current main: the shared utility open view measured 185,455 B against the 185,344 B cap (main alone: 184,338 B). The assistant decoder now reuses the shared well-formed Unicode helper instead of a private regex and one shared text-field check, which brings the view to 185,289 B without changing any cap. The refusal message for lone surrogates in assistant text, summary and `messageId` is now the helper's `ill-formed Unicode string`.

@@ -3,14 +3,16 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import { cborByteLength } from '../src/dev-runtime-cbor-length'
 import * as browser from '../src/dev-runtime-browser'
+import { decodeRuntimeBrowserEnvelope } from '../src/dev-runtime-wire'
+import { cborByteLength } from '../src/dev-runtime-cbor-length'
 import {
   decodeCbor,
   decodeRuntimeCallEvent,
   decodeRuntimeEnvelope,
   decodeRuntimeEvent,
   encodeCbor,
+  runtimeEventKinds,
 } from '../src/dev-runtime-wire'
 
 function event(overrides: Record<string, unknown> = {}) {
@@ -157,9 +159,34 @@ describe('cborByteLength', () => {
 
 describe('lean envelope decoder', () => {
   test('the focused browser entry exposes the existing decoders without an alternate path', () => {
-    expect(Object.keys(browser).toSorted()).toEqual(['decodeCbor', 'decodeRuntimeEnvelope'])
+    expect(Object.keys(browser).toSorted()).toEqual([
+      'decodeCbor',
+      'decodeRuntimeBrowserEnvelope',
+      'decodeRuntimeEnvelope',
+    ])
     expect(browser.decodeCbor).toBe(decodeCbor)
     expect(browser.decodeRuntimeEnvelope).toBe(decodeRuntimeEnvelope)
+    expect(browser.decodeRuntimeBrowserEnvelope).toBe(decodeRuntimeBrowserEnvelope)
+  })
+  test('accepts every exported runtime event kind and rejects unknown kinds', () => {
+    for (const kind of runtimeEventKinds) {
+      const source = kind === 'queue.updated' ? 'host' : 'acp'
+      const payload =
+        kind === 'queue.updated'
+          ? {
+              schemaVersion: 1,
+              runtimeSessionId: 'session-1',
+              generation: 1,
+              version: 0,
+              change: 'enqueue',
+              items: [],
+            }
+          : {}
+      const classification = kind === 'queue.updated' ? 'workspace_metadata' : undefined
+      const value = event({ kind, source, payload, ...(classification ? { classification } : {}) })
+      expect(decodeRuntimeEnvelope(value, { source }).kind).toBe(kind)
+    }
+    expect(() => decodeRuntimeEnvelope(event({ kind: 'session.unknown' }), provenance)).toThrow()
   })
 
   test('accepts a valid envelope without interpreting kind-specific payloads', () => {
@@ -193,6 +220,25 @@ describe('lean envelope decoder', () => {
     ).toThrow()
   })
 
+  test('rejects malformed Unicode in envelope metadata, generic payload values and keys', () => {
+    expect(() => decodeRuntimeEnvelope(event({ eventId: 'event-\ud800' }), provenance)).toThrow(
+      'ill-formed Unicode'
+    )
+    expect(() =>
+      decodeRuntimeEnvelope(
+        event({ kind: 'turn.result', payload: { text: 'result-\ud800' } }),
+        provenance
+      )
+    ).toThrow('ill-formed Unicode')
+    const payloadWithMalformedKey = JSON.parse('{"bad\\ud800":"value"}')
+    expect(() =>
+      decodeRuntimeEnvelope(
+        event({ kind: 'turn.result', payload: payloadWithMalformedKey }),
+        provenance
+      )
+    ).toThrow('ill-formed Unicode')
+  })
+
   test('keeps the complete frame bound for versioned call claims, not for legacy payloads', () => {
     const data = { type: 'inline', value: ['x'.repeat(16_384), 'x'.repeat(16_377)] }
     const oversized = event({
@@ -216,7 +262,7 @@ describe('lean envelope decoder', () => {
   })
 
   test.each(['dev-runtime-wire', 'dev-runtime-browser'])(
-    'the %s entry bundle excludes every kind-specific validator',
+    'the %s lean and browser queue decoders preserve exclusion and size ceilings',
     async (moduleName) => {
       const directory = mkdtempSync(join(tmpdir(), 'adea-envelope-'))
       try {
@@ -230,8 +276,10 @@ describe('lean envelope decoder', () => {
         const result = await Bun.build({ entrypoints: [entry], minify: true, target: 'browser' })
         expect(result.success).toBe(true)
         const text = await result.outputs[0]!.text()
+        // The generic lean decoder stays small; browser stream and replay add
+        // their queue contract through decodeRuntimeBrowserEnvelope.
         // Interaction, attachment and any later contract validators belong behind
-        // `eventSemantics` in dev-runtime-event.ts; reaching them from the lean
+        // `eventSemantics` in dev-runtime-wire.ts; reaching them from the lean
         // decoder moves their bytes into the shared utility bundle.
         for (const marker of [
           'call observations require',
@@ -239,10 +287,28 @@ describe('lean envelope decoder', () => {
           'maximum cited response',
           'duplicate source ID',
           'event.summary',
-          'ill-formed Unicode',
+          'queue facts require the authoritative host',
         ])
           expect(text).not.toContain(marker)
+        expect(text).toContain('ill-formed Unicode')
         expect(text.length).toBeLessThan(8_500)
+
+        const browserEntry = join(directory, 'browser-entry.ts')
+        writeFileSync(
+          browserEntry,
+          `import { decodeRuntimeBrowserEnvelope } from ${JSON.stringify(
+            resolve(import.meta.dir, `../src/${moduleName}.ts`)
+          )}\nglobalThis.browser = decodeRuntimeBrowserEnvelope\n`
+        )
+        const browserResult = await Bun.build({
+          entrypoints: [browserEntry],
+          minify: true,
+          target: 'browser',
+        })
+        expect(browserResult.success).toBe(true)
+        const browserText = await browserResult.outputs[0]!.text()
+        expect(browserText).toContain('queue facts require the authoritative host')
+        expect(browserText.length).toBeLessThan(8_500)
       } finally {
         rmSync(directory, { recursive: true, force: true })
       }

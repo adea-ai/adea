@@ -130,7 +130,7 @@ export default defineConfig(({ command }) => ({
                 // facade outside this group so its cold dependencies stay lazy.
                 {
                   name: 'dev-runtime-contract',
-                  test: /packages\/types\/dist\/dev-runtime-(browser|cbor|envelope|event-kinds|unicode|usage|cbor-length|validation-internal)\.js$/,
+                  test: /packages\/types\/dist\/dev-runtime-(browser|cbor|envelope|event-kinds|follow-up-event|unicode|usage|cbor-length|validation-internal)\.js$/,
                   includeDependenciesRecursively: false,
                 },
                 // The contextual host and its lazy panes share this small command

@@ -27,7 +27,47 @@ function fixture(maxPerSession = 20) {
   return { log, append, dataDir }
 }
 
+function seedLegacyPayload(dataDir: string, sourceEventId: string, payload: unknown): void {
+  const file = join(dataDir, 'dev-runtime', 'harness', 'session-events.json')
+  const saved = JSON.parse(readFileSync(file, 'utf8'))
+  const retained = saved.records.find(
+    (event: { sourceEventId: string }) => event.sourceEventId === sourceEventId
+  )
+  expect(retained).toBeDefined()
+  retained.payload = payload
+  writeFileSync(file, JSON.stringify(saved))
+}
+
 describe('authorized transcript history storage', () => {
+  test.each([
+    {
+      name: 'versioned interaction',
+      kind: 'question.requested' as const,
+      payload: { schemaVersion: 1 },
+    },
+    {
+      name: 'oversized opaque input',
+      kind: 'turn.user_input' as const,
+      payload: { text: 'x'.repeat(65_537) },
+    },
+  ])('private withholding does not bypass canonical $name admission', ({ kind, payload }) => {
+    const { log } = fixture()
+    expect(() =>
+      log.append({
+        runtimeSessionId: 'session-a',
+        harnessRunId: 'run-a',
+        generation: 1,
+        source: 'acp',
+        confidence: 'authoritative',
+        classification: 'restricted_local',
+        sourceEventId: 'private-invalid',
+        kind,
+        payload,
+      })
+    ).toThrow()
+    expect(log.events()).toEqual([])
+  })
+
   test('a withheld visible-summary body remains a readable history envelope', () => {
     const { dataDir } = fixture()
     const log = createSessionEventLog({ dataDir, scope, verifyVisibleSummary: () => true })
@@ -89,17 +129,30 @@ describe('authorized transcript history storage', () => {
   })
 
   test('byte budgets shorten pages without skipping events, and oversized single payloads are explicit', () => {
-    // Generic retained payloads exercise history's larger page budget; new
-    // assistant messages independently require #1401 identity/frame admission.
-    const { log } = fixture()
-    for (let n = 1; n <= 4; n++)
+    // Old opaque retained rows can exceed the current 64 KiB append bound.
+    // Seed only their payloads after current admission; history must still
+    // paginate or explicitly omit them without skipping a canonical sequence.
+    const { log, dataDir } = fixture()
+    const retainedPayload = { parts: Array.from({ length: 10 }, () => 'x'.repeat(10_000)) }
+    expect(() =>
+      log.append({
+        runtimeSessionId: 'session-a',
+        generation: 1,
+        sourceEventId: 'new-oversized',
+        kind: 'capability.restored',
+        payload: retainedPayload,
+      })
+    ).toThrow('CBOR')
+    for (let n = 1; n <= 4; n++) {
       log.append({
         runtimeSessionId: 'session-a',
         generation: 1,
         sourceEventId: `large-${n}`,
         kind: 'capability.restored',
-        payload: { parts: Array.from({ length: 10 }, () => 'x'.repeat(10_000)) },
+        payload: {},
       })
+      seedLegacyPayload(dataDir, `large-${n}`, retainedPayload)
+    }
     const first = log.history('session-a', { generation: 1, limit: 500 })
     expect(first.items.map((e) => e.seq)).toEqual(['4'])
     const next = log.history('session-a', { generation: 1, cursor: first.nextCursor })
@@ -109,7 +162,10 @@ describe('authorized transcript history storage', () => {
       generation: 1,
       sourceEventId: 'oversized',
       kind: 'capability.restored',
-      payload: { parts: Array.from({ length: 24 }, () => 'y'.repeat(10_000)) },
+      payload: {},
+    })
+    seedLegacyPayload(dataDir, 'oversized', {
+      parts: Array.from({ length: 24 }, () => 'y'.repeat(10_000)),
     })
     const oversized = log.history('session-a', { generation: 1, limit: 1 })
     expect(oversized.items[0]!.payload).toEqual({ omitted: 'history_payload_limit' })
@@ -230,7 +286,7 @@ describe('authorized transcript history storage', () => {
   })
 
   test('filters credentials/private paths, omits restricted payloads and bounds encoded pages', () => {
-    const { log } = fixture()
+    const { log, dataDir } = fixture()
     log.append({
       runtimeSessionId: 'session-a',
       generation: 1,
@@ -291,8 +347,18 @@ describe('authorized transcript history storage', () => {
       generation: 1,
       sourceEventId: 'large',
       kind: 'capability.restored',
-      payload: { text: 'a'.repeat(250_000) },
+      payload: {},
     })
+    expect(() =>
+      log.append({
+        runtimeSessionId: 'session-a',
+        generation: 1,
+        sourceEventId: 'new-large',
+        kind: 'capability.restored',
+        payload: { text: 'a'.repeat(250_000) },
+      })
+    ).toThrow()
+    seedLegacyPayload(dataDir, 'large', { text: 'a'.repeat(250_000) })
     expect(
       new TextEncoder().encode(JSON.stringify(log.history('session-a', { generation: 1 })))
         .byteLength

@@ -150,7 +150,7 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
     const major = first >> 5
     const info = first & 0x1f
     if (info < 24) return { major, value: BigInt(info) }
-    if (info > 27) fail('cbor', `unsupported additional information ${info}`)
+    if (info > 27) fail('cbor', `bad CBOR info ${info}`)
     const value = read(1 << (info - 24))
     if (value < [24n, 256n, 65_536n, 4_294_967_296n][info - 24]!)
       fail('cbor', 'non-shortest integer head')
@@ -209,7 +209,7 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
       try {
         return cborDecoder.decode(slice)
       } catch {
-        return fail('cbor', 'invalid UTF-8 text string')
+        return fail('cbor', 'invalid UTF-8')
       }
     }
     if (major === 4) {
@@ -226,9 +226,8 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
         const keyStart = offset
         const key = decode()
         const keyBytes = bytes.slice(keyStart, offset)
-        if (typeof key !== 'string') fail('cbor', 'map keys must be text strings')
-        if (previousKey && compareBytes(previousKey, keyBytes) >= 0)
-          fail('cbor', 'map keys are not canonically ordered')
+        if (typeof key !== 'string') fail('cbor', 'text map keys')
+        if (previousKey && compareBytes(previousKey, keyBytes) >= 0) fail('cbor', 'bad map order')
         previousKey = keyBytes
         if (Object.hasOwn(out, key)) fail('cbor', 'duplicate map key')
         // Define rather than assign so `__proto__` stays an ordinary own key.
@@ -241,7 +240,7 @@ export function decodeCbor(bytes: Uint8Array): { value: unknown; byteLength: num
       }
       return out
     }
-    if (major === 6) fail('cbor', 'tags are not part of the frame vocabulary')
+    if (major === 6) fail('cbor', 'unsupported CBOR')
     return fail('cbor', `unsupported major type ${major}`)
   }
   const value = decode()

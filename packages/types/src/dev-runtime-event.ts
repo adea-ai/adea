@@ -15,16 +15,22 @@ import {
   type RuntimeCallEventKind,
   type RuntimeCallPayload,
 } from './dev-runtime-call'
+import {
+  decodeFollowUpQueueEventPayload,
+  type FollowUpQueueEventPayload,
+} from './dev-runtime-follow-up-event'
 import { decodeRuntimeUsageObservedPayload } from './dev-runtime-usage'
-import { decodeFollowUpQueueEventPayload } from './dev-runtime-follow-up-event'
 import { assertJsonUnicode, assertWellFormedUnicode } from './dev-runtime-unicode'
 import { validateRuntimeResponseReferences } from './dev-runtime-response-references'
 import { validateRuntimeVisibleSummaryEvent } from './dev-runtime-visible-summaries'
 import { fail, record, stringValue, uint64String } from './dev-runtime-validation-internal'
 import {
   assertRuntimeEventFrameSize,
+  RUNTIME_EVENT_CBOR_BYTES_MAX,
   decodeEventEnvelope,
+  decodeQueueEventPayload,
   isVersionedCallClaim,
+  isVersionedActivityClaim,
   type RuntimeEvent,
   type RuntimeEventProvenance,
   type EventSemantics,
@@ -130,7 +136,7 @@ export function validateRuntimeActivityReplayCandidate(
   value: unknown,
   provenance: RuntimeEventProvenance
 ): void {
-  decodeEventEnvelope(value, provenance, false, eventSemantics)
+  validateRuntimeEventReplayCandidate(value, provenance)
   const item = record(value, 'event')
   validateActivity(item, false)
   assertActivityOwnership(item, provenance)
@@ -141,7 +147,9 @@ export function validateRuntimeActivityReplayCandidate(
  * observations, visible summaries, cited responses, and any later interaction
  * or attachment contract) is reached ONLY through this object, so the lean
  * browser decoder below never imports it. Register new validators here, never
- * inside `decodeEventEnvelope`.
+ * inside `decodeEventEnvelope`. Browser stream and replay have a separate
+ * focused queue decoder so they do not pull unrelated kind validators into
+ * the lean envelope entry.
  */
 function validateCheckpointEvent(item: Record<string, unknown>): void {
   const checkpointPayload = decodeCheckpointEventPayload(item.kind as string, item.payload)
@@ -192,6 +200,24 @@ const eventSemantics: EventSemantics = {
     if (isRuntimeAssistantEventKind(kind)) {
       stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
       decodeRuntimeAssistantPayload(kind, item.payload)
+      if (enforceEnvelopeBounds)
+        assertRuntimeEventFrameSize(
+          item as RuntimeEvent,
+          `maximum encoded assistant event size exceeded (${RUNTIME_EVENT_CBOR_BYTES_MAX} bytes)`
+        )
+    }
+    if (isVersionedActivityClaim(item)) {
+      validateActivity(item, enforceEnvelopeBounds)
+    }
+    let queuePayload: FollowUpQueueEventPayload | undefined
+    if (item.kind === 'queue.updated') queuePayload = decodeQueueEventPayload(item)
+    const interaction = decodeRuntimeInteractionPayload(kind, item.payload)
+    if (interaction) {
+      if (item.confidence !== 'authoritative')
+        fail('event.confidence', 'structured interactions require authoritative provenance')
+      if (item.classification !== 'workspace_private')
+        fail('event.classification', 'structured interactions require workspace_private')
+      stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
     }
     if (item.kind === 'attachment.added' || item.kind === 'attachment.removed') {
       if (item.source !== 'host' || item.confidence !== 'authoritative')
@@ -199,25 +225,15 @@ const eventSemantics: EventSemantics = {
       decodeChatAttachmentEventPayload(item.kind, item.payload)
     }
     validateRuntimeVisibleSummaryEvent(item as RuntimeEvent)
-    // Usage has a strict producer contract (#1391): authoritative reported
-    // figures only, fully validated and normalized before projection. The
-    // replacement payload is admitted, frozen and persisted in their place.
-    if (item.kind !== 'usage.observed') return undefined
-    if (item.confidence !== 'authoritative')
-      fail('event.confidence', 'usage observations require authoritative reported figures')
-    return decodeRuntimeUsageObservedPayload(item.payload, item.generation as number)
+    if (item.kind === 'usage.observed') {
+      if (item.confidence !== 'authoritative')
+        fail('event.confidence', 'usage observations require authoritative reported figures')
+      return decodeRuntimeUsageObservedPayload(item.payload, item.generation as number)
+    }
+    return queuePayload
   },
   late(item) {
     validateRuntimeResponseReferences(item.kind as string, item.payload, item.source as string)
-    // Structured question/approval interactions (#1395) travel only with
-    // authoritative, workspace_private, harness-run-bound provenance.
-    if (decodeRuntimeInteractionPayload(item.kind as string, item.payload)) {
-      if (item.confidence !== 'authoritative')
-        fail('event.confidence', 'structured interactions require authoritative provenance')
-      if (item.classification !== 'workspace_private')
-        fail('event.classification', 'structured interactions require workspace_private')
-      stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
-    }
   },
 }
 
