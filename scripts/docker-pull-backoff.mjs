@@ -57,6 +57,19 @@ export function fallbackImages(image) {
   return fallbackRegistryHosts.map((host) => `${host}/${repository}`)
 }
 
+function abortError(signal) {
+  if (signal.reason instanceof Error) return signal.reason
+  const error = new Error(
+    signal.reason === undefined ? 'The operation was aborted' : String(signal.reason)
+  )
+  error.name = 'AbortError'
+  return error
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw abortError(signal)
+}
+
 // compose.yml reads the image through ADEA_POSTGRES_IMAGE so a fallback registry can be selected
 // per invocation; the default after `:-` is the canonical pinned reference.
 export const composeImageVariable = 'ADEA_POSTGRES_IMAGE'
@@ -84,23 +97,27 @@ export function withComposeImage(env, image) {
 // unchanged. Once it has been rate limited, a fallback that fails in any way (cannot be pulled,
 // or its attempt fails) only moves on to the next registry, because the failure of one mirror says
 // nothing about the others.
-export async function runWithPullFallback(
-  attempt,
-  image,
-  {
+export async function runWithPullFallback(attempt, image, options = {}) {
+  const {
     delaysMs = defaultPullBackoffMs,
     sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
     log = (message) => console.warn(message),
-    pull = (reference) => captureCommand('docker', ['pull', '--quiet', reference]),
-  } = {}
-) {
+    signal,
+  } = options
+  const pull =
+    options.pull ??
+    ((reference) => captureCommand('docker', ['pull', '--quiet', reference], { signal }))
   const fallbacks = fallbackImages(image)
   for (let retry = 0; ; retry += 1) {
+    throwIfAborted(signal)
     let result = await attempt(undefined)
+    throwIfAborted(signal)
     if (!isRateLimitedResult(result)) return result
     for (const fallback of fallbacks) {
+      throwIfAborted(signal)
       log(`Container registry rate-limited an image pull; trying ${fallback}.`)
       const pulled = await pull(fallback)
+      throwIfAborted(signal)
       if (pulled.status !== 0) {
         const reason =
           `${pulled.stderr ?? ''}`.trim() || pulled.error?.message || `exit ${pulled.status}`
@@ -108,6 +125,7 @@ export async function runWithPullFallback(
         continue
       }
       result = await attempt(fallback)
+      throwIfAborted(signal)
       if (result.status === 0) return result
       log(`Running with ${fallback} failed (exit ${result.status}); trying the next registry.`)
     }
@@ -117,6 +135,7 @@ export async function runWithPullFallback(
       `Container registries rate-limited an image pull; retry ${retry + 1} of ${delaysMs.length} in ${delayMs / 1000}s.`
     )
     await sleep(delayMs)
+    throwIfAborted(signal)
   }
 }
 
@@ -154,15 +173,88 @@ export async function ensureImage(image, options = {}) {
 // signal handling and child cleanup keep running while the command is in flight.
 // A spawn failure (for example a missing executable) resolves with `error` set
 // instead of rejecting, so the caller decides how to report it.
-export function captureCommand(command, args, { cwd, env } = {}) {
+export function captureCommand(
+  command,
+  args,
+  { cwd, env, signal, timeoutMs, terminationGraceMs = 1_000, reapTimeoutMs = 2_000 } = {}
+) {
+  if (signal?.aborted)
+    return Promise.resolve({
+      status: null,
+      signal: null,
+      stdout: '',
+      stderr: '',
+      error: abortError(signal),
+      cancelled: true,
+      timedOut: false,
+      reaped: true,
+    })
+
   return new Promise((resolve) => {
-    const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
     let stdout = ''
     let stderr = ''
     let error
+    let cancelled = false
+    let timedOut = false
+    let closed = false
+    let settled = false
+    let terminationStarted = false
+    let timeoutTimer
+    let terminationTimer
+    let reapTimer
+
+    const finish = (status, childSignal, reaped) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeoutTimer)
+      clearTimeout(terminationTimer)
+      clearTimeout(reapTimer)
+      signal?.removeEventListener('abort', onAbort)
+      resolve({ status, signal: childSignal, stdout, stderr, error, cancelled, timedOut, reaped })
+    }
+
+    const child = spawn(command, args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })
     child.stdout.setEncoding('utf8').on('data', (chunk) => (stdout += chunk))
     child.stderr.setEncoding('utf8').on('data', (chunk) => (stderr += chunk))
     child.once('error', (spawnError) => (error = spawnError))
-    child.once('close', (status, signal) => resolve({ status, signal, stdout, stderr, error }))
+    child.once('close', (status, childSignal) => {
+      closed = true
+      finish(status, childSignal, true)
+    })
+
+    const terminate = (reason) => {
+      if (closed || settled || terminationStarted) return
+      terminationStarted = true
+      if (reason === 'abort') {
+        cancelled = true
+        error ??= abortError(signal)
+      } else {
+        timedOut = true
+        error ??= new Error(`${command} ${args.join(' ')} timed out after ${timeoutMs}ms`)
+      }
+      try {
+        child.kill('SIGTERM')
+      } catch (killError) {
+        error ??= killError
+      }
+      terminationTimer = setTimeout(() => {
+        if (closed || settled) return
+        try {
+          child.kill('SIGKILL')
+        } catch (killError) {
+          error ??= killError
+        }
+        reapTimer = setTimeout(() => {
+          if (closed || settled) return
+          error = new Error(`${command} ${args.join(' ')} did not exit after SIGKILL`)
+          finish(null, 'SIGKILL', false)
+        }, reapTimeoutMs)
+      }, terminationGraceMs)
+    }
+    const onAbort = () => terminate('abort')
+
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+    if (timeoutMs !== undefined) timeoutTimer = setTimeout(() => terminate('timeout'), timeoutMs)
   })
 }

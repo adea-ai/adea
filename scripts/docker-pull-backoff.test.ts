@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { spyOn, test } from 'bun:test'
 import {
@@ -33,8 +34,19 @@ const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 const integrationRunner = fileURLToPath(new URL('./test-integration.mjs', import.meta.url))
 const e2eSetup = fileURLToPath(new URL('./e2e-setup.mjs', import.meta.url))
 const testLocal = fileURLToPath(new URL('../apps/web/start/test-local.mjs', import.meta.url))
+const disconnectFixture = fileURLToPath(
+  new URL('../apps/web/start/test-stream-disconnect.mjs', import.meta.url)
+)
 
-type Result = { status: number | null; stdout?: string; stderr?: string; error?: Error }
+type Result = {
+  status: number | null
+  stdout?: string
+  stderr?: string
+  error?: Error
+  cancelled?: boolean
+  timedOut?: boolean
+  reaped?: boolean
+}
 
 // Each call returns the next scripted result; the last one repeats.
 function scripted(results: Result[]) {
@@ -58,6 +70,19 @@ async function withTempDir(run: (dir: string) => Promise<void>) {
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+}
+
+async function waitForLog(path: string, expected: string) {
+  const deadline = Date.now() + 5_000
+  while (Date.now() < deadline) {
+    try {
+      if ((await readFile(path, 'utf8')).includes(expected)) return
+    } catch {
+      /* The child has not created its log yet. */
+    }
+    await delay(10)
+  }
+  throw new Error(`Timed out waiting for ${expected} in ${path}`)
 }
 
 // A stand-in `docker` executable that runs `body` on every call.
@@ -126,6 +151,124 @@ test('reports a spawn failure as a result instead of rejecting', async () => {
   const result = await captureCommand('/nonexistent/adea-docker-missing', [])
   assert.equal(result.error?.code, 'ENOENT')
   assert.notEqual(result.status, 0)
+})
+
+test('interrupting delayed Compose provisioning reaps it before teardown and prevents fallback', async () => {
+  await withTempDir(async (dir) => {
+    const events = join(dir, 'events')
+    const env = { ...process.env, EVENTS: events }
+    const controller = new AbortController()
+    const script = `
+      const fs = require('node:fs')
+      const [command, ...args] = process.argv.slice(1)
+      const log = (event) => fs.appendFileSync(process.env.EVENTS, event + '\\n')
+      if (command === 'compose' && args.includes('up')) {
+        log('up:start')
+        process.stderr.write('postgres toomanyrequests: Rate exceeded')
+        const finish = setTimeout(() => { log('up:complete'); process.exit(1) }, 10_000)
+        process.on('SIGTERM', () => { clearTimeout(finish); log('up:cancel'); process.exit(1) })
+      } else if (command === 'compose' && args.includes('down')) {
+        log('down:start')
+        process.exit(0)
+      } else {
+        log('unexpected-command:' + command)
+        process.exit(1)
+      }
+    `
+    const lines: string[] = []
+    let pullCalls = 0
+    let provision: Awaited<ReturnType<typeof captureCommand>> | undefined
+    const operation = runWithPullFallback(
+      async () => {
+        provision = await captureCommand(
+          process.execPath,
+          ['-e', script, 'compose', '-p', 'fixture', 'up'],
+          {
+            env,
+            signal: controller.signal,
+            terminationGraceMs: 100,
+            reapTimeoutMs: 1_000,
+          }
+        )
+        return provision
+      },
+      canonicalImage,
+      {
+        signal: controller.signal,
+        pull: async () => {
+          pullCalls += 1
+          return succeeded
+        },
+        log: () => {},
+      }
+    )
+    try {
+      await waitForLog(events, 'up:start')
+      controller.abort(new Error('fixture interrupted during provisioning'))
+      await assert.rejects(operation, /fixture interrupted during provisioning/)
+      assert.equal(provision?.cancelled, true)
+      assert.equal(provision?.reaped, true)
+      assert.equal(pullCalls, 0, 'Cancellation must prevent image fallback and retry commands')
+
+      const down = await captureCommand(
+        process.execPath,
+        ['-e', script, 'compose', '-p', 'fixture', 'down'],
+        {
+          env,
+          timeoutMs: 1_000,
+        }
+      )
+      assert.equal(down.status, 0)
+      lines.push(...(await readFile(events, 'utf8')).trim().split('\n'))
+      assert.deepEqual(lines, ['up:start', 'up:cancel', 'down:start'])
+    } finally {
+      if (!controller.signal.aborted) controller.abort()
+      await operation.catch(() => {})
+    }
+  })
+})
+
+test('a hung Compose down is bounded, killed, and reaped', async () => {
+  await withTempDir(async (dir) => {
+    const pidFile = join(dir, 'hung-down.pid')
+    const env = { ...process.env, PID_FILE: pidFile }
+    const script = `
+      const fs = require('node:fs')
+      const [command, ...args] = process.argv.slice(1)
+      if (command === 'compose' && args.includes('down')) {
+        fs.writeFileSync(process.env.PID_FILE, String(process.pid))
+        process.on('SIGTERM', () => {})
+        setInterval(() => {}, 1_000)
+      } else {
+        process.exit(1)
+      }
+    `
+    const startedAt = Date.now()
+    const result = await captureCommand(
+      process.execPath,
+      ['-e', script, 'compose', '-p', 'fixture', 'down'],
+      { env, timeoutMs: 1_000, terminationGraceMs: 100, reapTimeoutMs: 1_000 }
+    )
+    assert.equal(result.timedOut, true)
+    assert.equal(result.reaped, true)
+    assert.equal(result.status, null)
+    assert.equal(result.signal, 'SIGKILL')
+    assert.match(result.error?.message ?? '', /timed out/)
+    const pid = Number(await readFile(pidFile, 'utf8'))
+    assert.throws(
+      () => process.kill(pid, 0),
+      (error: NodeJS.ErrnoException) => error.code === 'ESRCH'
+    )
+    assert.ok(Date.now() - startedAt < 5_000, 'Teardown timeout must remain bounded')
+  })
+})
+
+test('native disconnect fixture reaps interrupted commands before bounded Compose teardown', async () => {
+  const source = await readFile(disconnectFixture, 'utf8')
+  assert.match(source, /new AbortController\(\)/)
+  assert.match(source, /await Promise\.allSettled\(inFlightCommands\)/)
+  assert.match(source, /signal: interruptionController\.signal/)
+  assert.match(source, /timeoutMs: composeDownTimeoutMs/)
 })
 
 test('retries a real rate-limited child to eventual success', async () => {

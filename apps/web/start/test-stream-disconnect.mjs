@@ -85,14 +85,54 @@ const databaseEnvironment = {
   DATABASE_MIGRATION_URL: url('agent_hq_local_migration'),
   ADEA_POSTGRES_PORT: String(databasePort),
 }
-const command = async (program, args, env = environment) => {
-  const result = await captureCommand(program, args, { cwd: root, env })
-  if (result.status !== 0) {
+const composeDownTimeoutMs = 30_000
+const interruptionController = new AbortController()
+const inFlightCommands = new Set()
+let interruptionSignal
+const assertNotInterrupted = (phase) =>
+  assert.equal(
+    interruptionSignal,
+    undefined,
+    `Fixture interrupted by ${interruptionSignal} during ${phase}`
+  )
+const captureOwnedCommand = (
+  program,
+  args,
+  env = environment,
+  { cleanup = false, timeoutMs } = {}
+) => {
+  if (!cleanup) assertNotInterrupted(`before ${program} command`)
+  const pending = captureCommand(program, args, {
+    cwd: root,
+    env,
+    signal: cleanup ? undefined : interruptionController.signal,
+    timeoutMs,
+  })
+  if (!cleanup) {
+    inFlightCommands.add(pending)
+    pending.then(
+      () => inFlightCommands.delete(pending),
+      () => inFlightCommands.delete(pending)
+    )
+  }
+  return pending
+}
+const command = async (program, args, env = environment, options = {}) => {
+  const result = await captureOwnedCommand(program, args, env, options)
+  if (
+    result.status !== 0 ||
+    result.error ||
+    result.cancelled ||
+    result.timedOut ||
+    !result.reaped
+  ) {
     const details = [
       result.stderr,
       result.stdout,
       result.error?.message,
       result.signal ? `terminated by ${result.signal}` : undefined,
+      result.timedOut ? 'command timed out' : undefined,
+      !result.reaped ? 'child process was not reaped' : undefined,
     ]
       .filter(Boolean)
       .join('\n')
@@ -190,6 +230,14 @@ const cleanupOwnedResources = () => {
   if (cleanupPromise) return cleanupPromise
   cleanupPromise = (async () => {
     const errors = []
+    const commands = await Promise.allSettled(inFlightCommands)
+    for (const result of commands) {
+      if (result.status === 'rejected') errors.push(result.reason)
+      else if (!result.value.reaped)
+        errors.push(
+          new Error('An interrupted fixture command was not reaped before Compose teardown')
+        )
+    }
     try {
       await stopWorker()
     } catch (error) {
@@ -197,7 +245,10 @@ const cleanupOwnedResources = () => {
     }
     if (databaseStarted) {
       try {
-        await command('docker', [...compose, 'down', '--volumes'], databaseEnvironment)
+        await command('docker', [...compose, 'down', '--volumes'], databaseEnvironment, {
+          cleanup: true,
+          timeoutMs: composeDownTimeoutMs,
+        })
       } catch (error) {
         errors.push(error)
       }
@@ -207,10 +258,10 @@ const cleanupOwnedResources = () => {
   })()
   return cleanupPromise
 }
-let interruptionSignal
 const handleInterruption = (signal) => {
   if (interruptionSignal) return
   interruptionSignal = signal
+  interruptionController.abort(new Error(`Disconnect fixture interrupted by ${signal}`))
   void cleanupOwnedResources().then(
     () => process.exit(signal === 'SIGINT' ? 130 : 143),
     (error) => {
@@ -223,24 +274,23 @@ const onSigint = () => handleInterruption('SIGINT')
 const onSigterm = () => handleInterruption('SIGTERM')
 process.on('SIGINT', onSigint)
 process.on('SIGTERM', onSigterm)
-const assertNotInterrupted = (phase) =>
-  assert.equal(
-    interruptionSignal,
-    undefined,
-    `Fixture interrupted by ${interruptionSignal} during ${phase}`
-  )
 let runError
 let cleanupError
 try {
   databaseStarted = true
   const up = await runWithPullFallback(
     (image) =>
-      captureCommand(
+      captureOwnedCommand(
         'docker',
         [...compose, 'up', '-d', '--wait', '--wait-timeout', '60', 'postgres'],
-        { cwd: root, env: withComposeImage(databaseEnvironment, image) }
+        withComposeImage(databaseEnvironment, image)
       ),
-    composePostgresImage(root)
+    composePostgresImage(root),
+    {
+      signal: interruptionController.signal,
+      pull: (reference) =>
+        captureOwnedCommand('docker', ['pull', '--quiet', reference], databaseEnvironment),
+    }
   )
   assert.equal(up.status, 0, up.stderr)
   await command('bun', ['run', '--cwd', 'packages/db', 'db:verify'], databaseEnvironment)
