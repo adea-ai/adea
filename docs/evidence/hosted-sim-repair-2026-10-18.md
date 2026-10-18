@@ -278,3 +278,52 @@ added paths. The Sim pack guard itself reaches 100% functions / 89.47% lines.
 
 Root retains personal readiness and merge. These local disposable authority and
 storage fixtures establish neither live entitlement nor deployed composition.
+
+### Reviewed main b9c89d9 qualification and remaining gates
+
+Bridge #1450 at `961d8062` and app runtime at `9692ea03` preserve reviewed main
+`b9c89d9` and its complete runtime decoder/frame guard. Both pass types 33/33,
+lint 19/19, formatting, build 17/17 and full workspace unit graph 32/32. The
+bridge also passes focused contract tests and 18 Chromium cases. Its unchanged
+production bundle gate passes at 160 chunks / 970,802 aggregate gzip bytes.
+
+Fresh app client: 311 files / 4,156,927 bytes, zero Sim payload paths. Fresh
+private export at the settled reviewed engine source: 1,882 files / 304.6 MiB.
+After regenerating missing local artifacts, the complete async native-move run
+(9 grants/279 authorized reads), synchronous run (9/271) and ordinary run (7/237)
+all pass with the same 155-character value and zero rendering errors. Actual
+Chat/Dev unavailable/offline navigation passes with zero offline grants.
+Earlier damaged-input runs failed with missing dependency modules and missing
+private models; they are not counted as runtime qualification. Their cause was
+not attributed to an owner. Frozen dependency restoration and a fresh export
+preceded these passing runs.
+
+Fresh unsigned installed archive: 821 entries / 123,877,026 bytes, SHA-256
+`61191b7d5006c77be016680695e5bd8bfa2316d018872754395efb8200429032`.
+The installed client matches the built client byte for byte. Complete export
+fingerprinting finds only the four intentional tracked JSON scene manifests and
+zero private engine/runtime/binary assets. No installer, archive or screenshot
+was published.
+
+The selected existing Cloudflare config suite closes one selection-only gap.
+At published `8dd8640c`, 1,401 tests / 120 files pass with zero failures, aggregate
+90.58% functions / 89.76% lines. The unchanged per-file 80% gate correctly exits
+1 for 21 shared files. Root admitted the exclusive test-only runtime/canvas
+batches in the shared ownership ledger; Sim will not edit their table paths.
+The real negative coverage control remains passing.
+
+A separate production gate remains failing for #1448: aggregate client gzip is
+976,322 bytes against the unchanged 971,776-byte maximum, an overage of 4,546.
+The same-main bridge-only baseline is 970,802 bytes, so the Sim integration adds
+5,520 net gzip bytes. The new hosted Sim chunk is 20,161 raw / 6,928 gzip bytes;
+its nine newly rendered modules are the app wrapper/route wiring, shared
+controller/component, and origin/message/grant/availability guards. The four
+retired local-engine/view modules are no longer rendered. No obvious unrelated
+server module was added. The Dev View entry-specific guard and Doctor pass;
+that does not waive the failed aggregate production guard. No budget, threshold,
+exclusion or protocol check was changed. A separately coordinated optimization
+or explicit budget-policy decision remains necessary before app readiness.
+
+Root reports private #111's exact reviewed head merged to `9746854a`; that scope
+is frozen. Root owns the later #114 reconciliation. No alternate merge route,
+release, live composition or deployment is part of this task.

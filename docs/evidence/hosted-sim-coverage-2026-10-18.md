@@ -71,6 +71,7 @@ must not be described as private #111 failures, or as passing Adea validation.
 The earlier 31-file result is recorded in the chronological repair evidence;
 this receipt supersedes its current-gap inventory after composition.
 
-[Proposed exclusive test-file allocation](hosted-sim-test-ownership-2026-10-18.md)
-records the read-only ownership check and disjoint runtime/canvas batches. Root
-admission is pending; no source-edit or held-work authority is implied.
+[Admitted exclusive test-file allocation](hosted-sim-test-ownership-2026-10-18.md)
+records the read-only ownership check and root-admitted disjoint runtime/canvas
+batches. Owners are restricted to their table test paths; no production-source,
+configuration or held-work authority is implied.

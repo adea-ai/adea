@@ -1,16 +1,18 @@
-# Remaining coverage test ownership proposal
+# Admitted remaining coverage test ownership
 
 Base: `9692ea03ad372a30da6b72823515e0f26d7b4882`, including reviewed main
-`b9c89d9cc7042ddd5d9723a48f6c20d1f881bc40`. This is a proposed allocation for
-root admission, not an assignment or permission to overlap an existing owner.
+`b9c89d9cc7042ddd5d9723a48f6c20d1f881bc40`. Root admitted the disjoint Runtime and Canvas tables below. The existing
+runtime task owns only the eleven Runtime test paths; the existing canvas task
+owns only the eleven Canvas test paths. Both scopes are test-only.
 
 ## Read-only ownership evidence
 
 All proposed existing test paths were clean across 33 registered Adea worktrees;
 no matching Fleet task claimed these exact paths. The existing runtime and canvas
 sessions were idle when inspected. A clean worktree alone does not release
-ownership: root must admit each bounded test-only batch. No messages, assignments,
-source edits or changes to held Pi/Vite work occurred during this inventory.
+ownership: the inventory was read-only. Root subsequently admitted both bounded test-only
+batches and coordinated their owners. This Sim task sent no assignments and
+will not edit any of those table paths. No held Pi/Vite work is admitted.
 
 The Sim owner retains `package.json`, `bunfig.toml`,
 `scripts/test-suite-boundary.test.ts`, `scripts/coverage-threshold.test.ts`,
@@ -86,3 +88,19 @@ It needs selection, not duplicate test edits. The Sim owner is adding this exact
 existing suite while retaining every previous input and flag, and extending the
 existing exact-inventory assertion. The restored full lane passes 1,401 tests and records 21 remaining deficient
 files; root's earlier 22-file list included this selection-only gap.
+
+## Admission and publication rules
+
+Runtime owner: existing task `01a14aad-e9ec-7146-8ba4-b3706759c0c5`.
+Canvas owner: existing task `01a14ab7-c695-73ef-85de-c0b79d0c20f5`.
+Root admission is explicit: recheck overlap, change only the assigned test paths,
+publish checked draft PRs with auto-merge OFF, and return source-seam or selector
+proposals instead of editing production/configuration. Sim retains selectors,
+enforcement, joined implementation and qualification. No owner may edit the
+other table. Any additional path requires root coordination.
+
+Private Agent Sim #111 is frozen at reviewed `341e616`. Root reports it merged
+at `9746854a037cea2f99f239e1701a19c3be363577` following the user's direct action.
+The subsequent private #114 event belongs to root's read-only reconciliation.
+This Sim task will not modify that scope or attempt another merge route. No
+release or production deployment is authorized.
