@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.96.0](https://github.com/adea-ai/adea/compare/v0.95.0...v0.96.0) (2026-10-18)
+
+
+### Features
+
+* **chat:** redesign the chat canvas on the shared AI Elements foundation ([#1385](https://github.com/adea-ai/adea/issues/1385)) ([b23ddb1](https://github.com/adea-ai/adea/commit/b23ddb1d217537b20480291005f8549e17d55be0))
+* **lead:** expose paginated child observations ([#1173](https://github.com/adea-ai/adea/issues/1173)) ([#1446](https://github.com/adea-ai/adea/issues/1446)) ([a2a7a7a](https://github.com/adea-ai/adea/commit/a2a7a7a4cfd03737a3c96e16fdb1ed11b5578576))
+* **runtime:** add authorized generation-fenced follow-up queue ([#1406](https://github.com/adea-ai/adea/issues/1406)) ([eb980ce](https://github.com/adea-ai/adea/commit/eb980ce2049e72788de879e1802926e2934265c9))
+* **runtime:** add bounded structured activity contracts (refs [#1394](https://github.com/adea-ai/adea/issues/1394)) ([#1405](https://github.com/adea-ai/adea/issues/1405)) ([2e5e5f7](https://github.com/adea-ai/adea/commit/2e5e5f7d937b2139921fffb8dedd511bfe852f5c))
+* **runtime:** add fenced conversation checkpoint restore contracts ([#1403](https://github.com/adea-ai/adea/issues/1403)) ([7ab29b8](https://github.com/adea-ai/adea/commit/7ab29b88eb2a8046ebcb095f6f9c3e3943fb5eae))
+* **runtime:** add scoped local chat attachments ([#1407](https://github.com/adea-ai/adea/issues/1407)) ([205b33c](https://github.com/adea-ai/adea/commit/205b33c4f9015b10c1f801fb0194a88eaadf172d))
+* **runtime:** authorized transcript history and production prompt text ([#1402](https://github.com/adea-ai/adea/issues/1402)) ([b9c89d9](https://github.com/adea-ai/adea/commit/b9c89d9cc7042ddd5d9723a48f6c20d1f881bc40))
+* **runtime:** define structured questions and correlated approval outcomes ([#1398](https://github.com/adea-ai/adea/issues/1398)) ([65a3025](https://github.com/adea-ai/adea/commit/65a30256d922a904e777abb5ca99b284283214ec))
+* **runtime:** validate context and token usage observations ([#1397](https://github.com/adea-ai/adea/issues/1397)) ([987a487](https://github.com/adea-ai/adea/commit/987a48722f8a92e1e6353de5389ea18270749d37))
+* **runtime:** validate tool and subagent call observations (refs [#1387](https://github.com/adea-ai/adea/issues/1387)) ([#1399](https://github.com/adea-ai/adea/issues/1399)) ([7ca6514](https://github.com/adea-ai/adea/commit/7ca6514ec830835ff8cbb2b45b163c64db1433e6))
+* **sim-bridge:** carry serialized characters, navigation and acknowledged saves ([#1450](https://github.com/adea-ai/adea/issues/1450)) ([2e49312](https://github.com/adea-ai/adea/commit/2e49312d7839ba9ddb82892c72937cf0be5281fc))
+* **sim:** wire hosted surfaces and remove desktop payload ([#1448](https://github.com/adea-ai/adea/issues/1448)) ([40716fc](https://github.com/adea-ai/adea/commit/40716fcf9fd14ec775684a6b27ea8f251e86629d))
+
+
+### Bug Fixes
+
+* **deps:** preserve classic TypeScript compiler API alias ([#1453](https://github.com/adea-ai/adea/issues/1453)) ([4c416eb](https://github.com/adea-ai/adea/commit/4c416eb9c7028167b6a1876923561a018002fbee))
+* **deps:** qualify Control Plane consumer upgrades ([#1452](https://github.com/adea-ai/adea/issues/1452)) ([b98e1a5](https://github.com/adea-ai/adea/commit/b98e1a53aca93462d290d38a7ecca2791e4c1f1d))
+* **runtime:** bound the full interaction event in the complete decoder (refs [#1395](https://github.com/adea-ai/adea/issues/1395)) ([#1435](https://github.com/adea-ai/adea/issues/1435)) ([cd5b165](https://github.com/adea-ai/adea/commit/cd5b165677a00eb902812db182d6207ca1da6d43))
+* **runtime:** integrate event contracts and strict follow-up queue ([#1417](https://github.com/adea-ai/adea/issues/1417)) ([345036e](https://github.com/adea-ai/adea/commit/345036ef0622b37def95b10cc55ee4e563c72786))
+* **runtime:** validate assistant message identity and supersession ([#1401](https://github.com/adea-ai/adea/issues/1401)) ([287303f](https://github.com/adea-ai/adea/commit/287303f13dfea2731b94b5af6936f9a8b9492b49))
+* **tooling:** fingerprint runtime executables behind launchers ([#1451](https://github.com/adea-ai/adea/issues/1451)) ([df72ac0](https://github.com/adea-ai/adea/commit/df72ac097ed21870898531666792ac29f96a3caf))
+
+
+### Performance
+
+* **web:** back off idle workspace event stream polling ([#1443](https://github.com/adea-ai/adea/issues/1443)) ([5a74c9a](https://github.com/adea-ai/adea/commit/5a74c9aae7ab4ed85a0668e9a8f0207c5cbf5f62))
+* **web:** suspend hidden streams and bound secret reads ([#1449](https://github.com/adea-ai/adea/issues/1449)) ([68ebfe0](https://github.com/adea-ai/adea/commit/68ebfe0d80d42bb72c3e25548e1ababfbc74283f))
+
+
+### Documentation
+
+* record toolchain cache proofs and remaining rollout gaps ([#1454](https://github.com/adea-ai/adea/issues/1454)) ([5c20ff2](https://github.com/adea-ai/adea/commit/5c20ff27f3eb74f44033ebcfc34927791b2e1c88))
+
+
+### Tests
+
+* cover script command boundaries and failure paths ([#1456](https://github.com/adea-ai/adea/issues/1456)) ([750e5c1](https://github.com/adea-ai/adea/commit/750e5c1f90d9f626a7b34340695a0fc2a179c926))
+* **db:** cover durable data policies and snapshot boundaries ([#1457](https://github.com/adea-ai/adea/issues/1457)) ([62fe0a7](https://github.com/adea-ai/adea/commit/62fe0a7b98ddd049f6e9efea6dd07d63d6624e81))
+* **db:** verify persistence reference and deletion contracts ([#1455](https://github.com/adea-ai/adea/issues/1455)) ([bec39d2](https://github.com/adea-ai/adea/commit/bec39d24a683124912e708388092508a9ff9d37e))
+* qualify tooling and pure boundary failure contracts ([#1458](https://github.com/adea-ai/adea/issues/1458)) ([8204b57](https://github.com/adea-ai/adea/commit/8204b573aed709be8352bd11845cc9c389550776))
+* **web:** settle the Agent customization scrollport before pinning the backdrop offset ([#1445](https://github.com/adea-ai/adea/issues/1445)) ([230df82](https://github.com/adea-ai/adea/commit/230df82acf1da8e36079b05c45369cb05662eb11))
+
+
+### Maintenance
+
+* **tooling:** check Adea libraries with Bun ([#1447](https://github.com/adea-ai/adea/issues/1447)) ([e894daa](https://github.com/adea-ai/adea/commit/e894daab877446c4fda63c088b13c06b3770804c))
+
 ## [0.95.0](https://github.com/adea-ai/adea/compare/v0.94.0...v0.95.0) (2026-10-17)
 
 
