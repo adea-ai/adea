@@ -133,7 +133,7 @@ export default defineConfig(({ isPreview, mode }) => ({
   worker: {
     name: 'adea-web',
     compatibilityDate: '2026-08-01',
-    compatibilityFlags: ['nodejs_compat', 'global_fetch_strictly_public'],
+    compatibilityFlags: ['nodejs_compat', 'global_fetch_strictly_public', 'enable_request_signal'],
     entrypoint: 'dist/server/index.js',
     workersDev: true,
     observability: {

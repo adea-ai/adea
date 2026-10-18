@@ -43,7 +43,7 @@ assert(
   'Build must preserve the production incoming-request signal flag'
 )
 const artifact = dirname(resolve(dirname(builtPath), built.main))
-await cp(artifact, resolve(evidence, 'artifact'), { recursive: true })
+await cp(artifact, resolve(evidence, 'dist'), { recursive: true })
 const modules = []
 async function collect(directory, prefix = '') {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -53,13 +53,13 @@ async function collect(directory, prefix = '') {
       modules.push(`${prefix}${entry.name}`)
   }
 }
-await collect(resolve(evidence, 'artifact'))
+await collect(resolve(evidence, 'dist'))
 const main = built.main.split('/').at(-1)
 assert(modules.includes(main), 'Built Worker entry must be in the isolated module copy')
 // A test-only wrapper observes the original signal without changing response delivery.
 await writeFile(
   resolve(evidence, 'wrapper.js'),
-  `import application from './artifact/${main}';
+  `import application from './dist/${main}';
 export default { fetch(request, env, context) {
  if(request.headers.has('x-disconnect-case'))request.signal.addEventListener('abort',()=>console.log('DISCONNECT_ABORT '+Date.now()),{once:true});
  return application.fetch(request,env,context);
@@ -161,7 +161,7 @@ try {
     }
     const config = `using Workerd = import "/workerd/workerd.capnp";
 const config :Workerd.Config = (
- services=[(name="main",worker=(modules=[(name="wrapper.js",esModule=embed "wrapper.js"),${modules.map((name) => `(name=${quoted(`artifact/${name}`)},esModule=embed ${quoted(`artifact/${name}`)})`).join(',')}],compatibilityDate=${quoted(built.compatibility_date)},compatibilityFlags=${quoted(flags)},bindings=[${Object.entries(
+ services=[(name="main",worker=(modules=[(name="wrapper.js",esModule=embed "wrapper.js"),${modules.map((name) => `(name=${quoted(`dist/${name}`)},esModule=embed ${quoted(`dist/${name}`)})`).join(',')}],compatibilityDate=${quoted(built.compatibility_date)},compatibilityFlags=${quoted(flags)},bindings=[${Object.entries(
    bindings
  )
    .map(([name, value]) => `(name=${quoted(name)},text=${quoted(value)})`)

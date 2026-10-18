@@ -4,7 +4,10 @@ import config, { previewEnv, productionEnv } from '../cloudflare.config'
 
 type Resolved = {
   accountId: string
-  worker: { env: Record<string, { type: string; [key: string]: unknown }> }
+  worker: {
+    env: Record<string, { type: string; [key: string]: unknown }>
+    compatibilityFlags: string[]
+  }
 }
 const evaluate = (context: { isPreview: boolean; mode: string | undefined }) =>
   (config as unknown as (context: unknown) => Resolved)(context)
@@ -26,6 +29,11 @@ const selection = {
 // build never emits a production data or credential binding on its own, and
 // that the production build is exactly what it was.
 describe('cloudflare.config.ts preview isolation', () => {
+  test('the release deployment enables incoming request cancellation', () => {
+    const production = evaluate({ isPreview: false, mode: undefined })
+    expect(production.worker.compatibilityFlags).toContain('enable_request_signal')
+  })
+
   test('a production build keeps the full production binding set', () => {
     const production = evaluate({ isPreview: false, mode: undefined }).worker.env
     expect(Object.keys(production).toSorted()).toEqual([

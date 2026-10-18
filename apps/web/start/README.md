@@ -203,7 +203,8 @@ cleanup is required. Do not reset or delete user data.
 
 ## Stream disconnect qualification
 
-The Worker opts in to Cloudflare's `enable_request_signal` compatibility flag so
+Both `wrangler.jsonc` and the release deploy configuration in
+`cloudflare.config.ts` opt in to Cloudflare's `enable_request_signal` flag so
 an incoming disconnect can reach the event route's existing abort handler. That
 handler stops the poll loop, releases its connection slot and lets the retained
 request scope close its database client after in-flight work settles. The route's

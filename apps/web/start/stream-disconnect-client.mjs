@@ -112,6 +112,7 @@ export async function disconnectStream({ baseURL, certificate, active, label, be
     assert(bytes > 0, 'The client must consume a real stream before disconnecting')
     assert.equal(streamError, undefined)
     const databaseCheckpoint = await beforeDisconnect()
+    assert.equal(streamSocket.destroyed, false, 'Stream ended before the test disconnected it')
     const closed = new Promise((resolve) => streamSocket.once('close', resolve))
     const disconnectedAt = Date.now()
     response.destroy()
