@@ -28,6 +28,7 @@ import type {
   RuntimeSession,
   Scope,
 } from '../../../../../../packages/types/src/dev-runtime'
+import { isRuntimeVisibleSummaryKind } from '../../../../../../packages/types/src/dev-runtime-visible-summaries'
 import { canonicalDevCommandJson } from '../../../../../../packages/types/src/dev-runtime'
 import { isRuntimeActivityEventKind } from '../../../../../../packages/types/src/dev-runtime-activity'
 import { validateRuntimeResponseReferences } from '../../../../../../packages/types/src/dev-runtime-response-references'
@@ -39,6 +40,9 @@ import {
 } from '../../../../../../packages/types/src/dev-runtime-wire'
 import { decodeFollowUpQueueEventPayload } from '../../../../../../packages/types/src/dev-runtime-follow-ups'
 import { createDurableJsonStore } from '../host-store'
+import { createSessionHistoryReader, type RuntimeHistoryRead } from './history'
+import type { RuntimeEventHistoryPage } from '../../../../../../packages/types/src/dev-runtime-history'
+
 import { assertAssistantEventFitsFrame, assertAssistantEventOrder } from './assistant-events'
 import { admitRuntimeActivityEvent } from './activity-events'
 import {
@@ -188,6 +192,7 @@ export type SessionEventLog = Readonly<{
     options?: { fromSequence?: string; limit?: number; generation?: number }
   ): RuntimeEvent[]
   latestSequence(runtimeSessionId: string, generation?: number): string
+  history(runtimeSessionId: string, options: RuntimeHistoryRead): RuntimeEventHistoryPage
   /** Live subscription for stream push; returns the unsubscribe fn. */
   subscribe(runtimeSessionId: string, cb: (event: RuntimeEvent) => void): () => void
   /** Test/ops introspection: the wire DTOs currently retained. */
@@ -318,6 +323,15 @@ export function createSessionEventLog(input: {
     // frame budget to retries. Frame size is checked after allocating the exact
     // sequence for every new event below.
     validateRuntimeEventReplayCandidate(candidate, effectiveProvenance)
+    // Validate the original source claim before withholding an opaque private
+    // body. Redaction must never hide a versioned contract or a payload bound.
+    if (
+      !isRuntimeCallEventKind(candidate.kind) &&
+      !isRuntimeVisibleSummaryKind(candidate.kind) &&
+      !isRuntimeActivityEventKind(candidate.kind) &&
+      (candidate.classification === 'credential' || candidate.classification === 'restricted_local')
+    )
+      candidate = { ...candidate, payload: {} }
     if (isRuntimeActivityEventKind(candidate.kind)) {
       const admission = admitRuntimeActivityEvent(
         candidate,
@@ -425,6 +439,11 @@ export function createSessionEventLog(input: {
 
   return {
     append: appendEvent,
+    history: createSessionHistoryReader({
+      dataDir: input.dataDir,
+      scope: input.scope,
+      readAll: all,
+    }),
     read: readEvents,
     latestSequence(runtimeSessionId, generation) {
       return latestSeqOf(select(runtimeSessionId, generation), runtimeSessionId, generation)

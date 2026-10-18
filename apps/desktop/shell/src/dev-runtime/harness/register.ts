@@ -67,6 +67,7 @@ import {
   RuntimeEventRecoveryRequiredError,
   type SessionEventLog,
 } from './events'
+import { transcriptEvent, transcriptPromptText } from './transcript-content'
 import { createConversationCheckpointRuntime, type CheckpointRestoreAdapter } from './checkpoints'
 import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver'
 import { createHarnessDeviceDefaultAuthority } from './device-default'
@@ -583,7 +584,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
    *   hands the prompt to the lane adapter through the typed handoff
    *   (`lane.deliverPrompt`). An accepted handoff records ONE host
    *   `turn.user_input` provenance fact — transport `acp`, the lane's
-   *   connection identity/generation and byte count, never the prompt text,
+   *   connection identity/generation and byte count plus a filtered projection
+   *   of the original user prompt (never the workspace-memory preamble),
    *   never a harness turn event over the lane's own tier (the harness
    *   fabricates nothing here and the host fabricates nothing there). A
    *   typed lane refusal appends `capability.degraded` naming the reason;
@@ -594,8 +596,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
    *   event — `turn.user_input` for the delivered submit (the host performed
    *   this write; it never claims the harness consumed it), or
    *   `capability.degraded` naming the typed reason when nothing shipped.
-   *   The prompt text itself stays in the control plane only — the event
-   *   payload carries fenced-write provenance, never content.
+   *   The content proves delivery only, never harness consumption or a reply.
+   *   Failed delivery carries no user text. Legacy receipts stay textless.
    * A delivery failure does NOT fail the launch (partial failure retains the
    * terminal/worktree) and never retries blindly.
    */
@@ -603,6 +605,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     session: RuntimeSession
     run: HarnessRun
     prompt: string
+    /** Original user input only; never the memory preamble prepended to delivery. */
+    userPrompt?: string
     /** Counts of the memory preamble leading `prompt`, when one does. */
     memory?: Readonly<{ entries: number; bytes: number }>
   }): Promise<void> {
@@ -613,6 +617,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     const memoryProvenance = params.memory
       ? { memoryEntries: params.memory.entries, memoryBytes: params.memory.bytes }
       : {}
+    const content = params.userPrompt !== undefined ? transcriptPromptText(params.userPrompt) : {}
     const liveLane = lane.readyFor(params.session.id)
     if (liveLane) {
       let result: Awaited<ReturnType<typeof lane.deliverPrompt>>
@@ -639,6 +644,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           classification: 'workspace_private',
           payload: {
             harnessRunId: params.run.id,
+            ...content,
             ...memoryProvenance,
             transport: 'acp',
             acpConnectionId: liveLane.id,
@@ -702,6 +708,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         classification: 'workspace_private',
         payload: {
           harnessRunId: params.run.id,
+          ...content,
           ...memoryProvenance,
           transport: 'pty_input',
           terminalId: result.terminalId,
@@ -1006,6 +1013,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         session: nextSession,
         run,
         prompt: [memoryText, prompt].filter((part) => part !== undefined).join('\n\n'),
+        ...(prompt !== undefined ? { userPrompt: prompt } : {}),
         ...(memoryText !== undefined && memory.preamble
           ? { memory: { entries: memory.preamble.includedEntries, bytes: memory.preamble.bytes } }
           : {}),
@@ -1043,7 +1051,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       stream.send({
         type: 'data',
         sequence: event.seq,
-        bytes: encodeCbor(event),
+        bytes: encodeCbor(transcriptEvent(event)),
       })
     }
     // Bounded newest-frame replay: at most the newest 500 events of the
@@ -1056,12 +1064,16 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     try {
       latest = BigInt(events.latestSequence(runtimeSessionId, generation))
       const windowStart = latest >= REPLAY_LIMIT ? (latest - REPLAY_LIMIT + 1n).toString() : '0'
-      from = requested > BigInt(windowStart) ? requested.toString() : windowStart
+      const retainedSequence = BigInt(
+        events.read(runtimeSessionId, { generation, limit: 1 })[0]?.seq ?? '0'
+      )
+      const retainedFloor = retainedSequence > 1n ? retainedSequence : 0n
+      from = [requested, BigInt(windowStart), retainedFloor]
+        .reduce((a, b) => (a > b ? a : b))
+        .toString()
       replay = events.read(runtimeSessionId, { fromSequence: from, generation, limit: 500 })
     } catch (error) {
       if (!(error instanceof RuntimeEventRecoveryRequiredError)) throw error
-      // No prefix, checkpoint, heartbeat, or subscription may imply that an
-      // incompatible retained generation was replayed or safely skipped.
       stream.close('incompatible', 'runtime event history requires recovery')
       return
     }
@@ -1756,6 +1768,21 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     },
 
     // ── dev.session.events: grant minting (the stream attach path) ────────
+    'dev.session.history': (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.session.history'].request(command.body)
+      const session = resolveSessionOrThrow(body.runtimeSessionId as string)
+      requireSessionResource(command, session)
+      requireGeneration(command, session)
+      return events.history(session.id, {
+        generation: session.generation,
+        ...(body.beforeSequence !== undefined
+          ? { beforeSequence: body.beforeSequence as string }
+          : {}),
+        ...(body.cursor !== undefined ? { cursor: body.cursor as string } : {}),
+        ...(body.limit !== undefined ? { limit: body.limit as number } : {}),
+      })
+    },
     'dev.session.events': (command, identity) => {
       requireScope(command)
       const body = devOperationDecoders['dev.session.events'].request(command.body)

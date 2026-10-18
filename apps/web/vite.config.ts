@@ -125,12 +125,12 @@ export default defineConfig(({ command }) => ({
                   includeDependenciesRecursively: false,
                   minShareCount: 2,
                 },
-                // The runtime contract's decoders are imported by the Dev shell
-                // and by lazy panes; left to automatic splitting the wire and
-                // validation modules each become their own request.
+                // Keep the lean browser envelope/CBOR helpers together. The public
+                // wire facade also re-exports complete admission; leave that
+                // facade outside this group so its cold dependencies stay lazy.
                 {
                   name: 'dev-runtime-contract',
-                  test: /packages\/types\/dist\/dev-runtime-(wire|validation-internal)\.js$/,
+                  test: /packages\/types\/dist\/dev-runtime-(browser|cbor|envelope|event-kinds|follow-up-event|unicode|usage|cbor-length|validation-internal)\.js$/,
                   includeDependenciesRecursively: false,
                 },
                 // The contextual host and its lazy panes share this small command

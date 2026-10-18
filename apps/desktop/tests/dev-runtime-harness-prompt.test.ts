@@ -55,6 +55,8 @@ import type {
   AcpPromptDeliveryResult,
 } from '../shell/src/dev-runtime/harness/acp-lane'
 import type { WorktreeService } from '../shell/src/dev-runtime/worktrees/service'
+import { createMemoryStore } from '../shell/src/memory/store'
+import { projectTranscriptEvents } from '../../../packages/dev-view/src/chat/presentation'
 
 const SHELL_HOST = '127.0.0.1'
 const SHELL_PORT = 4801
@@ -158,6 +160,7 @@ function scriptedHandoffDriver(
 async function boot(
   options: {
     acpDriver?: AcpLaneDriver
+    memoryText?: string
     checkpointRestoreAdapter?: CheckpointRestoreAdapter
     checkpointRestoreTimeoutMs?: number
   } = {}
@@ -227,7 +230,10 @@ async function boot(
   if (!connected.ok) throw new Error('sidecar connect failed')
   const sidecar: SidecarClient = connected.client
 
+  const memory = createMemoryStore({ contentDir: dataDir, key: () => deviceKey })
+  if (options.memoryText) memory.create(SCOPE_A.workspaceId, { text: options.memoryText })
   const host = createDevRuntimeHost({
+    memory,
     credentialStore: createInMemoryVaultKeyStore(),
     authority,
     gateway: composedGateway,
@@ -415,6 +421,43 @@ function promptEventsOf(shell: Awaited<ReturnType<typeof boot>>, sessionId: stri
 }
 
 describe('launch → guarded PTY prompt delivery (#400 residue)', () => {
+  test('records displayable filtered user text, excluding memory from both persisted events and history', async () => {
+    const shell = await boot({ memoryText: 'private memory context never in transcript' })
+    try {
+      const channel = await shell.openChannel()
+      const session = await sessionReady(shell, channel)
+      await createTerminal(channel, session.id)
+      const installation = shell.host().harness!.managedPi.status().installationId!
+      okValue(
+        await channel.execute(
+          launchCommand(
+            session,
+            installation,
+            'Hello Bearer abc.def password=hunter2 /Users/alice/private'
+          )
+        )
+      )
+      const records = promptEventsOf(shell, session.id)
+      expect(records).toHaveLength(1)
+      const rows = projectTranscriptEvents(records)
+      expect(rows[0]!.role).toBe('user')
+      expect(rows[0]!.text).toContain('Hello Bearer [secret redacted]')
+      const serialized = JSON.stringify(records)
+      for (const hidden of ['private memory context', 'abc.def', 'hunter2', '/Users/alice'])
+        expect(serialized).not.toContain(hidden)
+      const page = shell
+        .host()
+        .harness!.events.history(session.id, { generation: records[0]!.generation })
+      expect(JSON.stringify(page)).not.toContain('private memory context')
+      const delivered = Buffer.concat(
+        shell.ptyProcesses()[0]!.written.map((chunk) => Buffer.from(chunk))
+      ).toString('utf8')
+      expect(delivered).toContain('private memory context')
+      expect(delivered).toContain('password=hunter2')
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
   test('a launch with an initial prompt delivers exactly once through the fenced input authority', async () => {
     const shell = await boot()
     try {
@@ -435,7 +478,7 @@ describe('launch → guarded PTY prompt delivery (#400 residue)', () => {
       const bytes = Buffer.concat(written.map((chunk) => Buffer.from(chunk)))
       expect(bytes.toString('utf8')).toBe('ship the residue\n')
 
-      // Delivery provenance is a canonical host event, not content.
+      // Successful delivery carries a filtered, explicit user-text projection.
       const events = promptEventsOf(shell, session.id)
       expect(events).toHaveLength(1)
       expect(events[0]).toMatchObject({
@@ -450,7 +493,7 @@ describe('launch → guarded PTY prompt delivery (#400 residue)', () => {
         terminalId: terminal.id,
         terminalGeneration: terminal.generation,
       })
-      expect(JSON.stringify(events[0]!.payload)).not.toContain('ship the residue')
+      expect(events[0]!.payload).toMatchObject({ text: 'ship the residue', textTruncated: false })
 
       // Idempotent relaunch returns the run and NEVER re-delivers.
       const relaunched = okValue(
@@ -683,7 +726,7 @@ describe('launch → ACP lane prompt handoff (#400 residue)', () => {
       expect(shell.ptyProcesses()[0]!.written).toHaveLength(0)
 
       // The host recorded the handoff as provenance: ONE host turn.user_input
-      // event, transport acp, lane identity — never the prompt text.
+      // event, transport acp, lane identity and original user text.
       const events = promptEventsOf(shell, session.id)
       expect(events).toHaveLength(1)
       expect(events[0]).toMatchObject({
@@ -699,7 +742,7 @@ describe('launch → ACP lane prompt handoff (#400 residue)', () => {
         bytes: 12,
         processIdentity: 'scripted-handoff-pid',
       })
-      expect(JSON.stringify(events[0]!.payload)).not.toContain('handoff prompt')
+      expect(events[0]!.payload).toMatchObject({ text: 'handoff prompt', textTruncated: false })
 
       // Idempotent relaunch returns the live run and never re-hands off.
       const relaunched = okValue(
