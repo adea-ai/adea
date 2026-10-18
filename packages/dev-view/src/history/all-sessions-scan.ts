@@ -9,8 +9,11 @@
  */
 import type { HarnessRun, RuntimeEvent, RuntimeSession } from '@adea-ai/types/dev-runtime'
 
-import type { RuntimeEventStream } from '../chat/model/event-stream'
+import type { RuntimeEventStream } from '../chat/model/event-stream-core'
+
 import { transcriptIsStale } from './turns-model'
+
+type LiveRuntimeEventStream = Omit<RuntimeEventStream, 'loadOlder' | 'hasOlder'>
 
 /** Sessions whose event window is read; older ones are reported as not searched. */
 export const SCAN_MAX_SESSIONS = 20
@@ -162,7 +165,7 @@ type Timers = Readonly<{
  * and every event up to the sequence it names has been accepted. A stream that
  * only went quiet proves nothing, since it has no end marker of its own.
  */
-export function replayProven(stream: RuntimeEventStream): boolean {
+export function replayProven(stream: LiveRuntimeEventStream): boolean {
   const through = stream.deliveredThrough()
   const next = stream.state().expectedSequence
   return (
@@ -179,7 +182,7 @@ export function replayProven(stream: RuntimeEventStream): boolean {
  * a stream that never opens is unread.
  */
 export function readEventWindow(
-  stream: RuntimeEventStream,
+  stream: LiveRuntimeEventStream,
   timers: Timers = {}
 ): Promise<SessionWindow | undefined> {
   const quietMs = timers.quietMs ?? 1_200

@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import {
   decodeCbor,
   decodeRuntimeEvent,
-  decodeRuntimeCallEvent,
+  decodeRuntimeEnvelope,
   decodeRuntimeCallPayload,
   encodeCbor,
   devCommandProofMessage,
@@ -26,8 +26,14 @@ import {
   type DevOperation,
   type DevReply,
   type RuntimeEvent,
+  type RuntimeEventHistoryPage,
   type Scope,
 } from '../../../packages/types/src/dev-runtime'
+import {
+  createTranscriptAccumulator,
+  acceptRuntimeStreamFrame,
+} from '../../../packages/dev-view/src/chat/model/transcript'
+import { createRuntimeHistoryLoader } from '../../../packages/dev-view/src/chat/model/history'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
 import { createInMemoryVaultKeyStore } from '../shell/src/dev-runtime/vault'
 import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
@@ -468,7 +474,7 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
     }
   })
 
-  test('the full CBOR budget admits the exact grant limit over a real socket and refuses aggregate or multibyte excess before append', async () => {
+  test('the host enforces the exact CBOR budget and the real socket withholds restricted call bodies', async () => {
     const channel = await openChannel()
     try {
       const created = okValue(
@@ -560,10 +566,12 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
       if (!accepted) throw new Error('expected an exactly fitting event')
       const live = (await channel.next()).frame
       if (live?.type !== 'data') throw new Error('expected live CBOR data')
-      expect(live.bytes.byteLength).toBe(grant.maxFrameBytes)
-      expect(decodeRuntimeCallEvent(decodeCbor(live.bytes).value, { source: 'acp' })).toEqual(
-        accepted
-      )
+      expect(encodeCbor(accepted).byteLength).toBe(grant.maxFrameBytes)
+      expect(live.bytes.byteLength).toBeLessThan(grant.maxFrameBytes)
+      expect(decodeRuntimeEnvelope(decodeCbor(live.bytes).value, { source: 'acp' })).toEqual({
+        ...accepted,
+        payload: {},
+      })
       const retained = events.read(created.id)
       payload.output.value[1] += 'x'
       expect(
@@ -599,10 +607,35 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
       if (!multibyte) throw new Error('expected an exactly fitting UTF-8 event')
       const utf8Frame = (await channel.next()).frame
       if (utf8Frame?.type !== 'data') throw new Error('expected UTF-8 live CBOR data')
-      expect(utf8Frame.bytes.byteLength).toBe(grant.maxFrameBytes)
-      expect(decodeRuntimeCallEvent(decodeCbor(utf8Frame.bytes).value, { source: 'acp' })).toEqual(
-        multibyte
-      )
+      expect(encodeCbor(multibyte).byteLength).toBe(grant.maxFrameBytes)
+      expect(utf8Frame.bytes.byteLength).toBeLessThan(grant.maxFrameBytes)
+      expect(decodeRuntimeEnvelope(decodeCbor(utf8Frame.bytes).value, { source: 'acp' })).toEqual({
+        ...multibyte,
+        payload: {},
+      })
+      // Host admission still validates restricted call bodies, while transcript
+      // projection withholds them from the authenticated browser stream.
+      const restricted = events.append({
+        ...base,
+        classification: 'restricted_local',
+        sourceEventId: 'frame-local',
+        payload: {
+          schemaVersion: 1,
+          callId: 'local-call',
+          phase: 'completed',
+          permissionEligibility: 'unknown',
+          input: { type: 'inline', value: 'local-call-body' },
+        },
+      })!
+      const restrictedFrame = (await channel.next()).frame
+      if (restrictedFrame?.type !== 'data') throw new Error('expected restricted envelope')
+      const projected = decodeRuntimeEnvelope(decodeCbor(restrictedFrame.bytes).value, {
+        source: 'acp',
+      })
+      expect(projected.eventId).toBe(restricted.eventId)
+      expect(projected.payload).toEqual({})
+      expect(JSON.stringify(projected)).not.toContain('local-call-body')
+      expect(restricted.payload).toMatchObject({ input: { value: 'local-call-body' } })
       okValue(await channel.execute(commandFor('dev.harness.runs', SCOPE_A, {})))
     } finally {
       channel.close()
@@ -641,9 +674,13 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
     const liveGeneration = created.generation + 1
 
     // Seed beyond the 500-frame replay bound so the stream must disclose the
-    // actual retained floor before sending data. The requested attach cursor
+    // bounded replay checkpoint before sending data. The requested attach cursor
     // remains zero, while the newest retained window starts later.
-    for (let index = 0; index < 501; index += 1)
+    for (
+      let index = 0;
+      BigInt(host!.harness!.events.latestSequence(created.id, liveGeneration)) < 600n;
+      index += 1
+    )
       host!.harness!.events.append({
         runtimeSessionId: created.id,
         generation: liveGeneration,
@@ -651,7 +688,9 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
         sourceEventId: `bounded-replay-${index}`,
       })
     const replayLatest = host!.harness!.events.latestSequence(created.id, liveGeneration)
+    expect(replayLatest).toBe('600')
     const replayFloor = (BigInt(replayLatest) - 500n + 1n).toString()
+    expect(replayFloor).toBe('101')
 
     // Mint the stream grant through the caller's authenticated identity.
     const grant = okValue(
@@ -714,6 +753,44 @@ describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
     // only proof a reader gets that no earlier event is still on its way.
     const caughtUp = await channel.next()
     expect(caughtUp.frame).toMatchObject({ type: 'heartbeat', throughSequence: replayLatest })
+
+    // Feed actual server frames through the production accumulator and read
+    // the retained prefix through the authenticated production history route.
+    let transcript = createTranscriptAccumulator({
+      runtimeSessionId: created.id,
+      generation: liveGeneration,
+      fromSequence: '0',
+    })
+    for (const message of [opened, checkpoint, ...replay, caughtUp])
+      transcript = acceptRuntimeStreamFrame(transcript, message.frame!, 'host')
+    const history = createRuntimeHistoryLoader({
+      state: () => transcript,
+      commit: (next) => {
+        transcript = next
+      },
+      read: async (options) =>
+        okValue(
+          await channel.execute(
+            commandFor(
+              'dev.session.history',
+              SCOPE_A,
+              { runtimeSessionId: created.id, expectedGeneration: liveGeneration, ...options },
+              { resource: sessionResource({ ...created, generation: liveGeneration }) }
+            )
+          )
+        ) as unknown as RuntimeEventHistoryPage,
+    })
+    expect(transcript.events[0]!.seq).toBe('101')
+    expect(history.hasOlder()).toBe(true)
+    await history.loadOlder()
+    expect(transcript.events).toHaveLength(600)
+    expect(transcript.events[0]!.seq).toBe('1')
+    expect(transcript.events.at(-1)!.seq).toBe('600')
+    expect(new Set(transcript.events.map((event) => event.seq)).size).toBe(600)
+    expect(transcript.retainedFloorSequence).toBe('1')
+    expect(transcript.expectedSequence).toBe('601')
+    expect(history.hasOlder()).toBe(false)
+    history.close()
 
     // Live push: an observed transition appends events and the stream carries
     // them without any re-attach.

@@ -37,6 +37,11 @@ changed-files, plan and task payload schemas. The wire entry's
 ownership; generic replay retains opaque rows without inventing counts or
 statuses. See the Dev Runtime spec's structured activity producer contract.
 
+The focused `dev-runtime-browser` entry re-exports the existing canonical CBOR
+decoder and lean envelope decoder without evaluating complete event admission.
+Full history and host admission continue to use `decodeRuntimeEvent` through
+`dev-runtime-wire`; no history validation or provenance check is replaced.
+
 The complete Dev Runtime entry exports the `FollowUpQueueRequest`,
 `FollowUpQueueSnapshot`, and `FollowUpQueueEventPayload` types. Host and queue
 consumers that need the full validators should import them from the focused

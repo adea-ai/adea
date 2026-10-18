@@ -69,8 +69,11 @@ consolidating the existing small shared chunks reduced the measured Dev utility
 closure from 185,636 to 185,165 raw bytes and 16 to 12 files, within the unchanged
 185,344-byte budget. Every route/startup closure remains checked by `start:verify`.
 Runtime-contract grouping is nonrecursive so focused reply DTO dependencies keep
-their existing lazy boundaries. Shared lazy badge and empty-state primitives
-co-locate with the other small lazy UI helpers to remove redundant chunk wrappers.
+their existing lazy boundaries. The lean envelope, kind discriminators, Unicode
+and CBOR length helpers stay together; complete event semantics remain a separate
+module so history admission does not pull its validators into unrelated utilities.
+Shared lazy badge and empty primitives co-locate with the existing lazy UI helpers,
+using the same grouping qualified on the runtime queue integration.
 
 ## Entry policy
 

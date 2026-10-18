@@ -1,4 +1,4 @@
-import { decodeCbor, decodeRuntimeBrowserEnvelope } from '@adea-ai/types/dev-runtime-wire'
+import { decodeCbor, decodeRuntimeBrowserEnvelope } from '@adea-ai/types/dev-runtime-browser'
 import type { DevStreamFrame, RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
 import type { ChatRetentionTruth } from './types'
@@ -26,6 +26,8 @@ export type TranscriptAccumulator = Readonly<{
   runtimeSessionId: string
   generation: number
   fromSequence: string
+  /** Lowest sequence the host says is still retained for this generation. */
+  retainedFloorSequence?: string
   expectedSequence?: string
   events: readonly RuntimeEvent[]
   /** The leading assistant streak lost its prefix; never store raw redaction context. */
@@ -55,12 +57,11 @@ function eventKey(event: RuntimeEvent): string {
   return `${event.runtimeSessionId}\u0000${event.generation}\u0000${event.source}\u0000${event.sourceEventId}`
 }
 
+// Both records already matched the full session/generation/source event key.
 function sameEvent(left: RuntimeEvent, right: RuntimeEvent): boolean {
   return (
     left.kind === right.kind &&
     left.seq === right.seq &&
-    left.runtimeSessionId === right.runtimeSessionId &&
-    left.generation === right.generation &&
     JSON.stringify(left.payload) === JSON.stringify(right.payload)
   )
 }
@@ -70,11 +71,9 @@ function retention(
   requestedFrom: string,
   reason?: ChatRetentionTruth['reason']
 ): ChatRetentionTruth {
-  const ordered = [...events].toSorted((left, right) =>
-    sequence(left.seq) < sequence(right.seq) ? -1 : 1
-  )
-  const oldestSequence = ordered[0]?.seq
-  const newestSequence = ordered.at(-1)?.seq
+  // Both callers pass the canonical sequence-sorted accumulator window.
+  const oldestSequence = events[0]?.seq
+  const newestSequence = events.at(-1)?.seq
   const bounded = oldestSequence !== undefined && sequence(requestedFrom) < sequence(oldestSequence)
   const retentionReason = reason ?? (bounded ? ('retention' as const) : undefined)
   return {
@@ -135,7 +134,14 @@ export function acceptRuntimeEvent(
 
   const existing = state.events.find((candidate) => eventKey(candidate) === eventKey(event))
   if (existing) {
-    if (sameEvent(existing, event)) return state
+    if (sameEvent(existing, event)) {
+      // A resync can replay an event already held by backfill. It still
+      // consumes the expected forward sequence; otherwise the next new frame
+      // would be rejected as a gap even though no event is missing.
+      if (state.expectedSequence === event.seq)
+        return { ...state, expectedSequence: (sequence(event.seq) + 1n).toString() }
+      return state
+    }
     return {
       ...state,
       availability: { status: 'conflict', sourceEventId: event.sourceEventId },
