@@ -4,6 +4,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { RuntimeSession, Scope } from '../../../packages/types/src/dev-runtime'
+import {
+  encodeCbor,
+  RUNTIME_EVENT_CBOR_BYTES_MAX,
+} from '../../../packages/types/src/dev-runtime-wire'
 import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
 import { registerHarnessRuntime } from '../shell/src/dev-runtime/harness/register'
 import {
@@ -109,6 +113,43 @@ describe('host interaction admission and correlation', () => {
       restarted.append(outcome(requested.eventId, { sourceEventId: 'second-outcome' }))
     ).toThrow()
     expect(restarted.events()).toHaveLength(2)
+  })
+
+  test('source-event identity compares tuple fields even when fields contain NUL', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-interaction-tuple-'))
+    dirs.push(dataDir)
+    const firstSession: RuntimeSession = { ...initialSession, id: 'collision' }
+    const secondSession: RuntimeSession = {
+      ...initialSession,
+      id: 'collision\u00001\u0000native',
+    }
+    const sessions = new Map([
+      [firstSession.id, firstSession],
+      [secondSession.id, secondSession],
+    ])
+    const log = createSessionEventLog({
+      dataDir,
+      scope,
+      resolveSession: (id) => sessions.get(id),
+    })
+
+    const first = log.append(
+      request({
+        runtimeSessionId: firstSession.id,
+        sourceEventId: '1\u0000native\u0000tail',
+      })
+    )!
+    const second = log.append(
+      request({
+        runtimeSessionId: secondSession.id,
+        sourceEventId: 'tail',
+      })
+    )!
+
+    expect(second.runtimeSessionId).toBe(secondSession.id)
+    expect(second.seq).toBe('1')
+    expect(second.eventId).not.toBe(first.eventId)
+    expect(log.events()).toHaveLength(2)
   })
 
   test('cannot append structured interactions without the canonical session resolver', () => {
@@ -308,6 +349,167 @@ describe('host interaction admission and correlation', () => {
       })
     )!
     expect(resolved.seq).toBe('2')
+  })
+
+  test('rejects oversized whole-event CBOR before persistence/publication or sequence consumption', () => {
+    const oversizedAnswers = [
+      'a'.repeat(65_536),
+      'a'.repeat(65_139),
+      'a'.repeat(65_500),
+      '🧪'.repeat(20_000),
+    ]
+    for (const text of oversizedAnswers) {
+      const { log } = setup()
+      const requested = log.append(
+        request({
+          kind: 'question.requested',
+          payload: {
+            schemaVersion: 1,
+            requestId: 'request-1',
+            eligibility,
+            questions: [{ id: 'notes', prompt: 'Any notes?', required: false, kind: 'text' }],
+          },
+        })
+      )!
+      const published: unknown[] = []
+      log.subscribe(initialSession.id, (event) => published.push(event))
+      expect(() =>
+        log.append(
+          outcome(requested.eventId, {
+            kind: 'question.resolved',
+            sourceEventId: 'oversized-response',
+            payload: {
+              schemaVersion: 1,
+              requestId: 'request-1',
+              requestEventId: requested.eventId,
+              decision: 'answered',
+              answers: [{ questionId: 'notes', text }],
+            },
+          })
+        )
+      ).toThrow()
+      expect(log.events()).toHaveLength(1)
+      expect(published).toHaveLength(0)
+      expect(
+        log.append(
+          outcome(requested.eventId, {
+            kind: 'question.resolved',
+            sourceEventId: 'valid-response',
+            payload: {
+              schemaVersion: 1,
+              requestId: 'request-1',
+              requestEventId: requested.eventId,
+              decision: 'answered',
+              answers: [{ questionId: 'notes', text: 'ok' }],
+            },
+          })
+        )?.seq
+      ).toBe('2')
+      expect(published).toHaveLength(1)
+    }
+  })
+
+  test('an exact-fit retry at sequence 9 is checked against its retained envelope', () => {
+    const { log } = setup()
+    const occurredAt = '2026-10-15T05:00:00.000Z'
+    const requested = log.append(
+      request({
+        kind: 'question.requested',
+        sourceEventId: 'exact-fit-request',
+        occurredAt,
+        payload: {
+          schemaVersion: 1,
+          requestId: 'request-1',
+          eligibility,
+          questions: [{ id: 'notes', prompt: 'Any notes?', required: false, kind: 'text' }],
+        },
+      })
+    )!
+    for (let seq = 2; seq <= 8; seq += 1)
+      log.append({
+        runtimeSessionId: initialSession.id,
+        generation: 1,
+        sourceEventId: `sequence-padding-${seq}`,
+        kind: 'run.ready',
+        occurredAt,
+      })
+    expect(log.latestSequence(initialSession.id)).toBe('8')
+
+    const envelope = {
+      schemaVersion: 1,
+      eventId: '00000000-0000-4000-8000-000000000000',
+      runtimeSessionId: initialSession.id,
+      harnessRunId: 'run-1',
+      generation: 1,
+      seq: '9',
+      occurredAt,
+      receivedAt: occurredAt,
+      source: 'native',
+      sourceEventId: 'exact-fit-outcome',
+      confidence: 'authoritative',
+      classification: 'workspace_private',
+      kind: 'question.resolved',
+      payload: {
+        schemaVersion: 1,
+        requestId: 'request-1',
+        requestEventId: requested.eventId,
+        decision: 'answered',
+        answers: [{ questionId: 'notes', text: '' }],
+      },
+    } as const
+    const exactTextLength = RUNTIME_EVENT_CBOR_BYTES_MAX - encodeCbor(envelope).byteLength - 2
+    const exactPayload = {
+      ...envelope.payload,
+      answers: [{ questionId: 'notes', text: 'a'.repeat(exactTextLength) }],
+    }
+    expect(encodeCbor({ ...envelope, payload: exactPayload }).byteLength).toBe(
+      RUNTIME_EVENT_CBOR_BYTES_MAX
+    )
+
+    const exactInput = outcome(requested.eventId, {
+      kind: 'question.resolved',
+      sourceEventId: envelope.sourceEventId,
+      occurredAt,
+      payload: exactPayload,
+    })
+    const published: unknown[] = []
+    log.subscribe(initialSession.id, (event) => published.push(event))
+    const accepted = log.append(exactInput)!
+    expect(accepted.seq).toBe('9')
+    expect(encodeCbor(accepted).byteLength).toBe(RUNTIME_EVENT_CBOR_BYTES_MAX)
+    expect(encodeCbor({ ...accepted, seq: '10' }).byteLength).toBe(RUNTIME_EVENT_CBOR_BYTES_MAX + 1)
+    expect(log.append(exactInput)).toBeUndefined()
+    expect(log.latestSequence(initialSession.id)).toBe('9')
+    expect(log.events()).toHaveLength(9)
+    expect(published).toHaveLength(1)
+
+    expect(() =>
+      log.append({
+        ...exactInput,
+        payload: {
+          ...exactPayload,
+          answers: [{ questionId: 'notes', text: 'changed retry' }],
+        },
+      })
+    ).toThrow()
+    for (const changedMetadata of [
+      { ...exactInput, harnessRunId: 'run-2' },
+      { ...exactInput, confidence: 'bounded_projection' as const },
+      { ...exactInput, classification: 'workspace_metadata' as const },
+    ])
+      expect(() => log.append(changedMetadata)).toThrow()
+    expect(() =>
+      log.append({
+        ...exactInput,
+        source: 'acp',
+        payload: {
+          ...exactPayload,
+          answers: [{ questionId: 'notes', text: 'small changed source' }],
+        },
+      })
+    ).toThrow()
+    expect(log.events()).toHaveLength(9)
+    expect(published).toHaveLength(1)
   })
 
   test('expiry has its own decision and cannot close an unretained request', () => {

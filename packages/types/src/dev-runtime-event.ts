@@ -218,6 +218,8 @@ const eventSemantics: EventSemantics = {
       if (item.classification !== 'workspace_private')
         fail('event.classification', 'structured interactions require workspace_private')
       stringValue(item.harnessRunId, 'event.harnessRunId', 1, 256)
+      // Measure the complete event, including UTF-8 expansion and envelope.
+      if (enforceEnvelopeBounds) assertRuntimeEventFrameSize(item as RuntimeEvent)
     }
     if (item.kind === 'attachment.added' || item.kind === 'attachment.removed') {
       if (item.source !== 'host' || item.confidence !== 'authoritative')
