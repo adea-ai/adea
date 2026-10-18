@@ -470,6 +470,35 @@ describe('lanes that load the guard', () => {
     )
   })
 
+  test('Playwright binds the dev Worker and Node fixtures to the same validated database', () => {
+    const binding = 'CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE'
+    const scenarios = [
+      { env: { DATABASE_URL: local.replace(':55432/', ':55852/') } },
+      { env: {} },
+      { env: { ...branchEnv, DATABASE_URL: ciUrl } },
+    ]
+    for (const scenario of scenarios) {
+      const code = `
+        const { default: config } = await import(${JSON.stringify(join(root, 'playwright.config.ts'))});
+        const env = config.webServer.env;
+        console.log(JSON.stringify({ database: env.DATABASE_URL, hyperdrive: env[${JSON.stringify(binding)}] }));
+      `
+      const result = spawnSync(process.execPath, ['--eval', code], {
+        cwd: root,
+        encoding: 'utf8',
+        env: { PATH: process.env.PATH, ...scenario.env, [binding]: local },
+        timeout: 10_000,
+      })
+      expect(result.status).toBe(0)
+      const targets = JSON.parse(result.stdout.trim()) as {
+        database: string
+        hyperdrive: string
+      }
+      expect(targets.hyperdrive).toBe(targets.database)
+      expect(targets.database).toBe(scenario.env.DATABASE_URL ?? local + '?sslmode=disable')
+    }
+  })
+
   test('every probe that reads a database or acceptance target checks it first', async () => {
     const probes: [string, string, string][] = [
       ['scripts/database-health.mjs', './test-target-guard.mjs', 'process.env.DATABASE_URL'],
