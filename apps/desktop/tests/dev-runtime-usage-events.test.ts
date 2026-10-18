@@ -71,7 +71,10 @@ describe('usage producer admission', () => {
       })
       expect(Object.isFrozen(accepted)).toBe(true)
       expect(Object.isFrozen(accepted.payload)).toBe(true)
-      expect(createSessionEventLog({ dataDir, scope }).read('session-1')).toEqual([accepted])
+      const replayed = createSessionEventLog({ dataDir, scope }).read('session-1')
+      expect(replayed).toEqual([accepted])
+      expect(Object.isFrozen(replayed[0])).toBe(true)
+      expect(Object.isFrozen(replayed[0]!.payload)).toBe(true)
     } finally {
       rmSync(dataDir, { recursive: true, force: true })
     }

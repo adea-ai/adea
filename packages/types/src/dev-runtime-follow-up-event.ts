@@ -1,12 +1,6 @@
-import {
-  exactKeys,
-  fail,
-  integerValue,
-  literal,
-  record,
-  stringValue,
-} from './dev-runtime-validation-internal'
+import { fail, integerValue } from './dev-runtime-validation-internal'
 import { assertWellFormedUnicode } from './dev-runtime-unicode'
+import { usageDataRecord } from './dev-runtime-usage'
 
 export const FOLLOW_UP_QUEUE_MAX_ITEMS = 16
 export const FOLLOW_UP_TEXT_MAX_BYTES = 16_384
@@ -33,40 +27,27 @@ export type FollowUpQueueEventPayload = Readonly<{
   lastDelivery?: Readonly<{ messageId: string; status: 'accepted' | 'ambiguous' }>
 }>
 
-function dataRecord(value: unknown, path: string) {
-  const item = record(value, path)
-  for (const key of Reflect.ownKeys(item)) {
-    const descriptor = Object.getOwnPropertyDescriptor(item, key)!
-    if (typeof key !== 'string' || !descriptor.enumerable || !('value' in descriptor))
-      fail(path, 'expected data properties')
-  }
-  return item
-}
-
-function identifier(value: unknown, path: string, max = 128): string {
-  const text = stringValue(value, path, 1, max)
-  assertWellFormedUnicode(text, path)
-  if (text.trim() !== text || Array.from(text).some((char) => char.charCodeAt(0) < 32))
-    fail(path, 'invalid identifier')
-  return text
+function validIdentifier(value: unknown, max = 128): value is string {
+  if (typeof value !== 'string') return false
+  assertWellFormedUnicode(value, 'followUps.identifier')
+  return (
+    value.length > 0 &&
+    value.length <= max &&
+    value.trim() === value &&
+    !Array.from(value).some((character) => character.charCodeAt(0) < 32)
+  )
 }
 
 /** Prompt-free queue facts shared by the lean browser wire decoder and host. */
-export function decodeFollowUpQueueEventPayload(value: unknown): FollowUpQueueEventPayload {
-  const item = dataRecord(value, 'followUps')
-  exactKeys(
-    item,
-    ['schemaVersion', 'runtimeSessionId', 'generation', 'version', 'items', 'change'],
-    ['lastDelivery'],
-    'followUps'
-  )
-  if (item.schemaVersion !== 1) fail('followUps.schemaVersion', 'expected 1')
-  identifier(item.runtimeSessionId, 'followUps.runtimeSessionId', 256)
+export function validateFollowUpQueueEventPayload(value: unknown): FollowUpQueueEventPayload {
+  const item = usageDataRecord(value, 'followUps')
   integerValue(item.generation, 'followUps.generation', 0)
   integerValue(item.version, 'followUps.version', 0)
-  literal(
-    item.change,
-    [
+  if (
+    Object.keys(item).length !== ('lastDelivery' in item ? 7 : 6) ||
+    item.schemaVersion !== 1 ||
+    !validIdentifier(item.runtimeSessionId, 256) ||
+    ![
       'enqueue',
       'remove',
       'reorder',
@@ -74,34 +55,45 @@ export function decodeFollowUpQueueEventPayload(value: unknown): FollowUpQueueEv
       'delivery_accepted',
       'delivery_ambiguous',
       'cancelled',
-    ],
-    'followUps.change'
+    ].includes(item.change as string) ||
+    !Array.isArray(item.items) ||
+    item.items.length > FOLLOW_UP_QUEUE_MAX_ITEMS
   )
-  if (!Array.isArray(item.items) || item.items.length > FOLLOW_UP_QUEUE_MAX_ITEMS)
-    fail('followUps.items', 'expected bounded array')
+    fail('followUps', 'invalid queue event')
   const ids = new Set<string>()
   let bytes = 0
   let claimed = 0
   for (const entryValue of item.items) {
-    const entry = dataRecord(entryValue, 'followUps.items[]')
-    exactKeys(entry, ['id', 'bytes', 'state'], [], 'followUps.items[]')
-    const id = identifier(entry.id, 'followUps.items[].id')
-    if (ids.has(id)) fail('followUps.items', 'duplicate id')
-    ids.add(id)
+    const entry = usageDataRecord(entryValue, 'followUps.items[]')
+    const id = entry.id
     integerValue(entry.bytes, 'followUps.items[].bytes', 1, FOLLOW_UP_TEXT_MAX_BYTES)
+    if (
+      Object.keys(entry).length !== 3 ||
+      !validIdentifier(id) ||
+      !['queued', 'dispatching', 'ambiguous'].includes(entry.state as string) ||
+      ids.has(id)
+    )
+      fail('followUps', 'invalid queue item')
+    ids.add(id)
     bytes += entry.bytes as number
-    literal(entry.state, ['queued', 'dispatching', 'ambiguous'], 'followUps.items[].state')
     if (entry.state !== 'queued') claimed += 1
   }
-  if (bytes > FOLLOW_UP_QUEUE_MAX_BYTES || claimed > 1)
-    fail('followUps.items', 'queue bound exceeded')
+  if (bytes > FOLLOW_UP_QUEUE_MAX_BYTES || claimed > 1) fail('followUps', 'invalid queue bounds')
   if (item.lastDelivery !== undefined) {
-    const receipt = dataRecord(item.lastDelivery, 'followUps.lastDelivery')
-    exactKeys(receipt, ['messageId', 'status'], [], 'followUps.lastDelivery')
-    identifier(receipt.messageId, 'followUps.lastDelivery.messageId')
-    literal(receipt.status, ['accepted', 'ambiguous'], 'followUps.lastDelivery.status')
+    const receipt = usageDataRecord(item.lastDelivery, 'followUps.lastDelivery')
+    if (
+      Object.keys(receipt).length !== 2 ||
+      !validIdentifier(receipt.messageId) ||
+      !['accepted', 'ambiguous'].includes(receipt.status as string)
+    )
+      fail('followUps', 'invalid delivery receipt')
   }
-  const payload = structuredClone(value) as FollowUpQueueEventPayload
+  return value as FollowUpQueueEventPayload
+}
+
+/** Strict queue decoder used by host persistence and callers needing detached facts. */
+export function decodeFollowUpQueueEventPayload(value: unknown): FollowUpQueueEventPayload {
+  const payload = structuredClone(validateFollowUpQueueEventPayload(value))
   payload.items.forEach(Object.freeze)
   Object.freeze(payload.items)
   if (payload.lastDelivery) Object.freeze(payload.lastDelivery)

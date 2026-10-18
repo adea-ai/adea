@@ -1378,11 +1378,10 @@ tiny individual requests. Feature components and heavy dependencies retain
 their automatic lazy boundaries. The unchanged Dev byte limit applies to the
 entry and immediately mounted central renderer together; splitting that
 implementation into multiple chunks does not expand its allowance.
-The selected-terminal resolver uses a dynamic import for the canonical reply
-decoder; in the verified web bundle, the initial Dev View entry and layout
-renderer exclude that decoder's runtime-schema dependency. The lazy
-runtime-terminal-pane chunk still imports the same module statically for stream
-decoding.
+The selected-terminal resolver uses the canonical reply decoder from the lazy
+runtime-terminal-pane chunk. The initial Dev View entry and layout renderer do
+not load that chunk or its runtime-schema dependency; the runtime pane keeps the
+decoder in its own lazy boundary alongside stream decoding.
 Utility slots are independent:
 left and right may each show one pane or be collapsed, and a change on one side
 cannot hide the other side. Utility order, side, visibility, size, collapse,
@@ -3500,16 +3499,19 @@ type RuntimeCallData =
 Decoder entry points. `decodeRuntimeEvent` is the complete decoder used by host
 admission, persistence and replay: envelope, generic payload bounds and every
 kind-specific contract (calls, visible summaries, cited responses, and any later
-interaction or attachment contract). `decodeRuntimeEnvelope` is the lean decoder
-for browser stream and transcript consumers: it enforces the authenticated
-envelope, the generic payload bounds and the full-frame bound for versioned call
-claims, but does not interpret a kind's payload. A consumer that renders or acts
-on a payload MUST narrow it with the explicit contract (for example
-`decodeRuntimeCallEvent`) rather than trust the envelope decode. Kind-specific
-validators are reachable only through `eventSemantics` in
-`packages/types/src/dev-runtime-wire.ts`; new contracts register there so the
-shared utility bundle never carries them. `dev-runtime-envelope.test.ts` bundles
-the lean entry and fails if a validator or a size regression reaches it.
+interaction or attachment contract). `decodeRuntimeEnvelope` is the lean generic
+envelope decoder: it enforces the authenticated envelope, generic payload bounds
+and the full-frame bound for versioned call claims, but does not interpret a
+kind's payload. Browser stream and replay consumers use
+`decodeRuntimeBrowserEnvelope`, which adds strict authoritative-host validation
+and frozen decoding for prompt-free `queue.updated` facts. A consumer that
+renders or acts on a payload MUST narrow it with the explicit contract (for
+example `decodeRuntimeCallEvent`) rather than trust the envelope decode.
+Kind-specific validators are reachable only through `eventSemantics` in
+`packages/types/src/dev-runtime-wire.ts`; the browser decoder imports only the
+focused queue contract, and new contracts register there so the shared utility
+bundle never carries them. `dev-runtime-envelope.test.ts` bundles the lean
+entry and fails if a validator or a size regression reaches it.
 
 This change adds no native/ACP subscription or tool/subagent emitter. Existing
 production lifecycle receipts do not become call facts. UI rendering, folding,
@@ -3598,6 +3600,100 @@ Implementation is isolated in
 `packages/types/tests/dev-runtime-response-references.test.ts`; real durable
 append/restart/retention and canonical-CBOR replay tests live in
 `apps/desktop/tests/runtime-response-references-replay.test.ts`.
+
+### Structured questions and correlated outcomes (#1395)
+
+`packages/types/src/dev-runtime-interactions.ts` defines the versioned producer
+contract for the six approval/question kinds. A payload with `schemaVersion: 1`
+MUST pass its kind-specific decoder; unknown keys and versions are refused.
+Legacy text or unversioned objects remain opaque: they establish neither a
+structured question, response eligibility, nor an approved/denied outcome.
+An unversioned payload carrying `eligibility` is refused rather than elevated to
+a host permission fact. This contract does not change Chat presentation or
+introduce an approval/question response operation.
+
+A versioned request carries a nonblank `requestId` from the owning protocol and
+the host's validated `eligibility`. An approval request also carries `prompt`.
+A question request carries 1–32 questions with unique nonblank `id`, `prompt`,
+explicit `required`, and one of:
+
+- `kind: 'text'` for a free-text answer;
+- `kind: 'choice'`, explicit `multiple`, and 1–32 options with unique nonblank
+  `id`, `label`, and optional `description`.
+
+IDs are bounded to 256 characters, prompts to 4,096, option labels to 512, and
+option descriptions to 2,048. Questions may mix required choices and optional
+free text within one request. Option IDs are scoped to their question; question
+IDs are scoped to their request. No display label serves as identity.
+
+Every versioned outcome MUST carry both the protocol `requestId` and the
+canonical `requestEventId` of the exact requested event. Decisions are explicit:
+`approval.resolved` uses `approved | denied`, `question.resolved` uses
+`answered`, and either `expired` kind uses `expired` (never approved or denied).
+`actorId` and UTC `decidedAt` are optional facts from the authenticated owning
+adapter; the host MUST NOT fill them from the viewer, receipt clock, or event
+ordering when the source does not know them. Actor IDs have the same 256-character
+bound. They are observations, not grants of response authority.
+
+A question resolution carries at most 32 uniquely keyed answers. Each names
+`questionId` and exactly one of `text` (1–65,536 characters), `optionIds`
+(1–32 unique IDs), or `skipped: true`. Admission checks these answers against
+the retained request: required questions must be answered, skipped answers are
+allowed only for optional questions, unknown questions/options are refused,
+text/choice forms must match, and a single-choice question accepts exactly one
+option. Omitted optional questions are unanswered. Expiry carries no answers.
+The enclosing event's 256 KiB encoded payload budget also applies.
+
+For example, the payloads for one optional-note question and its known answer
+are:
+
+```ts
+// question.requested (canonical eventId: 'event-1')
+{
+  schemaVersion: 1,
+  requestId: 'provider-request-1',
+  questions: [{ id: 'notes', prompt: 'Any notes?', required: false, kind: 'text' }],
+  eligibility: { eligible: false, reason: 'response_unavailable' },
+}
+// question.resolved; actor/time remain absent when unknown
+{
+  schemaVersion: 1,
+  requestId: 'provider-request-1',
+  requestEventId: 'event-1',
+  decision: 'answered',
+  answers: [{ questionId: 'notes', text: 'Keep the existing defaults.' }],
+}
+```
+
+The host admits versioned interactions only from the trusted adapter append
+path, with authoritative provenance, `workspace_private` classification, and
+a `harnessRunId`. Immediately before persistence/publication it resolves the
+existing canonical session and rechecks account/workspace/runtime-node scope,
+session identity, current generation, current harness run, and archive state.
+New requests require a ready or active session; an already admitted request may
+still receive its observed outcome when that same generation/run completes.
+It requires a retained request in that same binding and from the same adapter
+source; a lower event tier cannot close another source's request. Missing
+retained requests return `resync_required`. Kind/ID/source mismatches are
+`identity_mismatch`; a reused request ID is `idempotency_conflict`. A second
+distinct outcome is `already_completed`. Exact source-event replay stays
+idempotent, including across restart. Refusals persist and publish nothing.
+
+Eligibility is deliberately fail-closed while the M11 response command is
+absent: the only admitted fact is
+`{ eligible: false, reason: 'response_unavailable' }`. `eligible: true`, caller
+authority fields, missing reasons, or a claimed callback cannot create
+permission. Positive eligibility and dispatch require the separately owned
+M11 authorization contract described above: authenticated scope and capability,
+canonical session/generation/run/request binding, current input owner, expiry,
+and single-use/idempotency enforcement revalidated at the side effect. An
+observed resolution from an owning native/ACP/hook adapter does not imply that
+Chat was authorized to submit that response. No PTY response or parallel
+approval authority is introduced by this producer contract.
+
+`packages/types/tests/dev-runtime-interactions.test.ts` pins the schema and
+wire boundary; `apps/desktop/tests/dev-runtime-interactions.test.ts` pins host
+admission, correlation, answer validation, restart/replay, and retention refusal.
 
 ### Explicit user-visible summaries (#1388)
 
@@ -3697,6 +3793,222 @@ durable replay tests are `packages/types/tests/dev-runtime-visible-summaries.tes
 and `apps/desktop/tests/runtime-visible-summaries-replay.test.ts`. The Chat canvas
 consumes these summaries through the shared Reasoning and Chain of Thought
 presentation (see the Chat section above); the contract itself does not.
+
+### Context and token usage observations (#1391)
+
+`usage.observed` has a strict, versioned `RuntimeUsageObservedPayload`. The
+canonical event decoder and the host event log validate it before projection,
+persistence, or subscriber delivery. `RuntimeEvent<'usage.observed'>` gives
+producers the typed payload; other kinds retain their existing opaque payloads.
+The codec and payload type are exported by both `@adea-ai/types/dev-runtime-wire`
+and the complete `@adea-ai/types/dev-runtime` entry.
+
+```ts
+type RuntimeUsageObservedPayload = {
+  schemaVersion: 1
+  model: { providerId: string; modelId: string }
+  generation: number
+  context: { used: number | null; total: number | null }
+  breakdown?: {
+    input?: number
+    output?: number
+    cacheRead?: number
+    cacheWrite?: number
+    reasoning?: number
+  }
+  cost?: { amount: string; currency: string }
+}
+```
+
+- A payload is a reported snapshot for exactly one provider/model and runtime
+  session generation. Both model identifiers are required, 1–256 characters,
+  without controls or surrounding whitespace. They must contain well-formed
+  Unicode: lone surrogate code units are refused before snapshot/admission;
+  valid astral pairs survive UTF-8/CBOR round trips unchanged. If model identity is unknown,
+  the producer MUST NOT emit a usage observation. `generation` is a nonnegative
+  safe integer and MUST equal the enclosing event's generation. Session and
+  optional harness-run identity come from the event envelope.
+- `context.used` is the source-reported **current context occupancy**;
+  `context.total` is that model's source-reported effective context window for
+  this session. Each is independently `null` when unknown. Both keys are
+  required; unknown MUST NOT become zero or a guessed model default. Counts
+  are safe integers: used is nonnegative, total is positive, and used MUST NOT
+  exceed a known total. Reject invalid/overflow values rather than clamp them.
+- `breakdown` contains only known, source-reported cumulative token counts for
+  this model in this generation. Every count is a nonnegative safe integer;
+  omit unknown counters and omit the entire block when none is known.
+  `input` includes cache-read/cache-write tokens; those two counters are
+  disjoint subsets whose sum cannot exceed known input. `reasoning` is a
+  subset of output and cannot exceed known output. A source with different
+  semantics MUST omit counters it cannot faithfully map. Input/output totals
+  can exceed current context occupancy across multiple requests. They MUST NOT
+  be added to derive context usage or a missing total, and cache/reasoning
+  MUST NOT be counted again. Partial breakdowns do not fill missing counters.
+- `cost`, when present, is the source-reported cumulative cost for this model
+  in this generation. `amount` is an exact nonnegative decimal string of at
+  most 64 characters (integer part `0` or no leading zeros, optional decimal
+  point followed by digits; no sign, exponent or whitespace). `currency` is
+  exactly three uppercase ASCII letters supplied by the source. Preserve both
+  verbatim; do not convert to floating point, calculate a rate-card estimate,
+  infer currency, or convert between currencies. Omit the block if unknown.
+- Usage requires `authoritative` confidence from an authenticated source.
+  Terminal fallback cannot emit it. Validation establishes shape and bounds;
+  the authenticated adapter remains responsible for proving the figures and
+  their semantics. Do not relabel estimates as observations.
+- Usage envelopes and nested payload records contain enumerable own data
+  properties only; accessors, hidden serialization hooks and symbols are
+  refused. The usage codec returns a detached, deeply frozen payload, and the
+  event decoder returns a frozen detached usage envelope. The host persists
+  and delivers that same admitted snapshot, so subsequent caller mutation
+  cannot change figures or serialize required keys away. Ordinary JSON values
+  retain their exact meaning. Other event kinds keep their existing behavior.
+- All payload/model/context/breakdown/cost keys are exact; unknown keys,
+  versions, malformed values and generation mismatches fail closed. This is
+  a strict producer-contract change: legacy opaque usage payloads are rejected,
+  rather than translated into fabricated figures. Other event kinds retain
+  their existing envelope and payload rules.
+- Existing schema-version-1 event files are not assumed to satisfy the new
+  usage schema. Before a read, latest-sequence calculation, or append into a
+  generation, validate every retained usage observation in that selected
+  session/generation, even observations before the requested cursor or outside
+  the requested page. An incompatible observation logically quarantines that
+  **whole generation** with typed `recovery_required` (not retryable); no row
+  is dropped, rewritten, resequenced, or replaced with invented usage. Scope-wide
+  event introspection also refuses incompatible retained usage. Healthy
+  sessions and explicitly selected healthy generations remain usable.
+- A stream whose retained generation requires recovery closes `incompatible`
+  with the fixed reason `runtime event history requires recovery` before any
+  replay data, checkpoint/resync frame, completion heartbeat or live
+  subscription. A cursor beyond the incompatible row cannot skip this check.
+  This is a recovery state, not a sequence gap or evidence of complete replay.
+- There is no automatic legacy backfill or migration. Reads preserve the
+  original durable bytes for operator review/export. Recovery requires
+  source-backed compatible records that preserve canonical IDs and sequences,
+  or an explicitly authorized resume/new generation; a new generation does
+  not make the quarantined history readable. Resume preflights the old
+  generation before mutating the run; when quarantined, it records the
+  superseded run's disconnection in the new generation and completes in that
+  command. Repeating the old generation-bound request is stale and cannot
+  create another run. Ordinary status changes refuse before mutating a
+  quarantined generation. Command refusals project the typed error onto the
+  strict wire fields, including the message, on both dispatch lanes.
+  Do not delete a single row or
+  resequence the log to bypass recovery. Normal bounded retention still
+  applies; this contract adds no unbounded quarantine store or hidden copy.
+- Consumers key observations by session, generation and provider/model, use
+  existing event ordering/deduplication, and treat each snapshot as a
+  replacement, never an increment. A newer `null` clears an earlier known
+  figure; do not carry values across models or generations. Draw a context
+  proportion only when both figures are known. No usage producer, provider
+  lookup, model window catalog, pricing table, or Context UI is fabricated by
+  this contract; sources that do not report these facts remain unavailable.
+
+### Structured activity producer contracts (#1394)
+
+`packages/types/src/dev-runtime-activity/` owns the six version-1 payload
+schemas. The focused `@adea-ai/types/dev-runtime-activity` entry exports their
+types, bounds, status vocabularies and shape decoder; the full runtime entry
+re-exports the same implementations. These Adea-specific schemas are not
+supplied by the mapped donor lifecycle/write-gate units; no donor code is
+copied. The wire entry's `decodeRuntimeActivityEvent` validates the envelope,
+schema and producer ownership before returning typed activity facts.
+
+| Kind                | Required observed data                                                 | Optional observed data                                                               |
+| ------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `test_run.observed` | `testRunId`, explicit status                                           | Summary counts/duration, suites, test cases, failures, collection completeness       |
+| `terminal.output`   | Terminal/command IDs, canonical uint64 sequence, phase, status, stream | Exact text, command label, worktree-relative cwd, exit code, observed duration       |
+| `failure.observed`  | Failure ID and message                                                 | Error name, test reference, raw stack and structured frames                          |
+| `files.changed`     | Change-set ID and files with explicit change kinds                     | Rename/copy origin, line-count claims, summary counts, collection completeness       |
+| `plan.observed`     | Plan ID, explicit status and ordered items with IDs/titles/statuses    | Plan title, item descriptions, summary counts, collection completeness               |
+| `task.observed`     | Task ID, title and explicit status                                     | Parent/plan references, description, todos with IDs/titles/statuses, inert HTTPS URL |
+
+Every payload requires `schemaVersion: 1` and rejects unknown keys, versions,
+non-JSON values, duplicate record identities and malformed records. IDs are
+opaque 1–256 character tokens beginning with an ASCII alphanumeric and then
+ASCII alphanumerics, `.`, `_`, `:` or `-`. They grant no authority over a cloud
+task, command, file or source. An absent field remains absent; no decoder
+inserts a count, duration, completion, location, test result or success.
+Every new structured string and map key, including envelope identifiers, MUST
+be well-formed Unicode. Lone UTF-16 surrogates are refused before comparison or
+admission; the CBOR encoder also refuses them instead of substituting U+FFFD.
+Valid surrogate pairs and an explicitly supplied U+FFFD remain unchanged.
+
+Test statuses are `unknown`, `pending`, `running`, `passed`, `failed`,
+`skipped`, `cancelled`. Work statuses are `unknown`, `pending`, `in_progress`,
+`completed`, `failed`, `cancelled`. Parent/summary statuses and counts are
+independent producer claims; they MUST NOT be calculated or reconciled from
+the retained child rows. Missing/partial collections do not establish a total.
+Counts and observed durations are nonnegative safe integers. Test/suite and
+failure references may point outside the retained partial list and do not
+establish that an unlisted row exists or was successful.
+
+Payload JSON has a 64 KiB encoded UTF-8 maximum, depth 12, 4,096 value nodes,
+256 array/object entries per container and 16,384 UTF-16 code units per string.
+The encoder budget includes key escaping and JSON punctuation and is checked
+incrementally before encoding. Narrower bounds are 64 suites, 256 tests,
+64 failures, 64 stack frames, 256 changed files, and 128 plan items or todos.
+Titles/test names are at most 512 code units, descriptions 4,096, error messages
+8,192, source URLs 2,048, and portable relative paths 1,024. The entire
+canonical-CBOR `RuntimeEvent`, including IDs, timestamps, provenance and every
+payload field, MUST also fit the existing 65,536-byte runtime-events data-frame
+grant before admission. Independent field or JSON budgets do not waive this
+aggregate check. An authenticated-hook event additionally fits an 8 KiB JSON
+envelope; its adapter still owns the raw hook-frame bound.
+
+Paths are canonical portable worktree-relative data: no absolute/drive/UNC or
+home paths, traversal/dot/empty segments, backslashes, controls/bidi controls,
+encoded traversal/separators, Git-internal paths, reserved device names or
+ambiguous trailing dot/space. The terminal cwd alone permits `.` as an explicit
+worktree root. Stack locations are either a relative path or an inert public
+HTTPS source URL, never both; a column needs a line and line/column need a
+location. URLs reject credentials, IP/loopback/local addresses, unsafe schemes,
+whitespace/backslashes, malformed escapes and raw/encoded controls. No path or
+URL authorizes navigation, retrieval, execution or filesystem access; a future
+resolver must separately prove scope, classification and network/filesystem
+admission, including DNS and redirects.
+The bidi ban includes U+061C, U+200E, U+200F, U+202A–U+202E and U+2066–U+2069
+in paths and both raw and percent-decoded URL text.
+
+Terminal phases are `started`, `output`, `finished`. Started/output status is
+`unknown` or `running`; finished status is `unknown`, `succeeded`, `failed` or
+`cancelled`. Output requires exact text, including inert markup/ANSI; there is
+no semantic parsing. An exit code may appear only on a finished observation,
+and even zero never implies success. Chunk identity binds session, generation,
+optional harness run, producer source, terminal, command, stream and sequence.
+Identical retained chunks are ignored; conflicting content or classification
+is refused. Missing/evicted chunks or a terminal phase do not synthesize other
+output or success.
+
+New host-log activity appends receive a separate trusted adapter provenance
+argument and explicitly supplied source, confidence and classification; host
+lifecycle defaults do not fill those facts. Known activity requires authoritative native/ACP/owned-hook
+provenance and an exact `ownedActivityKinds` allowlist from that adapter;
+capabilities, process exit, payload fields and host lifecycle receipts cannot
+provide ownership. Validation and aggregate size checks precede persistence,
+retention, sequence consumption and subscription delivery. Published snapshots
+are detached and deeply frozen. A repeated source event with changed run,
+classification, explicit observation time, kind or canonical payload is an
+`idempotency_conflict`; key order and host-assigned IDs/times do not create new
+facts.
+
+Replay candidates still validate all schema, Unicode, provenance, ownership
+and identity/content constraints before duplicate comparison. An identical
+source event or terminal chunk returns only a duplicate result and creates no
+new envelope. It MUST NOT be rejected because a provisional new host sequence
+or receipt would be larger (for example, sequence 9 becoming 10). Changed
+valid claims conflict; malformed claims and missing ownership are refused.
+Every new record then passes the full 65,536-byte CBOR and, when applicable,
+8 KiB hook envelope checks before receiving a publishable event value.
+
+Generic replay continues returning an opaque `RuntimeEvent`: legacy payloads
+without a version remain bounded and readable, and well-formed versioned rows
+can remain plain Trace lines without an ownership allowlist. Versioned claims
+are shape/provenance/size checked, but only the explicit activity decoder and
+host admission establish owned typed facts. Legacy data is never upgraded and
+new legacy appends are refused. No production adapter currently emits these
+six kinds; no runner, terminal parser, UI renderer, queue or reasoning producer
+is added. The integration handoff lists the shared aggregation conflicts in
+[the #1394 evidence note](../evidence/runtime-activity-contract-refs1394.md).
 
 ## Terminal protocol
 
@@ -5799,10 +6111,13 @@ never a process name, terminal idle appearance, or a guessed capability.
 The complete Dev Runtime entry exports the queue types. Strict
 request/snapshot/reply/event-payload decoders are exported from the focused
 `dev-runtime-follow-ups` entry; consumers that validate a queue reply use
-`decodeFollowUpQueueReply`. The general wire decoder checks authoritative-host
-provenance, envelope identity, and the absence of prompt-text fields for
-`queue.updated`. The host event log applies the full queue-event payload
-decoder both before append and while projecting persisted/replayed events.
+`decodeFollowUpQueueReply`. Browser stream and replay use
+`decodeRuntimeBrowserEnvelope` to strictly decode authoritative-host provenance,
+envelope identity, and the complete prompt-free `queue.updated` payload. The
+general wire decoder checks authoritative-host provenance, envelope identity,
+and the absence of prompt-text fields for `queue.updated`. The host event log
+applies the full queue-event payload decoder both before append
+and while projecting persisted/replayed events.
 Returned snapshots and queue-event payloads are detached and frozen so caller
 mutation cannot change the admitted queue facts.
 
@@ -9232,3 +9547,7 @@ A command timeout or AbortSignal only ends the wait for a structured delivery; i
 The sealed queue authenticates an outbox publication witness: prepared, attempted, or delivered. An attempted witness is persisted before append to the separate canonical event log; a delivered witness is persisted before clearing the outbox. A retained exact host queue fact can reconcile an attempted witness without republishing. If an attempted fact has been evicted, recovery refuses `recovery_required` rather than assigning the same queue version a new sequence. A delivered witness can safely clear after complete event eviction without append. Legacy pending outboxes have unknown publication status and require the same retained proof. Authentication covers the witness inside the existing sealed state; no credential/key lifecycle changes are introduced.
 
 Stop captures the original ACP connection ID and generation before its first queue-cleanup await. It closes only that captured binding afterward; a replacement connection becoming ready during cleanup is never selected by the old Stop. The blocked-cleanup registration regression verifies the original connection closes while the replacement remains ready.
+
+Follow-up publication witnesses inspect only retained evidence in the exact runtime session and generation. They search every retained page through a captured upper sequence, preserving full scope/source/kind/classification/payload identity checks. Quarantined usage in another session or an older generation cannot block a healthy queue. Quarantine remains enforced within the selected generation; attempted publication without retained proof still refuses `recovery_required` after eviction.
+
+The contextual utility host and pane command helper share one lazy output chunk. Its explicit nonrecursive grouping preserves eager context, terminal decoder, editor, and startup boundaries under the existing production graph and byte guards. Queue identifier validation and all safe-integer, receipt-count, provenance, and replay checks remain canonical.

@@ -67,7 +67,8 @@ export function admitRuntimeActivityEvent(
   candidate: RuntimeEvent,
   provenance: RuntimeEventProvenance,
   retained: readonly RuntimeEvent[],
-  compareObservedAt = false
+  compareObservedAt = false,
+  enforceNewFrame = true
 ): Readonly<{ duplicate: true }> | Readonly<{ duplicate: false; event: RuntimeActivityEvent }> {
   // A retry creates no frame: validate its facts and ownership first, then
   // compare identities without charging a provisional new host sequence.
@@ -112,7 +113,9 @@ export function admitRuntimeActivityEvent(
     }
   }
   // Every new record must still pass the complete CBOR/hook envelope budget.
-  const event = decodeRuntimeActivityEvent(snapshot, provenance)
+  const event = enforceNewFrame
+    ? decodeRuntimeActivityEvent(snapshot, provenance)
+    : (snapshot as RuntimeActivityEvent)
   const freeze = (value: unknown): void => {
     if (value === null || typeof value !== 'object') return
     for (const entry of Object.values(value)) freeze(entry)
