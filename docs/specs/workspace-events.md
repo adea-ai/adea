@@ -168,6 +168,15 @@ execution's configuration or current compatibility.
   it yet: the retained window is an operator decision (how far back a client may
   resume), and the stream already answers a cursor from before the window with
   `resync_required`.
+- **Disconnect notification.** The Cloudflare Worker explicitly enables
+  `enable_request_signal`. When the runtime reports an incoming abort, the
+  existing route stops delivery and future polls, releases the connection slot,
+  and closes the retained request-scoped database client after in-flight work
+  settles. Native local disconnect detection is write-driven: an idle client may
+  not be noticed until the next heartbeat. No immediate TCP notification or
+  hosted latency bound is promised. A direct-native host regression verifies
+  idle and active disconnects, one original database-connection close, and three
+  settled ten-second windows without SQL; its no-flag control must still poll.
 - **Liveness.** Heartbeats every 15 seconds, `retry: 1000` guidance, bounded
   catch-up reads (a lost wake-up loses no event) every second while the stream is
   active, backing off one second per five empty reads to a five-second ceiling when

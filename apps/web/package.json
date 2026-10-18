@@ -22,12 +22,13 @@
     "start:compare": "node start/compare-hosts.mjs",
     "start:e2e": "playwright test --config start/playwright.config.ts",
     "start:test": "bun test --preload ../../scripts/test-solid-transform.ts test/start-host.test.ts",
-    "start:test:local": "node start/test-local.mjs",
+    "start:test:local": "node start/test-local.mjs && bun run start:test:disconnect",
     "start:verify": "bun run start:test && bun run build && bun run typecheck && bun run start:check-bundle",
     "test": "bun run test:source-contracts:setup && bun test --conditions=browser --preload ../../scripts/test-solid-transform.ts test/*.test.ts start/ui-tailwind-sources.test.ts",
     "test:source-contracts:setup": "bun ../../scripts/setup-source-contract-tests.mjs",
     "typecheck": "bun run cf-typegen && bun check -p tsconfig.json",
-    "upload": "cf previews deploy"
+    "upload": "cf previews deploy",
+    "start:test:disconnect": "node start/test-stream-disconnect.mjs"
   },
   "dependencies": {
     "@adea-ai/api-client": "workspace:*",

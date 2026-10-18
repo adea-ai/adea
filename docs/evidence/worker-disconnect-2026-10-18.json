@@ -1,0 +1,130 @@
+{
+  "date": "2026-10-18",
+  "complete": false,
+  "repairBase": "5371af4fe",
+  "scope": "Repository source opt-in for existing incoming-abort handling; no live configuration change or deployment",
+  "capturedDiagnosticBaseline": {
+    "deploymentCreatedAt": "2026-10-18T12:09:20.307788Z",
+    "version": "5d47969b-876f-49d3-ad88-d23e848dd1f6",
+    "archiveSHA256": "0b37f5c0c152c13a96fbf6c7bff934c6705c1f22230f452ac500484010e59ce0",
+    "notCurrentProductionAssertion": true
+  },
+  "diagnosticRuntime": "Direct workerd1.20261012.1, HTTPS socket, no Wrangler/Miniflare HTTP proxy; Node24.21.0 and isolated local PostgreSQL. Hyperdrive binding uses the same local TCP external-service designator as Miniflare sslmode=disable.",
+  "cases": [
+    {
+      "variant": "native-baseline-idle",
+      "sqlAfter500ms": {
+        "select": 15,
+        "typeCatalog": 0
+      },
+      "postDisconnectTraceCounts": {
+        "poll-begin": 13,
+        "poll-end": 13,
+        "reauthorize-begin": 1,
+        "enqueue": 3,
+        "request-abort": 0,
+        "response-cancel": 0,
+        "producer-finally": 0
+      },
+      "delayAfterDisconnectMs": {
+        "request-abort": null,
+        "producer-finally": null
+      },
+      "sqlStatementsAfterProducerFinally": null,
+      "zeroFinalWindow": false
+    },
+    {
+      "variant": "native-signal-active-then-disconnect",
+      "sqlAfter500ms": {
+        "select": 6,
+        "begin": 1,
+        "set": 1,
+        "commit": 1,
+        "update": 1,
+        "typeCatalog": 0
+      },
+      "postDisconnectTraceCounts": {
+        "poll-begin": 1,
+        "poll-end": 1,
+        "reauthorize-begin": 0,
+        "enqueue": 1,
+        "request-abort": 1,
+        "response-cancel": 0,
+        "producer-finally": 1
+      },
+      "delayAfterDisconnectMs": {
+        "request-abort": 786,
+        "producer-finally": 790
+      },
+      "sqlStatementsAfterProducerFinally": 0,
+      "zeroFinalWindow": true
+    },
+    {
+      "variant": "native-signal-idle",
+      "sqlAfter500ms": {
+        "select": 3,
+        "typeCatalog": 0
+      },
+      "postDisconnectTraceCounts": {
+        "poll-begin": 3,
+        "poll-end": 3,
+        "reauthorize-begin": 0,
+        "enqueue": 1,
+        "request-abort": 1,
+        "response-cancel": 0,
+        "producer-finally": 1
+      },
+      "delayAfterDisconnectMs": {
+        "request-abort": 7003,
+        "producer-finally": 7004
+      },
+      "sqlStatementsAfterProducerFinally": 0,
+      "zeroFinalWindow": true
+    }
+  ],
+  "proxyComparison": {
+    "wranglerIdleAbortAfterDisconnectMs": [22019, 22017],
+    "nativeIdleAbortAfterDisconnectMs": 7003,
+    "nativeActiveAbortAfterDisconnectMs": 786,
+    "nativeIdleProducerFinallyAfterDisconnectMs": 7004,
+    "nativeActiveProducerFinallyAfterDisconnectMs": 790,
+    "interpretation": "The approximately22-second delay is not a fixed application timer: native idle abort follows the next heartbeat write (~7seconds after closing8seconds into a15second heartbeat period), while native active delivery detects it at the next event write. Wrangler adds another heartbeat interval in these bounded observations. This supports transport/write-driven detection; it does not establish hosted timing or a universal upper bound."
+  },
+  "sourceChange": {
+    "productionFlags": "enable_request_signal added",
+    "localFlags": "same opt-in",
+    "routeChanges": false,
+    "authorityChanges": false,
+    "cleanupOrderingChanges": false
+  },
+  "retainedRegression": {
+    "command": "bun run --cwd apps/web start:test:disconnect",
+    "artifact": "Current built Worker, with a test-only entry abort observer; no production source instrumentation",
+    "runtime": "workerd resolved through locked Wrangler/Miniflare dependency",
+    "assertions": [
+      "No-flag control continues SQL after socket closure",
+      "Configured idle and active streams deliver incoming abort",
+      "Original stream backend connection closes once after abort",
+      "Three ten-second settled windows each have zero SQL"
+    ],
+    "validation": "pending current source qualification"
+  },
+  "limits": "Hosted edge abort timing and billing effects remain unmeasured. Small local samples do not establish a universal timing bound. Native worker flags permit cancellation notification but not immediate detection before a response write. No PlanetScale migration, Neon changes or production operation is included.",
+  "safety": {
+    "productionInvocations": 0,
+    "productionDeployments": 0,
+    "liveSettingsChanged": false,
+    "credentialsChanged": false,
+    "paidResourcesCreated": 0,
+    "repositoryChangesOnly": true
+  },
+  "remaining": [
+    "Required current source checks and native regression qualification",
+    "Hosted readiness/review and separate owner-approved rollout",
+    "Passive production CPU, Hyperdrive and Neon cost verification",
+    "Real-browser hidden/resume behavior"
+  ],
+  "references": [
+    "https://developers.cloudflare.com/workers/configuration/compatibility-flags/#enable-requestsignal-for-incoming-requests"
+  ]
+}
