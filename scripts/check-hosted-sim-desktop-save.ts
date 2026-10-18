@@ -202,9 +202,20 @@ try {
   expect(assetReads).toBe(0)
   await page.goto(`${origin}/?view=virtual&characterDesigner=1`)
   const frame = () => page.frameLocator('iframe')
+  const readyScene = async (surface: 'hq' | 'character-designer' | 'room-designer') => {
+    await expect(frame().locator('canvas').first()).toBeVisible({ timeout: 60_000 })
+    if (surface === 'character-designer')
+      await expect(frame().locator('.character-designer-room')).toHaveAttribute(
+        'aria-busy',
+        'false',
+        { timeout: 60_000 }
+      )
+    else await expect(frame().locator('[data-scene-loading]')).toHaveCount(0, { timeout: 60_000 })
+  }
   await expect(
     frame().getByRole('button', { name: 'Close character designer', exact: true })
   ).toBeVisible({ timeout: 60_000 })
+  await readyScene('character-designer')
   await frame().getByRole('button', { name: 'Hair', exact: true }).click()
   const hair = frame()
     .locator('[data-slot="toggle-group"][aria-label="Hair"]')
@@ -244,16 +255,19 @@ try {
   expect(saved).toMatch(/^character:v1:/)
   expect(saved).not.toBe(earlier)
   await page.locator('iframe[data-agent-sim-active="true"]').waitFor({ timeout: 60_000 })
+  await readyScene('hq')
   await frame().getByRole('button', { name: 'Character', exact: true }).click()
   await expect(page).toHaveURL(/characterDesigner=1/)
   console.log('phase: reopened from HQ control')
   await expect(
     frame().getByRole('button', { name: 'Close character designer', exact: true })
   ).toBeVisible({ timeout: 60_000 })
+  await readyScene('character-designer')
   await page.reload()
   await expect(
     frame().getByRole('button', { name: 'Close character designer', exact: true })
   ).toBeVisible({ timeout: 60_000 })
+  await readyScene('character-designer')
   expect(new URL(page.url()).searchParams.get('character')).toBe(saved)
   for (const child of page.frames()) {
     if (child === page.mainFrame()) continue
@@ -268,17 +282,22 @@ try {
   expect(launches.at(-1)?.character).toBe(saved)
   await frame().getByRole('button', { name: 'Close character designer', exact: true }).click()
   await expect(page).not.toHaveURL(/characterDesigner=1/)
+  await readyScene('hq')
   await frame().getByRole('button', { name: 'Room designer', exact: true }).click()
   await expect(page).toHaveURL(/roomDesigner=1/)
   await expect(
     frame().getByRole('button', { name: 'Close room designer', exact: true })
   ).toBeVisible({ timeout: 60_000 })
+  await readyScene('room-designer')
   await frame().getByRole('button', { name: 'Close room designer', exact: true }).click()
   await expect(page).not.toHaveURL(/roomDesigner=1/)
+  await readyScene('hq')
   await expect(frame().getByRole('button', { name: 'Character', exact: true })).toBeVisible({
     timeout: 60_000,
   })
   expect(new URL(page.url()).searchParams.get('character')).toBe(saved)
+  if (process.env.ADEA_SIM_SCREENSHOT)
+    await page.screenshot({ path: process.env.ADEA_SIM_SCREENSHOT })
   console.log(
     JSON.stringify({
       evidence:
