@@ -18,10 +18,14 @@ import type { Plugin } from 'vite'
 const SERVER_RENDERED_UI =
   /\/components\/(?:appearance-host|ui\/(?:alert|button|field|input|label|text-link|toggle|toggle-group|typography)\/)/
 
+/** The pages the server renders and the client adopts; they keep the hydratable compile. */
+const SERVER_RENDERED_PAGE = /\/(?:sign-in-form|accept-invitation|desktop-auth-complete)\.tsx$/
+
 export function isClientOnlySolidSource(id: string): boolean {
   const path = id.replaceAll('\\', '/').replace(/\?.*$/, '')
   if (!path.endsWith('.tsx')) return false
-  if (/\/packages\/dev-view\/src\//.test(path)) return true
+  if (/\/apps\/web\/src\/components\//.test(path)) return !SERVER_RENDERED_PAGE.test(path)
+  if (/\/packages\/(?:dev-view|workspace-ui|workspace-nav)\/src\//.test(path)) return true
   return (
     /\/node_modules\/@adea-ai\/ui\/src\/components\//.test(path) && !SERVER_RENDERED_UI.test(path)
   )

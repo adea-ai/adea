@@ -70,6 +70,11 @@ const LeadModelPane = lazy(() =>
  */
 export function WorkspaceDetailsDialog(props: {
   /**
+   * The signed-in principal's stable id from the host's own session. The self-hosted section
+   * renders hosts only for a known account; absent, it says a signed-in account is needed.
+   */
+  accountPrincipalId?: () => string | null | undefined
+  /**
    * The Adea API client for Control Plane-backed sections (Skills, cloud
    * connections). Falls back to `services.client`; without either those
    * sections render their unavailable state.
@@ -331,6 +336,7 @@ export function WorkspaceDetailsDialog(props: {
                   </Suspense>
                   <Suspense fallback={<p role="status">Loading self-hosted hosts…</p>}>
                     <SelfHostedConnectionsSection
+                      accountId={props.accountPrincipalId}
                       client={apiClient()}
                       workspaceId={props.workspace.id}
                     />

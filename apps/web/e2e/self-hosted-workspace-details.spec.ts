@@ -4,7 +4,7 @@ import { resolve } from 'node:path'
 // Synthetic only: the hosts are in-page records and no request leaves the page. This mounts the
 // self-hosted pane the way the product does, inside the real Workspace Details dialog (#188). The
 // pane's own behavior is pinned in self-hosted-connection.spec.ts.
-async function open(page: Page, bootstrap: 'account' | 'failure' | 'temporary' = 'account') {
+async function open(page: Page, flags: string[] = []) {
   const errors: Error[] = []
   page.on('pageerror', (error) => errors.push(error))
   await page.route('**/__self-hosted-details', (route) =>
@@ -14,9 +14,9 @@ async function open(page: Page, bootstrap: 'account' | 'failure' | 'temporary' =
     })
   )
   await page.goto('/__self-hosted-details#workspace-settings/connections')
-  await page.locator('#harness-root').evaluate((root, mode) => {
-    root.setAttribute('data-bootstrap', mode)
-  }, bootstrap)
+  await page.locator('#harness-root').evaluate((root, names) => {
+    for (const name of names) root.setAttribute(name, '')
+  }, flags)
   await page.evaluate(
     async (url) => {
       await import(url)
@@ -51,12 +51,12 @@ test('Connections lists the account’s self-hosted hosts, none called healthy b
   await expect(hosts(page).filter({ hasText: 'Retired VPS' })).toContainText('Revoked')
   // The local device is not a self-hosted host.
   await expect(hosts(page).filter({ hasText: 'Laptop' })).toHaveCount(0)
-  // The account came from the shared bootstrap read, then the host list read for this workspace.
   const requests = (await run(page, '(s) => s.state.requests')) as {
     method: string
     path: string
   }[]
-  expect(requests).toContainEqual({ method: 'POST', path: '/api/workspaces/bootstrap' })
+  // The account is the host's session principal: the section makes no bootstrap read of its own.
+  expect(requests.filter(({ path }) => path.endsWith('/workspaces/bootstrap'))).toEqual([])
   expect(requests).toContainEqual({ method: 'GET', path: '/api/v1/workspaces/ws-1/runtime-nodes' })
   expect(errors).toEqual([])
 })
@@ -144,19 +144,35 @@ test('a host revoked elsewhere is shown revoked after a refresh, and a new one a
   expect(errors).toEqual([])
 })
 
-test('an account that cannot be confirmed renders no host list and says why', async ({ page }) => {
-  const errors = await open(page, 'failure')
-  await expect(
-    page.getByText('Self-hosted hosts are unavailable: your account could not be confirmed.')
-  ).toBeVisible()
+test('a guest has no account to attach hosts to, and signing in on the same cache shows them', async ({
+  page,
+}) => {
+  const errors = await open(page, ['data-guest'])
+  await expect(page.getByText('Self-hosted hosts need a signed-in account.')).toBeVisible()
   await expect(hosts(page)).toHaveCount(0)
-  expect(await text(page)).not.toContain('sensitive-error-canary')
+  await run(page, `(s) => s.setAccount('user-a')`)
+  await expect(hosts(page)).toHaveCount(4)
+  await expect(page.getByText('Self-hosted hosts need a signed-in account.')).toHaveCount(0)
+  // Signing out leaves nothing of the account on screen.
+  await run(page, `(s) => s.setAccount(null)`)
+  await expect(page.getByText('Self-hosted hosts need a signed-in account.')).toBeVisible()
+  await expect(hosts(page)).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
-test('a temporary session has no account to attach hosts to', async ({ page }) => {
-  const errors = await open(page, 'temporary')
-  await expect(page.getByText('Self-hosted hosts need a signed-in account.')).toBeVisible()
+test('a stale bootstrap answer for the previous account cannot change the section’s account', async ({
+  page,
+}) => {
+  const errors = await open(page)
+  await expect(hosts(page)).toHaveCount(4)
+  // The shell's shared bootstrap read for user-a is still in flight when the account changes.
+  await run(page, `(s) => { s.state.holdBootstrap = true; s.startBootstrap() }`)
+  await run(page, `(s) => s.setAccount('user-b')`)
+  await expect(page.getByText('No self-hosted host is registered in this workspace.')).toBeVisible()
+  await run(page, `(s) => s.releaseBootstrap()`)
+  // The old answer lands in the shared cache, and the section does not follow it.
+  await expect.poll(() => run(page, `(s) => s.cachedPrincipal()`)).toBe('user-a')
   await expect(hosts(page)).toHaveCount(0)
+  expect(await text(page)).not.toContain('Home server')
   expect(errors).toEqual([])
 })

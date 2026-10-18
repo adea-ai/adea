@@ -1,8 +1,9 @@
 import '../../src/start/globals.css'
 import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
+import { workspaceQueryOptions } from '@adea-ai/data'
 import { QueryClient, QueryClientProvider } from '@tanstack/solid-query'
 import { WorkspaceDetailsDialog } from '@adea-ai/workspace-ui/workspace-details-dialog'
-import { createMemo, createSignal } from 'solid-js'
+import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import type { WorkspaceSummary } from '@adea-ai/types'
 
@@ -11,6 +12,8 @@ import {
   createFakeState,
   host,
   key,
+  releaseBootstrap,
+  releaseList,
   seedHosts,
   type FakeFailure,
   type FakeHost,
@@ -19,11 +22,11 @@ import {
 
 /**
  * Mounts the real Workspace Details dialog, on its Connections section, over an in-page fake of the
- * runtime-node and bootstrap routes. The self-hosted section is mounted exactly as the product
- * mounts it: the dialog hands it the client and workspace id, and the account comes from the shared
- * bootstrap read. `window.selfHostedDetailsHarness` changes the signed-in account (a new client and
- * a cleared cache, as a new session gets), the workspace, the bootstrap answer, or queues failures.
- * Nothing here is a real endpoint or credential.
+ * runtime-node and bootstrap routes. The dialog gets its account the way the shell hands it one: an
+ * accessor over the session principal. One QueryClient lives for the whole page, as the app-level
+ * provider does, so nothing is cleared between accounts. `window.selfHostedDetailsHarness` changes
+ * the account (a new client, no cache reset), the workspace, or queues failures. Nothing here is a
+ * real endpoint or credential.
  */
 declare global {
   interface Window {
@@ -31,20 +34,30 @@ declare global {
       state: FakeState
       register: (partial: Partial<FakeHost> & Pick<FakeHost, 'id' | 'displayName'>) => void
       revokeExternally: (hostId: string) => void
-      setAccount: (account: string) => void
+      /** Signs in as an account with a new client; null is a guest (no account). */
+      setAccount: (account: string | null) => void
       setWorkspace: (workspace: string) => void
-      setBootstrap: (mode: FakeState['bootstrap']) => void
       queueListFailure: (failure: FakeFailure) => void
+      releaseList: () => void
+      /** Starts the shared bootstrap read the shell makes, for the current client. */
+      startBootstrap: () => void
+      releaseBootstrap: () => void
+      /** The principal the shared bootstrap cache holds, if any. */
+      cachedPrincipal: () => string | undefined
     }
   }
 }
 
 const root = document.querySelector('#harness-root')!
 const state = createFakeState(seedHosts())
-state.bootstrap =
-  (root.getAttribute('data-bootstrap') as FakeState['bootstrap'] | null) ?? 'account'
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+})
+const bootstrapKey = workspaceQueryOptions.bootstrap(createFakeClient(state)).queryKey
 
-const [account, setAccount] = createSignal(state.account)
+const guest = root.hasAttribute('data-guest')
+const [principal, setPrincipal] = createSignal<string | null>(guest ? null : state.account)
+const [client, setClient] = createSignal(createFakeClient(state))
 const [workspaceId, setWorkspaceId] = createSignal(state.workspace)
 
 window.selfHostedDetailsHarness = {
@@ -57,17 +70,23 @@ window.selfHostedDetailsHarness = {
     if (item) item.pairingState = 'revoked'
   },
   setAccount: (next) => {
-    state.account = next
-    setAccount(next)
+    if (next) state.account = next
+    setClient(createFakeClient(state))
+    setPrincipal(next)
   },
   setWorkspace: (next) => {
     state.workspace = next
     setWorkspaceId(next)
   },
-  setBootstrap: (mode) => {
-    state.bootstrap = mode
-  },
   queueListFailure: (failure) => state.listFailures.push(failure),
+  releaseList,
+  startBootstrap: () => {
+    void queryClient.fetchQuery(workspaceQueryOptions.bootstrap(client()))
+  },
+  releaseBootstrap,
+  cachedPrincipal: () =>
+    (queryClient.getQueryData(bootstrapKey) as { principal?: { userId?: string } } | undefined)
+      ?.principal?.userId,
 }
 
 const workspaceFor = (id: string) =>
@@ -83,33 +102,18 @@ const workspaceFor = (id: string) =>
     updatedAt: '2026-10-02T00:00:00.000Z',
   }) as unknown as WorkspaceSummary
 
-function Harness() {
-  // A new account is a new session: a new client and an empty cache, as signing out and in gives.
-  const session = createMemo(() => {
-    account()
-    return {
-      client: createFakeClient(state),
-      queryClient: new QueryClient({
-        defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
-      }),
-    }
-  })
-  return (
-    <QueryClientProvider client={session().queryClient}>
-      <WorkspaceDetailsDialog
-        open
-        client={session().client}
-        onClose={() => undefined}
-        workspace={workspaceFor(workspaceId())}
-      />
-    </QueryClientProvider>
-  )
-}
-
 render(
   () => (
     <ThemeProvider>
-      <Harness />
+      <QueryClientProvider client={queryClient}>
+        <WorkspaceDetailsDialog
+          accountPrincipalId={principal}
+          open
+          client={client()}
+          onClose={() => undefined}
+          workspace={workspaceFor(workspaceId())}
+        />
+      </QueryClientProvider>
     </ThemeProvider>
   ),
   root
