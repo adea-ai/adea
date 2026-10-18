@@ -1308,6 +1308,12 @@
         "direction": "read"
       }
     },
+    "dev.session.followUps": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "FollowUpQueueRequest",
+      "reply": "FollowUpQueueSnapshot"
+    },
     "dev.session.get": {
       "capabilities": ["dev.session.read"],
       "resource": "runtime_session:required",
