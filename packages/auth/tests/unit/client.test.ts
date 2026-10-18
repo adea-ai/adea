@@ -86,6 +86,51 @@ describe('Better Auth browser client adapter', () => {
     expect(result.profile.email).toBe(user.email)
   })
 
+  test('session reads, refresh, revocation and sign-out use the browser client', async () => {
+    const sessionQueries: unknown[] = []
+    let revokedToken: string | undefined
+    let signedOut = false
+    const client = fakeClient({
+      getSession: async (options) => {
+        sessionQueries.push(options)
+        return { data: { session, user }, error: null }
+      },
+      listSessions: async () => ({
+        data: [{ id: session.id, token: session.token }],
+        error: null,
+      }),
+      revokeSession: async ({ token }) => {
+        revokedToken = token
+        return { data: { status: true }, error: null }
+      },
+      signOut: async () => {
+        signedOut = true
+        return { data: { success: true }, error: null }
+      },
+    })
+    const adapter = createNeonClientAdapter(client)
+
+    expect((await adapter.getSession())?.session.id).toBe(session.id)
+    expect((await adapter.refreshSession())?.session.id).toBe(session.id)
+    await adapter.revokeSession(session.id)
+    await adapter.signOut()
+
+    expect(sessionQueries).toEqual([undefined, { query: { disableCookieCache: true } }])
+    expect(revokedToken).toBe(session.token)
+    expect(signedOut).toBe(true)
+  })
+
+  test('a successful credential call with no established session is refused', async () => {
+    const client = fakeClient({ getSession: async () => ({ data: null, error: null }) })
+    const failure = await capture(
+      createNeonClientAdapter(client).signIn({
+        email: user.email,
+        password: 'test password long enough',
+      })
+    )
+    expect(failure).toMatchObject({ code: AUTH_ERROR_CODES.sessionNotFound })
+  })
+
   test('verification-pending signup does not adopt a pre-existing account session', async () => {
     // With requireEmailVerification, `signUp.email` returns `{ token: null,
     // user }` and establishes no session. The browser still holds another
