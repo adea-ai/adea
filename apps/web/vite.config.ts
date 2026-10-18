@@ -205,6 +205,22 @@ export default defineConfig(({ command }) => ({
                   includeDependenciesRecursively: false,
                   minShareCount: 2,
                 },
+                // Small dialog and form controls that only lazy surfaces load, often
+                // together. As ten requests each compresses alone; one chunk shares the
+                // Solid template and prop boilerplate they repeat.
+                {
+                  name: 'lazy-ui-controls',
+                  test: /@adea-ai\/ui\/src\/components\/ui\/(dialog|modal-dialog|sheet|tabs|switch|toggle-group|native-select|item|avatar|field)\/\1.tsx$/,
+                  includeDependenciesRecursively: false,
+                },
+                // The Connections section loads its device, host and model panes
+                // together; one chunk replaces five requests that each carry their
+                // own import and preload boilerplate.
+                {
+                  name: 'connections-section',
+                  test: /packages\/workspace-ui\/src\/(connections-pane|connections-model|runtime-nodes-pane|runtime-inventory-model|lead-model-pane|self-hosted-[a-z-]+|control-plane-hosts)\.tsx?$/,
+                  includeDependenciesRecursively: false,
+                },
                 // Keep the lean browser envelope/CBOR helpers together. The public
                 // wire facade also re-exports complete admission; leave that
                 // facade outside this group so its cold dependencies stay lazy.

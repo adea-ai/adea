@@ -433,6 +433,7 @@ function WorkspaceSettingsOverlay(props: {
  * save through the versioned workspace mutation.
  */
 function WorkspaceDetailsOverlay(props: {
+  accountPrincipalId?: () => string | null | undefined
   client: AgentHqApiClient
   onClose: () => void
   /** Opens a workspace the dialog just restored; false leaves the dialog open to try again. */
@@ -446,6 +447,7 @@ function WorkspaceDetailsOverlay(props: {
   const updateWorkspace = useUpdateWorkspaceMutation(props.client)
   return (
     <WorkspaceDetailsDialog
+      accountPrincipalId={props.accountPrincipalId}
       workspaceOrder={props.workspaceOrder}
       onReorderWorkspaces={async (workspaceIds) => {
         await reorderWorkspaces.mutateAsync(workspaceIds)
@@ -1840,6 +1842,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       </Show>
       <Show when={props.activeWorkspace && workspaceSettingsOpen()}>
         <WorkspaceDetailsOverlay
+          accountPrincipalId={() =>
+            props.account.authenticated ? props.accountPrincipalId?.() : null
+          }
           workspaceOrder={orderedWorkspaces()}
           client={props.client}
           onClose={() => {

@@ -305,6 +305,12 @@ export type WorkspacePlatformServices = Readonly<{
     authenticated?: boolean
     busy?: boolean
     label?: string
+    /**
+     * The host's own id for the signed-in account, from its session rather than from a cache that
+     * can outlive it. Account-scoped surfaces that attach data to the account (the self-hosted
+     * hosts) show nothing until a host supplies it.
+     */
+    principalId?: () => string | null | undefined
     onSignIn(): void
     onSignOut(): void | Promise<void>
   }>

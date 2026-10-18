@@ -12,6 +12,19 @@ describe('isClientOnlySolidSource', () => {
     )
   })
 
+  test('the workspace route’s own components compile for the browser only', () => {
+    expect(isClientOnlySolidSource('/repo/packages/workspace-ui/src/shell.tsx')).toBe(true)
+    expect(isClientOnlySolidSource('/repo/packages/workspace-nav/src/nav.tsx')).toBe(true)
+    expect(isClientOnlySolidSource('/repo/apps/web/src/components/workspace-navigation.tsx')).toBe(
+      true
+    )
+  })
+
+  test('the pages the server renders and the client adopts stay hydratable', () => {
+    for (const name of ['sign-in-form', 'accept-invitation', 'desktop-auth-complete'])
+      expect(isClientOnlySolidSource(`/repo/apps/web/src/components/${name}.tsx`)).toBe(false)
+  })
+
   test('shared UI the server-rendered pages import stays hydratable', () => {
     for (const name of ['button', 'input', 'label', 'alert', 'typography', 'text-link']) {
       expect(
@@ -38,7 +51,7 @@ describe('isClientOnlySolidSource', () => {
 
   test('application routes, other packages and non-component files are untouched', () => {
     expect(isClientOnlySolidSource('/repo/apps/web/src/start/routes/auth/sign-in.tsx')).toBe(false)
-    expect(isClientOnlySolidSource('/repo/packages/workspace-ui/src/shell.tsx')).toBe(false)
+    expect(isClientOnlySolidSource('/repo/packages/workspace-ui/src/shell.ts')).toBe(false)
     expect(isClientOnlySolidSource('/repo/packages/dev-view/src/history/turns-model.ts')).toBe(
       false
     )

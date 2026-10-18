@@ -54,6 +54,8 @@ export type FakeState = {
   revokeIgnored: boolean
   /** Hold the next revoke until `release()` is called. */
   holdRevoke: boolean
+  /** Hold the next account bootstrap read until `releaseBootstrap()` is called. */
+  holdBootstrap: boolean
   requests: { method: string; path: string }[]
 }
 
@@ -113,6 +115,7 @@ export function createFakeState(hosts: FakeHost[]): FakeState {
     pairingLifetimeMs: 10 * MINUTE,
     revokeIgnored: false,
     holdRevoke: false,
+    holdBootstrap: false,
     requests: [],
   }
 }
@@ -225,6 +228,22 @@ export function createFakeFetch(state: FakeState): typeof fetch {
     const method = init?.method ?? 'GET'
     state.requests.push({ method, path: url.pathname })
     const hosts = state.hosts[key(state)] ?? []
+    if (method === 'POST' && url.pathname === '/api/workspaces/bootstrap') {
+      // The answer belongs to the account that asked, whatever the page shows when it lands.
+      const asked = state.account
+      if (state.holdBootstrap) {
+        state.holdBootstrap = false
+        await new Promise<void>((resolve) => {
+          releaseBootstrapHeld = resolve
+        })
+      }
+      return respond({
+        activeWorkspace: null,
+        principal: { displayName: asked, temporary: false, userId: asked },
+        sessionRotated: false,
+        workspaces: [],
+      })
+    }
     const match =
       /^\/api\/v1\/workspaces\/([^/]+)\/runtime-nodes(?:\/([^/]+)\/connections)?$/u.exec(
         url.pathname
@@ -280,6 +299,12 @@ export function createFakeFetch(state: FakeState): typeof fetch {
 
 export function createFakeClient(state: FakeState): AgentHqApiClient {
   return createApiClient({ fetchImpl: createFakeFetch(state) })
+}
+
+let releaseBootstrapHeld: (() => void) | undefined
+export function releaseBootstrap(): void {
+  releaseBootstrapHeld?.()
+  releaseBootstrapHeld = undefined
 }
 
 let releaseListHeld: (() => void) | undefined

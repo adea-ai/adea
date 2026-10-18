@@ -7,21 +7,19 @@
 import type { ApiRuntimeNode } from '@adea-ai/api-client'
 import { SettingsRow, SettingsSection } from '@adea-ai/ui/components/composites/settings'
 import { Alert, AlertDescription, AlertTitle } from '@adea-ai/ui/components/ui/alert'
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@adea-ai/ui/components/ui/alert-dialog'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
-import { Input } from '@adea-ai/ui/components/ui/input'
-import { Label } from '@adea-ai/ui/components/ui/label'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  onCleanup,
+  Show,
+  type Component,
+} from 'solid-js'
+import { Dynamic } from 'solid-js/web'
 
 import { keyedRows } from './keyed-rows'
 import {
@@ -31,12 +29,8 @@ import {
   historyAuthority,
   hostHeadline,
   hostIdentityLabel,
-  hostNameProblem,
   hostSelectability,
   remediationSteps,
-  revocationOutcome,
-  revokeReasonProblem,
-  REVOCATION_EFFECTS,
   sameScope,
   type AuthorityPanel,
   type DiscoveryRead,
@@ -45,7 +39,9 @@ import {
   type PairingGrant,
   type PairingScope,
 } from './self-hosted-connection-model'
-import { SelfHostedSetupGuide } from './self-hosted-setup-guide'
+import type { HostActionsProps } from './self-hosted-host-actions'
+import { PairingUnavailable, SelfHostedSetupGuideShell } from './self-hosted-setup-guide-shell'
+import type { SetupGuideProps } from './self-hosted-setup-guide'
 
 /** Effects. An undefined operation is not connected, and its control says so. */
 export type SelfHostedOperations = Readonly<{
@@ -84,9 +80,19 @@ export type SelfHostedPanelProps = Readonly<{
   /** Undefined means choosing a host is not connected in this build. */
   onChooseHost?: (hostId: string | undefined) => void
   requiredCapabilities?: readonly string[]
+  /**
+   * The code behind the operations. Without a slot the panel renders the same controls disabled,
+   * each with the reason it is unavailable, and carries none of the code that would run them.
+   */
+  slots?: PanelSlots
 }>
 
-type Notice = Readonly<{
+export type PanelSlots = Readonly<{
+  HostActions?: Component<HostActionsProps>
+  SetupGuide?: Component<SetupGuideProps>
+}>
+
+export type Notice = Readonly<{
   tone: 'danger' | 'success' | 'warning'
   title: string
   text: string
@@ -141,6 +147,11 @@ export function SelfHostedConnectionPanel(props: SelfHostedPanelProps) {
       if (!sameScope(scope, props.scope)) return
       showFailure(classifyFailure(error, 'read'), () => void refresh())
     }
+  }
+
+  const closeSetup = () => {
+    setSetup(undefined)
+    queueMicrotask(() => addButton?.focus())
   }
 
   const showFailure = (failure: FailureGuidance, retry?: () => void) =>
@@ -220,18 +231,30 @@ export function SelfHostedConnectionPanel(props: SelfHostedPanelProps) {
         />
       </SettingsSection>
       <Show when={setup()}>
-        <SelfHostedSetupGuide
-          scope={props.scope}
-          now={props.now}
-          hostIds={nodes().map((node) => node.id)}
-          openPairing={props.operations.openPairing}
-          onRefreshHosts={refresh}
-          reregistering={setup() === 'again'}
-          onClose={() => {
-            setSetup(undefined)
-            queueMicrotask(() => addButton?.focus())
-          }}
-        />
+        <Show
+          when={props.slots?.SetupGuide}
+          fallback={
+            <SelfHostedSetupGuideShell
+              reregistering={setup() === 'again'}
+              onRefreshHosts={refresh}
+              onClose={closeSetup}
+              step2={<PairingUnavailable />}
+            />
+          }
+        >
+          {(SetupGuide) => (
+            <Dynamic
+              component={SetupGuide()}
+              scope={props.scope}
+              now={props.now}
+              hostIds={nodes().map((node) => node.id)}
+              openPairing={props.operations.openPairing}
+              onRefreshHosts={refresh}
+              reregistering={setup() === 'again'}
+              onClose={closeSetup}
+            />
+          )}
+        </Show>
       </Show>
       {/* Keyed by id, not by the node object: a refresh replaces the object but must not remount. */}
       <Show when={inspected()?.id} keyed>
@@ -267,40 +290,17 @@ export function SelfHostedConnectionPanel(props: SelfHostedPanelProps) {
                   }}
                   operations={props.operations}
                   guarded={guarded}
-                  onRename={async (name) => {
-                    await props.operations.renameHost!(hostId, name)
-                    await props.onRefreshHosts()
-                    setNotice({
-                      tone: 'success',
-                      title: 'Host renamed',
-                      text: `Now shown as ${name}.`,
-                    })
-                  }}
-                  onRevoke={async (reason) => {
-                    await props.operations.revokeHost!(hostId, reason)
-                    setUnconfirmed([...new Set([...unconfirmed(), hostId])])
-                    // The list read decides what is true. Accepting the request is not the same.
-                    await props.onRefreshHosts()
-                    const after = nodes().find((item) => item.id === hostId)
-                    const outcome = revocationOutcome(true, after, true)
-                    if (outcome === 'confirmed') {
-                      setUnconfirmed(unconfirmed().filter((id) => id !== hostId))
-                      setNotice({
-                        tone: 'success',
-                        title: `Execution revoked for ${node().displayName}`,
-                        text: 'Adea will send it no new commands. Nothing on the host was deleted and synchronized history access is unchanged.',
-                      })
-                    } else {
-                      setNotice({
-                        tone: 'warning',
-                        title: 'Revocation not confirmed yet',
-                        text:
-                          outcome === 'host_missing'
-                            ? 'Adea accepted the request, but the host is no longer in the list. Refresh to see the current state.'
-                            : 'Adea accepted the request, but the latest read still shows this host as registered. Refresh before relying on it either way.',
-                      })
-                    }
-                  }}
+                  refreshHosts={props.onRefreshHosts}
+                  currentHost={(id) => nodes().find((item) => item.id === id)}
+                  notify={setNotice}
+                  markUnconfirmed={(id, on) =>
+                    setUnconfirmed(
+                      on
+                        ? [...new Set([...unconfirmed(), id])]
+                        : unconfirmed().filter((item) => item !== id)
+                    )
+                  }
+                  HostActions={props.slots?.HostActions}
                   onFailure={(failure, retry) => {
                     showFailure(failure, retry)
                     if (failure.retry === 'refresh') void props.onRefreshHosts()
@@ -457,27 +457,16 @@ function HostDetail(props: {
   onChoose: ((hostId: string | undefined) => void) | undefined
   onFailure: (failure: FailureGuidance, retry?: () => void) => void
   onRegisterAgain: () => void
-  onRename: (name: string) => Promise<void>
-  onRevoke: (reason: string) => Promise<void>
   operations: SelfHostedOperations
+  refreshHosts: () => void | Promise<void>
+  currentHost: (hostId: string) => ApiRuntimeNode | undefined
+  notify: (notice: Notice) => void
+  markUnconfirmed: (hostId: string, unconfirmed: boolean) => void
+  HostActions: Component<HostActionsProps> | undefined
   unconfirmed: boolean
 }) {
   const [checking, setChecking] = createSignal(false)
-  const [renaming, setRenaming] = createSignal(false)
-  const [nameDraft, setNameDraft] = createSignal('')
-  const [nameProblem, setNameProblem] = createSignal<string>()
-  const [renameBusy, setRenameBusy] = createSignal(false)
-  const [revokeOpen, setRevokeOpen] = createSignal(false)
-  const [reasonDraft, setReasonDraft] = createSignal('')
-  const [reasonProblem, setReasonProblem] = createSignal<string>()
-  const [revokeBusy, setRevokeBusy] = createSignal(false)
-  const [revokeFailure, setRevokeFailure] = createSignal<FailureGuidance>()
   let heading: HTMLHeadingElement | undefined
-  let renameTrigger: HTMLButtonElement | undefined
-  let renameInput: HTMLInputElement | undefined
-  let revokeTrigger: HTMLButtonElement | undefined
-  let reasonInput: HTMLInputElement | undefined
-  let revokeConfirm: HTMLButtonElement | undefined
 
   const diagnostics = createMemo(() => diagnoseHost(props.input, props.now()))
   const steps = createMemo(() => remediationSteps(diagnostics()))
@@ -491,76 +480,6 @@ function HostDetail(props: {
       await props.onCheck()
     } finally {
       setChecking(false)
-    }
-  }
-
-  const beginRename = () => {
-    setNameDraft(props.node.displayName)
-    setNameProblem(undefined)
-    setRenaming(true)
-    queueMicrotask(() => renameInput?.focus())
-  }
-  const endRename = () => {
-    setRenaming(false)
-    queueMicrotask(() => renameTrigger?.focus())
-  }
-  const submitRename = async () => {
-    if (renameBusy()) return
-    const problem = hostNameProblem(nameDraft(), props.hosts, props.node.id)
-    if (problem) {
-      setNameProblem(problem)
-      renameInput?.focus()
-      return
-    }
-    setNameProblem(undefined)
-    setRenameBusy(true)
-    const name = nameDraft().trim()
-    try {
-      const result = await props.guarded(() => props.onRename(name))
-      if ('stale' in result) return
-      endRename()
-    } catch (error) {
-      // The draft stays exactly as typed, and focus stays in the field.
-      props.onFailure(classifyFailure(error, 'rename'), () => void submitRename())
-      queueMicrotask(() => renameInput?.focus())
-    } finally {
-      setRenameBusy(false)
-    }
-  }
-
-  const beginRevoke = () => {
-    setReasonProblem(undefined)
-    setRevokeFailure(undefined)
-    setRevokeOpen(true)
-  }
-  const submitRevoke = async () => {
-    if (revokeBusy()) return
-    const problem = revokeReasonProblem(reasonDraft())
-    if (problem) {
-      setReasonProblem(problem)
-      reasonInput?.focus()
-      return
-    }
-    setReasonProblem(undefined)
-    setRevokeFailure(undefined)
-    setRevokeBusy(true)
-    try {
-      const result = await props.guarded(() => props.onRevoke(reasonDraft().trim()))
-      if ('stale' in result) return
-      setRevokeOpen(false)
-      setReasonDraft('')
-      queueMicrotask(() => heading?.focus())
-    } catch (error) {
-      const failure = classifyFailure(error, 'revoke')
-      setRevokeFailure(failure)
-      // A host that changed under us is stale state: close, refresh, and let the list speak.
-      if (failure.kind === 'stale_state') {
-        setRevokeOpen(false)
-        props.onFailure(failure)
-        queueMicrotask(() => heading?.focus())
-      } else queueMicrotask(() => revokeConfirm?.focus())
-    } finally {
-      setRevokeBusy(false)
     }
   }
 
@@ -682,181 +601,72 @@ function HostDetail(props: {
             </Show>
           </Show>
         </p>
-        <SettingsRow
-          label="Name"
-          description="Names must stay distinct so hosts are never confused."
+        <Show
+          when={props.HostActions}
+          fallback={<LeanHostActions revoked={revoked()} onRegisterAgain={props.onRegisterAgain} />}
         >
-          <Show
-            when={renaming()}
-            fallback={
-              <Button
-                ref={(element) => (renameTrigger = element)}
-                type="button"
-                variant="outline"
-                disabled={!props.operations.renameHost || revoked()}
-                aria-describedby="rename-reason"
-                onClick={beginRename}
-              >
-                Rename…
-              </Button>
-            }
-          >
-            <form
-              class="flex flex-col gap-2"
-              aria-label="Rename host"
-              onSubmit={(event) => {
-                event.preventDefault()
-                void submitRename()
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  event.preventDefault()
-                  endRename()
-                }
-              }}
-            >
-              <Input
-                ref={(element) => (renameInput = element)}
-                aria-label="Host name"
-                aria-invalid={nameProblem() ? true : undefined}
-                aria-describedby={nameProblem() ? 'rename-problem' : undefined}
-                maxLength={200}
-                autocomplete="off"
-                value={nameDraft()}
-                onInput={(event) => setNameDraft(event.currentTarget.value)}
-              />
-              <Show when={nameProblem()}>
-                <p id="rename-problem" class="text-destructive text-sm" role="alert">
-                  {nameProblem()}
-                </p>
-              </Show>
-              <div class="flex gap-2">
-                <Button type="submit" size="sm" aria-disabled={renameBusy() || undefined}>
-                  {renameBusy() ? 'Saving…' : 'Save name'}
-                </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={endRename}>
-                  Cancel
-                </Button>
-              </div>
-            </form>
-          </Show>
-        </SettingsRow>
-        <Show when={!props.operations.renameHost}>
-          <p id="rename-reason" class="text-muted-foreground text-sm text-pretty">
-            Not available yet: the server has no rename operation. The name is set by the host when
-            it registers.
-          </p>
-        </Show>
-        <SettingsRow
-          label={revoked() ? 'Register again' : 'Revoke execution'}
-          description={
-            revoked()
-              ? 'This identity is revoked and cannot resume. Registering again creates a new identity.'
-              : 'Stops Adea from sending this host new commands. It does not erase data or touch history access.'
-          }
-        >
-          <Show
-            when={!revoked()}
-            fallback={
-              <Button type="button" variant="outline" onClick={props.onRegisterAgain}>
-                Register again…
-              </Button>
-            }
-          >
-            <Button
-              ref={(element) => (revokeTrigger = element)}
-              type="button"
-              variant="outline"
-              disabled={!props.operations.revokeHost}
-              aria-describedby="revoke-reason"
-              onClick={beginRevoke}
-            >
-              Revoke execution…
-            </Button>
-          </Show>
-        </SettingsRow>
-        <Show when={!props.operations.revokeHost && !revoked()}>
-          <p id="revoke-reason" class="text-muted-foreground text-sm text-pretty">
-            Not available yet: revoking is not connected in this build.
-          </p>
+          {(Actions) => (
+            <Dynamic
+              component={Actions()}
+              node={props.node}
+              hosts={props.hosts}
+              revoked={revoked()}
+              operations={props.operations}
+              guarded={props.guarded}
+              focusHeading={() => heading?.focus()}
+              refreshHosts={props.refreshHosts}
+              currentHost={props.currentHost}
+              notify={props.notify}
+              markUnconfirmed={props.markUnconfirmed}
+              onFailure={props.onFailure}
+              onRegisterAgain={props.onRegisterAgain}
+            />
+          )}
         </Show>
       </SettingsSection>
-      <AlertDialog
-        open={revokeOpen()}
-        onOpenChange={(open) => {
-          if (!open && !revokeBusy()) {
-            setRevokeOpen(false)
-            queueMicrotask(() => revokeTrigger?.focus())
-          }
-        }}
+    </>
+  )
+}
+
+/** Name and revoke when neither operation is connected: the controls stay, disabled, with the reason. */
+function LeanHostActions(props: { revoked: boolean; onRegisterAgain: () => void }) {
+  return (
+    <>
+      <SettingsRow label="Name" description="Names must stay distinct so hosts are never confused.">
+        <Button type="button" variant="outline" disabled aria-describedby="rename-reason">
+          Rename…
+        </Button>
+      </SettingsRow>
+      <p id="rename-reason" class="text-muted-foreground text-sm text-pretty">
+        Not available yet: the server has no rename operation. The name is set by the host when it
+        registers.
+      </p>
+      <SettingsRow
+        label={props.revoked ? 'Register again' : 'Revoke execution'}
+        description={
+          props.revoked
+            ? 'This identity is revoked and cannot resume. Registering again creates a new identity.'
+            : 'Stops Adea from sending this host new commands. It does not erase data or touch history access.'
+        }
       >
-        <AlertDialogContent
-          onOpenAutoFocus={(event) => {
-            event.preventDefault()
-            reasonInput?.focus()
-          }}
-        >
-          <AlertDialogHeader>
-            <AlertDialogTitle>Revoke execution for {props.node.displayName}?</AlertDialogTitle>
-            <AlertDialogDescription>{hostIdentityLabel(props.node)}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <div class="flex flex-col gap-3 text-sm" data-testid="revoke-effects">
-            <div>
-              <p class="font-medium">This will</p>
-              <ul class="text-muted-foreground list-disc ps-5">
-                <For each={REVOCATION_EFFECTS.does}>{(item) => <li>{item}</li>}</For>
-              </ul>
-            </div>
-            <div>
-              <p class="font-medium">This will not</p>
-              <ul class="text-muted-foreground list-disc ps-5">
-                <For each={REVOCATION_EFFECTS.doesNot}>{(item) => <li>{item}</li>}</For>
-              </ul>
-            </div>
-            <div class="flex flex-col gap-1">
-              <Label for="revoke-reason-input">Reason</Label>
-              <Input
-                id="revoke-reason-input"
-                ref={(element) => (reasonInput = element)}
-                maxLength={400}
-                autocomplete="off"
-                aria-invalid={reasonProblem() ? true : undefined}
-                aria-describedby={reasonProblem() ? 'revoke-reason-problem' : undefined}
-                value={reasonDraft()}
-                disabled={revokeBusy()}
-                onInput={(event) => setReasonDraft(event.currentTarget.value)}
-              />
-              <Show when={reasonProblem()}>
-                <p id="revoke-reason-problem" class="text-destructive" role="alert">
-                  {reasonProblem()}
-                </p>
-              </Show>
-            </div>
-            <Show when={revokeFailure()}>
-              {(failure) => (
-                <Alert variant="destructive" role="alert" data-testid="revoke-failure">
-                  <AlertTitle>{failure().title}</AlertTitle>
-                  <AlertDescription>{failure().guidance}</AlertDescription>
-                </Alert>
-              )}
-            </Show>
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel as={Button} type="button" variant="outline" disabled={revokeBusy()}>
-              Keep host
-            </AlertDialogCancel>
-            <Button
-              ref={(element) => (revokeConfirm = element)}
-              type="button"
-              variant="destructive"
-              aria-disabled={revokeBusy() || undefined}
-              onClick={() => void submitRevoke()}
-            >
-              {revokeBusy() ? 'Revoking…' : 'Revoke execution'}
+        <Show
+          when={!props.revoked}
+          fallback={
+            <Button type="button" variant="outline" onClick={props.onRegisterAgain}>
+              Register again…
             </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+          }
+        >
+          <Button type="button" variant="outline" disabled aria-describedby="revoke-reason">
+            Revoke execution…
+          </Button>
+        </Show>
+      </SettingsRow>
+      <Show when={!props.revoked}>
+        <p id="revoke-reason" class="text-muted-foreground text-sm text-pretty">
+          Not available yet: revoking is not connected in this build.
+        </p>
+      </Show>
     </>
   )
 }
