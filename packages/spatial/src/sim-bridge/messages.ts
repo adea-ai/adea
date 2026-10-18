@@ -1,6 +1,7 @@
 import { boundedString, isPlainRecord, strictRecord } from './record'
 import type { OriginAllowlist } from './origin'
 import { SIM_SURFACES, type SimSurface } from './launch'
+import { parseSimCharacterValue } from './character'
 import { SIM_UNAVAILABLE_REASONS, type SimUnavailableReason } from './availability'
 
 /**
@@ -19,7 +20,7 @@ export const MAX_SIM_MESSAGE_BYTES = 2048
 
 const BRIDGE_ID = /^[A-Za-z0-9_-]{16,64}$/
 const LAUNCH_CODE = /^[A-Za-z0-9_-]{32,128}$/
-const CHARACTER_ID = /^[A-Za-z0-9_.:-]{1,64}$/
+const REQUEST_ID = /^[A-Za-z0-9_-]{1,32}$/
 
 export const SIM_FRAME_STATES = ['loading', 'running', 'unavailable', 'offline'] as const
 export type SimFrameState = (typeof SIM_FRAME_STATES)[number]
@@ -31,7 +32,14 @@ export const SIM_FRAME_ERRORS = [
 ] as const
 export type SimFrameError = (typeof SIM_FRAME_ERRORS)[number]
 
-export type SimFrameMessage =
+/** Where HQ may send the host: the designers only. A designer returns with `frame.close`. */
+export const SIM_NAVIGATE_TARGETS = ['room-designer', 'character-designer'] as const
+export type SimNavigateTarget = (typeof SIM_NAVIGATE_TARGETS)[number]
+export const SIM_SAVE_FAILURES = ['refused', 'failed', 'timeout'] as const
+export type SimSaveFailure = (typeof SIM_SAVE_FAILURES)[number]
+
+/** What the frame reports about its own launch; the pure launch reducer consumes only these. */
+export type SimFrameStatusMessage =
   | Readonly<{ type: 'frame.ready'; payload: Readonly<Record<string, never>> }>
   | Readonly<{
       type: 'frame.state'
@@ -39,6 +47,19 @@ export type SimFrameMessage =
     }>
   | Readonly<{ type: 'frame.close'; payload: Readonly<Record<string, never>> }>
   | Readonly<{ type: 'frame.error'; payload: Readonly<{ code: SimFrameError }> }>
+
+/** Closed requests the frame may make of the host. Each is answered or ends the attempt. */
+export type SimFrameRequestMessage =
+  | Readonly<{
+      type: 'frame.navigate'
+      payload: Readonly<{ requestId: string; target: SimNavigateTarget }>
+    }>
+  | Readonly<{
+      type: 'frame.character.save'
+      payload: Readonly<{ requestId: string; character: string }>
+    }>
+
+export type SimFrameMessage = SimFrameStatusMessage | SimFrameRequestMessage
 
 export type SimHostMessage =
   | Readonly<{
@@ -52,6 +73,10 @@ export type SimHostMessage =
       }>
     }>
   | Readonly<{ type: 'host.dispose'; payload: Readonly<Record<string, never>> }>
+  | Readonly<{
+      type: 'host.character.save.result'
+      payload: Readonly<{ requestId: string; saved: boolean; reason?: SimSaveFailure }>
+    }>
 
 export type SimBridgeFailure =
   | 'origin_refused'
@@ -168,6 +193,22 @@ export function parseFrameMessage(
       const code = SIM_FRAME_ERRORS.find((item) => item === body?.code)
       return code ? { ok: true, message: { type, payload: { code } } } : fail('invalid_payload')
     }
+    case 'frame.navigate': {
+      const body = strictRecord(payload, ['requestId', 'target'])
+      const requestId = boundedString(body?.requestId, REQUEST_ID)
+      const target = SIM_NAVIGATE_TARGETS.find((item) => item === body?.target)
+      return requestId && target
+        ? { ok: true, message: { type, payload: { requestId, target } } }
+        : fail('invalid_payload')
+    }
+    case 'frame.character.save': {
+      const body = strictRecord(payload, ['requestId', 'character'])
+      const requestId = boundedString(body?.requestId, REQUEST_ID)
+      const character = parseSimCharacterValue(body?.character)
+      return requestId && character
+        ? { ok: true, message: { type, payload: { requestId, character } } }
+        : fail('invalid_payload')
+    }
     default:
       return fail('unknown_type')
   }
@@ -203,7 +244,7 @@ export function parseHostMessage(
       const surface = SIM_SURFACES.find((item) => item === body?.surface)
       const expiresAt = body?.expiresAt
       const character =
-        body && 'character' in body ? boundedString(body.character, CHARACTER_ID) : undefined
+        body && 'character' in body ? parseSimCharacterValue(body.character) : undefined
       if (
         !body ||
         !code ||
@@ -218,6 +259,21 @@ export function parseHostMessage(
         message: {
           type,
           payload: { code, expiresAt, surface, ...(character ? { character } : {}) },
+        },
+      }
+    }
+    case 'host.character.save.result': {
+      const body = strictRecord(payload, ['requestId', 'saved'], ['reason'])
+      const requestId = boundedString(body?.requestId, REQUEST_ID)
+      if (!body || !requestId || typeof body.saved !== 'boolean') return fail('invalid_payload')
+      const reason = SIM_SAVE_FAILURES.find((item) => item === body.reason)
+      // A failure names its reason; a success has none.
+      if (body.saved ? 'reason' in body : !reason) return fail('invalid_payload')
+      return {
+        ok: true,
+        message: {
+          type,
+          payload: reason ? { requestId, saved: false, reason } : { requestId, saved: true },
         },
       }
     }
