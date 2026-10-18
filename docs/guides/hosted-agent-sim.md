@@ -90,10 +90,10 @@ designer URL persistence remains supported by the private engine.
 
 The actual-built-client save command uses a private local export and disposable
 API/bridge/entitlement/storage fixtures. Its final zero-error assertion deliberately
-keeps rendering failures visible. The new export exposes a CSP limitation:
-embedded GLB textures use blob fetches, while the host currently allows only
-`connect-src 'self'`. The no-security-changes instruction leaves that policy
-unchanged pending authorization for the specific blob-source addition.
+keeps rendering failures visible. Embedded GLB textures use blob fetches. The
+user-approved isolated Sim document policy is `connect-src 'self' blob:`; the
+regression fixes every other directive and leaves the app API policy and private
+asset session gates unchanged. This grants no live deployment authority.
 
 ## Remaining production decisions
 

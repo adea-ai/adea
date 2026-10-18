@@ -78,6 +78,17 @@ function fixture() {
   }
 }
 
+test('only the isolated Sim policy adds blob connections while every other directive stays fixed', async () => {
+  const f = fixture()
+  const frame = await f.host(new Request(`${origin}/frame`))
+  expect(frame.headers.get('content-security-policy')).toBe(
+    `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self' blob:; worker-src 'self' blob:; frame-ancestors ${parentOrigin}`
+  )
+  expect(f.api.configuration().headers.get('content-security-policy')).toBeNull()
+  expect((await f.host(new Request(`${origin}/assets/agent-sim/engine.js`))).status).toBe(401)
+  expect(f.assetReads()).toBe(0)
+})
+
 test('launch, single-use exchange and authenticated private delivery are joined across the HTTP boundary', async () => {
   const f = fixture()
   const anonymous = await f.host(new Request(`${origin}/assets/agent-sim/engine.js`))

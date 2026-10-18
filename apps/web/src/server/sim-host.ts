@@ -33,7 +33,7 @@ export function createSimHost(options: {
     'cache-control': 'private, no-store',
     'referrer-policy': 'no-referrer',
     'x-content-type-options': 'nosniff',
-    'content-security-policy': `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self'; worker-src 'self' blob:; frame-ancestors ${parents.join(' ')}`,
+    'content-security-policy': `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob: data:; connect-src 'self' blob:; worker-src 'self' blob:; frame-ancestors ${parents.join(' ')}`,
   }
   const json = (body: unknown, status = 200) => Response.json(body, { status, headers })
   return async (request: Request): Promise<Response> => {

@@ -42,16 +42,16 @@ session lookup if its owner approves the target, schema, access, and lifecycle.
 That is a proposal; no database provider, migration, binding, or credential has
 been silently selected or created.
 
-## Specific runtime policy decision
+## Approved isolated runtime policy repair
 
 The actual private engine uses Three.js embedded GLB textures. Its image-bitmap
-loader fetches same-document `blob:` URLs; the current new host's
-`connect-src 'self'` blocks those reads. The specific proposed source change is
-`connect-src 'self' blob:` on the separate Sim document. All other directives,
-exact parent origins, cookie host separation, session/private asset gates, and
-script restrictions would stay as implemented. The no-security-changes
-instruction leaves this change pending authorization. No external hostname needs
-to be added. Private engine portal prefetch now stays on the current origin.
+loader fetches same-document `blob:` URLs. On 2026-10-18 the user explicitly
+approved `connect-src 'self' blob:` on the separate Sim document. The host now
+uses that exact directive. All other directives, exact parent origins, cookie
+host separation, session/private asset gates, and script restrictions stay as
+implemented and are covered by a regression. No external hostname is added.
+Private engine portal prefetch stays on the current origin. This source repair
+does not authorize any live rollout or broader policy change.
 
 ## Live rollout authorization
 
