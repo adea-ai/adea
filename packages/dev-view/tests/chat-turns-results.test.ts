@@ -87,8 +87,13 @@ const build = (events: readonly RuntimeEvent[]) => buildChatTurns(projectTranscr
 const results = (entries: readonly ChatTurnEntry[]) =>
   entries.filter((entry): entry is ChatTurnResult => entry.type === 'result')
 
+const terminalText = (entries: readonly ChatTurnEntry[]) => {
+  const result = results(entries)[0]?.result
+  return result?.type === 'terminal' ? result.text : undefined
+}
+
 describe('structured results', () => {
-  test('terminal chunks extend one entry by sequence and the finish closes it', () => {
+  test('terminal chunks extend one entry by sequence and the finish closes its state', () => {
     const { turns, entryByEventId } = build([
       prompt('u1'),
       activity(
@@ -109,12 +114,13 @@ describe('structured results', () => {
       chunk('k4', 2, 'a replayed chunk\n'),
       finished('k5', 4),
       chunk('k6', 5, 'after the end\n'),
+      chunk('k7', 5, 'a repeat of the last chunk\n'),
     ])
     const [entry] = results(turns[0]!.entries)
     expect(turns[0]!.entries).toHaveLength(1)
     expect(entry).toMatchObject({
       id: 'k1',
-      eventIds: ['k1', 'k2', 'k3', 'k4', 'k5', 'k6'],
+      eventIds: ['k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'k7'],
       result: {
         type: 'terminal',
         command: 'bun test',
@@ -122,7 +128,7 @@ describe('structured results', () => {
         status: 'succeeded',
         exitCode: 0,
         durationMs: 900,
-        text: 'pass one\npass two\n',
+        text: 'pass one\npass two\nafter the end\n',
         cut: false,
       },
     })
@@ -131,9 +137,91 @@ describe('structured results', () => {
       'stderr',
       'stdout',
     ])
-    expect(['k1', 'k2', 'k3', 'k4', 'k5', 'k6'].map((id) => entryByEventId.get(id))).toEqual(
-      Array(6).fill('k1')
+    expect(['k1', 'k2', 'k3', 'k4', 'k5', 'k6', 'k7'].map((id) => entryByEventId.get(id))).toEqual(
+      Array(7).fill('k1')
     )
+  })
+
+  describe('terminal output keeps one order per stream', () => {
+    test('stdout and stderr each count their own sequence', () => {
+      const { turns } = build([
+        prompt('u1'),
+        chunk('k1', 1, 'out 1\n'),
+        chunk('k2', 1, 'err 1\n', { stream: 'stderr' }),
+        chunk('k3', 2, 'out 2\n'),
+        chunk('k4', 2, 'err 2\n', { stream: 'stderr' }),
+        // A repeat or an older sequence of a stream adds nothing, whatever the other did.
+        chunk('k5', 2, 'out 2 again\n'),
+        chunk('k6', 1, 'err 1 again\n', { stream: 'stderr' }),
+      ])
+      expect(terminalText(turns[0]!.entries)).toBe('out 1\nerr 1\nout 2\nerr 2\n')
+    })
+
+    test('a higher sequence on one stream does not hide a lower one on another', () => {
+      const { turns } = build([
+        prompt('u1'),
+        chunk('k1', 40, 'a long stdout run\n'),
+        chunk('k2', 3, 'the first stderr line\n', { stream: 'stderr' }),
+        chunk('k3', 2, 'a stale combined line\n', { stream: 'combined' }),
+      ])
+      expect(terminalText(turns[0]!.entries)).toBe(
+        'a long stdout run\nthe first stderr line\na stale combined line\n'
+      )
+    })
+
+    test('a finish closes the command whatever sequence it carries', () => {
+      const { turns } = build([prompt('u1'), chunk('k1', 9, 'work\n'), finished('k2', 1)])
+      expect(results(turns[0]!.entries)[0]?.result).toMatchObject({
+        phase: 'finished',
+        status: 'succeeded',
+        exitCode: 0,
+        durationMs: 900,
+        text: 'work\n',
+      })
+    })
+
+    test('output that arrives after the finish extends the text and keeps the outcome', () => {
+      const { turns } = build([
+        prompt('u1'),
+        chunk('k1', 1, 'one\n'),
+        finished('k2', 2, { status: 'failed', exitCode: 2 }),
+        chunk('k3', 3, 'two\n'),
+        // A late observation of an earlier phase cannot reopen or relabel the command.
+        chunk('k4', 4, 'three\n', { status: 'running' }),
+      ])
+      expect(results(turns[0]!.entries)[0]?.result).toMatchObject({
+        phase: 'finished',
+        status: 'failed',
+        exitCode: 2,
+        durationMs: 900,
+        text: 'one\ntwo\nthree\n',
+      })
+    })
+
+    test('an early phase that arrives late does not move the command backwards', () => {
+      const { turns } = build([
+        prompt('u1'),
+        chunk('k1', 2, 'body\n'),
+        activity(
+          'terminal.output',
+          {
+            terminalId: 't1',
+            commandId: 'c1',
+            sequence: '1',
+            phase: 'started',
+            status: 'running',
+            stream: 'combined',
+            command: 'bun test',
+          },
+          'k2'
+        ),
+      ])
+      expect(results(turns[0]!.entries)[0]?.result).toMatchObject({
+        phase: 'output',
+        command: 'bun test',
+        text: 'body\n',
+      })
+    })
   })
 
   test('a secret split across two chunks is redacted once the chunks are joined', () => {
@@ -200,6 +288,52 @@ describe('structured results', () => {
       id: 'r-1',
       eventIds: ['r-1', 'r-2', 'r-3', 'r-4'],
       result: { type: 'test_run', status: 'failed', summary: { passed: 3, failed: 1 } },
+    })
+  })
+
+  test('a complete collection is a snapshot, not an end: later snapshots still replace it', () => {
+    const { turns } = build([
+      prompt('u1'),
+      activity(
+        'test_run.observed',
+        { testRunId: 'r1', status: 'running', complete: true, summary: { passed: 1 } },
+        'r-1'
+      ),
+      activity(
+        'test_run.observed',
+        { testRunId: 'r1', status: 'running', complete: true, summary: { passed: 4 } },
+        'r-2'
+      ),
+      activity(
+        'plan.observed',
+        {
+          planId: 'p1',
+          status: 'in_progress',
+          complete: true,
+          items: [{ id: 'i1', title: 'Write', status: 'in_progress' }],
+        },
+        'p-1'
+      ),
+      activity(
+        'plan.observed',
+        {
+          planId: 'p1',
+          status: 'in_progress',
+          complete: true,
+          items: [
+            { id: 'i1', title: 'Write', status: 'completed' },
+            { id: 'i2', title: 'Ship', status: 'in_progress' },
+          ],
+        },
+        'p-2'
+      ),
+    ])
+    const [testRun, plan] = results(turns[0]!.entries)
+    expect(testRun?.result).toMatchObject({ type: 'test_run', summary: { passed: 4 } })
+    expect(plan?.result).toMatchObject({
+      type: 'plan',
+      status: 'in_progress',
+      items: [{ status: 'completed' }, { id: 'i2' }],
     })
   })
 
@@ -272,6 +406,7 @@ describe('structured results', () => {
         },
         'c2'
       ),
+      // `complete` says the snapshot lists every file; it does not end the change set.
       activity(
         'files.changed',
         { changeSetId: 'cs1', files: [{ path: 'late.ts', change: 'added' }] },
@@ -303,7 +438,7 @@ describe('structured results', () => {
       eventIds: ['c1', 'c2', 'c3'],
       result: {
         type: 'files',
-        files: [{ path: 'a.ts' }, { path: 'b.ts', previousPath: 'old.ts' }],
+        files: [{ path: 'late.ts', change: 'added' }],
       },
     })
     expect(found[1]).toMatchObject({

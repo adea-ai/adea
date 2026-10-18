@@ -778,6 +778,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     | 'history'
     | 'history-retry'
     | 'history-offline'
+    | 'history-split'
     | 'retention-turn'
     | 'retention-stream'
     | 'attention'
@@ -807,6 +808,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       value === 'history' ||
       value === 'history-retry' ||
       value === 'history-offline' ||
+      value === 'history-split' ||
       value === 'retention-turn' ||
       value === 'retention-stream' ||
       value === 'attention' ||

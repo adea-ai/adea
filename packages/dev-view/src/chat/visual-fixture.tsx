@@ -3,6 +3,7 @@ import { createMemo, createSignal, For, onCleanup, onMount } from 'solid-js'
 import { ChatView } from './chat-view'
 import type { ChatDraftChange } from './chat-composer'
 import { acceptRuntimeEvent, createTranscriptAccumulator } from './model/transcript'
+import { createRuntimeHistoryLoader } from './model/history'
 import type {
   ChatConversation,
   ChatConversationModel,
@@ -32,6 +33,10 @@ import {
   resultEdgeEvents,
   historyNewest,
   historyOlder,
+  historySplitEnd,
+  historySplitMiddle,
+  historySplitPrompt,
+  historySplitStart,
   retentionTurnScript,
   richEvents,
 } from './visual-fixture-data'
@@ -76,6 +81,8 @@ export type ChatVisualFixtureState =
   | 'history-retry'
   /** The same, but every request fails. */
   | 'history-offline'
+  /** One reply whose start is two history pages back; the real loader restores it. */
+  | 'history-split'
   /** An approval whose request is longer than the card's description shows. */
   | 'approval-long'
   /** The real accumulator, one event per `chat-visual:append` (or `detail.count`): a turn whose prompt is evicted. */
@@ -107,6 +114,7 @@ const STATE_EVENTS: Partial<Record<ChatVisualFixtureState, readonly RuntimeEvent
   history: historyNewest,
   'history-retry': historyNewest,
   'history-offline': historyNewest,
+  'history-split': [historySplitEnd],
   'retention-turn': retentionTurnEvents,
   'retention-stream': retentionStreamEvents,
 }
@@ -400,6 +408,69 @@ function historyModel(
   }
 }
 
+const splitHistoryPage = (before: string, items: readonly RuntimeEvent[], more: boolean) => ({
+  runtimeSessionId: sessionId,
+  generation: 3,
+  beforeSequence: before,
+  retainedFromSequence: '1',
+  retainedThroughSequence: before,
+  historyStart: 'generation_start' as const,
+  items,
+  ...(more ? { nextCursor: 'older' } : {}),
+})
+
+/**
+ * The real accumulator and history loader over a reply that straddles the pages: the
+ * window on screen holds only its last delta, so nothing of it may be drawn until the
+ * pages that restore its start have loaded. Each request is counted for the test.
+ */
+function splitHistoryModel(): Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> {
+  return {
+    openTranscript: async () => {
+      let state: TranscriptAccumulator = acceptRuntimeEvent(
+        createTranscriptAccumulator({
+          runtimeSessionId: sessionId,
+          generation: 3,
+          fromSequence: '4',
+        }),
+        historySplitEnd
+      )
+      const listeners = new Set<(state: TranscriptAccumulator) => void>()
+      let attempts = 0
+      const loader = createRuntimeHistoryLoader({
+        state: () => state,
+        commit: (next) => {
+          state = next
+          for (const listener of listeners) listener(state)
+        },
+        read: async (request) => {
+          attempts += 1
+          ;(window as unknown as { chatHistoryAttempts?: number }).chatHistoryAttempts = attempts
+          await new Promise((resolve) => setTimeout(resolve, 50))
+          return 'cursor' in request
+            ? splitHistoryPage('3', [historySplitPrompt, historySplitStart], false)
+            : splitHistoryPage('4', [historySplitMiddle], true)
+        },
+      })
+      return {
+        state: () => state,
+        subscribe: (listener: (state: TranscriptAccumulator) => void) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        hasOlder: loader.hasOlder,
+        loadOlder: loader.loadOlder,
+        close: () => {
+          loader.close()
+          listeners.clear()
+        },
+      }
+    },
+    send: async () => undefined,
+    cancel: async () => conversation('streaming', [historySplitEnd]),
+  }
+}
+
 /**
  * A transcript fed through the real accumulator, so the window fills and drops
  * its oldest event exactly as a live session's does. Each `chat-visual:append`
@@ -461,15 +532,17 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
               ? retainingModel(retentionTurnEvents, retentionTurnScript)
               : state === 'retention-stream'
                 ? retainingModel(retentionStreamEvents, retentionStreamScript)
-                : state === 'history' || state === 'history-retry' || state === 'history-offline'
-                  ? historyModel(
-                      state === 'history'
-                        ? 'ok'
-                        : state === 'history-retry'
-                          ? 'fail-first'
-                          : 'offline'
-                    )
-                  : undefined
+                : state === 'history-split'
+                  ? splitHistoryModel()
+                  : state === 'history' || state === 'history-retry' || state === 'history-offline'
+                    ? historyModel(
+                        state === 'history'
+                          ? 'ok'
+                          : state === 'history-retry'
+                            ? 'fail-first'
+                            : 'offline'
+                      )
+                    : undefined
   const [draft, setDraft] = createSignal<ChatDraftValue>({
     text: state === 'attention' ? 'I can clarify the target environment.' : '',
     blocks: [],
@@ -586,7 +659,8 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                   state === 'retention-stream' ||
                   state === 'history' ||
                   state === 'history-retry' ||
-                  state === 'history-offline'
+                  state === 'history-offline' ||
+                  state === 'history-split'
                 }
                 draftRevision={fallbackDraftModel ? undefined : draftRevision()}
                 onDraftChange={onDraftChange}

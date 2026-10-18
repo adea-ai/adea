@@ -460,6 +460,21 @@ export const historyNewest: readonly RuntimeEvent[] = [
   event('4', 'turn.assistant_message', { text: 'The second answer.' }),
 ]
 
+/**
+ * One reply streamed in three deltas whose start lies behind the window on screen:
+ * the newest retained event is the end of the message, the middle is one page back
+ * and the prompt and first delta are two pages back.
+ */
+export const SPLIT_REPLY = 'The build failed in two places.'
+const splitDelta = (seq: string, text: string, deltaIndex: number) =>
+  event(seq, 'turn.assistant_delta', { text, messageId: 'split-reply', deltaIndex })
+export const historySplitPrompt = event('1', 'turn.user_input', {
+  text: 'What failed in the build?',
+})
+export const historySplitStart = splitDelta('2', 'The build ', 0)
+export const historySplitMiddle = splitDelta('3', 'failed in ', 1)
+export const historySplitEnd = splitDelta('4', 'two places.', 2)
+
 export const LONG_APPROVAL_TAIL = 'FINAL STEP: drop table audit_log (irreversible)'
 export const longApprovalEvents: readonly RuntimeEvent[] = [
   event('1', 'turn.user_input', { text: 'Clean up the audit tables.' }),

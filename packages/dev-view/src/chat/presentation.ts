@@ -284,17 +284,22 @@ const JOINED_SECRET =
  * string it is; a credential-named key withholds its value; a secret that only forms
  * when separate fields are read together withholds the whole value.
  */
-function scrubCallValue(value: unknown): { value: unknown; truncated: boolean; joined: string } {
+function scrubCallValue(value: unknown): { value: unknown; truncated: boolean; joined: string[] } {
   let truncated = false
   let nodes = 0
-  const leaves: string[] = []
-  const text = (raw: string): string => {
+  // Two readings of the same value, in traversal order: every scalar alone (a key
+  // between two fragments does not separate them), and keys read in with them (a
+  // fragment may sit in a key). A number or boolean is a fragment like any string.
+  const values: string[] = []
+  const everything: string[] = []
+  const text = (raw: string, isKey: boolean): string => {
     const safe = redactWithProvenance(stripTerminalControls(raw), CALL_DATA_LIMIT, {
       window: BODY_SCAN_WINDOW,
       layout: true,
     })
     if (safe.truncated) truncated = true
-    leaves.push(safe.text)
+    everything.push(safe.text)
+    if (!isKey) values.push(safe.text)
     return safe.text
   }
   const walk = (node: unknown, depth: number): unknown => {
@@ -303,18 +308,23 @@ function scrubCallValue(value: unknown): { value: unknown; truncated: boolean; j
       truncated = true
       return '[not shown]'
     }
-    if (typeof node === 'string') return text(node)
-    if (node === null || typeof node !== 'object') return node
+    if (typeof node === 'string') return text(node, false)
+    if (node === null || typeof node !== 'object') {
+      const scalar = String(node)
+      values.push(scalar)
+      everything.push(scalar)
+      return node
+    }
     if (Array.isArray(node)) return node.map((entry) => walk(entry, depth + 1))
     const out: Record<string, unknown> = {}
     for (const [key, entry] of Object.entries(node)) {
-      const safeKey = text(key)
+      const safeKey = text(key, true)
       out[safeKey] = SENSITIVE_KEY.test(key) ? '[secret redacted]' : walk(entry, depth + 1)
     }
     return out
   }
   const scrubbed = walk(value, 0)
-  return { value: scrubbed, truncated, joined: leaves.join('') }
+  return { value: scrubbed, truncated, joined: [values.join(''), everything.join('')] }
 }
 
 function callData(data: RuntimeCallData | undefined): ChatCallData | undefined {
@@ -325,7 +335,7 @@ function callData(data: RuntimeCallData | undefined): ChatCallData | undefined {
       ...(data.byteLength !== undefined ? { byteLength: data.byteLength } : {}),
     }
   const scrubbed = scrubCallValue(data.value)
-  if (JOINED_SECRET.test(scrubbed.joined))
+  if (scrubbed.joined.some((reading) => JOINED_SECRET.test(reading)))
     return {
       type: 'inline',
       text: '[withheld: a secret may span several fields]',

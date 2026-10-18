@@ -1009,6 +1009,36 @@ test.describe('earlier messages', () => {
   })
 })
 
+const transcript = (page: Page) => page.locator('[data-dev-chat]')
+
+test.describe('a reply that starts behind the window', () => {
+  const REPLY = 'The build failed in two places.'
+
+  test('none of it is drawn until its start is restored, then it is one block', async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'history-split')
+    // The window holds only the last delta of the reply; showing it would show a fragment
+    // whose start (and any secret it began) is out of view.
+    await expect(transcript(page)).not.toContainText('two places.')
+    // The scroller asks for older messages by itself, one page at a time; wait for both.
+    await expect.poll(() => attempts(page), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
+    const load = page.getByRole('button', { name: 'Load earlier messages' })
+    for (let step = 0; step < 4; step += 1) {
+      if (await transcript(page).getByText(REPLY).count()) break
+      await load.click({ timeout: 1_000 }).catch(() => undefined)
+      await page.waitForTimeout(250)
+    }
+    await expect(transcript(page).getByText(REPLY)).toHaveCount(1)
+    await expect(transcript(page).getByText('What failed in the build?')).toBeVisible()
+    // The pieces were never drawn on their own.
+    await expect(transcript(page).getByText('failed in', { exact: true })).toHaveCount(0)
+    expect(await attempts(page)).toBe(2)
+    expect(errors).toEqual([])
+  })
+})
+
 const lastEvent = (page: Page) =>
   page.getByRole('region', { name: 'Evidence from the retained transcript' }).locator('dd').first()
 

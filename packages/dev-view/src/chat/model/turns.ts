@@ -30,7 +30,9 @@
 //   identity, and only when the wire gate accepted the whole versioned event. The
 //   events of one call (session, generation, run, source, family and `callId`) share
 //   one entry, drawn where the first arrived; its phase moves forward only and a
-//   terminal phase is final. A call whose `parentCallId` names another call of the
+//   terminal phase is final. The contract is an observation log, so an output, a
+//   duration, a name, an input or a parent observed after the end is still the
+//   producer's fact: it fills what was never observed and never rewrites what was. A call whose `parentCallId` names another call of the
 //   same turn and scope is drawn inside it. An absent or unknown parent, a parent
 //   the producer reported two ways, a cycle or an ambiguous parent leave the call
 //   where it arrived; nesting is never guessed from names, order or timing. A call
@@ -42,12 +44,15 @@
 //   `files.changed`, `plan.observed`, `task.observed`) is drawn only after the wire
 //   gate accepted the whole event. Snapshots of one identity (terminal and command,
 //   test run, change set, plan, task) share one entry at the position of the first;
-//   a later snapshot replaces it by arrival unless the producer already ended it
-//   (a terminal status, a finished command, `complete: true`), after which it only
-//   joins the entry's event ids. Terminal chunks extend the output by their
-//   `sequence`, an old or repeated sequence is ignored, and the text is redacted
-//   once over the joined start of the output, never chunk by chunk. A failure is a
-//   fact and keeps its own entry.
+//   a later snapshot replaces it by arrival unless the producer already ended the
+//   work (a terminal status), after which it only joins the entry's event ids.
+//   `complete: true` says a snapshot lists every item of its collection; it does
+//   not end the work, so a later snapshot still replaces it. A command's state moves
+//   forward only and a finish is final, but terminal chunks keep extending the output
+//   by their `sequence` within their own stream (`stdout`, `stderr`, `combined`),
+//   after the finish too; an old or repeated sequence of a stream is ignored, and the
+//   text is redacted once over the joined start of the output, never chunk by chunk.
+//   A failure is a fact and keeps its own entry.
 // - Source-reported summaries are snapshots, not a stream. A `turn.reasoning_summary`
 //   (identity `summaryId`) and a `turn.method_step_summary` (identity `methodId` +
 //   `stepId`) each carry the whole current text and a revision. The canvas draws one
@@ -261,7 +266,12 @@ type ResultState = {
   result: ChatResult
   /** Terminal only: the unredacted start of the output, bounded to the scan window. */
   raw: string
-  lastSequence: bigint
+  /**
+   * The newest text sequence taken per stream. Each stream is ordered on its own: a
+   * `combined` sequence says nothing about `stdout` or `stderr`, so one counter for
+   * the whole command would drop admissible chunks of the other streams.
+   */
+  lastSequence: Map<string, bigint>
   streams: Set<string>
 }
 
@@ -276,6 +286,8 @@ function terminalDisplay(state: ResultState, next: ChatTerminalResult): ChatTerm
     streams: [...state.streams] as ChatTerminalResult['streams'],
   }
 }
+
+const TERMINAL_RANK = { started: 0, output: 1, finished: 2 } as const
 
 /** The most raw terminal text kept to join and redact: the wire's own string maximum. */
 const TERMINAL_RAW_LIMIT = 65_536
@@ -393,9 +405,12 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
     const identity = resultIdentity(result)
     const key = identity === undefined ? undefined : JSON.stringify([summaryScope(item), identity])
     const known = key === undefined ? undefined : results.get(key)
-    const payload = item.event?.payload as { text?: string; sequence?: string } | undefined
+    const payload = item.event?.payload as
+      | { text?: string; sequence?: string; stream?: string }
+      | undefined
     const chunk = typeof payload?.text === 'string' ? payload.text : ''
     const sequence = result.type === 'terminal' ? BigInt(payload?.sequence ?? '0') : 0n
+    const stream = payload?.stream ?? 'combined'
     if (!known) {
       const state: ResultState = {
         entries: turn.entries,
@@ -404,7 +419,7 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
         eventIds: [item.id],
         result,
         raw: chunk.replace(/\r\n?/g, '\n').slice(0, TERMINAL_RAW_LIMIT),
-        lastSequence: sequence,
+        lastSequence: new Map(chunk === '' ? [] : [[stream, sequence]]),
         streams: new Set(result.type === 'terminal' ? result.streams : []),
       }
       if (result.type === 'terminal') state.result = terminalDisplay(state, result)
@@ -415,24 +430,36 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
     }
     known.eventIds.push(item.id)
     index(item.id, known.id)
-    if (!resultSettled(known.result)) {
-      if (result.type === 'terminal') {
-        // An old or repeated chunk adds nothing; the stream is ordered by `sequence`.
-        if (sequence > known.lastSequence) {
-          known.lastSequence = sequence
-          if (known.raw.length < TERMINAL_RAW_LIMIT)
-            known.raw = (known.raw + chunk.replace(/\r\n?/g, '\n')).slice(0, TERMINAL_RAW_LIMIT)
-          for (const stream of result.streams) known.streams.add(stream)
-          const previous = known.result as ChatTerminalResult
-          known.result = terminalDisplay(known, {
-            ...result,
-            ...(result.command === undefined && previous.command !== undefined
-              ? { command: previous.command }
-              : {}),
-          })
-        }
-      } else known.result = result
-    }
+    if (result.type === 'terminal') {
+      const previous = known.result as ChatTerminalResult
+      // Output is the producer's fact even after the command finished, so a chunk newer
+      // than the last one of its own stream still extends the text. An old or repeated
+      // sequence of that stream adds nothing.
+      const last = known.lastSequence.get(stream)
+      if (chunk !== '' && (last === undefined || sequence > last)) {
+        known.lastSequence.set(stream, sequence)
+        if (known.raw.length < TERMINAL_RAW_LIMIT)
+          known.raw = (known.raw + chunk.replace(/\r\n?/g, '\n')).slice(0, TERMINAL_RAW_LIMIT)
+      }
+      for (const named of result.streams) known.streams.add(named)
+      // The command's own state moves forward only and a finish is final.
+      const advances =
+        !resultSettled(previous) && TERMINAL_RANK[result.phase] >= TERMINAL_RANK[previous.phase]
+      const base = advances ? result : previous
+      known.result = terminalDisplay(known, {
+        ...base,
+        ...(base.command === undefined && (result.command ?? previous.command) !== undefined
+          ? { command: (result.command ?? previous.command)! }
+          : {}),
+        ...(base.exitCode === undefined && (result.exitCode ?? previous.exitCode) !== undefined
+          ? { exitCode: (result.exitCode ?? previous.exitCode)! }
+          : {}),
+        ...(base.durationMs === undefined &&
+        (result.durationMs ?? previous.durationMs) !== undefined
+          ? { durationMs: (result.durationMs ?? previous.durationMs)! }
+          : {}),
+      })
+    } else if (!resultSettled(known.result)) known.result = result
     known.entries[known.at] = {
       type: 'result',
       id: known.id,
@@ -464,7 +491,6 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
       return
     }
     known.eventIds.push(item.id)
-    if (known.terminal) return
     const merged = known.call
     const parent = merged.parentCallId === undefined ? call.parentCallId : merged.parentCallId
     if (
@@ -473,15 +499,25 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
       merged.parentCallId !== call.parentCallId
     )
       known.parentConflict = true
-    const advances = CALL_PHASE_RANK[call.phase] >= CALL_PHASE_RANK[merged.phase]
+    // The phase moves forward and a terminal phase is final, but the contract is an
+    // observation log, not a state machine: output, duration, name, input and parent
+    // observed after the call ended are still the producer's facts. A later event
+    // replaces an earlier value only while the call is still open; once ended, it
+    // fills what was never observed and never rewrites what was.
+    const stillOpen = !known.terminal
+    const advances = stillOpen && CALL_PHASE_RANK[call.phase] >= CALL_PHASE_RANK[merged.phase]
     known.call = {
       ...merged,
       ...(advances ? { phase: call.phase } : {}),
       ...(parent !== undefined ? { parentCallId: parent } : {}),
       ...(merged.name === undefined && call.name !== undefined ? { name: call.name } : {}),
       ...(merged.input === undefined && call.input !== undefined ? { input: call.input } : {}),
-      ...(advances && call.output !== undefined ? { output: call.output } : {}),
-      ...(advances && call.durationMs !== undefined ? { durationMs: call.durationMs } : {}),
+      ...(call.output !== undefined && (advances || merged.output === undefined)
+        ? { output: call.output }
+        : {}),
+      ...(call.durationMs !== undefined && (advances || merged.durationMs === undefined)
+        ? { durationMs: call.durationMs }
+        : {}),
     }
     known.terminal = isTerminal(known.call.phase)
   }

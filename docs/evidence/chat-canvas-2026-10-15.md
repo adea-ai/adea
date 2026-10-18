@@ -30,20 +30,27 @@ The shared components live in `adea-ai/ui` (coverage matrix:
   host's session lifecycle (`active`); while an approval is pending the line
   reads "Waiting for a response from you".
 - **Calls and results.** Calls fold by `callId` (phase only moves forward, a
-  terminal phase is final) and nest under a `parentCallId` within the same turn
+  terminal phase is final; an output, duration, name, input or parent observed after
+  the end still fills what was never observed and never rewrites what was) and nest under a `parentCallId` within the same turn
   and scope; an ambiguous, conflicting or cyclic parent leaves the call at the top
   level, depth is capped at 6, and an input or output that is a reference or
   shortened says so, on a tool and on a subagent alike. Inline call data is
   redacted leaf by leaf before it is written as JSON (JSON escaping would otherwise
   hide a Windows path or a token with a control character from the patterns), a
   credential-named key withholds its value, and a secret that only forms across
-  fields withholds the whole value. Terminal chunks are ordered by sequence, joined, stripped of
+  fields withholds the whole value; numbers and booleans count as fragments, and a
+  fragment in a key or between keys is joined too. Terminal chunks are ordered by
+  sequence within their own stream (`stdout`, `stderr`, `combined`), joined, stripped of
   control sequences and redacted once, so a secret split across chunks or hidden in
-  an escape sequence is still redacted. Permission eligibility is never read as
+  an escape sequence is still redacted; output after the finish still extends the
+  text and never changes the outcome. A snapshot is replaced by a later one until the
+  producer gives a terminal status; `complete: true` only says a list is whole. Permission eligibility is never read as
   authorization.
 - **Reported figures.** A `usage.observed` snapshot belongs to one provider and
   model. The newest accepted snapshot of the model the host names (`usageModel`)
-  feeds the shared Context trigger beside the composer; with no model named, the
+  feeds the shared Context trigger beside the composer; a model id without a provider is
+  used only when one provider reported it, and two providers sharing the id draw nothing;
+  with no model named, the
   figures are drawn only if the generation reported a single model, so another
   model's occupancy is never shown as this conversation's. A figure the producer
   did not send is omitted, never zero. The reported cost stays the producer's exact

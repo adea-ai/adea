@@ -3,9 +3,10 @@
 // Only an authoritative `usage.observed` event the wire gate accepted counts, and only
 // one of the generation on screen: a figure from an earlier generation describes a
 // window that no longer exists. A snapshot belongs to one provider and model, so the
-// newest snapshot of the model the caller names wins; with no model named, the figures
-// are shown only when the generation reported exactly one model, because occupancy of
-// another model is not this conversation's context. Nothing is derived: a missing
+// newest snapshot of the model the caller names wins; a model id with no provider is
+// used only when one provider reported it. With no model named, the figures are shown
+// only when the generation reported exactly one model, because occupancy of another
+// model is not this conversation's context. Nothing is derived: a missing
 // figure stays missing (never zero), and a reported cost stays the producer's exact
 // decimal text, never a number.
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
@@ -39,6 +40,24 @@ const sameModel = (
   reported.modelId === wanted.modelId &&
   (wanted.providerId === undefined || reported.providerId === wanted.providerId)
 
+/**
+ * The newest snapshot of the named model. A model id alone does not identify a
+ * snapshot: two providers can serve the same id with different windows, so when no
+ * provider is named and more than one provider reported that id, none is chosen.
+ */
+function newestOf(
+  accepted: readonly ReturnType<typeof decodeRuntimeUsageObservedPayload>[],
+  wanted: ChatUsageModel
+) {
+  const matches = accepted.filter((entry) => sameModel(entry.model, wanted))
+  if (
+    wanted.providerId === undefined &&
+    new Set(matches.map((entry) => entry.model.providerId)).size > 1
+  )
+    return undefined
+  return matches[0]
+}
+
 export function latestUsageFigures(
   events: readonly RuntimeEvent[],
   generation: number,
@@ -60,7 +79,7 @@ export function latestUsageFigures(
       ? accepted.every((entry) => sameModel(entry.model, accepted[0]!.model))
         ? accepted[0]
         : undefined
-      : accepted.find((entry) => sameModel(entry.model, model))
+      : newestOf(accepted, model)
   if (usage === undefined) return undefined
   return {
     model: { providerId: usage.model.providerId, modelId: usage.model.modelId },

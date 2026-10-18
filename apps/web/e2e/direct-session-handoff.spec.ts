@@ -42,10 +42,12 @@ test.beforeAll(async () => {
       {
         name: 'direct-handoff-mounted-fixture',
         configureServer(fixture) {
+          // The page has no icon of its own; without one the browser asks for /favicon.ico,
+          // this server answers 404, and Chromium reports that as a console error.
           fixture.middlewares.use('/__direct-handoff', (_request, response) => {
             response.setHeader('Content-Type', 'text/html')
             response.end(
-              `<html><body><div id="harness-root"></div><script type="module" src="${harness}"></script></body></html>`
+              `<html><head><link rel="icon" href="data:,"></head><body><div id="harness-root"></div><script type="module" src="${harness}"></script></body></html>`
             )
           })
         },

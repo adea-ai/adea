@@ -208,17 +208,21 @@ export function resultIdentity(result: ChatResult): string | undefined {
 const TERMINAL_RESULT = new Set<string>(['passed', 'failed', 'skipped', 'cancelled'])
 const TERMINAL_WORK = new Set<string>(['completed', 'failed', 'cancelled'])
 
-/** A snapshot that can no longer be replaced: the producer said it ended. */
+/**
+ * A snapshot that can no longer be replaced: the producer ended the work. `complete`
+ * only says the snapshot lists every item of its collection; it is not an end of the
+ * work, so a later snapshot of the same plan, test run or change set still replaces it.
+ */
 export function resultSettled(result: ChatResult): boolean {
   switch (result.type) {
     case 'terminal':
       return result.phase === 'finished'
     case 'test_run':
-      return TERMINAL_RESULT.has(result.status) || result.complete === true
+      return TERMINAL_RESULT.has(result.status)
     case 'files':
-      return result.complete === true
+      return false
     case 'plan':
-      return TERMINAL_WORK.has(result.status) || result.complete === true
+      return TERMINAL_WORK.has(result.status)
     case 'task':
       return TERMINAL_WORK.has(result.status)
     case 'failure':

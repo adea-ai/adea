@@ -142,8 +142,98 @@ describe('tool and subagent calls', () => {
     ])
     const [call] = calls(turns[0]!.entries)
     expect(call?.call.phase).toBe('failed')
-    expect(call?.call.output).toBeUndefined()
+    // The phase is final; what the producer observed afterwards is still its fact.
+    expect(call?.call.output).toMatchObject({ type: 'inline', text: '"late"' })
     expect(call?.eventIds).toEqual(['t1', 't2', 't3', 't4', 't5'])
+  })
+
+  describe('what is observed after a call ended is still the producer’s fact', () => {
+    test('a duration and an output that arrive after the end fill what was never observed', () => {
+      const { turns } = build([
+        prompt('u1'),
+        tool('t1', 'call-1', 'completed'),
+        tool(
+          't2',
+          'call-1',
+          'progress',
+          { durationMs: 1200, output: { type: 'inline', value: 'tail' } },
+          { classification: 'restricted_local' }
+        ),
+      ])
+      const [call] = calls(turns[0]!.entries)
+      expect(call?.call).toMatchObject({
+        phase: 'completed',
+        durationMs: 1200,
+        output: { type: 'inline', text: '"tail"' },
+      })
+    })
+
+    test('a value already observed is not rewritten once the call ended', () => {
+      const { turns } = build([
+        prompt('u1'),
+        tool(
+          't1',
+          'call-1',
+          'completed',
+          { durationMs: 900, output: { type: 'inline', value: 'first' } },
+          { classification: 'restricted_local' }
+        ),
+        tool(
+          't2',
+          'call-1',
+          'completed',
+          { durationMs: 5, output: { type: 'inline', value: 'second' } },
+          { classification: 'restricted_local' }
+        ),
+      ])
+      const [call] = calls(turns[0]!.entries)
+      expect(call?.call).toMatchObject({
+        durationMs: 900,
+        output: { type: 'inline', text: '"first"' },
+      })
+    })
+
+    test('a stale event while the call is open fills output but does not move the phase', () => {
+      const { turns } = build([
+        prompt('u1'),
+        tool('t1', 'call-1', 'progress'),
+        tool('t2', 'call-1', 'started', { durationMs: 40 }),
+      ])
+      const [call] = calls(turns[0]!.entries)
+      expect(call?.call).toMatchObject({ phase: 'progress', durationMs: 40 })
+    })
+
+    test('a parent named after the call ended still holds it', () => {
+      const { turns } = build([
+        prompt('u1'),
+        subagent('p', 'parent', 'started'),
+        tool('c1', 'child', 'completed'),
+        tool('c2', 'child', 'progress', { parentCallId: 'parent' }),
+      ])
+      const [parent] = calls(turns[0]!.entries)
+      expect(parent?.children.map((child) => child.id)).toEqual(['c1'])
+    })
+
+    test('a different parent named after the call ended leaves it unnested', () => {
+      const { turns } = build([
+        prompt('u1'),
+        subagent('p1', 'parent-1', 'started'),
+        subagent('p2', 'parent-2', 'started'),
+        tool('c1', 'child', 'completed', { parentCallId: 'parent-1' }),
+        tool('c2', 'child', 'progress', { parentCallId: 'parent-2' }),
+      ])
+      expect(calls(turns[0]!.entries).map((entry) => shape(entry))).toEqual(['p1', 'p2', 'c1'])
+    })
+
+    test('a contradicting terminal phase does not replace the first', () => {
+      const { turns } = build([
+        prompt('u1'),
+        tool('t1', 'call-1', 'completed'),
+        tool('t2', 'call-1', 'failed', { durationMs: 7 }),
+      ])
+      const [call] = calls(turns[0]!.entries)
+      expect(call?.call).toMatchObject({ phase: 'completed', durationMs: 7 })
+    })
   })
 
   test('a call is drawn inside the call its producer named as its parent', () => {
@@ -350,6 +440,35 @@ describe('tool and subagent calls', () => {
       const text = inputText(['sk-abcd', 'efgh12345678'])
       expect(text).not.toContain('efgh12345678')
       expect(text).toContain('withheld')
+    })
+
+    test('a secret split between a string and a number withholds the value', () => {
+      const text = inputText(['sk-abcd', 12345678])
+      expect(text).not.toContain('12345678')
+      expect(text).toContain('withheld')
+    })
+
+    test('a secret split across a number, a boolean and a string withholds the value', () => {
+      const text = inputText({ parts: ['sk-', 12345678, true, 'qrstuvwx'] })
+      expect(text).not.toContain('qrstuvwx')
+      expect(text).toContain('withheld')
+    })
+
+    test('a secret split across object values is joined past the keys between them', () => {
+      const text = inputText({ first: 'sk-abcd', 'a key with spaces': 'efgh12345678' })
+      expect(text).not.toContain('efgh12345678')
+      expect(text).toContain('withheld')
+    })
+
+    test('a fragment held in a key joins the values around it', () => {
+      const text = inputText({ 'sk-abcd': 'efgh12345678' })
+      expect(text).not.toContain('efgh12345678')
+    })
+
+    test('a number or boolean next to ordinary text is not withheld', () => {
+      const text = inputText({ count: 12345678, ok: true, note: 'sky-high hopes' })
+      expect(text).not.toContain('withheld')
+      expect(text).toContain('12345678')
     })
 
     test('a PEM block with escaped newlines is redacted', () => {

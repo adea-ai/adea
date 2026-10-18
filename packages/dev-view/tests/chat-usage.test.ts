@@ -144,6 +144,32 @@ describe('context figures', () => {
     ).toBe(10)
   })
 
+  test('a model id alone is ambiguous when two providers reported it', () => {
+    const shared = { providerId: 'openai', modelId: 'fixture-model' }
+    const events = [
+      usage('a1', { context: { used: 10, total: 100 } }),
+      usage('c1', { model: shared, context: { used: 99, total: 100 } }),
+    ]
+    // Neither the newest nor the first is chosen on the id alone.
+    expect(latestUsageFigures(events, 3, { modelId: 'fixture-model' })).toBeUndefined()
+    // Naming the provider resolves it, whichever provider.
+    expect(
+      latestUsageFigures(events, 3, { providerId: 'openai', modelId: 'fixture-model' })?.used
+    ).toBe(99)
+    expect(
+      latestUsageFigures(events, 3, { providerId: 'anthropic', modelId: 'fixture-model' })?.used
+    ).toBe(10)
+  })
+
+  test('a model id that one provider reported still resolves without a provider', () => {
+    const events = [
+      usage('a1', { context: { used: 10, total: 100 } }),
+      usage('a2', { context: { used: 30, total: 100 } }),
+      usage('b1', { model: B, context: { used: 1, total: 2 } }),
+    ]
+    expect(latestUsageFigures(events, 3, { modelId: 'fixture-model' })?.used).toBe(30)
+  })
+
   test('with no model named, several reported models are ambiguous and show nothing', () => {
     expect(
       latestUsageFigures(
