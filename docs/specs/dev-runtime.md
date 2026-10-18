@@ -1752,23 +1752,61 @@ session and generation in the active authenticated model host. Scope replacement
 clears these snapshots and rejects late writes from the previous scope. A
 snapshot records the scroll offset and whether the reader was following live
 output; it does not create another transcript or session authority.
-Inline approval/question and terminal-jump controls use published shared Button
-and Input primitives; runtime event projection and authorized response callbacks
-remain application-owned.
-The mounted transcript uses the published shared ConversationSurface to restore
-that snapshot and report native scrolling and cleanup through the host callback,
-carrying the immutable mounted session identity. Shared follow intent stops on
+Inline approval/question and terminal-jump controls use the published shared
+Confirmation, Questionnaire and Button primitives; runtime event projection and
+authorized response callbacks remain application-owned.
+The mounted transcript uses the published shared MessageScroller (which wraps
+ConversationSurface) to restore that snapshot and report native scrolling and
+cleanup through the host callback, carrying the immutable mounted session
+identity. Shared follow intent stops on
 upward reader movement even inside the jump-control visibility threshold; new
 events preserve the parked offset until the reader explicitly resumes following.
 The jump control returns to the latest event and focuses the native transcript.
-During append-only streaming, existing transcript row DOM nodes stay mounted so
-the live region adds only the new row instead of replaying prior announcements.
-The published shared TranscriptComposition owns keyed row rendering, with the
-canonical session/generation as its explicit reset scope. The host clears local
-question answers on scope reset and retains response-authority checks. Current
-opaque runtime payloads provide no validated call phase, interaction eligibility,
-synthesis or final-answer boundary; rows therefore stay visible and unfolded.
-Payload hints and run completion cannot authorize grouping or hide an action.
+During append-only streaming, existing transcript DOM nodes (turns, activity
+columns, lines and prose blocks) stay mounted, keyed by stable ids, so the live
+region adds only the new content instead of replaying prior announcements. The
+canonical session/generation is the explicit reset scope. The host clears local
+question answers on scope reset and retains response-authority checks.
+
+The canvas draws turns: a `turn.user_input` event opens a turn, which is the one
+boundary taken from an event kind, and everything after it nests under one
+assistant response until the next prompt. Events before the first prompt form a
+lead turn. Consecutive `turn.assistant_delta` events with the same known harness
+run id and generation are joined into one prose block whose id is the first
+delta's id; deltas without a run id are not guessed to share a block. Each
+fragment is redacted with a bounded window of its neighbours' raw text, so a
+secret split across fragments is not rendered; when the window is saturated
+inside an unbounded Bearer or PEM separator the fragment is withheld and marked
+truncated rather than guessed. Fragment boundaries inside one prose block do not
+change layout: a CRLF split across two adjacent fragments of the same run and
+generation is one line feed, as in the unsplit payload. Fragments of different
+runs, generations or without a run id keep their own line feeds. When the
+transcript window is bounded, Chat says "Showing the latest
+events only."; a sequence gap uses its resync notice rather than claiming a
+checkpoint is required. `turn.assistant_message` and `turn.result` render as
+prose when they carry text.
+Current opaque runtime payloads provide no validated call identity or phase,
+interaction eligibility, synthesis or final-answer boundary, and no
+delta-to-message supersession contract; so no event is correlated with another
+by payload, a delta block and a later message both render, and no event is
+hidden. A line shows a status only when its own event kind states one
+(`*.completed`, `*.failed`); `started`, `requested` and `progress` carry no
+success claim. A spinner is drawn only from the host's session lifecycle
+(`active`), never from the absence of a later event. Only a `requested` approval
+draws the Confirmation card; later `resolved` or `expired` events are quiet
+lines that make no approved/denied claim. A `turn.result` marks a failure only
+when its payload sets `isError`. An unrecognised event kind renders in position
+as a line labelled by its wire kind, without payload content; only
+`credential`-classified events are not drawn. Payload hints and run completion
+cannot authorize grouping or hide an action. Source-reported reasoning and
+method-step summaries (`turn.reasoning_summary`, `turn.method_step_summary`,
+#1388) and cited answers (`references` on `turn.assistant_message`, #1389) are
+drawn only after `decodeRuntimeEvent` accepts them: one node per summary or
+step, replaced only by a higher revision, and citation markers placed only where
+the displayed text is the exact payload text. Checkpoints, attachments, context
+usage, test results and queued follow-ups are not drawn, because no producer
+supplies them; each is a separate backend dependency documented in
+`docs/evidence/chat-canvas-2026-10-15.md`.
 
 Adea's persisted appearance IDs are the complete published `@adea-ai/themes`
 catalogue, as carried by the published `@adea-ai/ui` ThemeProvider (pinned to an
@@ -2791,6 +2829,113 @@ Event constraints:
 - gaps return `resync_required` with checkpoint anchor; clients never advance
   past an unexplained gap.
 
+### Structured activity producer contracts (#1394)
+
+`packages/types/src/dev-runtime-activity/` owns the six version-1 payload
+schemas. The focused `@adea-ai/types/dev-runtime-activity` entry exports their
+types, bounds, status vocabularies and shape decoder; the full runtime entry
+re-exports the same implementations. These Adea-specific schemas are not
+supplied by the mapped donor lifecycle/write-gate units; no donor code is
+copied. The wire entry's `decodeRuntimeActivityEvent` validates the envelope,
+schema and producer ownership before returning typed activity facts.
+
+| Kind                | Required observed data                                                 | Optional observed data                                                               |
+| ------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `test_run.observed` | `testRunId`, explicit status                                           | Summary counts/duration, suites, test cases, failures, collection completeness       |
+| `terminal.output`   | Terminal/command IDs, canonical uint64 sequence, phase, status, stream | Exact text, command label, worktree-relative cwd, exit code, observed duration       |
+| `failure.observed`  | Failure ID and message                                                 | Error name, test reference, raw stack and structured frames                          |
+| `files.changed`     | Change-set ID and files with explicit change kinds                     | Rename/copy origin, line-count claims, summary counts, collection completeness       |
+| `plan.observed`     | Plan ID, explicit status and ordered items with IDs/titles/statuses    | Plan title, item descriptions, summary counts, collection completeness               |
+| `task.observed`     | Task ID, title and explicit status                                     | Parent/plan references, description, todos with IDs/titles/statuses, inert HTTPS URL |
+
+Every payload requires `schemaVersion: 1` and rejects unknown keys, versions,
+non-JSON values, duplicate record identities and malformed records. IDs are
+opaque 1–256 character tokens beginning with an ASCII alphanumeric and then
+ASCII alphanumerics, `.`, `_`, `:` or `-`. They grant no authority over a cloud
+task, command, file or source. An absent field remains absent; no decoder
+inserts a count, duration, completion, location, test result or success.
+Every new structured string and map key, including envelope identifiers, MUST
+be well-formed Unicode. Lone UTF-16 surrogates are refused before comparison or
+admission; the CBOR encoder also refuses them instead of substituting U+FFFD.
+Valid surrogate pairs and an explicitly supplied U+FFFD remain unchanged.
+
+Test statuses are `unknown`, `pending`, `running`, `passed`, `failed`,
+`skipped`, `cancelled`. Work statuses are `unknown`, `pending`, `in_progress`,
+`completed`, `failed`, `cancelled`. Parent/summary statuses and counts are
+independent producer claims; they MUST NOT be calculated or reconciled from
+the retained child rows. Missing/partial collections do not establish a total.
+Counts and observed durations are nonnegative safe integers. Test/suite and
+failure references may point outside the retained partial list and do not
+establish that an unlisted row exists or was successful.
+
+Payload JSON has a 64 KiB encoded UTF-8 maximum, depth 12, 4,096 value nodes,
+256 array/object entries per container and 16,384 UTF-16 code units per string.
+The encoder budget includes key escaping and JSON punctuation and is checked
+incrementally before encoding. Narrower bounds are 64 suites, 256 tests,
+64 failures, 64 stack frames, 256 changed files, and 128 plan items or todos.
+Titles/test names are at most 512 code units, descriptions 4,096, error messages
+8,192, source URLs 2,048, and portable relative paths 1,024. The entire
+canonical-CBOR `RuntimeEvent`, including IDs, timestamps, provenance and every
+payload field, MUST also fit the existing 65,536-byte runtime-events data-frame
+grant before admission. Independent field or JSON budgets do not waive this
+aggregate check. An authenticated-hook event additionally fits an 8 KiB JSON
+envelope; its adapter still owns the raw hook-frame bound.
+
+Paths are canonical portable worktree-relative data: no absolute/drive/UNC or
+home paths, traversal/dot/empty segments, backslashes, controls/bidi controls,
+encoded traversal/separators, Git-internal paths, reserved device names or
+ambiguous trailing dot/space. The terminal cwd alone permits `.` as an explicit
+worktree root. Stack locations are either a relative path or an inert public
+HTTPS source URL, never both; a column needs a line and line/column need a
+location. URLs reject credentials, IP/loopback/local addresses, unsafe schemes,
+whitespace/backslashes, malformed escapes and raw/encoded controls. No path or
+URL authorizes navigation, retrieval, execution or filesystem access; a future
+resolver must separately prove scope, classification and network/filesystem
+admission, including DNS and redirects.
+The bidi ban includes U+061C, U+200E, U+200F, U+202A–U+202E and U+2066–U+2069
+in paths and both raw and percent-decoded URL text.
+
+Terminal phases are `started`, `output`, `finished`. Started/output status is
+`unknown` or `running`; finished status is `unknown`, `succeeded`, `failed` or
+`cancelled`. Output requires exact text, including inert markup/ANSI; there is
+no semantic parsing. An exit code may appear only on a finished observation,
+and even zero never implies success. Chunk identity binds session, generation,
+optional harness run, producer source, terminal, command, stream and sequence.
+Identical retained chunks are ignored; conflicting content or classification
+is refused. Missing/evicted chunks or a terminal phase do not synthesize other
+output or success.
+
+New host-log activity appends receive a separate trusted adapter provenance
+argument and explicitly supplied source, confidence and classification; host
+lifecycle defaults do not fill those facts. Known activity requires authoritative native/ACP/owned-hook
+provenance and an exact `ownedActivityKinds` allowlist from that adapter;
+capabilities, process exit, payload fields and host lifecycle receipts cannot
+provide ownership. Validation and aggregate size checks precede persistence,
+retention, sequence consumption and subscription delivery. Published snapshots
+are detached and deeply frozen. A repeated source event with changed run,
+classification, explicit observation time, kind or canonical payload is an
+`idempotency_conflict`; key order and host-assigned IDs/times do not create new
+facts.
+
+Replay candidates still validate all schema, Unicode, provenance, ownership
+and identity/content constraints before duplicate comparison. An identical
+source event or terminal chunk returns only a duplicate result and creates no
+new envelope. It MUST NOT be rejected because a provisional new host sequence
+or receipt would be larger (for example, sequence 9 becoming 10). Changed
+valid claims conflict; malformed claims and missing ownership are refused.
+Every new record then passes the full 65,536-byte CBOR and, when applicable,
+8 KiB hook envelope checks before receiving a publishable event value.
+
+Generic replay continues returning an opaque `RuntimeEvent`: legacy payloads
+without a version remain bounded and readable, and well-formed versioned rows
+can remain plain Trace lines without an ownership allowlist. Versioned claims
+are shape/provenance/size checked, but only the explicit activity decoder and
+host admission establish owned typed facts. Legacy data is never upgraded and
+new legacy appends are refused. No production adapter currently emits these
+six kinds; no runner, terminal parser, UI renderer, queue or reasoning producer
+is added. The integration handoff lists the shared aggregation conflicts in
+[the #1394 evidence note](../evidence/runtime-activity-contract-refs1394.md).
+
 ### Structured questions and correlated outcomes (#1395)
 
 `packages/types/src/dev-runtime-interactions.ts` defines the versioned producer
@@ -3193,11 +3338,14 @@ claim is true. Producers that cannot supply validated references MUST omit
 `references`; consumers MUST NOT infer sources from Markdown links, tool text,
 an earlier response or a completed run. An absent reference object remains
 unknown/no-source; explicitly empty lists are allowed and invent nothing.
-A final without `references` keeps no sources; unrelated opaque payloads keep
-their existing behavior. A retained row written before message identity existed
-still passes the reference check on replay but stays opaque to the assistant
-lifecycle. This producer contract
-does not enable Sources/Inline Citation rendering or parse a harness's prose.
+Legacy assistant payloads without `references` and unknown event retention
+keep their existing behavior; a final without `references` keeps no sources.
+Unrelated opaque payloads keep their existing behavior. A retained row written
+before message identity existed still passes the reference check on replay but
+stays opaque to the assistant lifecycle. This producer contract does not parse
+a harness's prose or enable Sources/Inline Citation rendering on its own; the
+Chat canvas draws Sources and Inline Citation only from validated references
+(see the Chat section above).
 
 Implementation is isolated in
 `packages/types/src/dev-runtime-response-references.ts`, re-exported through
@@ -3395,9 +3543,9 @@ The isolated contract is `packages/types/src/dev-runtime-visible-summaries.ts`,
 re-exported through `@adea-ai/types/dev-runtime`; producer admission and bounded
 history checks are in the host's `harness/visible-summaries.ts`. Contract and
 durable replay tests are `packages/types/tests/dev-runtime-visible-summaries.test.ts`
-and `apps/desktop/tests/runtime-visible-summaries-replay.test.ts`. This contract
-does not enable shared Reasoning/Chain of Thought presentation or change Chat
-consumer composition.
+and `apps/desktop/tests/runtime-visible-summaries-replay.test.ts`. The Chat canvas
+consumes these summaries through the shared Reasoning and Chain of Thought
+presentation (see the Chat section above); the contract itself does not.
 
 ### Context and token usage observations (#1391)
 
@@ -5717,7 +5865,9 @@ request/snapshot/reply/event-payload decoders are exported from the focused
 `decodeFollowUpQueueReply`. Browser stream and replay use
 `decodeRuntimeBrowserEnvelope` to strictly decode authoritative-host provenance,
 envelope identity, and the complete prompt-free `queue.updated` payload. The
-host event log applies the full queue-event payload decoder both before append
+general wire decoder checks authoritative-host provenance, envelope identity,
+and the absence of prompt-text fields for `queue.updated`. The host event log
+applies the full queue-event payload decoder both before append
 and while projecting persisted/replayed events.
 Returned snapshots and queue-event payloads are detached and frozen so caller
 mutation cannot change the admitted queue facts.
@@ -7577,6 +7727,27 @@ private file content. Audit records contain IDs, operation, actor, scope,
 result/error code, byte/count summaries, and redacted target labels.
 Chat transcript projection also drops any `credential`-classified event before
 rendering, including a malformed producer's otherwise renderable event kind.
+The bounded chat accumulator carries one boolean when eviction or a replay floor
+removes the prefix of its leading assistant-delta streak. Projection then withholds
+that whole leading streak until a canonical non-delta event; it exposes only an
+explicit truncation marker, never a raw suffix, payload-derived label or event
+reference. The flag follows later eviction within the same streak and clears at
+a known event boundary. No evicted credential text or unbounded provenance list
+is retained. Only copied run/generation metadata survives on withheld rows, so
+the bounded response block can keep its identity while showing an explicit
+unavailable-context notice. Trimming history must never undo earlier
+cross-fragment redaction.
+Approval and question requests have a separate redacted request-context projection;
+question wording takes precedence over incidental summary text. The existing
+4,096-character display and bounded redaction scan limits remain. If that context
+is missing or exceeds the display bound, the UI explicitly says it is incomplete
+and disables approval/question submission, including the callback path. Inspection
+must never label a clipped preview as the full request. Sanitizer provenance
+records both input-window truncation and clipping after redaction replacements,
+which can expand short tokens; either fences response callbacks. An exact-limit
+sanitized value is complete only if no additional visible code point is dropped. Tool-output copy uses a
+separate redacted layout-preserving projection within the same limit: LF and tabs
+survive, CRLF is normalized to LF, and unsafe controls are removed.
 
 ## Error contract
 
