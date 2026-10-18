@@ -987,3 +987,138 @@ describe('exact limits of summaries and cited responses', () => {
     })
   })
 })
+
+// ─── One assistant message across its deltas, final text and result (#1383) ─
+
+const delta = (messageId: string, deltaIndex: number, text: string, id: string, run = 'run-1') =>
+  event('turn.assistant_delta', { messageId, deltaIndex, text }, id, run)
+const final = (messageId: string, text: string, id: string, run = 'run-1') =>
+  event('turn.assistant_message', { messageId, text, supersedes: 'deltas' }, id, run)
+const result = (messageId: string, id: string, extra: object = {}, run = 'run-1') =>
+  event('turn.result', { messageId, ...extra }, id, run)
+const shapeOf = (built: ReturnType<typeof turns>['turns']) =>
+  built[0]?.entries.map((entry) => `${entry.type}:${entry.id}`)
+
+describe('assistant message identity', () => {
+  test('the final text replaces its deltas in their place and under their id', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Hel', 'd1'),
+      delta('m1', 1, 'lo', 'd2'),
+      final('m1', 'Hello, world.', 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1'])
+    expect(built[0]?.entries[0]).toMatchObject({
+      type: 'text',
+      source: 'message',
+      text: 'Hello, world.',
+      eventIds: ['d1', 'd2', 'a1'],
+    })
+    expect(entryByEventId.get('a1')).toBe('d1')
+    expect(entryByEventId.get('d2')).toBe('d1')
+  })
+
+  test('a final whose deltas are gone is drawn on its own', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      final('m1', 'Hello, world.', 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:a1'])
+  })
+
+  test('a message interrupted by a tool is one block at its first position', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Looking. ', 'd1'),
+      event('tool.started', { name: 'bash' }, 't1'),
+      delta('m1', 1, 'Found it.', 'd2'),
+      final('m1', 'Looking. Found it.', 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'activity:t1'])
+    expect(built[0]?.entries[0]).toMatchObject({
+      text: 'Looking. Found it.',
+      eventIds: ['d1', 'd2', 'a1'],
+    })
+    expect(entryByEventId.get('d2')).toBe('d1')
+  })
+
+  test('two messages of one run stay two blocks, and each final replaces only its own', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'First', 'd1'),
+      delta('m2', 0, 'Second', 'd2'),
+      final('m2', 'Second.', 'a2'),
+      final('m1', 'First.', 'a1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'text:d2'])
+    expect(built[0]?.entries.map((entry) => (entry as { text: string }).text)).toEqual([
+      'First.',
+      'Second.',
+    ])
+  })
+
+  test('the same id from another run, or in another turn, is another message', () => {
+    const otherRun = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'one', 'd1'),
+      final('m1', 'two', 'a1', 'run-2'),
+    ])
+    expect(shapeOf(otherRun.turns)).toEqual(['text:d1', 'text:a1'])
+
+    const nextTurn = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'one', 'd1'),
+      event('turn.user_input', { text: 'again' }, 'u2'),
+      final('m1', 'two', 'a1'),
+    ])
+    expect(nextTurn.turns.map((turn) => turn.entries.map((entry) => entry.id))).toEqual([
+      ['d1'],
+      ['a1'],
+    ])
+  })
+
+  test('a result that references a drawn message ends it and is not a second answer', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Done.', 'd1'),
+      final('m1', 'Done.', 'a1'),
+      result('m1', 'r1'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1'])
+    expect(built[0]?.entries[0]).toMatchObject({ failed: false, eventIds: ['d1', 'a1', 'r1'] })
+    expect(entryByEventId.get('r1')).toBe('d1')
+  })
+
+  test('a failing result marks the message it references as failed', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      final('m1', 'It broke.', 'a1'),
+      result('m1', 'r1', { isError: true }),
+    ])
+    expect(shapeOf(built)).toEqual(['text:a1'])
+    expect(built[0]?.entries[0]).toMatchObject({ failed: true })
+  })
+
+  test('a result for a message that was never drawn stays visible as a notice', () => {
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      result('m1', 'r1'),
+    ])
+    expect(shapeOf(built)).toEqual(['notice:r1'])
+  })
+
+  test('a fragment that arrives after the final text joins the message without changing it', () => {
+    const { turns: built, entryByEventId } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Hi', 'd1'),
+      final('m1', 'Hi there.', 'a1'),
+      delta('m1', 1, ' there', 'd2'),
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1'])
+    expect(built[0]?.entries[0]).toMatchObject({
+      text: 'Hi there.',
+      eventIds: ['d1', 'a1', 'd2'],
+    })
+    expect(entryByEventId.get('d2')).toBe('d1')
+  })
+})

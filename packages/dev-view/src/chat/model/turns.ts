@@ -11,6 +11,14 @@
 //   generation are joined into one block of prose, because a delta is by
 //   definition a fragment of the text that follows it. Anything else between two
 //   deltas (a tool, an approval, a different run) ends the block.
+// - Assistant content that carries a producer-assigned `messageId` is one message.
+//   The deltas of that message, the final `turn.assistant_message` that replaces
+//   them (`supersedes: 'deltas'`) and the `turn.result` that references it share one
+//   entry, drawn where the first delta arrived, so a finished answer is never shown
+//   twice and a stream that is replaced does not jump. The identity is scoped to its
+//   session, generation, run and source: the same id from another run or source is a
+//   different message. Events with no `messageId` (rows retained from before it
+//   existed) keep the run-and-generation grouping below.
 // - Nothing is correlated by payload. A `tool.started` and the `tool.completed`
 //   that follows it stay two lines: the spec ("Payload hints and run completion
 //   cannot authorize grouping or hide an action") gives the canvas no validated
@@ -164,6 +172,41 @@ function summaryScope(item: ChatTranscriptItem): readonly unknown[] {
   return [event?.runtimeSessionId, event?.generation, event?.harnessRunId, event?.source]
 }
 
+/** The producer's identity for an assistant message, when the wire event carries one. */
+function assistantMessageId(item: ChatTranscriptItem): string | undefined {
+  if (
+    item.kind !== 'turn.assistant_delta' &&
+    item.kind !== 'turn.assistant_message' &&
+    item.kind !== 'turn.result'
+  )
+    return undefined
+  const payload = item.event?.payload
+  if (payload === null || typeof payload !== 'object') return undefined
+  const id = (payload as Record<string, unknown>).messageId
+  return typeof id === 'string' && id.length > 0 ? id : undefined
+}
+
+/** One message in one scope; undefined for events that predate the identity. */
+function assistantKey(item: ChatTranscriptItem): string | undefined {
+  const id = assistantMessageId(item)
+  return id === undefined ? undefined : JSON.stringify([summaryScope(item), id])
+}
+
+/** A slot whose entry was folded into an earlier one; removed once the turn is built. */
+const FOLDED = Object.freeze({}) as unknown as ChatTurnEntry
+
+type MessageProse = {
+  entries: ChatTurnEntry[]
+  /** Where the message is drawn: the position of its first block. */
+  at: number
+  id: string
+  settled: boolean
+  /** Positions of later blocks of the same message, folded away once it settles. */
+  later: { at: number; ids: string[] }[]
+  eventIds: string[]
+  failed: boolean
+}
+
 /**
  * Group projected transcript rows into turns.
  *
@@ -192,10 +235,17 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
     streak.forEach((item, partIndex) => safeDelta.set(item, sanitized[partIndex]!))
   }
   let pendingDelta:
-    | { first: ChatTranscriptItem; items: ChatTranscriptItem[]; ids: string[]; truncated: boolean }
+    | {
+        first: ChatTranscriptItem
+        items: ChatTranscriptItem[]
+        ids: string[]
+        truncated: boolean
+        key: string | undefined
+      }
     | undefined
 
   const index = (eventId: string, entryId: string) => entryByEventId.set(eventId, entryId)
+  const prose = new Map<string, MessageProse>()
 
   const reasoning = new Map<string, ReasoningState>()
   const methods = new Map<string, MethodState>()
@@ -295,7 +345,7 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
 
   const flushDelta = () => {
     if (!pendingDelta || !open) return
-    const { first, items: deltaItems, ids, truncated: cut } = pendingDelta
+    const { first, items: deltaItems, ids, truncated: cut, key } = pendingDelta
     pendingDelta = undefined
     const safeItems = deltaItems.map((item) => {
       const safe = safeDelta.get(item)
@@ -320,6 +370,20 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
       eventIds: ids,
     })
     for (const id of ids) index(id, first.id)
+    if (key === undefined) return
+    const at = open.entries.length - 1
+    const known = prose.get(key)
+    if (known && known.entries === open.entries) known.later.push({ at, ids })
+    else
+      prose.set(key, {
+        entries: open.entries,
+        at,
+        id: first.id,
+        settled: false,
+        later: [],
+        eventIds: [...ids],
+        failed: false,
+      })
   }
 
   const current = () => {
@@ -340,6 +404,19 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
     }
     const turn = current()
     if (item.kind === 'turn.assistant_delta') {
+      const key = assistantKey(item)
+      const settled = key === undefined ? undefined : prose.get(key)
+      if (settled?.settled === true && settled.entries === turn.entries) {
+        // A late fragment of a message its final text already replaced: the final
+        // text is the complete message, so the fragment only joins its event ids.
+        settled.eventIds.push(item.id)
+        turn.entries[settled.at] = {
+          ...(turn.entries[settled.at] as ChatTurnText),
+          eventIds: [...settled.eventIds],
+        }
+        index(item.id, settled.id)
+        continue
+      }
       const safe = safeDelta.get(item)
       // `undefined` from an existing sanitizer result means sanitized/omitted,
       // not "try the raw body again". Only an absent result may fall back.
@@ -381,8 +458,9 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
         index(item.id, item.id)
         continue
       }
-      if (pendingDelta && !sameRun(pendingDelta.first, item)) flushDelta()
-      if (!pendingDelta) pendingDelta = { first: item, items: [], ids: [], truncated: false }
+      if (pendingDelta && (!sameRun(pendingDelta.first, item) || pendingDelta.key !== key))
+        flushDelta()
+      if (!pendingDelta) pendingDelta = { first: item, items: [], ids: [], truncated: false, key }
       pendingDelta.truncated ||= item.bodyTruncated === true || safe?.truncated === true
       pendingDelta.items.push(
         safe
@@ -407,6 +485,22 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
       continue
     }
     if (item.kind === 'turn.assistant_message' || item.kind === 'turn.result') {
+      const key = assistantKey(item)
+      const known = key === undefined ? undefined : prose.get(key)
+      const mine = known !== undefined && known.entries === turn.entries ? known : undefined
+      if (item.kind === 'turn.result' && mine !== undefined && item.body === undefined) {
+        // The result references a message already drawn: it ends that message, it is
+        // not a second answer. Only a failure it reports changes how the message reads.
+        mine.eventIds.push(item.id)
+        mine.failed ||= resultFailed(item)
+        turn.entries[mine.at] = {
+          ...(turn.entries[mine.at] as ChatTurnText),
+          failed: mine.failed,
+          eventIds: [...mine.eventIds],
+        }
+        index(item.id, mine.id)
+        continue
+      }
       if (item.body === undefined) {
         turn.entries.push({ type: 'notice', id: item.id, item })
       } else {
@@ -423,7 +517,7 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
                 ),
               }
             : item.references
-        turn.entries.push({
+        const entry: ChatTurnText = {
           type: 'text',
           id: item.id,
           text,
@@ -432,7 +526,38 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
           failed: item.kind === 'turn.result' && resultFailed(item),
           eventIds: [item.id],
           ...(references !== undefined ? { references } : {}),
-        })
+        }
+        if (item.kind === 'turn.assistant_message' && mine !== undefined) {
+          // The final text replaces the stream it supersedes, in the stream's place and
+          // under its id, so the drawn block keeps its node and position.
+          for (const later of mine.later) {
+            turn.entries[later.at] = FOLDED
+            for (const id of later.ids) index(id, mine.id)
+            mine.eventIds.push(...later.ids)
+          }
+          mine.later = []
+          mine.eventIds.push(item.id)
+          mine.settled = true
+          turn.entries[mine.at] = {
+            ...entry,
+            id: mine.id,
+            failed: mine.failed,
+            eventIds: [...mine.eventIds],
+          }
+          index(item.id, mine.id)
+          continue
+        }
+        turn.entries.push(entry)
+        if (key !== undefined && item.kind === 'turn.assistant_message')
+          prose.set(key, {
+            entries: turn.entries,
+            at: turn.entries.length - 1,
+            id: item.id,
+            settled: true,
+            later: [],
+            eventIds: [item.id],
+            failed: false,
+          })
       }
     } else if (item.role === 'approval') {
       turn.entries.push({ type: 'approval', id: item.id, item })
@@ -446,6 +571,9 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
     index(item.id, item.id)
   }
   flushDelta()
+  for (const turn of turns)
+    if (turn.entries.includes(FOLDED))
+      turn.entries = turn.entries.filter((entry) => entry !== FOLDED)
   return { turns, entryByEventId }
 }
 
