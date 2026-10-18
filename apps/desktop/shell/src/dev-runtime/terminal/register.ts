@@ -68,6 +68,8 @@ export type TerminalRegistryEntry = {
 }
 
 export type RegisterTerminalRuntimeInput = {
+  assertSessionInputAvailable?: (runtimeSessionId: string) => void
+  resolveSessionGeneration?: (runtimeSessionId: string) => number | undefined
   authority: ChannelAuthority
   gateway: ChannelGateway
   /** The adopted sidecar client (sidecar/adoption). */
@@ -198,6 +200,7 @@ export function registerTerminalRuntime(
       return () => clearInterval(timer)
     })
   const registry = new Map<string, TerminalRegistryEntry>()
+  const writeGrantGenerations = new Map<string, { generation: number; expiresAt: number }>()
   const inputAuthorities = new Map<string, ReturnType<typeof createInputAuthority>>()
   type ReadSession = {
     terminalId: string
@@ -620,6 +623,14 @@ export function registerTerminalRuntime(
       if (body.terminalId !== command.resource!.id) {
         throw devError('identity_mismatch', 'body terminalId does not match the resource binding')
       }
+      input.assertSessionInputAvailable?.(entry.runtimeSessionId)
+      const sessionGeneration = input.resolveSessionGeneration?.(entry.runtimeSessionId)
+      if (input.resolveSessionGeneration && sessionGeneration === undefined)
+        throw devError('invalid_state', 'terminal input requires a current canonical session')
+      for (const [id, binding] of writeGrantGenerations)
+        if (binding.expiresAt <= now()) writeGrantGenerations.delete(id)
+      if (writeGrantGenerations.size >= 1024)
+        throw devError('limit_exceeded', 'pending session-bound terminal input grant limit reached')
       const grant = input.authority.mintStreamGrant({
         identity: identity!,
         protocol: 'terminal-bytes-v1',
@@ -628,6 +639,11 @@ export function registerTerminalRuntime(
         direction: 'write',
         fromSequence: (body.fromSequence as string | undefined) ?? '0',
       })
+      if (sessionGeneration !== undefined)
+        writeGrantGenerations.set(grant.grantId, {
+          generation: sessionGeneration,
+          expiresAt: Date.parse(grant.expiresAt),
+        })
       return grant
     },
 
@@ -876,6 +892,19 @@ export function registerTerminalRuntime(
         session.close('stale_generation', 'input generation is stale')
         return
       }
+      const sessionBinding = writeGrantGenerations.get(grant.grantId)
+      writeGrantGenerations.delete(grant.grantId)
+      if (
+        input.resolveSessionGeneration &&
+        (!sessionBinding ||
+          sessionBinding.generation !== input.resolveSessionGeneration(entry.runtimeSessionId))
+      ) {
+        session.close(
+          'stale_generation',
+          'terminal input grant predates the current session authority'
+        )
+        return
+      }
       const authority =
         inputAuthorities.get(terminalId) ??
         (() => {
@@ -912,6 +941,18 @@ export function registerTerminalRuntime(
         }
         if (!writeState.fence || !authority.admitChunk(writeState.fence).ok) {
           session.close('stale_generation', 'input writer no longer owns the terminal')
+          writeSessions.delete(grant.grantId)
+          return
+        }
+        try {
+          input.assertSessionInputAvailable?.(entry.runtimeSessionId)
+          if (
+            input.resolveSessionGeneration &&
+            sessionBinding?.generation !== input.resolveSessionGeneration(entry.runtimeSessionId)
+          )
+            throw devError('stale_generation', 'terminal writer must renew its session authority')
+        } catch {
+          session.close('stale_generation', 'checkpoint restore is pending physical reconciliation')
           writeSessions.delete(grant.grantId)
           return
         }
@@ -1060,6 +1101,14 @@ export function registerTerminalRuntime(
       }
     | { ok: false; code: DevError['code']; message: string }
   > {
+    input.assertSessionInputAvailable?.(request.runtimeSessionId)
+    const sessionGeneration = input.resolveSessionGeneration?.(request.runtimeSessionId)
+    if (input.resolveSessionGeneration && sessionGeneration === undefined)
+      return {
+        ok: false,
+        code: 'invalid_state',
+        message: 'prompt input requires a current canonical session',
+      }
     // The session's newest registered terminal is the delivery target; an
     // absent or non-live terminal is a typed non-delivery, never a silent
     // skip and never a fabricated write.
@@ -1111,6 +1160,12 @@ export function registerTerminalRuntime(
     let writeError: { code: string; message: string } | undefined
     try {
       const fenced = fencedWrite(authority, fence, chunks, (chunk) => {
+        input.assertSessionInputAvailable?.(request.runtimeSessionId)
+        if (
+          input.resolveSessionGeneration &&
+          sessionGeneration !== input.resolveSessionGeneration(request.runtimeSessionId)
+        )
+          throw devError('stale_generation', 'prompt writer lost its session authority')
         writes.push(
           input.sidecar.writeInput(target.terminalId, chunk).then((written) => {
             if (!written.ok && !writeError) {

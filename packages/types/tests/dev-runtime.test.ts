@@ -127,8 +127,9 @@ describe('Dev Runtime operation registry', () => {
     // operation is deliberately added, and the decoder-key check below is
     // what keeps the list and the decoders in step. #1396 adds the authorized history read.
     // what keeps the list and the decoders in step.
+    // #1390 adds the authenticated conversation-checkpoint restore command.
     // #1393 adds the authorized, generation-fenced follow-up queue operation.
-    expect(devOperations).toHaveLength(243)
+    expect(devOperations).toHaveLength(244)
     expect(Object.keys(devOperationMetadata)).toEqual([...devOperations])
     for (const operation of devOperations) {
       expect(devOperationMetadata[operation]).toEqual({

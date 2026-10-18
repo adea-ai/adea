@@ -52,6 +52,17 @@ import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
 import { decodeRuntimeEventHistoryPage } from './dev-runtime-history'
 export { decodeRuntimeEventHistoryPage } from './dev-runtime-history'
 export type { RuntimeEventHistoryPage } from './dev-runtime-history'
+import { decodeCheckpointRestoreOutcome } from './dev-runtime-checkpoints'
+export {
+  decodeConversationCheckpoint,
+  decodeCheckpointRestoreRequest,
+  decodeCheckpointRestoreOutcome,
+} from './dev-runtime-checkpoints'
+export type {
+  ConversationCheckpoint,
+  CheckpointRestoreRequest,
+  CheckpointRestoreOutcome,
+} from './dev-runtime-checkpoints'
 export type {
   FollowUpQueueRequest,
   FollowUpQueueSnapshot,
@@ -4893,6 +4904,7 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.session.cancelHarness': (value) => decodeHarnessRun(value),
   'dev.session.launchHarness': (value) => decodeHarnessRun(value),
   'dev.session.resumeHarness': (value) => decodeHarnessRun(value),
+  'dev.session.restoreCheckpoint': (value) => decodeCheckpointRestoreOutcome(value),
   // #400 harness launch orchestration: preferences read/update/reset, the
   // observed run-status transition, the default-harness launch, and the
   // runtime-events-v1 stream grant.

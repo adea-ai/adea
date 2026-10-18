@@ -64,6 +64,7 @@ import { harnessFamilySpec } from '../discovery/families'
 import type { VaultSecret } from '../vault'
 import { createSessionEventLog, type SessionEventLog } from './events'
 import { transcriptEvent, transcriptPromptText } from './transcript-content'
+import { createConversationCheckpointRuntime, type CheckpointRestoreAdapter } from './checkpoints'
 import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver'
 import { createHarnessDeviceDefaultAuthority } from './device-default'
 import { createHarnessPreferenceAuthority, type HarnessPreferenceAuthority } from './preferences'
@@ -73,6 +74,9 @@ import { summarizeWorkspaceRuns } from './workspace-summary'
 import { registerFollowUpQueue } from './follow-up-register'
 
 export type HarnessRuntimeInput = {
+  /** Absent in production until a native/ACP adapter proves restore support. */
+  checkpointRestoreAdapter?: CheckpointRestoreAdapter
+  checkpointRestoreTimeoutMs?: number
   authority: ChannelAuthority
   /** The verified local-lane scope; the shell IS the runtime node here. */
   scope: Scope
@@ -80,7 +84,10 @@ export type HarnessRuntimeInput = {
   /** Canonical RuntimeSession resolution (project/session projection). */
   resolveSession: (runtimeSessionId: string) => RuntimeSession | undefined
   /** Persists canonical session mutations so both views observe them. */
-  persistSession: (session: RuntimeSession) => void
+  persistSession: (session: RuntimeSession, checkpointRestoreId?: string) => void
+  getSessionRestoreCommit?: Parameters<
+    typeof createConversationCheckpointRuntime
+  >[0]['getSessionRestoreCommit']
   /** Shell event bus; harness changes publish so Dev and Chat share them. */
   publish?: (event: string, payload: unknown) => void
   /** Full-duplex gateway; the runtime-events-v1 stream serves through it. */
@@ -212,6 +219,7 @@ export type PromptDeliverySeam = (
 ) => PromptDeliveryResult | Promise<PromptDeliveryResult>
 
 export type HarnessRuntimeRegistration = Readonly<{
+  checkpoints: ReturnType<typeof createConversationCheckpointRuntime>
   commands: readonly DevOperation[]
   managedPi: ManagedPiDriver
   lane: AcpLane
@@ -272,6 +280,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         : {}),
     })
   const lane = createAcpLane({
+    assertSessionInputAvailable: (id) => checkpoints.assertInputAvailable(id),
     scope: input.scope,
     dataDir: input.dataDir,
     driver: input.acpDriver ?? fallbackAcpDriver(),
@@ -288,6 +297,17 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     dataDir: input.dataDir,
     scope: input.scope,
     resolveSession: input.resolveSession,
+  })
+  const checkpoints = createConversationCheckpointRuntime({
+    dataDir: input.dataDir,
+    scope: input.scope,
+    events,
+    resolveSession: input.resolveSession,
+    persistSession: input.persistSession,
+    getSessionRestoreCommit: input.getSessionRestoreCommit,
+    adapter: input.checkpointRestoreAdapter,
+    restoreTimeoutMs: input.checkpointRestoreTimeoutMs,
+    now,
   })
   const followUps = registerFollowUpQueue({
     authority: input.authority,
@@ -357,6 +377,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   }
 
   function requireLaunchableSession(session: RuntimeSession): void {
+    checkpoints.assertInputAvailable(session.id)
     if (session.archived) {
       throw devError('invalid_state', 'an archived session launches no harness run')
     }
@@ -585,6 +606,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     /** Counts of the memory preamble leading `prompt`, when one does. */
     memory?: Readonly<{ entries: number; bytes: number }>
   }): Promise<void> {
+    checkpoints.assertInputAvailable(params.session.id)
     const sourceEventId = `host:prompt:${params.run.id}`
     // Provenance names how much of the delivery was workspace memory —
     // counts only; neither the memory nor the prompt text enters the event.
@@ -1141,6 +1163,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   }
 
   const providers: Partial<Record<DevOperation, ProviderHandler>> = {
+    'dev.session.restoreCheckpoint': (command) => checkpoints.restore(command),
     // ── Device-wide default harness (a family, shared by every workspace) ──
     'dev.harness.deviceDefault': (command) => {
       requireScope(command)
@@ -1862,6 +1885,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
 
   return {
     commands: [...Object.keys(providers), 'dev.session.followUps'] as DevOperation[],
+    checkpoints,
     managedPi,
     lane,
     events,
