@@ -191,6 +191,13 @@ await context.addInitScript(() => {
       ;(win.testLaunches ??= []).push(event.data.payload)
     }
   })
+  const trace: string[] = []
+  ;(window as unknown as { simLifecycleTrace: string[] }).simLifecycleTrace = trace
+  window.addEventListener('pagehide', () => trace.push('pagehide'))
+  window.addEventListener('message', (event) => {
+    if (typeof event.data?.type === 'string')
+      trace.push(`${event.data.type}:${event.data.payload?.surface ?? ''}`)
+  })
 })
 const errors: string[] = []
 page.on('pageerror', (error) => errors.push(error.message))
@@ -269,6 +276,7 @@ try {
   ).toBeVisible({ timeout: 60_000 })
   await readyScene('character-designer')
   expect(new URL(page.url()).searchParams.get('character')).toBe(saved)
+  console.log('phase: parent reload restored ready character designer')
   for (const child of page.frames()) {
     if (child === page.mainFrame()) continue
     launches.push(
@@ -283,15 +291,18 @@ try {
   await frame().getByRole('button', { name: 'Close character designer', exact: true }).click()
   await expect(page).not.toHaveURL(/characterDesigner=1/)
   await readyScene('hq')
+  console.log('phase: closed reloaded character designer into HQ')
   await frame().getByRole('button', { name: 'Room designer', exact: true }).click()
   await expect(page).toHaveURL(/roomDesigner=1/)
   await expect(
     frame().getByRole('button', { name: 'Close room designer', exact: true })
   ).toBeVisible({ timeout: 60_000 })
   await readyScene('room-designer')
+  console.log('phase: room designer ready')
   await frame().getByRole('button', { name: 'Close room designer', exact: true }).click()
   await expect(page).not.toHaveURL(/roomDesigner=1/)
   await readyScene('hq')
+  console.log('phase: returned from room designer into HQ')
   await expect(frame().getByRole('button', { name: 'Character', exact: true })).toBeVisible({
     timeout: 60_000,
   })
@@ -314,6 +325,40 @@ try {
   expect(errors).toEqual([])
 } catch (error) {
   console.error(JSON.stringify({ requests, errors }))
+  console.error(
+    JSON.stringify({
+      parentUrl: page.url(),
+      grants,
+      assetReads,
+      frames: await Promise.all(
+        page.frames().map(async (child) => ({
+          url: child.url(),
+          body: await child
+            .locator('body')
+            .innerText({ timeout: 1000 })
+            .catch(() => 'unavailable'),
+          state: await child
+            .evaluate(() => ({
+              lifecycle: (window as unknown as { simLifecycleTrace?: string[] }).simLifecycleTrace,
+              root: document.getElementById('sim')?.innerHTML.slice(0, 2500),
+              ready: document.readyState,
+              bodyBox: document.body.getBoundingClientRect().toJSON(),
+              bodyStyle: {
+                visibility: getComputedStyle(document.body).visibility,
+                display: getComputedStyle(document.body).display,
+              },
+              buttons: Array.from(document.querySelectorAll('button')).map((button) => ({
+                label: button.getAttribute('aria-label'),
+                text: button.textContent,
+                hidden: button.closest('[hidden], [aria-hidden="true"]')?.tagName,
+                box: button.getBoundingClientRect().toJSON(),
+              })),
+            }))
+            .catch(() => null),
+        }))
+      ),
+    })
+  )
   console.error((await page.locator('body').innerText()).slice(0, 8000))
   throw error
 } finally {

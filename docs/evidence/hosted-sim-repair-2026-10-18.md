@@ -121,3 +121,29 @@ concentrated in DB/schema and other shared sources outside the existing Sim
 ownership. Scope/owner coordination is required before changing those tests;
 no coverage exclusion or lower goal was introduced. Root's exact-head review
 and applicable passing validation still gate merge.
+
+## Repeatability follow-up
+
+The original completed journey above is a real zero-error result. Subsequent
+runs at Adea `b2318660221d0a5ac23684b4f16de5496ae1f48e` with a fresh private
+`80c82e3c87397c4edda1102d82a9e0f46211a6c7` export also completed with seven
+grants, 215–216 reads and zero rendering errors. The desktop client was rebuilt
+again at this head; later private commits change tests and script seams only.
+
+However, repeated runs intermittently time out waiting for the final HQ
+Character control after returning from Room designer. One failed run recorded
+zero console errors; other failed runs recorded one GLTF blob texture load
+error. The original CSP block flood is repaired, but these repeats do not yet
+establish reliable rendering completion. No error is filtered and no assertion
+or timeout is relaxed. The script now records each completed phase and captures
+frame URLs, lifecycle messages, root DOM and control visibility/geometry on
+failure. In a captured failure the final frame received `host.launch:hq`,
+reported running and contained a canvas and HQ HUD; investigation remains open.
+
+Private behavior tests have advanced independently beyond the initial coverage
+receipt. Its new full coverage command uses Solid's browser condition and the
+real disposable private-pack export contract. All 185 tests pass, aggregate
+97.10% functions / 97.68% lines; every measured file meets the unchanged 80%
+goals except `scripts/orch-toolchain.mjs` (90.00% functions / 76.42% lines).
+Toolchain source remains unchanged pending overlap coordination. Root's shared
+Adea DB/schema coverage ownership coordination also remains pending.
