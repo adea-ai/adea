@@ -57,7 +57,7 @@
         "@adea-ai/data": "workspace:*",
         "@adea-ai/db": "workspace:*",
         "@adea-ai/dev-view": "workspace:*",
-        "@adea-ai/sdk": "1.19.1",
+        "@adea-ai/sdk": "1.20.0",
         "@adea-ai/spatial": "workspace:*",
         "@adea-ai/state": "workspace:*",
         "@adea-ai/types": "workspace:*",
@@ -300,9 +300,9 @@
 
     "@adea-ai/remote-content": ["@adea-ai/remote-content@workspace:packages/remote-content"],
 
-    "@adea-ai/runtime-sdk": ["@adea-ai/runtime-sdk@1.16.1", "", { "dependencies": { "@adea-ai/contracts": "^1.21.4", "zod": "4.6.5" } }, "sha512-GWdR1ikx7fEEYR4CA7WVhw4iz4wQjdPLD3H2DXEh88HePNTAlsjnDk/MjPmjedzoPddWkiyqZP0SW60rsSgIIQ=="],
+    "@adea-ai/runtime-sdk": ["@adea-ai/runtime-sdk@1.17.0", "", { "dependencies": { "@adea-ai/contracts": "^1.21.4", "zod": "4.6.5" } }, "sha512-NCPg2uIZ9I+AXfyWjQhHkSjb2/lmvlUe+RkerQTODcAmLYA2y2mhau4omkIpbIikp5bS25XSnz9/MgHleEsfmw=="],
 
-    "@adea-ai/sdk": ["@adea-ai/sdk@1.19.1", "", { "dependencies": { "@adea-ai/contracts": "^1.21.4", "@adea-ai/runtime-sdk": "^1.16.1", "zod": "4.6.5" } }, "sha512-34dGIEd2/e2BiRrVoFS9oz5HcXclyFNN4Ayba9VoUcrP8DDMzxnfEysYMz+ea/3tZ+QpieKpz9VSNag+9CDmYg=="],
+    "@adea-ai/sdk": ["@adea-ai/sdk@1.20.0", "", { "dependencies": { "@adea-ai/contracts": "^1.21.4", "@adea-ai/runtime-sdk": "^1.17.0", "zod": "4.6.5" } }, "sha512-qX6h+VMQNtCN1DlTSB1lx4bWkDU4HqCe7mKz3OHIMY4upEcVdFyS6DQ5wmYLXlN7HEKORLT4dBoaUrmFw1GoEA=="],
 
     "@adea-ai/spatial": ["@adea-ai/spatial@workspace:packages/spatial"],
 

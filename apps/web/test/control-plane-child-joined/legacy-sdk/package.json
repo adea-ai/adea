@@ -1,0 +1,12 @@
+{
+  "name": "@adea-ai/legacy-sdk-fixture",
+  "private": true,
+  "description": "Exact registry packages that predate the lead childAllowance disclosure (CP #1136). Installed in isolation for the child-allowance boundary suite's negative control; never part of Adea's own dependency graph.",
+  "type": "module",
+  "dependencies": {
+    "@adea-ai/contracts": "1.21.4",
+    "@adea-ai/runtime-sdk": "1.16.1",
+    "@adea-ai/sdk": "1.19.1",
+    "zod": "4.6.5"
+  }
+}

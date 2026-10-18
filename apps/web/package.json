@@ -40,7 +40,7 @@
     "@adea-ai/data": "workspace:*",
     "@adea-ai/db": "workspace:*",
     "@adea-ai/dev-view": "workspace:*",
-    "@adea-ai/sdk": "1.19.1",
+    "@adea-ai/sdk": "1.20.0",
     "@adea-ai/spatial": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
