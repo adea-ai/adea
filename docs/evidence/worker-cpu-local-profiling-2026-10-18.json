@@ -20,19 +20,20 @@
         "characters": 234
       }
     },
-    "currentScriptEntrySHA256": "f052b59478468a1b22c98a423974ade2415255771e2d994520eb5793d87196e6",
     "referenceBuildEqualsDeployment": "Not established; the earlier reference checkout is not the full deployed artifact.",
-    "activeArtifactExport": {
+    "capturedScriptEntrySHA256": "f052b59478468a1b22c98a423974ade2415255771e2d994520eb5793d87196e6",
+    "capturedBaselineArtifactExport": {
       "all22ModuleHashesMatched": true,
       "canonicalArchiveSHA256": "0b37f5c0c152c13a96fbf6c7bff934c6705c1f22230f452ac500484010e59ce0",
       "entrySHA256": "f052b59478468a1b22c98a423974ade2415255771e2d994520eb5793d87196e6",
       "exportedBytes": 3614477,
-      "currentActiveDeploymentVerified": "3e9ce156-b7b3-4c00-aadd-28ccf65ae7f7",
-      "currentActiveVersionVerified": "5d47969b-876f-49d3-ad88-d23e848dd1f6",
-      "method": "Authorized read-only current-script export with immutable module hashes verified across all chunks and active deployment metadata read. No CLI credential refresh or production invocation."
+      "method": "Authorized read-only script export and deployment metadata captured for the12:09 deployment;22 module hashes verified. This is a historical profiling baseline after the later16:13 rollout, not a current deployment assertion. No credential refresh or production invocation.",
+      "capturedDeploymentID": "3e9ce156-b7b3-4c00-aadd-28ccf65ae7f7",
+      "capturedVersionID": "5d47969b-876f-49d3-ad88-d23e848dd1f6",
+      "deploymentCreatedAt": "2026-10-18T12:09:20.307788Z"
     },
-    "controlledActiveCandidate": {
-      "base": "Current active-script export;22module hashes verified",
+    "controlledCapturedCandidate": {
+      "base": "Captured12:09 deployment artifact;22module hashes verified",
       "onlyChangedModule": "start-assets/http-policy-BVKtm2vS.js",
       "onlyChangedFunction": "rootDocumentPolicy",
       "beforeSHA256": "b36e4a59f732c00eea2bd478f4275964535e8eea7ee8707d8f54b268281dbf63",
@@ -196,7 +197,7 @@
     }
   ],
   "unsupportedRootScriptComparison": {
-    "baseline": "Full current active-script export; all22 module hashes matched",
+    "baseline": "Captured2026-10-18T12:09:20.307788Z deployment artifact; all22 module hashes matched",
     "candidate": "Same artifact, only rootDocumentPolicy replaced from reviewed source head6336da3",
     "pairedSamples": [
       {
@@ -492,7 +493,17 @@
     "coverageLinesPercent": 97.9,
     "docsTestsPassed": 4,
     "docsAssertions": 15,
-    "hostedChecks": "Draft-skipped; readiness and merge remain coordinator actions.",
-    "fixture": "Active artifact and controlled candidate completed locally with isolated synthetic PostgreSQL; no production invocations."
-  }
+    "hostedChecks": "Draft-skipped; Advance Queue owns readiness and coordinator owns merge.",
+    "fixture": "Captured12:09 deployment artifact and controlled candidate completed locally with isolated synthetic PostgreSQL; no production invocations."
+  },
+  "capturedBaselineDeploymentCreatedAt": "2026-10-18T12:09:20.307788Z",
+  "deploymentChronology": {
+    "source": "Coordinator personally verified repository automation; reported after local qualification",
+    "releasePR": 1463,
+    "releaseMergedAt": "2026-10-18T16:08Z",
+    "cloudflareWorkflowSucceededBy": "2026-10-18T16:13Z",
+    "containsThisRepair": false,
+    "baselineCaveat": "The captured12:09 deployment artifact is the local profiling baseline, not a claim about the deployment active after16:13."
+  },
+  "proposedNextDiagnostic": "Separate local-only tracing of stream IDs, Request.signal abort, reader cancel, scheduled poll lifetime and SQL connection identity around disconnect. Compare idle-only with active-then-disconnect to distinguish surviving streams from fixture/client cleanup. Establish a zero-query settled interval before proposing application cancellation changes; no production probes or compatibility/config changes."
 }
