@@ -16,6 +16,9 @@ import { join } from 'node:path'
 import {
   decodeCbor,
   decodeRuntimeEvent,
+  decodeRuntimeCallEvent,
+  decodeRuntimeCallPayload,
+  encodeCbor,
   devCommandProofMessage,
   devOperationDefinitions,
   devStreamAttachProofMessage,
@@ -143,6 +146,13 @@ beforeAll(async () => {
     }),
   })
   mkdirSync(join(dataDir, 'dev-runtime', 'runtime'), { recursive: true })
+  host.projectSession?.upsertProject({
+    id: PROJECT_ID,
+    scope: SCOPE_A,
+    repoIds: [REPO_ID],
+    lifecycle: 'ready',
+    version: 1,
+  })
 })
 
 afterAll(() => {
@@ -326,17 +336,283 @@ function okValue(reply: DevReply): Record<string, unknown> {
 }
 
 describe('runtime-events-v1 over the channel gateway (#400 residue)', () => {
+  test('authenticated malformed queue IDs cannot poison subsequent live or replay CBOR frames', async () => {
+    const channel = await openChannel()
+    try {
+      const created = okValue(
+        await channel.execute(
+          commandFor('dev.session.create', SCOPE_A, {
+            projectId: PROJECT_ID,
+            repoId: REPO_ID,
+            worktreeId: randomUUID(),
+          })
+        )
+      ) as unknown as { id: string; generation: number }
+      okValue(await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {})))
+      okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.launchDefault',
+            SCOPE_A,
+            {
+              runtimeSessionId: created.id,
+              expectedGeneration: created.generation,
+              agentProfileId: 'profile-1',
+              agentProfileVersion: 1,
+            },
+            { resource: sessionResource(created) }
+          )
+        )
+      )
+      created.generation += 1
+      const target = { runtimeSessionId: created.id, expectedGeneration: created.generation }
+      const resource = sessionResource(created)
+      const queue = (body: Record<string, unknown>) =>
+        channel.execute(
+          commandFor(
+            'dev.session.followUps',
+            SCOPE_A,
+            { ...target, ...body },
+            { resource, idempotencyKey: randomUUID() }
+          )
+        )
+      const initial = okValue(await queue({ action: 'read' }))
+      const events = host!.harness!.events
+      const sequence = events.latestSequence(created.id, created.generation)
+      for (const messageId of ['\ud800', '\udfff', 'x\ud800z']) {
+        expect(
+          await queue({
+            action: 'enqueue',
+            expectedVersion: 0,
+            messageId,
+            text: 'private follow up',
+          })
+        ).toMatchObject({ ok: false })
+        expect(okValue(await queue({ action: 'read' }))).toEqual(initial)
+        expect(events.latestSequence(created.id, created.generation)).toBe(sequence)
+      }
+      const grant = okValue(
+        await channel.execute(
+          commandFor('dev.session.events', SCOPE_A, { ...target, direction: 'read' }, { resource })
+        )
+      ) as unknown as { grantId: string }
+      channel.sendText({
+        method: 'dev.runtime.stream.attach.v1',
+        attach: channel.signAttach(grant.grantId),
+      })
+      expect((await channel.next()).frame).toMatchObject({ type: 'opened' })
+      for (let i = 0; i < 10; i++) {
+        const frame = (await channel.next()).frame
+        if (frame?.type === 'heartbeat') break
+        expect(i).toBeLessThan(9)
+      }
+      const messageId = 'valid-🚀'
+      expect(
+        okValue(
+          await queue({ action: 'enqueue', expectedVersion: 0, messageId, text: 'valid text' })
+        ).version
+      ).toBe(1)
+      const live = (await channel.next()).frame
+      if (live?.type !== 'data') throw new Error('expected live queue data')
+      const decoded = decodeRuntimeEvent(decodeCbor(live.bytes).value, { source: 'host' })
+      expect(decoded).toMatchObject({
+        kind: 'queue.updated',
+        payload: { items: [{ id: messageId }] },
+      })
+      const replay = events
+        .read(created.id, { generation: created.generation })
+        .filter((event) => event.kind === 'queue.updated')
+      expect(replay).toHaveLength(1)
+      expect(
+        decodeRuntimeEvent(decodeCbor(encodeCbor(replay[0])).value, { source: 'host' })
+      ).toEqual(decoded)
+      expect(okValue(await queue({ action: 'read' }))).toMatchObject({
+        version: 1,
+        items: [{ id: messageId }],
+      })
+      const replayChannel = await openChannel()
+      try {
+        const replayGrant = okValue(
+          await replayChannel.execute(
+            commandFor(
+              'dev.session.events',
+              SCOPE_A,
+              { ...target, direction: 'read' },
+              { resource }
+            )
+          )
+        ) as unknown as { grantId: string }
+        replayChannel.sendText({
+          method: 'dev.runtime.stream.attach.v1',
+          attach: replayChannel.signAttach(replayGrant.grantId),
+        })
+        expect((await replayChannel.next()).frame).toMatchObject({ type: 'opened' })
+        let replayed = false
+        for (let i = 0; i < 10; i++) {
+          const frame = (await replayChannel.next()).frame
+          if (frame?.type === 'heartbeat') break
+          if (frame?.type === 'data') {
+            const event = decodeRuntimeEvent(decodeCbor(frame.bytes).value, { source: 'host' })
+            if (event.kind === 'queue.updated') {
+              expect(event).toEqual(decoded)
+              replayed = true
+            }
+          }
+        }
+        expect(replayed).toBe(true)
+      } finally {
+        replayChannel.close()
+      }
+    } finally {
+      channel.close()
+    }
+  })
+
+  test('the full CBOR budget admits the exact grant limit over a real socket and refuses aggregate or multibyte excess before append', async () => {
+    const channel = await openChannel()
+    try {
+      const created = okValue(
+        await channel.execute(
+          commandFor('dev.session.create', SCOPE_A, {
+            projectId: PROJECT_ID,
+            repoId: REPO_ID,
+            worktreeId: randomUUID(),
+          })
+        )
+      ) as unknown as { id: string; generation: number }
+      const events = host!.harness!.events
+      const base = {
+        runtimeSessionId: created.id,
+        generation: created.generation,
+        harnessRunId: 'frame-run',
+        source: 'acp' as const,
+        confidence: 'authoritative' as const,
+        classification: 'restricted_local' as const,
+        kind: 'tool.completed' as const,
+      }
+      const seed = events.append({
+        ...base,
+        sourceEventId: 'frame-seed',
+        payload: {
+          schemaVersion: 1,
+          callId: 'frame-call',
+          phase: 'completed',
+          permissionEligibility: 'unknown',
+        },
+      })
+      if (!seed) throw new Error('expected a seed event')
+      const grant = okValue(
+        await channel.execute(
+          commandFor(
+            'dev.session.events',
+            SCOPE_A,
+            {
+              runtimeSessionId: created.id,
+              expectedGeneration: created.generation,
+              direction: 'read',
+            },
+            { resource: sessionResource(created) }
+          )
+        )
+      ) as unknown as { grantId: string; maxFrameBytes: number }
+      expect(grant.maxFrameBytes).toBe(65_536)
+      const data = () => ({ type: 'inline', value: ['x'.repeat(16_384), 'x'.repeat(16_377)] })
+      const payload = {
+        schemaVersion: 1,
+        callId: 'frame-call',
+        phase: 'completed',
+        permissionEligibility: 'unknown',
+        input: data(),
+        output: data(),
+      }
+      expect(() => {
+        decodeRuntimeCallPayload(payload, 'tool.completed')
+      }).not.toThrow()
+      const probe = { ...seed, seq: (BigInt(seed.seq) + 1n).toString(), payload }
+      const excess = encodeCbor(probe).byteLength - grant.maxFrameBytes
+      expect(excess).toBeGreaterThan(0)
+      expect(() => {
+        events.append({ ...base, sourceEventId: 'frame-live', payload })
+      }).toThrow('CBOR')
+      expect(events.latestSequence(created.id, created.generation)).toBe(seed.seq)
+      payload.output.value[1] = payload.output.value[1]!.slice(0, -excess)
+      expect(encodeCbor(probe).byteLength).toBe(grant.maxFrameBytes)
+      channel.sendText({
+        method: 'dev.runtime.stream.attach.v1',
+        attach: channel.signAttach(grant.grantId),
+      })
+      expect((await channel.next()).frame).toMatchObject({
+        type: 'opened',
+        protocol: 'runtime-events-v1',
+      })
+      let caughtUp = false
+      for (let index = 0; index < 10; index += 1) {
+        const replay = (await channel.next()).frame
+        if (replay?.type === 'heartbeat') {
+          caughtUp = true
+          break
+        }
+        if (replay?.type === 'data')
+          expect(replay.bytes.byteLength).toBeLessThanOrEqual(grant.maxFrameBytes)
+      }
+      expect(caughtUp).toBe(true)
+      const accepted = events.append({ ...base, sourceEventId: 'frame-live', payload })
+      if (!accepted) throw new Error('expected an exactly fitting event')
+      const live = (await channel.next()).frame
+      if (live?.type !== 'data') throw new Error('expected live CBOR data')
+      expect(live.bytes.byteLength).toBe(grant.maxFrameBytes)
+      expect(decodeRuntimeCallEvent(decodeCbor(live.bytes).value, { source: 'acp' })).toEqual(
+        accepted
+      )
+      const retained = events.read(created.id)
+      payload.output.value[1] += 'x'
+      expect(
+        encodeCbor({
+          ...accepted,
+          sourceEventId: 'frame-over',
+          seq: (BigInt(accepted.seq) + 1n).toString(),
+          payload,
+        }).byteLength
+      ).toBe(grant.maxFrameBytes + 1)
+      expect(() => {
+        events.append({ ...base, sourceEventId: 'frame-over', payload })
+      }).toThrow('CBOR')
+      payload.output.value[1] = `${payload.output.value[1]!.slice(0, -2)}é`
+      expect(() => {
+        decodeRuntimeCallPayload(payload, 'tool.completed')
+      }).not.toThrow()
+      expect(
+        encodeCbor({
+          ...accepted,
+          sourceEventId: 'frame-over',
+          seq: (BigInt(accepted.seq) + 1n).toString(),
+          payload,
+        }).byteLength
+      ).toBe(grant.maxFrameBytes + 1)
+      expect(() => {
+        events.append({ ...base, sourceEventId: 'frame-over', payload })
+      }).toThrow('CBOR')
+      expect(events.read(created.id)).toEqual(retained)
+      expect(events.latestSequence(created.id, created.generation)).toBe(accepted.seq)
+      payload.output.value[1] = payload.output.value[1]!.slice(1)
+      const multibyte = events.append({ ...base, sourceEventId: 'frame-utf8', payload })
+      if (!multibyte) throw new Error('expected an exactly fitting UTF-8 event')
+      const utf8Frame = (await channel.next()).frame
+      if (utf8Frame?.type !== 'data') throw new Error('expected UTF-8 live CBOR data')
+      expect(utf8Frame.bytes.byteLength).toBe(grant.maxFrameBytes)
+      expect(decodeRuntimeCallEvent(decodeCbor(utf8Frame.bytes).value, { source: 'acp' })).toEqual(
+        multibyte
+      )
+      okValue(await channel.execute(commandFor('dev.harness.runs', SCOPE_A, {})))
+    } finally {
+      channel.close()
+    }
+  }, 60_000)
+
   test('grant → attach → bounded replay → live push → ack → generation-fenced close', async () => {
     const channel = await openChannel()
 
-    // Seed the project, create the session, install managed Pi, launch.
-    host!.projectSession?.upsertProject({
-      id: PROJECT_ID,
-      scope: SCOPE_A,
-      repoIds: [REPO_ID],
-      lifecycle: 'ready',
-      version: 1,
-    })
+    // The project is shared setup; each test creates its own session.
     const created = okValue(
       await channel.execute(
         commandFor('dev.session.create', SCOPE_A, {

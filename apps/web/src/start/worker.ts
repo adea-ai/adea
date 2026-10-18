@@ -33,7 +33,8 @@ export default createServerEntry({
     captureWaitUntil(waitUntil)
     // Secrets Store bindings resolve lazily and must land on `process.env`
     // before the gate, the auth boundary, or the marketplace proxy read
-    // their values; text vars and worker secrets are already strings.
+    // their values; warm resolved values are reused for at most 30 seconds.
+    // Text vars and worker secrets are already strings.
     await hydrateSecretStoreBindings(env)
     try {
       const rejected = rootDocumentPolicy(request)

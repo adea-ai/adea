@@ -15,11 +15,20 @@
 //   closed before any provider runs.
 import { describe, expect, test } from 'bun:test'
 import { createHash, createCipheriv, createHmac, randomBytes, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  decodeDevReply,
   devCommandProofMessage,
   devOperationDefinitions,
   type DevCommand,
@@ -28,7 +37,10 @@ import {
   type Scope,
 } from '../../../packages/types/src/dev-runtime'
 import { createOwnerApprovalVerifier } from '../shell/src/dev-runtime/authority'
-import { createChannelAuthority } from '../shell/src/dev-runtime/channel/authority'
+import {
+  createChannelAuthority,
+  INTERNAL_DISPATCH_MARKER,
+} from '../shell/src/dev-runtime/channel/authority'
 import {
   createDesktopIdentityAuthority,
   type DesktopIdentityVerifier,
@@ -614,6 +626,189 @@ describe('harness substrate behind the M10 gate', () => {
       rmSync(shell.dataDir, { recursive: true, force: true })
     }
   }, 60_000)
+
+  test('quarantine refusals round trip on both dispatch lanes; explicit resume recovers in one command', async () => {
+    const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE })
+    try {
+      const channel = await shell.openChannel()
+      const session = await createSession(shell.host(), channel)
+      await channel.execute(commandFor('dev.harness.managedPiInstall', SCOPE_A, {}))
+      const launched = okValue(
+        await channel.execute(launchCommand(session, shell.managedPiStatus().installationId!))
+      )
+      const generation = session.generation + 1
+      const file = join(shell.dataDir, 'dev-runtime', 'harness', 'session-events.json')
+      const stored = JSON.parse(readFileSync(file, 'utf8'))
+      const retained = stored.records.find(
+        (record: { generation: number }) => record.generation === generation
+      )
+      retained.kind = 'usage.observed'
+      retained.payload = { tokens: 123 }
+      writeFileSync(file, JSON.stringify(stored))
+      const original = readFileSync(file, 'utf8')
+      const status = () =>
+        commandFor(
+          'dev.harness.runStatus',
+          SCOPE_A,
+          {
+            runtimeSessionId: session.id,
+            expectedGeneration: generation,
+            harnessRunId: launched.id,
+            state: 'working',
+            source: 'host',
+          },
+          { resource: { ...sessionResource(session), generation } }
+        )
+      for (const execute of [
+        (command: DevCommand) => channel.execute(command),
+        (command: DevCommand) => shell.authority.dispatchLocal(INTERNAL_DISPATCH_MARKER, command),
+      ]) {
+        const reply = await execute(status())
+        expect(errorCode(reply)).toBe('recovery_required')
+        const wire = JSON.parse(JSON.stringify(reply))
+        expect(decodeDevReply(wire)).toMatchObject({
+          ok: false,
+          error: {
+            code: 'recovery_required',
+            retryable: false,
+            message: 'retained runtime event generation requires recovery',
+          },
+        })
+        expect(readFileSync(file, 'utf8')).toBe(original)
+        expect(shell.host().harness!.history.get(String(launched.id))!.state).toBe('starting')
+      }
+      const resume = () =>
+        commandFor(
+          'dev.session.resumeHarness',
+          SCOPE_A,
+          {
+            runtimeSessionId: session.id,
+            expectedGeneration: generation,
+            harnessRunId: launched.id,
+          },
+          { resource: { ...sessionResource(session), generation } }
+        )
+      const resumedReply = await channel.execute(resume())
+      expect(decodeDevReply(JSON.parse(JSON.stringify(resumedReply))).ok).toBe(true)
+      const resumed = okValue(resumedReply)
+      expect(resumed).toMatchObject({ state: 'working', generation: 2 })
+      expect(shell.host().harness!.history.get(String(launched.id))!.state).toBe('disconnected')
+      const newEvents = shell
+        .host()
+        .harness!.events.read(session.id, { generation: generation + 1 })
+      expect(newEvents.map((event) => event.kind)).toEqual([
+        'run.disconnected',
+        'run.resumed',
+        'session.resumed',
+      ])
+      expect(() => shell.host().harness!.events.read(session.id, { generation })).toThrow(
+        'recovery'
+      )
+      expect(
+        JSON.parse(readFileSync(file, 'utf8')).records.slice(0, stored.records.length)
+      ).toEqual(stored.records)
+      const afterResume = readFileSync(file, 'utf8')
+      expect(errorCode(await channel.execute(resume()))).toBe('stale_generation')
+      expect(readFileSync(file, 'utf8')).toBe(afterResume)
+      expect(shell.host().harness!.history.list()).toHaveLength(2)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a composed signed launch queues and delivers with independent run and session generations', async () => {
+    const installationId = randomUUID()
+    const delivered: string[] = []
+    const driver: AcpLaneDriver = {
+      ...scriptedAcpDriver({ capabilities: ['session'], history: 'unavailable' }),
+      deliverPrompt: async ({ prompt }) => {
+        delivered.push(prompt)
+        return {
+          ok: true,
+          bytes: new TextEncoder().encode(prompt).byteLength,
+          processIdentity: 'fake-acp',
+        }
+      },
+    }
+    const shell = await boot({ acpDriver: driver, seedAcpInstallation: { id: installationId } })
+    try {
+      const channel = await shell.openChannel()
+      const session = await createSession(shell.host(), channel)
+      const launched = okValue(await channel.execute(launchCommand(session, installationId)))
+      const generation = session.generation + 1
+      expect(launched.generation).toBe(1)
+      expect(generation).toBe(2)
+      const target = { runtimeSessionId: session.id, expectedGeneration: generation }
+      const invoke = (operation: DevOperation, body: Record<string, unknown>) =>
+        channel.execute(
+          commandFor(
+            operation,
+            SCOPE_A,
+            { ...target, ...body },
+            {
+              resource: { ...sessionResource(session), generation },
+              idempotencyKey: randomUUID(),
+            }
+          )
+        )
+      okValue(
+        await invoke('dev.harness.runStatus', {
+          harnessRunId: launched.id,
+          state: 'working',
+          source: 'host',
+        })
+      )
+      expect(
+        okValue(
+          await invoke('dev.session.followUps', {
+            action: 'enqueue',
+            expectedVersion: 0,
+            messageId: 'follow-up',
+            text: 'after this turn',
+          })
+        )
+      ).toMatchObject({ generation: 2, version: 1, delivery: 'unavailable' })
+      okValue(await invoke('dev.harness.acpConnect', { harnessInstallationId: installationId }))
+      expect(okValue(await invoke('dev.session.followUps', { action: 'read' })).delivery).toBe(
+        'busy'
+      )
+      okValue(
+        await invoke('dev.harness.runStatus', {
+          harnessRunId: launched.id,
+          state: 'awaiting_input',
+          source: 'host',
+        })
+      )
+      expect(okValue(await invoke('dev.session.followUps', { action: 'read' })).delivery).toBe(
+        'ready'
+      )
+      expect(
+        okValue(await invoke('dev.session.followUps', { action: 'deliver', expectedVersion: 1 }))
+      ).toMatchObject({
+        items: [],
+        lastDelivery: { messageId: 'follow-up', status: 'accepted' },
+      })
+      expect(delivered).toEqual(['after this turn'])
+      expect(
+        errorCode(
+          await channel.execute(
+            commandFor(
+              'dev.session.followUps',
+              SCOPE_A,
+              {
+                ...target,
+                expectedGeneration: 1,
+                action: 'read',
+              },
+              { resource: sessionResource(session) }
+            )
+          )
+        )
+      ).toBe('stale_generation')
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
 
   test('resume creates a new run generation; cancel terminates and fences', async () => {
     const shell = await boot({ archiveResolver: DEFAULT_ARCHIVE })

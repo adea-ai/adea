@@ -1,3 +1,4 @@
+import { registerChatAttachmentRuntime } from './attachments/register'
 // The Dev Runtime host composition root: registers every production provider
 // the shipped shell can serve onto the M10 channel authority, and fills every
 // remaining registry operation with a typed-unavailable provider so no
@@ -44,6 +45,7 @@ import {
 } from './project-session/register'
 import { registerHarnessRuntime, type HarnessRuntimeRegistration } from './harness/register'
 import type { HarnessDiscoverySource } from './discovery/types'
+import type { CheckpointRestoreAdapter } from './harness/checkpoints'
 import type { AcpLaneDriver } from './harness/acp-lane'
 import type { MemoryStore } from '../memory/store'
 import type { MemoryAgentTrace } from '../memory/provenance'
@@ -121,6 +123,8 @@ export type DevRuntimeHost = Readonly<{
   repos?: ReturnType<typeof registerRepoRuntime>
   /** Present only when a verified scope exists at composition time. */
   harness?: HarnessRuntimeRegistration
+  /** Local encrypted attachment operations; present with a verified session/event host. */
+  attachments?: ReturnType<typeof registerChatAttachmentRuntime>
   /** Workspace connections (ADR 0012); present with a verified scope. */
   connections?: ConnectionsRuntime
   worktrees: ReturnType<typeof registerWorktreeRuntime>
@@ -209,6 +213,9 @@ export type CreateDevRuntimeHostInput = {
   allowLocalCloneRemotes?: boolean
   /** Overrides the ACP lane driver (#32; tests inject scripted handshakes). */
   acpDriver?: AcpLaneDriver
+  /** Test composition seams; the shipped shell supplies no restore adapter. */
+  checkpointRestoreAdapter?: CheckpointRestoreAdapter
+  checkpointRestoreTimeoutMs?: number
   /**
    * ADR 0012 workspace memory: the shell's one memory store (shared with the
    * legacy `memory_*` commands). Launches inject the session workspace's
@@ -398,6 +405,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
   let repos: ReturnType<typeof registerRepoRuntime> | undefined
   const projectSession = input.scope
     ? registerProjectSessionRuntime({
+        assertSessionInputAvailable: (id) => harness?.checkpoints.assertInputAvailable(id),
         authority: input.authority,
         dataDir: input.dataDir,
         scope: input.scope,
@@ -523,6 +531,8 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
   const terminal =
     input.sidecar && input.scope && input.gateway
       ? registerTerminalRuntime({
+          resolveSessionGeneration: (id) => projectSession?.getSession(id)?.generation,
+          assertSessionInputAvailable: (id) => harness?.checkpoints.assertInputAvailable(id),
           authority: input.authority,
           gateway: input.gateway,
           sidecar: input.sidecar,
@@ -545,7 +555,9 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
         dataDir: input.dataDir,
         scope: input.scope,
         resolveSession: (runtimeSessionId) => projectSession?.getSession(runtimeSessionId),
-        persistSession: (session) => projectSession?.upsertSession(session),
+        persistSession: (session, restoreId) => projectSession?.upsertSession(session, restoreId),
+        getSessionRestoreCommit: (restoreId) =>
+          projectSession?.getCheckpointRestoreCommit(restoreId),
         publish,
         ...(input.gateway ? { gateway: input.gateway } : {}),
         ...(input.managedPi ? { managedPi: input.managedPi } : {}),
@@ -553,6 +565,8 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           ? { managedPiArchiveResolver: input.managedPiArchiveResolver }
           : {}),
         ...(input.acpDriver ? { acpDriver: input.acpDriver } : {}),
+        checkpointRestoreAdapter: input.checkpointRestoreAdapter,
+        checkpointRestoreTimeoutMs: input.checkpointRestoreTimeoutMs,
         ...(input.discoverySources ? { discoverySources: input.discoverySources } : {}),
         ...(input.memory
           ? {
@@ -571,6 +585,16 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
           : {}),
       })
     : undefined
+  const attachments =
+    input.scope && projectSession && harness
+      ? registerChatAttachmentRuntime({
+          authority: input.authority,
+          dataDir: input.dataDir,
+          scope: input.scope,
+          resolveSession: projectSession.getSession,
+          events: harness.events,
+        })
+      : undefined
   // #31 consumer zero-config: the opted-in boot warm never breaks the boot —
   // it is fire-and-forget, its every failure mode is a typed durable driver
   // state, and it is skipped entirely for a scripted (injected) driver.
@@ -1021,6 +1045,7 @@ export function createDevRuntimeHost(input: CreateDevRuntimeHostInput): DevRunti
     ...(projectSession ? { projectSession } : {}),
     ...(repos ? { repos } : {}),
     ...(harness ? { harness } : {}),
+    ...(attachments ? { attachments } : {}),
     ...(connections ? { connections } : {}),
     worktrees: worktrees ?? { commands: [] as DevOperation[], registeredCommands: 0 },
     ...(worktreeService ? { worktreeService } : {}),

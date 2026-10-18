@@ -88,6 +88,14 @@ async function mockBootstrap(page: Page) {
   await page.route('**/api/v1/account/summary', (route) =>
     route.fulfill({ contentType: 'application/json', json: { workspaces: [] } })
   )
+  // Match the workspace visual fixtures: account-wide lists supplement the
+  // canonical workspace data and have no entries in this isolated harness.
+  await page.route('**/api/v1/account/agents**', (route) =>
+    route.fulfill({ contentType: 'application/json', json: { agents: [] } })
+  )
+  await page.route('**/api/v1/account/conversations**', (route) =>
+    route.fulfill({ contentType: 'application/json', json: { conversations: [] } })
+  )
   // The fixture surface needs no workspace data; blanket-mock the workspace
   // API namespace (as the workspace visual/flow gates do) so no unauthenticated
   // request reaches the real backend and logs a console error.
@@ -105,7 +113,7 @@ async function openChatFixture(page: Page, state: string) {
   await page.goto(`/?view=chat&chatE2e=visual&chatState=${state}`)
   const fixture = page.locator('[data-chat-visual-state]')
   await expect(fixture).toHaveAttribute('data-chat-visual-state', state, { timeout: 30_000 })
-  await expect(page.locator('section.dev-chat')).toBeVisible()
+  await expect(page.locator('[data-dev-chat]')).toBeVisible()
 }
 
 async function openDraftChatFixture(page: Page, fallback = false) {
@@ -116,25 +124,21 @@ async function openDraftChatFixture(page: Page, fallback = false) {
   await expect(page.locator('[data-chat-visual-state="conversation"]')).toBeVisible({
     timeout: 30_000,
   })
-  await expect(page.locator('section.dev-chat')).toBeVisible()
+  await expect(page.locator('[data-dev-chat]')).toBeVisible()
 }
 
 async function openDecisionHarness(page: Page, readiness: string) {
-  const path = '/__chat-view-decision-harness'
-  await page.route(
-    (url) => url.pathname === path,
-    (route) =>
-      route.fulfill({
-        contentType: 'text/html',
-        body: '<html><head></head><body><div id="harness-root"></div></body></html>',
-      })
-  )
+  // A real dev-server navigation retains Chromium's loopback address space.
+  // Fulfilling the document in Playwright makes Vite's same-origin HMR socket
+  // fail local-network checks before the component assertions run.
+  const path =
+    '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/chat-view-decision-harness.html')
   await page.goto(`${path}?readiness=${readiness}`)
   const entry = resolve(process.cwd(), 'apps/web/e2e/helpers/chat-view-decision-harness-app.tsx')
   await page.evaluate(async (moduleUrl) => {
     await import(/* @vite-ignore */ moduleUrl)
   }, '/@fs' + entry)
-  await expect(page.locator('section.dev-chat')).toBeVisible()
+  await expect(page.locator('[data-dev-chat]')).toBeVisible()
 }
 
 test('ChatView without a decision contract hides CP selection and keeps ordinary send available', async ({
@@ -393,7 +397,7 @@ test('a delayed decision is fenced when its seam disappears and ordinary send re
   expect(result.outcomes).toEqual([])
   expect(result.resolvedCallbacks).toBe(0)
   await expect(page.getByRole('alert')).toHaveCount(0)
-  await expect(page.locator('.dev-chat__composer-location')).toHaveCount(0)
+  await expect(page.locator('[data-chat-composer-location]')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
@@ -416,7 +420,7 @@ test('a delayed decision stays fenced across an A-to-B-to-A Chat session switch'
   expect(result.outcomes).toEqual([])
   expect(result.resolvedCallbacks).toBe(0)
   await expect(page.getByRole('alert')).toHaveCount(0)
-  await expect(page.locator('.dev-chat__composer-location')).toHaveCount(0)
+  await expect(page.locator('[data-chat-composer-location]')).toHaveCount(0)
 
   await page.evaluate(() => window.chatViewDecisionHarness.setSession('other'))
   await page.getByRole('textbox', { name: 'Message runtime' }).fill('Send in the new session.')
@@ -447,20 +451,21 @@ test('renders the canonical conversation surface: transcript rows, live status, 
 
   // The header names the canonical runtime session and its generation, and
   // the transcript stream is announced as a live region.
-  const chat = page.locator('section.dev-chat')
+  const chat = page.locator('[data-dev-chat]')
   await expect(chat).toBeVisible()
-  await expect(page.locator('.dev-chat__heading h2')).toHaveText('Deployment plan review')
-  await expect(page.locator('.dev-chat__heading p')).toContainText('generation 3')
-  await expect(page.locator('.dev-chat__status')).toContainText('Live')
+  await expect(page.locator('[data-chat-title]')).toHaveText('Deployment plan review')
+  await expect(page.locator('[data-chat-subtitle]')).toContainText('generation 3')
+  await expect(page.locator('[data-chat-status]')).toContainText('Live')
   await expect(page.getByLabel('Conversation transcript')).toHaveAttribute('aria-live', 'polite')
 
   // Tiered transcript rows: the user turn, two tool events, and the assistant
   // message — each rendered from bounded, known payload fields only.
-  const rows = page.locator('article.dev-chat__row')
+  const rows = page.locator('[data-entry-id]')
   await expect(rows).toHaveCount(5)
-  await expect(page.locator('article.dev-chat__row--user')).toHaveCount(1)
-  await expect(page.locator('article.dev-chat__row--tool')).toHaveCount(2)
-  await expect(page.locator('article.dev-chat__row--assistant')).toHaveCount(2)
+  await expect(page.locator('[data-slot="message"][data-role="user"]')).toHaveCount(1)
+  await expect(page.locator('[data-slot="message"][data-role="assistant"]')).toHaveCount(1)
+  await expect(page.locator('[data-kind^="tool."]')).toHaveCount(2)
+  await expect(page.locator('[data-source]')).toHaveCount(2)
   await expect(rows.first()).toContainText('Review the deployment plan and summarize the risks.')
   await expect(page.getByText('Found 4 relevant notes.')).toBeVisible()
   // The streamed delta and the completed message share the sentence, so the
@@ -489,7 +494,7 @@ test('keeps earlier transcript rows mounted while a streamed event appends', asy
   const errors = trackPageErrors(page)
   await openChatFixture(page, 'streaming')
 
-  const rows = page.locator('article.dev-chat__row')
+  const rows = page.locator('[data-entry-id]')
   await expect(rows).toHaveCount(5)
   const firstRow = await rows.first().elementHandle()
   expect(firstRow).not.toBeNull()
@@ -502,14 +507,19 @@ test('keeps earlier transcript rows mounted while a streamed event appends', asy
   await expect(rows).toHaveCount(6, { timeout: 10_000 })
   await expect(page.getByText('A later stream update arrived.')).toBeVisible()
   const stayedMounted = await firstRow?.evaluate(
-    (node) => node.isConnected && node === document.querySelector('article.dev-chat__row')
+    (node) => node.isConnected && node === document.querySelector('[data-entry-id]')
   )
   expect(stayedMounted).toBe(true)
 
-  // Repeated delivery keeps appending without disturbing earlier rows.
+  // A second fragment of the same run joins the block it continues: the block
+  // keeps its node, and the new text arrives inside it.
+  const streamed = page.locator('[data-source="delta"]').last()
+  const streamedNode = await streamed.elementHandle()
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:append')))
-  await expect(rows).toHaveCount(7, { timeout: 10_000 })
-  await expect(page.getByText('Streaming continues to append rows.')).toBeVisible()
+  await expect(streamed).toContainText('Streaming continues to append rows.', { timeout: 10_000 })
+  await expect(streamed).toContainText('A later stream update arrived.')
+  await expect(rows).toHaveCount(6)
+  expect(await streamedNode?.evaluate((node) => node.isConnected)).toBe(true)
   await expect(rows.first()).toContainText('Review the deployment plan')
 
   expect(errors).toEqual([])
@@ -636,7 +646,7 @@ test('surfaces a transcript sequence gap and offers the reconnect recovery affor
   await expect(page.getByRole('alert').filter({ hasText: 'Transcript gap detected' })).toBeVisible()
   const reconnect = page.getByRole('button', { name: 'Reconnect transcript' })
   await expect(reconnect).toBeEnabled()
-  await expect(page.locator('.dev-chat__status')).toContainText('Disconnected')
+  await expect(page.locator('[data-chat-status]')).toContainText('Disconnected')
   await expect(page.locator('#dev-chat-composer-status')).toContainText(
     'Chat is unavailable while the runtime is disconnected.'
   )
@@ -645,7 +655,7 @@ test('surfaces a transcript sequence gap and offers the reconnect recovery affor
   // truthfully because the fixture stream cannot recover the missing range.
   await reconnect.click()
   await expect(page.getByRole('alert').filter({ hasText: 'Transcript gap detected' })).toBeVisible()
-  await expect(page.locator('.dev-chat__status')).toContainText('Disconnected')
+  await expect(page.locator('[data-chat-status]')).toContainText('Disconnected')
 
   expect(errors).toEqual([])
 })
@@ -693,9 +703,9 @@ test('repeated Dev↔Chat switches preserve the session state in the real window
     await expect(page).toHaveURL(/view=chat/)
     await expect(page).toHaveURL(/sentinel=keep/)
     await expect(page).toHaveURL(/devE2e=preserved/)
-    await expect(page.locator('section.dev-chat')).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator('[data-dev-chat]')).toBeVisible({ timeout: 30_000 })
     await expect(page.locator('[data-chat-visual-state="conversation"]')).toBeVisible()
-    await expect(page.locator('.dev-chat__heading h2')).toHaveText('Deployment plan review')
+    await expect(page.locator('[data-chat-title]')).toHaveText('Deployment plan review')
 
     await page.getByRole('button', { name: 'Dev view' }).click()
     await expect(page).toHaveURL(/view=dev/)
@@ -735,6 +745,9 @@ test('restores an earlier reading position when the canonical Chat surface remou
 }) => {
   await page.setViewportSize({ width: 900, height: 420 })
   await openDraftChatFixture(page)
+  // Exact pixel restoration needs settled font metrics; a font swap can
+  // legitimately resize the transcript while this test remounts it.
+  await page.evaluate(() => document.fonts.ready)
   const transcript = page.getByLabel('Conversation transcript')
   await expect
     .poll(() => transcript.evaluate((node) => node.scrollHeight - node.clientHeight))
@@ -763,7 +776,7 @@ test('follows appended runtime rows only while the reader keeps follow intent', 
   await expect.poll(distance).toBeLessThanOrEqual(2)
 
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:append')))
-  await expect(page.locator('article.dev-chat__row')).toHaveCount(6)
+  await expect(page.locator('[data-entry-id]')).toHaveCount(6)
   await expect.poll(distance).toBeLessThanOrEqual(2)
 
   // A small upward movement inside the visibility threshold still revokes
@@ -774,8 +787,16 @@ test('follows appended runtime rows only while the reader keeps follow intent', 
     return node.scrollTop
   })
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:append')))
-  await expect(page.locator('article.dev-chat__row')).toHaveCount(7)
+  await expect(page.getByText('Streaming continues to append rows.')).toBeVisible()
   await expect.poll(() => transcript.evaluate((node) => node.scrollTop)).toBe(parked)
+
+  // The canvas is compact and streamed text joins one block, so 30px can still be
+  // inside the threshold where the control is not offered. Reading further back
+  // is what offers the way to the latest.
+  await transcript.evaluate((node) => {
+    node.scrollTop = 0
+    node.dispatchEvent(new Event('scroll'))
+  })
   await page.getByRole('button', { name: 'Jump to latest', exact: true }).click()
   await expect.poll(distance).toBeLessThanOrEqual(2)
   await expect(transcript).toBeFocused()

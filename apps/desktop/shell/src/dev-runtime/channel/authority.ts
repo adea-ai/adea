@@ -518,6 +518,36 @@ export function createChannelAuthority(options?: {
 
   // ── dev.* command execution (dev.runtime.execute.v1) ─────────────────────
 
+  /** Provider-only re-admission after waiting for a mutation lock. This does
+   * not dispatch or consume a nonce; the original call already passed the gate.
+   * Its returned synchronous fence remains bound to that channel and expiry. */
+  async function reauthorizeCommand(
+    command: DevCommand,
+    identity?: ChannelIdentity
+  ): Promise<() => void> {
+    const decoded = decodeDevCommand(command)
+    const assertCurrent = () => {
+      if (identity) channelFor(identity)
+      if (Date.parse(decoded.expiresAt) < now())
+        throw new ChannelRejection('token_expired', 'command expired before provider effect', 401)
+      options?.assertCommandAllowed?.(decoded)
+    }
+    assertCurrent()
+    if (options?.authorizeCommand) {
+      try {
+        await options.authorizeCommand(decoded, identity)
+      } catch (error) {
+        throw new ChannelRejection(
+          error instanceof ChannelRejection ? error.code : 'channel_unauthenticated',
+          error instanceof Error ? error.message : 'command scope is not authorized',
+          403
+        )
+      }
+    }
+    assertCurrent()
+    return assertCurrent
+  }
+
   /**
    * The M10 gate, in the order the Dev Runtime spec pins it:
    * 1. channel credential/signature and trusted client identity;
@@ -693,11 +723,11 @@ export function createChannelAuthority(options?: {
         )
       }
       // A provider's typed failure is a valid refusal, not a crash: a thrown
-      // DevError-shaped value is surfaced verbatim so callers see the exact
+      // DevError-shaped value is projected to wire fields so callers see the exact
       // contract code (spec: "Messages may change; code, retryability, and
       // remediation shape are API").
       if (isDevErrorShape(error)) {
-        return refusal(error, {
+        return refusal(wireDevError(error), {
           operation: decodeOperation(raw),
           channelId: decodeChannelId(raw),
           clientCredentialId: decodeCredentialId(raw),
@@ -859,10 +889,10 @@ export function createChannelAuthority(options?: {
           localOperation(command)
         )
       }
-      // A provider's typed failure is a valid refusal, surfaced verbatim —
+      // A provider's typed failure is a valid refusal, projected to wire fields —
       // the same contract the socket path honors.
       if (isDevErrorShape(error)) {
-        return refusal(error, localOperation(command))
+        return refusal(wireDevError(error), localOperation(command))
       }
       return refusal({
         code: 'invalid_state',
@@ -1098,6 +1128,7 @@ export function createChannelAuthority(options?: {
     authenticateLegacyRequest,
     legacyProofMessage,
     execute,
+    reauthorizeCommand,
     inFlightCommands: (scope: Scope) => inFlight.get(scopeKey(scope)) ?? 0,
     dispatchLocal,
     capabilitySnapshot,
@@ -1114,6 +1145,18 @@ export function createChannelAuthority(options?: {
     isTrustedRequest,
     revokeAllChannels,
     registeredOperations,
+  }
+}
+
+/** Error.message is non-enumerable; class names and stacks are not wire fields. */
+function wireDevError(error: DevError): DevError {
+  return {
+    code: error.code,
+    retryable: error.retryable,
+    message: error.message,
+    ...(error.remediation !== undefined ? { remediation: error.remediation } : {}),
+    ...(error.currentVersion !== undefined ? { currentVersion: error.currentVersion } : {}),
+    ...(error.observedAt !== undefined ? { observedAt: error.observedAt } : {}),
   }
 }
 
