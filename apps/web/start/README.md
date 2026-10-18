@@ -135,6 +135,13 @@ Start, unknown paths cannot become an unguarded workspace shell, a failed
 workspace import produces a recoverable route error, view switching preserves
 query state, and guest cookies/durable writes/tenant isolation hold.
 
+The root Playwright config gives its managed dev Worker the same validated
+`DATABASE_URL` as the Node fixtures, using Hyperdrive's
+`CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` override. This keeps
+an isolated worktree database from being mixed with `wrangler.jsonc`'s default
+local port. With `PERF_BASE_URL`, the server is managed externally: set that
+override to the same test database when starting it.
+
 ### Visual regression
 
 `bun run test:e2e:visual` runs `apps/web/e2e/conventional-workspace.spec.ts`

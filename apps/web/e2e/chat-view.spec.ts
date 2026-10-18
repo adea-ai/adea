@@ -88,6 +88,14 @@ async function mockBootstrap(page: Page) {
   await page.route('**/api/v1/account/summary', (route) =>
     route.fulfill({ contentType: 'application/json', json: { workspaces: [] } })
   )
+  // Match the workspace visual fixtures: account-wide lists supplement the
+  // canonical workspace data and have no entries in this isolated harness.
+  await page.route('**/api/v1/account/agents**', (route) =>
+    route.fulfill({ contentType: 'application/json', json: { agents: [] } })
+  )
+  await page.route('**/api/v1/account/conversations**', (route) =>
+    route.fulfill({ contentType: 'application/json', json: { conversations: [] } })
+  )
   // The fixture surface needs no workspace data; blanket-mock the workspace
   // API namespace (as the workspace visual/flow gates do) so no unauthenticated
   // request reaches the real backend and logs a console error.
@@ -120,15 +128,11 @@ async function openDraftChatFixture(page: Page, fallback = false) {
 }
 
 async function openDecisionHarness(page: Page, readiness: string) {
-  const path = '/__chat-view-decision-harness'
-  await page.route(
-    (url) => url.pathname === path,
-    (route) =>
-      route.fulfill({
-        contentType: 'text/html',
-        body: '<html><head></head><body><div id="harness-root"></div></body></html>',
-      })
-  )
+  // A real dev-server navigation retains Chromium's loopback address space.
+  // Fulfilling the document in Playwright makes Vite's same-origin HMR socket
+  // fail local-network checks before the component assertions run.
+  const path =
+    '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/chat-view-decision-harness.html')
   await page.goto(`${path}?readiness=${readiness}`)
   const entry = resolve(process.cwd(), 'apps/web/e2e/helpers/chat-view-decision-harness-app.tsx')
   await page.evaluate(async (moduleUrl) => {
@@ -741,6 +745,9 @@ test('restores an earlier reading position when the canonical Chat surface remou
 }) => {
   await page.setViewportSize({ width: 900, height: 420 })
   await openDraftChatFixture(page)
+  // Exact pixel restoration needs settled font metrics; a font swap can
+  // legitimately resize the transcript while this test remounts it.
+  await page.evaluate(() => document.fonts.ready)
   const transcript = page.getByLabel('Conversation transcript')
   await expect
     .poll(() => transcript.evaluate((node) => node.scrollHeight - node.clientHeight))
