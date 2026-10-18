@@ -34,7 +34,39 @@ export type TranscriptAccumulator = Readonly<{
   assistantContextLost?: boolean
   availability: TranscriptAvailability
   retention: ChatRetentionTruth
+  /** The code of the last `error` frame the host sent on this stream. */
+  streamErrorCode?: string
+  /**
+   * The live stream ended, by a close frame or by the socket dropping, and delivers
+   * nothing more. `cursorRejected` says the host refused the position the stream was
+   * opened from (an `incompatible` close, or a close after a sequence or resync
+   * error), so a reconnect must not ask for that position again.
+   */
+  streamClosed?: Readonly<{ code: StreamCloseCode; reason?: string; cursorRejected: boolean }>
 }>
+
+export type StreamCloseCode = Extract<DevStreamFrame, { type: 'close' }>['code'] | 'transport'
+
+const CURSOR_ERRORS = new Set(['sequence_gap', 'resync_required'])
+
+/** Record that the stream ended; a second close keeps the first, which says why. */
+export function markStreamClosed(
+  state: TranscriptAccumulator,
+  code: StreamCloseCode,
+  reason?: string
+): TranscriptAccumulator {
+  if (state.streamClosed !== undefined) return state
+  return {
+    ...state,
+    streamClosed: {
+      code,
+      ...(reason !== undefined && reason !== '' ? { reason } : {}),
+      cursorRejected:
+        code === 'incompatible' ||
+        (state.streamErrorCode !== undefined && CURSOR_ERRORS.has(state.streamErrorCode)),
+    },
+  }
+}
 
 /** A bounded-history notice should describe what the person can see, not invent a recovery dependency. */
 export function transcriptHistoryNotice(
@@ -264,8 +296,16 @@ export function acceptRuntimeStreamFrame(
       },
     }
   }
-  if (frame.type === 'close' && frame.code === 'stale_generation')
-    return { ...state, availability: { status: 'stale_generation', generation: state.generation } }
+  if (frame.type === 'error') return { ...state, streamErrorCode: frame.error.code }
+  if (frame.type === 'close') {
+    const closed = markStreamClosed(state, frame.code, frame.reason)
+    return frame.code === 'stale_generation'
+      ? {
+          ...closed,
+          availability: { status: 'stale_generation', generation: state.generation },
+        }
+      : closed
+  }
   return state
 }
 

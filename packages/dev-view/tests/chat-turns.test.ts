@@ -1184,6 +1184,18 @@ describe('assistant message identity', () => {
     expect(shapeOf(badResult.turns)).toEqual(['text:a1', 'notice:r1'])
   })
 
+  test('an event that fails the full event contract has no identity, whatever its payload says', () => {
+    // The browser envelope does not check the canonical sequence the host contract requires.
+    const forged = { ...final('m1', 'forged', 'a1'), seq: 'not-a-sequence' }
+    const { turns: built } = turns([
+      event('turn.user_input', { text: 'q' }, 'u1'),
+      delta('m1', 0, 'Real ', 'd1'),
+      forged,
+    ])
+    expect(shapeOf(built)).toEqual(['text:d1', 'text:a1'])
+    expect(built[0]?.entries[0]).toMatchObject({ text: 'Real ' })
+  })
+
   test('a valid final with no text replaces the stream it supersedes', () => {
     for (const blank of ['', '  \n ']) {
       const { turns: built, entryByEventId } = turns([
@@ -1251,8 +1263,21 @@ describe('assistant message identity', () => {
 
 // ─── Approval and question outcomes paired with their request (#1383) ───────
 
-const askApproval = (id: string, requestId = 'req-1') =>
-  event(
+// The host admits a structured interaction only with authoritative provenance from an
+// owning adapter, workspace_private classification and a run identity.
+const interactionEvent = (
+  kind: RuntimeEvent['kind'],
+  payload: unknown,
+  id: string,
+  over: Partial<RuntimeEvent> = {}
+): RuntimeEvent => ({
+  ...event(kind, payload, id),
+  source: 'native',
+  classification: 'workspace_private',
+  ...over,
+})
+const askApproval = (id: string, requestId = 'req-1', over: Partial<RuntimeEvent> = {}) =>
+  interactionEvent(
     'approval.requested',
     {
       schemaVersion: 1,
@@ -1260,28 +1285,60 @@ const askApproval = (id: string, requestId = 'req-1') =>
       eligibility: { eligible: false, reason: 'response_unavailable' },
       prompt: 'Run the tests?',
     },
-    id
+    id,
+    over
   )
 const outcomeOf = (
-  kind: 'approval.resolved' | 'approval.expired' | 'question.resolved',
+  kind: 'approval.resolved' | 'approval.expired' | 'question.resolved' | 'question.expired',
   id: string,
   requestEventId: string,
   decision: string,
-  requestId = 'req-1'
+  requestId = 'req-1',
+  over: Partial<RuntimeEvent> = {},
+  answers: readonly unknown[] = []
 ) =>
-  event(
+  interactionEvent(
     kind,
     {
       schemaVersion: 1,
       requestId,
       requestEventId,
       decision,
-      ...(decision === 'answered' ? { answers: [] } : {}),
+      ...(decision === 'answered' ? { answers } : {}),
     },
-    id
+    id,
+    over
   )
 const approvalShape = (built: ReturnType<typeof turns>['turns']) =>
   built[0]?.entries.map((entry) => `${entry.type}:${entry.id}`)
+
+const askQuestions = (over: Partial<RuntimeEvent> = {}) =>
+  interactionEvent(
+    'question.requested',
+    {
+      schemaVersion: 1,
+      requestId: 'req-1',
+      eligibility: { eligible: false, reason: 'response_unavailable' },
+      questions: [
+        { id: 'target', prompt: 'Which target?', required: true, kind: 'text' },
+        {
+          id: 'mode',
+          prompt: 'Which mode?',
+          required: false,
+          kind: 'choice',
+          multiple: false,
+          options: [
+            { id: 'fast', label: 'Fast' },
+            { id: 'safe', label: 'Safe' },
+          ],
+        },
+      ],
+    },
+    'q1',
+    over
+  )
+const answeredWith = (answers: readonly unknown[]) =>
+  outcomeOf('question.resolved', 'o1', 'q1', 'answered', 'req-1', {}, answers)
 
 describe('approval and question outcomes', () => {
   test('a request says whether this surface may answer it', () => {
@@ -1356,6 +1413,132 @@ describe('approval and question outcomes', () => {
     ])
     expect(approvalShape(built)).toEqual(['approval:q1', 'question:o1'])
     expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+  })
+
+  describe('an interaction is a fact only as a whole event', () => {
+    test('a hint-grade or merely metadata-classified event is not a structured interaction', () => {
+      const hinted = askApproval('q1', 'req-1', { confidence: 'untrusted_hint' })
+      const metadata = askApproval('q2', 'req-1', { classification: 'workspace_metadata' })
+      expect(projectTranscriptEvents([hinted, metadata]).map((row) => row.interaction)).toEqual([
+        undefined,
+        undefined,
+      ])
+    })
+
+    test('an outcome that is only a hint never settles the request', () => {
+      const { turns: built } = turns([
+        askApproval('q1'),
+        outcomeOf('approval.resolved', 'o1', 'q1', 'approved', 'req-1', {
+          confidence: 'untrusted_hint',
+        }),
+      ])
+      expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o1'])
+      expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+    })
+
+    test('a request without a run identity is not structured', () => {
+      const [row] = projectTranscriptEvents([
+        askApproval('q1', 'req-1', { harnessRunId: undefined }),
+      ])
+      expect(row?.interaction).toBeUndefined()
+    })
+
+    test('an outcome from another source or another run is not this request’s outcome', () => {
+      const otherSource = outcomeOf('approval.resolved', 'o1', 'q1', 'approved', 'req-1', {
+        source: 'acp',
+      })
+      const otherRun = outcomeOf('approval.resolved', 'o2', 'q1', 'approved', 'req-1', {
+        harnessRunId: 'run-2',
+      })
+      const { turns: built } = turns([askApproval('q1'), otherSource, otherRun])
+      expect(approvalShape(built)).toEqual(['approval:q1', 'approval:o1', 'approval:o2'])
+      expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+    })
+
+    test('the same source and run settle it', () => {
+      const { turns: built } = turns([
+        askApproval('q1', 'req-1', { source: 'acp' }),
+        outcomeOf('approval.resolved', 'o1', 'q1', 'approved', 'req-1', { source: 'acp' }),
+      ])
+      expect(built[0]?.entries[0]).toMatchObject({ outcome: { eventId: 'o1' } })
+    })
+  })
+
+  describe('a question outcome is checked against the retained request', () => {
+    test('answers that satisfy the request settle it', () => {
+      const { turns: built } = turns([
+        askQuestions(),
+        answeredWith([
+          { questionId: 'target', text: 'production' },
+          { questionId: 'mode', optionIds: ['safe'] },
+        ]),
+      ])
+      expect(built[0]?.entries[0]).toMatchObject({
+        outcome: { decision: 'answered', eventId: 'o1' },
+      })
+    })
+
+    test('an optional question may be skipped or left out', () => {
+      const { turns: built } = turns([
+        askQuestions(),
+        answeredWith([
+          { questionId: 'target', text: 'production' },
+          { questionId: 'mode', skipped: true },
+        ]),
+      ])
+      expect(built[0]?.entries[0]).toMatchObject({ outcome: { eventId: 'o1' } })
+    })
+
+    test.each([
+      ['no answers while a question is required', []],
+      ['a required question skipped', [{ questionId: 'target', skipped: true }]],
+      [
+        'a question the request never asked',
+        [
+          { questionId: 'target', text: 'production' },
+          { questionId: 'extra', text: 'x' },
+        ],
+      ],
+      [
+        'an option the question does not offer',
+        [
+          { questionId: 'target', text: 'production' },
+          { questionId: 'mode', optionIds: ['turbo'] },
+        ],
+      ],
+      [
+        'a choice answered as text',
+        [
+          { questionId: 'target', text: 'production' },
+          { questionId: 'mode', text: 'safe' },
+        ],
+      ],
+    ] as const)('%s does not settle the request', (_name, answers) => {
+      const { turns: built } = turns([askQuestions(), answeredWith(answers)])
+      expect(approvalShape(built)).toEqual(['question:q1', 'question:o1'])
+      expect(built[0]?.entries[0]).not.toHaveProperty('outcome')
+    })
+
+    test('an invalid outcome does not use up the request: a valid one still settles it', () => {
+      const { turns: built } = turns([
+        askQuestions(),
+        answeredWith([]),
+        outcomeOf('question.resolved', 'o2', 'q1', 'answered', 'req-1', {}, [
+          { questionId: 'target', text: 'production' },
+        ]),
+      ])
+      expect(built[0]?.entries[0]).toMatchObject({ outcome: { eventId: 'o2' } })
+    })
+
+    test('an expiry carries no answers and settles', () => {
+      const { turns: built } = turns([
+        askQuestions(),
+        outcomeOf('question.expired', 'o1', 'q1', 'expired'),
+      ])
+      expect(built[0]?.entries[0]).toMatchObject({
+        outcome: { decision: 'expired', eventId: 'o1' },
+      })
+    })
   })
 
   test('a legacy payload is never paired by what its text says', () => {

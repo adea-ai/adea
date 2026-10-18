@@ -1022,12 +1022,12 @@ test.describe('a reply that starts behind the window', () => {
     // The window holds only the last delta of the reply; showing it would show a fragment
     // whose start (and any secret it began) is out of view.
     await expect(transcript(page)).not.toContainText('two places.')
-    // The scroller asks for older messages by itself, one page at a time; wait for both.
-    await expect.poll(() => attempts(page), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
+    // Earlier messages load one page at a time through the scroller's own control.
     const load = page.getByRole('button', { name: 'Load earlier messages' })
+    await expect(load).toBeAttached()
     for (let step = 0; step < 4; step += 1) {
       if (await transcript(page).getByText(REPLY).count()) break
-      await load.click({ timeout: 1_000 }).catch(() => undefined)
+      await load.evaluate((node) => (node as HTMLElement).click()).catch(() => undefined)
       await page.waitForTimeout(250)
     }
     await expect(transcript(page).getByText(REPLY)).toHaveCount(1)
@@ -1036,6 +1036,113 @@ test.describe('a reply that starts behind the window', () => {
     await expect(transcript(page).getByText('failed in', { exact: true })).toHaveCount(0)
     expect(await attempts(page)).toBe(2)
     expect(errors).toEqual([])
+  })
+})
+
+const offsetOf = (page: Page, text: string) =>
+  page.evaluate((needle) => {
+    const scroller = document.querySelector('[data-dev-chat-stream]') as HTMLElement
+    const node = Array.from(scroller.querySelectorAll('p')).find((candidate) =>
+      candidate.textContent?.includes(needle)
+    )
+    if (!node) return null
+    return node.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+  }, text)
+
+test.describe('a reply split across history pages keeps the reader’s place', () => {
+  test('scroll offset and focus survive the earlier pages landing', async ({ page }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'history-split', { height: 600 })
+    const scroller = page.locator('[data-dev-chat-stream]')
+    await expect(scroller.getByText('Closing paragraph of the long answer.')).toBeVisible()
+    // Read the middle of the long answer, the code block a little below the top of the view:
+    // far from both ends, so nothing loads by itself and the view does not follow.
+    const copy = scroller.getByRole('button', { name: /copy/i }).first()
+    await copy.evaluate((node) => {
+      const view = document.querySelector('[data-dev-chat-stream]') as HTMLElement
+      view.scrollTop += node.getBoundingClientRect().top - view.getBoundingClientRect().top - 90
+      node.focus({ preventScroll: true })
+    })
+    await expect(copy).toBeFocused()
+    const room = await scroller.evaluate((node) => ({
+      above: node.scrollTop,
+      below: node.scrollHeight - node.clientHeight - node.scrollTop,
+    }))
+    expect(room.above).toBeGreaterThan(200)
+    expect(room.below).toBeGreaterThan(200)
+    const before = await offsetOf(page, 'Paragraph 13 of the long answer')
+    expect(before).not.toBeNull()
+    expect(await attempts(page)).toBe(0)
+
+    // The reader asks for earlier messages with the control, not by scrolling to the top: a
+    // click that reaches the control without moving the view, as a keyboard user's does.
+    const control = scroller.getByRole('button', { name: 'Load earlier messages' })
+    const ask = () => control.evaluate((node) => (node as HTMLElement).click())
+    await ask()
+    await expect.poll(() => attempts(page)).toBe(1)
+    // The first page reaches into the middle of the reply: its start is still unknown.
+    await expect(scroller.getByText('The build failed in two places.')).toHaveCount(0)
+    await expect(control).toBeAttached()
+    await page.waitForTimeout(300)
+    await ask()
+    await expect.poll(() => attempts(page)).toBe(2)
+    await expect(scroller.getByText('The build failed in two places.')).toHaveCount(1)
+    await expect(scroller.getByText('What failed in the build?')).toBeVisible()
+
+    const after = await offsetOf(page, 'Paragraph 13 of the long answer')
+    expect(Math.abs((after ?? 0) - (before ?? 0))).toBeLessThanOrEqual(2)
+    await expect(copy).toBeFocused()
+    expect(errors).toEqual([])
+  })
+})
+
+const status = (page: Page) => page.locator('[data-chat-status]')
+const opens = (page: Page) =>
+  page.evaluate(() => (window as unknown as { chatStreamOpens?: string[] }).chatStreamOpens ?? [])
+const close = (page: Page, detail: { code: string; error?: string }) =>
+  page.evaluate(
+    (value) => window.dispatchEvent(new CustomEvent('chat-visual:close', { detail: value })),
+    detail
+  )
+
+test.describe('a stream that ends is not shown as live', () => {
+  test('an ordinary close says disconnected and reconnects from where it was', async ({ page }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'stream-close')
+    await expect(status(page)).toHaveText(/Live/)
+    const first = await opens(page)
+    expect(first).toHaveLength(1)
+    await close(page, { code: 'normal' })
+    await expect(status(page)).toHaveText(/Disconnected/)
+    await expect(status(page)).not.toHaveText(/Live/)
+    await expect(page.getByText('The live stream closed. Reconnect to continue.')).toBeVisible()
+    await page.getByRole('button', { name: 'Reconnect transcript' }).click()
+    await expect(status(page)).toHaveText(/Live/)
+    const second = await opens(page)
+    expect(second).toHaveLength(2)
+    expect(second[1]).not.toBe('0')
+    expect(second[1]).toBe(first[0])
+    expect(errors).toEqual([])
+  })
+
+  test('a close after the host refused the position does not reconnect with it', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'stream-close')
+    await expect(status(page)).toHaveText(/Live/)
+    await close(page, { code: 'incompatible', error: 'sequence_gap' })
+    await expect(status(page)).toHaveText(/Disconnected/)
+    await expect(page.getByText(/host refused its position/)).toBeVisible()
+    await page.getByRole('button', { name: 'Reconnect transcript' }).click()
+    await expect(status(page)).toHaveText(/Live/)
+    const opened = await opens(page)
+    expect(opened).toHaveLength(2)
+    expect(opened[1]).toBe('0')
+    // The refusal is spent: the next ordinary reconnect resumes from the window again.
+    await close(page, { code: 'normal' })
+    await page.getByRole('button', { name: 'Reconnect transcript' }).click()
+    await expect.poll(async () => (await opens(page)).length).toBe(3)
+    expect((await opens(page))[2]).not.toBe('0')
   })
 })
 

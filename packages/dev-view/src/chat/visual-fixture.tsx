@@ -2,7 +2,11 @@ import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 import { createMemo, createSignal, For, onCleanup, onMount } from 'solid-js'
 import { ChatView } from './chat-view'
 import type { ChatDraftChange } from './chat-composer'
-import { acceptRuntimeEvent, createTranscriptAccumulator } from './model/transcript'
+import {
+  acceptRuntimeEvent,
+  acceptRuntimeStreamFrame,
+  createTranscriptAccumulator,
+} from './model/transcript'
 import { createRuntimeHistoryLoader } from './model/history'
 import type {
   ChatConversation,
@@ -37,6 +41,7 @@ import {
   historySplitMiddle,
   historySplitPrompt,
   historySplitStart,
+  historySplitTail,
   retentionTurnScript,
   richEvents,
 } from './visual-fixture-data'
@@ -83,6 +88,8 @@ export type ChatVisualFixtureState =
   | 'history-offline'
   /** One reply whose start is two history pages back; the real loader restores it. */
   | 'history-split'
+  /** A live stream the test can close, with or without the host refusing its position. */
+  | 'stream-close'
   /** An approval whose request is longer than the card's description shows. */
   | 'approval-long'
   /** The real accumulator, one event per `chat-visual:append` (or `detail.count`): a turn whose prompt is evicted. */
@@ -114,7 +121,7 @@ const STATE_EVENTS: Partial<Record<ChatVisualFixtureState, readonly RuntimeEvent
   history: historyNewest,
   'history-retry': historyNewest,
   'history-offline': historyNewest,
-  'history-split': [historySplitEnd],
+  'history-split': [historySplitEnd, historySplitTail],
   'retention-turn': retentionTurnEvents,
   'retention-stream': retentionStreamEvents,
 }
@@ -428,12 +435,15 @@ function splitHistoryModel(): Pick<ChatConversationModel, 'openTranscript' | 'se
   return {
     openTranscript: async () => {
       let state: TranscriptAccumulator = acceptRuntimeEvent(
-        createTranscriptAccumulator({
-          runtimeSessionId: sessionId,
-          generation: 3,
-          fromSequence: '4',
-        }),
-        historySplitEnd
+        acceptRuntimeEvent(
+          createTranscriptAccumulator({
+            runtimeSessionId: sessionId,
+            generation: 3,
+            fromSequence: '4',
+          }),
+          historySplitEnd
+        ),
+        historySplitTail
       )
       const listeners = new Set<(state: TranscriptAccumulator) => void>()
       let attempts = 0
@@ -452,6 +462,9 @@ function splitHistoryModel(): Pick<ChatConversationModel, 'openTranscript' | 'se
             : splitHistoryPage('4', [historySplitMiddle], true)
         },
       })
+      // The test loads the earlier pages itself, from wherever the reader is scrolled to.
+      const loadOlder = () => void loader.loadOlder().catch(() => undefined)
+      window.addEventListener('chat-visual:load-older', loadOlder)
       return {
         state: () => state,
         subscribe: (listener: (state: TranscriptAccumulator) => void) => {
@@ -461,13 +474,67 @@ function splitHistoryModel(): Pick<ChatConversationModel, 'openTranscript' | 'se
         hasOlder: loader.hasOlder,
         loadOlder: loader.loadOlder,
         close: () => {
+          window.removeEventListener('chat-visual:load-older', loadOlder)
           loader.close()
           listeners.clear()
         },
       }
     },
     send: async () => undefined,
-    cancel: async () => conversation('streaming', [historySplitEnd]),
+    cancel: async () => conversation('streaming', [historySplitEnd, historySplitTail]),
+  }
+}
+
+/**
+ * A live stream that ends when told to: `chat-visual:close` carries the close code and,
+ * optionally, the error code the host sent before it. Every open records the position it
+ * asked for, so a test can see what a reconnect requests.
+ */
+function closableModel(): Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> {
+  return {
+    openTranscript: async (_runtimeSessionId, options) => {
+      const opens = ((window as unknown as { chatStreamOpens?: string[] }).chatStreamOpens ??= [])
+      opens.push(options?.fromSequence ?? '')
+      let state = createTranscriptAccumulator({ runtimeSessionId: sessionId, generation: 3 })
+      for (const item of transcriptEvents) state = acceptRuntimeEvent(state, item)
+      const listeners = new Set<(state: TranscriptAccumulator) => void>()
+      const onClose = (closeEvent: Event) => {
+        const detail = (closeEvent as CustomEvent<{ code: string; error?: string }>).detail
+        if (detail.error !== undefined)
+          state = acceptRuntimeStreamFrame(
+            state,
+            {
+              type: 'error',
+              error: {
+                code: detail.error,
+                message: 'The host refused the stream.',
+                retryable: false,
+              },
+            } as never,
+            'native'
+          )
+        state = acceptRuntimeStreamFrame(
+          state,
+          { type: 'close', code: detail.code } as never,
+          'native'
+        )
+        for (const listener of listeners) listener(state)
+      }
+      window.addEventListener('chat-visual:close', onClose)
+      return {
+        state: () => state,
+        subscribe: (listener: (state: TranscriptAccumulator) => void) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        close: () => {
+          listeners.clear()
+          window.removeEventListener('chat-visual:close', onClose)
+        },
+      }
+    },
+    send: async () => undefined,
+    cancel: async () => conversation('streaming', transcriptEvents),
   }
 }
 
@@ -532,17 +599,21 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
               ? retainingModel(retentionTurnEvents, retentionTurnScript)
               : state === 'retention-stream'
                 ? retainingModel(retentionStreamEvents, retentionStreamScript)
-                : state === 'history-split'
-                  ? splitHistoryModel()
-                  : state === 'history' || state === 'history-retry' || state === 'history-offline'
-                    ? historyModel(
-                        state === 'history'
-                          ? 'ok'
-                          : state === 'history-retry'
-                            ? 'fail-first'
-                            : 'offline'
-                      )
-                    : undefined
+                : state === 'stream-close'
+                  ? closableModel()
+                  : state === 'history-split'
+                    ? splitHistoryModel()
+                    : state === 'history' ||
+                        state === 'history-retry' ||
+                        state === 'history-offline'
+                      ? historyModel(
+                          state === 'history'
+                            ? 'ok'
+                            : state === 'history-retry'
+                              ? 'fail-first'
+                              : 'offline'
+                        )
+                      : undefined
   const [draft, setDraft] = createSignal<ChatDraftValue>({
     text: state === 'attention' ? 'I can clarify the target environment.' : '',
     blocks: [],
@@ -640,7 +711,8 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                 conversation={activeConversation()}
                 model={currentModel}
                 authority="chat"
-                connected={state !== 'reconnect'}
+                // The closable stream reports its own state; every other fixture is simply connected.
+                connected={state === 'stream-close' ? undefined : state !== 'reconnect'}
                 awaitingApproval={state === 'attention' || state === 'rich'}
                 handoff={
                   new URLSearchParams(window.location.search).has('chatHandoff') ? {} : undefined
@@ -660,7 +732,8 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                   state === 'history' ||
                   state === 'history-retry' ||
                   state === 'history-offline' ||
-                  state === 'history-split'
+                  state === 'history-split' ||
+                  state === 'stream-close'
                 }
                 draftRevision={fallbackDraftModel ? undefined : draftRevision()}
                 onDraftChange={onDraftChange}

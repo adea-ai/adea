@@ -474,6 +474,23 @@ export const historySplitPrompt = event('1', 'turn.user_input', {
 export const historySplitStart = splitDelta('2', 'The build ', 0)
 export const historySplitMiddle = splitDelta('3', 'failed in ', 1)
 export const historySplitEnd = splitDelta('4', 'two places.', 2)
+/**
+ * A tall answer after the split reply with a code block in the middle: enough content
+ * above and below to read mid-way, and a control the reader can have focused.
+ */
+export const SPLIT_TAIL_MARKER = 'Closing paragraph of the long answer.'
+const splitParagraph = (index: number) =>
+  `Paragraph ${index} of the long answer explains one more detail about the build, with enough words to wrap onto a second line at a narrow width.`
+export const historySplitTail = event('5', 'turn.assistant_message', {
+  text: [
+    ...Array.from({ length: 12 }, (_, index) => splitParagraph(index + 1)),
+    '```bash',
+    'bun run build',
+    '```',
+    ...Array.from({ length: 12 }, (_, index) => splitParagraph(index + 13)),
+    SPLIT_TAIL_MARKER,
+  ].join('\n\n'),
+})
 
 export const LONG_APPROVAL_TAIL = 'FINAL STEP: drop table audit_log (irreversible)'
 export const longApprovalEvents: readonly RuntimeEvent[] = [

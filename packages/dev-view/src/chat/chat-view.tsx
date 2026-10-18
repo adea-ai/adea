@@ -157,6 +157,9 @@ export function ChatView(props: ChatViewProps): JSX.Element {
   const historyControl = createHistoryControl(setHistory)
   let closeStream: (() => void) | undefined
   let attachment = 0
+  // The host refused the position the last stream was opened from; asking for it again
+  // would be refused again, so the next attach starts from the beginning of the window.
+  let cursorRejected = false
 
   const detach = () => {
     attachment += 1
@@ -174,12 +177,15 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     const generation = props.conversation.generation
     setStreamState('connecting')
     setStreamError(undefined)
+    const resumeFrom = cursorRejected
+      ? '0'
+      : (transcript().retention.newestSequence ??
+        props.conversation.retention.newestSequence ??
+        '0')
+    cursorRejected = false
     try {
       const handle = await model.openTranscript(runtimeSessionId, {
-        fromSequence:
-          transcript().retention.newestSequence ??
-          props.conversation.retention.newestSequence ??
-          '0',
+        fromSequence: resumeFrom,
       })
       if (
         currentAttachment !== attachment ||
@@ -198,10 +204,18 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         historyControl.refresh()
         if (
           next.availability.status === 'stale_generation' ||
-          next.availability.status === 'resync_required'
+          next.availability.status === 'resync_required' ||
+          next.streamClosed !== undefined
         ) {
+          cursorRejected = next.streamClosed?.cursorRejected === true
           detach()
           setStreamState('disconnected')
+          if (next.streamClosed !== undefined && next.availability.status !== 'stale_generation')
+            setStreamError(
+              next.streamClosed.cursorRejected
+                ? 'The live stream was closed because the host refused its position. Reconnect to reload the latest events.'
+                : 'The live stream closed. Reconnect to continue.'
+            )
         }
       })
       closeStream = () => {

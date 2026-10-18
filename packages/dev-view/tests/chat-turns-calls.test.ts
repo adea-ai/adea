@@ -471,6 +471,24 @@ describe('tool and subagent calls', () => {
       expect(text).toContain('12345678')
     })
 
+    test('an ordinary word before the fragments cannot hide a secret from the scan', () => {
+      const text = inputText(['note', 'sk-abcd', 12345678])
+      expect(text).not.toContain('12345678')
+      expect(text).toContain('withheld')
+    })
+
+    test('the same holds for an object, a nested value and a long run of fragments', () => {
+      expect(inputText({ a: 'note', b: { c: 'sk-abcd' }, d: 12345678 })).toContain('withheld')
+      const filler = Array.from({ length: 200 }, (_, index) => `word${index}`)
+      expect(inputText([...filler, 'sk-', 'abcdefghij'])).toContain('withheld')
+    })
+
+    test('ordinary fragments stay readable', () => {
+      const text = inputText(['note', 'skate', 12345678, 'ask-me-later'])
+      expect(text).not.toContain('withheld')
+      expect(text).toContain('skate')
+    })
+
     test('a PEM block with escaped newlines is redacted', () => {
       const text = inputText({
         pem: '-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkq\n-----END PRIVATE KEY-----',

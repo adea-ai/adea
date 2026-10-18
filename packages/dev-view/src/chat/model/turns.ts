@@ -63,7 +63,12 @@
 //   and source, so two runs that reuse an id never merge.
 // - No event disappears. A kind the chat has no dedicated presentation for is an
 //   `other` entry with its kind as the label, in position.
-import type { RuntimeMethodStepSummary, RuntimeReasoningSummary } from '@adea-ai/types/dev-runtime'
+import {
+  validateRuntimeQuestionAnswers,
+  type RuntimeEvent,
+  type RuntimeMethodStepSummary,
+  type RuntimeReasoningSummary,
+} from '@adea-ai/types/dev-runtime'
 import {
   redactDisplay,
   redactAssistantDeltaFragments,
@@ -322,6 +327,21 @@ function summaryScope(item: ChatTranscriptItem): readonly unknown[] {
   return [event?.runtimeSessionId, event?.generation, event?.harnessRunId, event?.source]
 }
 
+/**
+ * A question outcome settles its request only if its answers hold up against the
+ * retained request (required questions answered, known questions and options, matching
+ * answer forms), as the host checks at admission. An approval, or an expiry, has none.
+ */
+function answersMatch(request: RuntimeEvent, outcome: RuntimeEvent): boolean {
+  if (outcome.kind !== 'question.resolved') return true
+  try {
+    validateRuntimeQuestionAnswers(request.payload, outcome.payload)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** A slot whose entry was folded into an earlier one; removed once the turn is built. */
 const FOLDED = Object.freeze({}) as unknown as ChatTurnEntry
 
@@ -331,6 +351,8 @@ type OpenRequest = {
   requestId: string
   family: 'approval' | 'question'
   settled: boolean
+  /** The request as retained, for the host's own checks of an outcome against it. */
+  event: RuntimeEvent
 }
 
 type MessageProse = {
@@ -849,7 +871,12 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
         (entry.type === 'approval' || entry.type === 'question') &&
         !target.settled &&
         target.family === family &&
-        target.requestId === interaction.requestId
+        target.requestId === interaction.requestId &&
+        // The host closes a request only from the same adapter source and the same run;
+        // an outcome from a lower tier or another run is not this request's outcome.
+        target.event.source === item.event.source &&
+        target.event.harnessRunId === item.event.harnessRunId &&
+        answersMatch(target.event, item.event)
       ) {
         target.settled = true
         target.entries[target.at] = {
@@ -961,6 +988,7 @@ export function buildChatTurns(items: readonly ChatTranscriptItem[]): ChatTurnPr
             requestId: interaction.requestId,
             family: item.role,
             settled: false,
+            event: item.event,
           }
         )
     } else if (item.role === 'status') {

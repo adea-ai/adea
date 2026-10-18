@@ -7,6 +7,7 @@ import { ChatRuntimeError, eventSourceForStream, executeChatCommand } from './co
 import {
   acceptRuntimeStreamFrame,
   createTranscriptAccumulator,
+  markStreamClosed,
   type TranscriptAccumulator,
 } from './transcript'
 
@@ -136,7 +137,11 @@ export async function openRuntimeEventStream(input: OpenRuntimeEventStreamInput)
       }
       publish()
     },
-    onClose: (_code, _reason) => publish(),
+    onClose: (_code, reason) => {
+      // The socket ended with or without a close frame: nothing more will arrive.
+      transcript = markStreamClosed(transcript, 'transport', reason)
+      publish()
+    },
   })
   for (const ack of pendingAcks) if (socket.open) socket.send(ack)
   return {

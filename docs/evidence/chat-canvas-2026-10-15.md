@@ -60,7 +60,23 @@ The shared components live in `adea-ai/ui` (coverage matrix:
   the canvas.
 - **Older messages.** A bounded history control loads earlier events through the
   existing `MessageScroller`; one request at a time per epoch, a failure keeps the
-  position and offers a retry.
+  position and offers a retry. `MessageScroller` keeps the reader's place by turn, so
+  a reply split across history pages (one turn whose withheld placeholder becomes the
+  restored reply) would move the view; the transcript pins the first visible entry by
+  node across each load and puts back whatever it still drifted unless the reader
+  scrolled meanwhile. A mounted regression reads the middle of a long reply, loads
+  both earlier pages with the real control and holds the offset within 2px, focus kept.
+- **A stream that ends is not live.** Every `close` frame and every `error` frame is
+  recorded, and so is a transport close. The chat leaves "Live", says Disconnected
+  (with the host's reason for anything but a stale generation) and reconnects; when
+  the cursor was refused (an `incompatible` close, or a close after a `sequence_gap` or
+  `resync_required` error) it reconnects without the rejected `newestSequence`.
+- **Interactions are checked as events.** An approval or question is drawn only after
+  `decodeRuntimeEvent` accepts the whole event (authoritative provenance, private
+  classification, a harness run), not just its payload; an assistant message is keyed
+  the same way. An outcome settles a request only in the same binding, adapter
+  source and harness run, and a question outcome only when its answers satisfy the
+  retained request (a required question never settles with no answer).
 - **Authority is unchanged.** Approve, Deny and Submit answer go through the same
   `onResolveApproval`/`onResolveQuestion` callbacks; with none supplied the controls
   stay visible and disabled with the reason in words. Answering is a round trip;

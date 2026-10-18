@@ -244,6 +244,14 @@ function requestContextFromPayload(event: RuntimeEvent): {
 
 function interactionFromEvent(event: RuntimeEvent): ChatInteraction | undefined {
   if (!event.kind.startsWith('approval.') && !event.kind.startsWith('question.')) return undefined
+  // The whole event, not the payload alone: the host admits a structured interaction only
+  // with authoritative provenance, workspace_private classification and a run identity,
+  // so a payload with the right shape from a hint-grade source is not a fact.
+  try {
+    decodeRuntimeEvent(event, { source: event.source })
+  } catch {
+    return undefined
+  }
   let decoded: ReturnType<typeof decodeRuntimeInteractionPayload>
   try {
     decoded = decodeRuntimeInteractionPayload(event.kind, event.payload)
@@ -276,6 +284,47 @@ const SENSITIVE_KEY =
 const JOINED_SECRET =
   /-----BEGIN |\bBearer\s+[A-Za-z0-9._~+/=-]|\b(?:sk|pk|api|token|secret)[-_][A-Za-z0-9._-]{8,}|\/Users\/|\/home\/|[A-Za-z]:\\Users\\/i
 
+/** Most fragments, and most characters, read together from one candidate start. */
+const JOIN_FRAGMENTS = 64
+const JOIN_CHARACTERS = 512
+
+type Fragment = Readonly<{ text: string; key: boolean }>
+
+const readFrom = (fragments: readonly string[], start: number) =>
+  fragments
+    .slice(start, start + JOIN_FRAGMENTS)
+    .join('')
+    .slice(0, JOIN_CHARACTERS)
+
+/**
+ * Whether the scalar fragments of a value, read in order, spell a secret. The pattern
+ * needs a word boundary before `sk-` and the like, so an ordinary word in the fragment
+ * just before the secret's start would hide it from one scan over the whole list.
+ * Every fragment start is a candidate start: read from there, that fragment is at the
+ * front of the text with its own boundary. Three readings, each bounded so the work
+ * stays linear in the number of fragments: the values alone (a key between two
+ * fragments does not separate them), the whole list with keys read in, and each key
+ * followed by the values after it (a fragment may be a key; other keys are names, not
+ * part of the secret).
+ */
+export function secretAcrossFragments(fragments: readonly Fragment[]): boolean {
+  const values = fragments.filter((fragment) => !fragment.key).map((fragment) => fragment.text)
+  if (JOINED_SECRET.test(values.join(''))) return true
+  if (JOINED_SECRET.test(fragments.map((fragment) => fragment.text).join(''))) return true
+  for (let start = 0; start < values.length; start += 1)
+    if (JOINED_SECRET.test(readFrom(values, start))) return true
+  for (let index = 0; index < fragments.length; index += 1) {
+    const fragment = fragments[index]!
+    if (!fragment.key) continue
+    const following = fragments
+      .slice(index + 1)
+      .filter((entry) => !entry.key)
+      .map((entry) => entry.text)
+    if (JOINED_SECRET.test(readFrom([fragment.text, ...following], 0))) return true
+  }
+  return false
+}
+
 /**
  * Redact a call's inline value BEFORE it is written as JSON. JSON escapes a string's
  * backslashes, quotes and control characters, so a private path or a token with a
@@ -284,22 +333,23 @@ const JOINED_SECRET =
  * string it is; a credential-named key withholds its value; a secret that only forms
  * when separate fields are read together withholds the whole value.
  */
-function scrubCallValue(value: unknown): { value: unknown; truncated: boolean; joined: string[] } {
+function scrubCallValue(value: unknown): {
+  value: unknown
+  truncated: boolean
+  joined: Fragment[]
+} {
   let truncated = false
   let nodes = 0
-  // Two readings of the same value, in traversal order: every scalar alone (a key
-  // between two fragments does not separate them), and keys read in with them (a
-  // fragment may sit in a key). A number or boolean is a fragment like any string.
-  const values: string[] = []
-  const everything: string[] = []
+  // Every key and scalar in traversal order, read together by `secretAcrossFragments`.
+  // A number or boolean is a fragment like any string.
+  const fragments: Fragment[] = []
   const text = (raw: string, isKey: boolean): string => {
     const safe = redactWithProvenance(stripTerminalControls(raw), CALL_DATA_LIMIT, {
       window: BODY_SCAN_WINDOW,
       layout: true,
     })
     if (safe.truncated) truncated = true
-    everything.push(safe.text)
-    if (!isKey) values.push(safe.text)
+    fragments.push({ text: safe.text, key: isKey })
     return safe.text
   }
   const walk = (node: unknown, depth: number): unknown => {
@@ -311,8 +361,7 @@ function scrubCallValue(value: unknown): { value: unknown; truncated: boolean; j
     if (typeof node === 'string') return text(node, false)
     if (node === null || typeof node !== 'object') {
       const scalar = String(node)
-      values.push(scalar)
-      everything.push(scalar)
+      fragments.push({ text: scalar, key: false })
       return node
     }
     if (Array.isArray(node)) return node.map((entry) => walk(entry, depth + 1))
@@ -324,7 +373,7 @@ function scrubCallValue(value: unknown): { value: unknown; truncated: boolean; j
     return out
   }
   const scrubbed = walk(value, 0)
-  return { value: scrubbed, truncated, joined: [values.join(''), everything.join('')] }
+  return { value: scrubbed, truncated, joined: fragments }
 }
 
 function callData(data: RuntimeCallData | undefined): ChatCallData | undefined {
@@ -335,7 +384,7 @@ function callData(data: RuntimeCallData | undefined): ChatCallData | undefined {
       ...(data.byteLength !== undefined ? { byteLength: data.byteLength } : {}),
     }
   const scrubbed = scrubCallValue(data.value)
-  if (scrubbed.joined.some((reading) => JOINED_SECRET.test(reading)))
+  if (secretAcrossFragments(scrubbed.joined))
     return {
       type: 'inline',
       text: '[withheld: a secret may span several fields]',
@@ -715,6 +764,9 @@ export function assistantMessageKey(item: ChatTranscriptItem): string | undefine
       event.kind === 'turn.result')
   ) {
     try {
+      // The full event first: the browser envelope skips the run identity and frame
+      // bounds the host enforces for assistant events.
+      decodeRuntimeEvent(event, { source: event.source })
       const payload = decodeRuntimeAssistantPayload(event.kind, event.payload)
       key = JSON.stringify([
         event.runtimeSessionId,

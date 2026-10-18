@@ -174,6 +174,40 @@ function sameIds(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((id, index) => id === b[index])
 }
 
+const PIN_SETTLE_FRAMES = 4
+const READER_INPUTS = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const
+
+/**
+ * Remembers where the first visible entry sits in the scroller. `restore` waits
+ * for the scroller's own post-load restore (about two frames), then moves the
+ * scroll offset by whatever the entry still drifted, unless the reader acted.
+ */
+function pinFirstVisibleEntry(scroller: HTMLElement): { restore: () => Promise<void> } | undefined {
+  const top = scroller.getBoundingClientRect().top
+  const entry = Array.from(scroller.querySelectorAll<HTMLElement>('[data-entry-id]')).find(
+    (candidate) => candidate.getBoundingClientRect().bottom > top + 1
+  )
+  if (!entry) return undefined
+  const before = entry.getBoundingClientRect().top - top
+  let moved = false
+  const note = () => {
+    moved = true
+  }
+  for (const name of READER_INPUTS) scroller.addEventListener(name, note, { passive: true })
+  return {
+    restore: async () => {
+      for (let frame = 0; frame < PIN_SETTLE_FRAMES; frame++) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      }
+      for (const name of READER_INPUTS) scroller.removeEventListener(name, note)
+      if (moved || !entry.isConnected) return
+      const drift =
+        entry.getBoundingClientRect().top - scroller.getBoundingClientRect().top - before
+      if (Math.abs(drift) >= 1) scroller.scrollTop += drift
+    },
+  }
+}
+
 /**
  * What the reader must know before reading any turn: a gap, an older generation,
  * bounded history, a terminal-only projection. They sit outside the scrolling
@@ -323,6 +357,24 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
 
   const hasEntries = () => items().length > 0
 
+  // MessageScroller keeps the reader's place by turn. A reply split across
+  // history pages stays one turn, so an entry above the reader that changes
+  // height inside it (a withheld placeholder becoming the restored text) moves
+  // the view with nothing to re-anchor it. Pin the first visible entry by node
+  // across the load and put it back once the scroller has restored its own turn;
+  // a reader who scrolled meanwhile keeps wherever they went.
+  const loadOlderPinned = async () => {
+    const load = props.onLoadOlder
+    const scroller = thread
+    if (!load) return
+    const pin = scroller ? pinFirstVisibleEntry(scroller) : undefined
+    try {
+      await load()
+    } finally {
+      void pin?.restore()
+    }
+  }
+
   return (
     <MessageScroller
       data-dev-chat-stream=""
@@ -330,7 +382,7 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
       resetKey={props.resetKey}
       hasOlder={props.hasOlder}
       loadingOlder={props.loadingOlder}
-      onLoadOlder={props.onLoadOlder}
+      onLoadOlder={props.onLoadOlder ? loadOlderPinned : undefined}
       initialReadingPosition={props.readingPosition}
       onReadingPositionChange={props.onReadingPositionChange}
       announcement={announcement()}
