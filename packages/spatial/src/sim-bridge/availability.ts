@@ -1,4 +1,4 @@
-import type { SimFrameMessage } from './messages'
+import type { SimFrameStatusMessage } from './messages'
 import type { SimLaunchGrant } from './launch'
 
 /**
@@ -47,7 +47,7 @@ export type SimLaunchEvent =
   | Readonly<{ type: 'start'; online?: boolean }>
   /** The backend's parsed reply for `attempt`; `null` is a reply that failed validation. */
   | Readonly<{ type: 'grant'; attempt: number; grant: SimLaunchGrant | null }>
-  | Readonly<{ type: 'frame'; attempt: number; message: SimFrameMessage; now: number }>
+  | Readonly<{ type: 'frame'; attempt: number; message: SimFrameStatusMessage; now: number }>
   | Readonly<{ type: 'timeout'; attempt: number }>
   | Readonly<{ type: 'offline' }>
   | Readonly<{ type: 'dispose' }>
@@ -76,7 +76,11 @@ function unavailable(attempt: number, reason: SimUnavailableReason): SimLaunchSt
   return { state: { phase: 'unavailable', attempt, reason } }
 }
 
-function reduceFrame(state: SimLaunchState, message: SimFrameMessage, now: number): SimLaunchStep {
+function reduceFrame(
+  state: SimLaunchState,
+  message: SimFrameStatusMessage,
+  now: number
+): SimLaunchStep {
   const { attempt } = state
   switch (message.type) {
     case 'frame.ready': {
