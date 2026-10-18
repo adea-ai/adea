@@ -3188,6 +3188,10 @@ is added. The integration handoff lists the shared aggregation conflicts in
 `packages/types/src/dev-runtime-interactions.ts` defines the versioned producer
 contract for the six approval/question kinds. A payload with `schemaVersion: 1`
 MUST pass its kind-specific decoder; unknown keys and versions are refused.
+The complete decoder also bounds the entire canonical CBOR event to 65,536
+bytes, including UTF-8 expansion and envelope fields. Replay candidates retain
+separate pre-dedup validation and exact-fit retry semantics; the lean browser
+decoder does not import interaction validators.
 Legacy text or unversioned objects remain opaque: they establish neither a
 structured question, response eligibility, nor an approved/denied outcome.
 An unversioned payload carrying `eligibility` is refused rather than elevated to
@@ -3606,6 +3610,10 @@ append/restart/retention and canonical-CBOR replay tests live in
 `packages/types/src/dev-runtime-interactions.ts` defines the versioned producer
 contract for the six approval/question kinds. A payload with `schemaVersion: 1`
 MUST pass its kind-specific decoder; unknown keys and versions are refused.
+The complete decoder also bounds the entire canonical CBOR event to 65,536
+bytes, including UTF-8 expansion and envelope fields. Replay candidates retain
+separate pre-dedup validation and exact-fit retry semantics; the lean browser
+decoder does not import interaction validators.
 Legacy text or unversioned objects remain opaque: they establish neither a
 structured question, response eligibility, nor an approved/denied outcome.
 An unversioned payload carrying `eligibility` is refused rather than elevated to
