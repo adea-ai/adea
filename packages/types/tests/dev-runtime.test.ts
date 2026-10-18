@@ -597,6 +597,44 @@ describe('Dev Runtime reply envelope', () => {
     ).toThrow('success DTO decoder is unavailable')
   })
 
+  test('decodes bounded native-session pages without accepting private extra fields', () => {
+    const observedAt = '2026-10-15T00:00:00.000Z'
+    const requestId = '00000000-0000-4000-8000-000000000004'
+    const session = {
+      id: '00000000-0000-4000-8000-000000000040',
+      scope,
+      projectId: '00000000-0000-4000-8000-000000000020',
+      repoId: '00000000-0000-4000-8000-000000000030',
+      worktreeId: '00000000-0000-4000-8000-000000000050',
+      lifecycle: 'ready',
+      archived: false,
+      projection: 'structured',
+      generation: 1,
+      version: 1,
+    }
+    const reply = {
+      schemaVersion: 1,
+      operation: 'dev.session.list',
+      requestId,
+      ok: true,
+      value: { items: [session], observedAt },
+      observedAt,
+    }
+    expect(decodeDevReply(reply)).toEqual(reply)
+    expect(() =>
+      decodeDevReply({
+        ...reply,
+        value: { items: [{ ...session, transcript: 'private conversation' }], observedAt },
+      })
+    ).toThrow('unknown key')
+    expect(() =>
+      decodeDevReply({
+        ...reply,
+        value: { items: Array.from({ length: 501 }, () => session), observedAt },
+      })
+    ).toThrow('page exceeds 500 items')
+  })
+
   test('rejects unknown versions and unknown operations', () => {
     expect(() => decodeDevReply({ schemaVersion: 2 })).toThrow('schemaVersion')
     expect(() =>

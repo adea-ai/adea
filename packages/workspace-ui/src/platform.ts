@@ -1,5 +1,9 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import type { WorkspaceMemoryEntry, WorkspaceMemorySnapshot } from '@adea-ai/types'
+import type {
+  MigrationSnapshotSection,
+  WorkspaceMemoryEntry,
+  WorkspaceMemorySnapshot,
+} from '@adea-ai/types'
 import type { DevRuntimeService } from '@adea-ai/dev-view/platform'
 import type {
   CredentialRef,
@@ -270,6 +274,35 @@ export type WorkspaceMemoryService = Readonly<{
   setInjectionEnabled(input: Readonly<{ workspaceId: string; enabled: boolean }>): Promise<boolean>
 }>
 
+/** The local-only result of an on-demand native session inventory diagnostic. */
+export type NativeSessionInventoryDiagnosticResult =
+  | Readonly<{
+      section: MigrationSnapshotSection<'nativeSessions'>
+      status: 'captured'
+    }>
+  | Readonly<{
+      reason: 'cancelled' | 'ownership_mismatch' | 'read_failed' | 'timed_out' | 'unavailable'
+      status: 'unknown'
+    }>
+
+/**
+ * Read-only native-session snapshot capture for the active signed desktop
+ * scope. The UI supplies the displayed workspace; the adapter selects the local
+ * node from its authoritative account-bound service, independent of registration.
+ * An optional explicit node assertion must also match that signed local node.
+ */
+export type NativeSessionInventoryDiagnosticService = Readonly<{
+  /** Opaque-to-UI identity of the authoritative signed account/workspace/node binding. */
+  scopeIdentity(): string | undefined
+  capture(
+    input: Readonly<{
+      runtimeNodeId?: string
+      signal?: AbortSignal
+      workspaceId: string
+    }>
+  ): Promise<NativeSessionInventoryDiagnosticResult>
+}>
+
 /**
  * Workspace connections (ADR 0012): the active workspace's git hosting and
  * harness account bindings on this device. Ids only — the service never
@@ -318,6 +351,8 @@ export type WorkspacePlatformServices = Readonly<{
   /** Workspace connections; omitted where no Dev Runtime exists (web). */
   connections?: WorkspaceConnectionsService
   devRuntime?: DevRuntimeService
+  /** Local-only read-only inventory diagnostics; omitted when no desktop source exists. */
+  nativeSessionInventoryDiagnostics?: NativeSessionInventoryDiagnosticService
   /** Desktop-only workspace memory; omitted on the web. */
   memory?: WorkspaceMemoryService
   privateContent?: PrivateContentResolver

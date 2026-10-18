@@ -41,6 +41,11 @@
       "development": "./src/dev-runtime-wire.ts",
       "import": "./dist/dev-runtime-wire.js"
     },
+    "./native-session-inventory": {
+      "types": "./dist/native-session-inventory.d.ts",
+      "development": "./src/native-session-inventory.ts",
+      "import": "./dist/native-session-inventory.js"
+    },
     "./dev-runtime-follow-ups": {
       "types": "./dist/dev-runtime-follow-ups.d.ts",
       "development": "./src/dev-runtime-follow-ups.ts",

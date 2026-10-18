@@ -4512,6 +4512,65 @@ function decodeDevRuntimePage(
   return value as DevRuntimePage<unknown>
 }
 
+function decodeRuntimeSession(value: unknown, path = 'runtimeSession'): RuntimeSession {
+  const item = record(value, path)
+  exactKeys(
+    item,
+    [
+      'id',
+      'scope',
+      'projectId',
+      'repoId',
+      'worktreeId',
+      'lifecycle',
+      'archived',
+      'projection',
+      'generation',
+      'version',
+    ],
+    [
+      'displayName',
+      'terminalId',
+      'taskId',
+      'agentProfileId',
+      'agentProfileVersion',
+      'harnessInstallationId',
+      'activeHarnessRunId',
+    ],
+    path
+  )
+  stringValue(item.id, `${path}.id`, 1, 256)
+  decodeScope(item.scope, `${path}.scope`)
+  stringValue(item.projectId, `${path}.projectId`, 1, 256)
+  stringValue(item.repoId, `${path}.repoId`, 1, 256)
+  stringValue(item.worktreeId, `${path}.worktreeId`, 1, 256)
+  literal(
+    item.lifecycle,
+    ['preparing', 'ready', 'active', 'disconnected', 'completed', 'failed', 'cancelled'],
+    `${path}.lifecycle`
+  )
+  if (typeof item.archived !== 'boolean') fail(`${path}.archived`, 'expected boolean')
+  literal(
+    item.projection,
+    ['structured', 'authenticated_hook', 'terminal_fallback'],
+    `${path}.projection`
+  )
+  integerValue(item.generation, `${path}.generation`, 0)
+  integerValue(item.version, `${path}.version`, 0)
+  if (item.displayName !== undefined) stringValue(item.displayName, `${path}.displayName`, 0, 256)
+  if (item.terminalId !== undefined) stringValue(item.terminalId, `${path}.terminalId`, 1, 256)
+  if (item.taskId !== undefined) stringValue(item.taskId, `${path}.taskId`, 1, 256)
+  if (item.agentProfileId !== undefined)
+    stringValue(item.agentProfileId, `${path}.agentProfileId`, 1, 128)
+  if (item.agentProfileVersion !== undefined)
+    integerValue(item.agentProfileVersion, `${path}.agentProfileVersion`, 0)
+  if (item.harnessInstallationId !== undefined)
+    stringValue(item.harnessInstallationId, `${path}.harnessInstallationId`, 1, 256)
+  if (item.activeHarnessRunId !== undefined)
+    stringValue(item.activeHarnessRunId, `${path}.activeHarnessRunId`, 1, 256)
+  return value as RuntimeSession
+}
+
 // Success reply decoders, installed by the slice that owns each operation's
 // DTO. Every operation without an entry keeps failing closed in decodeDevReply.
 const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => unknown>> = {
@@ -4530,6 +4589,8 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.project.scan': (value) => decodeProjectScanPage(value),
   'dev.project.bookmarks': (value) => decodeDevRuntimePage(decodeRootBookmark, value),
   'dev.project.authorizeRoot': (value) => decodeRootBookmark(value),
+  'dev.session.list': (value) =>
+    decodeDevRuntimePage((item, path) => decodeRuntimeSession(item, path), value, 'reply.value'),
   'dev.repo.credentialRefs': (value) => decodeDevRuntimePage(decodeCredentialRef, value),
   // Workspace connections (ADR 0012): the binding document and the reusable
   // device-wide harness account profiles. Ids only — never secret material.

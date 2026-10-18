@@ -16,7 +16,10 @@ import { noteUpdatePhase } from '@adea-ai/workspace-ui/update-pending'
 import type { DevProjectFlow } from '@adea-ai/workspace-ui/create-project-flow'
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { invoke, listen, pickDesktopFolder } from '../lib/desktop-bridge'
-import { createDesktopDevRuntimeService } from '../lib/desktop-dev-runtime'
+import {
+  createDesktopDevRuntimeService,
+  createDesktopNativeSessionInventoryDiagnosticService,
+} from '../lib/desktop-dev-runtime'
 import { createDesktopWorkspaceConnectionsService } from '../lib/desktop-workspace-connections'
 import {
   createDesktopDevScopeSelector,
@@ -475,6 +478,15 @@ function DesktopWorkspace(props: {
     expectedWorkspaceId: props.devScopeWorkspaceId,
   })
   const connections = createDesktopWorkspaceConnectionsService(devRuntime)
+  const nativeSessionInventoryDiagnostics = createDesktopNativeSessionInventoryDiagnosticService(
+    devRuntime,
+    {
+      // This is a local invalidation fence only. The shell-bound Dev Runtime
+      // scope remains the authority; the credential is never read or copied.
+      authorizationContext: () =>
+        JSON.stringify([props.session?.sessionId ?? null, props.accountPrincipalId() ?? null]),
+    }
+  )
   // A new launched conversation starts on the stored direct default; a failed read blocks it.
   const chatModelHost = createDesktopChatModelHost(devRuntime, {
     initialModel: async () => {
@@ -502,6 +514,7 @@ function DesktopWorkspace(props: {
     client: props.client,
     connections,
     devRuntime,
+    nativeSessionInventoryDiagnostics,
     memory: desktopMemoryService,
     privateContent: localContentAuthority,
     plugins: props.plugins,

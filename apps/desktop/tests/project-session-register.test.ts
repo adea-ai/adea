@@ -113,6 +113,46 @@ function expectCode(run: () => unknown, code: DevAuthorityError['code']) {
 }
 
 describe('project/session authority store', () => {
+  test('dev.session.list returns deterministic bounded cursor pages', () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
+    try {
+      const runtime = seedRuntime(dataDir)
+      runtime.upsertSession({ ...session, id: '00000000-0000-4000-8000-000000000043' })
+      runtime.upsertSession({ ...session, id: '00000000-0000-4000-8000-000000000041' })
+      runtime.upsertSession({ ...session, id: '00000000-0000-4000-8000-000000000042' })
+      runtime.upsertSession({
+        ...session,
+        archived: true,
+        id: '00000000-0000-4000-8000-000000000044',
+        worktreeId: '00000000-0000-4000-8000-000000000051',
+      })
+      const list = provider(runtime, 'dev.session.list')
+
+      const filters = { archived: false, worktreeId: session.worktreeId }
+      const first = list(command({ ...filters, limit: 2 })) as {
+        items: RuntimeSession[]
+        nextCursor?: string
+      }
+      expect(first.items.map((entry) => entry.id)).toEqual([
+        session.id,
+        '00000000-0000-4000-8000-000000000041',
+      ])
+      expect(first.nextCursor).toBe('00000000-0000-4000-8000-000000000041')
+
+      const second = list(command({ ...filters, cursor: first.nextCursor, limit: 2 })) as {
+        items: RuntimeSession[]
+        nextCursor?: string
+      }
+      expect(second.items.map((entry) => entry.id)).toEqual([
+        '00000000-0000-4000-8000-000000000042',
+        '00000000-0000-4000-8000-000000000043',
+      ])
+      expect(second.nextCursor).toBeUndefined()
+    } finally {
+      rmSync(dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('project bindings, sessions, and archive records survive a process restart without fixtures', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-ps-register-'))
     try {

@@ -8,6 +8,7 @@ export * from './execution-location'
 export * from './group-participation'
 export * from './management'
 export * from './migration-snapshot'
+export * from './native-session-inventory'
 export type * from './portable-export'
 export * from './task-submission'
 
