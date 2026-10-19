@@ -160,15 +160,15 @@ it is turned on explicitly, and no workflow, script or task calls it.
 
 ## 5. What was run
 
-| Command                                                                                                                      | Result                                                                                                                                                          |
-| ---------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun test scripts/vp-r2-cache*.test.ts`                                                                                      | **100 pass, 0 fail**, 395 assertions (the transport, the codec, the pinned-client replay and this qualification)                                                |
-| `bun run format:check` (whole repository, pinned `oxfmt`)                                                                    | all matched files use the correct format                                                                                                                        |
-| `bun run lint` (pinned `vp run orch:lint` and `oxlint --deny-warnings`, the repository's own configuration, no rule removed) | 0 warnings, 0 errors                                                                                                                                            |
-| `bun run typecheck` (pinned `vp run orch:typecheck`)                                                                         | 33/33 tasks successful, "No type errors in 318 files"                                                                                                           |
-| `vp run orch:test` (the repository's unit task lane)                                                                         | **1734 tests across 135 files, 0 fail**, 32/32 tasks successful - the same numbers as the qualification base and as `f9d5b1577`                                 |
-| `bun test scripts/vp-r2-cache*.test.ts --coverage`                                                                           | aggregate **86.33% functions, 89.61% lines** (the goal is 80%); `scripts/vp-r2-cache-transfer.mjs` and `scripts/vp-r2-cache-transfer-fixtures.mjs` at 100%/100% |
-| `bun run test:coverage`                                                                                                      | **crashes** in this environment, at the base commit and at the qualification base as well - see below                                                           |
+| Command                                                                                                                      | Result                                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `bun test scripts/vp-r2-cache*.test.ts`                                                                                      | **106 pass, 0 fail**, 417 assertions (the transport, the codec, the pinned-client replay and this qualification)                |
+| `bun run format:check` (whole repository, pinned `oxfmt`)                                                                    | all matched files use the correct format                                                                                        |
+| `bun run lint` (pinned `vp run orch:lint` and `oxlint --deny-warnings`, the repository's own configuration, no rule removed) | 0 warnings, 0 errors                                                                                                            |
+| `bun run typecheck` (pinned `vp run orch:typecheck`)                                                                         | 33/33 tasks successful, "No type errors in 318 files"                                                                           |
+| `vp run orch:test` (the repository's unit task lane)                                                                         | **1734 tests across 135 files, 0 fail**, 32/32 tasks successful - the same numbers as the qualification base and as `f9d5b1577` |
+| `bun test scripts/vp-r2-cache*.test.ts --coverage`                                                                           | aggregate above the 80% goal; `scripts/vp-r2-cache-transfer.mjs` and `scripts/vp-r2-cache-transfer-fixtures.mjs` at 100%/100%   |
+| `bun run test:coverage`                                                                                                      | **crashes** in this environment, at the base commit and at the qualification base as well - see below                           |
 
 ### The coverage lane crashes here, before and after this change
 
@@ -180,14 +180,18 @@ oh no: Bun has crashed. This indicates a bug in Bun, not your code.
 error: script "test:coverage" was terminated by signal SIGABRT (Abort)
 ```
 
-The same command at the base commit `f9d5b1577`, at the qualification base
-`2498a8b7` and at this qualification head, each in a separate worktree with its
-own `bun install --frozen-lockfile`, ends the same way at the same point: after
-about 143 seconds, with the same docker registry rate limits in front of it
-(`public.ecr.aws` and `docker.io` answer `toomanyrequests` for the postgres image
-the container tests pull). The index the panic reports varies with the set of
-files in the run (`1077` at `f9d5b1577`, `1084` at `2498a8b7`, `1077` here), so
-it is the crash and not the index that is the constant. The lane does not
+The same command at the base commit `f9d5b1577`, at the qualification bases
+`2498a8b7` and `6686d3b6`, and at this qualification head, each in a separate
+worktree with its own `bun install --frozen-lockfile`, ends the same way at the
+same point: after about 143 seconds, with the same docker registry rate limits
+in front of it (`public.ecr.aws` and `docker.io` answer `toomanyrequests` for the
+postgres image the container tests pull). The index the panic reports varies
+with the set of files in the run (`1077` at `f9d5b1577`, `1084` at `2498a8b7`),
+so it is the crash and not the index that is the constant. The crash is a Bun
+crash rather than a test failure, and it is **not** the pinned checks above:
+those ran under the repository-pinned Bun 1.4.3 and the pinned Node 24.21.0 and
+passed. The crash is recorded under both runtimes that were tried, the system
+Bun 1.4.2 and the pinned Bun 1.4.3. The lane does not
 complete in this environment before or after this change; what completes is the
 scripts lane, which contains the new files, and the unit task lane, which is
 identical at every commit.
