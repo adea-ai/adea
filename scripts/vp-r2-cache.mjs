@@ -409,6 +409,32 @@ function ignoreFailure(call) {
   }
 }
 
+/**
+ * A cleanup that is independent of the operation: it has its own budget and it carries **no signal**. A staging object
+ * belongs to one operation alone, so it is removed even when the operation's signal is already aborted - a store that
+ * honours cancellation must still be able to delete what this operation staged.
+ */
+function cleanupDelete(store, key, timeoutMs) {
+  return boundedBy(
+    ignoreFailure(() => store.delete(key)),
+    timeoutMs
+  )
+}
+
+/**
+ * The limits a request is held to. The transport's own limits win: a caller may tighten them, never loosen them.
+ */
+export function effectiveLimits(base = LIMITS, override) {
+  const merged = { ...base }
+  if (!override) return merged
+  for (const [name, value] of Object.entries(override)) {
+    if (typeof value === 'number' && typeof merged[name] === 'number')
+      merged[name] = Math.min(merged[name], value)
+    else merged[name] = value
+  }
+  return merged
+}
+
 async function storeGet(store, key, maxBytes, operation) {
   const bytes = await bounded(store.get(key, { maxBytes, signal: operation.signal }), operation)
   if (bytes === null || bytes === undefined) return null
@@ -419,25 +445,31 @@ async function storeGet(store, key, maxBytes, operation) {
 }
 
 /**
- * Writes `bytes` at `key` through a staging object: the write lands under `staging/<domain>/<ownership>`, the staged
- * object is read back and compared, and only then is it promoted to `key`.
+ * Writes `bytes` at `key` through a staging object: the write lands under `staging/<domain>/<id>`, the staged object
+ * is read back and compared, and only then is it promoted to `key`.
  *
  * The final object is written by one atomic step: either a single `put` of the complete bytes or a server-side `copy`
  * of the complete staged object. Nothing is ever written to the final key in pieces, so a reader sees either nothing
  * or the whole object.
  *
- * The promotion is guarded by the operation's ownership. If the deadline passes while the promotion is in flight, the
- * final object is removed again: a late write does not publish.
+ * The publication is **fenced**. A store that can create-if-absent (`putIfAbsent` or `copyIfAbsent`) is asked to, and
+ * its answer says whether this operation created the final object: only an object this operation created may be
+ * removed again. A store that cannot fence is expected to honour the cancellation signal instead, so a write whose
+ * operation expired never lands. In neither case is a shared final key removed unconditionally: the key is shared, and
+ * a successor may have published it in the meantime.
+ *
+ * The staging object belongs to this operation alone, so it is removed with an independent bounded cleanup that carries
+ * no signal: a store that honours cancellation must still be able to delete what this operation staged.
  */
 async function stagedWrite(store, scope, key, bytes, { limits = LIMITS, operation }) {
-  const staging = stagingObjectKey(scope, operation.ownership.id)
+  const staging = stagingObjectKey(scope)
   try {
-    await bounded(store.put(staging, bytes, { signal: operation.signal }), operation)
-  } catch (error) {
-    if (error instanceof TransportRefused) throw error
-    throw new TransportRefused(CATEGORY.storeWrite)
-  }
-  try {
+    try {
+      await bounded(store.put(staging, bytes, { signal: operation.signal }), operation)
+    } catch (error) {
+      if (error instanceof TransportRefused) throw error
+      throw new TransportRefused(CATEGORY.storeWrite)
+    }
     operation.assertLive()
     const head = await bounded(store.head(staging, { signal: operation.signal }), operation)
     if (head === null || head === undefined)
@@ -460,34 +492,35 @@ async function stagedWrite(store, scope, key, bytes, { limits = LIMITS, operatio
         'the staged object does not read back as it was written'
       )
     operation.assertLive()
-    // The final object is published by one atomic step: a server-side copy of the complete staged object, or a single
-    // put of the complete bytes. Nothing is written to the final key in pieces.
+    // The final object is published by one atomic step, fenced when the store can fence it.
     const promotion =
-      typeof store.copy === 'function'
-        ? store.copy(staging, key, { signal: operation.signal })
-        : store.put(key, readBack, { signal: operation.signal })
+      typeof store.copyIfAbsent === 'function'
+        ? store.copyIfAbsent(staging, key, { signal: operation.signal })
+        : typeof store.putIfAbsent === 'function'
+          ? store.putIfAbsent(key, readBack, { signal: operation.signal })
+          : typeof store.copy === 'function'
+            ? store.copy(staging, key, { signal: operation.signal })
+            : store.put(key, readBack, { signal: operation.signal })
+    let created = null
     try {
-      await bounded(promotion, operation)
+      const outcome = await bounded(promotion, operation)
+      created = outcome?.created ?? null
     } catch (error) {
-      // The promotion may still be in flight. If it lands, it must not stay published: the object is removed once the
-      // promotion settles, so a write that outlived its deadline never becomes a published entry.
+      // The promotion may still be in flight. When it lands, it is not rolled back by an unconditional delete: the
+      // final key is shared, and a successor may have published it in the meantime. Only an object this operation
+      // created is removed, and only then.
       Promise.resolve(promotion)
-        .catch(() => {})
-        .then(() =>
-          boundedBy(
-            ignoreFailure(() => store.delete(key, { signal: operation.signal })),
-            limits.cleanupTimeoutMs
-          )
-        )
+        .then((outcome) => {
+          if (outcome?.created !== true) return undefined
+          return cleanupDelete(store, key, limits.cleanupTimeoutMs)
+        })
         .catch(() => {})
       throw error
     }
     if (operation.expired()) {
-      // The promotion finished after the deadline. The object is not published: it is removed again.
-      await boundedBy(
-        ignoreFailure(() => store.delete(key, { signal: operation.signal })),
-        limits.cleanupTimeoutMs
-      )
+      // The promotion finished after the deadline. The object is not published: it is removed again, but only when this
+      // operation is the one that created it.
+      if (created === true) await cleanupDelete(store, key, limits.cleanupTimeoutMs)
       throw new TransportRefused(
         CATEGORY.timeout,
         'the deadline passed while the object was promoted'
@@ -500,13 +533,11 @@ async function stagedWrite(store, scope, key, bytes, { limits = LIMITS, operatio
       throw new TransportRefused(CATEGORY.integrity, 'the promoted object has another size')
     if (head2.sha256 && head2.sha256 !== sha256(bytes))
       throw new TransportRefused(CATEGORY.integrity, 'the promoted object has another digest')
-    return { key, sha256: sha256(bytes), size: bytes.length, staged: staging }
+    return { key, sha256: sha256(bytes), size: bytes.length, staged: staging, created }
   } finally {
-    // The staging object is never read by a reader, so a staging object that could not be removed is harmless.
-    await boundedBy(
-      ignoreFailure(() => store.delete(staging, { signal: operation.signal })),
-      limits.cleanupTimeoutMs
-    )
+    // The staging object belongs to this operation alone, so it is removed with an independent bounded cleanup that
+    // carries no signal: a store that honours cancellation must still be able to delete what this operation staged.
+    await cleanupDelete(store, staging, limits.cleanupTimeoutMs)
   }
 }
 
@@ -525,10 +556,12 @@ async function stagedWrite(store, scope, key, bytes, { limits = LIMITS, operatio
 export async function publishEntry(
   store,
   entry,
-  { scope, limits = LIMITS, deadlineMs = DEFAULT_DEADLINE_MS, createdAt } = {}
+  { scope, limits = LIMITS, deadlineMs = DEFAULT_DEADLINE_MS, createdAt, operation: given } = {}
 ) {
   if (!scope) throw new TransportRefused(CATEGORY.invalidRequest, 'a trust domain is required')
-  const operation = createOperation({ deadlineMs })
+  // A caller that already runs an operation passes it in, so the whole request shares one deadline.
+  const owns = given === undefined
+  const operation = given ?? createOperation({ deadlineMs })
   try {
     const key = Buffer.from(entry.key)
     const secondaryKey = Buffer.from(entry.secondaryKey)
@@ -571,7 +604,7 @@ export async function publishEntry(
     if (error instanceof TransportRefused) return fail(error.category, error.message)
     return fail(CATEGORY.storeWrite)
   } finally {
-    operation.release()
+    if (owns) operation.release()
   }
 }
 
@@ -583,10 +616,11 @@ export async function publishEntry(
 export async function lookupEntry(
   store,
   { key, secondaryKey },
-  { scope, limits = LIMITS, deadlineMs = DEFAULT_DEADLINE_MS } = {}
+  { scope, limits = LIMITS, deadlineMs = DEFAULT_DEADLINE_MS, operation: given } = {}
 ) {
   if (!scope) throw new TransportRefused(CATEGORY.invalidRequest, 'a trust domain is required')
-  const operation = createOperation({ deadlineMs })
+  const owns = given === undefined
+  const operation = given ?? createOperation({ deadlineMs })
   try {
     const entryKey = entryObjectKey(scope, Buffer.from(key), Buffer.from(secondaryKey))
     const bytes = await storeGet(store, entryKey, limits.maxEnvelopeBytes, operation)
@@ -602,7 +636,7 @@ export async function lookupEntry(
     if (error instanceof TransportRefused) return fail(error.category, error.message)
     return fail(CATEGORY.storeRead)
   } finally {
-    operation.release()
+    if (owns) operation.release()
   }
 }
 
@@ -610,10 +644,11 @@ export async function lookupEntry(
 export async function readBlob(
   store,
   blobId,
-  { scope, limits = LIMITS, deadlineMs = DEFAULT_DEADLINE_MS } = {}
+  { scope, limits = LIMITS, deadlineMs = DEFAULT_DEADLINE_MS, operation: given } = {}
 ) {
   if (!scope) throw new TransportRefused(CATEGORY.invalidRequest, 'a trust domain is required')
-  const operation = createOperation({ deadlineMs })
+  const owns = given === undefined
+  const operation = given ?? createOperation({ deadlineMs })
   try {
     const key = blobObjectKey(scope, blobId)
     const bytes = await storeGet(store, key, limits.maxBlobBytes, operation)
@@ -625,7 +660,7 @@ export async function readBlob(
     if (error instanceof TransportRefused) return fail(error.category, error.message)
     return fail(CATEGORY.storeRead)
   } finally {
-    operation.release()
+    if (owns) operation.release()
   }
 }
 
@@ -669,12 +704,15 @@ export function multipartBoundary(contentType) {
 /**
  * Reads a multipart body into its parts, by the complete delimiter grammar.
  *
- * A delimiter is the CRLF that precedes `--<boundary>`, followed by `--<boundary>` and then either CRLF (another part
- * follows) or `--` (the closing delimiter). The delimiter must be a complete line: a `--<boundary>` that appears
- * inside a part without a CRLF in front of it is part of the part's bytes and is kept as it is.
+ * A delimiter is a **complete line**: the CRLF that precedes `--<boundary>`, then `--<boundary>`, then either CRLF (a
+ * part follows) or `--` and the end of that line (the body is closed). A candidate that is not a complete line is not a
+ * delimiter and is skipped: a `--<boundary>` that appears inside a part without a CRLF in front of it is part of the
+ * part's bytes and is kept as it is, a `--<boundary>X` is a prefix of another name and not a delimiter, and a
+ * `--<boundary>--suffix` is not a closing line because the closing line has to end there.
  *
- * The closing delimiter must be there: a body that stops in the middle is refused rather than read as a short part.
- * A repeated part name is refused, and so is a part without a name or without a header separator.
+ * The closing delimiter must be there and must be a complete line: a body that stops in the middle is refused rather
+ * than read as a short part. A repeated part name is refused, and so is a part without a name or without a header
+ * separator.
  */
 export function parseMultipart(body, boundary, { limits = LIMITS } = {}) {
   if (!boundary)
@@ -690,17 +728,40 @@ export function parseMultipart(body, boundary, { limits = LIMITS } = {}) {
   const seen = new Set()
   if (!bytes.subarray(0, delimiter.length).equals(delimiter))
     throw new TransportRefused(CATEGORY.invalidRequest, 'the body does not start with the boundary')
-  // `at` always points at the `--` of a delimiter.
+  // The next complete delimiter line at or after `from`, or null. A candidate that is not a complete line is skipped.
+  const nextDelimiter = (from) => {
+    for (let at = from; at < bytes.length;) {
+      const index = bytes.indexOf(crlfDelimiter, at)
+      if (index === -1) return null
+      const after = index + crlfDelimiter.length
+      const tail = bytes.subarray(after, after + 2).toString('latin1')
+      if (tail === '\r\n') return { index, closes: false }
+      if (tail === '--') {
+        const end = bytes.subarray(after + 2, after + 4).toString('latin1')
+        // The closing line has to end there: `--` followed by a line break or by the end of the body.
+        if (end === '\r\n' || after + 2 === bytes.length) return { index, closes: true }
+      }
+      // Not a complete delimiter line: keep looking.
+      at = index + 1
+    }
+    return null
+  }
+  // `at` always points at the `--` of a delimiter line.
   let at = 0
-  let closed = false
-  while (at < bytes.length) {
-    // `at` points at the `--` of a delimiter. The closing delimiter is the one that is followed by `--`.
+  for (;;) {
     const after = bytes
       .subarray(at + delimiter.length, at + delimiter.length + 2)
       .toString('latin1')
     if (after === '--') {
-      closed = true
-      break
+      const end = bytes
+        .subarray(at + delimiter.length + 2, at + delimiter.length + 4)
+        .toString('latin1')
+      if (!(end === '\r\n' || at + delimiter.length + 2 === bytes.length))
+        throw new TransportRefused(
+          CATEGORY.invalidRequest,
+          'the closing boundary is not a complete line'
+        )
+      return parts
     }
     if (after !== '\r\n')
       throw new TransportRefused(
@@ -713,8 +774,8 @@ export function parseMultipart(body, boundary, { limits = LIMITS } = {}) {
       throw new TransportRefused(CATEGORY.invalidRequest, 'a part has no header separator')
     const headers = bytes.subarray(at, headerEnd).toString('utf8')
     const bodyStart = headerEnd + 4
-    const next = bytes.indexOf(crlfDelimiter, bodyStart)
-    if (next === -1)
+    const next = nextDelimiter(bodyStart)
+    if (next === null)
       throw new TransportRefused(CATEGORY.invalidRequest, 'the body has no closing boundary')
     const name = /name="([^"]*)"/.exec(headers)?.[1]
     if (!name) throw new TransportRefused(CATEGORY.invalidRequest, 'a part has no name')
@@ -722,12 +783,9 @@ export function parseMultipart(body, boundary, { limits = LIMITS } = {}) {
       throw new TransportRefused(CATEGORY.invalidRequest, 'the body holds a repeated part')
     seen.add(name)
     const contentType = /content-type:\s*([^\r\n]+)/i.exec(headers)?.[1]?.trim()
-    parts.push({ name, contentType, body: bytes.subarray(bodyStart, next) })
-    at = next + 2
+    parts.push({ name, contentType, body: bytes.subarray(bodyStart, next.index) })
+    at = next.index + 2
   }
-  if (!closed)
-    throw new TransportRefused(CATEGORY.invalidRequest, 'the body has no closing boundary')
-  return parts
 }
 
 /** The client's `POST /fetch` request: a CBOR map with the entry key and the task fingerprint key. */
@@ -848,16 +906,23 @@ export function fetchResponse({ key, secondaryKey, value, blobId }) {
  * domain. There is no default that allows an anonymous read: this transport is not a public read service.
  *
  * `options.enabled` is the on switch; without it every route answers with a refusal and the client keeps its local
- * cache. The authorization call, the store calls and the cleanup are all bounded by the operation's deadline.
+ * cache.
+ *
+ * The transport's own policy is the policy: its limits and its deadline are the ones this handler enforces. A caller
+ * may tighten them, never loosen them. The whole request runs under **one** deadline: the authorization call, the
+ * lookup, the publication and the archive read share a single operation, so a request cannot spend a full deadline on
+ * each of them.
  */
 export async function handleRemoteCache(request, transport, options = {}) {
-  const { enabled = false, authorize, limits = LIMITS, deadlineMs = DEFAULT_DEADLINE_MS } = options
+  const { enabled = false, authorize } = options
   const method = (request.method ?? 'GET').toUpperCase()
   const path = request.path ?? '/'
   const headers = request.headers ?? {}
   if (!enabled) return refuse(503, CATEGORY.disabled)
   if (!transport || !transport.scope) return refuse(503, CATEGORY.invalidRequest)
   const scope = transport.scope
+  const limits = effectiveLimits(transport.limits ?? LIMITS, options.limits)
+  const deadlineMs = options.deadlineMs ?? transport.deadlineMs ?? DEFAULT_DEADLINE_MS
   if (typeof authorize !== 'function') return refuse(403, CATEGORY.unauthorized)
   const operation = createOperation({ deadlineMs })
   try {
@@ -888,7 +953,7 @@ export async function handleRemoteCache(request, transport, options = {}) {
       const found = await lookupEntry(
         transport.store,
         { key, secondaryKey },
-        { scope, limits, deadlineMs }
+        { scope, limits, deadlineMs, operation }
       )
       if (!found.ok) {
         if (found.category === CATEGORY.notFound) return refuse(404, found.category)
@@ -904,7 +969,12 @@ export async function handleRemoteCache(request, transport, options = {}) {
     }
     if (method === 'POST' && path === CLIENT_PROTOCOL.storePath) {
       const entry = parseStoreRequest(body, headers['content-type'], { limits })
-      const published = await publishEntry(transport.store, entry, { scope, limits, deadlineMs })
+      const published = await publishEntry(transport.store, entry, {
+        scope,
+        limits,
+        deadlineMs,
+        operation,
+      })
       if (!published.ok) {
         if (published.category === CATEGORY.tooLarge) return refuse(413, published.category)
         if (published.category === CATEGORY.invalidRequest) return refuse(400, published.category)
@@ -918,7 +988,7 @@ export async function handleRemoteCache(request, transport, options = {}) {
     }
     if (method === 'GET' && path.startsWith(CLIENT_PROTOCOL.blobPath)) {
       const blobId = path.slice(CLIENT_PROTOCOL.blobPath.length)
-      const blob = await readBlob(transport.store, blobId, { scope, limits, deadlineMs })
+      const blob = await readBlob(transport.store, blobId, { scope, limits, deadlineMs, operation })
       if (!blob.ok) {
         if (blob.category === CATEGORY.notFound) return refuse(404, blob.category)
         return refuse(503, blob.category)

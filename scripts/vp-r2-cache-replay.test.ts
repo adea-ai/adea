@@ -23,6 +23,8 @@ describe('the pinned client replay', () => {
       return
     }
     expect(result.failed).toBeUndefined()
+    expect(result.firstExitCode).toBe(0)
+    expect(result.secondExitCode).toBe(0)
     expect(result.localCacheRemoved).toBe(true)
     expect(result.outputsRemoved).toBe(true)
     expect(result.remoteHit).toBe(true)

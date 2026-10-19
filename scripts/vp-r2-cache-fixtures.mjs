@@ -39,11 +39,6 @@ const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 /** A call that never answers, so a test can prove that the transport ends an operation that waits for it. */
 const never = () => new Promise(() => {})
 
-/** A store that honours the signal must not finish a write after the operation was cancelled. */
-const cancelled = (signal) => {
-  if (signal?.aborted) throw new Error('the operation was cancelled')
-}
-
 /** The trust domain the tests use: one namespace, the pinned client version and a pinned toolchain id. */
 export function testScope(
   namespace = 'adea-ai/adea',
@@ -76,22 +71,59 @@ export function createMemoryStore(options = {}) {
   const failCopy = fail('failCopy')
   const failDelete = fail('failDelete')
   const stall = new Set(options.stall ?? [])
+  const cooperative = options.cooperative !== false
+  const slowFor = options.slowFor ?? null
+  const slowMs = options.slowMs ?? 200
+  // A cooperative store refuses to finish a write after the operation was cancelled; a noncooperative one finishes it.
+  const refuseIfCancelled = (signal) => {
+    if (cooperative && signal?.aborted) throw new Error('the operation was cancelled')
+  }
+  // A slow write: it waits, and a cooperative store gives up as soon as the operation is cancelled.
+  const wait = async (key, signal) => {
+    if (!slowFor || !slowFor(key)) return
+    await new Promise((done) => {
+      const timer = setTimeout(done, slowMs)
+      timer.unref?.()
+      if (cooperative && signal)
+        signal.addEventListener(
+          'abort',
+          () => {
+            clearTimeout(timer)
+            done()
+          },
+          { once: true }
+        )
+    })
+    refuseIfCancelled(signal)
+  }
   return {
     objects,
     calls,
-    put(key, bytes, { signal } = {}) {
+    async put(key, bytes, { signal } = {}) {
       calls.push({ op: 'put', key })
       if (stall.has('put')) return never()
-      cancelled(signal)
+      await wait(key, signal)
+      refuseIfCancelled(signal)
       if (failPut) throw new Error('the store refused the write')
       const copy = Buffer.from(bytes)
       objects.set(key, copy)
       return { size: copy.length, sha256: sha256(copy) }
     },
+    async putIfAbsent(key, bytes, { signal } = {}) {
+      calls.push({ op: 'putIfAbsent', key })
+      if (stall.has('putIfAbsent')) return never()
+      await wait(key, signal)
+      refuseIfCancelled(signal)
+      if (failPut) throw new Error('the store refused the write')
+      if (objects.has(key)) return { created: false, size: objects.get(key).length }
+      const copy = Buffer.from(bytes)
+      objects.set(key, copy)
+      return { created: true, size: copy.length, sha256: sha256(copy) }
+    },
     get(key, { maxBytes, signal } = {}) {
       calls.push({ op: 'get', key })
       if (stall.has('get')) return never()
-      cancelled(signal)
+      refuseIfCancelled(signal)
       if (failGet) throw new Error('the store refused the read')
       const held = objects.get(key)
       if (held === undefined) return null
@@ -102,7 +134,7 @@ export function createMemoryStore(options = {}) {
     head(key, { signal } = {}) {
       calls.push({ op: 'head', key })
       if (stall.has('head')) return never()
-      cancelled(signal)
+      refuseIfCancelled(signal)
       if (failHead) throw new Error('the store refused the read')
       const held = objects.get(key)
       if (held === undefined) return null
@@ -111,19 +143,31 @@ export function createMemoryStore(options = {}) {
     delete(key, { signal } = {}) {
       calls.push({ op: 'delete', key })
       if (stall.has('delete')) return never()
-      cancelled(signal)
+      refuseIfCancelled(signal)
       if (failDelete) throw new Error('the store refused the delete')
       objects.delete(key)
     },
-    copy(from, to, { signal } = {}) {
+    async copy(from, to, { signal } = {}) {
       calls.push({ op: 'copy', key: from, to })
       if (stall.has('copy')) return never()
-      cancelled(signal)
+      await wait(to, signal)
+      refuseIfCancelled(signal)
       if (failCopy) throw new Error('the store refused the copy')
       const held = objects.get(from)
       if (held === undefined) throw new Error('the store has no such object')
       objects.set(to, Buffer.from(held))
       return { size: held.length, sha256: sha256(held) }
+    },
+    async copyIfAbsent(from, to, { signal } = {}) {
+      calls.push({ op: 'copyIfAbsent', key: from, to })
+      if (stall.has('copyIfAbsent')) return never()
+      await wait(to, signal)
+      if (failCopy) throw new Error('the store refused the copy')
+      const held = objects.get(from)
+      if (held === undefined) throw new Error('the store has no such object')
+      if (objects.has(to)) return { created: false, size: objects.get(to).length }
+      objects.set(to, Buffer.from(held))
+      return { created: true, size: held.length, sha256: sha256(held) }
     },
   }
 }
