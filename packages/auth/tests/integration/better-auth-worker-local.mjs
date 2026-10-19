@@ -114,7 +114,25 @@ async function waitFor(predicate, description, timeoutMs = 10_000) {
 }
 
 async function assertDatabaseSessionsStarted(before, expectedMinimum, label) {
-  await waitFor(async () => (await sessionCount()) >= before + BigInt(expectedMinimum), label)
+  try {
+    await waitFor(async () => (await sessionCount()) >= before + BigInt(expectedMinimum), label)
+  } catch (error) {
+    // Diagnostic only: the same assertion fails; the counter values make the timeout readable.
+    const after = await sessionCount().catch(() => 'unreadable')
+    const activity = await controlPool
+      .query(
+        `SELECT usename, application_name, state, backend_type, backend_start::text AS started
+         FROM pg_stat_activity
+         WHERE datname = current_database() AND pid <> pg_backend_pid()
+         ORDER BY backend_start`
+      )
+      .then((result) => JSON.stringify(result.rows))
+      .catch(() => 'unreadable')
+    throw new Error(
+      `${error.message}; pg_stat_database sessions before ${before}, after ${after}, expected +${expectedMinimum}; activity ${activity}`,
+      { cause: error }
+    )
+  }
 }
 
 async function migrateAuthSchema() {

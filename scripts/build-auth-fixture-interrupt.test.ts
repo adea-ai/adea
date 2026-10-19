@@ -1,58 +1,132 @@
 import { expect, test } from 'bun:test'
-import { spawn } from 'node:child_process'
-import { readFile } from 'node:fs/promises'
+import { spawn, spawnSync } from 'node:child_process'
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
-// The fixture build rewrites the shared Cloudflare deploy redirect. An interrupted
-// build must stop its owned build and put the original redirect back byte-for-byte.
-// The interrupt is sent only after the fixture build has rewritten the redirect, so
-// the restore is what this test proves.
-const web = fileURLToPath(new URL('../apps/web', import.meta.url))
-const redirect = `${web}/.wrangler/deploy/config.json`
-const builder = `${web}/start/build-auth-fixture.mjs`
+// The fixture builder rewrites a shared Cloudflare redirect, so this test never runs
+// the real build or touches the checkout. It builds a disposable workspace with a copy
+// of the builder and a stub Vite that writes the redirect the way the plugin does, then
+// holds at that boundary. The test interrupts the builder there and checks that it stops
+// the stub's process group and restores the original redirect bytes. Every process the
+// test starts is reaped in finally, even when an assertion or a timeout fails.
+const repo = fileURLToPath(new URL('..', import.meta.url))
+const webSource = resolve(repo, 'apps/web')
 
-async function readRedirect(): Promise<Buffer | null> {
+function groupOf(pid: number): number | undefined {
+  const result = spawnSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' })
+  const pgid = Number(result.stdout.trim())
+  return Number.isInteger(pgid) && pgid > 0 ? pgid : undefined
+}
+
+function groupAlive(pgid: number): boolean {
   try {
-    return await readFile(redirect)
+    process.kill(-pgid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
+  }
+}
+
+type Exit = { code: number | null; signal: NodeJS.Signals | null }
+
+async function readOrNull(path: string): Promise<Buffer | null> {
+  try {
+    return await readFile(path)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw error
   }
 }
 
-test('an interrupted fixture build stops its owned build and restores the deploy redirect', async () => {
-  const before = await readRedirect()
-  const child = spawn('node', [builder], { cwd: web, stdio: ['ignore', 'pipe', 'pipe'] })
-  let output = ''
-  child.stdout.on('data', (chunk) => (output += chunk))
-  child.stderr.on('data', (chunk) => (output += chunk))
-  const exited = new Promise<{ code: number | null; signal: string | null }>((ok) =>
-    child.once('exit', (code, signal) => ok({ code, signal }))
+// Stub Vite: writes the redirect as a real build does, records its pid, then holds.
+const stubVite = `import { mkdirSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+const web = process.cwd()
+mkdirSync(resolve(web, '.wrangler/deploy'), { recursive: true })
+writeFileSync(
+  resolve(web, '.wrangler/deploy/config.json'),
+  JSON.stringify({ configPath: '../../start/.checks/auth-fixture/dist/server/wrangler.json', auxiliaryWorkers: [] })
+)
+writeFileSync(resolve(web, 'ready'), String(process.pid))
+setInterval(() => {}, 1_000)
+`
+
+test('an interrupted fixture build stops its owned group and restores the redirect', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'fixture-builder-interrupt-'))
+  const web = join(root, 'apps', 'web')
+  const ready = join(web, 'ready')
+  const redirect = join(web, '.wrangler/deploy/config.json')
+  const original = Buffer.from(
+    JSON.stringify({ configPath: '../../dist/server/wrangler.json', auxiliaryWorkers: [] })
   )
+  let builder: ReturnType<typeof spawn> | undefined
+  let stubGroup: number | undefined
+  let output = ''
+  try {
+    await mkdir(join(web, 'start'), { recursive: true })
+    await mkdir(join(root, 'scripts'), { recursive: true })
+    await mkdir(join(web, 'node_modules/.bin'), { recursive: true })
+    await mkdir(join(web, 'dist'), { recursive: true })
+    await copyFile(
+      join(webSource, 'start/build-auth-fixture.mjs'),
+      join(web, 'start/build-auth-fixture.mjs')
+    )
+    await copyFile(
+      join(webSource, 'start/auth-fixture-markers.mjs'),
+      join(web, 'start/auth-fixture-markers.mjs')
+    )
+    await writeFile(join(root, 'scripts/sync-assets.mjs'), 'export {}\n')
+    await writeFile(join(web, 'dist/index.html'), '<!doctype html>\n')
+    // \`bun run vite\` resolves the workspace's node_modules/.bin, as the production build does.
+    await writeFile(join(web, 'node_modules/.bin/vite'), `#!/usr/bin/env node\n${stubVite}`)
+    await chmod(join(web, 'node_modules/.bin/vite'), 0o755)
+    await writeFile(join(web, 'vite.auth-fixture.config.ts'), 'export default {}\n')
+    await mkdir(join(web, '.wrangler/deploy'), { recursive: true })
+    await writeFile(redirect, original)
 
-  let rewritten = false
-  for (let attempt = 0; attempt < 1200 && !rewritten; attempt += 1) {
-    const current = await readRedirect()
-    rewritten = current !== null && current.toString().includes('auth-fixture')
-    if (!rewritten) await delay(100)
+    builder = spawn('node', [join(web, 'start/build-auth-fixture.mjs')], {
+      cwd: web,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    builder.stdout?.on('data', (chunk) => (output += chunk))
+    builder.stderr?.on('data', (chunk) => (output += chunk))
+    const exited = new Promise<Exit>((ok) =>
+      builder!.once('exit', (code, signal) => ok({ code, signal }))
+    )
+
+    // Hold until the stub reaches the rewrite boundary. An early builder exit ends the wait at once.
+    const deadline = Date.now() + 60_000
+    while (Date.now() < deadline) {
+      if ((await readOrNull(ready)) !== null) break
+      const early = await Promise.race([exited, delay(50).then(() => undefined)])
+      if (early) throw new Error(`the builder exited before the redirect was rewritten: ${output}`)
+    }
+    const stubPid = Number((await readOrNull(ready))?.toString())
+    if (!Number.isInteger(stubPid)) throw new Error('the stub never reached the rewrite boundary')
+    stubGroup = groupOf(stubPid)
+    expect((await readFile(redirect)).toString()).toContain('auth-fixture')
+
+    builder.kill('SIGINT')
+    const result = await Promise.race([
+      exited,
+      delay(60_000).then(() => {
+        throw new Error('the interrupted builder did not exit within 60 s')
+      }),
+    ])
+    expect(result.code).not.toBe(0)
+    expect(output).toContain('interrupted by SIGINT')
+    expect(stubGroup === undefined || !groupAlive(stubGroup)).toBe(true)
+    expect((await readOrNull(redirect))?.equals(original)).toBe(true)
+  } finally {
+    if (builder && builder.exitCode === null && builder.signalCode === null) builder.kill('SIGKILL')
+    if (stubGroup !== undefined && groupAlive(stubGroup)) {
+      try {
+        process.kill(-stubGroup, 'SIGKILL')
+      } catch {}
+    }
+    await rm(root, { recursive: true, force: true })
   }
-  if (!rewritten) {
-    child.kill('SIGKILL')
-    throw new Error('the fixture build never rewrote the deploy redirect; nothing to interrupt')
-  }
-
-  child.kill('SIGINT')
-  const result = await Promise.race([
-    exited,
-    delay(180_000).then(() => {
-      child.kill('SIGKILL')
-      throw new Error('the interrupted fixture build did not exit')
-    }),
-  ])
-
-  expect(result.code).not.toBe(0)
-  expect(output).toContain('interrupted by SIGINT')
-  const after = await readRedirect()
-  expect(after?.toString('base64') ?? null).toBe(before?.toString('base64') ?? null)
 }, 240_000)

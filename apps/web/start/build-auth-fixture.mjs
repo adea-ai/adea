@@ -117,7 +117,7 @@ await mkdir(dirname(fixture), { recursive: true })
 let failure
 try {
   await run('bun', ['../../scripts/sync-assets.mjs'])
-  await run('bun', ['x', 'vite', 'build', '--config', 'vite.auth-fixture.config.ts'])
+  await run('bun', ['run', 'vite', 'build', '--config', 'vite.auth-fixture.config.ts'])
   controller.signal.throwIfAborted()
   if ((await findFixtureMarkers(fixture)).length === 0)
     throw new Error(`fixture build at ${fixture} carries no fixture markers`)
