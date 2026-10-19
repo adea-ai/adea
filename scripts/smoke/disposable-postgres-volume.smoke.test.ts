@@ -13,10 +13,17 @@
 //   - an unrelated container's anonymous volume is still there;
 //   - the unrelated container is still running.
 //
-// It never prunes, never removes a volume by name, and never touches a
-// resource it did not create. It needs a Docker daemon and fails without one,
-// because a skipped check is not a passing check. It sits outside
-// scripts/*.test.ts, so the unit coverage lane never starts Docker.
+// The owned container and volume identities are tracked before anything is
+// deleted, so a container that is already gone does not take its volume's
+// identity with it. The teardown attempts every owned resource, aggregates its
+// failures, and confirms that every owned resource is gone; a teardown that
+// cannot be confirmed fails the run instead of leaving the proof green. The
+// final receipt is emitted only after that verified teardown.
+//
+// It never prunes, never removes a volume by a name it did not track, and
+// never touches a resource it did not create. It needs a Docker daemon and
+// fails without one, because a skipped check is not a passing check. It sits
+// outside scripts/*.test.ts, so the unit coverage lane never starts Docker.
 //
 //   python3 <fleet-heavy> -- bun test scripts/smoke/disposable-postgres-volume.smoke.test.ts
 
@@ -30,23 +37,33 @@ import {
   ownedAnonymousVolume,
   type ContainerMount,
 } from '../disposable-postgres-ci'
+import {
+  RESOURCE_STATE,
+  classifyContainer,
+  classifyVolume,
+  cleanupOwnedResources,
+  runBounded,
+} from '../disposable-postgres-volume-cleanup.mjs'
 
 const suffix = randomBytes(6).toString('hex')
 const proofContainer = `adea-ci-volume-proof-${suffix}`
 const sentinelContainer = `adea-ci-volume-sentinel-${suffix}`
 const sentinelPassword = `synthetic-${randomBytes(12).toString('hex')}`
 
-function docker(args: string[]): { status: number; stdout: string; stderr: string } {
-  const result = spawnSync('docker', args, {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-    timeout: 120_000,
-  })
-  return {
-    status: result.status ?? 1,
-    stdout: result.stdout ?? '',
-    stderr: result.stderr ?? '',
-  }
+/**
+ * The resources this proof owns. Their identities are recorded before
+ * anything is deleted, so the teardown can still name a volume whose
+ * container is already gone.
+ */
+const owned = { containers: [] as string[], volumes: [] as string[] }
+
+/** What the proof established, published only after the teardown is verified. */
+let proofOutcome: Record<string, boolean> | undefined
+
+function docker(args: string[]) {
+  // A bounded child: a Docker call that outlives its bound is killed and
+  // reported, so a hung call can never read as a completed one.
+  return runBounded('docker', args, { spawnSync })
 }
 
 function containerMounts(name: string): ContainerMount[] {
@@ -60,25 +77,29 @@ function containerMounts(name: string): ContainerMount[] {
   }
 }
 
-function volumeExists(name: string): boolean {
-  return docker(['volume', 'inspect', name]).status === 0
-}
-
-function containerExists(name: string): boolean {
-  return docker(['inspect', name]).status === 0
-}
-
-function containerRunning(name: string): boolean {
-  const inspected = docker(['inspect', '--format', '{{.State.Running}}', name])
-  return inspected.status === 0 && inspected.stdout.trim() === 'true'
-}
-
 afterAll(() => {
-  // Only the resources this proof created are removed here.
-  docker(containerRemovalCommand(sentinelContainer))
-  const sentinelVolume = ownedAnonymousVolume(containerMounts(sentinelContainer))
-  if (sentinelVolume) docker(['volume', 'rm', sentinelVolume])
-  docker(containerRemovalCommand(proofContainer))
+  const outcome = cleanupOwnedResources({
+    containers: owned.containers,
+    volumes: owned.volumes,
+    removeContainer: containerRemovalCommand,
+    run: docker,
+  })
+  if (outcome.errors.length > 0) {
+    throw new Error(
+      `the disposable volume proof left owned resources: ${outcome.errors.join('; ')}`
+    )
+  }
+  if (proofOutcome) {
+    console.log(
+      'DISPOSABLE_VOLUME_NO_LEAK ' +
+        JSON.stringify({
+          status: 'passed',
+          ...proofOutcome,
+          ownedResourcesRemoved: outcome.removed.length,
+          ownedResourcesAbsent: outcome.absent.length,
+        })
+    )
+  }
 })
 
 test('removing the proof container removes only that container’s anonymous volume', () => {
@@ -110,34 +131,34 @@ test('removing the proof container removes only that container’s anonymous vol
   expect(sentinel.status).toBe(0)
   expect(docker(['start', sentinelContainer]).status).toBe(0)
 
-  // The specific anonymous volume the proof container owns.
+  // The specific anonymous volume each container owns, tracked before
+  // anything is deleted.
   const ownedVolume = ownedAnonymousVolume(containerMounts(proofContainer))
   expect(ownedVolume).toBeTruthy()
   const sentinelVolume = ownedAnonymousVolume(containerMounts(sentinelContainer))
   expect(sentinelVolume).toBeTruthy()
   expect(sentinelVolume).not.toBe(ownedVolume)
-  expect(volumeExists(ownedVolume!)).toBe(true)
-  expect(volumeExists(sentinelVolume!)).toBe(true)
+  owned.containers = [proofContainer, sentinelContainer]
+  owned.volumes = [ownedVolume!, sentinelVolume!]
 
-  // The proof's own removal command: the container and the volumes attached to
-  // it, and nothing else.
+  // The proof's own removal command: the container and the volumes attached
+  // to it, and nothing else.
   const removed = docker(containerRemovalCommand(proofContainer))
   expect(removed.status).toBe(0)
 
-  // The owned volume is gone.
-  expect(containerExists(proofContainer)).toBe(false)
-  expect(volumeExists(ownedVolume!)).toBe(false)
+  // The owned volume is gone. A confirmed not-found is required: an inspect
+  // that could not be read is not the same as a volume that is absent.
+  expect(classifyContainer(docker, proofContainer)).toBe(RESOURCE_STATE.absent)
+  expect(classifyVolume(docker, ownedVolume!)).toBe(RESOURCE_STATE.absent)
   // The unrelated volume and its container are untouched.
-  expect(volumeExists(sentinelVolume!)).toBe(true)
-  expect(containerRunning(sentinelContainer)).toBe(true)
+  expect(classifyVolume(docker, sentinelVolume!)).toBe(RESOURCE_STATE.present)
+  const running = docker(['inspect', '--format', '{{.State.Running}}', sentinelContainer])
+  expect(running.status).toBe(0)
+  expect(running.stdout.trim()).toBe('true')
 
-  console.log(
-    'DISPOSABLE_VOLUME_NO_LEAK ' +
-      JSON.stringify({
-        status: 'passed',
-        ownedVolumeRemoved: true,
-        unrelatedVolumeRemaining: true,
-        unrelatedContainerRunning: true,
-      })
-  )
+  proofOutcome = {
+    ownedVolumeRemoved: true,
+    unrelatedVolumeRemaining: true,
+    unrelatedContainerRunning: true,
+  }
 }, 900_000)
