@@ -13,6 +13,7 @@ const runnerPath = fileURLToPath(new URL('./test-integration.mjs', import.meta.u
 // Run the production runner in a child VM: all process, Docker, provisioning,
 // target and inventory boundaries are synthetic and cannot reach real resources.
 function exercise(options: {
+  port?: string
   runningBefore?: boolean
   failStart?: boolean
   explicit?: boolean
@@ -30,6 +31,7 @@ function exercise(options: {
     import { resolve } from 'node:path'
     const options = ${JSON.stringify(options)}
     const calls = []
+    const databaseEnvironments = []
     let created = false
     const listeners = new Map()
     const errors = []
@@ -44,9 +46,10 @@ function exercise(options: {
       console: { log() {}, warn() {}, error(message) { errors.push(message) } },
       process: {
         ...fakeProcess,
-        env: options.explicit ? {
-          DATABASE_URL: 'synthetic', DATABASE_URL_UNPOOLED: 'synthetic', DATABASE_MIGRATION_URL: 'synthetic',
-        } : {},
+        env: {
+          ...(options.explicit ? { DATABASE_URL: 'synthetic', DATABASE_URL_UNPOOLED: 'synthetic', DATABASE_MIGRATION_URL: 'synthetic' } : {}),
+          ...(options.port !== undefined ? { ADEA_POSTGRES_PORT: options.port } : {}),
+        },
         argv: ['node', 'test-integration.mjs'],
         stdout: { write() {} }, stderr: { write() {} },
       },
@@ -57,7 +60,10 @@ function exercise(options: {
     const dependencies = {
       'node:path': stub({ resolve }),
       'node:timers/promises': stub({ setTimeout: async () => {} }),
-      'node:child_process': stub({ spawnSync(command, args) {
+      'node:child_process': stub({ spawnSync(command, args, configuration) {
+        if (configuration?.env?.DATABASE_URL) databaseEnvironments.push(Object.fromEntries(
+          ['DATABASE_URL', 'DATABASE_URL_UNPOOLED', 'DATABASE_MIGRATION_URL'].map(name => [name, configuration.env[name]])
+        ))
         calls.push([command, ...args])
         if (command === 'docker' && args[1] === 'ps')
           return { status: 0, stdout: options.runningBefore ? 'postgres\\n' : '' }
@@ -110,7 +116,7 @@ function exercise(options: {
     let failure
     try { await runner.evaluate() } catch (error) { failure = error.message }
     for (const listener of [...(listeners.get('exit') ?? [])]) listener(failure ? 1 : 0)
-    console.log(JSON.stringify({ created, failure, calls, errors }))
+    console.log(JSON.stringify({ created, failure, calls, errors, databaseEnvironments }))
   `
   const result = spawnSync(
     nodePath,
@@ -124,6 +130,7 @@ function exercise(options: {
   expect(result.error).toBeUndefined()
   expect(result.status, result.stderr).toBe(0)
   return JSON.parse(result.stdout) as {
+    databaseEnvironments: Record<string, string>[]
     created: boolean
     failure: string
     calls: string[][]
@@ -548,6 +555,11 @@ async function exerciseRealLifecycle(
         existsSync(join(directory, name))
       ),
     }
+  } catch (error) {
+    const progress = existsSync(eventsPath)
+      ? readFileSync(eventsPath, 'utf8')
+      : '(no fixture events)'
+    throw new Error(`${(error as Error).message}; fixture progress: ${progress}`, { cause: error })
   } finally {
     if (child && child.exitCode === null && child.signalCode === null) {
       const exited = new Promise((resolve) => child!.once('exit', resolve))
@@ -660,3 +672,68 @@ test('failed fixture supervision cleans a live descendant through its identity-c
   ).rejects.toThrow('synthetic fixture supervision failure')
   expect(recovery).toEqual([{ requests: 1, acknowledged: true }])
 }, 15000)
+
+for (const port of [undefined, '1', '49981', '65535']) {
+  test(`managed runner uses configured loopback port ${port ?? '55432'} for every database URL`, () => {
+    const result = exercise({ port, success: true })
+    expect(result.failure).toBeUndefined()
+    expect(result.databaseEnvironments.length).toBeGreaterThan(0)
+    for (const environment of result.databaseEnvironments) {
+      expect(
+        Object.values(environment).every((url) =>
+          url.includes(`@127.0.0.1:${port ?? '55432'}/agent_hq?`)
+        )
+      ).toBe(true)
+    }
+    expect(stops(result.calls)).toHaveLength(1)
+  })
+}
+
+for (const port of [
+  '',
+  '0',
+  '65536',
+  '999999',
+  '-1',
+  '+5432',
+  '05432',
+  '1.5',
+  '1e3',
+  '0xD87A',
+  ' 5432',
+  '5432 ',
+  '5432\n',
+  '5432/other',
+  '5432?host=remote',
+]) {
+  test(`managed runner rejects malformed port ${JSON.stringify(port)} before any command`, () => {
+    const result = exercise({ port, success: true })
+    expect(result.failure).toBe('ADEA_POSTGRES_PORT must be a decimal TCP port between 1 and 65535')
+    expect(result.calls).toEqual([])
+  })
+}
+
+test('configured local port preserves pre-existing service ownership', () => {
+  const result = exercise({ port: '49982', runningBefore: true, success: true })
+  expect(result.failure).toBeUndefined()
+  expect(result.created).toBe(false)
+  expect(stops(result.calls)).toHaveLength(0)
+  expect(result.databaseEnvironments.every((env) => env.DATABASE_URL.includes(':49982/'))).toBe(
+    true
+  )
+})
+
+test('configured local port preserves partial-start cleanup and its primary error', () => {
+  const result = exercise({ port: '49983', failStart: true, stopFails: true })
+  expect(result.failure).toContain(
+    'up -d --wait --wait-timeout 30 postgres failed with exit code 1'
+  )
+  expect(stops(result.calls)).toHaveLength(1)
+})
+
+test('explicit target is independent of an unused malformed Compose port', () => {
+  const result = exercise({ port: 'unused', explicit: true, success: true })
+  expect(result.failure).toBeUndefined()
+  expect(result.calls.filter((call) => call[0] === 'docker')).toHaveLength(0)
+  expect(result.databaseEnvironments.every((env) => env.DATABASE_URL === 'synthetic')).toBe(true)
+})

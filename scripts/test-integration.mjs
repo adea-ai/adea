@@ -22,13 +22,20 @@ const root = resolve(import.meta.dirname, '..')
 
 // An inherited DATABASE_URL must be a local or CI-created target before anything runs.
 assertLocalTestTargets()
+const usesExplicitDatabase = Boolean(process.env.DATABASE_URL)
+const localPostgresPort = process.env.ADEA_POSTGRES_PORT ?? '55432'
+// Match Compose's configured host endpoint without allowing URL/host injection.
+// Explicit targets do not consume the local Compose port.
+if (
+  !usesExplicitDatabase &&
+  (!/^[1-9]\d{0,4}$/.test(localPostgresPort) || Number(localPostgresPort) > 65535)
+) {
+  throw new Error('ADEA_POSTGRES_PORT must be a decimal TCP port between 1 and 65535')
+}
 const localDatabaseEnvironment = {
-  DATABASE_URL:
-    'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',
-  DATABASE_URL_UNPOOLED:
-    'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',
-  DATABASE_MIGRATION_URL:
-    'postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55432/agent_hq?sslmode=disable',
+  DATABASE_URL: `postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:${localPostgresPort}/agent_hq?sslmode=disable`,
+  DATABASE_URL_UNPOOLED: `postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:${localPostgresPort}/agent_hq?sslmode=disable`,
+  DATABASE_MIGRATION_URL: `postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:${localPostgresPort}/agent_hq?sslmode=disable`,
 }
 
 // ADEA_INTEGRATION_SHARD=<index>/<total> runs one explicit slice of the package suites, so a lane
@@ -114,7 +121,6 @@ function runningComposeServices() {
 // The migration-snapshot capture proofs need a disposable PostgreSQL scratch database per run; the
 // provisioning helper in capture-provisioning.mjs starts and always removes it.
 
-const usesExplicitDatabase = Boolean(process.env.DATABASE_URL)
 if (usesExplicitDatabase) {
   const missingVariables = ['DATABASE_URL_UNPOOLED', 'DATABASE_MIGRATION_URL'].filter(
     (name) => !process.env[name]
@@ -129,6 +135,7 @@ if (usesExplicitDatabase) {
 const environment = usesExplicitDatabase
   ? { ...process.env }
   : { ...process.env, ...localDatabaseEnvironment }
+assertLocalTestTargets(environment)
 const startupAbort = new AbortController()
 let startingLocalPostgres = false
 let interruptedSignal
