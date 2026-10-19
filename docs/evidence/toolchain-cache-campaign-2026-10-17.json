@@ -1989,8 +1989,8 @@
           "url": "https://github.com/adea-ai/themes/pull/101",
           "status": "pending, separate",
           "observedHead": "36ac137af41a0f67b5498f5cddeba5e891aec177",
-          "observedAt": "2026-10-19T19:50:03Z",
-          "observedState": "OPEN, draft. The owner recorded the same pull request as open and ready at an earlier snapshot. Draft state is a point-in-time property, so the state observed at 2026-10-19T19:50:03Z is what is recorded here, and neither observation is a claim about the pull request's later state.",
+          "observedAt": "2026-10-19T19:53:39Z",
+          "observedState": "OPEN, ready (not a draft). An earlier read at 2026-10-19T19:50:03Z saw the same head in draft state. Draft state is a point-in-time property, so each observation is recorded with its own timestamp, and none of them is a claim about the pull request's later state.",
           "note": "This Adea pull request is JSON-only. It changed no Themes file and did not reconcile the Themes pin. The companion pull request did, and neither that pull request nor the Themes repository was modified here."
         },
         "pinnedRefBefore": "v1.48.2",
@@ -2003,7 +2003,7 @@
           ".github/workflows/release.yml job release -> code-foundry release.yml@v1.48.3: 5 inputs, 2 secrets all declared",
           ".github/workflows/release-integrity.yml job verify -> code-foundry release-integrity.yml@v1.48.3: 2 inputs, 0 secrets all declared"
         ],
-        "callersVerifiedAgainst": "adea-ai/themes at the companion pull request's observed head 36ac137af41a0f67b5498f5cddeba5e891aec177, observed 2026-10-19T19:50:03Z. These are callers in the Themes repository, not in this one, and they are recorded here only as the companion pull request's state."
+        "callersVerifiedAgainst": "adea-ai/themes at the companion pull request's observed head 36ac137af41a0f67b5498f5cddeba5e891aec177, observed 2026-10-19T19:53:39Z. These are callers in the Themes repository, not in this one, and they are recorded here only as the companion pull request's state."
       },
       "releaseFlowUnchanged": "The v1.48.2..v1.48.3 comparison of 0xPlayerOne/code-foundry touches only .release-please-manifest.json, CHANGELOG.md, package.json and test/doctor-hook-shadow.test.mjs. No workflow file changed, so the reusable workflow contracts and the release flow are byte-identical across the two refs.",
       "rendererAgreement": "In the companion pull request adea-ai/themes#101, the reconciled Themes files are byte-identical to what code-foundry 1.48.3's own sync renderer produces for that repository. This pull request did not produce them and did not change Themes."
@@ -2045,7 +2045,7 @@
       "The hit counts and manifest hashes recorded for the control-plane, ui, agent-sim, cortana and plugins graphs in earlier checkpoints were not re-derived; their runs were confirmed to exist and to have succeeded.",
       "Sizing, timing and CPU figures in earlier checkpoints remain single-run observations, not isolated benchmarks, and are not restated as measurements.",
       "The plugin reader run 39056020219 ran on a release-please pull request, not on the default branch.",
-      "The Themes pin reconciliation is pending in the separate companion pull request adea-ai/themes#101, observed at head 36ac137af41a0f67b5498f5cddeba5e891aec177 on 2026-10-19T19:50:03Z. It is not merged, and this pull request did not perform it."
+      "The Themes pin reconciliation is pending in the separate companion pull request adea-ai/themes#101, observed at head 36ac137af41a0f67b5498f5cddeba5e891aec177 on 2026-10-19T19:53:39Z. It is not merged, and this pull request did not perform it."
     ],
     "remaining": [
       "Qualify an independent same-head fresh-reader writer/reader transfer on Windows in the repository that owns the Windows lanes. Native executable identity and the same-job real build replay are already proven there.",
