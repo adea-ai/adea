@@ -107,25 +107,39 @@ test('an interrupted fixture build stops its owned group and restores the redire
     const stubPid = Number((await readOrNull(ready))?.toString())
     if (!Number.isInteger(stubPid)) throw new Error('the stub never reached the rewrite boundary')
     stubGroup = groupOf(stubPid)
+    // Successful process-group discovery is required; an undefined group would make the check vacuous.
+    if (stubGroup === undefined)
+      throw new Error(`could not discover the process group of stub ${stubPid}`)
     expect((await readFile(redirect)).toString()).toContain('auth-fixture')
 
     builder.kill('SIGINT')
+    // The watchdog is cancelled as soon as the builder exits, so no timer outlives the test.
+    const watchdog = new AbortController()
     const result = await Promise.race([
       exited,
-      delay(60_000).then(() => {
+      delay(60_000, undefined, { signal: watchdog.signal }).then(() => {
         throw new Error('the interrupted builder did not exit within 60 s')
       }),
     ])
+    watchdog.abort()
     expect(result.code).not.toBe(0)
     expect(output).toContain('interrupted by SIGINT')
-    expect(stubGroup === undefined || !groupAlive(stubGroup)).toBe(true)
+    expect(groupAlive(stubGroup)).toBe(false)
     expect((await readOrNull(redirect))?.equals(original)).toBe(true)
   } finally {
-    if (builder && builder.exitCode === null && builder.signalCode === null) builder.kill('SIGKILL')
-    if (stubGroup !== undefined && groupAlive(stubGroup)) {
+    // Every owned process is stopped and confirmed gone before the disposable workspace is deleted.
+    if (builder && builder.exitCode === null && builder.signalCode === null) {
+      builder.kill('SIGKILL')
+      await new Promise<void>((ok) => {
+        if (builder!.exitCode !== null || builder!.signalCode !== null) return ok()
+        builder!.once('exit', () => ok())
+      })
+    }
+    if (stubGroup !== undefined) {
       try {
         process.kill(-stubGroup, 'SIGKILL')
       } catch {}
+      for (let attempt = 0; attempt < 50 && groupAlive(stubGroup); attempt += 1) await delay(100)
     }
     await rm(root, { recursive: true, force: true })
   }

@@ -113,7 +113,7 @@ async function waitFor(predicate, description, timeoutMs = 10_000) {
   throw new Error(`${description} did not complete within ${timeoutMs} ms`)
 }
 
-async function assertDatabaseSessionsStarted(before, expectedMinimum, label) {
+async function assertDatabaseSessionsStarted(before, expectedMinimum, label, observed = []) {
   try {
     await waitFor(async () => (await sessionCount()) >= before + BigInt(expectedMinimum), label)
   } catch (error) {
@@ -129,7 +129,7 @@ async function assertDatabaseSessionsStarted(before, expectedMinimum, label) {
       .then((result) => JSON.stringify(result.rows))
       .catch(() => 'unreadable')
     throw new Error(
-      `${error.message}; pg_stat_database sessions before ${before}, after ${after}, expected +${expectedMinimum}; activity ${activity}`,
+      `${error.message}; pg_stat_database sessions before ${before}, after ${after}, expected +${expectedMinimum}; activity ${activity}; responses ${JSON.stringify(observed)}`,
       { cause: error }
     )
   }
@@ -200,6 +200,9 @@ async function exerciseRecordingDelivery() {
   }
 }
 
+// Every request opens its own connection. Reusing a keep-alive socket through the local dev proxy
+// failed intermittently with "Network connection lost" on the next POST (6 of 12 reused runs,
+// 0 of 6 fresh runs), so the transport is kept out of the auth assertions.
 function requestWorker(path, { method = 'GET', cookie, body, origin = baseUrl } = {}) {
   const url = new URL(path.startsWith('/') ? path : `/api/auth/${path}`, workerUrl)
   assert.ok(['127.0.0.1', 'localhost', '::1'].includes(url.hostname))
@@ -217,6 +220,7 @@ function requestWorker(path, { method = 'GET', cookie, body, origin = baseUrl } 
         method,
         ca: workerCa,
         headers,
+        agent: false,
       },
       (response) => {
         const chunks = []
@@ -260,10 +264,18 @@ function responseCookies(response) {
 async function trackedWorkerRequest(label, requests, expectedSessions = requests.length) {
   const before = await sessionCount()
   const results = await Promise.all(requests.map((request) => requestWorker(...request)))
+  // Captured before the database wait, so a proxy-level failure is distinguishable from database inactivity.
+  const observed = results.map((result) => ({
+    status: result.status,
+    connection: result.headers.connection ?? null,
+    cacheControl: result.headers['cache-control'] ?? null,
+    body: result.text.slice(0, 160),
+  }))
   await assertDatabaseSessionsStarted(
     before,
     expectedSessions,
-    `${label} should open auth PostgreSQL backends`
+    `${label} should open auth PostgreSQL backends`,
+    observed
   )
   await waitFor(assertNoWorkerBackends, `${label} should close every auth PostgreSQL backend`)
   return results
