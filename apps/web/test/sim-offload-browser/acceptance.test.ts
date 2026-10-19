@@ -114,6 +114,12 @@ test('app -> launch -> cross-origin frame -> session -> private runtime; offline
     origin,
     parentOrigins: [parentOrigin],
     allowLoopbackHttp: true,
+    assetPrefix: '/assets/agent-sim/',
+    entryFiles: {
+      hq: 'engine.js',
+      'room-designer': 'room-designer.js',
+      'character-designer': 'character-designer.js',
+    },
     frameScript,
     exchange,
     session: async (value) => sessions.get(value) ?? null,

@@ -1,15 +1,19 @@
 import type { SimSessionExchangeResponse, SimSessionRecord } from '@adea-ai/spatial/sim-bridge'
-import { createSimHostIsolation, type SimHostIsolation } from './sim-host-config'
+import {
+  createSimHostConfiguration,
+  entrySurface,
+  type SimHostConfigurationInput,
+} from './sim-host-config'
 import { simJsonBody } from './sim-http'
 
 export type SimPrivateAsset = { body: BodyInit; contentType: string }
 
 /**
- * Separately hosted HTTP boundary. Asset storage never has a public bypass. The isolation settings are validated
+ * Separately hosted HTTP boundary. Asset storage never has a public bypass. The configuration is validated
  * before anything is served; a missing or malformed value throws instead of falling back to a default.
  */
 export function createSimHost(
-  options: SimHostIsolation & {
+  options: SimHostConfigurationInput & {
     frameScript: string
     exchange: (body: unknown) => Promise<SimSessionExchangeResponse>
     session: (value: string) => Promise<SimSessionRecord | null>
@@ -17,10 +21,10 @@ export function createSimHost(
     now?: () => number
   }
 ) {
-  const isolation = createSimHostIsolation(options)
+  const config = createSimHostConfiguration(options)
   if (typeof options.frameScript !== 'string') throw new Error('Hosted Sim needs a frame script')
-  const origin = isolation.origin
-  const parents = isolation.parentOrigins
+  const origin = config.origin
+  const parents = config.parentOrigins
   const headers = {
     'cache-control': 'private, no-store',
     'referrer-policy': 'no-referrer',
@@ -59,8 +63,8 @@ export function createSimHost(
         headers: { ...headers, 'content-type': 'text/javascript' },
       })
     if (url.pathname === '/configuration')
-      return json({ parentOrigins: parents, allowLoopbackHttp: isolation.allowLoopbackHttp })
-    if (!url.pathname.startsWith('/assets/agent-sim/'))
+      return json({ parentOrigins: parents, allowLoopbackHttp: config.allowLoopbackHttp })
+    if (!url.pathname.startsWith(config.assetPrefix))
       return new Response(null, { status: 404, headers })
     const cookies = (request.headers.get('cookie') ?? '').split(';').map((value) => value.trim())
     const values = cookies
@@ -78,7 +82,7 @@ export function createSimHost(
         session.expiresAt <= at
       )
         return new Response(null, { status: 401, headers })
-      const path = decodeURIComponent(url.pathname.slice('/assets/agent-sim/'.length))
+      const path = decodeURIComponent(url.pathname.slice(config.assetPrefix.length))
       if (
         !path ||
         path.includes('\\') ||
@@ -86,8 +90,8 @@ export function createSimHost(
         path.split('/').some((part) => part === '.' || part === '..' || part === '')
       )
         return new Response(null, { status: 404, headers })
-      const entry = /^(engine|room-designer|character-designer)\.js$/.exec(path)?.[1]
-      if (entry && (entry === 'engine' ? 'hq' : entry) !== session.surface)
+      const surface = entrySurface(config, path)
+      if (surface && surface !== session.surface)
         return new Response(null, { status: 403, headers })
       const asset = await options.readAsset(path)
       return asset
