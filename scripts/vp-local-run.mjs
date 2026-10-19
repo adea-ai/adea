@@ -497,8 +497,8 @@ function resolveRoot() {
   return realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'))
 }
 
-async function main(argv) {
-  const root = resolveRoot()
+/** The command: `argv` after the script name. `root` defaults to the checkout the script lives in. */
+export async function main(argv, root = resolveRoot()) {
   const { task, passthrough } = parseArgs(argv)
   const env = { ...process.env }
   const replan = () =>

@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, spyOn, test } from 'bun:test'
 
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
@@ -15,7 +15,7 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -26,9 +26,12 @@ import {
   environmentKey,
   exitCodeFor,
   LockRefused,
+  main as runCommand,
   parseArgs,
   planCache,
+  readVitePlusVersion,
   relevantEnvironment,
+  runVp,
   runUnderLock,
   vpRunArguments,
   withLock,
@@ -856,5 +859,199 @@ describe('runUnderLock', () => {
     expect(outcome.replanned).toBe(true)
     expect(outcome.reason).toContain('writable by group or others')
     chmodSync(plan.directory, 0o700)
+  })
+})
+
+/** A stand-in `vp`: records its arguments and the cache variable it was given, then exits with FAKE_VP_EXIT. */
+const FAKE_VP = `#!/usr/bin/env node
+const { appendFileSync } = require('node:fs')
+appendFileSync(process.env.FAKE_VP_LOG, JSON.stringify({ args: process.argv.slice(2), cache: process.env.VITE_CACHE_PATH ?? null }) + '\\n')
+const code = Number(process.env.FAKE_VP_EXIT ?? 0)
+if (process.env.FAKE_VP_SLEEP) setTimeout(() => process.exit(code), 60000)
+else process.exit(code)
+`
+
+/** A committed checkout with a stand-in `vp` in node_modules, which git ignores. */
+function fixtureCheckout(name: string): string {
+  const root = checkout(name)
+  writeFileSync(join(root, '.gitignore'), 'node_modules/\n')
+  commitAll(root, 'ignore node_modules')
+  mkdirSync(join(root, 'node_modules', '.bin'), { recursive: true })
+  mkdirSync(join(root, 'node_modules', 'vite-plus'), { recursive: true })
+  writeFileSync(join(root, 'node_modules', 'vite-plus', 'package.json'), '{"version":"1.3.0"}\n')
+  writeFileSync(join(root, 'node_modules', '.bin', 'vp'), FAKE_VP)
+  chmodSync(join(root, 'node_modules', '.bin', 'vp'), 0o755)
+  return root
+}
+
+/** Sets variables for `work` and restores them, and the exit code the test runner will use, afterwards. */
+async function withEnv<T>(vars: Record<string, string>, work: () => Promise<T> | T): Promise<T> {
+  const saved = Object.fromEntries(Object.keys(vars).map((name) => [name, process.env[name]]))
+  const exitCode = process.exitCode
+  Object.assign(process.env, vars)
+  try {
+    return await work()
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+    process.exitCode = exitCode
+  }
+}
+
+/** Runs `work` with the wrapper's own console output silenced. */
+async function quietly<T>(work: () => Promise<T>): Promise<T> {
+  const log = spyOn(console, 'log').mockImplementation(() => {})
+  const warn = spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    return await work()
+  } finally {
+    log.mockRestore()
+    warn.mockRestore()
+  }
+}
+
+const calls = (log: string) =>
+  existsSync(log)
+    ? readFileSync(log, 'utf8')
+        .trim()
+        .split('\n')
+        .filter(Boolean)
+        .map((line) => JSON.parse(line))
+    : []
+
+describe('main, runVp and exit codes', () => {
+  test('CI runs the plain vp run: no cache variable, no --cache, and no cache home is created', async () => {
+    const root = fixtureCheckout('main-ci')
+    const log = join(scratch, 'main-ci.log')
+    const cacheHomeDir = join(scratch, 'main-ci-home')
+    await withEnv(
+      { CI: '1', FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
+      () => quietly(() => runCommand(['orch:build', '--', '--filter', 'x'], root))
+    )
+    expect(calls(log)).toEqual([{ args: ['run', 'orch:build', '--filter', 'x'], cache: null }])
+    expect(existsSync(cacheHomeDir)).toBe(false)
+  })
+
+  test('a clean checkout runs vp run --cache in the shared directory, creating a fresh cache home, and passes the exit code on', async () => {
+    const root = fixtureCheckout('main-clean')
+    const log = join(scratch, 'main-clean.log')
+    const cacheHomeDir = join(scratch, 'main-clean-home', '.cache', 'adea-vp')
+    await withEnv(
+      { FAKE_VP_LOG: log, FAKE_VP_EXIT: '3', ADEA_VP_CACHE_HOME: cacheHomeDir, CI: '' },
+      async () => {
+        delete process.env.CI
+        await quietly(() => runCommand(['orch:test'], root))
+        const plan = planCache({
+          root,
+          env: { ...process.env },
+          nodeVersion: process.version,
+          platform: process.platform,
+          arch: process.arch,
+          vitePlusVersion: readVitePlusVersion(root),
+          home: homedir(),
+        })
+        expect(plan.mode).toBe('clean')
+        expect(calls(log)).toEqual([
+          { args: ['run', '--cache', 'orch:test'], cache: plan.directory },
+        ])
+        expect(existsSync(plan.directory)).toBe(true)
+        expect(process.exitCode).toBe(3)
+      }
+    )
+  })
+
+  test('a lock that is refused falls back to the plain vp run, and the refused record is kept', async () => {
+    const root = fixtureCheckout('main-refused')
+    const log = join(scratch, 'main-refused.log')
+    const cacheHomeDir = join(scratch, 'main-refused-home', '.cache', 'adea-vp')
+    await withEnv(
+      { FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
+      async () => {
+        const plan = planCache({
+          root,
+          env: { ...process.env },
+          nodeVersion: process.version,
+          platform: process.platform,
+          arch: process.arch,
+          vitePlusVersion: readVitePlusVersion(root),
+          home: homedir(),
+        })
+        ensurePrivateDirectory(plan.cacheHome, plan.directory)
+        writeFileSync(`${plan.directory}.lock.run`, 'garbage')
+        await quietly(() => runCommand(['orch:test'], root))
+        expect(calls(log)).toEqual([{ args: ['run', 'orch:test'], cache: null }])
+        expect(readFileSync(`${plan.directory}.lock.run`, 'utf8')).toBe('garbage')
+        expect(existsSync(`${plan.directory}.lock`)).toBe(false)
+      }
+    )
+  })
+
+  test('register records the group of the work, and a record of a live group keeps the lock held', async () => {
+    const dir = join(scratch, 'register', 'cache')
+    mkdirSync(join(scratch, 'register'), { recursive: true })
+    const group = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+      detached: true,
+      stdio: 'ignore',
+    })
+    const exited = new Promise((done) => group.once('exit', done))
+    await withLock(dir, async (register) => {
+      register(group.pid)
+    })
+    const uuid = readFileSync(`${dir}.lock`, 'utf8').split('\n')[1]
+    expect(readFileSync(`${dir}.lock.run`, 'utf8')).toBe(`${group.pid}\n${uuid}`)
+    expect(existsSync(`${dir}.lock`)).toBe(true)
+    process.kill(-group.pid, 'SIGKILL')
+    await exited
+    rmSync(`${dir}.lock`)
+    rmSync(`${dir}.lock.run`)
+  })
+
+  test('runVp returns the exit code of vp when it runs without a process group', async () => {
+    const root = fixtureCheckout('runvp-code')
+    const log = join(scratch, 'runvp-code.log')
+    const outcome = await runVp({
+      root,
+      env: { ...process.env, FAKE_VP_LOG: log, FAKE_VP_EXIT: '5' },
+      args: ['run', 'x'],
+    })
+    expect(outcome).toEqual({ code: 5, signal: null })
+    expect(calls(log)).toEqual([{ args: ['run', 'x'], cache: null }])
+  })
+
+  test('a signal that reaches the wrapper stops vp and is reported as the signal, with or without a process group', async () => {
+    const root = fixtureCheckout('runvp-signal')
+    const env = {
+      ...process.env,
+      FAKE_VP_LOG: join(scratch, 'runvp-signal.log'),
+      FAKE_VP_SLEEP: '1',
+    }
+    const plain = runVp({ root, env, args: ['run'] })
+    setTimeout(() => process.kill(process.pid, 'SIGTERM'), 300)
+    const plainOutcome = await plain
+    expect(plainOutcome.signal).toBe('SIGTERM')
+    expect(exitCodeFor(plainOutcome)).toBe(143)
+
+    let recorded
+    const grouped = runVp({ root, env, args: ['run'], register: (pid) => (recorded = pid) })
+    setTimeout(() => process.kill(process.pid, 'SIGINT'), 300)
+    const groupedOutcome = await grouped
+    expect(typeof recorded).toBe('number')
+    expect(groupedOutcome.signal).toBe('SIGINT')
+    expect(exitCodeFor(groupedOutcome)).toBe(130)
+  })
+
+  test('exit codes: a signal maps to 128 plus its number, otherwise the code, and a missing code is 1', () => {
+    expect(exitCodeFor({ code: null, signal: 'SIGINT' })).toBe(130)
+    expect(exitCodeFor({ code: null, signal: 'SIGTERM' })).toBe(143)
+    expect(exitCodeFor({ code: 2, signal: null })).toBe(2)
+    expect(exitCodeFor({ code: undefined, signal: null })).toBe(1)
+  })
+
+  test('readVitePlusVersion reads the installed version, or says it is absent', () => {
+    const root = fixtureCheckout('vp-version')
+    expect(readVitePlusVersion(root)).toBe('1.3.0')
+    expect(readVitePlusVersion(checkout('vp-version-absent'))).toBe('absent')
   })
 })
