@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.98.0](https://github.com/adea-ai/adea/compare/v0.97.0...v0.98.0) (2026-10-19)
+
+
+### Features
+
+* **auth:** add explicit Better Auth schema initialization ([#1477](https://github.com/adea-ai/adea/issues/1477)) ([4832507](https://github.com/adea-ai/adea/commit/4832507c2f7b83b8048a81cfff5bad3dbefb0be3))
+* **auth:** self-host the Better Auth boundary ([#1466](https://github.com/adea-ai/adea/issues/1466)) ([c32221e](https://github.com/adea-ai/adea/commit/c32221e4a6eced7e7dbd9e9e58b380ca3396d7a5))
+* **chat:** consume the merged Chat canvas contracts ([#1383](https://github.com/adea-ai/adea/issues/1383), [#1173](https://github.com/adea-ai/adea/issues/1173), [#1177](https://github.com/adea-ai/adea/issues/1177)) ([#1460](https://github.com/adea-ai/adea/issues/1460)) ([323c090](https://github.com/adea-ai/adea/commit/323c0902c1e3c0196f35cfc90f7e056bd3f1c922))
+* **desktop-auth:** store auth vault entries in OS credential store ([#1475](https://github.com/adea-ai/adea/issues/1475)) ([44f5960](https://github.com/adea-ai/adea/commit/44f596069947a157b0effb77cdb318539d4067c7))
+* **desktop:** receive packaged adea auth callbacks ([#1474](https://github.com/adea-ai/adea/issues/1474)) ([3b9b108](https://github.com/adea-ai/adea/commit/3b9b108c86ed73e5294a33f728609b118fd8a1fb))
+* **runtime:** add native session inventory source ([#1414](https://github.com/adea-ai/adea/issues/1414)) ([9b7bf54](https://github.com/adea-ai/adea/commit/9b7bf54daa5f0e6127a57dda3a5084e83d668f04))
+
+
+### Bug Fixes
+
+* **ci:** clean integration resources after partial startup and interruption ([#1469](https://github.com/adea-ai/adea/issues/1469)) ([0704d09](https://github.com/adea-ai/adea/commit/0704d09c7aff032bdc4cc70923c83c4861a00d05))
+* **ci:** make Neon branch cleanup close-only and independent of setup ([#1476](https://github.com/adea-ai/adea/issues/1476)) ([e7f19fa](https://github.com/adea-ai/adea/commit/e7f19faaf9a7d59b8d2f11abc61919336702bba4))
+* **db:** preserve archived group revocation through cutover ([#1472](https://github.com/adea-ai/adea/issues/1472)) ([697de84](https://github.com/adea-ai/adea/commit/697de84563a461a39abbb19608e754f87ffae061))
+* **db:** qualify direct vs pooled PostgreSQL connections ([#1465](https://github.com/adea-ai/adea/issues/1465)) ([5207191](https://github.com/adea-ai/adea/commit/52071913442a47810dd1092c6cc65dde3669b6b9))
+* **deps:** update dependency @adea-ai/ui to v0.142.4 ([#1473](https://github.com/adea-ai/adea/issues/1473)) ([290c2e6](https://github.com/adea-ai/adea/commit/290c2e6062808bb1b8cdc5c460bb09beb30ab84b))
+* **web:** enable incoming event stream cancellation ([#1464](https://github.com/adea-ai/adea/issues/1464)) ([0a21100](https://github.com/adea-ai/adea/commit/0a21100a8887c945e91c7dfa9fbeb55708443c18))
+
+
+### Performance
+
+* **web:** avoid SSR for unsupported root script requests ([#1462](https://github.com/adea-ai/adea/issues/1462)) ([f046c56](https://github.com/adea-ai/adea/commit/f046c563696d18339641b3f3d05693868763d71e))
+
+
+### Documentation
+
+* define fresh PostgreSQL acceptance gates ([#1468](https://github.com/adea-ai/adea/issues/1468)) ([8ad6d27](https://github.com/adea-ai/adea/commit/8ad6d276c90c8df9fae3d1f679ef9e125a80aee2))
+
+
+### Tests
+
+* **auth:** add isolated fresh-account acceptance harness ([#1470](https://github.com/adea-ai/adea/issues/1470)) ([6d06b0d](https://github.com/adea-ai/adea/commit/6d06b0d428457fa2f3d3a649f9cb0eb0055a7750))
+* **db:** overlap independent hidden-publication fixture preparation ([#1471](https://github.com/adea-ai/adea/issues/1471)) ([a1043fe](https://github.com/adea-ai/adea/commit/a1043fe82d1b66b1f648fea035648ce935979f1f))
+* **db:** prove the text[] array type registration for a discovery-free client ([#1481](https://github.com/adea-ai/adea/issues/1481)) ([c92f162](https://github.com/adea-ai/adea/commit/c92f162566e8c1396e6cfbdb0abbec29062147cd))
+* **pi-journey:** repin joined journey to CP 69e6e746 ([#1480](https://github.com/adea-ai/adea/issues/1480)) ([8152fa3](https://github.com/adea-ai/adea/commit/8152fa33f1bcc6a28240ae3202a422939db11811))
+
+
+### Maintenance
+
+* **build:** share a local Vite+ task cache across clean worktrees ([#1479](https://github.com/adea-ai/adea/issues/1479)) ([91e2918](https://github.com/adea-ai/adea/commit/91e2918e6cfe8cdfb6f05a53d198a553d79eaf76))
+* **deps:** bump @adea-ai/sdk to 1.20.0 and requalify the lead child allowance boundary ([#1211](https://github.com/adea-ai/adea/issues/1211)) ([#1467](https://github.com/adea-ai/adea/issues/1467)) ([c573344](https://github.com/adea-ai/adea/commit/c57334422b3b295b6c8935601d22d37bfabebb30))
+
 ## [0.97.0](https://github.com/adea-ai/adea/compare/v0.96.0...v0.97.0) (2026-10-18)
 
 
