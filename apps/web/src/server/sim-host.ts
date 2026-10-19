@@ -2,6 +2,7 @@ import type { SimSessionExchangeResponse, SimSessionRecord } from '@adea-ai/spat
 import {
   createSimHostConfiguration,
   entrySurface,
+  isRetiredEntry,
   type SimHostConfigurationInput,
 } from './sim-host-config'
 import { simJsonBody } from './sim-http'
@@ -98,6 +99,8 @@ export function createSimHost(
       const surface = entrySurface(config, path)
       if (surface && surface !== session.surface)
         return new Response(null, { status: 403, headers })
+      // A renamed surface's old entry must not stay reachable as an ordinary shared asset.
+      if (isRetiredEntry(config, path)) return new Response(null, { status: 404, headers })
       const asset = await options.readAsset(path)
       return asset
         ? new Response(asset.body, { headers: { ...headers, 'content-type': asset.contentType } })

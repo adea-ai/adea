@@ -90,6 +90,21 @@ export function createSimHostConfiguration(input: unknown): SimHostConfiguration
   })
 }
 
+/**
+ * Entry names the host used before configuration existed. Once a surface is renamed, its old file may still sit in
+ * private storage, so these names are refused for every session unless the configuration binds one to a surface.
+ */
+export const RETIRED_ENTRY_NAMES: readonly string[] = [
+  'engine.js',
+  'room-designer.js',
+  'character-designer.js',
+]
+
+/** True when the path is a retired entry name that the current configuration does not serve as an entry. */
+export function isRetiredEntry(config: SimHostConfiguration, path: string): boolean {
+  return RETIRED_ENTRY_NAMES.includes(path) && entrySurface(config, path) === undefined
+}
+
 /** The surface a private entry file belongs to, or undefined when the path is not an entry. */
 export function entrySurface(config: SimHostConfiguration, path: string): SimSurface | undefined {
   return SIM_SURFACES.find((surface) => config.entryFiles[surface] === path)

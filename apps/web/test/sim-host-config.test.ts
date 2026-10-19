@@ -183,8 +183,35 @@ test('a configured prefix and renamed entries are the only paths served privatel
   // Only the configured room-designer entry was ever read from private storage; the rejected hq read never reached it.
   expect(served.length).toBeGreaterThan(0)
   expect(served.every((path) => path === 'rd-1.js')).toBe(true)
+  // The renamed entries' old names still exist in private storage in this fixture; they stay unreachable for every session.
+  expect((await get('/private/sim/engine.js')).status).toBe(404)
+  expect((await get('/private/sim/room-designer.js')).status).toBe(404)
+  expect((await get('/private/sim/character-designer.js')).status).toBe(404)
   expect((await host(new Request(`${origin}/private/sim/rd-1.js`))).status).toBe(401)
   expect(
     (await host(new Request(`${origin}/configuration`))).headers.get('content-security-policy')
   ).toContain(`frame-ancestors ${parent}`)
+})
+
+test('an unrenamed entry keeps its own surface binding and is not treated as retired', async () => {
+  const now = 1_000
+  const sessions = new Map([
+    ['t'.repeat(40), { surface: 'room-designer', expiresAt: now + 60_000 }],
+  ] as const)
+  const host = createSimHost({
+    origin,
+    parentOrigins: [parent],
+    assetPrefix: '/assets/agent-sim/',
+    entryFiles,
+    frameScript: '// bootstrap',
+    exchange: async () => ({ body: { status: 'unavailable' } }) as never,
+    session: async (value) => (sessions.get(value) as never) ?? null,
+    now: () => now,
+    readAsset: async (path) => ({ body: `asset:${path}`, contentType: 'text/javascript' }),
+  })
+  const cookie = `__Host-adea-sim=${'t'.repeat(40)}`
+  const get = (path: string) => host(new Request(`${origin}${path}`, { headers: { cookie } }))
+  expect((await get('/assets/agent-sim/room-designer.js')).status).toBe(200)
+  expect((await get('/assets/agent-sim/engine.js')).status).toBe(403)
+  expect((await get('/assets/agent-sim/character-designer.js')).status).toBe(403)
 })
