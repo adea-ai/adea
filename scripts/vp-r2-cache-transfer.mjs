@@ -41,8 +41,10 @@ import { createHash } from 'node:crypto'
 
 import {
   CATEGORY,
+  DEFAULT_DEADLINE_MS,
+  LIMITS,
   canonicalEnvelopeBytes,
-  createEnvelope,
+  entryObjectKey,
   lookupEntry,
   parseEnvelope,
   publishEntry,
@@ -92,20 +94,68 @@ export function listedKeys(store) {
 }
 
 /**
+ * Awaits a promise until the deadline, and gives up when the caller's signal is aborted. A promise that does not
+ * answer in time ends the wait; the promise itself is left to settle on its own.
+ */
+function withDeadline(promise, { deadlineMs, signal }) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), deadlineMs)
+  timer.unref?.()
+  const forward = () => controller.abort()
+  if (signal?.aborted) controller.abort()
+  else signal?.addEventListener('abort', forward, { once: true })
+  const guard = new Promise((_, reject) => {
+    controller.signal.addEventListener('abort', () => reject(new Error('the deadline passed')), {
+      once: true,
+    })
+  })
+  return Promise.race([Promise.resolve(promise), guard]).finally(() => {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', forward)
+  })
+}
+
+/**
+ * Reads the envelope that was stored and validates it under a trust domain. The read is bounded by `maxBytes` and by
+ * the deadline that is left, and it carries the caller's signal, so a store that rejects the read or never answers
+ * ends the read instead of the qualification.
+ *
+ * The result is the validated envelope, or the category it was refused for. It is never an exception.
+ */
+export async function readStoredEnvelope(
+  store,
+  entryKey,
+  domain,
+  { maxBytes = LIMITS.maxEnvelopeBytes, deadlineMs = DEFAULT_DEADLINE_MS, signal } = {}
+) {
+  if (entryKey === undefined) return { refusedWith: CATEGORY.notFound }
+  let bytes
+  try {
+    bytes = await withDeadline(store.get(entryKey, { maxBytes, signal }), { deadlineMs, signal })
+  } catch {
+    return { refusedWith: CATEGORY.storeRead }
+  }
+  if (bytes === null || bytes === undefined) return { refusedWith: CATEGORY.notFound }
+  try {
+    return { envelope: parseEnvelope(Buffer.from(bytes), { scope: domain.scope }) }
+  } catch (error) {
+    return { refusedWith: error.category ?? CATEGORY.invalidEnvelope }
+  }
+}
+
+/**
  * Reads the envelope that was published, as the target machine would read it, and reports the category it was
  * refused for. A target that shares the domain reads it; a target that does not is refused, and the refusal says
  * whether the entry belonged to another trust domain or to another client and toolchain.
  */
-export async function readAsTarget(store, entryKey, target, { maxBytes = 8 * 1024 * 1024 } = {}) {
-  if (entryKey === undefined) return { refusedWith: CATEGORY.notFound }
-  const bytes = await store.get(entryKey, { maxBytes })
-  if (bytes === null || bytes === undefined) return { refusedWith: CATEGORY.notFound }
-  try {
-    parseEnvelope(Buffer.from(bytes), { scope: target.scope })
-    return { refusedWith: null }
-  } catch (error) {
-    return { refusedWith: error.category ?? CATEGORY.invalidEnvelope }
-  }
+export async function readAsTarget(
+  store,
+  entryKey,
+  target,
+  { maxBytes = LIMITS.maxEnvelopeBytes, deadlineMs = DEFAULT_DEADLINE_MS, signal } = {}
+) {
+  const read = await readStoredEnvelope(store, entryKey, target, { maxBytes, deadlineMs, signal })
+  return { refusedWith: read.envelope ? null : read.refusedWith }
 }
 
 /**
@@ -128,19 +178,20 @@ export async function qualifyTransfer({
   createdAt = '2026-10-19T00:00:00.000Z',
   publish = true,
 }) {
+  const budget = Date.now() + (deadlineMs ?? DEFAULT_DEADLINE_MS)
+  const remaining = () => Math.max(0, budget - Date.now())
   const written = publish
     ? await publishEntry(store, entry, { scope: from.scope, limits, deadlineMs, createdAt })
     : { ok: false, skipped: true, category: null, envelope: null, entryKey: undefined }
-  const envelope =
-    written.envelope ??
-    createEnvelope({
-      scope: from.scope,
-      key: entry.key,
-      secondaryKey: entry.secondaryKey,
-      value: entry.value,
-      blob: entry.blob,
-      createdAt,
-    })
+  const entryKey = written.entryKey ?? entryObjectKey(from.scope, entry.key, entry.secondaryKey)
+  // The envelope the report is built from is the **stored** one, read back and validated under the domain that wrote
+  // it. It is never reconstructed from the expected input: a store that holds a different entry under the same key
+  // must be reported as such.
+  const stored = await readStoredEnvelope(store, entryKey, from, {
+    maxBytes: limits?.maxEnvelopeBytes ?? LIMITS.maxEnvelopeBytes,
+    deadlineMs: remaining(),
+  })
+  const envelope = stored.envelope ?? null
   const found = await lookupEntry(
     store,
     { key: entry.key, secondaryKey: entry.secondaryKey },
@@ -152,10 +203,19 @@ export async function qualifyTransfer({
   const keys = listedKeys(store)
   const staged = (keys ?? []).filter((name) => name.startsWith('staging/'))
   const publishedObjects = (keys ?? []).filter((name) => name.startsWith('entries/'))
-  const replayable = found.ok && blob?.ok === true && Buffer.from(blob.bytes).equals(entry.blob)
-  const handed = written.entryKey
-    ? await readAsTarget(store, written.entryKey, to, { limits })
-    : null
+  // Every byte of the entry is compared: the entry key, the task fingerprint key, the entry value and the archive.
+  const entryIdentical =
+    envelope !== null &&
+    envelope.keyBytes.equals(entry.key) &&
+    envelope.secondaryKeyBytes.equals(entry.secondaryKey) &&
+    envelope.valueBytes.equals(entry.value) &&
+    blob?.ok === true &&
+    Buffer.from(blob.bytes).equals(entry.blob)
+  const replayable = found.ok && entryIdentical
+  const handed = await readAsTarget(store, entryKey, to, {
+    maxBytes: limits?.maxEnvelopeBytes ?? LIMITS.maxEnvelopeBytes,
+    deadlineMs: remaining(),
+  })
   return {
     from: {
       namespace: from.namespace,
@@ -180,10 +240,14 @@ export async function qualifyTransfer({
     replayable,
     refusedWith: found.ok ? null : found.category,
     blobRefusedWith: blob?.ok === true ? null : (blob?.category ?? null),
-    envelopeRefusedWith: handed ? handed.refusedWith : null,
-    transferIdentity: transferIdentity(envelope),
+    envelopeRefusedWith: handed.refusedWith,
+    storedRefusedWith: stored.refusedWith ?? null,
+    // The identity of the **stored** envelope, not of the expected input.
+    transferIdentity: envelope === null ? null : transferIdentity(envelope),
+    entryIdentical,
+    valueIdentical: envelope === null ? null : envelope.valueBytes.equals(entry.value),
     archiveSha256: digest(entry.blob),
-    archiveIdentical: replayable,
+    archiveIdentical: entryIdentical,
     stagedObjects: staged,
     publishedObjects,
   }

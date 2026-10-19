@@ -97,6 +97,14 @@ holds every byte value, an archive that holds a multipart boundary as plain
 bytes, and an archive of half a megabyte. No storage service, no credential, no
 public endpoint and no deployment is involved.
 
+Two qualifications need the pinned client of the checkout, and **without it they
+are not established**: the client's `vp cache` surface is read to confirm that
+it still has no export and no import, and the replay in the transport's own
+pull request is what exercises the client against the transport. When the client
+is not installed, those checks are **skipped visibly** - the run reports a
+skip - and this receipt makes no claim for them. The rest of the qualification
+is synthetic and holds either way.
+
 New files, all of them new and all of them offline:
 
 | File                                                             | What it is                                                                                 |
@@ -110,11 +118,27 @@ New files, all of them new and all of them offline:
 
 The **transfer identity** of an envelope is the digest of its canonical bytes
 with the recorded creation time blanked. It depends only on the entry bytes and
-the trust domain, so it is the same on every machine of that domain. It is what
-shows that the envelope encoding carries nothing of the machine that wrote it:
-no path, no locale, and no clock beyond the creation time the envelope records.
-Two envelopes of the same entry written by two different checkouts differ in
-exactly one byte range - the creation time - and have the same identity.
+the trust domain, so it is the same on every machine of that domain. Two
+envelopes of the same entry written by two different checkouts differ in exactly
+one byte range - the creation time - and have the same identity.
+
+What that establishes is narrow, and it is worth being exact about it: **the
+envelope encoding is deterministic**. The transport's own envelope carries no
+path, no locale and no clock beyond the creation time it records.
+
+It does **not** establish that the client's opaque key and value bytes are free
+of checkout-sensitive content. Those bytes come from the client, they are
+opaque here, and the qualification compares them rather than interpreting them.
+A client that embedded a checkout path in its key or value would still produce
+the same identity on two machines, because the path is inside the bytes the
+identity digests. Whether the client does that is the client's business, and
+this qualification makes no claim about it.
+
+The identity is also derived from the **validated stored envelope**, never from
+the expected input: the qualification reads the envelope back out of the store
+and validates it under the domain that wrote it. An entry in the store that
+carries the same key, task fingerprint key and archive but another value is
+reported as a different entry, with the identity of what is stored.
 
 ### 4.2 The compatibility boundaries
 
@@ -133,7 +157,11 @@ envelope handed  -> "the envelope was written by another client or toolchain"
 ### 4.3 Integrity, path and size across the transfer
 
 - an archive that holds every byte value arrives whole, and so does one that
-  holds a multipart boundary as plain bytes, and so does a half-megabyte one;
+  holds a multipart boundary as plain bytes, and so does a half-megabyte one.
+  These are **direct storage tests**: they put the bytes in a store and take
+  them out again, and they do **not** exercise the multipart parsing. The
+  multipart grammar is qualified by the transport's own suite (the pull request
+  that carries the contract), not here;
 - an archive that was changed under the transport is refused by its digest on
   the target (`the stored envelope failed its integrity checks`);
 - an envelope of an unknown version is refused (`the stored envelope was
@@ -143,8 +171,12 @@ refused`);
 - the object keys of a transferred entry carry the shared domain's digests and
   no path of either machine.
 
-### 4.4 Atomic staging and the safe fallback across the transfer
+### 4.4 The final read, the atomic staging and the safe fallback across the transfer
 
+- the final read of the stored envelope is bounded by the bytes it may hold and
+  by the deadline that is left, and it carries the caller's signal: a store that
+  rejects the read or never answers ends the read with a refusal instead of
+  ending the qualification with an exception or a hang;
 - a transfer that fails in the middle publishes nothing and leaves no staging
   object behind;
 - a store that never answers ends the transfer with a timeout fallback rather
@@ -160,15 +192,15 @@ it is turned on explicitly, and no workflow, script or task calls it.
 
 ## 5. What was run
 
-| Command                                                                                                                      | Result                                                                                                                          |
-| ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `bun test scripts/vp-r2-cache*.test.ts`                                                                                      | **106 pass, 0 fail**, 417 assertions (the transport, the codec, the pinned-client replay and this qualification)                |
-| `bun run format:check` (whole repository, pinned `oxfmt`)                                                                    | all matched files use the correct format                                                                                        |
-| `bun run lint` (pinned `vp run orch:lint` and `oxlint --deny-warnings`, the repository's own configuration, no rule removed) | 0 warnings, 0 errors                                                                                                            |
-| `bun run typecheck` (pinned `vp run orch:typecheck`)                                                                         | 33/33 tasks successful, "No type errors in 318 files"                                                                           |
-| `vp run orch:test` (the repository's unit task lane)                                                                         | **1734 tests across 135 files, 0 fail**, 32/32 tasks successful - the same numbers as the qualification base and as `f9d5b1577` |
-| `bun test scripts/vp-r2-cache*.test.ts --coverage`                                                                           | aggregate above the 80% goal; `scripts/vp-r2-cache-transfer.mjs` and `scripts/vp-r2-cache-transfer-fixtures.mjs` at 100%/100%   |
-| `bun run test:coverage`                                                                                                      | **crashes** in this environment, at the base commit and at the qualification base as well - see below                           |
+| Command                                                                                                                      | Result                                                                                                                                          |
+| ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun test scripts/vp-r2-cache*.test.ts`                                                                                      | **110 pass, 0 fail**, 427 assertions (the transport, the codec, the pinned-client replay and this qualification)                                |
+| `bun run format:check` (whole repository, pinned `oxfmt`)                                                                    | all matched files use the correct format                                                                                                        |
+| `bun run lint` (pinned `vp run orch:lint` and `oxlint --deny-warnings`, the repository's own configuration, no rule removed) | 0 warnings, 0 errors                                                                                                                            |
+| `bun run typecheck` (pinned `vp run orch:typecheck`)                                                                         | 33/33 tasks successful, "No type errors in 318 files"                                                                                           |
+| `vp run orch:test` (the repository's unit task lane)                                                                         | **1734 tests across 135 files, 0 fail**, 32/32 tasks successful - the same numbers as the qualification base and as `f9d5b1577`                 |
+| `bun test scripts/vp-r2-cache*.test.ts --coverage`                                                                           | aggregate above the 80% goal; `scripts/vp-r2-cache-transfer.mjs` at 95.45%/100.00% and `scripts/vp-r2-cache-transfer-fixtures.mjs` at 100%/100% |
+| `bun run test:coverage`                                                                                                      | **crashes** in this environment, at the base commit and at the qualification base as well - see below                                           |
 
 ### The coverage lane crashes here, before and after this change
 
