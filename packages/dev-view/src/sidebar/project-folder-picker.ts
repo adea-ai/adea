@@ -50,7 +50,16 @@ export function createProjectFolderPicker(
   const choose = async (): Promise<void> => {
     // A repeated request while a pick is in flight never reaches the host.
     if (picking()) return
-    const request = options.pickFolder?.()
+    // The host can fail in two ways: it can throw synchronously (a shell that
+    // cannot answer at all) or it can return a promise that rejects (a shell
+    // that answers with a failure). Both are a failed pick: the request never
+    // rejects, and the typed path stays untouched.
+    let request: Promise<string | null | undefined> | undefined
+    try {
+      request = options.pickFolder?.()
+    } catch {
+      return
+    }
     if (!request) return
     setPicking(true)
     const picked = await request.catch(() => undefined)

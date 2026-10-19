@@ -86,6 +86,26 @@ describe('the composed project folder picker', () => {
     })
   })
 
+  test('a host that throws synchronously is a failed pick, not a rejection', async () => {
+    await createRoot(async (dispose) => {
+      const picker = createProjectFolderPicker({
+        pickFolder: () => {
+          throw new Error('the shell bridge is unavailable')
+        },
+      })
+      try {
+        picker.setPath('/Users/me/typed/project')
+        // The request never rejects: a host that throws synchronously is the
+        // same failed pick as a host that rejects.
+        await picker.choose()
+        expect(picker.path()).toBe('/Users/me/typed/project')
+        expect(picker.picking()).toBe(false)
+      } finally {
+        dispose()
+      }
+    })
+  })
+
   test('a host without a picker changes nothing', async () => {
     await createRoot(async (dispose) => {
       const picker = createProjectFolderPicker({})
