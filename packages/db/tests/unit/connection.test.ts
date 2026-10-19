@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test'
+import { eq, sql } from 'drizzle-orm'
 import { npmVersion as drizzleVersion } from 'drizzle-orm/version'
 import { drizzle } from 'drizzle-orm/postgres-js'
-import postgres from 'postgres'
+import postgres, { type Sql } from 'postgres'
 
-import { createDatabase } from '../../src/connection'
+import { createDatabase, databaseConnectionOptions } from '../../src/connection'
 import * as schema from '../../src/schema'
 import { workspaces } from '../../src/schema'
 
@@ -129,6 +130,222 @@ describe('createDatabase construction', () => {
     } finally {
       await first.close()
       await second.close()
+    }
+  })
+
+  test('configures no database-level query cache for auth, session or permission reads', async () => {
+    const { db, close } = createDatabase(URL_FOR_CONSTRUCTION)
+    try {
+      // drizzle reads `$cache` for its cache strategy; a configured cache would
+      // be an object here. The session is handed no cache either, so its own
+      // cache stays drizzle's NoopCache rather than a store.
+      expect((db as unknown as { $cache: unknown }).$cache).toBeUndefined()
+      const session = (db as unknown as { session: { options: unknown } }).session
+      expect(session.options).toEqual({ logger: undefined, cache: undefined })
+    } finally {
+      await close()
+    }
+  })
+})
+
+describe('databaseConnectionOptions', () => {
+  const LOCAL = 'postgresql://app:secret@127.0.0.1:55432/agent_hq?sslmode=disable'
+  const DIRECT_HOSTED = 'postgresql://app:secret@db.example.com:5432/agent_hq?sslmode=require'
+  const NEON_POOLED =
+    'postgresql://app:secret@ep-cool-1234-pooler.us-east-2.aws.neon.tech/agent_hq?sslmode=require'
+
+  test('prepares statements for a direct connection and bounds the pool', () => {
+    expect(databaseConnectionOptions(DIRECT_HOSTED)).toEqual({
+      max: 10,
+      connect_timeout: 10,
+      idle_timeout: 20,
+      prepare: true,
+    })
+  })
+
+  test('keeps the previous ceilings for local development', () => {
+    expect(databaseConnectionOptions(LOCAL)).toMatchObject({ max: 10, prepare: true })
+  })
+
+  test('leaves statements unprepared only for a Neon transaction-pooled endpoint', () => {
+    expect(databaseConnectionOptions(NEON_POOLED)).toMatchObject({ prepare: false })
+    // A Hyperdrive connection string is not a Neon pooler and prepares statements even though it
+    // has no explicit sslmode.
+    expect(
+      databaseConnectionOptions(
+        'postgresql://app:secret@db.hyperdrive.cloudflare.com:5432/agent_hq'
+      )
+    ).toMatchObject({ prepare: true })
+  })
+
+  test('caps a Cloudflare Worker client at five edge connections', () => {
+    const original = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+    try {
+      Object.defineProperty(globalThis, 'navigator', {
+        value: { userAgent: 'Cloudflare-Workers' },
+        configurable: true,
+        writable: true,
+      })
+      expect(databaseConnectionOptions(DIRECT_HOSTED)).toMatchObject({ max: 5, prepare: true })
+    } finally {
+      if (original) Object.defineProperty(globalThis, 'navigator', original)
+    }
+  })
+
+  test('honors explicit overrides for tests, fixtures and migration roles', () => {
+    expect(
+      databaseConnectionOptions(NEON_POOLED, {
+        maxConnections: 1,
+        preparedStatements: true,
+        connectTimeoutSeconds: 3,
+        idleTimeoutSeconds: 5,
+      })
+    ).toEqual({ max: 1, connect_timeout: 3, idle_timeout: 5, prepare: true })
+  })
+})
+
+// A second real client standing in for the connection scope `begin()` and `savepoint()` hand
+// to their callbacks. A real scope needs a server; what matters here is that statements run on
+// the scope's own `unsafe`, not the outer client's.
+function stubScopes(client: Sql, scope: Sql) {
+  const enter = (callback: (sql: Sql) => unknown) => callback(scope)
+  ;(client as { begin: unknown }).begin = enter
+  ;(scope as { savepoint: unknown }).savepoint = enter
+}
+
+// The driver option is not enough: drizzle's postgres-js session runs every statement through
+// `client.unsafe(sql, params)`, and Postgres.js builds those queries unprepared by default. These
+// tests wrap `unsafe()` on real Postgres.js clients, build the real Query objects, and record
+// whether Postgres.js would send each as a prepared statement (it prepares only when the client
+// option and the query option agree). The wrapped call answers with a stub, so nothing connects.
+describe('prepared statements on the drizzle path', () => {
+  const HOSTED = 'postgresql://app:secret@db.example.com:5432/agent_hq?sslmode=require'
+  const NEON_POOLED =
+    'postgresql://app:secret@ep-cool-1234-pooler.us-east-2.aws.neon.tech/agent_hq?sslmode=require'
+
+  type Statement = { sql: string; prepared: boolean }
+
+  // Postgres.js: `options.prepare && ('prepare' in q.options ? q.options.prepare : true)`.
+  function record(client: Sql, into: Statement[]) {
+    const unsafe = client.unsafe.bind(client)
+    ;(client as { unsafe: unknown }).unsafe = (...args: Parameters<Sql['unsafe']>) => {
+      const query = unsafe(...args) as unknown as { options: { prepare?: boolean } }
+      const clientPrepare = (client.options as { prepare: boolean }).prepare
+      into.push({
+        sql: String(args[0]),
+        prepared: clientPrepare && ('prepare' in query.options ? !!query.options.prepare : true),
+      })
+      // The Query is dropped unawaited: Postgres.js queries are lazy and never ran.
+      return Object.assign(Promise.resolve([]), { values: () => Promise.resolve([]) })
+    }
+  }
+
+  function build(url = HOSTED) {
+    const outer: Statement[] = []
+    const scoped: Statement[] = []
+    const { client, db } = createDatabase(url)
+    const scope = postgres(url, databaseConnectionOptions(url))
+    record(client, outer)
+    record(scope, scoped)
+    stubScopes(client, scope)
+    const close = async () => {
+      await client.end({ timeout: 0 })
+      await scope.end({ timeout: 0 })
+    }
+    return { db, outer, scoped, close }
+  }
+
+  test('the driver is created with prepare: true for a Hyperdrive or direct host', async () => {
+    const { client, close } = createDatabase(HOSTED)
+    try {
+      expect((client.options as { prepare: boolean }).prepare).toBe(true)
+    } finally {
+      await close()
+    }
+  })
+
+  test('raw, builder and relational queries are prepared', async () => {
+    const { db, outer, close } = build()
+    try {
+      await db.execute(sql`select ${1}::int`)
+      await db.select().from(workspaces).where(eq(workspaces.id, 'w1'))
+      await db.query.workspaces.findFirst({ where: eq(workspaces.id, 'w1') })
+      expect(outer.length).toBe(3)
+      for (const statement of outer) expect(statement.prepared).toBe(true)
+    } finally {
+      await close()
+    }
+  })
+
+  test('a named drizzle .prepare() statement is prepared', async () => {
+    const { db, outer, close } = build()
+    try {
+      const statement = db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, sql.placeholder('id')))
+        .prepare('workspace_by_id')
+      await statement.execute({ id: 'w1' })
+      expect(outer.map((entry) => entry.prepared)).toEqual([true])
+    } finally {
+      await close()
+    }
+  })
+
+  test('statements in a transaction and a nested savepoint are prepared on the scoped client', async () => {
+    const { db, outer, scoped, close } = build()
+    try {
+      await db.transaction(async (tx) => {
+        await tx.select().from(workspaces).where(eq(workspaces.id, 'w1'))
+        await tx.execute(sql`select 1`)
+        await tx.transaction(async (nested) => {
+          await nested.execute(sql`select 2`)
+        })
+      })
+      expect(outer).toEqual([])
+      expect(scoped.length).toBe(3)
+      for (const statement of scoped) expect(statement.prepared).toBe(true)
+    } finally {
+      await close()
+    }
+  })
+
+  test('a Neon pooler stays unprepared on every path', async () => {
+    const { db, outer, scoped, close } = build(NEON_POOLED)
+    try {
+      await db.execute(sql`select 1`)
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`select 2`)
+      })
+      expect([...outer, ...scoped].map((entry) => entry.prepared)).toEqual([false, false])
+    } finally {
+      await close()
+    }
+  })
+
+  test('control: stock drizzle over a prepare: true client still sends unprepared statements', async () => {
+    // This is the defect the wrapper fixes. If it stops reproducing, drizzle changed `unsafe()`
+    // and the wrapper should be re-read against it.
+    const client = postgres(HOSTED, { prepare: true })
+    const recorded: Statement[] = []
+    record(client, recorded)
+    try {
+      await drizzle(client, { schema }).execute(sql`select 1`)
+      expect(recorded.map((entry) => entry.prepared)).toEqual([false])
+    } finally {
+      await client.end({ timeout: 0 })
+    }
+  })
+
+  test('the wrapper leaves the client and its cache posture alone', async () => {
+    const { client, db, close } = createDatabase(HOSTED)
+    try {
+      expect((db as unknown as { $client: unknown }).$client).toBe(client)
+      expect((db as unknown as { $cache: unknown }).$cache).toBeUndefined()
+      const session = (db as unknown as { session: { options: unknown } }).session
+      expect(session.options).toEqual({ logger: undefined, cache: undefined })
+    } finally {
+      await close()
     }
   })
 })
