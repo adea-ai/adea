@@ -6,7 +6,7 @@
 // is involved, and none of it happens as a side effect of ordinary test
 // discovery.
 import { describe, expect, test } from 'bun:test'
-import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -584,6 +584,132 @@ describe('a probe that skipped a required check never reports a pass', () => {
     for (const [account, value] of Object.entries(stale)) {
       expect(fake.values.get(account)).toBe(value)
     }
+  })
+})
+
+describe('filesystem setup and cleanup are fixed outcomes too', () => {
+  test('a temporary directory that cannot be created is a fixed, path-free outcome', () => {
+    const secret = '/private/adea-secret-temporary-directory'
+    const fake = createFakePort()
+    const factory = createFactory(fake.port)
+
+    let verdict: ReturnType<typeof runNativeAuthProbe> | undefined
+    expect(() => {
+      verdict = runNativeAuthProbe({
+        createDataDir: () => {
+          throw new Error(`mkdir failed at ${secret}`)
+        },
+        createPort: factory.createPort,
+        optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
+        service: VALID_SERVICE,
+      })
+    }).not.toThrow()
+
+    // A fixed code, and never the raw filesystem error.
+    expect(verdict?.code).toBe('failed_data_directory')
+    const serialized = JSON.stringify(verdict)
+    expect(serialized).not.toContain(secret)
+    expect(serialized).not.toContain('mkdir failed')
+    expect(serialized).not.toContain('Error')
+    expect(Object.keys(verdict ?? {}).toSorted()).toEqual(VERDICT_KEYS)
+    // Nothing was reached: the probe never got as far as a port.
+    expect(factory.services).toEqual([])
+    expect(fake.calls).toEqual([])
+  })
+
+  test('a temporary directory that cannot be removed is a fixed, path-free outcome', () => {
+    const secret = '/private/adea-secret-temporary-directory'
+    const created: string[] = []
+    const fake = createFakePort()
+    const factory = createFactory(fake.port)
+
+    let verdict: ReturnType<typeof runNativeAuthProbe> | undefined
+    expect(() => {
+      verdict = runNativeAuthProbe({
+        createDataDir: () => {
+          const path = mkdtempSync(join(tmpdir(), 'adea-native-auth-probe-rm-'))
+          created.push(path)
+          return path
+        },
+        createPort: factory.createPort,
+        optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
+        removeDataDir: () => {
+          throw new Error(`rm failed at ${secret}`)
+        },
+        service: VALID_SERVICE,
+      })
+    }).not.toThrow()
+
+    try {
+      // The removal failed, so the probe reports a cleanup failure rather
+      // than the pass it had earned.
+      expect(verdict?.code).toBe('failed_cleanup')
+      const serialized = JSON.stringify(verdict)
+      expect(serialized).not.toContain(secret)
+      expect(serialized).not.toContain('rm failed')
+      expect(serialized).not.toContain('Error')
+      expect(Object.keys(verdict ?? {}).toSorted()).toEqual(VERDICT_KEYS)
+      // The probe itself ran: the store was exercised and cleaned.
+      expect(factory.services).toEqual([VALID_SERVICE])
+      expect(verdict?.created).toBe(4)
+      expect(verdict?.cleaned).toBe(4)
+    } finally {
+      for (const path of created) rmSync(path, { force: true, recursive: true })
+    }
+  })
+
+  test('a state directory that cannot be prepared is a fixed, path-free outcome', () => {
+    const secret = '/private/adea-secret-state-directory'
+    const fake = createFakePort()
+    const factory = createFactory(fake.port)
+
+    let verdict: ReturnType<typeof runNativeAuthProbe> | undefined
+    expect(() => {
+      verdict = runNativeAuthProbe({
+        createDataDir: () => {
+          throw new Error(`mkdir failed at ${secret}`)
+        },
+        createPort: factory.createPort,
+        optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
+        service: VALID_SERVICE,
+      })
+    }).not.toThrow()
+
+    expect(verdict?.code).toBe('failed_data_directory')
+    expect(JSON.stringify(verdict)).not.toContain(secret)
+  })
+
+  test('a cleanup failure never escapes over the fixed verdict', () => {
+    // The verdict is the probe's contract. Whatever the cleanup does, the
+    // caller receives a fixed code — never an exception.
+    const createdPaths: string[] = []
+    const results: string[] = []
+    for (const remove of [
+      () => {
+        throw new Error('rm refused')
+      },
+      () => {
+        throw new Error('rm refused at /private/adea-secret')
+      },
+    ]) {
+      let verdict: ReturnType<typeof runNativeAuthProbe> | undefined
+      expect(() => {
+        verdict = runNativeAuthProbe({
+          createDataDir: () => {
+            const path = mkdtempSync(join(tmpdir(), 'adea-native-auth-probe-rm-'))
+            createdPaths.push(path)
+            return path
+          },
+          createPort: createFactory(createFakePort().port).createPort,
+          optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
+          removeDataDir: remove,
+          service: VALID_SERVICE,
+        })
+      }).not.toThrow()
+      results.push(verdict?.code ?? 'threw')
+    }
+    expect(results).toEqual(['failed_cleanup', 'failed_cleanup'])
+    for (const path of createdPaths) rmSync(path, { force: true, recursive: true })
   })
 })
 

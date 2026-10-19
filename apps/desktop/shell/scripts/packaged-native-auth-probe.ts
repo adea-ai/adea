@@ -51,6 +51,12 @@
 //      written and never deleted — and because that required check did not
 //      run, the probe reports an explicit incomplete outcome rather than a
 //      pass. A probe that skipped every slot has proved nothing.
+//   8. FILESYSTEM SETUP AND CLEANUP ARE FIXED OUTCOMES. Creating the
+//      probe's own temporary directory, preparing the store's state
+//      directory, and removing the temporary directory are all guarded: each
+//      failure is a fixed code, never a raw filesystem error, and a removal
+//      failure never escapes over the fixed verdict. A filesystem error can
+//      carry a path, and the verdict may not carry one.
 //
 // The store it exercises is the production desktop-auth store
 // (`../src/desktop-auth-store`), and the port contract is that store's own
@@ -99,6 +105,7 @@ export type NativeAuthProbeCode =
   | 'refused_no_service'
   | 'refused_service_not_disposable'
   | 'incomplete_foreign_slots'
+  | 'failed_data_directory'
   | 'failed_sentinel_write'
   | 'failed_sentinel_read'
   | 'failed_store_write'
@@ -220,6 +227,10 @@ export function runNativeAuthProbe(options: {
   createPort: (service: string) => DesktopAuthKeychainPort
   /** The probe's own data directory; one is created and removed when absent. */
   dataDir?: string
+  /** Injection seam for creating the probe's own temporary directory. */
+  createDataDir?: () => string
+  /** Injection seam for removing the probe's own temporary directory. */
+  removeDataDir?: (path: string) => void
 }): NativeAuthProbeVerdict {
   const plan = resolveNativeAuthProbePlan({ optIn: options.optIn, service: options.service })
   if (!plan.ok) return verdict(plan.code)
@@ -230,8 +241,12 @@ export function runNativeAuthProbe(options: {
   const marker = `native-auth-probe-${token}`
   const sentinelAccount = `native-auth-probe-${token}`
   const ownDataDir = options.dataDir === undefined
-  const dataDir = options.dataDir ?? mkdtempSync(join(tmpdir(), 'adea-native-auth-probe-'))
+  const createDataDir =
+    options.createDataDir ?? (() => mkdtempSync(join(tmpdir(), 'adea-native-auth-probe-')))
+  const removeDataDir =
+    options.removeDataDir ?? ((path: string) => rmSync(path, { force: true, recursive: true }))
 
+  let dataDir = options.dataDir
   let port: DesktopAuthKeychainPort | undefined
   let code: NativeAuthProbeCode = 'failed_probe'
 
@@ -285,8 +300,14 @@ export function runNativeAuthProbe(options: {
     return clean
   }
 
-  function attempt(service: string): NativeAuthProbeCode {
-    mkdirSync(join(dataDir, 'desktop-state'), { recursive: true, mode: 0o700 })
+  function attempt(directory: string, service: string): NativeAuthProbeCode {
+    // The store's state directory is part of the probe's filesystem setup,
+    // and a setup failure is a fixed outcome, never a raw filesystem error.
+    try {
+      mkdirSync(join(directory, 'desktop-state'), { recursive: true, mode: 0o700 })
+    } catch {
+      return 'failed_data_directory'
+    }
     port = options.createPort(service)
 
     // 1. The port itself round-trips, independent of the store's encoding.
@@ -309,7 +330,7 @@ export function runNativeAuthProbe(options: {
 
     // 2. The production desktop-auth store's own three entries, over the
     //    same port, with synthetic values carrying this run's marker.
-    const store = createDesktopAuthStore({ dataDir, port })
+    const store = createDesktopAuthStore({ dataDir: directory, port })
     const attemptValue = {
       codeChallenge: token + token,
       codeVerifier: token + token,
@@ -395,7 +416,17 @@ export function runNativeAuthProbe(options: {
   }
 
   try {
-    code = attempt(plan.service)
+    if (dataDir === undefined) {
+      // The probe's own temporary directory. Creating it is filesystem setup,
+      // and a failure must be a FIXED outcome: the raw error would carry a
+      // path, and the verdict may not carry one.
+      try {
+        dataDir = createDataDir()
+      } catch {
+        return verdict('failed_data_directory', state)
+      }
+    }
+    code = attempt(dataDir, plan.service)
   } catch {
     // The catch-all. The error itself is deliberately dropped: the verdict
     // may not carry a store message, a path, or a value.
@@ -406,7 +437,15 @@ export function runNativeAuthProbe(options: {
     // reported even when something else already failed, because a leftover
     // entry in a credential store is the more serious condition.
     if (port && !cleanup()) code = 'failed_cleanup'
-    if (ownDataDir) rmSync(dataDir, { recursive: true, force: true })
+    if (ownDataDir && dataDir !== undefined) {
+      // Removing the probe's own directory is guarded too: a removal failure
+      // must not escape as a raw, path-bearing error over the fixed verdict.
+      try {
+        removeDataDir(dataDir)
+      } catch {
+        code = 'failed_cleanup'
+      }
+    }
   }
 
   return verdict(code, state)
