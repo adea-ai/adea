@@ -57,40 +57,60 @@ outputs after restore).
 
 ## Local shared cache
 
-`bun run build` runs `node scripts/vp-local-run.mjs orch:build` instead of `vp run orch:build`. The wrapper sets
-`VITE_CACHE_PATH` to a directory outside every checkout, so a second worktree of the same repository at the same commit
-replays what the first one built:
+`bun run build` runs `node scripts/vp-local-run.mjs orch:build` instead of `vp run orch:build`. The wrapper picks the
+directory `VITE_CACHE_PATH` names from the state of the run, outside every checkout:
 
 ```text
-$ADEA_VP_CACHE_HOME (or $XDG_CACHE_HOME/adea-vp, or ~/.cache/adea-vp)
-  <sha256 of the git common directory>/        one per repository; worktrees share it, other repositories do not
-    <sha256 of the environment key>/           one per environment; Vite Task keeps one entry per task in each
+$ADEA_VP_CACHE_HOME (or $XDG_CACHE_HOME/adea-vp, or ~/.cache/adea-vp; absolute paths only)
+  <sha256 of the git common directory>/             one per repository; worktrees share it, other repositories do not
+    head-<commit>/<environment key>/                clean checkout: every clean worktree at that commit
+    checkout-<sha256 of the checkout path>/<key>/   local changes, untracked files or no commit: that checkout only
 ```
 
 The environment key covers the Vite+ version, the Node version, platform and architecture, the bytes of `bun.lock` and
 `vite.config.ts`, and the variables named `NODE_ENV`, `NODE_OPTIONS`, `BUN_*`, `VITE_*`, `ORCH_*` and `NPM_CONFIG_*`.
 Changing any of them selects another directory, so the run starts cold and leaves the other state's entries alone; going
 back to the first state replays its entries (A, B, A hits). Vite Task still fingerprints the files, declared variables and
-`ORCH_TOOLCHAIN` of each task, so the directory only decides which entries are visible. Concurrent runs that resolve to one
-directory take `<directory>.lock`; a lock whose owner has exited is reclaimed.
+`ORCH_TOOLCHAIN` of each task, so the directory only decides which entries are visible. Each directory is created only
+after its components pass `ensurePrivateDirectory`: none may be a symbolic link, each must belong to the current user and
+none may be writable by others. A directory that fails these checks is not used.
 
-In CI (`CI` set) the wrapper omits `--cache`, so the hosted lanes run the same `vp run` as before. A `VITE_CACHE_PATH`
-already set in the environment is used as given. Run the wrapper with `-- <vp run args>` for other tasks.
+Runs that share a directory take `<directory>.lock`, published atomically. A lock whose owner has exited is reclaimed
+under `<directory>.lock.reclaim`: the reclaimer removes the lock only while it still holds the exact bytes it read and their
+owner is gone, so a successor's live lock is never unlinked. The owner releases only a lock that still holds its own bytes.
+
+Bypass, with no environment change, no directory, no lock and no `--cache`: `CI` is set (the hosted lanes run the same
+`vp run` as before), `VITE_CACHE_PATH` is already in the environment, or the cache home is not absolute or its directory
+fails the checks. Run the wrapper with `-- <vp run args>` for other tasks.
 
 Known limits, observed on this graph:
 
-- The `apps/web build` task fingerprints the contents of the repository root. Adding or removing any file at the root
-  (a scratch log, for example) turned its warm replay into a miss; the other fourteen tasks still hit. Keep scratch files
-  outside the checkout.
+- Built outputs can embed the absolute path of the checkout that built them. Two files in `apps/web/dist` do:
+  `server/wrangler.json` and the TanStack Start manifest. A replay in another worktree at the same commit restores those bytes,
+  so they name the worktree that built the cold run; a fresh build in the replaying worktree writes its own path and so
+  differs. Replays are byte-identical to the cold run that filled the directory, not to a fresh build elsewhere.
+- One entry per task per directory. Worktrees that differ in ignored, generated files that a task reads overwrite each
+  other's entries: the `apps/web build` entry is rebuilt when `apps/web/test/fixtures/source-contracts/.runtime` (written
+  by the test suite) is present in one worktree and absent in another.
+- The `apps/web build` task fingerprints the repository root listing. Adding or removing a root file turned its replay into
+  a miss. Keep scratch files outside the checkout.
 - A run stopped with Ctrl-C stops `vp` after the tasks it has started; the wrapper then exits 130 and releases its lock.
   The entries written before the stop stay valid, and the next run fills in the rest.
+- In bypass mode `vp` uses its own default cache under `node_modules`, as it did before this wrapper.
 
-Pilot receipts (local, commit `242ff55` on `feat/vp-local-shared-cache`, base `3b9b108`): the cold run in one worktree
-reported 0/15 hits and dist sha256 `f970153f39bc845f03d78aa6511ea4a89b02c6ffd18d108175698cfec19c71e4` over 1891 files. After
-deleting every workspace `dist`, the replay in that worktree reported 15/15 and the same sha256. A second worktree at the same
-commit reported 15/15 on its first run with the same sha256. A run with `VITE_PILOT_PROBE=1` in the environment started
-at 0/15 in its own directory, and the default key then replayed 15/15. Two worktrees run at the same moment against one
-directory: one ran cold at 0/15, the other waited for the lock and replayed 15/15, both with the same sha256.
+Pilot receipts (local, base `3b9b108`, merged head `ce7d513` with `origin/main` `e7f19fa`):
+
+- Cold run in one worktree: 0/15 hits, dist sha256 `f970153f39bc845f03d78aa6511ea4a89b02c6ffd18d108175698cfec19c71e4`
+  over 1891 files. Replay after deleting every workspace `dist`: 15/15, same sha256.
+- A second worktree at the same commit, first run: 14/15, dist sha256 `cb9b8ff2bb915f694f5c1bc60d8d0f656daddc1d9a2c827955f07ba3737dfaa6`.
+  The miss was `apps/web build`, whose ignored `.runtime` fixture existed in one worktree only; the rebuilt output names
+  the second worktree's path (see the first limit above).
+- Two worktrees at once in a fresh directory (`VITE_PILOT_PROBE=6`): one ran cold at 0/15, the other waited for the lock and
+  ran at 14/15 (same web-build miss).
+- Cancel with SIGINT 8 s into a cold run: `vp` stopped at 13 of 17 tasks, the wrapper exited 130 with no lock left behind,
+  and the next run hit 11/15 and reproduced `f970…`.
+- `CI=1`: `no shared cache (CI is set)`, no cache home created, no `--cache` in the command.
+- `VITE_CACHE_PATH` set: `no shared cache (VITE_CACHE_PATH is already set)`, no wrapper lock created beside it.
 
 ## Receipts
 
