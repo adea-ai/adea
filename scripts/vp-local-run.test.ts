@@ -1025,9 +1025,11 @@ describe('main, runVp and exit codes', () => {
     const root = fixtureCheckout('main-ci')
     const log = join(scratch, 'main-ci.log')
     const cacheHomeDir = join(scratch, 'main-ci-home')
-    await withEnv(
-      { CI: '1', FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
-      () => quietly(() => runCommand(['orch:build', '--', '--filter', 'x'], root))
+    await withLocalCache(() =>
+      withEnv(
+        { CI: '1', FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
+        () => quietly(() => runCommand(['orch:build', '--', '--filter', 'x'], root))
+      )
     )
     expect(calls(log)).toEqual([{ args: ['run', 'orch:build', '--filter', 'x'], cache: null }])
     expect(existsSync(cacheHomeDir)).toBe(false)
@@ -1113,11 +1115,13 @@ describe('main, runVp and exit codes', () => {
   test('runVp returns the exit code of vp when it runs without a process group', async () => {
     const root = fixtureCheckout('runvp-code')
     const log = join(scratch, 'runvp-code.log')
-    const outcome = await runVp({
-      root,
-      env: { ...process.env, FAKE_VP_LOG: log, FAKE_VP_EXIT: '5' },
-      args: ['run', 'x'],
-    })
+    const outcome = await withLocalCache(() =>
+      runVp({
+        root,
+        env: { ...process.env, FAKE_VP_LOG: log, FAKE_VP_EXIT: '5' },
+        args: ['run', 'x'],
+      })
+    )
     expect(outcome).toEqual({ code: 5, signal: null })
     expect(calls(log)).toEqual([{ args: ['run', 'x'], cache: null }])
   })
