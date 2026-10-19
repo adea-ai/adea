@@ -1,14 +1,20 @@
 // The native-auth probe's contract, proved with fake ports only.
 //
 // Nothing here reaches a credential store: the probe takes its port from an
-// injected factory, and these tests inject a recording fake. No `/usr/bin/
-// security`, no Keychain API, no real account, no credential, and no app is
-// involved, and none of it happens as a side effect of ordinary test
+// injected factory, and these tests inject a recording fake. No macOS
+// security CLI, no Keychain API, no real account, no credential, and no app
+// is involved, and none of it happens as a side effect of ordinary test
 // discovery.
 import { describe, expect, test } from 'bun:test'
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+import {
+  encodeDesktopAuthorizationAttempt,
+  encodeDesktopSession,
+  encodeTemporaryWorkspaceCredential,
+} from '@adea-ai/auth/desktop'
 
 import {
   isDisposableProbeService,
@@ -79,31 +85,52 @@ const VALID_SERVICE = `${NATIVE_AUTH_PROBE_SERVICE_PREFIX}0123456789abcdef`
 
 type Call = { op: 'get' | 'set' | 'delete'; account: string }
 
+type FakeConfig = {
+  /** Entries the store already holds before the probe runs. */
+  seed?: Readonly<Record<string, string>>
+  /** Accounts whose write COMMITS and then throws. */
+  commitThenThrow?: readonly string[]
+  /** Accounts whose write stores a different value than the one given. */
+  storeInstead?: Readonly<Record<string, string>>
+  /** A delete that does not remove anything. */
+  deleteIsNoop?: boolean
+  /** One operation that always throws. */
+  failOn?: { op: 'get' | 'set' | 'delete'; account: string }
+}
+
 /** A recording fake port. It is a plain map: no durability, no native path. */
-function createFakePort(seed: Readonly<Record<string, string>> = {}) {
-  const values = new Map<string, string>(Object.entries(seed))
+function createFakePort(config: FakeConfig = {}) {
+  const values = new Map<string, string>(Object.entries(config.seed ?? {}))
   const calls: Call[] = []
   const writes: { account: string; value: string }[] = []
-  const failures = { set: undefined as string | undefined, get: undefined, delete: undefined }
+  const commitThenThrow = new Set(config.commitThenThrow ?? [])
+  const storeInstead = new Map(Object.entries(config.storeInstead ?? {}))
   const port: DesktopAuthKeychainPort = {
     delete: (account) => {
       calls.push({ op: 'delete', account })
-      if (failures.delete === account) throw new Error('fake delete refused')
-      values.delete(account)
+      if (config.failOn?.op === 'delete' && config.failOn.account === account) {
+        throw new Error('fake delete refused')
+      }
+      if (!config.deleteIsNoop) values.delete(account)
     },
     get: (account) => {
       calls.push({ op: 'get', account })
-      if (failures.get === account) throw new Error('fake get refused')
+      if (config.failOn?.op === 'get' && config.failOn.account === account) {
+        throw new Error('fake get refused')
+      }
       return values.get(account)
     },
     set: (account, value) => {
       calls.push({ op: 'set', account })
       writes.push({ account, value })
-      if (failures.set === account) throw new Error('fake set refused')
-      values.set(account, value)
+      if (config.failOn?.op === 'set' && config.failOn.account === account) {
+        throw new Error('fake set refused')
+      }
+      values.set(account, storeInstead.get(account) ?? value)
+      if (commitThenThrow.has(account)) throw new Error('timed out after committing')
     },
   }
-  return { calls, failures, port, values, writes }
+  return { calls, port, values, writes }
 }
 
 /** A factory that records the service it was handed, and how often. */
@@ -115,6 +142,29 @@ function createFactory(port: DesktopAuthKeychainPort) {
       return port
     },
     services,
+  }
+}
+
+/** A valid but DIFFERENT record for each auth slot: stale, not corrupt. */
+function staleRecords(): Record<string, string> {
+  return {
+    [DESKTOP_AUTH_ACCOUNTS.authorizationAttempt]: encodeDesktopAuthorizationAttempt({
+      codeChallenge: 'd'.repeat(43),
+      codeVerifier: 'e'.repeat(43),
+      expiresAt: 1_800_000_000_000,
+      nonce: 'f'.repeat(16),
+      redirectUri: 'adea://auth/callback',
+      state: 'a'.repeat(16),
+      used: false,
+    }),
+    [DESKTOP_AUTH_ACCOUNTS.userSession]: encodeDesktopSession({
+      credential: 'b'.repeat(43),
+      expiresAt: new Date(1_800_000_000_000).toISOString(),
+      sessionId: '22222222-2222-4222-8222-222222222222',
+    }),
+    [DESKTOP_AUTH_ACCOUNTS.temporaryWorkspace]: encodeTemporaryWorkspaceCredential(
+      `adea_tmp_${'c'.repeat(43)}`
+    ),
   }
 }
 
@@ -195,6 +245,7 @@ describe('the native-auth probe refuses any non-disposable service', () => {
   test('only a probe-prefixed service with a long enough token qualifies', () => {
     for (const service of [
       'com.adea.desktop',
+      'com.adeadea.desktop',
       'com.adea.desktop.dev-runtime',
       'com.adea.native-auth-probe',
       `${NATIVE_AUTH_PROBE_SERVICE_PREFIX}short`,
@@ -218,10 +269,6 @@ describe('the native-auth probe verdict is fixed and redacted', () => {
     })
 
     expect(Object.keys(verdict).toSorted()).toEqual(VERDICT_KEYS)
-    for (const value of Object.values(verdict)) {
-      expect(typeof value === 'string' || typeof value === 'number').toBe(true)
-    }
-    // Every field is a number except the fixed code.
     expect(typeof verdict.created).toBe('number')
     expect(typeof verdict.cleaned).toBe('number')
     expect(typeof verdict.skippedNotOwned).toBe('number')
@@ -255,8 +302,9 @@ describe('the native-auth probe verdict is fixed and redacted', () => {
   })
 
   test('a store failure is reported as a fixed code, never as its message', () => {
-    const fake = createFakePort()
-    fake.failures.get = DESKTOP_AUTH_ACCOUNTS.userSession
+    const fake = createFakePort({
+      failOn: { op: 'get', account: DESKTOP_AUTH_ACCOUNTS.userSession },
+    })
     const verdict = runNativeAuthProbe({
       createPort: createFactory(fake.port).createPort,
       optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
@@ -267,7 +315,6 @@ describe('the native-auth probe verdict is fixed and redacted', () => {
     const serialized = JSON.stringify(verdict)
     expect(serialized).not.toContain('fake get refused')
     expect(serialized).not.toContain('Error')
-    // The shape is the same as a successful verdict.
     expect(Object.keys(verdict).toSorted()).toEqual(VERDICT_KEYS)
   })
 
@@ -289,14 +336,17 @@ describe('the native-auth probe verdict is fixed and redacted', () => {
 describe('the native-auth probe cleans up only what it owns', () => {
   test('a foreign entry is neither written nor deleted', () => {
     const foreign = JSON.stringify({ foreign: true, note: 'not the probe’s value' })
-    const fake = createFakePort({ [DESKTOP_AUTH_ACCOUNTS.userSession]: foreign })
+    const fake = createFakePort({
+      seed: { [DESKTOP_AUTH_ACCOUNTS.userSession]: foreign },
+    })
     const verdict = runNativeAuthProbe({
       createPort: createFactory(fake.port).createPort,
       optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
       service: VALID_SERVICE,
     })
 
-    expect(verdict.code).toBe('pass')
+    // The required check did not run, so the probe is NOT complete.
+    expect(verdict.code).toBe('incomplete_foreign_slots')
     expect(verdict.skippedNotOwned).toBe(1)
     // The foreign value survives untouched.
     expect(fake.values.get(DESKTOP_AUTH_ACCOUNTS.userSession)).toBe(foreign)
@@ -305,6 +355,30 @@ describe('the native-auth probe cleans up only what it owns', () => {
       (call) => call.op === 'set' && call.account === DESKTOP_AUTH_ACCOUNTS.userSession
     )
     expect(writes).toEqual([])
+  })
+
+  test('an entry whose value is not the exact expected one is not deleted', () => {
+    // A valid session that carries this run's token in its credential but is
+    // not the record this run wrote: ownership is by EXACT value, not by a
+    // token substring.
+    const stale = staleRecords()
+    const fake = createFakePort({
+      storeInstead: {
+        [DESKTOP_AUTH_ACCOUNTS.userSession]: stale[DESKTOP_AUTH_ACCOUNTS.userSession]!,
+      },
+    })
+    const verdict = runNativeAuthProbe({
+      createPort: createFactory(fake.port).createPort,
+      optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
+      service: VALID_SERVICE,
+    })
+
+    expect(verdict.code).toBe('failed_store_read')
+    // The value is not this run's, so it was not deleted.
+    expect(fake.values.get(DESKTOP_AUTH_ACCOUNTS.userSession)).toBe(
+      stale[DESKTOP_AUTH_ACCOUNTS.userSession]
+    )
+    expect(verdict.skippedNotOwned).toBeGreaterThanOrEqual(1)
   })
 
   test('every entry this run created is deleted again', () => {
@@ -360,49 +434,109 @@ describe('the native-auth probe cleans up only what it owns', () => {
 })
 
 describe('the native-auth probe cleans up after a failure', () => {
-  test('a failed store write still removes what the run had created', () => {
+  test('a sentinel write that commits and then throws is still cleaned up', () => {
     const fake = createFakePort()
-    fake.failures.set = DESKTOP_AUTH_ACCOUNTS.authorizationAttempt
+    const port = fake.port
+    const verdict = runNativeAuthProbe({
+      createPort: (_service) => ({
+        delete: (account) => port.delete(account),
+        get: (account) => port.get(account),
+        set: (account, value) => {
+          // The write COMMITS and then throws: the entry exists, and the
+          // probe must still know it owns it.
+          port.set(account, value)
+          throw new Error('timed out after committing')
+        },
+      }),
+      optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
+      service: VALID_SERVICE,
+    })
+
+    expect(verdict.code).toBe('failed_sentinel_write')
+    expect(verdict.created).toBe(1)
+    expect(verdict.cleaned).toBe(1)
+    expect([...fake.values.keys()]).toEqual([])
+  })
+
+  test('each auth slot that commits and then throws is still cleaned up', () => {
+    const slots = [
+      DESKTOP_AUTH_ACCOUNTS.authorizationAttempt,
+      DESKTOP_AUTH_ACCOUNTS.userSession,
+      DESKTOP_AUTH_ACCOUNTS.temporaryWorkspace,
+    ]
+    for (const [index, account] of slots.entries()) {
+      const fake = createFakePort({ commitThenThrow: [account] })
+      const verdict = runNativeAuthProbe({
+        createPort: createFactory(fake.port).createPort,
+        optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
+        service: VALID_SERVICE,
+      })
+
+      expect(verdict.code).toBe('failed_store_write')
+      // The sentinel, the slots written before it, and the committed slot
+      // itself are all removed.
+      expect(verdict.cleaned).toBe(index + 2)
+      expect([...fake.values.keys()]).toEqual([])
+    }
+  })
+
+  test('a stale but valid record fails the round trip', () => {
+    const stale = staleRecords()
+    for (const account of Object.values(DESKTOP_AUTH_ACCOUNTS)) {
+      const fake = createFakePort({ storeInstead: { [account]: stale[account]! } })
+      const verdict = runNativeAuthProbe({
+        createPort: createFactory(fake.port).createPort,
+        optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
+        service: VALID_SERVICE,
+      })
+
+      // A decoded non-null value is not a proof: the record must equal the
+      // synthetic value this run wrote.
+      expect(verdict.code).toBe('failed_store_read')
+    }
+  })
+
+  test('a deletion that does not remove the entry is a cleanup failure', () => {
+    const fake = createFakePort({ deleteIsNoop: true })
     const verdict = runNativeAuthProbe({
       createPort: createFactory(fake.port).createPort,
       optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
       service: VALID_SERVICE,
     })
 
-    expect(verdict.code).toBe('failed_store_write')
-    // The sentinel was written before the failure and is removed again.
-    expect(verdict.created).toBe(1)
-    expect(verdict.cleaned).toBe(1)
-    expect([...fake.values.keys()]).toEqual([])
+    expect(verdict.code).toBe('failed_cleanup')
+    // Nothing was counted as cleaned, because nothing was actually removed.
+    expect(verdict.cleaned).toBe(0)
+    expect(verdict.created).toBe(4)
   })
 
-  test('a failure during cleanup is reported as a fixed code', () => {
-    const fake = createFakePort()
+  test('a cleanup failure is reported even on another failure path', () => {
+    const fake = createFakePort({ deleteIsNoop: true })
+    const port = fake.port
     const verdict = runNativeAuthProbe({
-      createPort: (_service) => {
-        const port = fake.port
-        return {
-          delete: (account) => {
-            if (account.startsWith('native-auth-probe-')) throw new Error('cleanup refused')
-            port.delete(account)
-          },
-          get: (account) => port.get(account),
-          set: (account, value) => port.set(account, value),
-        }
-      },
+      createPort: (_service) => ({
+        delete: (candidate) => port.delete(candidate),
+        get: (candidate) => port.get(candidate),
+        set: (candidate, value) => {
+          port.set(candidate, value)
+          throw new Error('timed out after committing')
+        },
+      }),
       optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
       service: VALID_SERVICE,
     })
 
+    // The write failed AND the cleanup could not remove what was left.
+    // The leftover is the more serious condition, so it is what is reported.
     expect(verdict.code).toBe('failed_cleanup')
-    expect(JSON.stringify(verdict)).not.toContain('cleanup refused')
   })
 
   test('a failure never reports a pass', () => {
     const codes: NativeAuthProbeCode[] = []
-    for (const failure of ['set', 'get', 'delete'] as const) {
-      const fake = createFakePort()
-      fake.failures[failure] = DESKTOP_AUTH_ACCOUNTS.userSession
+    for (const account of Object.values(DESKTOP_AUTH_ACCOUNTS)) {
+      const fake = createFakePort({
+        failOn: { op: 'get', account },
+      })
       const verdict = runNativeAuthProbe({
         createPort: createFactory(fake.port).createPort,
         optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
@@ -411,6 +545,45 @@ describe('the native-auth probe cleans up after a failure', () => {
       codes.push(verdict.code)
     }
     expect(codes).not.toContain('pass')
+  })
+})
+
+describe('a probe that skipped a required check never reports a pass', () => {
+  test('one foreign auth slot makes the outcome incomplete', () => {
+    const stale = staleRecords()
+    const account = DESKTOP_AUTH_ACCOUNTS.temporaryWorkspace
+    const fake = createFakePort({ seed: { [account]: stale[account]! } })
+    const verdict = runNativeAuthProbe({
+      createPort: createFactory(fake.port).createPort,
+      optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
+      service: VALID_SERVICE,
+    })
+
+    expect(verdict.code).toBe('incomplete_foreign_slots')
+    expect(verdict.skippedNotOwned).toBe(1)
+    // The foreign entry is preserved.
+    expect(fake.values.get(account)).toBe(stale[account])
+  })
+
+  test('foreign entries in every slot still do not report a pass', () => {
+    const stale = staleRecords()
+    const fake = createFakePort({ seed: { ...stale } })
+    const verdict = runNativeAuthProbe({
+      createPort: createFactory(fake.port).createPort,
+      optIn: NATIVE_AUTH_PROBE_OPT_IN_VALUE,
+      service: VALID_SERVICE,
+    })
+
+    // Every required check was skipped, and the probe says so instead of
+    // claiming a pass it never earned.
+    expect(verdict.code).toBe('incomplete_foreign_slots')
+    expect(verdict.skippedNotOwned).toBe(3)
+    expect(verdict.created).toBe(1)
+    expect(verdict.cleaned).toBe(1)
+    // Every foreign entry survives.
+    for (const [account, value] of Object.entries(stale)) {
+      expect(fake.values.get(account)).toBe(value)
+    }
   })
 })
 
