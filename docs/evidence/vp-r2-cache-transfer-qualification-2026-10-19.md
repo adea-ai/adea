@@ -1,9 +1,9 @@
 # Cross-machine and cross-platform transfer qualification for the shared task cache
 
 Repository `adea-ai/adea`. Qualification base
-`42ac235ac90611f200c8b0d50b49da060a596e43`
-(`fix(build): make the publication fence a protocol, not a deletion`), the exact
-head of pull request **#1488** after its review repairs. Qualification branch
+`78cdc1253fc278a7114dfbc6a7f5b986234b55ea`
+(`fix(build): validate a duplicate publication and keep the shared key`), the
+exact head of pull request **#1488** after its review repairs. Qualification branch
 `codex/r2-cross-platform-transfer-qualification-20261019`.
 
 This receipt records what was qualified about a task-cache entry travelling from
@@ -23,7 +23,7 @@ Pull request **#1488** after the repair:
 | ------ | ------------------------------------------- |
 | branch | `codex/r2-task-cache-transport-w4-20261019` |
 | base   | `main`, moved forward by the branch update  |
-| head   | `42ac235ac90611f200c8b0d50b49da060a596e43`  |
+| head   | `78cdc1253fc278a7114dfbc6a7f5b986234b55ea`  |
 | state  | open, draft, auto-merge off                 |
 
 That head carries the supported transport implementation, so it is the
@@ -224,11 +224,25 @@ it is turned on explicitly, and no workflow, script or task calls it.
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | a target lookup can return a valid envelope whose value differs between the source read and the final read, while `replayable` and `valueIdentical` stay true | the report is built from the envelope the **target** read: the byte comparison, `valueIdentical`, `entryIdentical` and the transfer identity all follow that snapshot, and the source's own view is reported beside it | `the final read of the stored envelope > a target envelope that differs from the source read is not replayable`: the store returns the original envelope for the source's read and another **valid** envelope - its digests match its own content - for the target's, and the report says `valueIdentical: false`, `entryIdentical: false`, `replayable: false` and the identity of the envelope the target read |
 
+## 4.3 The repairs of the reviews of `0f0d6f90` and `a3f72fa`
+
+The target-snapshot finding of review `5578722634` is **already repaired** at `a3f72fa9` - the equality and the identity
+follow the envelope the target read - and it is not repeated here. What remained, and is repaired here, is the bounded
+read of the qualification itself:
+
+| #   | The review asked for                                                                                                                                                                             | What was done                                                                                                                              | Where it is proved                                                                                                                                                         |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | an **absolute deadline** and a post-read liveness check, because work that blocks the event loop starves the timer and a read that blocked past the budget could still be reported as replayable | the shared operation measures its deadline on the clock, not on the timer, and a read is only accepted while the budget is left            | `a read that blocks past the budget is not replayable`: the store blocks 25ms per read with a 10ms budget, and the report does not claim replayability or a value identity |
+| 2   | an already aborted signal must be refused **before** the store is asked and rechecked after the read resolves                                                                                    | the read is refused before `store.get` starts and rechecked after it resolves, so an immediately resolved valid buffer cannot slip through | `an already aborted signal refuses a read that resolves at once`                                                                                                           |
+| 3   | a malformed adapter answer must not escape as a `TypeError`                                                                                                                                      | the conversion is inside the guarded path, and an answer that is not a buffer is the fixed refusal                                         | `an adapter that returns something that is not a buffer is refused`                                                                                                        |
+
+Each regression fails against the previous module and passes against this one.
+
 ## 5. What was run
 
 | Command                                                                                                                      | Result                                                                                                                                                                        |
 | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun test scripts/vp-r2-cache*.test.ts`                                                                                      | **121 pass, 0 fail**, 466 assertions (the transport, the codec, the pinned-client replay and this qualification)                                                              |
+| `bun test scripts/vp-r2-cache*.test.ts`                                                                                      | **128 pass, 0 fail**, 489 assertions (the transport, the codec, the pinned-client replay and this qualification)                                                              |
 | `bun run format:check` (whole repository, pinned `oxfmt`)                                                                    | all matched files use the correct format                                                                                                                                      |
 | `bun run lint` (pinned `vp run orch:lint` and `oxlint --deny-warnings`, the repository's own configuration, no rule removed) | 0 warnings, 0 errors                                                                                                                                                          |
 | `bun run typecheck` (pinned `vp run orch:typecheck`)                                                                         | 33/33 tasks successful, "No type errors in 318 files"                                                                                                                         |
@@ -247,7 +261,7 @@ error: script "test:coverage" was terminated by signal SIGABRT (Abort)
 ```
 
 The same command at the base commit `f9d5b1577`, at the qualification bases
-`2498a8b7`, `6686d3b6` and `42ac235a`, and at this qualification head, each in a separate
+`2498a8b7`, `6686d3b6`, `42ac235a` and `78cdc125`, and at this qualification head, each in a separate
 worktree with its own `bun install --frozen-lockfile`, ends the same way at the
 same point: after about 143 seconds, with the same docker registry rate limits
 in front of it (`public.ecr.aws` and `docker.io` answer `toomanyrequests` for the

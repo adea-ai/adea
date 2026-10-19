@@ -122,16 +122,20 @@ function withDeadline(promise, { deadlineMs, signal }) {
  * One operation for a whole qualification: the publication, the lookup, the archive read and the reads of the stored
  * envelope share its deadline and its signal, so the qualification cannot spend a full deadline on each of them.
  */
-function createSharedOperation(deadlineMs) {
+function createSharedOperation(deadlineMs, clock = Date.now) {
   const controller = new AbortController()
+  const started = clock()
   const timer = setTimeout(() => controller.abort(), deadlineMs)
   timer.unref?.()
+  // The deadline is measured on the clock, not on the timer: work that blocks the event loop starves the timer, and
+  // the budget must not grow because of it.
+  const live = () => !controller.signal.aborted && clock() - started < deadlineMs
   const operation = {
     signal: controller.signal,
-    ownership: { id: randomUUID(), live: () => !controller.signal.aborted },
-    expired: () => controller.signal.aborted,
+    ownership: { id: randomUUID(), live },
+    expired: () => !live(),
     assertLive() {
-      if (operation.expired()) throw new TransportRefused(CATEGORY.timeout, 'the deadline passed')
+      if (!live()) throw new TransportRefused(CATEGORY.timeout, 'the deadline passed')
     },
     release() {
       clearTimeout(timer)
@@ -151,19 +155,36 @@ export async function readStoredEnvelope(
   store,
   entryKey,
   domain,
-  { maxBytes = LIMITS.maxEnvelopeBytes, deadlineMs = DEFAULT_DEADLINE_MS, signal } = {}
+  {
+    maxBytes = LIMITS.maxEnvelopeBytes,
+    deadlineMs = DEFAULT_DEADLINE_MS,
+    signal,
+    clock = Date.now,
+  } = {}
 ) {
   if (entryKey === undefined) return { refusedWith: CATEGORY.notFound }
+  // A signal that is already aborted ends the read **before** it starts: the store is not asked at all.
+  if (signal?.aborted) return { refusedWith: CATEGORY.timeout }
+  const started = clock()
   let bytes
   try {
     bytes = await withDeadline(store.get(entryKey, { maxBytes, signal }), { deadlineMs, signal })
   } catch {
     return { refusedWith: CATEGORY.storeRead }
   }
+  // The read is rechecked after it resolves: an immediately resolved buffer must not slip through, and a read that
+  // blocked past the budget must not be accepted because the timer could not fire while the event loop was busy.
+  if (signal?.aborted) return { refusedWith: CATEGORY.timeout }
+  if (clock() - started >= deadlineMs) return { refusedWith: CATEGORY.timeout }
   if (bytes === null || bytes === undefined) return { refusedWith: CATEGORY.notFound }
   // The bytes are measured here, not taken on the store's word: a store that returns more than the bound is refused
-  // before anything is parsed.
-  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes)
+  // before anything is parsed, and an adapter that returns something that is not a buffer is refused as well.
+  let buffer
+  try {
+    buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes)
+  } catch {
+    return { refusedWith: CATEGORY.storeRead }
+  }
   if (buffer.length > maxBytes) return { refusedWith: CATEGORY.tooLarge }
   try {
     return { envelope: parseEnvelope(buffer, { scope: domain.scope }) }

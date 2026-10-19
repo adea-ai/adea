@@ -43,6 +43,14 @@ const profiles = machines()
 // that need it are skipped visibly rather than passing quietly.
 const client = pinnedClient(process.cwd())
 
+/** Blocks the event loop for `ms`, the way a slow synchronous read would. */
+const block = (ms: number) => {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    // the event loop is busy here
+  }
+}
+
 /** An envelope with its recorded creation time blanked, so two machines' envelopes can be compared. */
 const blankTime = (envelope: Record<string, unknown>) => ({ ...envelope, created_at: '' })
 
@@ -467,8 +475,65 @@ describe('the bounded reads of the qualification', () => {
       signal: controller.signal,
     })
     expect(read.envelope).toBeUndefined()
-    expect(read.refusedWith).toBe(CATEGORY.storeRead)
+    expect(read.refusedWith).toBe(CATEGORY.timeout)
     expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  test('an already aborted signal refuses a read that resolves at once', async () => {
+    // The store answers at once with a valid buffer. The signal was already aborted, so the read is refused before
+    // the store is even asked.
+    const inner = createMemoryStore()
+    let asked = 0
+    const store = {
+      ...inner,
+      get: (key: string, options: unknown) => {
+        asked += 1
+        return inner.get(key, options as never)
+      },
+    }
+    const controller = new AbortController()
+    controller.abort()
+    const read = await readStoredEnvelope(store, 'entries/x/entry.json', profiles['darwin-a'], {
+      deadlineMs: 5000,
+      signal: controller.signal,
+    })
+    expect(read.envelope).toBeUndefined()
+    expect(read.refusedWith).toBe(CATEGORY.timeout)
+    expect(asked).toBe(0)
+  })
+
+  test('an adapter that returns something that is not a buffer is refused', async () => {
+    // A malformed answer must not escape as a TypeError.
+    const store = { ...createMemoryStore(), get: () => 42 as unknown as Buffer }
+    const read = await readStoredEnvelope(store, 'entries/x/entry.json', profiles['darwin-a'], {
+      maxBytes: 64,
+    })
+    expect(read.envelope).toBeUndefined()
+    expect(read.refusedWith).toBe(CATEGORY.storeRead)
+  })
+
+  test('a read that blocks past the budget is not replayable', async () => {
+    // The read blocks the event loop, so the timer cannot fire: the budget is measured on the clock, and the report
+    // must not claim that the entry is replayable.
+    const inner = createMemoryStore()
+    const store = {
+      ...inner,
+      get: (key: string, options: unknown) => {
+        block(25)
+        return inner.get(key, options as never)
+      },
+    }
+    const entry = binaryEntry('blocking-read')
+    const result = await qualifyTransfer({
+      store,
+      entry,
+      from: profiles['darwin-a'],
+      to: profiles['darwin-b'],
+      deadlineMs: 10,
+    })
+    expect(result.replayable).toBe(false)
+    // The report may say that there is no target envelope at all, but it must not claim a value identity.
+    expect(result.valueIdentical).not.toBe(true)
   })
 
   test('a store that returns more than the bound is refused before it is parsed', async () => {
