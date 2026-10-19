@@ -1,11 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { rmSync } from 'node:fs'
-import { sql } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
 import type { UserPrincipalRef } from '@adea-ai/types'
 
+import { createAgent } from '../../src/agents'
 import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
 import {
   archiveChannel,
@@ -24,9 +25,13 @@ import {
   revokeGroupGrant,
   shareGroupHistory,
 } from '../../src/group-channels'
-import { loadGroupAdmission } from '../../src/group-participation-store'
+import {
+  archivedGroupReadAllowedForUser,
+  loadGroupAdmission,
+  retainedArchivedGroupParticipants,
+} from '../../src/group-participation-store'
 import { createTemporaryUserSession } from '../../src/identity'
-import { workspaceMemberships } from '../../src/schema'
+import { agents, channelParticipants, workspaceMemberships } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import { applyMigrationTail, canonicalChainFolders } from '../fixtures/canonical-chain'
 import { DRIZZLE_DIR, migrationsFolderBefore } from '../fixtures/cutover-rehearsal'
@@ -283,6 +288,7 @@ describe.skipIf(!provisioned)(
     let fresh: Fixture
     let upgrade: Fixture
     let seed: LegacyAudienceSeed
+    let retainedAgentId: string
     let freshGroup: Awaited<ReturnType<typeof buildFreshGroup>>
     let before: Snapshot
     let after: Snapshot
@@ -307,6 +313,36 @@ describe.skipIf(!provisioned)(
         migration: upgrade.migration.db,
         runtime: upgrade.runtime.db,
       })
+      // Quarantine digests must be computed before these retained principals are read.
+      const activeAgent = await createAgent(upgrade.runtime.db, seed.workspaceId, seed.owner, {
+        name: 'Retained archived roster agent',
+        profileId: 'software-engineer',
+        profileVersion: '1.0.0',
+      })
+      const inactiveAgent = await createAgent(upgrade.runtime.db, seed.workspaceId, seed.owner, {
+        name: 'Inactive archived roster agent',
+        profileId: 'software-engineer',
+        profileVersion: '1.0.0',
+      })
+      retainedAgentId = activeAgent.id
+      await upgrade.migration.db
+        .update(agents)
+        .set({ lifecycleState: 'archived' })
+        .where(eq(agents.id, inactiveAgent.id))
+      await upgrade.migration.db.insert(channelParticipants).values([
+        {
+          workspaceId: seed.workspaceId,
+          channelId: seed.archivedGroupId,
+          principalKind: 'user',
+          userId: seed.removed.userId,
+        },
+        ...[activeAgent.id, inactiveAgent.id, seed.otherWorkspaceAgentId].map((agentId) => ({
+          workspaceId: seed.workspaceId,
+          channelId: seed.archivedGroupId,
+          principalKind: 'agent' as const,
+          agentId,
+        })),
+      ])
       await migrate(upgrade.migration.db, { migrationsFolder: chain.full })
       // Keep this fixture-only rehearsal before the production quarantine migration. The production
       // migration and its current-product gate are exercised in migration-canonical-legacy-product-gate.
@@ -381,6 +417,102 @@ describe.skipIf(!provisioned)(
             ))
         ).toBe(true)
       }
+    })
+
+    test('proven archived roster reads retain only continuous members and active home agents', async () => {
+      const { workspaceId, archivedGroupId, owner, member, removed } = seed
+      const db = upgrade.runtime.db
+      const now = new Date().toISOString()
+      expect(
+        await archivedGroupReadAllowedForUser(db, workspaceId, archivedGroupId, owner.userId, now)
+      ).toBe(true)
+      expect(
+        await archivedGroupReadAllowedForUser(db, workspaceId, archivedGroupId, member.userId, now)
+      ).toBe(true)
+      expect(
+        await archivedGroupReadAllowedForUser(db, workspaceId, archivedGroupId, removed.userId, now)
+      ).toBe(false)
+      expect(
+        await archivedGroupReadAllowedForUser(
+          db,
+          seed.otherWorkspaceId,
+          archivedGroupId,
+          owner.userId,
+          now
+        )
+      ).toBe(false)
+      const participants = await retainedArchivedGroupParticipants(db, workspaceId, archivedGroupId)
+      expect(participants).toHaveLength(3)
+      expect(participants).toEqual(
+        expect.arrayContaining([owner, member, { kind: 'agent', agentId: retainedAgentId }])
+      )
+      expect(
+        await retainedArchivedGroupParticipants(db, seed.otherWorkspaceId, archivedGroupId)
+      ).toEqual([])
+    })
+
+    test('a new roster row without a quarantine digest cannot acquire archived access', async () => {
+      await rolledBack(upgrade.migration.db, async (tx) => {
+        const { principal } = await createTemporaryUserSession(tx, {
+          credentialDigest: `unproven-${crypto.randomUUID()}`,
+          expiresAt: new Date(Date.now() + 600_000),
+        })
+        await tx
+          .insert(workspaceMemberships)
+          .values({ workspaceId: seed.workspaceId, userId: principal.userId, role: 'member' })
+        await tx.insert(channelParticipants).values({
+          workspaceId: seed.workspaceId,
+          channelId: seed.archivedGroupId,
+          userId: principal.userId,
+          principalKind: 'user',
+        })
+        expect(
+          await archivedGroupReadAllowedForUser(
+            tx,
+            seed.workspaceId,
+            seed.archivedGroupId,
+            principal.userId,
+            new Date().toISOString()
+          )
+        ).toBe(false)
+        expect(
+          await retainedArchivedGroupParticipants(tx, seed.workspaceId, seed.archivedGroupId)
+        ).not.toContainEqual(principal)
+      })
+    })
+
+    test('canonical archived admission wins while live and denies access after audience revocation', async () => {
+      await rolledBack(fresh.runtime.db, async (tx) => {
+        const { workspaceId, channelId, owner, member } = freshGroup
+        const channel = await getChannelForUser(tx, workspaceId, channelId, owner)
+        await archiveChannel(tx, workspaceId, channelId, owner, channel.version)
+        expect(
+          await archivedGroupReadAllowedForUser(
+            tx,
+            workspaceId,
+            channelId,
+            member.userId,
+            new Date().toISOString()
+          )
+        ).toBe(true)
+        expect(await retainedArchivedGroupParticipants(tx, workspaceId, channelId)).toEqual([])
+        const admission = await loadGroupAdmission(tx, workspaceId, channelId, member)
+        expect(admission).not.toBeNull()
+        await revokeGroupGrant(tx, workspaceId, channelId, owner, {
+          grantId: admission!.authorization.grantId,
+          kind: 'audience',
+          revokedAt: new Date().toISOString(),
+        })
+        expect(
+          await archivedGroupReadAllowedForUser(
+            tx,
+            workspaceId,
+            channelId,
+            member.userId,
+            new Date().toISOString()
+          )
+        ).toBe(false)
+      })
     })
 
     test('production 0058 never restores a revoked archived audience from its retained roster', async () => {
