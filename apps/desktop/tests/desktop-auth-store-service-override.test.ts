@@ -23,11 +23,20 @@
  */
 import { describe, expect, test } from 'bun:test'
 
+import {
+  isDisposableProbeService,
+  NATIVE_AUTH_PROBE_SERVICE_PREFIX,
+} from '../shell/scripts/packaged-native-auth-probe'
 import { createSystemKeychainPort, DESKTOP_AUTH_SERVICE } from '../shell/src/desktop-auth-store'
 import { KeychainAccessError } from '../shell/src/dev-runtime/vault'
 
-/** A disposable probe service, in the shape the prepared probe requires. */
-const PROBE_SERVICE = 'com.adea.native-auth-probe-0123456789abcdef'
+/**
+ * A disposable probe service, in the shape the prepared probe requires: the
+ * exported dotted prefix followed by a token. The prefix is taken from the
+ * probe itself, so this service can never drift out of the shape that
+ * `isDisposableProbeService` accepts.
+ */
+const PROBE_SERVICE = `${NATIVE_AUTH_PROBE_SERVICE_PREFIX}0123456789abcdef`
 
 /** Records every argument vector the port would have run. */
 function recordingRunner(options: { failWith?: KeychainAccessError } = {}) {
@@ -103,7 +112,21 @@ describe('the system keychain port honours a caller-supplied service', () => {
 
     const service = serviceArgument(seen.at(-1)!)
     expect(service).toBe(PROBE_SERVICE)
-    expect(service?.startsWith('com.adea.native-auth-probe.')).toBe(false)
+    // The service is the exact one, and it is the shape the prepared probe
+    // accepts: the exported dotted prefix plus its token.
+    expect(service).toBe(`${NATIVE_AUTH_PROBE_SERVICE_PREFIX}0123456789abcdef`)
+    expect(service?.startsWith(NATIVE_AUTH_PROBE_SERVICE_PREFIX)).toBe(true)
+    // And it is never a production service.
     expect(service?.startsWith('com.adea.desktop')).toBe(false)
+  })
+
+  test('the service this suite uses is one the prepared probe accepts', () => {
+    // The seam is only probe-compatible if the prepared probe would accept the
+    // service the native runner hands it.
+    expect(isDisposableProbeService(PROBE_SERVICE)).toBe(true)
+    // And the production services the probe refuses stay refused.
+    for (const service of ['com.adea.desktop', 'com.adea.desktop.dev-runtime']) {
+      expect(isDisposableProbeService(service)).toBe(false)
+    }
   })
 })
