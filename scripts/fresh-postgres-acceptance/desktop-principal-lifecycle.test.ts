@@ -20,6 +20,7 @@ import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 
 import { runCleanupSteps } from './acceptance-teardown.mjs'
+import { JOURNEY_RECEIPT_PREFIX } from './acceptance-receipt.mjs'
 import { assertProvisionedLoopback } from './policy.mjs'
 import {
   canonicalUrl,
@@ -188,6 +189,18 @@ describe('the desktop principal lifecycle phase', () => {
       expect(receipt?.desktopSessions).toBe(1)
       expect(receipt?.exchanges).toBe(1)
       expect(receipt?.refused).toEqual({ origin: 1, pkce: 1, replay: 1 })
+
+      // The journey receipt is published only after the teardown was verified,
+      // so the dedicated lane can tell a real run from a result that executed
+      // no journey at all.
+      console.log(
+        `${JOURNEY_RECEIPT_PREFIX}${JSON.stringify({
+          status: 'passed',
+          accounts: receipt!.accounts,
+          mappedUsers: receipt!.mappedUsers,
+          orphanUsers: receipt!.orphanUsers,
+        })}`
+      )
     },
     600_000
   )

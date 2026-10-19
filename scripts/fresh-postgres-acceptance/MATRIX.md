@@ -158,12 +158,17 @@ even when an earlier close fails, the scratch database is dropped and the
 administrative connection is closed last, and the aggregated cleanup failures
 fail the run instead of leaving it green.
 
-The offline regressions run in the ordinary unit lane
-(`scripts/desktop-principal-acceptance-boundary.test.ts`): the focused journey
-must never provision, the dedicated lane must validate and pin its local
-Docker target, a failed cleanup step must be collected while the remaining
-steps still run, and the measured counts must reject a missing account, a
-missing user and an orphan user.
+The offline regressions in the ordinary unit lane
+(`scripts/desktop-principal-acceptance-boundary.test.ts`) cover the
+boundaries: the focused journey must never provision, the dedicated lane must
+validate and pin its local Docker target, and a failed cleanup step must be
+collected while the remaining steps still run. The measured counts are
+rejected by the **nested focused test**
+(`scripts/fresh-postgres-acceptance/desktop-principal-lifecycle.test.ts`), not by
+that boundary test: it refuses a missing account, a missing user and an orphan
+user. The nested focused test also runs the database journey, and the
+dedicated lane requires the journey receipt it prints, so a result that
+executed no journey at all is rejected.
 
 The phase needs the built workspace packages, because the production principal
 resolution imports `@adea-ai/auth` as a package rather than a source path:

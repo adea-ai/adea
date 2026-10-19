@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { access, readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
+import { assertFocusedJourneyPassed } from './acceptance-receipt.mjs'
 import { fixtureEnvironment, memoryEnvironment, resolveLocalDockerEndpoint } from './policy.mjs'
 
 const repositoryFlag = process.argv.indexOf('--repository')
@@ -166,9 +167,10 @@ try {
   if (focused.error || focused.status !== 0) {
     throw new Error('the desktop principal acceptance phase failed; exit=' + focused.status)
   }
-  if (/\b[1-9]\d* skip\b/.test(focusedOutput)) {
-    throw new Error('the desktop principal acceptance phase did not execute its database journey')
-  }
+  // The journey must have executed: nothing skipped, and the receipt it prints
+  // must say it passed. A pass count alone cannot prove that, because the
+  // offline regressions of the focused file always run.
+  assertFocusedJourneyPassed(focusedOutput)
   passedReceipt = {
     status: 'passed',
     migrations: receipt.migrations,

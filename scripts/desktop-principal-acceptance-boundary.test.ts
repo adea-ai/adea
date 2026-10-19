@@ -6,6 +6,11 @@ import {
   runCleanupSteps,
   throwCleanupFailures,
 } from './fresh-postgres-acceptance/acceptance-teardown.mjs'
+import {
+  assertFocusedJourneyPassed,
+  countSkippedTests,
+  parseJourneyReceipt,
+} from './fresh-postgres-acceptance/acceptance-receipt.mjs'
 
 const root = resolve(import.meta.dir, '..')
 const focused = readFileSync(
@@ -15,6 +20,46 @@ const focused = readFileSync(
 const runner = readFileSync(resolve(root, 'scripts/fresh-postgres-acceptance/run.mjs'), 'utf8')
 
 describe('the desktop principal acceptance boundary', () => {
+  test('the focused journey must produce a receipt, so a zero-journey result is rejected', () => {
+    // The offline regressions of the focused file always run, so a pass count
+    // alone cannot prove that the database journey executed. The receipt can.
+    expect(() => assertFocusedJourneyPassed('')).toThrow(/no receipt/)
+    expect(() => assertFocusedJourneyPassed(' 6 pass\n 0 fail\n')).toThrow(/no receipt/)
+    expect(() =>
+      assertFocusedJourneyPassed(' 6 pass\n 0 fail\nDESKTOP_PRINCIPAL_JOURNEY {\n')
+    ).toThrow(/no receipt/)
+    expect(() =>
+      assertFocusedJourneyPassed(
+        ' 6 pass\n 1 skip\nDESKTOP_PRINCIPAL_JOURNEY {"status":"passed"}\n'
+      )
+    ).toThrow(/skipped/)
+    expect(() =>
+      assertFocusedJourneyPassed(
+        ' 6 pass\n 0 fail\nDESKTOP_PRINCIPAL_JOURNEY {"status":"failed"}\n'
+      )
+    ).toThrow(/did not pass/)
+    const receipt = assertFocusedJourneyPassed(
+      ' 8 pass\n 0 fail\nDESKTOP_PRINCIPAL_JOURNEY {"status":"passed","accounts":3}\n'
+    )
+    expect(receipt.status).toBe('passed')
+    expect(receipt.accounts).toBe(3)
+  })
+
+  test('the journey receipt is parsed only from the receipt line', () => {
+    expect(parseJourneyReceipt('DESKTOP_PRINCIPAL_JOURNEY {"status":"passed"}\n')).toEqual({
+      status: 'passed',
+    })
+    expect(parseJourneyReceipt(' 8 pass\n 0 fail\n')).toBeNull()
+    expect(parseJourneyReceipt('DESKTOP_PRINCIPAL_JOURNEY not json\n')).toBeNull()
+    expect(countSkippedTests(' 8 pass\n 0 fail\n')).toBe(0)
+    expect(countSkippedTests(' 8 pass\n 2 skip\n')).toBe(2)
+  })
+
+  test('the dedicated lane requires the journey receipt, not only the absence of skips', () => {
+    expect(runner).toContain('assertFocusedJourneyPassed(focusedOutput)')
+    expect(runner).not.toContain('did not execute its database journey')
+  })
+
   test('the focused journey never starts a container or contacts a daemon', () => {
     // The dedicated lane owns the container runtime. The focused test only
     // uses the instance that lane hands it, so ordinary test discovery can
@@ -37,12 +82,10 @@ describe('the desktop principal acceptance boundary', () => {
     expect(runner).toContain('delete process.env.DOCKER_CONTEXT')
     expect(runner).toContain('delete process.env.DOCKER_TLS_VERIFY')
     expect(runner).toContain('delete process.env.DOCKER_CERT_PATH')
-    // The lane runs the focused journey in the same isolated environment, and
-    // a skipped journey fails the lane.
+    // The lane runs the focused journey in the same isolated environment.
     expect(runner).toContain(
       'scripts/fresh-postgres-acceptance/desktop-principal-lifecycle.test.ts'
     )
-    expect(runner).toContain('did not execute its database journey')
   })
 
   test('the local Docker policy still refuses a remote or overridden target', () => {
