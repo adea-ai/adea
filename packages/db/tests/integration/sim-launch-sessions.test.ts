@@ -306,6 +306,30 @@ describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
     expect(await findSimSession(connection.db, session, `ws-${unique()}`, Date.now())).toBeNull()
   })
 
+  test('the bound store ignores a workspaceId smuggled in with the binding', async () => {
+    const workspaceId = `ws-${unique()}`
+    createdWorkspaces.add(workspaceId)
+    const bound = bindSimLaunchStoreToWorkspace(store, workspaceId)
+    const code = `code-${unique()}`
+    const session = `session-${unique()}`
+    const conflicting = `ws-${unique()}`
+    createdWorkspaces.add(conflicting)
+    // The runtime object carries a conflicting workspace id. The verified one must win.
+    const smuggled = {
+      bridgeId: 'bridge-a',
+      origin: 'https://sim.example',
+      surface: 'hq',
+      workspaceId: conflicting,
+    } as Omit<SimLaunchBinding, 'workspaceId'>
+    await bound.issue(code, smuggled, later)
+
+    expect(
+      await bound.redeemAndSave(code, presented, Date.now(), { value: session, expiresAt: later })
+    ).toEqual({ ok: true, surface: 'hq' })
+    expect(await findSimSession(connection.db, session, workspaceId, Date.now())).not.toBeNull()
+    expect(await findSimSession(connection.db, session, conflicting, Date.now())).toBeNull()
+  })
+
   test('a bound store refuses a workspace identifier outside the database shape', () => {
     expect(() => bindSimLaunchStoreToWorkspace(store, '')).toThrow('not a valid identifier')
     expect(() => bindSimLaunchStoreToWorkspace(store, 'ws with space')).toThrow(

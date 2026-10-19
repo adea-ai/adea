@@ -118,7 +118,10 @@ export function createSimLaunchStore(
   }
 }
 
-/** Workspace identifiers use the same shape as the rest of the database, so a session cannot carry an odd one. */
+/**
+ * Accepts the identifier grammar the Sim bridge uses. Workspace ids in app.workspaces are UUIDs, and a UUID
+ * matches this grammar, so they are accepted. Anything else with whitespace or other symbols is refused.
+ */
 const SIM_WORKSPACE_ID = /^[A-Za-z0-9_.:-]{1,128}$/
 
 /**
