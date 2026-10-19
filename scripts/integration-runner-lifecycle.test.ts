@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { randomUUID } from 'node:crypto'
 
 const nodePath = Bun.which('node')
 if (!nodePath) throw new Error('Node.js is required for the isolated runner VM')
@@ -356,7 +357,9 @@ test('actual Bun runner cleans both fixtures after a successful run', async () =
 // Keep the production lifecycle modules byte-for-byte intact. Only the external
 // commands and unrelated inventory/target boundaries are disposable fixtures.
 async function exerciseRealLifecycle(
-  mode: 'startup' | 'backoff' | 'capture-signal' | 'primary-error'
+  mode: 'startup' | 'backoff' | 'capture-signal' | 'primary-error',
+  forceRecovery = false,
+  observeRecovery: (evidence: { requests: number; acknowledged: boolean }) => void = () => {}
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'adea-real-lifecycle-'))
   const scripts = join(directory, 'scripts')
@@ -366,6 +369,9 @@ async function exerciseRealLifecycle(
   const eventsPath = join(directory, 'events')
   const ready = join(directory, 'ready')
   const descendants = join(directory, 'descendants')
+  const fixtureToken = randomUUID()
+  let confirmedExited = false
+  const cleanupEvidence = { requests: 0 }
   for (const file of [
     'test-integration.mjs',
     'docker-pull-backoff.mjs',
@@ -414,7 +420,21 @@ async function exerciseRealLifecycle(
           const descendant = spawn(process.execPath, ['-e', code], { env: process.env, stdio: 'ignore' });
           fs.writeFileSync(resource('descendants'), String(descendant.pid));
           process.on('SIGTERM', () => log('compose-term'));
-          descendant.on('exit', () => { log('descendant-reaped'); process.exit(0) });
+          descendant.on('exit', () => {
+            log('descendant-reaped');
+            fs.writeFileSync(resource('supervisor-exited'), process.env.FIXTURE_TOKEN);
+            process.exit(0);
+          });
+          fs.writeFileSync(resource('supervisor-ready'), process.env.FIXTURE_TOKEN);
+          // Only this live owner may signal its retained ChildProcess handle.
+          // A per-run capability request never targets a recycled numeric PID.
+          setInterval(() => {
+            if (!fs.existsSync(resource('shutdown-request'))) return;
+            if (fs.readFileSync(resource('shutdown-request'), 'utf8') !== process.env.FIXTURE_TOKEN) return;
+            fs.rmSync(resource('shutdown-request'));
+            log('supervisor-shutdown');
+            if (descendant.exitCode === null && descendant.signalCode === null) descendant.kill('SIGKILL');
+          }, 10);
           const readyTimer = setInterval(() => {
             if (fs.existsSync(resource('descendant-ready'))) { clearInterval(readyTimer); markReady() }
           }, 5);
@@ -463,7 +483,12 @@ async function exerciseRealLifecycle(
   let child: ReturnType<typeof spawn> | undefined
   try {
     child = spawn(process.execPath, [join(scripts, 'test-integration.mjs')], {
-      env: { PATH: bin, FIXTURE_DIRECTORY: directory, FIXTURE_MODE: mode },
+      env: {
+        PATH: bin,
+        FIXTURE_DIRECTORY: directory,
+        FIXTURE_MODE: mode,
+        FIXTURE_TOKEN: fixtureToken,
+      },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     let stderr = ''
@@ -483,6 +508,7 @@ async function exerciseRealLifecycle(
           throw new Error('real-helper fixture did not become ready: ' + stderr)
         await Bun.sleep(10)
       }
+      if (forceRecovery) throw new Error('synthetic fixture supervision failure')
       child.kill('SIGTERM')
       // Deliver a second signal while startup reaping or synchronous tests are
       // pending. Cleanup must remain idempotent across both lifecycle listeners.
@@ -504,12 +530,20 @@ async function exerciseRealLifecycle(
     }[]
     if (existsSync(descendants)) {
       const pid = Number(readFileSync(descendants, 'utf8'))
-      expect(() => process.kill(pid, 0)).toThrow()
+      let exitCode
+      try {
+        process.kill(pid, 0)
+      } catch (error) {
+        exitCode = (error as NodeJS.ErrnoException).code
+      }
+      expect(exitCode).toBe('ESRCH')
     }
+    confirmedExited = true
     return {
       ...result,
       stderr,
       events,
+      cleanupEvidence,
       resources: ['compose-resource', 'capture-resource'].filter((name) =>
         existsSync(join(directory, name))
       ),
@@ -520,11 +554,28 @@ async function exerciseRealLifecycle(
       child.kill('SIGKILL')
       await exited
     }
-    // Reap only the fixture's recorded descendants if an assertion/deadline fails.
-    for (const file of ['descendants', 'compose-pid']) {
-      if (!existsSync(join(directory, file))) continue
-      killRecordedFixtureProcess(Number(readFileSync(join(directory, file), 'utf8')))
-    }
+    await requestSupervisedFixtureShutdown(
+      confirmedExited,
+      () => {
+        const identity = join(directory, 'supervisor-ready')
+        if (!existsSync(identity)) return false
+        if (readFileSync(identity, 'utf8') !== fixtureToken)
+          throw new Error('Refusing cleanup of a fixture with mismatched identity')
+        const exited = join(directory, 'supervisor-exited')
+        if (existsSync(exited) && readFileSync(exited, 'utf8') === fixtureToken) return false
+        cleanupEvidence.requests += 1
+        writeFileSync(join(directory, 'shutdown-request'), fixtureToken)
+        return true
+      },
+      async () => {
+        const deadline = Date.now() + 3000
+        const exited = join(directory, 'supervisor-exited')
+        while (!existsSync(exited) && Date.now() < deadline) await Bun.sleep(10)
+        expect(existsSync(exited), 'owned fixture supervisor did not acknowledge exit').toBe(true)
+        expect(readFileSync(exited, 'utf8')).toBe(fixtureToken)
+        observeRecovery({ requests: cleanupEvidence.requests, acknowledged: true })
+      }
+    )
     rmSync(directory, { recursive: true, force: true })
   }
 }
@@ -574,10 +625,38 @@ test('real lifecycle helpers preserve test failure when both resource teardowns 
   expect(result.resources).toEqual([])
 }, 15000)
 
-function killRecordedFixtureProcess(pid: number) {
-  try {
-    process.kill(pid, 'SIGKILL')
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
-  }
+// Confirmed completion must never replay PID files or issue a shutdown request.
+async function requestSupervisedFixtureShutdown(
+  confirmedExited: boolean,
+  request: () => boolean,
+  awaitExit: () => Promise<void>
+) {
+  if (confirmedExited) return
+  if (request()) await awaitExit()
 }
+
+test('confirmed fixture exit never signals a stale PID or requests shutdown', async () => {
+  let requests = 0
+  await requestSupervisedFixtureShutdown(
+    true,
+    () => {
+      requests += 1
+      throw new Error('must not target a PID that could have been recycled')
+    },
+    async () => {
+      throw new Error('already reaped')
+    }
+  )
+  expect(requests).toBe(0)
+  const result = await exerciseRealLifecycle('startup')
+  expect(result.cleanupEvidence.requests).toBe(0)
+  expect(result.events.map(({ event }) => event)).not.toContain('supervisor-shutdown')
+}, 15000)
+
+test('failed fixture supervision cleans a live descendant through its identity-checked owner', async () => {
+  const recovery: { requests: number; acknowledged: boolean }[] = []
+  await expect(
+    exerciseRealLifecycle('startup', true, (evidence) => recovery.push(evidence))
+  ).rejects.toThrow('synthetic fixture supervision failure')
+  expect(recovery).toEqual([{ requests: 1, acknowledged: true }])
+}, 15000)
