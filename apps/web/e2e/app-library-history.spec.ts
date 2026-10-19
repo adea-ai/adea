@@ -68,34 +68,57 @@ async function openShell(page: Page, url: string) {
   return globalNavigation
 }
 
+// The rail's view buttons are pressed when their view is the active surface; App Library is pressed
+// while the library is open. These are the surface facts the assertions check, not just the URL.
+const railButton = (page: Page, name: string) =>
+  page
+    .getByRole('navigation', { name: 'Global navigation' })
+    .getByRole('button', { name, exact: true })
+const chatRail = (page: Page) => railButton(page, 'Chat view')
+const devRail = (page: Page) => railButton(page, 'Dev view')
+const libraryRail = (page: Page) => railButton(page, 'App Library')
+
 const openLibrary = async (page: Page) => {
-  await page.getByRole('button', { name: 'App Library', exact: true }).click()
+  await libraryRail(page).click()
   await expect(page).toHaveURL(/app=library/)
+  await expect(libraryRail(page)).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Open Dev', exact: true })).toBeVisible()
 }
 
-test('an app opened from the library is a history step: Back returns to the library and Forward returns to the app', async ({
+test('an app opened from the library is a history step: Back returns to the library and Forward returns to Chat', async ({
   page,
 }) => {
+  // Starting surface: Dev, so the Chat step below is a real change of surface.
   await openShell(page, '/?view=dev')
+  await expect(devRail(page)).toHaveAttribute('aria-pressed', 'true')
+
   await openLibrary(page)
+  await expect(devRail(page)).not.toHaveAttribute('aria-pressed', 'true')
+
   await page.getByRole('button', { name: 'Open Chat', exact: true }).click()
   await expect(page).not.toHaveURL(/app=library/)
-  await expect(page.getByRole('button', { name: 'Open Dev', exact: true })).toHaveCount(0)
+  await expect(page).not.toHaveURL(/view=dev/)
+  await expect(chatRail(page)).toHaveAttribute('aria-pressed', 'true')
+  await expect(libraryRail(page)).not.toHaveAttribute('aria-pressed', 'true')
 
   await page.goBack()
   await expect(page).toHaveURL(/app=library/)
+  await expect(libraryRail(page)).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Open Dev', exact: true })).toBeVisible()
 
   await page.goForward()
   await expect(page).not.toHaveURL(/app=library/)
+  await expect(page).not.toHaveURL(/view=dev/)
+  await expect(chatRail(page)).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Open Dev', exact: true })).toHaveCount(0)
 })
 
-test('one Back from the library leaves it, even after the library enabled an app in place', async ({
+test('one Back from the library returns to Chat, even after the library enabled an app in place', async ({
   page,
 }) => {
   await openShell(page, '/')
+  await expect(chatRail(page)).toHaveAttribute('aria-pressed', 'true')
+
   await openLibrary(page)
   await page.getByRole('button', { name: 'Enable Kanban', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Disable Kanban', exact: true })).toBeVisible()
@@ -104,19 +127,57 @@ test('one Back from the library leaves it, even after the library enabled an app
 
   await page.goBack()
   await expect(page).not.toHaveURL(/app=library/)
+  await expect(chatRail(page)).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByRole('button', { name: 'Open Dev', exact: true })).toHaveCount(0)
 })
 
-test('disabling the open destination from the library keeps the library open and adds no history step', async ({
+test('disabling the open destination from the library adds no history step, and Back to the hidden Chat falls back to Dev', async ({
   page,
 }) => {
   await openShell(page, '/')
+  await expect(chatRail(page)).toHaveAttribute('aria-pressed', 'true')
+
   await openLibrary(page)
   // Chat is the requested destination; hiding it is a recorded change that must not dismiss the library.
   await page.getByRole('button', { name: 'Disable Chat', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Enable Chat', exact: true })).toBeVisible()
   await expect(page).toHaveURL(/app=library/)
+  await expect(libraryRail(page)).toHaveAttribute('aria-pressed', 'true')
 
+  // Back goes to the entry before the library, which asks for Chat. Chat is hidden, so the
+  // recovery rule rewrites the surface to Dev and leaves the library closed.
   await page.goBack()
   await expect(page).not.toHaveURL(/app=library/)
+  await expect(chatRail(page)).toHaveCount(0)
+  await expect(devRail(page)).toHaveAttribute('aria-pressed', 'true')
+  await expect(libraryRail(page)).not.toHaveAttribute('aria-pressed', 'true')
+})
+
+test('the library search and enabled-only filter survive leaving and returning, and reset on reload', async ({
+  page,
+}) => {
+  await openShell(page, '/')
+  await openLibrary(page)
+  const search = page.getByRole('searchbox', { name: 'Search apps' })
+  const enabledOnly = page.getByRole('button', { name: 'Show enabled only', exact: true })
+  await search.fill('dev')
+  await enabledOnly.click()
+  await expect(enabledOnly).toHaveAttribute('aria-pressed', 'true')
+
+  // Leave through the one tile the filter keeps visible, then return with Back.
+  await page.getByRole('button', { name: 'Open Dev', exact: true }).click()
+  await expect(page).not.toHaveURL(/app=library/)
+  await expect(devRail(page)).toHaveAttribute('aria-pressed', 'true')
+  await page.goBack()
+  await expect(page).toHaveURL(/app=library/)
+  await expect(search).toHaveValue('dev')
+  await expect(enabledOnly).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('button', { name: 'Open Dev', exact: true })).toBeVisible()
+
+  // A reload starts a new session, so the search and filter are back to their defaults.
+  await page.reload()
+  await expect(page.getByRole('searchbox', { name: 'Search apps' })).toHaveValue('')
+  await expect(
+    page.getByRole('button', { name: 'Show enabled only', exact: true })
+  ).toHaveAttribute('aria-pressed', 'false')
 })
