@@ -54,6 +54,12 @@ function fixture() {
   const host = createSimHost({
     origin,
     parentOrigins: [parentOrigin],
+    assetPrefix: '/assets/agent-sim/',
+    entryFiles: {
+      hq: 'engine.js',
+      'room-designer': 'room-designer.js',
+      'character-designer': 'character-designer.js',
+    },
     frameScript: '// public bootstrap only',
     exchange,
     session: async (value) => sessions.get(value) ?? null,

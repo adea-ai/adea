@@ -625,3 +625,13 @@ export {
   withCurrentSourceLeadTurnProduct,
   type CurrentSourceLeadTurnProduct,
 } from './lead-source-product'
+export {
+  bindSimLaunchStoreToWorkspace,
+  createSimLaunchStore,
+  findSimSession,
+  revokeSimSession,
+  SIM_SURFACES,
+  type SimLaunchBinding,
+  type SimLaunchRedemption,
+  type SimSurface,
+} from './sim-launch-sessions'

@@ -62,6 +62,8 @@ const excluded: Readonly<Record<string, string>> = {
   runtime_node_exchange_credentials: 'credentials',
   runtime_node_keys: 'credentials',
   runtime_nodes: 'runtime_execution_state',
+  sim_launch_codes: 'credentials',
+  sim_sessions: 'credentials',
   task_mutations: 'derived_and_personal_state',
   task_submissions: 'runtime_execution_state',
   temporary_user_sessions: 'credentials',
