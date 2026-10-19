@@ -90,6 +90,21 @@ production functions and the production database. Identity state belongs in the
 database, not in memory. The provider subject must be the real provider user id,
 and the persisted desktop credential must be a digest.
 
+The counts the phase reports must be measured, never assumed. It measures the
+provider accounts, the application users and the application users that carry no
+provider identity before and after it runs, and it requires one account and one
+user per identity with no orphan user. A concurrent provisioning loser that left
+a user behind would raise the user count without raising the mapping count, and
+that is a failure rather than a pass.
+
+The real database execution belongs to the dedicated opt-in lane. The lane
+validates the Docker target, pins its process to a local socket for its whole
+lifetime, isolates the child environment and provisions the disposable
+instance. Nothing in the acceptance journey may start a container or contact a
+Docker daemon on its own, so ordinary test discovery stays side-effect-free, and
+the cleanup of every owned connection is fatal: a cleanup that failed fails the
+run rather than leaving it green.
+
 Two dependencies stay open and are recorded rather than implied:
 
 - **The built Worker route registration.** The desktop authorize and exchange

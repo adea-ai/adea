@@ -97,14 +97,79 @@ export type DesktopPrincipalLifecycleInput = {
 export type DesktopPrincipalLifecycleReceipt = {
   readonly status: 'passed'
   readonly provider: typeof PROVIDER
+  /** The measured provider accounts this phase created. */
   readonly accounts: number
+  /** The measured application users this phase created. */
   readonly mappedUsers: number
+  /** The measured application users that carry no provider identity. */
+  readonly orphanUsers: number
   readonly desktopSessions: number
   readonly exchanges: number
   readonly refused: {
     readonly origin: number
     readonly pkce: number
     readonly replay: number
+  }
+}
+
+/**
+ * How many provider accounts, application users and orphan application users
+ * exist at one point of the phase.
+ */
+export type IdentityMeasurements = {
+  readonly applicationUsers: number
+  readonly orphanUsers: number
+  readonly providerAccounts: number
+}
+
+/**
+ * The measured difference between two points of the phase.
+ *
+ * The counts are always derived from the database, never assumed. A losing
+ * concurrent insert that left an application user behind would show up as an
+ * orphan user, and a provisioned identity that never reached a user would show
+ * up as a missing mapping.
+ */
+export function deriveIdentityDeltas(
+  before: IdentityMeasurements,
+  after: IdentityMeasurements
+): IdentityMeasurements {
+  return {
+    applicationUsers: after.applicationUsers - before.applicationUsers,
+    orphanUsers: after.orphanUsers - before.orphanUsers,
+    providerAccounts: after.providerAccounts - before.providerAccounts,
+  }
+}
+
+/**
+ * Checks the measured deltas against the identities the phase created.
+ *
+ * One fresh account and one application user per identity are required, and no
+ * orphan user may survive: a concurrent provisioning loser that left a user
+ * behind would raise the application user count without raising the mapping
+ * count, and that is a failure, not a pass.
+ */
+export function assertIdentityMeasurements(
+  measured: IdentityMeasurements,
+  expected: Readonly<{ identities: number }>
+): void {
+  // The orphan check comes first: an orphan user is the specific evidence that
+  // a concurrent insert lost its race and left a user behind, and it is the
+  // reason the user count can exceed the identity count.
+  if (measured.orphanUsers !== 0) {
+    throw new Error(
+      `the phase left ${measured.orphanUsers} application users without a provider identity`
+    )
+  }
+  if (measured.providerAccounts !== expected.identities) {
+    throw new Error(
+      `the phase created ${measured.providerAccounts} provider accounts, expected ${expected.identities}`
+    )
+  }
+  if (measured.applicationUsers !== expected.identities) {
+    throw new Error(
+      `the phase created ${measured.applicationUsers} application users, expected ${expected.identities}`
+    )
   }
 }
 
@@ -238,6 +303,29 @@ export async function runDesktopPrincipalLifecycle(
       return rows[0]!.id
     }
 
+    /**
+     * The measured provider accounts, application users and orphan application
+     * users. An orphan is a user that carries no provider identity row at all,
+     * which is what a losing concurrent insert would leave behind.
+     */
+    const measureIdentities = async (): Promise<IdentityMeasurements> => {
+      const provider = await providerSql<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM ${providerSql(`${input.providerSchema}.user`)}
+      `
+      const applicationUsers = await application.client<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM app.users
+      `
+      const orphanUsers = await application.client<{ count: number }[]>`
+        SELECT count(*)::int AS count FROM app.users u
+        WHERE NOT EXISTS (SELECT 1 FROM app.auth_identities i WHERE i.user_id = u.id)
+      `
+      return {
+        applicationUsers: Number(applicationUsers[0]?.count ?? 0),
+        orphanUsers: Number(orphanUsers[0]?.count ?? 0),
+        providerAccounts: Number(provider[0]?.count ?? 0),
+      }
+    }
+
     /** Creates a fresh account and signs it in through the provider request path. */
     async function freshAccount(): Promise<{ authentication: AuthResult; email: string }> {
       const email = `r3-desktop-${randomUUID()}@example.test`
@@ -279,6 +367,9 @@ export async function runDesktopPrincipalLifecycle(
     }
 
     // --- one provider identity maps to one application user -------------------
+    // The baseline is measured, so the deltas below are observed and never
+    // assumed.
+    const baseline = await measureIdentities()
     const first = await freshAccount()
     const principal = await resolveOrProvisionDesktopPrincipal(first.authentication, mapping)
     assert.ok(principal, 'a fresh provider identity must resolve to an application user')
@@ -342,6 +433,31 @@ export async function runDesktopPrincipalLifecycle(
       principal.userId,
       'a second fresh identity must be a separate application user'
     )
+
+    // --- the three identities are distinct, and nothing was orphaned ---------
+    const subjects = new Set([
+      first.authentication.identity.subject,
+      concurrentAccount.authentication.identity.subject,
+      second.authentication.identity.subject,
+    ])
+    assert.equal(subjects.size, 3, 'the phase must create three distinct provider identities')
+    const concurrentUser = concurrent[0]!
+    assert.notEqual(
+      concurrentUser.userId,
+      principal.userId,
+      'the concurrent identity must be a separate application user'
+    )
+    assert.notEqual(
+      concurrentUser.userId,
+      secondPrincipal.userId,
+      'the concurrent identity must not share the second application user'
+    )
+
+    // The measured deltas. A concurrent provisioning loser that left an
+    // application user behind would raise the user count without raising the
+    // mapping count, and that is a failure rather than a pass.
+    const measured = deriveIdentityDeltas(baseline, await measureIdentities())
+    assertIdentityMeasurements(measured, { identities: 3 })
 
     // --- the desktop PKCE exchange persists the mapped identity --------------
     const verifier = randomBase64url(32)
@@ -517,8 +633,9 @@ export async function runDesktopPrincipalLifecycle(
     return {
       status: 'passed',
       provider: PROVIDER,
-      accounts: 2,
-      mappedUsers: 2,
+      accounts: measured.providerAccounts,
+      mappedUsers: measured.applicationUsers,
+      orphanUsers: measured.orphanUsers,
       desktopSessions: 1,
       exchanges: 1,
       refused: { origin: refusedOrigin, pkce: refusedPkce, replay: refusedReplay },

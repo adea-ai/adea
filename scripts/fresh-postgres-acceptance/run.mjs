@@ -143,6 +143,32 @@ try {
   const receipt = JSON.parse(line.slice('FRESH_SCHEMA_ACCEPTANCE '.length))
   if (receipt.status !== 'passed' || !Number.isInteger(receipt.migrations))
     throw new Error('invalid fresh-schema receipt')
+  // The focused desktop principal journey runs in this lane, against the same
+  // validated instance and the same isolated environment. It never starts a
+  // container itself, so it can only execute here.
+  const focused = spawnSync(
+    'bun',
+    [
+      '--no-env-file',
+      '--conditions=react-server',
+      'test',
+      'scripts/fresh-postgres-acceptance/desktop-principal-lifecycle.test.ts',
+    ],
+    {
+      cwd: root,
+      env: fixtureEnvironment(fixture.databaseUrl),
+      encoding: 'utf8',
+      timeout: 600_000,
+      killSignal: 'SIGKILL',
+    }
+  )
+  const focusedOutput = (focused.stdout ?? '') + (focused.stderr ?? '')
+  if (focused.error || focused.status !== 0) {
+    throw new Error('the desktop principal acceptance phase failed; exit=' + focused.status)
+  }
+  if (/\b[1-9]\d* skip\b/.test(focusedOutput)) {
+    throw new Error('the desktop principal acceptance phase did not execute its database journey')
+  }
   passedReceipt = {
     status: 'passed',
     migrations: receipt.migrations,

@@ -163,6 +163,7 @@ console.log(
         accounts: desktopPrincipal.accounts,
         exchanges: desktopPrincipal.exchanges,
         mappedUsers: desktopPrincipal.mappedUsers,
+        orphanUsers: desktopPrincipal.orphanUsers,
         provider: desktopPrincipal.provider,
         refused: desktopPrincipal.refused,
       },
