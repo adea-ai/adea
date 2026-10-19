@@ -125,9 +125,12 @@ describe('desktop packaging and single-UI client boundary', () => {
 
     expect(manifest.scripts['shell:client:build']).toBe('bun scripts/client.mjs')
     expect(manifest.scripts['shell:build']).toBe('bun scripts/shell.mjs build')
-    // The desktop host may depend on its shared runtime contract package, but
-    // it does not own a separate client dependency graph.
-    expect(manifest.dependencies).toEqual({ '@adea-ai/dev-view': 'workspace:*' })
+    // The desktop host depends on the shared runtime contract and auth package,
+    // but it does not own a separate client dependency graph.
+    expect(manifest.dependencies).toEqual({
+      '@adea-ai/auth': 'workspace:*',
+      '@adea-ai/dev-view': 'workspace:*',
+    })
     expect(manifest.devDependencies).toBeUndefined()
     // The client build is the web app's own build pipeline, preceded by the
     // build of the workspace packages the web app consumes.
