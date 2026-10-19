@@ -6,16 +6,23 @@ cost figure is recorded here.
 
 The cutover it follows is described in [Railway cutover checklist](railway-cutover-checklist.md).
 
+The live cutover was approved by the user in conversation. This plan neither grants nor
+revokes that approval and is not a substitute for it. The cost week still depends on the
+qualification and on each per-action gate in the checklist, and the week does not begin
+until the cutover is verified.
+
 ## The gate
 
 The cost week starts only after a **verified cutover**. Before that receipt exists:
 
 - no day of the week is counted, and a partial week is not a week;
-- the Cloudflare figures below are the pre-cutover baseline only, and they are
-  themselves incomplete (see [Cloudflare organic-traffic evidence](#cloudflare-organic-traffic-evidence));
-- the Railway side has no baseline at all, because no Railway deployment of the auth
-  service exists yet;
-- no cost difference may be stated, estimated or implied from the two sides.
+- the Cloudflare figures below are the pre-cutover record only, and they are not a
+  baseline: they cover 130 minutes, they straddle a deployment, and billed CPU and
+  representative attribution are unqualified (see
+  [Cloudflare organic-traffic evidence](#cloudflare-organic-traffic-evidence));
+- no Railway figure has been read. This repository does not hold a live inventory, so
+  whether a Railway deployment of the auth service exists is not established here;
+- no cost difference may be stated, estimated or implied from any of these figures.
 
 The gate is satisfied by a receipt that names the cutover head, the deployed version, the
 observation window after the switch, and the checks that passed. A passing local
@@ -24,20 +31,32 @@ observed.
 
 ## What is measured
 
-| Side       | Measure                                                                                                                        | Source                                                                         | Read by                                     |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ | ------------------------------------------- |
-| Railway    | Managed PostgreSQL storage, compute and connection time, and network egress for the auth database, for the same 24-hour window | Railway project usage and billing console for the project that owns the target | Operator, from a Railway account session    |
-| Cloudflare | Workers requests, billed CPU time, subrequests, and Hyperdrive queries for the same window                                     | Cloudflare account analytics (dashboard or GraphQL Analytics)                  | Operator, from a Cloudflare account session |
+The cutover moves the **auth database** only. The Worker keeps serving every route, so
+Workers requests, billed CPU time and subrequests continue afterwards, and the Cloudflare
+side of the comparison does not go to zero. The comparison is therefore between two
+**totals**, not between two line items.
 
-Both columns must be read for the **same** window, from the same production traffic. A
+| Total                     | Contains                                                                                                         | Read from                                                                      |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Continuing Worker charges | All Workers requests, billed CPU time and subrequests for the whole app, including the `/api/auth/*` path        | Cloudflare account analytics                                                   |
+| Railway charges           | Managed PostgreSQL storage, compute and connection time, and network egress for the auth database                | Railway project usage and billing console for the project that owns the target |
+| Legacy comparable total   | The same Worker charges for the same traffic, plus the Neon charges for the auth database while it lived on Neon | Cloudflare account analytics, and the Neon billing record for that period      |
+
+Cloudflare CPU and subrequests on one side against a Railway database charge on the
+other are not substitutes and must not be compared as if they were. The Railway figure
+is an addition to a continuing Worker figure, not a replacement for it. The legacy
+comparable total is what the continuing total plus the Railway figure is measured
+against, and it must cover the same traffic.
+
+Each column must be read for the **same** window, from the same production traffic. A
 cost figure without the traffic volume beside it is not a cost figure; record requests
 and the failed-request count next to every cost number so the reader can divide one by
 the other.
 
-The cutover changes where the auth database lives, not the app's traffic. The comparison
-that matters is therefore the auth path's share of each side: the Cloudflare CPU and
-subrequest cost of serving `/api/auth/*` against a Neon-backed database, versus the
-Railway cost of the database that replaces it, for the same organic requests.
+This is an auth-database comparison. It does not complete the wider Adea/Control Plane
+database migration, which spans more than one database and carries its own runbooks for
+the Control Plane service in its own repository. A cost week here is an input to the
+auth-database decision, not to the wider migration decision.
 
 ## Cloudflare organic-traffic evidence
 
@@ -67,23 +86,32 @@ coordinator; they were not independently read for this plan.
 `docs/evidence/toolchain-cache-campaign-2026-10-17.json` (commit `5c20ff27f`, 2026-10-17,
 #1454), fields `cloudflare` and `currentCheckpoint.cloudflare`.
 
-| Window                       | Requests | Success | Failed                | CPU                            | Subrequests  | Hyperdrive groups |
-| ---------------------------- | -------- | ------- | --------------------- | ------------------------------ | ------------ | ----------------- |
-| 16:45-17:00 (pre-deployment) | 112      | 30      | 82 exceeded resources | P50 10000, P99 15942 API units | not recorded | not recorded      |
-| 17:15-17:30                  | 1        | 1       | 0                     | not recorded                   | not recorded | 0                 |
-| 18:35-20:15                  | 6        | 6       | 0                     | P50 26282, P99 46191 raw       | 36           | none              |
+| Window (UTC)                 | Minutes | Requests | Success | Failed                | Raw CPU                        | Subrequests  | Hyperdrive groups |
+| ---------------------------- | ------- | -------- | ------- | --------------------- | ------------------------------ | ------------ | ----------------- |
+| 16:45-17:00 (pre-deployment) | 15      | 112      | 30      | 82 exceeded resources | P50 10000, P99 15942 API units | not recorded | not recorded      |
+| 17:15-17:30                  | 15      | 1        | 1       | 0                     | not recorded                   | not recorded | 0                 |
+| 18:35-20:15                  | 100     | 6        | 6       | 0                     | P50 26282, P99 46191 raw       | 36           | none              |
 
-The ledger's own reading of the middle row: "Insufficient to establish recovery or zero
-load. Missing telemetry does not prove recovery." The later window carries six
-invocations and an empty query-group list, and `recoveryConfirmed` is `false`.
+The three windows total **130 minutes** and 119 requests. The 18:35-20:15 window
+**crosses the 19:45:13.79466Z deployment**, so it spans two deployed versions and is
+not single-version evidence. The ledger's own reading of the middle row: "Insufficient
+to establish recovery or zero load. Missing telemetry does not prove recovery." The
+later window carries six invocations and an empty query-group list, and
+`recoveryConfirmed` is `false`.
 
-Deployment lineage for those windows: deployed source
+Deployment lineage: deployed source
 `287303f13dfea2731b94b5af6936f9a8b9492b49`, run
 <https://github.com/adea-ai/adea/actions/runs/39063656595>, deployment
 `335f2f14-b48f-485c-a06b-7631cc177205`, worker version
 `6c455a6a-8b8d-4092-95aa-2c327eb50147`, deployed 2026-10-17T19:45:13.79466Z at 100%
 traffic. The earlier pre-deployment window's lineage is run
 <https://github.com/adea-ai/adea/actions/runs/39052654307>, job `117454196301`.
+
+Production **raw** CPU percentiles therefore exist for two of the three windows, and
+one of them straddles a deployment. Billed CPU and representative per-route attribution
+remain unqualified. The configuration recorded in this repository is not a live deployed
+inventory: it does not establish which bindings or services were actually live in any
+window.
 
 ### What is not established
 
@@ -99,30 +127,42 @@ traffic. The earlier pre-deployment window's lineage is run
   query/cacheability attribution" as remaining, and the profiling evidence states "SQL
   counts are not Hyperdrive billing". The recorded Hyperdrive group counts are zero and
   none; no Hyperdrive query baseline exists.
-- **Any single traffic volume.** The three windows above cover 3.5 hours in total, on
-  different deployments, with 119 requests between them. They are not a traffic baseline.
+- **Any single traffic volume.** The three windows above cover 130 minutes in total, on
+  different deployments, with 119 requests between them, and one of them straddles a
+  deployment. They are not a traffic baseline.
+- **The deployed inventory.** The configuration in this repository is not a live deployed
+  inventory. It does not establish which bindings, secrets, Railway services or database
+  endpoints were actually live in any recorded window.
 
-### Live read: blocked
+### Live read: blocked on the route that was tried
 
-Live Cloudflare analytics could not be read for this plan. The probe and its result:
+The live Cloudflare read was attempted through one route only, the local `wrangler` CLI
+credential, and that route is blocked:
 
-| Check                           | Result                                                                                                                                |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Stored credential               | `wrangler` OAuth token in the operator's `~/.wrangler/config/default.toml`, recorded as expiring 2026-10-07T20:45:08.543Z             |
-| Recorded scopes                 | `account:read`, `user:read`, `zone:read`, `workers:write`, `workers_tail:read` and others; no account-analytics read scope is present |
-| Read-only probe                 | `GET https://api.cloudflare.com/client/v4/accounts` with that token, 2026-10-19                                                       |
-| Result                          | **HTTP 403**, Cloudflare error code `9109`, "Invalid access token"                                                                    |
-| No Cloudflare CLI               | neither `wrangler` nor `cf` is on `PATH`; no `CLOUDFLARE_*` or `CF_*` variable is set; no repository `.env` exists                    |
-| No repository automation for it | no workflow in `.github/workflows/` references `api.cloudflare.com` or a GraphQL analytics query                                      |
+| Check                                              | Result                                                                                                                                                                     |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Route attempted                                    | the `wrangler` OAuth token in the operator's `~/.wrangler/config/default.toml`, recorded as expiring 2026-10-07T20:45:08.543Z                                              |
+| Read-only probe                                    | `GET https://api.cloudflare.com/client/v4/accounts` with that token, 2026-10-19                                                                                            |
+| Result                                             | **HTTP 403**, Cloudflare error code `9109`, "Invalid access token"                                                                                                         |
+| No Cloudflare CLI on `PATH`                        | neither `wrangler` nor `cf` is installed                                                                                                                                   |
+| No credential in the environment or the repository | no `CLOUDFLARE_*` or `CF_*` variable is set; no repository `.env` exists; no workflow in `.github/workflows/` references `api.cloudflare.com` or a GraphQL analytics query |
 
-The credential is expired, and re-authorizing it is a credential change that this task
-does not authorize, so the live read stays blocked. Whoever re-authorizes it must also
-grant the account-analytics read scope, or the GraphQL analytics query will fail on
-scope rather than on authentication.
+The scope of that result is exactly the route that was tried. It shows that this local
+CLI credential route cannot read the API. It does **not** show that every other
+authorized route to the same data is unavailable, and it does not show that any
+additional permission would be needed on another route. Another route, including a
+dashboard session or a connector, may be authorized where this one is not, and this
+document makes no claim about it. Re-authorizing the CLI credential is a credential
+change that these documents neither perform nor prescribe.
 
-**Live Cloudflare CPU, subrequest and Hyperdrive evidence is therefore BLOCKED.** The
-recorded evidence above is the whole of what this repository holds, and it is not a
-baseline for a cost comparison.
+Separately, root's own connector account-discovery read was policy-blocked. That is a
+fact about that read, not a statement about what the account contains, and no live
+telemetry has been verified from it. Nothing here asserts that live metrics were found,
+or that none exist.
+
+**Live Cloudflare CPU, subrequest and Hyperdrive evidence is therefore not available
+through the route that was tried.** The recorded evidence above is the whole of what
+this repository holds, and it is not a baseline for a cost comparison.
 
 ## The seven days
 

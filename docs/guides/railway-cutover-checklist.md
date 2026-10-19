@@ -14,6 +14,14 @@ start the cost week.
 The cost measurement that follows a verified cutover is planned in
 [Railway cost week](railway-cost-week-plan.md).
 
+## Approval and authority
+
+The live cutover was approved by the user in conversation. This document neither grants
+nor revokes that approval, and it is not a substitute for it. Execution still depends on
+the qualification in [Fresh PostgreSQL acceptance](fresh-postgres-acceptance.md) and on
+each per-action gate below, and each of those gates is separate from the approval.
+Nothing here authorizes a credential, security or production mutation.
+
 ## Source of record
 
 Every fact below is read from this repository at the commit shown. Re-read them at the
@@ -34,7 +42,10 @@ repair.
 
 ## Current-source state
 
-Read at `3af8253666ac5f28d30b98333b56228e62907532` on 2026-10-19.
+Read at `3af8253666ac5f28d30b98333b56228e62907532` on 2026-10-19. This is the
+configuration **in this repository at that commit**. It is not a live deployed inventory:
+it does not prove which bindings the running Worker actually has, and it does not prove
+that no Railway service exists outside this repository.
 
 - **Two auth configurations coexist by design.** `readAuthConfig` in
   `packages/auth/src/config.ts` reads the legacy `NEON_AUTH_BASE_URL` and
@@ -42,17 +53,26 @@ Read at `3af8253666ac5f28d30b98333b56228e62907532` on 2026-10-19.
   `AUTH_SECRET` and `AUTH_DATABASE_URL` for a fresh deployment on a managed PostgreSQL
   (Railway) instance. The two are kept separate "so the two environments can coexist
   while the old one stays recoverable".
-- **The production Worker is still bound to the legacy Neon-hosted Auth pair.**
-  `apps/web/wrangler.jsonc` and `apps/web/cloudflare.config.ts` bind
+- **The deployment configuration in this repository still binds the legacy Neon-hosted
+  Auth pair.** `apps/web/wrangler.jsonc` and `apps/web/cloudflare.config.ts` bind
   `NEON_AUTH_BASE_URL` from `AGENT_HQ_NEON_PRODUCTION_AUTH_BASE_URL` and
   `NEON_AUTH_COOKIE_SECRET` from `AGENT_HQ_WORKER_AUTH_COOKIE_SECRET`, alongside
   `AUTH_TRUSTED_ORIGINS` from `AGENT_HQ_WORKER_AUTH_TRUSTED_ORIGINS` and `DATABASE_URL`
-  from `AGENT_HQ_NEON_PRODUCTION_DATABASE_URL`.
-- **`AUTH_BASE_URL`, `AUTH_SECRET` and `AUTH_DATABASE_URL` are bound nowhere in the
-  deployed configuration.** The Railway-backed set exists in source and in the operator
-  tooling, but no production or preview binding references it. Adding those bindings is
-  the configuration change the cutover requires; it is a Cloudflare configuration
-  change and needs its own review. This checklist does not make it.
+  from `AGENT_HQ_NEON_PRODUCTION_DATABASE_URL`. Whether the running Worker holds exactly
+  these bindings is a live question this repository does not answer.
+- **`AUTH_BASE_URL`, `AUTH_SECRET` and `AUTH_DATABASE_URL` are bound nowhere in this
+  repository's deployment configuration.** The Railway-backed set exists in source and in
+  the operator tooling, but no production or preview binding in this repository
+  references it. Adding those bindings is the configuration change the cutover requires;
+  it is a Cloudflare configuration change and needs its own review. This checklist does
+  not make it.
+- **The current artifact cannot serve the legacy implementation.** `createNeonServerAdapter`
+  and `handleNeonAuthRequest` both call `createBetterAuthService(environment)`
+  unconditionally, and that reads `AUTH_BASE_URL` and throws when it is absent. The
+  legacy reader `readAuthConfig` is exported from `packages/auth/src/server.ts` but has no
+  production caller in this source. Restoring the legacy `NEON_AUTH_*` bindings on the
+  current artifact therefore does not select the former implementation; it leaves the
+  artifact without `AUTH_BASE_URL`, which fails closed. See the rollback section.
 - **Provider schema initialization is not wired into a deploy step.**
   `docs/authentication.md` records this as remaining work, and
   `packages/auth/README.md` provides the operator-run command that replaces it:
@@ -70,6 +90,10 @@ Read at `3af8253666ac5f28d30b98333b56228e62907532` on 2026-10-19.
   connection string (`createPostgresAuthDatabase`). Record the auth pool's effective
   `prepare` behaviour on the Railway host, and do not carry the legacy endpoint's
   behaviour across.
+- **This checklist covers the auth database only.** The wider database migration spans
+  more than one database, and the Control Plane service carries its own Railway
+  configuration and runbooks in its own repository. Completing the auth cutover does not
+  complete the wider migration, and this checklist does not claim to.
 
 ## Cutover checklist
 
@@ -116,8 +140,14 @@ Read at `3af8253666ac5f28d30b98333b56228e62907532` on 2026-10-19.
       and additionally rejects an empty TLS parameter and `sslmode=no-verify`. Record the
       effective mode that the driver resolves, not the parameter that was written.
 - [ ] `AUTH_SECRET` is at least 32 characters, and neither `AUTH_SECRET` nor
-      `AUTH_DATABASE_URL` is client-prefixed. `readDatabaseUrl` refuses any
-      client-exposed database credential.
+      `AUTH_DATABASE_URL` is client-prefixed. This is a policy the checklist enforces by
+      review, not by a runtime guard: the finite client-exposure list in
+      `readDatabaseUrl` covers `ADEA_PUBLIC_*`, `NEXT_PUBLIC_*` and `VITE_*` database
+      names only, and it does not mention `AUTH_SECRET` or `AUTH_DATABASE_URL`. Better
+      Auth reads its own configuration through `readBetterAuthConfig`, which performs no
+      client-exposure check. Confirm the absence of client-prefixed auth values by
+      inspection of the deployment configuration and the build inputs, and record who
+      checked it.
 - [ ] `AUTH_TRUSTED_ORIGINS` lists exact origins and no wildcards. The production
       aliases are `adea.dev` and the `workers.dev` URL; a Preview Worker must list its
       exact URLs.
@@ -166,24 +196,49 @@ Read at `3af8253666ac5f28d30b98333b56228e62907532` on 2026-10-19.
 
 ## Rollback checklist
 
-Rollback is available only while the legacy Neon-hosted Auth environment is retained
-and still able to serve. That retention is a precondition of the cutover, not a
-consequence of it.
+Rollback is not a binding change. It needs a **named compatible artifact** as well as
+bindings, because the current artifact constructs Better Auth unconditionally.
 
+`createNeonServerAdapter` and `handleNeonAuthRequest` both call
+`createBetterAuthService(environment)`, which reads `AUTH_BASE_URL` and throws when it
+is absent. The legacy reader `readAuthConfig` is exported but has no production caller
+in this source, so the former implementation is not reachable from the current artifact.
+Restoring `NEON_AUTH_BASE_URL` and `NEON_AUTH_COOKIE_SECRET` on the current artifact
+does not select the former implementation; it leaves the artifact without
+`AUTH_BASE_URL`, and the auth path fails closed.
+
+- [ ] A rollback artifact is named: a specific head or image whose auth entry points
+      were reviewed and qualified against the legacy `NEON_AUTH_*` bindings. "The
+      previous deployment" is not a name; the artifact identity is recorded.
+- [ ] The artifact and the binding set are qualified **as a combination**, at that
+      artifact, with the legacy bindings present. A binding set is not qualified on its
+      own.
 - [ ] The legacy `NEON_AUTH_BASE_URL` and `NEON_AUTH_COOKIE_SECRET` Secret Store
       records are still present and unmodified at rollback time. The cutover adds the
       new set; it does not remove the old one.
 - [ ] The legacy Neon Auth endpoint was never deleted, and its provider tables were
       never migrated, altered or dropped by the cutover.
-- [ ] Rollback restores the previous binding set and invalidates the sessions issued
-      after the cutover. Rotating the cookie secret invalidates every Worker session;
-      record that consequence before relying on it.
+- [ ] Rollback restores the previous binding set and invalidates the sessions the
+      cutover issued. Scope that invalidation precisely: rotating the auth cookie secret
+      affects the cookie/provider sessions Better Auth signs with `AUTH_SECRET`, and it
+      does **not** revoke desktop grants. A desktop grant is issued with a random
+      credential whose SHA-256 digest is persisted, together with a session ID, and it
+      is revoked or rotated by that digest and session ID
+      (`createDesktopSessionService`, `revokeDesktopSessionRecord`,
+      `rotateDesktopSessionRecord`). Any desktop-grant revocation is therefore a separate,
+      scoped action against the persisted session ID and credential digest, planned on
+      its own. This checklist authorizes no credential or security mutation, and it does
+      not instruct one.
+- [ ] The scope of the invalidation is recorded: which cookie and provider sessions are
+      affected, which desktop grants are not, and which scoped revocation is planned
+      instead.
 - [ ] Rollback re-points `AUTH_TRUSTED_ORIGINS` only if the cutover changed it, and
       restores the previous value exactly.
 - [ ] The Railway target is left intact after a rollback, so a second attempt does not
       need to re-provision. Nothing in the rollback re-initializes the Railway schema.
-- [ ] The rollback receipt records the head, the exact bindings changed, the sessions
-      invalidated and the observation window after the rollback.
+- [ ] The rollback receipt records the artifact identity, the exact bindings changed, the
+      sessions invalidated and the sessions deliberately left alone, and the observation
+      window after the rollback.
 
 ## Neon-recoverable preservation
 
@@ -216,6 +271,10 @@ repository.
 - It does not establish that the cutover has run. Nothing here has been provisioned,
   deployed, switched or rolled back.
 - It does not start the cost week, and it does not retire Neon.
+- It does not complete the wider database migration. It covers the auth database only.
 - It does not prove live Cloudflare request, CPU, subrequest or Hyperdrive
   attribution. See [Railway cost week](railway-cost-week-plan.md) for what is
-  recorded, what is missing, and why the live read is blocked.
+  recorded, what is missing, and the scope of the read blocker.
+- It grants and revokes no approval. The live cutover was approved by the user in
+  conversation; execution still depends on the qualification and on each per-action gate
+  above.
