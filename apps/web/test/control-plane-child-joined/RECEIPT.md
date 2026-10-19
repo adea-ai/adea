@@ -19,7 +19,7 @@ PostgreSQL 18.6 on a disposable cluster at 127.0.0.1:55432, started for this run
 tree was not reinstalled for this run, and `journey-identity.test.mjs` passed against the installed
 packages. The CP candidate manifest has head `69e6e746`, `dirty: false`, and sourceDigest
 `sha256:179939366e85eb737df9bed25b1e41b5fe2a44da8b588422da43247e1fe402a5`. Run 4 `source-journey.json`
-sha256 is `f9da35f6ff24fbcb2407c96190c1e31e90d9e1c8cb9925553e8af677821231ee`, and its `bun.lock` sha256
+sha256 is `f9da35e6ff24fbcb2407c96190c1e31e90d9e1c8cb9925553e8af677821231ee`, and its `bun.lock` sha256
 is `727242677529997d41d991d7f08621c6a293657c2e31255718ed815295e6d97a`. The run 1 to 3 values in the
 table below differ for those files, as expected after the repin.
 
