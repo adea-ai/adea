@@ -98,6 +98,9 @@ const specs = [
   // Add repository folder picker, browser-mounted: the real dialog and form with a fake host picker,
   // no native panel or OS interaction (five-plus cases, including late completion and pageerror checks).
   'apps/web/e2e/app-library-folder-picker-mount.spec.ts',
+  // App Library navigation and field preservation, browser-mounted: the real App Library page and the
+  // real navigation rules, with the shell reduced to signals (no router, no native surface).
+  'apps/web/e2e/app-library-navigation-mount.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)
