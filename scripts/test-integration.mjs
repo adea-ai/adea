@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { assertLocalTestTargets } from './test-target-guard.mjs'
 import {
   captureCommand,
@@ -21,13 +22,20 @@ const root = resolve(import.meta.dirname, '..')
 
 // An inherited DATABASE_URL must be a local or CI-created target before anything runs.
 assertLocalTestTargets()
+const usesExplicitDatabase = Boolean(process.env.DATABASE_URL)
+const localPostgresPort = process.env.ADEA_POSTGRES_PORT ?? '55432'
+// Match Compose's configured host endpoint without allowing URL/host injection.
+// Explicit targets do not consume the local Compose port.
+if (
+  !usesExplicitDatabase &&
+  (!/^[1-9]\d{0,4}$/.test(localPostgresPort) || Number(localPostgresPort) > 65535)
+) {
+  throw new Error('ADEA_POSTGRES_PORT must be a decimal TCP port between 1 and 65535')
+}
 const localDatabaseEnvironment = {
-  DATABASE_URL:
-    'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',
-  DATABASE_URL_UNPOOLED:
-    'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable',
-  DATABASE_MIGRATION_URL:
-    'postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55432/agent_hq?sslmode=disable',
+  DATABASE_URL: `postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:${localPostgresPort}/agent_hq?sslmode=disable`,
+  DATABASE_URL_UNPOOLED: `postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:${localPostgresPort}/agent_hq?sslmode=disable`,
+  DATABASE_MIGRATION_URL: `postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:${localPostgresPort}/agent_hq?sslmode=disable`,
 }
 
 // ADEA_INTEGRATION_SHARD=<index>/<total> runs one explicit slice of the package suites, so a lane
@@ -63,7 +71,8 @@ function run(command, args, environment, cwd = root) {
   })
   if (result.error) throw result.error
   if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} failed with exit code ${result.status}`)
+    const outcome = result.signal ? `signal ${result.signal}` : `exit code ${result.status}`
+    throw new Error(`${command} ${args.join(' ')} failed with ${outcome}`)
   }
 }
 
@@ -72,15 +81,24 @@ function run(command, args, environment, cwd = root) {
 // attempt settles so a rate-limited attempt stays visible in the log.
 async function composeUpPostgres() {
   const args = ['compose', 'up', '-d', '--wait', '--wait-timeout', '30', 'postgres']
-  const result = await runWithPullFallback(async (image) => {
-    const attempt = await captureCommand('docker', args, {
-      cwd: root,
-      env: withComposeImage(process.env, image),
-    })
-    if (attempt.stdout) process.stdout.write(attempt.stdout)
-    if (attempt.stderr) process.stderr.write(attempt.stderr)
-    return attempt
-  }, composePostgresImage(root))
+  const result = await runWithPullFallback(
+    async (image) => {
+      const attempt = await captureCommand('docker', args, {
+        cwd: root,
+        env: withComposeImage(process.env, image),
+        signal: startupAbort.signal,
+        processGroup: true,
+      })
+      if (attempt.stdout) process.stdout.write(attempt.stdout)
+      if (attempt.stderr) process.stderr.write(attempt.stderr)
+      return attempt
+    },
+    composePostgresImage(root),
+    {
+      signal: startupAbort.signal,
+      sleep: (milliseconds) => sleep(milliseconds, undefined, { signal: startupAbort.signal }),
+    }
+  )
   if (result.error) throw result.error
   if (result.status !== 0) {
     throw new Error(`docker ${args.join(' ')} failed with exit code ${result.status}`)
@@ -103,7 +121,6 @@ function runningComposeServices() {
 // The migration-snapshot capture proofs need a disposable PostgreSQL scratch database per run; the
 // provisioning helper in capture-provisioning.mjs starts and always removes it.
 
-const usesExplicitDatabase = Boolean(process.env.DATABASE_URL)
 if (usesExplicitDatabase) {
   const missingVariables = ['DATABASE_URL_UNPOOLED', 'DATABASE_MIGRATION_URL'].filter(
     (name) => !process.env[name]
@@ -118,6 +135,11 @@ if (usesExplicitDatabase) {
 const environment = usesExplicitDatabase
   ? { ...process.env }
   : { ...process.env, ...localDatabaseEnvironment }
+assertLocalTestTargets(environment)
+const startupAbort = new AbortController()
+let startingLocalPostgres = false
+let interruptedSignal
+let signalListeners = []
 let startedLocalPostgres = false
 let captureProvisioning = null
 let primaryFailure
@@ -132,8 +154,15 @@ try {
   // compiled database entry, with the explicit server-only runtime condition.
   run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
   if (!usesExplicitDatabase && !runningComposeServices().includes('postgres')) {
-    await composeUpPostgres()
+    // Acquire cleanup ownership before startup: a failed health wait may leave a container.
     startedLocalPostgres = true
+    attachLocalPostgresCleanup()
+    startingLocalPostgres = true
+    try {
+      await composeUpPostgres()
+    } finally {
+      startingLocalPostgres = false
+    }
   }
 
   run('node', ['scripts/database-health.mjs'], environment)
@@ -232,30 +261,69 @@ try {
   primaryFailure = error
 }
 
-if (startedLocalPostgres) {
-  // Cleanup runs on success AND failure, and never hides the primary result:
-  // when the lane already failed, a broken stop is reported to stderr instead
-  // of replacing the real failure; when the lane was green, a leaked container
-  // still fails the run.
-  try {
-    run('docker', ['compose', 'stop', 'postgres'], process.env)
-  } catch (error) {
-    console.error(`docker compose stop postgres failed: ${error.message}`)
-    primaryFailure ??= error
-  }
-}
-
-if (captureProvisioning) {
-  // Same contract as the compose cleanup above: the throwaway capture
-  // provisioning container is removed on success AND failure, a broken
-  // removal is reported without hiding the primary result, and a leak after a
-  // green run fails the lane.
-  try {
-    captureProvisioning.stop()
-  } catch (error) {
-    console.error(`removing the capture provisioning container failed: ${error.message}`)
-    primaryFailure ??= error
-  }
-}
-
+cleanupResources()
+if (interruptedSignal) terminateOnSignal()
 if (primaryFailure) throw primaryFailure
+
+// Compose startup is asynchronous and may be interrupted after creating the service.
+// Keep signal listeners through normal teardown so a signal queued during spawnSync
+// still terminates the runner once the event loop resumes.
+function attachLocalPostgresCleanup() {
+  process.on('exit', (code) => {
+    cleanupResources()
+    if (code === 0 && primaryFailure) process.exitCode = 1
+  })
+  signalListeners = ['SIGINT', 'SIGTERM'].map((signal) => [
+    signal,
+    () => {
+      interruptedSignal ??= signal
+      startupAbort.abort(new Error(`integration runner interrupted by ${signal}`))
+      // Await startup cancellation/reaping before stop: otherwise Compose could
+      // create the service after teardown has already completed.
+      if (startingLocalPostgres) return
+      cleanupResources()
+      terminateOnSignal()
+    },
+  ])
+  for (const [signal, listener] of signalListeners) process.on(signal, listener)
+}
+
+function terminateOnSignal() {
+  for (const [name, listener] of signalListeners) process.off(name, listener)
+  process.kill(process.pid, interruptedSignal)
+}
+
+function cleanupResources() {
+  if (startedLocalPostgres) {
+    // Clear ownership before stopping so exit/signal teardown cannot stop it twice.
+    startedLocalPostgres = false
+    try {
+      const result = spawnSync('docker', ['compose', 'stop', 'postgres'], {
+        cwd: root,
+        env: process.env,
+        stdio: 'inherit',
+        timeout: 30_000,
+        killSignal: 'SIGKILL',
+      })
+      if (result.error) throw result.error
+      if (result.status !== 0) {
+        throw new Error(
+          `docker compose stop postgres failed with ${result.signal ? `signal ${result.signal}` : `exit code ${result.status}`}`
+        )
+      }
+    } catch (error) {
+      console.error(`docker compose stop postgres failed: ${error.message}`)
+      primaryFailure ??= error
+    }
+  }
+  if (captureProvisioning) {
+    const handle = captureProvisioning
+    captureProvisioning = null
+    try {
+      handle.stop()
+    } catch (error) {
+      console.error(`removing the capture provisioning container failed: ${error.message}`)
+      primaryFailure ??= error
+    }
+  }
+}

@@ -363,6 +363,155 @@ export function admissionInForce(
   return admission !== null && decideGroupTurn({ admission, groupId, now }).action === 'allow'
 }
 
+/**
+ * Read-only standing in an ARCHIVED group (#1222). Archiving freezes a conversation; by itself it
+ * does not revoke an audience. A user keeps read-only access when either:
+ *
+ * - they still hold an in-force canonical admission — a group that reached the grant model and was
+ *   archived afterwards; or
+ * - unchanged quarantine provenance proves the legacy group had no canonical withdrawals (the
+ *   0050 backfill admitted active groups only), and workspace membership predates the retained
+ *   participant row. Removing and recreating membership cannot restore that legacy standing.
+ *
+ * Canonical rows or recorded withdrawals put the canonical model in charge. An empty admission
+ * table after 0058 is not evidence of a never-admitted group. Legacy reads require an unchanged
+ * quarantined source row, complete zero-withdrawal provenance and continuous workspace membership.
+ * This helper grants no turn and no write.
+ */
+export async function archivedGroupReadAllowedForUser(
+  database: GroupStoreDatabase,
+  workspaceId: string,
+  channelId: string,
+  userId: string,
+  now: string
+): Promise<boolean> {
+  if (
+    admissionInForce(
+      await loadGroupAdmission(database, workspaceId, channelId, { kind: 'user', userId }),
+      channelId,
+      now
+    )
+  )
+    return true
+  const [retained] = await database
+    .select({ id: channelParticipants.id })
+    .from(channelParticipants)
+    .innerJoin(
+      workspaceMemberships,
+      and(
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        eq(workspaceMemberships.userId, userId),
+        sql`${workspaceMemberships.createdAt} <= ${channelParticipants.createdAt}`
+      )
+    )
+    .where(
+      and(
+        eq(channelParticipants.workspaceId, workspaceId),
+        eq(channelParticipants.channelId, channelId),
+        eq(channelParticipants.principalKind, 'user'),
+        eq(channelParticipants.userId, userId),
+        provableLegacyArchivedParticipant()
+      )
+    )
+    .limit(1)
+  return Boolean(retained)
+}
+
+/** Retained provenance must prove this is a legacy audience, not a withdrawn canonical one. */
+function provableLegacyArchivedParticipant() {
+  const canonicalTables = [
+    groupAdmissions,
+    groupAudienceGrants,
+    groupEnlistmentGrants,
+    groupSharingGrants,
+  ]
+  return and(
+    ...canonicalTables.map(
+      (table) => sql`not exists (
+      select 1 from ${table}
+      where ${table.workspaceId} = ${channelParticipants.workspaceId}
+        and ${table.channelId} = ${channelParticipants.channelId}
+    )`
+    ),
+    sql`not exists (
+      select 1 from ${legacyAudienceQuarantine}
+      where ${legacyAudienceQuarantine.workspaceId} = ${channelParticipants.workspaceId}
+        and ${legacyAudienceQuarantine.channelId} = ${channelParticipants.channelId}
+        and (coalesce(${legacyAudienceQuarantine.withdrawnAdmissions}, 1) <> 0
+          or coalesce(${legacyAudienceQuarantine.withdrawnAudienceGrants}, 1) <> 0
+          or coalesce(${legacyAudienceQuarantine.withdrawnEnlistmentGrants}, 1) <> 0)
+    )`,
+    sql`exists (
+      select 1 from ${legacyAudienceQuarantine}
+      where ${legacyAudienceQuarantine.sourceParticipantId} = ${channelParticipants.id}
+        and ${legacyAudienceQuarantine.workspaceId} = ${channelParticipants.workspaceId}
+        and ${legacyAudienceQuarantine.channelId} = ${channelParticipants.channelId}
+        and ${legacyAudienceQuarantine.reason} = 'group_channel_not_active'
+        and ${legacyAudienceQuarantine.sourceRowDigest} = app.legacy_participant_digest(${sql.identifier('channel_participants')})
+    )`
+  )
+}
+
+/**
+ * The retained, still-admissible audience of an archived legacy group: the principals its roster
+ * rows and zero-withdrawal provenance still prove standing, for a read-only listing. Canonical
+ * records and withdrawals exclude this fallback, matching `archivedGroupReadAllowedForUser`.
+ */
+export async function retainedArchivedGroupParticipants(
+  database: GroupStoreDatabase,
+  workspaceId: string,
+  channelId: string
+): Promise<ConversationParticipantRef[]> {
+  const [userRows, agentRows] = await Promise.all([
+    database
+      .select({ userId: channelParticipants.userId })
+      .from(channelParticipants)
+      .innerJoin(
+        workspaceMemberships,
+        and(
+          eq(workspaceMemberships.workspaceId, workspaceId),
+          eq(workspaceMemberships.userId, channelParticipants.userId),
+          sql`${workspaceMemberships.createdAt} <= ${channelParticipants.createdAt}`
+        )
+      )
+      .where(
+        and(
+          eq(channelParticipants.workspaceId, workspaceId),
+          eq(channelParticipants.channelId, channelId),
+          eq(channelParticipants.principalKind, 'user'),
+          provableLegacyArchivedParticipant()
+        )
+      ),
+    database
+      .select({ agentId: channelParticipants.agentId })
+      .from(channelParticipants)
+      .innerJoin(
+        agents,
+        and(
+          eq(agents.id, channelParticipants.agentId),
+          eq(agents.workspaceId, workspaceId),
+          eq(agents.lifecycleState, 'active')
+        )
+      )
+      .where(
+        and(
+          eq(channelParticipants.workspaceId, workspaceId),
+          eq(channelParticipants.channelId, channelId),
+          eq(channelParticipants.principalKind, 'agent'),
+          provableLegacyArchivedParticipant()
+        )
+      ),
+  ])
+  return [
+    ...userRows
+      .filter((row): row is { userId: string } => row.userId !== null)
+      .map((row): ConversationParticipantRef => ({ kind: 'user', userId: row.userId })),
+    ...agentRows
+      .filter((row): row is { agentId: string } => row.agentId !== null)
+      .map((row): ConversationParticipantRef => ({ agentId: row.agentId, kind: 'agent' })),
+  ]
+}
+
 /** Group ids whose retained user admission resolves to a live, matching grant. */
 export async function groupChannelIdsInForce(
   database: GroupStoreDatabase,

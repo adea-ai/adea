@@ -106,6 +106,24 @@ test('host and model panes reach neither the catalog panes nor Lead chat', () =>
   ])
 })
 
+test('workspace Connections wires the local session inventory action to the signed runtime provider', () => {
+  const dialog = readFileSync(sourceFile('workspace-details-dialog'), 'utf8')
+  const pane = readFileSync(sourceFile('runtime-nodes-pane'), 'utf8')
+  const diagnostic = readFileSync(sourceFile('native-session-inventory-diagnostic'), 'utf8')
+
+  expect(dialog).toContain('nativeSessionInventoryDiagnostics')
+  expect(dialog).toContain('workspaceId={props.workspace.id}')
+  expect(pane).not.toContain('runtimeNodeId={props.node.id}')
+  expect(pane.indexOf('<NativeSessionInventoryDiagnostic')).toBeLessThan(
+    pane.indexOf('when={scope()}')
+  )
+  expect(pane).toContain('<NativeSessionInventoryDiagnostic')
+  expect(diagnostic).toContain('Capture local inventory')
+  expect(diagnostic).toContain('Download redacted inventory')
+  expect(diagnostic).toContain('savePortableFile')
+  expect(diagnostic).not.toContain('@adea-ai/db')
+})
+
 test('the conversation surface and settings dialog load every entry on demand', () => {
   for (const host of ['conversation-surface', 'workspace-details-dialog']) {
     const closure = staticClosure(host)

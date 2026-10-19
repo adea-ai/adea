@@ -1,90 +1,121 @@
 import 'server-only'
 
+import type { AuthAdapter } from './adapter'
 import {
-  createAuthServer,
-  handleAuthProxyRequest,
-  type NeonAuthServer,
-  type RequestContextFactory,
-} from '@neondatabase/auth/server'
-
-import { createAuthAdapter } from './adapter'
-import { readAuthConfig, type AuthEnvironment } from './config'
-import { createNeonAuthDriver, type NeonSdk } from './neon-driver'
-import { assertTrustedOrigin } from './security'
+  createBetterAuthContextAdapter,
+  createBetterAuthServer,
+  createPostgresAuthDatabase,
+  handleBetterAuthRequest,
+  type AuthRequestContextFactory,
+  type BetterAuthInstance,
+} from './better-auth-server'
+import { readBetterAuthConfig, type AuthEnvironment, type BetterAuthConfig } from './config'
+import { createUnconfiguredDelivery, type AuthDelivery } from './delivery'
 
 type RouteMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT'
 
-let cachedAuth: NeonAuthServer | undefined
-let cachedAuthContext: RequestContextFactory | undefined
-let cachedConfig: ReturnType<typeof readAuthConfig> | undefined
+/**
+ * A self-hosted Better Auth service plus the teardown that releases its
+ * database connection.
+ */
+export type BetterAuthService = Readonly<{
+  auth: BetterAuthInstance
+  close(): Promise<void>
+  config: BetterAuthConfig
+}>
 
-function config(environment: AuthEnvironment) {
-  cachedConfig ??= readAuthConfig(environment)
-  return cachedConfig
-}
+export type AuthServiceConsumer = Readonly<{
+  /**
+   * Registers the service teardown with the caller's request scope so a Worker
+   * releases its database socket when the request ends. Without it the caller
+   * owns `close()`.
+   */
+  registerCleanup?: (close: () => Promise<void>) => void
+}>
 
-// Provider payloads and transport errors may contain PII or cookies. Adea
-// emits only its own allowlisted auth events through createAuthEvent().
-// A plain no-op sink keeps that full mute without pino, whose internals
-// break under the local dev workerd runtime.
-const silentLog = () => ({
-  error: () => {},
-  warn: () => {},
-  info: () => {},
-  debug: () => {},
-})
-
-export function createNeonServerAdapter(
-  context: RequestContextFactory,
-  environment: AuthEnvironment = process.env
-) {
-  if (!cachedAuth || cachedAuthContext !== context) {
-    cachedAuthContext = context
-    cachedAuth = createAuthServer({
-      baseUrl: config(environment).baseUrl,
-      context,
-      cookieSecret: config(environment).cookieSecret,
-      sessionDataTtl: config(environment).sessionDataTtl,
-      sameSite: 'lax',
-      log: silentLog(),
-    })
+/**
+ * Builds a fresh, request-owned self-hosted Better Auth service for the
+ * configured Railway PostgreSQL instance. Nothing is cached at module scope: a
+ * Cloudflare Worker isolate serves many requests, and a process-global
+ * connection would leak one request's socket into another. The caller closes
+ * the returned service (or registers `close` with its request scope).
+ */
+export function createBetterAuthService(
+  environment: AuthEnvironment = process.env,
+  delivery: AuthDelivery = createUnconfiguredDelivery()
+): BetterAuthService {
+  const settings = readBetterAuthConfig(environment)
+  // `readBetterAuthConfig` verifies the URL opts into TLS for hosted databases.
+  // Keep its SSL query parameters intact so `pg` applies that exact policy.
+  const database = createPostgresAuthDatabase(settings.databaseUrl)
+  return {
+    auth: createBetterAuthServer({ config: settings, database: database.database, delivery }),
+    close: database.close,
+    config: settings,
   }
-  return createAuthAdapter(createNeonAuthDriver(cachedAuth as unknown as NeonSdk))
 }
+
+/**
+ * The server-side auth adapter the application calls. The name is retained for
+ * the existing web and desktop call sites; the implementation is now the
+ * self-hosted Better Auth service rather than a hosted Neon Auth SDK. Pass a
+ * `consumer.registerCleanup` (for example the app's `registerRequestCleanup`)
+ * so the request-owned connection is released with the request.
+ */
+export function createNeonServerAdapter(
+  context: AuthRequestContextFactory,
+  environment: AuthEnvironment = process.env,
+  consumer: AuthServiceConsumer = {}
+): AuthAdapter {
+  const service = createBetterAuthService(environment)
+  consumer.registerCleanup?.(service.close)
+  return createBetterAuthContextAdapter(service.auth, context)
+}
+
+/** Provider-neutral alias for {@link createNeonServerAdapter}. */
+export const createAuthServerAdapter = createNeonServerAdapter
 
 export async function handleNeonAuthRequest(
   method: RouteMethod,
   request: Request,
-  path: string,
+  _path?: string,
   environment: AuthEnvironment = process.env
 ): Promise<Response> {
-  const settings = config(environment)
-  const origin = request.headers.get('origin') ?? undefined
-
-  // OAuth callbacks are top-level GET navigations and normally omit Origin. Every request that
-  // supplies Origin, and every state-changing request, must match an exact allowlist entry.
-  if (origin || method !== 'GET') {
-    try {
-      assertTrustedOrigin(origin, settings.trustedOrigins)
-    } catch {
-      return Response.json({ error: 'Forbidden' }, { status: 403 })
-    }
+  const service = createBetterAuthService(environment)
+  try {
+    return await handleBetterAuthRequest(service.auth, method, request, service.config)
+  } finally {
+    await service.close()
   }
-
-  // The proxy is a plain Request -> Response pipe; it never consults the
-  // host framework's request context, so no factory is involved here.
-  return handleAuthProxyRequest({
-    request,
-    path,
-    baseUrl: settings.baseUrl,
-    cookieSecret: settings.cookieSecret,
-    sessionDataTtl: settings.sessionDataTtl,
-    sameSite: 'lax',
-    log: silentLog(),
-  })
 }
 
-export { readAuthConfig } from './config'
+/** Provider-neutral alias for {@link handleNeonAuthRequest}. */
+export const handleAuthRequest = handleNeonAuthRequest
+
+export { createAuthAdapter, type AuthAdapter } from './adapter'
+export { createBetterAuthDriver, type BetterAuthServerApi } from './better-auth-driver'
+export {
+  createBetterAuthServerAdapter,
+  createBetterAuthContextAdapter,
+  type AuthRequestContext,
+  type AuthRequestContextFactory,
+  type BetterAuthInstance,
+} from './better-auth-server'
+export {
+  readAuthConfig,
+  readBetterAuthConfig,
+  type AuthConfig,
+  type AuthEnvironment,
+  type BetterAuthConfig,
+} from './config'
+export {
+  AuthDeliveryUnavailableError,
+  createRecordingAuthDelivery,
+  createUnconfiguredDelivery,
+  type AuthDelivery,
+  type AuthDeliveryMessage,
+} from './delivery'
+export { normalizeNeonSession, normalizeProviderSession } from './session'
 export {
   assertTrustedOrigin,
   createAuthorizationState,

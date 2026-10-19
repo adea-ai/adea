@@ -3318,20 +3318,27 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
         sender: { kind: 'user', userId: f.owner.principal.userId },
       })
     const baseline = await measureSurfaces(f)
-    for (let index = 0; index < LARGE_HIDDEN_RUN; index += 1) {
-      const job = await f.submitAnotherJob()
-      await completeTaskAndPublishOutboundResult(
-        connection.db,
-        f.workspace.id,
-        job.id,
-        f.owner.principal,
-        {
-          expectedVersion: job.version,
-          idempotencyKey: crypto.randomUUID(),
-          requestId: crypto.randomUUID(),
-        },
-        { artifact: null, artifactPolicy: 'require', channelId, summary: `lumen run ${index}` }
+    // Prepare independent Tasks in pairs, but publish in index order. The ordinary
+    // messages stay before every publication and the roster changes stay after all 210.
+    for (let start = 0; start < LARGE_HIDDEN_RUN; start += 2) {
+      const jobs = await Promise.all(
+        Array.from({ length: Math.min(2, LARGE_HIDDEN_RUN - start) }, () => f.submitAnotherJob())
       )
+      for (const [offset, job] of jobs.entries()) {
+        const index = start + offset
+        await completeTaskAndPublishOutboundResult(
+          connection.db,
+          f.workspace.id,
+          job.id,
+          f.owner.principal,
+          {
+            expectedVersion: job.version,
+            idempotencyKey: crypto.randomUUID(),
+            requestId: crypto.randomUUID(),
+          },
+          { artifact: null, artifactPolicy: 'require', channelId, summary: `lumen run ${index}` }
+        )
+      }
     }
     // Move the roster revision twice while retaining the reader, so the old publications are
     // hidden and the ordinary notes remain within the reader's original history window.

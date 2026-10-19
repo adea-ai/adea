@@ -13,6 +13,7 @@ import { applicationDatabase } from './database'
 import { emailAllowlistConfigured, isAllowedEmail } from './allowed-emails'
 import { desktopPrincipalMapping, resolveDesktopSessionPrincipal } from './desktop-auth'
 import { resolveOrProvisionDesktopPrincipal } from './desktop-principal'
+import { registerRequestCleanup } from './request-scope'
 import {
   createTemporaryCredential,
   digestTemporaryCredential,
@@ -73,7 +74,9 @@ export async function resolveWorkspacePrincipal(
     // (same factory, first Neon-account call), and non-account paths never
     // evaluate the framework at all.
     const { createStartRequestContext } = await import('./auth-request-context')
-    authentication = await createNeonServerAdapter(createStartRequestContext).getSession()
+    authentication = await createNeonServerAdapter(createStartRequestContext, undefined, {
+      registerCleanup: registerRequestCleanup,
+    }).getSession()
   } catch {
     // Account persistence is optional. A missing provider configuration must not block guests.
   }

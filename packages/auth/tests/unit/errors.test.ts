@@ -145,7 +145,7 @@ describe('driver failures keep their cause', () => {
         getSession: async () => ({
           data: {
             session: { expiresAt, id: 'session-1' },
-            user: { email: 'p@example.test', id: 'user-1' },
+            user: { email: 'p@example.test', emailVerified: true, id: 'user-1' },
           },
           error: null,
         }),

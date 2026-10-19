@@ -7,6 +7,7 @@ export const AUTH_ERROR_CODES = {
   emailAddressInvalid: 'email_address_invalid',
   emailExists: 'email_exists',
   emailNotConfirmed: 'email_not_confirmed',
+  emailNotVerified: 'email_not_verified',
   invalidCredentials: 'invalid_credentials',
   overRequestRateLimit: 'over_request_rate_limit',
   sessionExpired: 'session_expired',
@@ -71,6 +72,7 @@ export class AuthProviderError extends Error {
     return (
       this.code === AUTH_ERROR_CODES.invalidCredentials ||
       this.code === AUTH_ERROR_CODES.emailNotConfirmed ||
+      this.code === AUTH_ERROR_CODES.emailNotVerified ||
       this.code === AUTH_ERROR_CODES.userAlreadyExists ||
       this.code === AUTH_ERROR_CODES.userAlreadyExistsUseAnotherEmail ||
       this.code === AUTH_ERROR_CODES.emailExists

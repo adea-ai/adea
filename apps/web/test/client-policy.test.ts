@@ -19,7 +19,11 @@ describe('pure browser dependency boundaries', () => {
     '/node_modules/@adea-ai/contracts/index.js',
     '/repo/apps/web/src/server/auth.ts',
     '/repo/packages/auth/src/config.ts',
+    '/repo/packages/auth/src/better-auth-server.ts',
     '/node_modules/@adea-ai/auth/dist/server.js',
+    '/node_modules/@adea-ai/auth/dist/better-auth-server.js',
+    '/node_modules/better-auth/dist/index.mjs',
+    '/node_modules/better-auth/dist/api/index.mjs',
     '/repo/apps/web/src/start/worker.ts',
     '/node_modules/react/index.js',
     '/node_modules/react-dom/client.js',
@@ -40,6 +44,7 @@ describe('pure browser dependency boundaries', () => {
     '/repo/packages/types/src/index.ts',
     '/repo/packages/auth/src/session.ts',
     '/repo/node_modules/@adea-ai/ui/dist/index.js',
+    '/repo/node_modules/better-auth/dist/client/index.mjs',
     '/repo/node_modules/@tanstack/solid-query/index.js',
     '/repo/apps/web/src/components/workspace.tsx',
   ])('retains permitted browser dependency %s', (path) =>
@@ -69,6 +74,22 @@ describe('pure browser dependency boundaries', () => {
     ).toBe(true)
   })
 
+  test('keeps the native inventory diagnostic out of the production web graph', () => {
+    expect(
+      desktopOnlyClientModule(
+        '/repo/packages/workspace-ui/src/native-session-inventory-diagnostic.tsx'
+      )
+    ).toBe(true)
+    expect(
+      desktopOnlyClientModule(
+        'C:\\repo\\packages\\workspace-ui\\src\\native-session-inventory-diagnostic.tsx'
+      )
+    ).toBe(true)
+    expect(desktopOnlyClientModule('/repo/packages/workspace-ui/src/runtime-nodes-pane.tsx')).toBe(
+      false
+    )
+  })
+
   test('keeps private bindings out of the explicit public substitution list', () => {
     expect(PUBLIC_ENV_NAMES).toEqual([
       'ADEA_PUBLIC_WORLD_URL',
@@ -82,6 +103,8 @@ describe('pure browser dependency boundaries', () => {
       'CONTROL_PLANE_API_TOKEN',
       'CONTROL_PLANE_SIGNING_KEY',
       'NEON_AUTH_COOKIE_SECRET',
+      'AUTH_SECRET',
+      'AUTH_DATABASE_URL',
     ])
       expect(PRIVATE_ENV_NAMES).toContain(name)
   })

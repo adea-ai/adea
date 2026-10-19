@@ -303,8 +303,12 @@ function sameScope(left: Scope, right: Scope): boolean {
   )
 }
 
-function page<T>(items: readonly T[]): DevRuntimePage<T> {
-  return { items: [...items], observedAt: new Date().toISOString() }
+function page<T>(items: readonly T[], nextCursor?: string): DevRuntimePage<T> {
+  return {
+    items: [...items],
+    ...(nextCursor !== undefined ? { nextCursor } : {}),
+    observedAt: new Date().toISOString(),
+  }
 }
 
 function requireScope(command: DevCommand, scope: Scope): void {
@@ -1072,20 +1076,39 @@ export function registerProjectSessionRuntime(input: {
     },
     'dev.session.list': (command) => {
       requireScope(command, input.scope)
-      return page(
-        record.sessions.filter((entry) => {
-          const body = command.body as {
-            runtimeSessionId?: string
-            projectId?: string
-            archived?: boolean
-          }
-          return (
+      const body = command.body as {
+        runtimeSessionId?: string
+        projectId?: string
+        worktreeId?: string
+        archived?: boolean
+        cursor?: string
+        limit?: number
+      }
+      const limit = body.limit ?? 200
+      if (
+        !Number.isSafeInteger(limit) ||
+        limit < 1 ||
+        limit > 500 ||
+        (body.cursor !== undefined &&
+          (typeof body.cursor !== 'string' || body.cursor.length === 0 || body.cursor.length > 512))
+      ) {
+        throw new DevAuthorityError('invalid_state', 'session list pagination is invalid')
+      }
+      const matching = record.sessions
+        .filter(
+          (entry) =>
             (body.runtimeSessionId === undefined || entry.id === body.runtimeSessionId) &&
             (body.projectId === undefined || entry.projectId === body.projectId) &&
+            (body.worktreeId === undefined || entry.worktreeId === body.worktreeId) &&
             (body.archived === undefined || entry.archived === body.archived)
-          )
-        })
-      )
+        )
+        .toSorted((left, right) => (left.id < right.id ? -1 : left.id > right.id ? 1 : 0))
+      const cursor = body.cursor
+      const afterCursor =
+        cursor === undefined ? matching : matching.filter((entry) => entry.id > cursor)
+      const items = afterCursor.slice(0, limit)
+      const nextCursor = afterCursor.length > items.length ? items.at(-1)?.id : undefined
+      return page(items, nextCursor)
     },
     'dev.session.get': (command) => {
       requireScope(command, input.scope)

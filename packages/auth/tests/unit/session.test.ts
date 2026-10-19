@@ -7,7 +7,12 @@ describe('session normalization', () => {
     const result = normalizeNeonSession(
       {
         session: { expiresAt: new Date('2030-01-01T00:00:00.000Z'), id: 'session-1' },
-        user: { id: 'provider-subject', email: 'operator@example.com', name: 'Operator' },
+        user: {
+          id: 'provider-subject',
+          email: 'operator@example.com',
+          emailVerified: true,
+          name: 'Operator',
+        },
       },
       new Date('2029-01-01T00:00:00.000Z')
     )
@@ -18,6 +23,26 @@ describe('session normalization', () => {
       profile: { displayName: 'Operator', email: 'operator@example.com' },
     })
     expect(result).not.toHaveProperty('userId')
+  })
+
+  test('withholds the email until the mailbox is verified', () => {
+    const result = normalizeNeonSession(
+      {
+        session: { expiresAt: new Date('2030-01-01T00:00:00.000Z'), id: 'session-1' },
+        user: {
+          id: 'provider-subject',
+          email: 'unverified@example.com',
+          emailVerified: false,
+          name: 'Operator',
+        },
+      },
+      new Date('2029-01-01T00:00:00.000Z')
+    )
+
+    // Email-based authority (allowlists, invitations) must not see an unproven
+    // address, but the identity and display name survive.
+    expect(result?.profile).toEqual({ displayName: 'Operator' })
+    expect(result?.identity.subject).toBe('provider-subject')
   })
 
   test('fails closed for missing, expired, or malformed sessions', () => {

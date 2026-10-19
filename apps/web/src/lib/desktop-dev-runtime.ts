@@ -1,4 +1,16 @@
 import { buildDevCommand } from '@adea-ai/dev-view/browser'
+import type { MigrationSnapshotSection } from '@adea-ai/types'
+import {
+  captureNativeSessionSection,
+  type NativeSessionInventoryPage,
+  type NativeSessionInventoryScope,
+  type NativeSessionInventorySession,
+  type NativeSessionInventorySource,
+} from '@adea-ai/types/native-session-inventory'
+import type {
+  NativeSessionInventoryDiagnosticResult,
+  NativeSessionInventoryDiagnosticService,
+} from '@adea-ai/workspace-ui/platform'
 import {
   createUnavailableDevRuntimeService,
   type DevEventSubscription,
@@ -10,14 +22,23 @@ import {
 } from '@adea-ai/dev-view/platform'
 import {
   decodeWorkspaceRunSummary,
+  devOperationDecoders,
   type DevCommand,
   type DevReply,
+  type DevRuntimePage,
+  type RuntimeSession,
   type Scope,
   type WorkspaceRunSummary,
 } from '@adea-ai/types/dev-runtime'
 
 import { createDesktopStreamTransport } from './desktop-stream-transport'
 import type { DevScopeSelection } from './desktop-dev-scope'
+
+const DESKTOP_SESSION_LIST_PAGE_LIMIT = 500
+const DESKTOP_SESSION_INVENTORY_MAX_RECORDS = 10_000
+const DESKTOP_SESSION_INVENTORY_TIMEOUT_MS = 15_000
+const DESKTOP_NATIVE_SESSION_INVENTORY_RECORD_BOUND = 1_000
+const DESKTOP_NATIVE_SESSION_INVENTORY_CAPTURE_TIMEOUT_MS = 30_000
 
 /** The structural slice of the injected bridge this module touches. Declared
  *  locally, never imported: the boundary test pins that this module does not
@@ -296,7 +317,7 @@ export function createDesktopDevRuntimeService(
       }
       const [projects, sessions] = await Promise.all([
         executeOperation(execute, 'dev.project.list', scope, {}),
-        executeOperation(execute, 'dev.session.list', scope, {}),
+        executeAllSessionPages(execute, scope),
       ])
       return toProjection(projects, sessions)
     },
@@ -355,7 +376,7 @@ function createBoundService(options: {
     projection: async (requestedScope) => {
       const [projects, sessions] = await Promise.all([
         executeOperation(execute, 'dev.project.list', requestedScope, {}),
-        executeOperation(execute, 'dev.session.list', requestedScope, {}),
+        executeAllSessionPages(execute, requestedScope),
       ])
       return toProjection(projects, sessions)
     },
@@ -398,6 +419,415 @@ function sameScope(left: Scope, right: Scope): boolean {
     left.workspaceId === right.workspaceId &&
     left.runtimeNodeId === right.runtimeNodeId
   )
+}
+
+function copyInventoryScope(scope: Scope): NativeSessionInventoryScope | undefined {
+  if (
+    typeof scope.accountId !== 'string' ||
+    scope.accountId.length === 0 ||
+    typeof scope.runtimeNodeId !== 'string' ||
+    scope.runtimeNodeId.length === 0 ||
+    typeof scope.workspaceId !== 'string' ||
+    scope.workspaceId.length === 0
+  ) {
+    return undefined
+  }
+  return Object.freeze({
+    accountId: scope.accountId,
+    runtimeNodeId: scope.runtimeNodeId,
+    workspaceId: scope.workspaceId,
+  })
+}
+
+async function withDeadline<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  signal?: AbortSignal
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let abortListener: (() => void) | undefined
+  try {
+    if (signal?.aborted) throw new Error('desktop session inventory read was cancelled')
+    const races: Promise<T>[] = [
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('desktop session inventory read timed out')),
+          timeoutMs
+        )
+      }),
+    ]
+    if (signal) {
+      races.push(
+        new Promise<never>((_, reject) => {
+          abortListener = () => reject(new Error('desktop session inventory read was cancelled'))
+          signal.addEventListener('abort', abortListener, { once: true })
+          if (signal.aborted) abortListener()
+        })
+      )
+    }
+    const result = await Promise.race(races)
+    if (signal?.aborted) throw new Error('desktop session inventory read was cancelled')
+    return result
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
+    if (signal && abortListener) signal.removeEventListener('abort', abortListener)
+  }
+}
+
+async function executeSessionListPage(
+  execute: (command: DevCommand) => Promise<DevReply>,
+  scope: Scope,
+  input: Readonly<{ cursor?: string; limit: number }>,
+  timeoutMs = DESKTOP_SESSION_INVENTORY_TIMEOUT_MS,
+  signal?: AbortSignal
+): Promise<DevRuntimePage<RuntimeSession>> {
+  if (
+    !Number.isSafeInteger(input.limit) ||
+    input.limit < 1 ||
+    input.limit > DESKTOP_SESSION_LIST_PAGE_LIMIT ||
+    (input.cursor !== undefined &&
+      (typeof input.cursor !== 'string' || input.cursor.length === 0 || input.cursor.length > 512))
+  ) {
+    throw new Error('desktop session inventory request is outside the supported bounds')
+  }
+  const command = buildDevCommand({
+    operation: 'dev.session.list',
+    scope,
+    body: {
+      ...(input.cursor !== undefined ? { cursor: input.cursor } : {}),
+      limit: input.limit,
+    },
+  })
+  let rawReply: DevReply
+  try {
+    rawReply = await withDeadline(execute(command), timeoutMs, signal)
+    if (signal?.aborted) throw new Error('desktop session inventory read was cancelled')
+  } catch (error) {
+    if (error instanceof Error && error.message === 'desktop session inventory read timed out') {
+      throw error
+    }
+    throw new Error('desktop session inventory read is unavailable', {
+      // The public message stays generic; capture serializes neither this
+      // local cause nor host transport details into snapshot product data.
+      cause: error,
+    })
+  }
+  let reply: DevReply
+  try {
+    reply = devOperationDecoders['dev.session.list'].reply(rawReply)
+  } catch {
+    throw new Error('desktop session inventory returned a malformed runtime reply')
+  }
+  if (signal?.aborted) throw new Error('desktop session inventory read was cancelled')
+  if (!reply.ok) throw new Error('desktop session inventory read is unavailable')
+  const value = reply.value as unknown as DevRuntimePage<RuntimeSession>
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !Array.isArray(value.items) ||
+    value.items.length > input.limit ||
+    typeof value.observedAt !== 'string' ||
+    (value.nextCursor !== undefined &&
+      (typeof value.nextCursor !== 'string' ||
+        value.nextCursor.length === 0 ||
+        value.nextCursor.length > 512))
+  ) {
+    throw new Error('desktop session inventory returned a malformed or oversized page')
+  }
+  if (value.items.some((session) => !sameScope(session.scope, scope))) {
+    throw new Error('desktop session inventory returned a record outside the bound scope')
+  }
+  if (value.items.length === 0 && value.nextCursor !== undefined) {
+    throw new Error('desktop session inventory returned an empty page with a continuation')
+  }
+  if (
+    value.nextCursor !== undefined &&
+    value.items[value.items.length - 1]?.id !== value.nextCursor
+  ) {
+    throw new Error('desktop session inventory cursor does not match the last returned identity')
+  }
+  return value
+}
+
+async function executeAllSessionPages(
+  execute: (command: DevCommand) => Promise<DevReply>,
+  scope: Scope
+): Promise<{ items: readonly Record<string, unknown>[] }> {
+  const items: RuntimeSession[] = []
+  const seenIds = new Set<string>()
+  const seenCursors = new Set<string>()
+  let cursor: string | undefined
+  for (;;) {
+    const page = await executeSessionListPage(execute, scope, {
+      ...(cursor !== undefined ? { cursor } : {}),
+      limit: DESKTOP_SESSION_LIST_PAGE_LIMIT,
+    })
+    for (const session of page.items) {
+      if (seenIds.has(session.id))
+        throw new Error('desktop session inventory returned duplicate ids')
+      seenIds.add(session.id)
+      items.push(session)
+      if (items.length > DESKTOP_SESSION_INVENTORY_MAX_RECORDS)
+        throw new Error('desktop session projection exceeded its supported bound')
+    }
+    if (page.nextCursor === undefined) return { items }
+    if (page.items.length === 0)
+      throw new Error('desktop session inventory returned an empty continuation page')
+    if (seenCursors.has(page.nextCursor))
+      throw new Error('desktop session inventory repeated a continuation cursor')
+    seenCursors.add(page.nextCursor)
+    cursor = page.nextCursor
+  }
+}
+
+/**
+ * Compose the snapshot inventory from the service's authenticated runtime
+ * binding. The scope is read from the service itself and rechecked for every
+ * page; callers cannot declare an arbitrary scope. Only allowlisted identity,
+ * owner and lifecycle fields cross into the database snapshot adapter.
+ */
+export function createDesktopNativeSessionInventorySource(
+  service: Pick<DevRuntimeService, 'execute' | 'preferenceScope' | 'state'>,
+  options: Readonly<{ signal?: AbortSignal; timeoutMs?: number }> = {}
+): NativeSessionInventorySource | undefined {
+  const timeoutMs = options.timeoutMs ?? DESKTOP_SESSION_INVENTORY_TIMEOUT_MS
+  if (
+    !Number.isSafeInteger(timeoutMs) ||
+    timeoutMs < 1 ||
+    timeoutMs > DESKTOP_SESSION_INVENTORY_TIMEOUT_MS
+  ) {
+    return undefined
+  }
+  let runtimeScope: Scope | undefined
+  try {
+    if (service.state().status !== 'ready') return undefined
+    runtimeScope = service.preferenceScope?.()
+  } catch {
+    return undefined
+  }
+  const authorizedScope = runtimeScope ? copyInventoryScope(runtimeScope) : undefined
+  if (!runtimeScope || !authorizedScope) return undefined
+  const boundScope = Object.freeze({ ...runtimeScope })
+
+  return Object.freeze({
+    authorizedScopes: Object.freeze([authorizedScope]),
+    listRuntimeSessions: async (
+      input: Readonly<{ cursor?: string; limit: number }>
+    ): Promise<NativeSessionInventoryPage> => {
+      if (options.signal?.aborted) throw new Error('desktop session inventory read was cancelled')
+      let currentScope: Scope | undefined
+      try {
+        if (service.state().status !== 'ready')
+          throw new Error('desktop session inventory runtime is unavailable')
+        currentScope = service.preferenceScope?.()
+      } catch {
+        throw new Error('desktop session inventory runtime is unavailable')
+      }
+      if (!currentScope || !sameScope(currentScope, boundScope))
+        throw new Error('desktop session inventory runtime scope changed')
+
+      const page = await executeSessionListPage(
+        service.execute,
+        boundScope,
+        input,
+        timeoutMs,
+        options.signal
+      )
+      if (options.signal?.aborted) throw new Error('desktop session inventory read was cancelled')
+      let verifiedScope: Scope | undefined
+      try {
+        if (service.state().status === 'ready') verifiedScope = service.preferenceScope?.()
+      } catch {
+        verifiedScope = undefined
+      }
+      if (!verifiedScope || !sameScope(verifiedScope, boundScope))
+        throw new Error('desktop session inventory runtime scope changed during the read')
+      const seenIds = new Set<string>()
+      const safeItems: NativeSessionInventorySession[] = page.items.map((session) => {
+        if (
+          typeof session.id !== 'string' ||
+          session.id.length === 0 ||
+          !sameScope(session.scope, boundScope) ||
+          seenIds.has(session.id)
+        ) {
+          throw new Error('desktop session inventory page violates its bound identity')
+        }
+        seenIds.add(session.id)
+        return Object.freeze({
+          activeHarnessRunId: session.activeHarnessRunId,
+          agentProfileId: session.agentProfileId,
+          agentProfileVersion: session.agentProfileVersion,
+          archived: session.archived,
+          generation: session.generation,
+          harnessInstallationId: session.harnessInstallationId,
+          id: session.id,
+          lifecycle: session.lifecycle,
+          projectId: session.projectId,
+          scope: authorizedScope,
+          version: session.version,
+          worktreeId: session.worktreeId,
+        })
+      })
+      return Object.freeze({
+        items: Object.freeze(safeItems),
+        ...(page.nextCursor !== undefined ? { nextCursor: page.nextCursor } : {}),
+      })
+    },
+  })
+}
+
+/**
+ * On-demand local diagnostic used only by Workspace details → Connections →
+ * Execution hosts. Ownership comes from the service's signed preference scope;
+ * the UI supplies only its workspace, independently of cloud host registration. The returned
+ * section is allowlisted and bounded before it can be downloaded locally.
+ */
+export function createDesktopNativeSessionInventoryDiagnosticService(
+  service: Pick<DevRuntimeService, 'execute' | 'preferenceScope' | 'state'>,
+  options: Readonly<{
+    authorizationContext?: () => string | undefined
+    timeoutMs?: number
+  }> = {}
+): NativeSessionInventoryDiagnosticService {
+  const timeoutMs = options.timeoutMs ?? DESKTOP_NATIVE_SESSION_INVENTORY_CAPTURE_TIMEOUT_MS
+  const validTimeout =
+    Number.isSafeInteger(timeoutMs) &&
+    timeoutMs > 0 &&
+    timeoutMs <= DESKTOP_NATIVE_SESSION_INVENTORY_CAPTURE_TIMEOUT_MS
+
+  function readAuthorizationContext(): string | undefined {
+    if (!options.authorizationContext) return undefined
+    try {
+      const value = options.authorizationContext()
+      return typeof value === 'string' ? value : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  const hasAuthorizationContext = options.authorizationContext !== undefined
+  const boundAuthorizationContext = readAuthorizationContext()
+
+  function authorizationContextMatches(): boolean {
+    return (
+      !hasAuthorizationContext ||
+      (boundAuthorizationContext !== undefined &&
+        readAuthorizationContext() === boundAuthorizationContext)
+    )
+  }
+
+  function currentScope(): Scope | undefined {
+    try {
+      return service.state().status === 'ready' ? service.preferenceScope?.() : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  let lastIdentityKey: string | undefined
+  let identityGeneration = 0
+
+  function scopeIdentity(): string | undefined {
+    if (!authorizationContextMatches()) return undefined
+    const scope = currentScope()
+    if (!scope) return undefined
+    const identityKey = JSON.stringify([
+      scope.accountId,
+      scope.workspaceId,
+      scope.runtimeNodeId,
+      boundAuthorizationContext,
+    ])
+    if (identityKey !== lastIdentityKey) {
+      lastIdentityKey = identityKey
+      identityGeneration += 1
+    }
+    // Keep account, workspace, and login identifiers out of UI state and
+    // downloaded output. The opaque generation only fences this provider.
+    return `native-session-binding-${identityGeneration}`
+  }
+
+  return Object.freeze({
+    scopeIdentity,
+    async capture(input): Promise<NativeSessionInventoryDiagnosticResult> {
+      if (input.signal?.aborted) return { status: 'unknown', reason: 'cancelled' }
+      if (!validTimeout) return { status: 'unknown', reason: 'unavailable' }
+      if (!authorizationContextMatches()) {
+        return { status: 'unknown', reason: 'ownership_mismatch' }
+      }
+      const boundScope = currentScope()
+      if (!boundScope) return { status: 'unknown', reason: 'unavailable' }
+      if (
+        input.workspaceId !== boundScope.workspaceId ||
+        (input.runtimeNodeId !== undefined && input.runtimeNodeId !== boundScope.runtimeNodeId)
+      ) {
+        return { status: 'unknown', reason: 'ownership_mismatch' }
+      }
+
+      const captureAbort = new AbortController()
+      let timedOut = false
+      const onAbort = () => captureAbort.abort()
+      input.signal?.addEventListener('abort', onAbort, { once: true })
+      const timer = setTimeout(() => {
+        timedOut = true
+        captureAbort.abort()
+      }, timeoutMs)
+
+      try {
+        const source = createDesktopNativeSessionInventorySource(service, {
+          signal: captureAbort.signal,
+          timeoutMs: Math.min(DESKTOP_SESSION_INVENTORY_TIMEOUT_MS, timeoutMs),
+        })
+        if (!source) return { status: 'unknown', reason: 'unavailable' }
+        const contextBoundSource: NativeSessionInventorySource = Object.freeze({
+          authorizedScopes: source.authorizedScopes,
+          async listRuntimeSessions(pageInput) {
+            if (!authorizationContextMatches()) {
+              throw new Error('desktop authorization context changed')
+            }
+            const page = await source.listRuntimeSessions(pageInput)
+            if (!authorizationContextMatches()) {
+              throw new Error('desktop authorization context changed during the read')
+            }
+            return page
+          },
+        })
+        const section = (await captureNativeSessionSection(
+          contextBoundSource,
+          DESKTOP_NATIVE_SESSION_INVENTORY_RECORD_BOUND,
+          {
+            pageTimeoutMs: Math.min(DESKTOP_SESSION_INVENTORY_TIMEOUT_MS, timeoutMs),
+            signal: captureAbort.signal,
+          }
+        )) as MigrationSnapshotSection<'nativeSessions'>
+        if (captureAbort.signal.aborted) {
+          return { status: 'unknown', reason: timedOut ? 'timed_out' : 'cancelled' }
+        }
+        if (!authorizationContextMatches()) {
+          return { status: 'unknown', reason: 'ownership_mismatch' }
+        }
+        const current = currentScope()
+        if (!current || !sameScope(current, boundScope)) {
+          return { status: 'unknown', reason: 'ownership_mismatch' }
+        }
+        return Object.freeze({ status: 'captured', section })
+      } catch {
+        if (input.signal?.aborted) return { status: 'unknown', reason: 'cancelled' }
+        if (timedOut) return { status: 'unknown', reason: 'timed_out' }
+        if (!authorizationContextMatches()) {
+          return { status: 'unknown', reason: 'ownership_mismatch' }
+        }
+        const current = currentScope()
+        if (!current || !sameScope(current, boundScope)) {
+          return { status: 'unknown', reason: 'ownership_mismatch' }
+        }
+        return { status: 'unknown', reason: 'read_failed' }
+      } finally {
+        clearTimeout(timer)
+        input.signal?.removeEventListener('abort', onAbort)
+      }
+    },
+  })
 }
 
 async function executeOperation(
