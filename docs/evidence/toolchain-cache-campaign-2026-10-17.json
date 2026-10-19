@@ -1650,7 +1650,7 @@
       "mergedPullRequests": "GET /repos/{owner}/{repo}/pulls/{number}; state, mergedAt, headRefOid and mergeCommit.oid are the API values.",
       "receipts": "GET /repos/{owner}/{repo}/actions/runs/{run_id} for existence, event, head sha and conclusion, plus GET .../actions/jobs for the runner labels, plus the immutable job log where a restore or save line is cited.",
       "cacheInventory": "GET /repos/{owner}/{repo}/actions/caches; key, id, size and last_accessed_at are the API values.",
-      "cortanaWindows": "Supplied by the owner for this correction and recorded as supplied: Actions run 39188008084, job 117854425581 on windows-latest with a successful conclusion, at Cortana head bcb9bfc27deb1248074e1a8215c73113e2cb92c7, whose workflow declares a [ubuntu-latest, windows-latest] matrix, native executable identity tests, a real build replay, and Windows-keyed cache restore and save. The Cortana repository was not queried again for this correction."
+      "cortanaWindows": "Verified read-only on 2026-10-19 for this correction. Actions run 39188008084 and job 117854425581 both report head_sha 6a55e5e3f9acae064db2c33011114d941c24a527, which is the Cortana commit the Windows job actually executed at. The job is 'production-build (windows-latest)' with runner labels [windows-latest] and a successful conclusion, and its successful steps include 'Verify native executable identity and task launcher', 'Restore production task cache', 'Qualify real build replay' and 'Save production task cache'. The workflow .github/workflows/task-cache-qualification.yml at that execution head declares the matrix os: [ubuntu-latest, windows-latest] and keys the production task cache on ${{ runner.os }}, so the Windows leg restores and saves a Windows-keyed cache. Separately, the later observed Cortana main head bcb9bfc27deb1248074e1a8215c73113e2cb92c7 still carries that same matrix and the same runner.os-keyed cache, so Windows remains enabled there; that head is the workflow-inspection head, not the head the job ran at. The Cortana repository was read only; no Cortana code, workflow or pull request was changed."
     },
     "observedMergedHeads": {
       "adea-ai/adea": {
@@ -1935,21 +1935,34 @@
           "run": "https://github.com/adea-ai/cortana/actions/runs/39188008084",
           "runId": 39188008084,
           "jobId": 117854425581,
+          "jobName": "production-build (windows-latest)",
           "runner": "windows-latest",
           "conclusion": "success",
-          "cortanaHead": "bcb9bfc27deb1248074e1a8215c73113e2cb92c7",
-          "workflowAtThatHead": "The workflow at that recorded head declares a [ubuntu-latest, windows-latest] matrix, runs native executable identity tests, performs a real build replay, and restores and saves a Windows-keyed cache.",
-          "claims": [
-            "Windows native executable identity is proven at that head.",
-            "A real build replay on Windows is proven at that head."
+          "executionHead": "6a55e5e3f9acae064db2c33011114d941c24a527",
+          "executionHeadSubject": "fix(web): re-anchor the System status popover when the header wraps while it is open (#2602)",
+          "executionHeadRunStartedAt": "2026-10-19T02:01:35Z",
+          "workflowInspectionHead": "bcb9bfc27deb1248074e1a8215c73113e2cb92c7",
+          "headsNote": "The job executed at executionHead. workflowInspectionHead is the later observed Cortana main head at which the workflow was inspected; it is not the head the job ran at, and the two are deliberately kept apart.",
+          "workflowAtExecutionHead": "The workflow .github/workflows/task-cache-qualification.yml at executionHead declares the matrix os: [ubuntu-latest, windows-latest] and keys the production task cache on ${{ runner.os }}, so the Windows leg restores and saves a Windows-keyed cache.",
+          "workflowAtInspectionHead": "The same workflow file at workflowInspectionHead still declares os: [ubuntu-latest, windows-latest] and the same ${{ runner.os }}-keyed cache, so Windows remains enabled at that later head.",
+          "successfulSteps": [
+            "Verify native executable identity and task launcher",
+            "Restore production task cache",
+            "Qualify real build replay",
+            "Save production task cache"
           ],
-          "source": "Supplied by the owner for this correction and recorded as supplied. The Cortana repository was not queried again for this correction, and no Cortana file was changed."
+          "claims": [
+            "Windows native executable identity is proven, by the successful 'Verify native executable identity and task launcher' step at executionHead.",
+            "A real build replay on Windows is proven, by the successful 'Qualify real build replay' step at executionHead."
+          ],
+          "source": "Verified read-only on 2026-10-19: GET /repos/adea-ai/cortana/actions/runs/39188008084, GET /repos/adea-ai/cortana/actions/jobs/117854425581, and the workflow file at both heads. The Cortana repository was read only; no Cortana code, workflow or pull request was changed."
         },
         "unproven": [
           "An independent same-head fresh-reader writer/reader transfer on Windows: a fresh runner restoring the exact key that a trusted writer saved at the same head. The Windows evidence above is a same-job restore, replay and save, not that transfer."
         ],
         "supersedes": [
           "The blanket statements this checkpoint previously made: that every campaign graph is Linux-only by construction, that no Windows receipt exists, and that Cortana Windows tasks are intentionally uncached. Those statements were wrong and are withdrawn here.",
+          "The earlier revision of this checkpoint attributed the Windows job to Cortana head bcb9bfc27deb1248074e1a8215c73113e2cb92c7. That was wrong: the run and the job both report head_sha 6a55e5e3f9acae064db2c33011114d941c24a527, which is the commit the job executed at. bcb9bfc27deb1248074e1a8215c73113e2cb92c7 is the later observed Cortana main head at which the workflow was inspected and still enables Windows. The two are now recorded as separate fields.",
           "The older checkpoints' own words are left exactly in place, because they are the historical record of what was known at the time: latestUpdate.remaining recorded 'Cortana Windows cache identity unqualified; Windows commands intentionally remain uncached' and currentCheckpoint.remaining recorded 'Windows executable/cache identity remains unqualified; Windows tasks intentionally uncached'."
         ],
         "boundedRecentRunWindowObservation": {
@@ -2039,7 +2052,7 @@
       "requiredUpstreamChange": "Drop the TURBO_TOKEN pass-through from code-foundry's validation_self-ci.yml and src/templates/workflows/validation-audit.yml and update the matching assertion in code-foundry's test/cli.test.mjs, then re-sync both consumers. Until that lands, a consumer-side removal is inert but not durable."
     },
     "gaps": [
-      "Windows native executable identity and a same-job real build replay are proven by Cortana run 39188008084, job 117854425581 on windows-latest, at Cortana head bcb9bfc27deb1248074e1a8215c73113e2cb92c7. An independent same-head fresh-reader writer/reader transfer on Windows remains unproven, and no such receipt was invented.",
+      "Windows native executable identity and a same-job real build replay are proven by Cortana run 39188008084, job 117854425581 'production-build (windows-latest)' on windows-latest, which executed at Cortana commit 6a55e5e3f9acae064db2c33011114d941c24a527. The later observed Cortana main head bcb9bfc27deb1248074e1a8215c73113e2cb92c7 still enables Windows in the same workflow, but it is the workflow-inspection head, not the head the job ran at. An independent same-head fresh-reader writer/reader transfer on Windows remains unproven, and no such receipt was invented.",
       "The Adea same-head fresh-reader pair stands at head df72ac09, which is a merged head rather than the head observed in this checkpoint. The receipts at Adea commits 79790737d427a4b7902e733dcfdef3306786370b and fda29dd50b09f984f08b5c2294618a7c70702674 are cross-head restores with a same-job replay, not fresh same-head writer/reader pairs.",
       "The Themes download-cache transfer pair is at head 10a0832f, the head that was current when it ran. The observed Themes head 112784dd has a successful default-branch run but no fresh writer/reader download-cache pair.",
       "The hit counts and manifest hashes recorded for the control-plane, ui, agent-sim, cortana and plugins graphs in earlier checkpoints were not re-derived; their runs were confirmed to exist and to have succeeded.",
