@@ -32,6 +32,7 @@ import {
   type ScanBookmarkRow,
   type ScanPreviewRow,
 } from './scan-preview-model'
+import { createProjectFolderPicker } from './project-folder-picker'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
@@ -79,8 +80,11 @@ export function AddProjectForm(props: AddProjectFormProps) {
   const [bookmarks, setBookmarks] = createSignal<readonly ScanBookmarkRow[]>([])
   const [bookmarksError, setBookmarksError] = createSignal('')
   const [selectedBookmarkId, setSelectedBookmarkId] = createSignal('')
-  const [folderPath, setFolderPath] = createSignal('')
-  const [picking, setPicking] = createSignal(false)
+  // The native picker is composed as its own unit: a cancelled or failed pick
+  // leaves the typed path untouched, a repeated request is ignored while one is
+  // in flight, and a completion that arrives after this form was torn down
+  // changes nothing.
+  const picker = createProjectFolderPicker({ pickFolder: () => props.pickFolder?.() })
   const [authorizing, setAuthorizing] = createSignal(false)
   const [authorizeError, setAuthorizeError] = createSignal('')
   const [scan, setScan] = createSignal<ScanState>({ status: 'idle' })
@@ -123,20 +127,13 @@ export function AddProjectForm(props: AddProjectFormProps) {
 
   /** Fills the path input from the host's native picker. A cancelled or
    *  failed pick leaves the typed value untouched. */
-  const chooseFolder = async (): Promise<void> => {
-    if (!props.pickFolder || picking()) return
-    setPicking(true)
-    const picked = await props.pickFolder().catch(() => undefined)
-    setPicking(false)
-    const path = typeof picked === 'string' ? picked.trim() : ''
-    if (path !== '') setFolderPath(path)
-  }
+  const chooseFolder = async (): Promise<void> => picker.choose()
 
   /** Authorize one absolute host path as a project root, then scan it. The
    *  runtime proves owner consent host-side over the scope-bound channel;
    *  this form only presents the path and the resulting previews. */
   const authorizeFolder = async (): Promise<void> => {
-    const absolutePath = folderPath().trim()
+    const absolutePath = picker.path().trim()
     if (absolutePath === '' || authorizing()) return
     setAuthorizing(true)
     setAuthorizeError('')
@@ -147,7 +144,7 @@ export function AddProjectForm(props: AddProjectFormProps) {
       return
     }
     const record = reply.value as { id: string; label: string }
-    setFolderPath('')
+    picker.setPath('')
     props.announce(`Authorized ${record.label}. Scanning it for projects…`)
     await loadBookmarks()
     setSelectedBookmarkId(record.id)
@@ -226,9 +223,9 @@ export function AddProjectForm(props: AddProjectFormProps) {
             <span class="sr-only">Folder path to authorize</span>
             <Input
               type="text"
-              value={folderPath()}
+              value={picker.path()}
               placeholder="/absolute/path/to/project"
-              onInput={(event) => setFolderPath(event.currentTarget.value)}
+              onInput={(event) => picker.setPath(event.currentTarget.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') void authorizeFolder()
               }}
@@ -245,17 +242,17 @@ export function AddProjectForm(props: AddProjectFormProps) {
             <Button
               type="button"
               variant="outline"
-              disabled={picking()}
+              disabled={picker.picking()}
               onClick={() => void chooseFolder()}
             >
               <FolderPlus aria-hidden="true" />
-              {picking() ? 'Choosing…' : 'Choose folder…'}
+              {picker.picking() ? 'Choosing…' : 'Choose folder…'}
             </Button>
           </Show>
           <Button
             type="button"
             variant="outline"
-            disabled={authorizing() || folderPath().trim() === ''}
+            disabled={authorizing() || picker.path().trim() === ''}
             onClick={() => void authorizeFolder()}
           >
             <FolderPlus aria-hidden="true" />
