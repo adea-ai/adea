@@ -189,11 +189,16 @@ single-instance handoff in `main.rs`.
 > authoritative single-use step. A validated callback is queued once into
 > `desktop-state/auth-callback.json` (what `desktop_auth_take_callback` reads)
 > and announced with the `desktop-auth-callback-ready` event; a re-delivered,
-> wrong-instance, consumed, or expired callback is refused.
-> `apps/desktop/shell/src/auth-callback-channel.ts` subscribes to Electrobun's
-> `open-url` (cold launch and warm delivery) so the receiver is exercised by
-> mocked native-boundary tests; the `adea://` scheme itself is declared in
-> `electrobun.config.ts` and registered at install time by the packaging lane.
+> wrong-instance, consumed, or expired callback is refused. A delivery reserves
+> the attempt's state/nonce binding synchronously, before any await, so two
+> concurrent deliveries cannot both claim the one pending attempt; the claim is
+> released only for a proven no-write, and a possibly-written handoff is never
+> retried. `apps/desktop/shell/src/auth-callback-channel.ts` subscribes to
+> Electrobun's `open-url` (cold launch and warm delivery) so the receiver is
+> exercised by mocked native-boundary tests, and it holds pre-attach URLs on a
+> bounded buffer (dropping over-long or overflow URLs); the `adea://` scheme
+> itself is declared in `electrobun.config.ts` and registered at install time by
+> the packaging lane.
 
 The client half generates the state, nonce, and S256 PKCE verifier, then
 exchanges the one-time code through the same-origin handler. The custom callback

@@ -22,7 +22,11 @@ import {
   type DesktopAuthCallbackReceipt,
   type DesktopAuthCallbackReceiver,
 } from '../shell/src/auth-callback'
-import { createDesktopAuthCallbackChannel } from '../shell/src/auth-callback-channel'
+import {
+  DESKTOP_AUTH_CALLBACK_MAX_BUFFERED,
+  DESKTOP_AUTH_CALLBACK_MAX_URL_LENGTH,
+  createDesktopAuthCallbackChannel,
+} from '../shell/src/auth-callback-channel'
 import { createCommandSurface } from '../shell/src/commands'
 
 const INSTANCE = 'instance-primary'
@@ -74,6 +78,34 @@ async function receive(
   return receiver.receive(delivery)
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, reject, resolve }
+}
+
+function createMockOpenUrlApp(): {
+  app: { on(name: 'open-url', handler: (payload: { url?: unknown }) => void): unknown }
+  emit: (url: string) => void
+} {
+  let handler: ((payload: { url?: unknown }) => void) | undefined
+  return {
+    app: {
+      on: (_name: 'open-url', next: (payload: { url?: unknown }) => void) => {
+        handler = next
+        return () => {
+          handler = undefined
+        }
+      },
+    },
+    emit: (url) => handler?.({ url }),
+  }
+}
+
 describe('desktop auth callback native channel', () => {
   test('buffers a cold-launch URL until the receiver attaches, then drains it once', () => {
     const handlers: Array<(payload: { url?: unknown }) => void> = []
@@ -118,6 +150,34 @@ describe('desktop auth callback native channel', () => {
     handler!({})
     handler!({ url: 'adea://auth/callback?code=warm' })
     expect(seen).toEqual(['adea://auth/callback?code=warm'])
+  })
+
+  test('accepts a URL at the length bound and drops one byte over it', () => {
+    const { app, emit } = createMockOpenUrlApp()
+    const channel = createDesktopAuthCallbackChannel(app)
+    const seen: string[] = []
+    channel.attach((url) => seen.push(url))
+
+    const atLimit = 'a'.repeat(DESKTOP_AUTH_CALLBACK_MAX_URL_LENGTH)
+    emit(atLimit)
+    emit(`${atLimit}a`)
+    expect(seen).toEqual([atLimit])
+  })
+
+  test('bounds the pre-attach buffer and drops overflow, keeping arrival order', () => {
+    const { app, emit } = createMockOpenUrlApp()
+    const channel = createDesktopAuthCallbackChannel(app)
+    for (let index = 0; index < DESKTOP_AUTH_CALLBACK_MAX_BUFFERED + 3; index += 1) {
+      emit(`adea://auth/callback?code=code-${String(index).padStart(8, '0')}`)
+    }
+
+    const seen: string[] = []
+    channel.attach((url) => seen.push(url))
+    expect(seen).toHaveLength(DESKTOP_AUTH_CALLBACK_MAX_BUFFERED)
+    expect(seen[0]).toBe('adea://auth/callback?code=code-00000000')
+    expect(seen.at(-1)).toBe(
+      `adea://auth/callback?code=code-${String(DESKTOP_AUTH_CALLBACK_MAX_BUFFERED - 1).padStart(8, '0')}`
+    )
   })
 })
 
@@ -285,6 +345,141 @@ describe('desktop auth callback routing', () => {
     expect(delivered).toHaveLength(0)
   })
 
+  test('releases the reservation when no attempt is pending, so a later delivery succeeds', async () => {
+    const attempt = await pendingAttempt()
+    let current: DesktopAuthorizationAttempt | null = null
+    const deliveries: string[] = []
+    const receiver = createDesktopAuthCallbackReceiver({
+      instanceId: INSTANCE,
+      loadAttempt: () => current,
+      deliver: (callback) => {
+        deliveries.push(callback)
+      },
+      now: () => 2_000,
+    })
+    const url = callbackFor(attempt)
+    // The OS callback outruns the renderer's attempt save.
+    expect(await receive(receiver, url)).toEqual({
+      reason: 'no-pending-attempt',
+      status: 'rejected',
+    })
+    current = attempt
+    expect(await receive(receiver, url)).toEqual({ callback: url, status: 'delivered' })
+    expect(deliveries).toEqual([url])
+  })
+
+  test('serializes two deliveries of one URL to a single handoff write', async () => {
+    const attempt = await pendingAttempt()
+    const load = deferred<DesktopAuthorizationAttempt | null>()
+    const deliveries: string[] = []
+    const receiver = createDesktopAuthCallbackReceiver({
+      instanceId: INSTANCE,
+      loadAttempt: () => load.promise,
+      deliver: (callback) => {
+        deliveries.push(callback)
+      },
+      now: () => 2_000,
+    })
+    const url = callbackFor(attempt)
+
+    const first = receive(receiver, url)
+    const second = receive(receiver, url)
+    // The reservation lands before the first call's attempt load yields, so the
+    // second call is refused as replay instead of racing to the handoff.
+    expect(await second).toEqual({ reason: 'replay', status: 'rejected' })
+    load.resolve(attempt)
+    expect(await first).toEqual({ callback: url, status: 'delivered' })
+    expect(deliveries).toEqual([url])
+  })
+
+  test('refuses a second code for one attempt while the first delivery is in flight', async () => {
+    const attempt = await pendingAttempt()
+    const gate = deferred<void>()
+    const deliveries: string[] = []
+    const receiver = createDesktopAuthCallbackReceiver({
+      instanceId: INSTANCE,
+      loadAttempt: () => attempt,
+      deliver: async (callback) => {
+        deliveries.push(callback)
+        await gate.promise
+      },
+      now: () => 2_000,
+    })
+    const firstUrl = callbackFor(attempt, 'code-1111111111')
+    const secondUrl = callbackFor(attempt, 'code-2222222222')
+
+    const first = receive(receiver, firstUrl)
+    const second = receive(receiver, secondUrl)
+    expect(await second).toEqual({ reason: 'replay', status: 'rejected' })
+    gate.resolve()
+    expect(await first).toEqual({ callback: firstUrl, status: 'delivered' })
+    expect(deliveries).toEqual([firstUrl])
+  })
+
+  test('retries a delivery only when the handoff write provably did not occur', async () => {
+    const attempt = await pendingAttempt()
+    const url = callbackFor(attempt)
+    let attempts = 0
+    const receiver = createDesktopAuthCallbackReceiver({
+      instanceId: INSTANCE,
+      loadAttempt: () => attempt,
+      deliver: () => {
+        attempts += 1
+        return attempts === 1 ? 'failed' : 'delivered'
+      },
+      now: () => 2_000,
+    })
+    expect(await receive(receiver, url)).toMatchObject({
+      reason: 'delivery-failed',
+      status: 'rejected',
+    })
+    expect(await receive(receiver, url)).toEqual({ callback: url, status: 'delivered' })
+    expect(attempts).toBe(2)
+  })
+
+  test('never retries a delivery whose outcome is unknown', async () => {
+    const attempt = await pendingAttempt()
+    const url = callbackFor(attempt)
+    let attempts = 0
+    const receiver = createDesktopAuthCallbackReceiver({
+      instanceId: INSTANCE,
+      loadAttempt: () => attempt,
+      deliver: () => {
+        attempts += 1
+        return 'unknown'
+      },
+      now: () => 2_000,
+    })
+    expect(await receive(receiver, url)).toMatchObject({
+      reason: 'delivery-failed',
+      status: 'rejected',
+    })
+    // A possibly-delivered write is never attempted again.
+    expect(await receive(receiver, url)).toEqual({ reason: 'replay', status: 'rejected' })
+    expect(attempts).toBe(1)
+  })
+
+  test('never retries a delivery that threw, since the write may have landed', async () => {
+    const attempt = await pendingAttempt()
+    const url = callbackFor(attempt)
+    let attempts = 0
+    const receiver = createDesktopAuthCallbackReceiver({
+      instanceId: INSTANCE,
+      loadAttempt: () => attempt,
+      deliver: () => {
+        attempts += 1
+        throw new Error('handoff publish failed')
+      },
+      now: () => 2_000,
+    })
+    expect(await receive(receiver, url)).toMatchObject({
+      reason: 'delivery-failed',
+      status: 'rejected',
+    })
+    expect(await receive(receiver, url)).toEqual({ reason: 'replay', status: 'rejected' })
+    expect(attempts).toBe(1)
+  })
+
   const bindingFailures: Array<{
     detail: string
     label: string
@@ -343,6 +538,9 @@ describe('desktop auth callback packaging', () => {
     // The queued callback announces itself to the renderer that takes it.
     expect(entry).toContain('DESKTOP_AUTH_CALLBACK_READY_EVENT')
     expect(DESKTOP_AUTH_CALLBACK_READY_EVENT).toBe('desktop-auth-callback-ready')
+    // The handoff write distinguishes a proven miss from an ambiguous one.
+    expect(entry).toContain("return 'failed'")
+    expect(entry).toContain("return 'unknown'")
   })
 
   test('declares the open-url seam instead of guessing the Electrobun runtime', () => {

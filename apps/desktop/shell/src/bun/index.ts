@@ -302,9 +302,25 @@ const authCallbackReceiver = createDesktopAuthCallbackReceiver({
     return loaded.ok ? (loaded.value as DesktopAuthorizationAttempt | null) : null
   },
   deliver: (callback) => {
-    writeDesktopAuthCallback(DATA_DIR, callback)
-    gateway.publish(DESKTOP_AUTH_CALLBACK_READY_EVENT, null)
+    try {
+      // Owner-only atomic write; a throw here proves nothing landed in the
+      // handoff, so a later delivery may retry safely.
+      writeDesktopAuthCallback(DATA_DIR, callback)
+    } catch (error) {
+      console.log(
+        `desktop shell: could not queue the adea://auth/callback handoff (${String(error)})`
+      )
+      return 'failed'
+    }
+    try {
+      gateway.publish(DESKTOP_AUTH_CALLBACK_READY_EVENT, null)
+    } catch {
+      // The handoff file is written; the renderer still takes it on mount, so
+      // a retry could double-queue. Report the uncertain outcome.
+      return 'unknown'
+    }
     presentDesktopShellWindow()
+    return 'delivered'
   },
   onReceipt: (receipt) => {
     if (receipt.status === 'delivered') {

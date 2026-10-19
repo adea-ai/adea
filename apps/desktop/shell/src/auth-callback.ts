@@ -70,6 +70,15 @@ export type DesktopAuthCallbackReceipt =
   | Readonly<{ status: 'ignored'; reason: 'foreign-target' }>
   | Readonly<{ status: 'rejected'; reason: DesktopAuthCallbackRejection; detail?: string }>
 
+/**
+ * What the handoff write did. `delivered` (and a bare `void` return, for
+ * callers that cannot fail) means the callback reached the handoff; `failed`
+ * means it provably did not, so the binding is released and a later delivery
+ * may retry; `unknown` means the write may or may not have landed, so the
+ * binding is kept and is never retried.
+ */
+export type DesktopAuthCallbackDeliveryOutcome = 'delivered' | 'failed' | 'unknown'
+
 export type DesktopAuthCallbackDelivery = Readonly<{
   rawUrl: string
   /**
@@ -207,6 +216,13 @@ export interface DesktopAuthCallbackReceiver {
  * shell's `desktop_auth_attempt_load` record; `deliver` routes a validated
  * callback into the shell handoff. The receiver never consumes the attempt and
  * never sees a credential: only the callback URL is delivered.
+ *
+ * A delivery reserves the attempt's state/nonce binding synchronously, before
+ * any await, so concurrent open-url events cannot both claim the one pending
+ * attempt: the second sees the claim and is refused as replay. The claim is
+ * kept once the handoff write has happened (or may have happened) and released
+ * only for a proven no-write (no pending attempt, a failed binding probe, or a
+ * `failed` delivery outcome), so a legitimate retry cannot double-queue.
  */
 export function createDesktopAuthCallbackReceiver({
   instanceId,
@@ -220,15 +236,21 @@ export function createDesktopAuthCallbackReceiver({
     | Promise<DesktopAuthorizationAttempt | null>
     | DesktopAuthorizationAttempt
     | null
-  deliver: (callback: string) => Promise<void> | void
+  deliver: (
+    callback: string
+  ) =>
+    | DesktopAuthCallbackDeliveryOutcome
+    | void
+    | Promise<DesktopAuthCallbackDeliveryOutcome | void>
   now?: () => number
   onReceipt?: (receipt: DesktopAuthCallbackReceipt) => void
 }): DesktopAuthCallbackReceiver {
   // One delivery per pending attempt. Keyed by the attempt's state/nonce, so a
   // second URL that matches the same attempt - even with a different code -
-  // cannot reach the handoff. The attempt itself stays untouched for the
-  // renderer's single-use consume.
-  const deliveredBindings = new Set<string>()
+  // cannot reach the handoff. This doubles as the in-flight reservation and the
+  // delivered ledger; the attempt itself stays untouched for the renderer's
+  // single-use consume.
+  const claimedBindings = new Set<string>()
 
   async function receive(
     delivery: DesktopAuthCallbackDelivery
@@ -252,17 +274,29 @@ export function createDesktopAuthCallbackReceiver({
       }
     }
     if (targetInstanceId !== instanceId) return { reason: 'wrong-instance', status: 'rejected' }
-    if (deliveredBindings.has(parsed.bindingKey)) {
+
+    // Reserve the binding before the first await. Everything below this line
+    // can yield, so a concurrent delivery that reaches here after this point
+    // must observe the claim rather than race it to the handoff.
+    if (claimedBindings.has(parsed.bindingKey)) {
       return { reason: 'replay', status: 'rejected' }
     }
+    claimedBindings.add(parsed.bindingKey)
+    const release = () => claimedBindings.delete(parsed.bindingKey)
 
     let attempt: DesktopAuthorizationAttempt | null
     try {
       attempt = await loadAttempt()
     } catch {
+      release()
       return { reason: 'no-pending-attempt', status: 'rejected' }
     }
-    if (!attempt) return { reason: 'no-pending-attempt', status: 'rejected' }
+    if (!attempt) {
+      // The callback may have outrun the renderer's attempt save; release so
+      // the same binding can be delivered once the attempt exists.
+      release()
+      return { reason: 'no-pending-attempt', status: 'rejected' }
+    }
 
     try {
       // Probe the shared binding contract on a clone: this exercises the
@@ -270,6 +304,7 @@ export function createDesktopAuthCallbackReceiver({
       // attempt used. The renderer's consume is the one that consumes.
       consumeDesktopAuthorizationCallback({ ...attempt }, parsed.callback, now())
     } catch (error) {
+      release()
       return {
         detail: error instanceof Error ? error.message : 'callback binding failed',
         reason: 'binding-failed',
@@ -277,16 +312,35 @@ export function createDesktopAuthCallbackReceiver({
       }
     }
 
+    let outcome: DesktopAuthCallbackDeliveryOutcome
     try {
-      await deliver(parsed.callback)
-    } catch (error) {
+      outcome = (await deliver(parsed.callback)) ?? 'delivered'
+    } catch {
+      // A thrown handoff write is ambiguous: it may have landed before it
+      // threw. Keep the claim so a retry cannot double-queue the callback.
       return {
-        detail: error instanceof Error ? error.message : 'callback delivery failed',
+        detail: 'callback delivery outcome is unknown',
         reason: 'delivery-failed',
         status: 'rejected',
       }
     }
-    deliveredBindings.add(parsed.bindingKey)
+    if (outcome === 'failed') {
+      // The handoff write provably did not happen; allow a later retry.
+      release()
+      return {
+        detail: 'callback delivery did not occur',
+        reason: 'delivery-failed',
+        status: 'rejected',
+      }
+    }
+    if (outcome === 'unknown') {
+      // Possibly delivered; keep the claim and never retry.
+      return {
+        detail: 'callback delivery outcome is unknown',
+        reason: 'delivery-failed',
+        status: 'rejected',
+      }
+    }
     return { callback: parsed.callback, status: 'delivered' }
   }
 

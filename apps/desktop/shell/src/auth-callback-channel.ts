@@ -15,6 +15,20 @@ export type DesktopAuthCallbackOpenUrlApp = Readonly<{
   on(name: 'open-url', handler: (payload: { url?: unknown }) => void): unknown
 }>
 
+/**
+ * The number of pre-attach URLs the channel holds. A callback URL is short and
+ * a burst before the receiver exists is at most a few duplicates of one
+ * attempt, so a small bound is generous; anything beyond it is dropped rather
+ * than buffered without limit.
+ */
+export const DESKTOP_AUTH_CALLBACK_MAX_BUFFERED = 8
+/**
+ * The longest URL the channel will accept. A real callback is well under this;
+ * the bound keeps an oversized or hostile `open-url` payload from being held or
+ * parsed.
+ */
+export const DESKTOP_AUTH_CALLBACK_MAX_URL_LENGTH = 2048
+
 export interface DesktopAuthCallbackChannel {
   /** Attach the receiver; URLs captured before now (cold launch) drain first. */
   attach(receive: (rawUrl: string) => void): void
@@ -24,6 +38,12 @@ export interface DesktopAuthCallbackChannel {
 /**
  * Subscribe to Electrobun's `open-url` event and forward callback URLs to the
  * receiver attached with `attach`.
+ *
+ * URLs are ingested on a bounded buffer: a URL longer than
+ * `DESKTOP_AUTH_CALLBACK_MAX_URL_LENGTH` is dropped, and once
+ * `DESKTOP_AUTH_CALLBACK_MAX_BUFFERED` URLs are held, further pre-attach URLs
+ * are dropped (the buffer never grows). Dropping is safe because duplicate
+ * deliveries of one attempt are already refused as replay downstream.
  */
 export function createDesktopAuthCallbackChannel(
   app: DesktopAuthCallbackOpenUrlApp
@@ -33,9 +53,13 @@ export function createDesktopAuthCallbackChannel(
 
   const unsubscribe = app.on('open-url', (payload) => {
     const url = typeof payload?.url === 'string' ? payload.url : ''
-    if (url === '') return
-    if (receive) receive(url)
-    else pending.push(url)
+    if (url === '' || url.length > DESKTOP_AUTH_CALLBACK_MAX_URL_LENGTH) return
+    if (receive) {
+      receive(url)
+      return
+    }
+    if (pending.length >= DESKTOP_AUTH_CALLBACK_MAX_BUFFERED) return
+    pending.push(url)
   })
 
   return {
@@ -45,6 +69,7 @@ export function createDesktopAuthCallbackChannel(
     },
     dispose() {
       receive = undefined
+      pending.length = 0
       if (typeof unsubscribe === 'function') unsubscribe()
     },
   }
