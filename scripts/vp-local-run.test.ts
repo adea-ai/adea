@@ -330,6 +330,30 @@ describe('ensurePrivateDirectory', () => {
     chmodSync(open, 0o700)
   })
 
+  test('a fresh machine with no ~/.cache creates the missing ancestors with owner-only mode', () => {
+    const base = join(scratch, 'fresh-machine')
+    mkdirSync(base, { recursive: true })
+    const home = join(base, '.cache', 'adea-vp')
+    const target = join(home, 'repo', 'head-x', 'env')
+    expect(existsSync(join(base, '.cache'))).toBe(false)
+    ensurePrivateDirectory(home, target)
+    expect(lstatSync(join(base, '.cache')).isDirectory()).toBe(true)
+    expect(lstatSync(join(base, '.cache')).mode & 0o777).toBe(0o700)
+    expect(lstatSync(target).isDirectory()).toBe(true)
+    expect(realpathSync(target)).toBe(target)
+  })
+
+  test('a missing ancestor does not excuse an existing insecure one above it', () => {
+    const open = join(scratch, 'fresh-open')
+    mkdirSync(open, { recursive: true })
+    chmodSync(open, 0o777)
+    expect(() =>
+      ensurePrivateDirectory(join(open, 'missing', 'home'), join(open, 'missing', 'home', 'x'))
+    ).toThrow('writable by group or others')
+    expect(existsSync(join(open, 'missing'))).toBe(false)
+    chmodSync(open, 0o700)
+  })
+
   test('refuses a target outside the cache home', () => {
     expect(() => ensurePrivateDirectory(join(scratch, 'h1'), join(scratch, 'h2', 'x'))).toThrow(
       'outside the cache home'

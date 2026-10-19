@@ -205,6 +205,14 @@ function assertOwned(path, stats, uid) {
   if (stats.mode & 0o022) throw new Error(`${path} is writable by group or others`)
 }
 
+/** Checks every ancestor of `home` that exists: a real directory, not writable by others unless sticky. */
+function checkAncestors(home, uid) {
+  for (let ancestor = dirname(home); ancestor !== dirname(ancestor); ancestor = dirname(ancestor)) {
+    const stats = lstatOrNull(ancestor)
+    if (stats !== null) assertAncestor(ancestor, stats, uid)
+  }
+}
+
 /**
  * Creates `directory` under `home`. Every ancestor of the home must be a real directory that is not writable by others
  * (sticky directories excepted); the home and everything below it must be real directories owned by the current user,
@@ -218,12 +226,11 @@ export function ensurePrivateDirectory(home, directory) {
     throw new Error(`${directory} is outside the cache home`)
   const uid = typeof process.getuid === 'function' ? process.getuid() : null
 
-  for (let ancestor = dirname(home); ancestor !== dirname(ancestor); ancestor = dirname(ancestor)) {
-    const stats = lstatOrNull(ancestor)
-    if (stats === null) throw new Error(`${ancestor} does not exist`)
-    assertAncestor(ancestor, stats, uid)
-  }
+  // Existing ancestors are checked before anything is created. Missing ones are created with owner-only mode, and every
+  // ancestor is checked again afterwards, so a component that appeared meanwhile is judged by what it is.
+  checkAncestors(home, uid)
   if (lstatOrNull(home) === null) mkdirSync(home, { recursive: true, mode: 0o700 })
+  checkAncestors(home, uid)
   let current = home
   for (const part of ['', ...inside.split(sep).filter(Boolean)]) {
     if (part) current = join(current, part)
