@@ -373,4 +373,100 @@ export function createDesktopSessionManager({
   }
 }
 
+/**
+ * Validated codecs for the three operating-system credential-store entries
+ * (docs/specs/desktop-auth.md, "Vault entries"). The shell's keychain adapter
+ * and any client vault wrapper share these so a value is validated identically
+ * on read and on write: a malformed entry is absent for reads and refused for
+ * saves. The session id keeps the runtime UUID rule (`SESSION_ID`), not the
+ * looser prose in the spec table.
+ */
+const TEMPORARY_WORKSPACE_CREDENTIAL = /^adea_tmp_[A-Za-z0-9_-]{43}$/u
+
+function isBoundedBase64Url(value: unknown, min: number, max: number): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length >= min &&
+    value.length <= max &&
+    BASE64_URL.test(value)
+  )
+}
+
+/** Returns the validated pending attempt, or `null` when the stored value is absent/malformed. */
+export function decodeDesktopAuthorizationAttempt(
+  value: unknown
+): DesktopAuthorizationAttempt | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<DesktopAuthorizationAttempt>
+  if (!isBoundedBase64Url(candidate.codeChallenge, 43, 128)) return null
+  if (!isBoundedBase64Url(candidate.codeVerifier, 43, 128)) return null
+  if (!isBoundedBase64Url(candidate.nonce, 16, 512)) return null
+  if (!isBoundedBase64Url(candidate.state, 16, 512)) return null
+  if (candidate.redirectUri !== DESKTOP_CALLBACK_URI) return null
+  if (
+    typeof candidate.expiresAt !== 'number' ||
+    !Number.isFinite(candidate.expiresAt) ||
+    candidate.expiresAt <= 0
+  )
+    return null
+  if (candidate.used !== false) return null
+  return {
+    codeChallenge: candidate.codeChallenge,
+    codeVerifier: candidate.codeVerifier,
+    expiresAt: candidate.expiresAt,
+    nonce: candidate.nonce,
+    redirectUri: DESKTOP_CALLBACK_URI,
+    state: candidate.state,
+    used: false,
+  }
+}
+
+/** Validation on write: refuses to serialize a malformed attempt. */
+export function encodeDesktopAuthorizationAttempt(value: unknown): string {
+  const attempt = decodeDesktopAuthorizationAttempt(value)
+  if (!attempt) throw new Error('Desktop authorization attempt is invalid')
+  return JSON.stringify(attempt)
+}
+
+/** Returns the validated session, or `null` when the stored value is absent/malformed. */
+export function decodeDesktopSession(value: unknown): DesktopSession | null {
+  if (!value || typeof value !== 'object') return null
+  const candidate = value as Partial<DesktopSession>
+  const expiresAt =
+    typeof candidate.expiresAt === 'string' ? new Date(candidate.expiresAt) : undefined
+  if (
+    typeof candidate.credential !== 'string' ||
+    candidate.credential.length < 32 ||
+    candidate.credential.length > 512 ||
+    !BASE64_URL.test(candidate.credential)
+  )
+    return null
+  if (typeof candidate.sessionId !== 'string' || !SESSION_ID.test(candidate.sessionId)) return null
+  if (!expiresAt || Number.isNaN(expiresAt.valueOf())) return null
+  return Object.freeze({
+    credential: candidate.credential,
+    expiresAt: expiresAt.toISOString(),
+    sessionId: candidate.sessionId,
+  })
+}
+
+/** Validation on write: refuses to serialize a malformed session. */
+export function encodeDesktopSession(value: unknown): string {
+  const session = decodeDesktopSession(value)
+  if (!session) throw new Error('Desktop session is invalid')
+  return JSON.stringify(session)
+}
+
+/** Returns the validated guest credential, or `null` when the stored value is absent/malformed. */
+export function decodeTemporaryWorkspaceCredential(value: unknown): string | null {
+  return typeof value === 'string' && TEMPORARY_WORKSPACE_CREDENTIAL.test(value) ? value : null
+}
+
+/** Validation on write: refuses to serialize a malformed guest credential. */
+export function encodeTemporaryWorkspaceCredential(value: unknown): string {
+  const credential = decodeTemporaryWorkspaceCredential(value)
+  if (!credential) throw new Error('Temporary workspace credential is invalid')
+  return credential
+}
+
 export { DESKTOP_CALLBACK_URI }
