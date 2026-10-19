@@ -94,7 +94,8 @@ unit-tested with synthetic metadata. Its existing provisioner creates a disposab
 18 instance bound to loopback with a random password. A new random database uses
 canonical migration/runtime roles. It applies product migrations twice and compares
 the journal, checks empty product identity/workspace tables, initializes the separate
-`auth_acceptance` schema using provider tooling, then exercises provider DML through
+`auth_acceptance` schema through the shared `applyAuthSchema()` in
+`packages/auth/src/schema-init.ts` (apply, then a no-op replay), then exercises provider DML through
 the runtime role. It checks runtime schema DDL denial and the full auth lifecycle.
 
 The completed local receipt was `{"status":"passed","migrations":59,"verificationRequired":true}`.

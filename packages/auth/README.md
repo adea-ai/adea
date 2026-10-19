@@ -59,7 +59,28 @@ Auth environment is left in place and recoverable.
 
 ### Fresh-schema initialization
 
-Better Auth owns its tables (`user`, `session`, `account`, `verification`) in `AUTH_DATABASE_URL`.
-They must be created on the fresh PostgreSQL instance with Better Auth's supported schema tooling
-(the Better Auth CLI) before first use; `@adea-ai/db` must not query or migrate them. Wiring that
-command into a deploy step is remaining work.
+Better Auth owns its tables (`user`, `session`, `account`, `verification`) in the auth schema.
+`@adea-ai/db` must not query or migrate them. They are created by an explicit, operator-run
+command that is separate from the runtime service:
+
+```sh
+bun run --cwd packages/auth schema-init            # plan only (default); changes nothing
+bun run --cwd packages/auth schema-init -- --apply # runs Better Auth's migrations if needed
+```
+
+- Inputs come from the environment, never argv. `AUTH_MIGRATION_DATABASE_URL` is the only database
+  the command reads and should carry the schema-owning migration role. `AUTH_DATABASE_URL` (the
+  runtime role) is ignored. `AUTH_BASE_URL`, `AUTH_SECRET` and `AUTH_TRUSTED_ORIGINS` are validated
+  with the runtime rules, so the tables come from the same Better Auth options.
+- Ordering: (1) create the target schema and roles with the operator's own tooling; the search path
+  must name an existing schema, or the command refuses before any change; (2) plan; (3) apply with
+  the migration role; (4) only then start the runtime service with `AUTH_DATABASE_URL` set to the
+  runtime role. Re-applying an initialized schema is a no-op. Apply only adds tables and columns
+  and never drops anything; if it fails part-way, plan again to see what remains and re-run apply.
+- The runtime role has no `CREATE` on the auth schema, so it cannot create these tables even if
+  misconfigured. It may plan (read-only) but apply is refused by the database.
+- Errors print one JSON line with the failing stage (`config`, `connect`, `target`, `inspect`,
+  `apply`, `cleanup`) and never the connection string or its password. The pool is always released.
+
+`scripts/fresh-postgres-acceptance` uses the same `applyAuthSchema()` for its disposable PostgreSQL
+journey. Wiring the command into a hosted deploy step remains a separate, owner-approved change.
