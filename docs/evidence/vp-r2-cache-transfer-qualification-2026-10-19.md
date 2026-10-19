@@ -218,8 +218,8 @@ worktree with its own `bun install --frozen-lockfile`, ends the same way at the
 same point: after about 143 seconds, with the same docker registry rate limits
 in front of it (`public.ecr.aws` and `docker.io` answer `toomanyrequests` for the
 postgres image the container tests pull). The index the panic reports varies
-with the set of files in the run (`1077` at `f9d5b1577`, `1084` at `2498a8b7`),
-so it is the crash and not the index that is the constant. The crash is a Bun
+with the set of files in the run (`1077` at `f9d5b1577`, `1084` at `2498a8b7`,
+`1077` at this head), so it is the crash and not the index that is the constant. The crash is a Bun
 crash rather than a test failure, and it is **not** the pinned checks above:
 those ran under the repository-pinned Bun 1.4.3 and the pinned Node 24.21.0 and
 passed. The crash is recorded under both runtimes that were tried, the system
