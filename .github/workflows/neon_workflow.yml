@@ -184,13 +184,17 @@ jobs:
 
   delete_neon_branch:
     name: Delete Neon Branch
-    needs: setup
+    # Close-only and independent of setup: there is no `needs`, so a failed, cancelled or skipped
+    # setup job cannot suppress cleanup. The branch name comes from the same pinned action setup
+    # uses, so the resolved names match the ones the proof lane created. Draft and ready pull
+    # requests clean up alike; every other event skips this job.
+    if: github.event.action == 'closed'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Cleanup not requested
-        if: github.event.action != 'closed'
-        run: echo 'Cleanup runs only when the pull request closes.'
+      - name: Get branch name
+        id: branch_name
+        uses: tj-actions/branch-names@5250492686b253f06fa55861556d1027b067aeb5 # v9.0.2
 
       # Idempotent cleanup. Resolve the current proof branch and legacy/shard branches left by
       # earlier workflow versions, then delete only branches that exist, by id.
@@ -200,10 +204,10 @@ jobs:
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
-          LEGACY_BRANCH: preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}
-          SHARD_1_BRANCH: preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}-s1
-          SHARD_2_BRANCH: preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}-s2
-          PROOF_BRANCH: preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}-proof
+          LEGACY_BRANCH: preview/pr-${{ github.event.number }}-${{ steps.branch_name.outputs.current_branch }}
+          SHARD_1_BRANCH: preview/pr-${{ github.event.number }}-${{ steps.branch_name.outputs.current_branch }}-s1
+          SHARD_2_BRANCH: preview/pr-${{ github.event.number }}-${{ steps.branch_name.outputs.current_branch }}-s2
+          PROOF_BRANCH: preview/pr-${{ github.event.number }}-${{ steps.branch_name.outputs.current_branch }}-proof
         run: |
           node <<'NODE'
           const { appendFileSync } = require("node:fs");
