@@ -8,6 +8,12 @@ export default {
     name: 'Adea',
     identifier: 'dev.adea.desktop',
     version: desktopPackage.version,
+    // The packaged desktop's sign-in callback scheme (macOS only in Electrobun
+    // 2.0.1). This is the source declaration the signed packaging lane reads to
+    // register `adea://`; the shell's receiver subscribes to the resulting
+    // `open-url` event (`src/auth-callback-channel.ts`). See
+    // docs/specs/desktop-auth.md "The callback".
+    urlSchemes: ['adea'],
   },
   build: {
     mainProcess: 'bun',

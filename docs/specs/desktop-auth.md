@@ -24,9 +24,15 @@ sign-in handoff below.
 > web app's SPA build on loopback
 > (`apps/desktop/scripts/client.mjs` → `apps/web/dist-desktop/client`), and
 > the client's in-app cloud calls ride the shell's same-origin `/api` proxy
-> (`apps/desktop/shell/src/cloud-proxy.ts`). Deep-link/URL-scheme registration
-> for the `adea://` auth callback is not yet carried by the shell;
-> release-pipeline registration is still release-lane work.
+> (`apps/desktop/shell/src/cloud-proxy.ts`). The packaged `adea://auth/callback`
+> receiver is carried by the shell
+> (`apps/desktop/shell/src/auth-callback.ts` validates and queues the callback;
+> `apps/desktop/shell/src/auth-callback-channel.ts` subscribes to Electrobun's
+> `open-url` event), and the scheme is declared for packaging in
+> `apps/desktop/shell/electrobun.config.ts` (`app.urlSchemes`). Live OS
+> scheme registration still belongs to the signed packaging/release lane; the
+> shell carries the source configuration and the receiver, not the install-time
+> registration.
 
 ## Current storage boundary
 
@@ -47,9 +53,11 @@ separate.
 `local_content_rotate_key` currently deletes the shared key file without
 re-encrypting the saved values. The next key access creates a new key, and old values
 cannot be read through that key. This command is not evidence of safe credential
-or content rotation. Callback URL-scheme registration also remains release-lane
-work. Cloud broker and client validation tests do not establish either native
-storage protection or packaged callback registration.
+or content rotation. The shell's callback receiver routes an OS-delivered
+`adea://auth/callback` into the handoff, but live URL-scheme registration still
+belongs to the signed packaging/release lane. Cloud broker and client validation
+tests do not establish either native storage protection or packaged callback
+registration.
 
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
@@ -179,6 +187,25 @@ focused, so a callback that arrives while the app is running surfaces the window
 waiting for it. Callbacks arrive from the deep link channel
 (`auth::start_deep_link_channel`, part of the boot steps) and from the
 single-instance handoff in `main.rs`.
+
+> **Electrobun shell (2026-10-19):** `apps/desktop/shell/src/auth-callback.ts`
+> enforces this contract — exactly `adea://auth/callback`, no credentials, no
+> fragment, exactly `code`/`nonce`/`state` — and probes the pending PKCE
+> attempt on a clone of the shared
+> `packages/auth/src/desktop.ts` binding, so the renderer's consume stays the
+> authoritative single-use step. A validated callback is queued once into
+> `desktop-state/auth-callback.json` (what `desktop_auth_take_callback` reads)
+> and announced with the `desktop-auth-callback-ready` event; a re-delivered,
+> wrong-instance, consumed, or expired callback is refused. A delivery reserves
+> the attempt's state/nonce binding synchronously, before any await, so two
+> concurrent deliveries cannot both claim the one pending attempt; the claim is
+> released only for a proven no-write, and a possibly-written handoff is never
+> retried. `apps/desktop/shell/src/auth-callback-channel.ts` subscribes to
+> Electrobun's `open-url` (cold launch and warm delivery) so the receiver is
+> exercised by mocked native-boundary tests, and it holds pre-attach URLs on a
+> bounded buffer (dropping over-long or overflow URLs); the `adea://` scheme
+> itself is declared in `electrobun.config.ts` and registered at install time by
+> the packaging lane.
 
 The client half generates the state, nonce, and S256 PKCE verifier, then
 exchanges the one-time code through the same-origin handler. The custom callback

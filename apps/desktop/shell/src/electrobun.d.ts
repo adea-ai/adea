@@ -23,7 +23,18 @@ declare module 'electrobun/main' {
   export class BrowserWindow {
     constructor(options: BrowserWindowOptions)
     close(): void
+    /** Surfaces the window (verified against the pinned 2.0.1 BrowserWindow API). */
+    activate(): void
     on(event: 'focus' | 'blur', listener: () => void): void
+  }
+  /**
+   * The main-process app handle. Only the deep-link subscription the shell
+   * uses is declared: Electrobun's `app.on('open-url', ...)` passes the event
+   * data (`{ url }`, from `events/app/openUrl`); the URL-scheme registration
+   * itself is declarative (`electrobun.config.ts` `app.urlSchemes`).
+   */
+  export const app: {
+    on(name: 'open-url', handler: (payload: { url?: unknown }) => void): unknown
   }
   export const Utils: {
     showNotification(request: { title: string; body: string }): void
