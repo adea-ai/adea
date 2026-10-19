@@ -410,7 +410,7 @@ export function decodeDesktopAuthorizationAttempt(
   )
     return null
   if (candidate.used !== false) return null
-  return Object.freeze({
+  return {
     codeChallenge: candidate.codeChallenge,
     codeVerifier: candidate.codeVerifier,
     expiresAt: candidate.expiresAt,
@@ -418,7 +418,7 @@ export function decodeDesktopAuthorizationAttempt(
     redirectUri: DESKTOP_CALLBACK_URI,
     state: candidate.state,
     used: false,
-  })
+  }
 }
 
 /** Validation on write: refuses to serialize a malformed attempt. */

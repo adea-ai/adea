@@ -5,6 +5,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  createDesktopAuthorizationAttempt,
+  createDesktopAuthorizationManager,
+} from '../../../packages/auth/src/desktop'
+
+import {
   createDesktopAuthStore,
   createMemoryKeychainPort,
   createSystemKeychainPort,
@@ -106,6 +111,44 @@ describe('desktop auth store: read and write through the port', () => {
       expect(store.loadAuthorizationAttempt()).toBeNull()
       expect(store.loadTemporaryWorkspaceCredential()).toBeNull()
     })
+  })
+
+  test('authorization manager consumes a decoded keychain attempt once after reload', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-desktop-auth-manager-'))
+    try {
+      const port = createMemoryKeychainPort()
+      const store = createDesktopAuthStore({ dataDir, port })
+      const vault = {
+        clear: async () => store.clearAuthorizationAttempt(),
+        load: async () => store.loadAuthorizationAttempt(),
+        save: async (attempt: Parameters<typeof store.saveAuthorizationAttempt>[0]) =>
+          store.saveAuthorizationAttempt(attempt),
+      }
+      const attempt = await createDesktopAuthorizationAttempt({ now: 1_000 })
+      const starter = createDesktopAuthorizationManager({
+        createAttempt: async () => attempt,
+        vault,
+      })
+      await starter.begin()
+
+      const callback = new URL('adea://auth/callback')
+      callback.searchParams.set('code', 'one-time-code')
+      callback.searchParams.set('nonce', attempt.nonce)
+      callback.searchParams.set('state', attempt.state)
+      const resumed = createDesktopAuthorizationManager({ vault })
+      await expect(resumed.consume(callback.toString(), 1_001)).resolves.toEqual({
+        code: 'one-time-code',
+        codeVerifier: attempt.codeVerifier,
+        nonce: attempt.nonce,
+        redirectUri: 'adea://auth/callback',
+      })
+      await expect(resumed.consume(callback.toString(), 1_002)).rejects.toThrow(
+        'attempt is unavailable'
+      )
+      expect(port.get(DESKTOP_AUTH_ACCOUNTS.authorizationAttempt)).toBeUndefined()
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
   })
 })
 

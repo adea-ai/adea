@@ -8,6 +8,7 @@ import {
   encodeDesktopAuthorizationAttempt,
   encodeDesktopSession,
   encodeTemporaryWorkspaceCredential,
+  consumeDesktopAuthorizationCallback,
 } from '../../src/desktop'
 
 const SESSION_ID = '11111111-1111-4111-8111-111111111111'
@@ -23,6 +24,14 @@ async function validAttempt() {
   return createDesktopAuthorizationAttempt({ now: 1_000 })
 }
 
+function callbackUrl(attempt: Awaited<ReturnType<typeof createDesktopAuthorizationAttempt>>) {
+  const url = new URL('adea://auth/callback')
+  url.searchParams.set('code', 'one-time-code')
+  url.searchParams.set('nonce', attempt.nonce)
+  url.searchParams.set('state', attempt.state)
+  return url.toString()
+}
+
 describe('desktop vault validators: pending authorization attempt', () => {
   test('round-trips a valid attempt through encode/decode', async () => {
     const attempt = await validAttempt()
@@ -31,6 +40,26 @@ describe('desktop vault validators: pending authorization attempt', () => {
     expect(
       decodeDesktopAuthorizationAttempt(JSON.parse(encodeDesktopAuthorizationAttempt(attempt)))
     ).toEqual(attempt)
+  })
+
+  test('decoded attempts remain mutable for callback consumption and still reject reuse', async () => {
+    const attempt = await validAttempt()
+    const decoded = decodeDesktopAuthorizationAttempt(
+      JSON.parse(encodeDesktopAuthorizationAttempt(attempt))
+    )
+    expect(decoded).not.toBeNull()
+    if (!decoded) throw new Error('valid authorization attempt did not decode')
+
+    expect(consumeDesktopAuthorizationCallback(decoded, callbackUrl(decoded), 1_001)).toEqual({
+      code: 'one-time-code',
+      codeVerifier: decoded.codeVerifier,
+      nonce: decoded.nonce,
+      redirectUri: 'adea://auth/callback',
+    })
+    expect(decoded.used).toBe(true)
+    expect(() => consumeDesktopAuthorizationCallback(decoded, callbackUrl(decoded), 1_002)).toThrow(
+      'already consumed'
+    )
   })
 
   test('treats malformed attempts as absent on read and refuses them on write', () => {
