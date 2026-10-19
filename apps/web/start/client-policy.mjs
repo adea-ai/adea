@@ -11,13 +11,17 @@ export function forbiddenClientModule(id) {
     // The published Control Plane client and schemas are host-only packages.
     /\/@adea-ai\/(?:sdk|contracts)\//.test(path) ||
     /\/apps\/web\/src\/server\//.test(path) ||
-    /\/packages\/auth\/(?:src|dist)\/(?:server|start|desktop-server|desktop-http-server|config|security)\./.test(
+    /\/packages\/auth\/(?:src|dist)\/(?:server|start|desktop-server|desktop-http-server|config|security|better-auth-server)\./.test(
       path
     ) ||
-    /\/@adea-ai\/auth\/(?:src|dist)\/(?:server|start|desktop-server|desktop-http-server|config|security)\./.test(
+    /\/@adea-ai\/auth\/(?:src|dist)\/(?:server|start|desktop-server|desktop-http-server|config|security|better-auth-server)\./.test(
       path
     ) ||
     /\/@neondatabase\/auth\/(?:dist\/)?(?:next\/|server\/|server\.)/.test(path) ||
+    // Better Auth's server-only entry points (the framework-neutral client stays
+    // allowed through `better-auth/client`).
+    /\/node_modules\/better-auth\/(?:dist\/)?(?:api|adapters|db|cookies|test-utils)\//.test(path) ||
+    /\/node_modules\/better-auth\/dist\/index\./.test(path) ||
     /\/apps\/web\/src\/start\/worker\.ts/.test(path) ||
     // One Solid UI stack: the React runtime and the React-only libraries it
     // replaced must never re-enter the browser graph.
@@ -45,6 +49,8 @@ export const PRIVATE_ENV_NAMES = [
   'DATABASE_URL_UNPOOLED',
   'DATABASE_MIGRATION_URL',
   'NEON_AUTH_COOKIE_SECRET',
+  'AUTH_SECRET',
+  'AUTH_DATABASE_URL',
   'CONTROL_PLANE_API_TOKEN',
   // ADR 0013 per-request signer: the Ed25519 private key (Worker secret) and
   // its key id/issuer stay server-only.

@@ -173,6 +173,22 @@ function trimZodLocales(): Plugin {
   }
 }
 
+// Better Auth's browser URL helper imports the shared environment module,
+// whose server-only env map includes AUTH_SECRET. The browser client uses the
+// current window origin and same-origin /api/auth path, so give only the
+// client environment an empty public env map. The Worker keeps the real module.
+function betterAuthBrowserEnv(): Plugin {
+  const shim = fileURLToPath(new URL('./start/better-auth-browser-env.mjs', import.meta.url))
+  return {
+    name: 'adea-better-auth-browser-env',
+    enforce: 'pre',
+    resolveId(source) {
+      if (source === '@better-auth/core/env' && this.environment.name === 'client') return shim
+      return null
+    },
+  }
+}
+
 export default defineConfig(({ command }) => ({
   root,
   // No automatic environment-variable prefixes: public values are enumerated below.
@@ -339,6 +355,7 @@ export default defineConfig(({ command }) => ({
     tanstackStart({ srcDirectory: './src/start' }),
     ...solidPlugins(),
     trimZodLocales(),
+    betterAuthBrowserEnv(),
     authZodLite(),
     // The same reachable source graph checks the curated dev shim before the
     // web server starts, and again when source or shim files change.

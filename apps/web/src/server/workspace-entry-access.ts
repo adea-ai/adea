@@ -5,6 +5,7 @@ import { evaluateEntryAccess } from '../lib/entry-access-policy.mjs'
 import { createStartRequestContext } from './auth-request-context'
 import { createGateRequestContext, gateScope } from './gate-request-context'
 import { emailAllowlistConfigured, isAllowedEmail } from './allowed-emails'
+import { registerRequestCleanup } from './request-scope'
 
 /**
  * Reads the account-allowlist decision for the current request.
@@ -20,7 +21,9 @@ export function readWorkspaceEntryAccess() {
     resolveEmail: async () =>
       (
         await createNeonServerAdapter(
-          gateScope() ? createGateRequestContext : createStartRequestContext
+          gateScope() ? createGateRequestContext : createStartRequestContext,
+          undefined,
+          { registerCleanup: registerRequestCleanup }
         ).getSession()
       )?.profile.email,
     isAllowed: isAllowedEmail,

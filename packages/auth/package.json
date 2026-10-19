@@ -53,6 +53,11 @@
   "dependencies": {
     "@adea-ai/types": "workspace:*",
     "@neondatabase/auth": "0.5.0-beta",
+    "better-auth": "1.6.23",
+    "pg": "8.23.1",
     "server-only": "^0.0.1"
+  },
+  "devDependencies": {
+    "@types/pg": "8.23.1"
   }
 }

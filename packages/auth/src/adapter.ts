@@ -1,4 +1,9 @@
-import { normalizeNeonSession, type AuthResult, type ProviderSessionInput } from './session'
+import {
+  normalizeProviderSession,
+  type AuthProviderName,
+  type AuthResult,
+  type ProviderSessionInput,
+} from './session'
 
 export type AuthCredentials = Readonly<{
   email: string
@@ -28,18 +33,24 @@ export interface AuthAdapter {
   signOut(): Promise<void>
 }
 
-export function createAuthAdapter(driver: AuthDriver): AuthAdapter {
+export type AuthAdapterOptions = Readonly<{ provider?: AuthProviderName }>
+
+export function createAuthAdapter(
+  driver: AuthDriver,
+  options: AuthAdapterOptions = {}
+): AuthAdapter {
+  const provider = options.provider
   return {
     async getSession() {
       try {
-        return normalizeNeonSession(await driver.getSession())
+        return normalizeProviderSession(await driver.getSession(), { provider })
       } catch {
         return null
       }
     },
     async refreshSession() {
       try {
-        return normalizeNeonSession(await driver.refreshSession())
+        return normalizeProviderSession(await driver.refreshSession(), { provider })
       } catch {
         return null
       }
@@ -49,12 +60,12 @@ export function createAuthAdapter(driver: AuthDriver): AuthAdapter {
       await driver.revokeSession(sessionId)
     },
     async signIn(credentials) {
-      const session = normalizeNeonSession(await driver.signIn(credentials))
+      const session = normalizeProviderSession(await driver.signIn(credentials), { provider })
       if (!session) throw new Error('Authentication failed')
       return session
     },
     async signUp(registration) {
-      const session = normalizeNeonSession(await driver.signUp(registration))
+      const session = normalizeProviderSession(await driver.signUp(registration), { provider })
       if (!session) throw new Error('Authentication failed')
       return session
     },

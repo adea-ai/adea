@@ -1,9 +1,14 @@
 # Authentication boundary
 
-`@adea-ai/auth` is the application-facing authentication provider boundary. It wraps Neon
-Auth's managed Better Auth service today, but its public result contains only a provider name,
-provider subject, non-authoritative profile hints, and session metadata. The provider subject is
-an `AuthIdentity` input; it is never an Adea `User.id` and never grants workspace access.
+`@adea-ai/auth` is the application-facing authentication provider boundary. It wraps a
+self-hosted **Better Auth** service backed by a managed PostgreSQL instance (Railway) for fresh
+initialization and new signups, but its public result contains only a provider name, provider
+subject, non-authoritative profile hints, and session metadata. The provider subject is an
+`AuthIdentity` input; it is never an Adea `User.id` and never grants workspace access.
+
+The normalized identity for the new deployment uses the `better-auth` provider name
+(`normalizeProviderSession(..., { provider: 'better-auth' })`). The legacy Neon-hosted Auth
+environment is left in place and recoverable; nothing here deletes or cuts it over.
 
 Authentication is optional for using Adea. A first web or desktop launch provisions a
 temporary canonical `User`, owner membership, and default Home and Work workspaces transactionally. The browser
@@ -19,31 +24,45 @@ delete the saved workspaces or unpair a RuntimeNode.
 
 ## Environment topology
 
-| Application target | Neon branch  | Auth endpoint source                 |
-| ------------------ | ------------ | ------------------------------------ |
-| Production         | main         | Production `NEON_AUTH_BASE_URL`      |
-| Preview            | staging      | Preview `NEON_AUTH_BASE_URL`         |
-| Development        | development  | Development `NEON_AUTH_BASE_URL`     |
-| Pull request CI    | preview/pr-* | Neon branch action `auth_url` output |
+The fresh deployment runs one self-hosted Better Auth service against a managed PostgreSQL
+database, served through the app's same-origin `/api/auth/*` proxy. `AUTH_BASE_URL` is the public
+app origin that serves that proxy, so Better Auth scopes its cookies to the app host. The legacy
+Neon-hosted Auth environment is retained, unchanged, for recovery.
 
-Each target keeps separate `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, and
-`AUTH_TRUSTED_ORIGINS` records in the Cloudflare Secret Store. `VITE_NEON_AUTH_URL` is public by design and is
-also branch-specific for the later desktop shell. Never client-prefix the cookie secret.
+| Application target | Better Auth database | `AUTH_BASE_URL` (public app origin) |
+| ------------------ | -------------------- | ----------------------------------- |
+| Production         | Railway PostgreSQL   | Production `AUTH_BASE_URL`          |
+| Preview            | Railway PostgreSQL   | Preview `AUTH_BASE_URL`             |
+| Development        | local PostgreSQL     | Loopback `AUTH_BASE_URL`            |
 
-The browser client calls the same-origin `/api/auth/*` proxy. State-changing proxy requests require
-an exact `Origin` match. Production uses only stable HTTPS aliases (`adea.dev` and the `workers.dev` URL).
-Preview Worker deployments must list their exact URLs in `AUTH_TRUSTED_ORIGINS`;
-those aliases must also exist in the Neon staging database branch's Auth domain list.
-Wildcards are prohibited.
-Development enables Neon's localhost setting.
+Each target keeps separate `AUTH_BASE_URL`, `AUTH_SECRET`, `AUTH_DATABASE_URL`, and
+`AUTH_TRUSTED_ORIGINS` records in the Cloudflare Secret Store. `AUTH_SECRET` (Better Auth's cookie
+signing secret, at least 32 characters) and `AUTH_DATABASE_URL` must never be client-prefixed.
+Google sign-in is enabled only when both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are present.
+Optional `AUTH_SESSION_EXPIRES_IN_SECONDS`, `AUTH_SESSION_UPDATE_AGE_SECONDS`,
+`AUTH_EMAIL_VERIFICATION_REQUIRED`, and `AUTH_SECURE_COOKIES` overrides default to a 7-day session
+refreshed daily, verification **on**, and secure cookies on whenever the base URL is HTTPS.
+`AUTH_DATABASE_URL` must require TLS on any non-loopback host (`sslmode=require`, `verify-ca`, or
+`verify-full`); a bare hosted URL is rejected. `AUTH_SECURE_COOKIES=false` is accepted only for a
+loopback HTTP base URL. Mailbox proof is required by default: `profile.email` is populated only once
+the provider reports the address verified, so an unverified fresh signup can sign in only when a
+deployment deliberately turns verification off, and never carries email-based authority
+(allowlists, invitations, desktop-session email) until it verifies.
 
-Neon accepts only HTTP(S) trusted domains. Desktop OAuth therefore returns to the stable HTTPS web
-callback, which verifies state and nonce before handing off to the allowlisted
-`adea://auth/callback` URI. The callback contract requires that exact scheme; registration is still
-release-lane work. The desktop shell opens only the fixed
-cloud authorization endpoint in the system browser, and rejects custom-scheme callbacks containing
-tokens or session credentials. A provider must never redirect directly to an unregistered custom
-scheme.
+The browser client calls the same-origin `/api/auth/*` proxy, which serves the Better Auth handler.
+State-changing proxy requests require an exact `Origin` match, and Better Auth's own CSRF/origin
+checks run as a second layer. Production uses only stable HTTPS aliases (`adea.dev` and the
+`workers.dev` URL). Preview Worker deployments must list their exact URLs in `AUTH_TRUSTED_ORIGINS`.
+Wildcards are prohibited. Loopback HTTP is accepted only for development, where secure cookies
+downgrade automatically.
+
+Better Auth accepts only HTTP(S) trusted origins, so the custom `adea://` callback is not passed to
+it. Desktop OAuth therefore returns to the stable HTTPS web callback, which verifies state and
+nonce before handing off to the allowlisted `adea://auth/callback` URI. The callback contract
+requires that exact scheme; registration is still release-lane work. The desktop shell opens only
+the fixed cloud authorization endpoint in the system browser, and rejects custom-scheme callbacks
+containing tokens or session credentials. A provider must never redirect directly to an
+unregistered custom scheme.
 
 `createDesktopAuthorizationAttempt()` creates the five-minute state, nonce, and S256 PKCE binding in
 the packaged client. `createDesktopAuthorizationCodeBroker()` stores only a digest of the one-time
@@ -54,7 +73,7 @@ credentials are forbidden in URLs.
 
 The web application exposes separate `authorize`, `exchange`, `refresh`, `logout`, and `revoke`
 handlers under `/api/auth/desktop`. An unauthenticated authorization request is routed through
-`/auth/sign-in` with an exact same-origin return target. Email registration creates the Neon
+`/auth/sign-in` with an exact same-origin return target. Email registration creates the Better Auth
 account, and the first authenticated authorization provisions one stable Adea user and identity
 mapping before issuing the one-time desktop code. Exchange and lifecycle requests accept only the
 shell's fixed loopback origin (`http://127.0.0.1:4789`) plus the fixed `http://127.0.0.1:1420`
@@ -67,15 +86,29 @@ consumption and credential rotation are atomic.
 Desktop releases package the spatial workspace and its Vite/Solid assets locally, served by the
 shell on loopback. The shell injects its command bridge only into the served document and sends no
 CORS headers, so remote web content receives no desktop command surface.
-Server modules and Neon Auth SDK code are excluded from the client dependency graph.
+Server modules and Better Auth server entry points are excluded from the client dependency graph.
 
 ## Session security
 
-- Neon/Better Auth owns credential verification, CSRF defenses, OAuth state, nonce, PKCE, session
-  rotation, cookie serialization, and provider-side revocation.
-- The server proxy uses secure HTTP-only cookies with `SameSite=Lax`, a per-environment random HMAC
-  secret, host-only cookie scope, and the SDK's minimum one-second session-data cache TTL. Refresh
-  and revocation-sensitive lookups bypass that cache so expiry and remote revocation fail closed.
+- Better Auth owns credential verification, CSRF defenses, OAuth state, nonce, PKCE, session
+  rotation, cookie serialization, and server-side revocation. Adea configures it; it does not
+  reimplement those primitives.
+- The server proxy sets secure HTTP-only cookies with `SameSite=Lax`, host-only scope, and a
+  per-environment random signing secret. Refresh and revocation-sensitive lookups bypass Better
+  Auth's signed session-data cookie cache so expiry and remote revocation fail closed.
+- The service and its PostgreSQL connection are request-owned. Nothing is cached at module scope,
+  and each request closes its connection (or registers `close` with the request scope's cleanup),
+  so a Cloudflare Worker never reuses one request's socket in another.
+- Every `Set-Cookie` Better Auth returns — signup, sign-in, renewal/refresh, account switch,
+  revocation, logout — is persisted through the caller's request context. A credential call reads
+  its session back through the cookie it just issued, never the request's incoming cookie, so a
+  sign-in or account switch cannot resolve the pre-login account.
+- Mailbox proof precedes email-based authority. `profile.email` is populated only for a verified
+  address, so allowlists, invitations, and desktop-session email matching fail closed for a fresh
+  unverified signup.
+- Verification and password-reset links are delivered through an injected, provider-neutral
+  transport (`AuthDelivery`). The default transport fails closed when no transport is configured;
+  the transport never sends from the auth service itself.
 - `createAuthorizationState()` supplies state, nonce, PKCE verifier/challenge, five-minute expiry,
   exact redirect binding, timing-safe comparisons, and one-time consumption for the desktop
   broker.
@@ -86,13 +119,25 @@ Server modules and Neon Auth SDK code are excluded from the client dependency gr
   provision the first canonical user identity, but application services must still map the
   provider/subject pair to that identity and run membership and permission checks.
 
+The retained `bun run --cwd apps/web start:test:auth-worker` acceptance runs the production-built Worker
+with a synthetic Better Auth secret and a temporary PostgreSQL schema. During the Bun preparation
+phase, a separate verification-enabled signup uses an in-memory recording delivery transport to
+assert that a verification message is produced; this does not run inside the Worker. The native
+Worker requests use verification-disabled synthetic configuration and test concurrent
+signup/session cookie isolation, revocation and logout visibility through later requests, and that
+no auth-owned PostgreSQL backend remains within the 10-second polling window after each response
+batch. Both phases use loopback services and send no email; Worker-side delivery is not exercised.
+
 ## Adapter use
 
-Server code imports `createNeonServerAdapter` from `@adea-ai/auth/server`. Client components import
-`createNeonClientAdapter` from `@adea-ai/auth/client`. All other application packages consume the
-provider-neutral types from `@adea-ai/auth`; no other package may import `@neondatabase/auth`.
+Server code imports `createNeonServerAdapter` from `@adea-ai/auth/server` (provider-neutral alias:
+`createAuthServerAdapter`). Client components import `createNeonClientAdapter` from
+`@adea-ai/auth/client` (alias: `createAuthClientAdapter`). The historical `Neon` names are retained
+for the existing web and desktop call sites, but the implementation is the self-hosted Better Auth
+service. All other application packages consume the provider-neutral types from `@adea-ai/auth`;
+no other package may import `better-auth` server entry points or `@neondatabase/auth`.
 
-Refresh bypasses Neon Auth's signed session-data cache. Logout clears the current provider session.
+Refresh bypasses Better Auth's signed session-data cache. Logout clears the current provider session.
 Explicit revocation accepts the normalized session ID, resolves the provider token inside the
 driver, and never exposes that token through the application interface.
 
@@ -205,15 +250,23 @@ project members plus the workspace's owners and admins). Project members carry `
 
 ## Provider migration
 
-Neon Auth stores Better Auth data in `neon_auth`; `@adea-ai/db` must not query or migrate that
-schema. To move to another managed or self-hosted Better Auth deployment:
+Better Auth stores its data (`user`, `session`, `account`, `verification`) in the database the auth
+service is configured with. `@adea-ai/db` must not query or migrate that schema. The fresh
+self-hosted deployment initializes those tables with Better Auth's own supported schema tooling
+(the Better Auth CLI against the app's auth config) before first use; no Adea migration owns them.
 
-1. Export/migrate the provider-owned Better Auth tables using that provider's supported process.
-2. Implement `AuthDriver` for the replacement SDK and retain the provider/subject identity key.
-3. Replace only the `@adea-ai/auth/client` and `@adea-ai/auth/server` constructors.
-4. Rotate cookie secrets, update exact trusted origins/callbacks, and invalidate old sessions.
-5. Run invalid/expired/revoked/wrong-origin, refresh, logout, and identity-mapping tests before
-   switching traffic.
+The self-hosted move follows the same rules:
+
+1. Initialize the provider-owned Better Auth tables on the fresh PostgreSQL instance using the
+   provider's supported process. (Remaining work: the schema-init command is not yet wired into a
+   deploy step. The service already uses Better Auth's built-in Kysely PostgreSQL adapter through
+   the auth-owned `pg.Pool` from `createPostgresAuthDatabase()` — see `packages/auth/README.md`.)
+2. `createBetterAuthDriver` implements `AuthDriver` and retains the provider/subject identity key
+   under the `better-auth` provider name.
+3. The `@adea-ai/auth/client` and `@adea-ai/auth/server` constructors are backed by Better Auth.
+4. Rotate secrets, update exact trusted origins/callbacks, and invalidate old sessions.
+5. Run invalid/expired/revoked/wrong-origin, refresh, logout, delivery, and identity-mapping tests
+   before switching traffic.
 
 Never copy provider tables into Adea migrations or reinterpret a provider subject as a domain
 user ID during migration.
@@ -221,7 +274,7 @@ user ID during migration.
 ## Stable identity and principals
 
 ```text
-Neon Auth session
+Better Auth session
   -> @adea-ai/auth provider credential validation
   -> AuthIdentity(provider, subject)
   -> User(id)
@@ -234,7 +287,7 @@ Agent delegation   -> Agent PrincipalRef
 Worker execution   -> Worker PrincipalRef
 ```
 
-`AuthIdentity` is the only bridge between a Neon provider subject and an Adea `User`. The
+`AuthIdentity` is the only bridge between a provider subject and an Adea `User`. The
 provider/subject pair is unique and belongs to exactly one stable user. Creation writes both rows
 in one transaction, so a concurrent duplicate cannot leave an orphan user. Revoked identities and
 disabled users do not resolve. Unknown, non-user, or ambiguous mappings fail closed.
