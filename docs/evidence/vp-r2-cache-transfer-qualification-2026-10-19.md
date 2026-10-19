@@ -1,9 +1,9 @@
 # Cross-machine and cross-platform transfer qualification for the shared task cache
 
 Repository `adea-ai/adea`. Qualification base
-`2498a8b7c76828ab83d5f19a582e178cac1abc65`
-(`fix(build): repair the shared R2 task-cache transport contract`), the exact
-head of pull request **#1488** after its review repair. Qualification branch
+`42ac235ac90611f200c8b0d50b49da060a596e43`
+(`fix(build): make the publication fence a protocol, not a deletion`), the exact
+head of pull request **#1488** after its review repairs. Qualification branch
 `codex/r2-cross-platform-transfer-qualification-20261019`.
 
 This receipt records what was qualified about a task-cache entry travelling from
@@ -19,16 +19,24 @@ claimed.
 
 Pull request **#1488** after the repair:
 
-|        |                                                      |
-| ------ | ---------------------------------------------------- |
-| branch | `codex/r2-task-cache-transport-w4-20261019`          |
-| base   | `main` at `79790737d427a4b7902e733dcfdef3306786370b` |
-| head   | `2498a8b7c76828ab83d5f19a582e178cac1abc65`           |
-| state  | open, draft, auto-merge off                          |
+|        |                                             |
+| ------ | ------------------------------------------- |
+| branch | `codex/r2-task-cache-transport-w4-20261019` |
+| base   | `main`, moved forward by the branch update  |
+| head   | `42ac235ac90611f200c8b0d50b49da060a596e43`  |
+| state  | open, draft, auto-merge off                 |
 
 That head carries the supported transport implementation, so it is the
 qualification's starting base. The qualification was done in its own worktree
-and branch, cut from that exact head.
+and branch, cut from that exact head, and it was **resumed on the repaired head**
+after each review: the qualification branch carries the repaired transport and
+the qualification together, and the qualification was measured again against the
+repaired contract.
+
+The owner branch was updated by GitHub with a merge of `main` while the
+qualification was in flight (`f61aa44c46f550a514f2ca3849dba435eb268ffc`, a
+merge of `main` into the branch). It brought main's own commits and touched none
+of this scope's files; the qualification was rebased onto it and re-measured.
 
 Ownership was rechecked before the work: the only pull request and branch that
 touch this scope are #1488 and its branch; no other branch or pull request
@@ -192,15 +200,15 @@ it is turned on explicitly, and no workflow, script or task calls it.
 
 ## 5. What was run
 
-| Command                                                                                                                      | Result                                                                                                                                          |
-| ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun test scripts/vp-r2-cache*.test.ts`                                                                                      | **110 pass, 0 fail**, 427 assertions (the transport, the codec, the pinned-client replay and this qualification)                                |
-| `bun run format:check` (whole repository, pinned `oxfmt`)                                                                    | all matched files use the correct format                                                                                                        |
-| `bun run lint` (pinned `vp run orch:lint` and `oxlint --deny-warnings`, the repository's own configuration, no rule removed) | 0 warnings, 0 errors                                                                                                                            |
-| `bun run typecheck` (pinned `vp run orch:typecheck`)                                                                         | 33/33 tasks successful, "No type errors in 318 files"                                                                                           |
-| `vp run orch:test` (the repository's unit task lane)                                                                         | **1734 tests across 135 files, 0 fail**, 32/32 tasks successful - the same numbers as the qualification base and as `f9d5b1577`                 |
-| `bun test scripts/vp-r2-cache*.test.ts --coverage`                                                                           | aggregate above the 80% goal; `scripts/vp-r2-cache-transfer.mjs` at 95.45%/100.00% and `scripts/vp-r2-cache-transfer-fixtures.mjs` at 100%/100% |
-| `bun run test:coverage`                                                                                                      | **crashes** in this environment, at the base commit and at the qualification base as well - see below                                           |
+| Command                                                                                                                      | Result                                                                                                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun test scripts/vp-r2-cache*.test.ts`                                                                                      | **116 pass, 0 fail**, 452 assertions (the transport, the codec, the pinned-client replay and this qualification)                                                              |
+| `bun run format:check` (whole repository, pinned `oxfmt`)                                                                    | all matched files use the correct format                                                                                                                                      |
+| `bun run lint` (pinned `vp run orch:lint` and `oxlint --deny-warnings`, the repository's own configuration, no rule removed) | 0 warnings, 0 errors                                                                                                                                                          |
+| `bun run typecheck` (pinned `vp run orch:typecheck`)                                                                         | 33/33 tasks successful, "No type errors in 318 files"                                                                                                                         |
+| `vp run orch:test` (the repository's unit task lane)                                                                         | **1734 tests across 135 files, 0 fail**, 32/32 tasks successful - the same numbers as the qualification base and as `f9d5b1577`                                               |
+| `bun test scripts/vp-r2-cache*.test.ts --coverage`                                                                           | aggregate 85.60% functions, 87.95% lines (the goal is 80%); `scripts/vp-r2-cache-transfer.mjs` at 95.45%/100.00% and `scripts/vp-r2-cache-transfer-fixtures.mjs` at 100%/100% |
+| `bun run test:coverage`                                                                                                      | **crashes** in this environment, at the base commit and at the qualification base as well - see below                                                                         |
 
 ### The coverage lane crashes here, before and after this change
 
@@ -213,7 +221,7 @@ error: script "test:coverage" was terminated by signal SIGABRT (Abort)
 ```
 
 The same command at the base commit `f9d5b1577`, at the qualification bases
-`2498a8b7` and `6686d3b6`, and at this qualification head, each in a separate
+`2498a8b7`, `6686d3b6` and `42ac235a`, and at this qualification head, each in a separate
 worktree with its own `bun install --frozen-lockfile`, ends the same way at the
 same point: after about 143 seconds, with the same docker registry rate limits
 in front of it (`public.ecr.aws` and `docker.io` answer `toomanyrequests` for the
