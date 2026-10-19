@@ -1,4 +1,4 @@
-# Shared R2 task-cache transport: export/import boundary and contract
+# Shared R2 task-cache transport: export/import boundary, contract and repairs
 
 Repository `adea-ai/adea`. Base `f9d5b1577ba0b0d8f932f9732b7f3867053e1c83`
 (`chore(main): release 0.98.0 (#1484)`), the tip of `origin/main` when this work
@@ -6,24 +6,25 @@ started. Branch `codex/r2-task-cache-transport-w4-20261019`.
 
 This receipt records what was proved about the pinned Vite+ client before any
 transport was designed, what the transport contract in `scripts/vp-r2-cache*.mjs`
-is, and what is **not** claimed.
+is, the repairs that review `5576644801` asked for, and what is **not** claimed.
 
 ## Scope
 
-New files only:
-
-| File                            | What it is                                                     |
-| ------------------------------- | -------------------------------------------------------------- |
-| `scripts/vp-r2-cache.mjs`       | the transport contract                                          |
-| `scripts/vp-r2-cache.cbor.mjs`  | the CBOR subset the client's remote cache protocol uses         |
-| `scripts/vp-r2-cache-fixtures.mjs` | synthetic fixtures and an in-memory object store             |
-| `scripts/vp-r2-cache.test.ts`   | the offline proof                                               |
+| File                                 | What it is                                                     |
+| ------------------------------------ | -------------------------------------------------------------- |
+| `scripts/vp-r2-cache.mjs`            | the transport contract                                         |
+| `scripts/vp-r2-cache.cbor.mjs`       | the strict CBOR subset the client's remote cache protocol uses |
+| `scripts/vp-r2-cache-fixtures.mjs`   | synthetic fixtures and an in-memory object store               |
+| `scripts/vp-r2-cache.test.ts`        | the offline proof                                              |
+| `scripts/vp-r2-cache.cbor.test.ts`   | the codec proof                                                |
+| `scripts/vp-r2-cache-replay.mjs`     | the reproducible pinned-client replay harness                  |
+| `scripts/vp-r2-cache-replay.test.ts` | the test that runs the replay                                  |
 
 Nothing else in the repository changed. No workflow, no `package.json` script, no
-`vite.config.ts`, no task graph and no existing script was touched. `ORCH_CHECKOUT`
-(`scripts/orch-graph.mjs`) is unchanged, and the local shared cache
-(`scripts/vp-local-run.mjs`) is unchanged: the transport is a separate, opt-in
-contract that no current build path calls.
+`vite.config.ts`, no task graph and no existing script was touched.
+`ORCH_CHECKOUT` (`scripts/orch-graph.mjs`) is unchanged, and the local shared
+cache (`scripts/vp-local-run.mjs`) is unchanged: the transport is a separate,
+opt-in contract that no current build path calls.
 
 ## 1. The export/import boundary of the pinned client
 
@@ -75,9 +76,9 @@ task to its entry.
 here.** It is not a documented interchange format, it changes with the client
 (the directory is named for the schema version, `v18`), and its values name the
 producer's own input paths. The transport in this change therefore never ships
-the database. What it ships is the triple the client itself exchanges with a
-remote cache: the entry key, the task fingerprint key and the entry value, with
-the output archive beside them as an opaque blob.
+the database. What it ships is the triple the client itself already exchanges
+with a remote cache: the entry key, the task fingerprint key and the entry
+value, with the output archive beside them as an opaque blob.
 
 ### 1.3 What the client does support, and the protocol it speaks
 
@@ -133,21 +134,60 @@ Two properties of the protocol matter for the transport:
 **injected** object store. It has no provider, no credential, no endpoint and no
 network call; the store is the caller's, and every method of it is bounded.
 
-### 2.1 Off by default
+### 2.1 The two layers
 
-`isEnabled` reads `ADEA_VP_R2_CACHE_ENABLED` and is false unless it is exactly
-`1`. With the transport off, `handleRemoteCache` answers `503` and **makes no
-store call at all** (asserted by the test that checks the store's call log is
-empty). Nothing in the repository turns it on.
+The exported store operations (`publishEntry`, `lookupEntry`, `readBlob`) are the
+**lower level**. They take an explicit trust domain and a store, they do no
+authorization and no enable check, and they refuse to run without a domain.
+They are for a caller that has already decided that this domain may use this
+store.
 
-### 2.2 A versioned envelope
+`handleRemoteCache` is the **enabled and authenticated handler**: the only entry
+point that serves a request from outside. It refuses to answer at all while the
+transport is off, and it refuses every request that carries no authorization
+decision bound to the domain.
+
+`createTransport({ scope, store })` is the constructor contract that binds the
+two: one transport serves one trust domain against one store.
+
+### 2.2 The trust domain
+
+Every entry belongs to a **trust domain**: a namespace (which repository or
+tenant the entries belong to) and a compatibility context (the pinned client
+version and the pinned toolchain identity). The domain is mixed into every
+object key and recorded in every envelope:
+
+```text
+entries/<domain>/<sha256(key)>/<sha256(secondary_key)>/entry.json
+blobs/<domain>/<sha256(archive)>
+staging/<domain>/<generated uuid>
+```
+
+A store shared by two domains is therefore safe: the second domain cannot name
+the first domain's objects, and an envelope written for another domain is
+refused when it is read back. The compatibility context is checked as well, so
+an entry written by another client version or another toolchain is refused: the
+envelope version is not the only thing that decides whether an entry may be
+replayed. There is no free-form producer field; the domain says who wrote the
+entry and with which client and toolchain, and both are checked on read.
+
+The authorization decision is bound to the domain in the same way. `authorize` is
+called with the domain and must answer `{ allow: true, scope: <domain id> }`; a
+bare boolean is refused, because a boolean cannot be bound to a domain and two
+repositories that share one store would then read each other's entries.
+
+### 2.3 A versioned envelope
 
 What is stored is this transport's own envelope, not the client's bytes:
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "kind": "adea.vp-r2-cache/entry",
+  "scope": "<the trust domain id>",
+  "namespace": "adea-ai/adea",
+  "client": "1.3.0",
+  "toolchain": "<the pinned toolchain id>",
   "key": "<base64 of the client's entry key>",
   "secondary_key": "<base64 of the client's task fingerprint key>",
   "value": "<base64 of the client's entry value>",
@@ -157,144 +197,212 @@ What is stored is this transport's own envelope, not the client's bytes:
   "blob_id": "<digest of the archive>",
   "blob_sha256": "<digest of the archive>",
   "blob_size": 108,
-  "created_at": "2026-10-19T00:00:00.000Z",
-  "producer": null
+  "created_at": "2026-10-19T00:00:00.000Z"
 }
 ```
 
 The fields are written in a fixed order with no whitespace, so the same envelope
-always produces the same bytes and two stores can be compared byte for byte.
-A reader refuses an envelope whose `v` it does not know, whose `kind` is not
-this kind, or which is missing a field: an unknown version is refused, never
-guessed at. `ENVELOPE_VERSION` is the only thing that has to change when the
-format changes.
+always produces the same bytes and two stores can be compared byte for byte. A
+reader refuses an envelope whose `v` it does not know, whose `kind` is not this
+kind, or which is missing a field. The version moved from 1 to 2 with the trust
+domain: a version 1 envelope has no domain and is refused.
 
-### 2.3 Object keys that a request cannot steer
+### 2.4 Object keys that a request cannot steer
 
-```text
-entries/<sha256(key)>/<sha256(secondary_key)>/entry.json
-blobs/<sha256(archive)>
-staging/<generated uuid>
-```
-
-Every segment is a digest or a generated identifier, so there is no request
-input that reaches the key: a client key of `../../etc/passwd` still produces
-`entries/<64 hex>/<64 hex>/entry.json`. The path checks are therefore a
+Every segment is a digest or a generated identifier, so there is no request input
+that reaches the key: a client key of `../../etc/passwd` still produces
+`entries/<domain>/<hex>/<hex>/entry.json`. The path checks are therefore a
 property of the construction, and `blobObjectKey` and `stagingObjectKey` refuse
 anything that is not a digest or a generated identifier.
 
-### 2.4 Integrity, sizes and staging
+### 2.5 Integrity, sizes and staging
 
-- every read is bounded (`LIMITS`: 64 KiB per key, 4 MiB per value, 256 MiB per
-  archive, 8 MiB per envelope, 300 MiB per request), and a store that returns
-  more than the bound is refused;
-- every write is staged: the bytes land under `staging/<uuid>`, the staged
-  object is read back and compared, and only then is it promoted to its final
-  key and the staging object removed. A reader never sees a half written
-  object, and an interrupted write leaves nothing but a staging object, which is
-  never read;
+- every read is bounded (`LIMITS`: 64 KiB per key, 64 KiB per task fingerprint
+  key, 4 MiB per value, 8 MiB per metadata part, 256 MiB per archive, 8 MiB per
+  envelope, 300 MiB per request), each field has to be non-empty, and a store
+  that returns more than the bound is refused;
+- the metadata part is measured **before** it is decoded, and the decoder holds
+  the message to a nesting budget (32) and an item budget (4096);
+- every write is staged: the bytes land under `staging/<domain>/<ownership>`,
+  the staged object is read back and compared, and only then is it promoted to
+  its final key and the staging object removed. A reader never sees a half
+  written object, and an interrupted write leaves nothing but a staging object,
+  which is never read;
+- the final object is written by **one atomic step**: a server-side copy of the
+  complete staged object, or a single put of the complete bytes. Nothing is
+  written to the final key in pieces;
 - the envelope is checked against its own digests on every read, and against the
   key that was asked for, so an envelope stored under the wrong key is refused
   instead of replayed;
 - the archive is content addressed and checked against its digest when it is
   read.
 
-### 2.5 Safe fallback
+### 2.6 Strict CBOR
 
-Nothing throws at the caller. A refusal or a store failure becomes a result
-with `fallback: true` and a fixed category, and the client's own behaviour takes
-over: the client reads a failed fetch as a cache miss and runs the task, and a
-failed store leaves the caller's local cache in charge. The categories are
+The client's maps are decoded into **null-prototype** objects, so a key named
+`__proto__` is an ordinary own property and never reaches a prototype. A map
+that holds the same key twice is refused, a map key that is not text is
+refused, and the fields the transport reads are read as **own** properties: a
+prototype that carries `key` or `secondary_key` cannot satisfy the validation.
+
+### 2.7 The multipart body
+
+A multipart body is read by the complete delimiter grammar: the delimiter is
+the CRLF that precedes `--<boundary>`, followed by `--<boundary>` and then
+either CRLF (another part follows) or `--` (the closing delimiter). A
+`--<boundary>` that appears inside a part without a CRLF in front of it is part
+of the part's bytes and is kept as it is, so an archive that holds
+`prefix--adea-boundary--suffix` is stored whole. The closing delimiter must be
+there, a repeated part name is refused, and so is a part without a name.
+
+### 2.8 Deadlines, cancellation and safe fallback
+
+Every external call is bounded by a deadline: the authorization call, the store
+calls and the cleanup alike. A call that does not answer in time ends the
+operation with a fallback, and an operation whose deadline passed cannot publish:
+the staged object is removed, and a final object that was promoted too late is
+removed again. Nothing throws at the caller: a refusal or a store error becomes a
+result with `fallback: true` and a fixed category, and the client's own behaviour
+takes over - the client reads a failed fetch as a cache miss and runs the task,
+and a failed store leaves the caller's local cache in charge. The categories are
 fixed strings that name no path, no key and no message from the store.
 
-### 2.6 Not a public read service
+### 2.9 Not a public read service
 
 `handleRemoteCache` requires an `authorize` callback. There is no default that
 allows an anonymous read: a request that arrives without an authorization
 decision is refused with `403` before the store is touched. The draft
 public-read service is not adopted, and nothing here serves a public endpoint.
 
-## 3. What was run
+### 2.10 The adapter boundary
+
+The handler is given a request body that the adapter has already buffered. The
+adapter reads the socket, so the adapter is the party that bounds the buffering:
+it must not hand over more than `LIMITS.maxRequestBytes`, and the transport
+refuses a larger body with `413` before it parses anything.
+
+## 3. The repairs review `5576644801` asked for
+
+| #   | The review asked for                                                                                                                                | What was done                                                                                                                                                                                                                               | Where it is proved                                                                                                                        |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | a trusted namespace and a compatibility context, bound to entries, blobs and the authorization; cross-scope denial tests                            | the trust domain (`trustDomain`) is bound by `createTransport`, mixed into every key, recorded in the envelope and checked on read; the authorization answer must name the domain; a bare boolean is refused                                | `the trust domain` (6 tests), `the transport > keeps two domains apart over one store`                                                    |
+| 2   | the multipart body read by the complete delimiter grammar, a closing boundary required, duplicate and malformed parts refused, arbitrary bytes kept | the parser matches `\r\n--<boundary>` only and requires the closing `--<boundary>--`; a repeated or unnamed part is refused                                                                                                                 | `the multipart body` (6 tests), including `keeps an archive that holds the boundary as plain bytes` and `keeps arbitrary bytes`           |
+| 3   | non-empty per-field bounds, the metadata bounded before it is decoded, decoder budgets, the adapter boundary documented                             | `maxKeyBytes`, `maxSecondaryKeyBytes`, `maxValueBytes`, `maxMetadataBytes`; the metadata part is measured before the decode; `maxCborDepth` and `maxCborItems`; the adapter boundary is documented in the module header and in section 2.10 | `the bounds` (5 tests), `the CBOR maps`                                                                                                   |
+| 4   | strict CBOR maps: null-prototype, own-property validation, duplicate-key rejection, adversarial tests                                               | the decoder builds null-prototype maps, refuses a repeated key and a non-text key; `ownField` reads only own properties                                                                                                                     | `the CBOR maps` (4 tests), `scripts/vp-r2-cache.cbor.test.ts` (13 tests), including the `__proto__` and `secondary_key` adversarial cases |
+| 5   | bounded cancellable authorization, store and cleanup deadlines; stalled-operation tests; no late publish                                            | every external call is raced against the operation's deadline and the signal is handed to the store; a promotion that lands after the deadline is removed again                                                                             | `the deadlines` (4 tests)                                                                                                                 |
+| -   | atomic final-object put/copy and a concurrent publication test                                                                                      | one atomic promotion step, documented; two concurrent publications of one entry are tested                                                                                                                                                  | `publishes the final object in one atomic step`, `publishes the same entry twice without leaving anything half written`                   |
+| -   | a reproducible pinned-client replay that removes the local cache **and** the generated outputs                                                      | `scripts/vp-r2-cache-replay.mjs`                                                                                                                                                                                                            | section 4                                                                                                                                 |
+| -   | the lower-level operations and the enabled and authenticated handler told apart                                                                     | section 2.1; the module header names both                                                                                                                                                                                                   | `createTransport` takes no authorization decision                                                                                         |
+| -   | the normal repository-pinned lint, typecheck and coverage                                                                                           | section 5                                                                                                                                                                                                                                   | section 5                                                                                                                                 |
+
+## 4. The reproducible pinned-client replay
+
+`scripts/vp-r2-cache-replay.mjs` drives the pinned client of this checkout
+against the transport, on loopback, over an in-memory store:
+
+1. the pinned client runs a task and stores its output archive in the transport;
+2. the **local task cache and the generated output file are both removed**, so
+   nothing is left that could satisfy the replay locally;
+3. the pinned client runs the same task again and has to fetch the entry from the
+   transport.
+
+The replay only counts when the client says it took a remote cache hit and when
+the restored bytes are the bytes the first run wrote. The harness is offline and
+hermetic: the project it runs in is a throwaway directory that is removed at the
+end, and nothing outside it is written.
+
+```console
+$ node scripts/vp-r2-cache-replay.mjs
+{
+  "skipped": false,
+  "client": "1.3.0",
+  "runtime": ".../bun",
+  "localCacheRemoved": true,
+  "outputsRemoved": true,
+  "remoteHit": true,
+  "restored": true,
+  "bytesMatch": true,
+  "sha256": "72e8d47d0b8dd07fa78971c1c548bd3f884ade477cf4934cf69bb553f9faf1bb",
+  "expectedSha256": "72e8d47d0b8dd07fa78971c1c548bd3f884ade477cf4934cf69bb553f9faf1bb",
+  "output": "... ◉ remote cache hit, replaying ... vp run: remote cache hit, 35ms saved."
+}
+```
+
+The requests the client made, as the transport saw them:
+
+```text
+POST /fetch -> 404      (the first run: nothing stored yet)
+POST /store -> 200
+POST /fetch -> 200      (the replay: the local cache and the output are gone)
+GET  /blob/<sha256> -> 200
+```
+
+The harness runs the client through the `node` binary when there is one and
+through the running runtime otherwise, and it uses the pinned `vite-plus`
+package of this checkout, so it proves the contract against the client that the
+repository pins.
+
+## 5. What was run
 
 Everything below was run offline, against loopback and in memory. No storage
 service, no credential, no public endpoint and no deployment was involved.
 
-| Command | Result |
-| --- | --- |
-| `bun test scripts/vp-r2-cache.test.ts` | 29 pass, 0 fail, 93 assertions |
-| `bun test scripts/vp-r2-cache.test.ts scripts/vite-plus-proof.test.ts` | 40 pass, 0 fail |
-| `bunx oxfmt@0.73.0 --check scripts/vp-r2-cache*.mjs scripts/vp-r2-cache.test.ts` | all matched files use the correct format |
-| `bunx oxlint@1.88.0 --deny-warnings --config <minimal> scripts/vp-r2-cache*.mjs scripts/vp-r2-cache.test.ts` | no findings |
+| Command                                                                                                    | Result                                                                  |
+| ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `bun test scripts/vp-r2-cache.test.ts scripts/vp-r2-cache.cbor.test.ts scripts/vp-r2-cache-replay.test.ts` | **76 pass, 0 fail**, 229 assertions                                     |
+| `bun run format:check` (whole repository, pinned `oxfmt`)                                                  | all matched files use the correct format                                |
+| `bun run lint` (pinned `vp run orch:lint` and `oxlint --deny-warnings`, repository configuration)          | 0 warnings, 0 errors                                                    |
+| `bun run typecheck` (pinned `vp run orch:typecheck`)                                                       | 33/33 tasks successful, "No type errors in 318 files"                   |
+| `vp run orch:test` (the repository's unit task lane)                                                       | **1734 tests across 135 files, 0 fail**, 32/32 tasks successful         |
+| `bun test scripts/vp-r2-cache*.test.ts --coverage`                                                         | aggregate 81.77% functions, 86.03% lines (the goal is 80%)              |
+| `bun run test:coverage`                                                                                    | **crashes** in this environment, at the base commit as well - see below |
 
-The lint run used the repository's own `.oxlintrc.json` with the two workspace
-plugin rules removed, because `@adea-ai/ui/lint` and `@shadcn/lint` are
-installed from the workspace and are not present in an uninstalled checkout;
-the plugin rules are design-system rules for components and do not apply to
-these files.
+The lint run uses the repository's own `.oxlintrc.json` with no rule removed:
+the workspace plugin packages are installed by `bun install --frozen-lockfile`,
+so `@shadcn/lint` and `@adea-ai/ui/lint` are loaded and the plugin rules are
+applied.
 
-`scripts/vp-local-run.test.ts` has 7 failures in this environment **before**
-this change (they need a `node` binary and the `vp` binary in `node_modules`);
-they are unchanged by it.
+The unit task lane is the same at the base commit `f9d5b1577`, in a separate
+worktree with its own `bun install --frozen-lockfile`: **1734 tests across 135
+files, 0 fail, 32/32 tasks successful**. The new test files are in the
+`scripts/` lane, which the coverage lane runs.
 
-### 3.1 The offline writer/reader proof
+### The coverage lane crashes here, before and after this change
 
-The synthetic proof in `scripts/vp-r2-cache.test.ts` drives the whole contract
-against the in-memory store of `scripts/vp-r2-cache-fixtures.mjs`: an entry is
-written through the client's own `POST /store` message, read back through the
-client's own `POST /fetch` message, and its archive is read through
-`GET /blob/<blob_id>`. The negative cases are the ones that matter for a shared
-cache: a tampered value, an envelope of an unknown version, an oversized entry,
-a store that refuses the write, a staged object that does not read back as it
-was written, a promotion that fails, a missing entry, a request that is not
-CBOR, and a request that arrives without an authorization decision.
-
-The fixture module also carries the client's own captured messages (the fetch
-request, the store request and the answer the client accepted). They are the
-ground truth the transport is written against: the codec reads them, and the
-answer the transport produces holds exactly the fields the client reads
-(`kind`, `key`, `secondary_key`, `value`, `blob_id`).
-
-### 3.2 The end-to-end proof against the pinned client
-
-The transport was also served on loopback and the **real pinned client** was
-pointed at it with `VP_REMOTE_CACHE_URL` and `VP_REMOTE_CACHE=read-write`. The
-local task cache was deleted between the runs, so the second run could only be
-served by the transport:
-
-```console
-$ rm -rf node_modules/.vite/task-cache
-$ VP_REMOTE_CACHE_URL=http://127.0.0.1:8997 VP_REMOTE_CACHE=read-write vp run emit
-$ bun -e "...writeFileSync('out/a.txt','hello-adea')"
-Waiting for 1 remote cache upload to finish...
-
-$ rm -rf node_modules/.vite/task-cache
-$ VP_REMOTE_CACHE_URL=http://127.0.0.1:8997 VP_REMOTE_CACHE=read-write vp run -v emit
-...
-Statistics:   1 task • 1 cache hit (1 remote) • 0 cache misses
-Performance:  100% cache hit rate, 24ms saved in total
-  [1] vp-probe#emit: ... ✓
-      → Remote cache hit - output replayed - 24ms saved
-
-$ cat out/a.txt
-hello-adea
-```
-
-The requests the client made, and the objects the transport held:
+`bun run test:coverage` ends in a **Bun 1.4.2 panic** in this environment:
 
 ```text
-POST /fetch -> 404
-POST /store -> 200
-POST /fetch -> 200
-GET  /blob/0f3837400d03f01e75dc5f9e50ffb806261e5ceb90cead9694bc0c1f55e90ac6 -> 200
-
-objects: ["blobs/0f3837400d03f01e75dc5f9e50ffb806261e5ceb90cead9694bc0c1f55e90ac6",
-          "entries/07d9e693284ba4c5094f68644b2f0d5d81c056aa1926a31061151fba846fb772/d97b0388972a53fb78ff55001678e615dbfa92759bb6861cf4b5109ff351067b/entry.json"]
+panic: range end index 1084 out of range for slice of length 1023
+oh no: Bun has crashed. This indicates a bug in Bun, not your code.
+error: script "test:coverage" was terminated by signal SIGABRT (Abort)
 ```
 
-This was a loopback run against a throwaway project and an in-memory store. It
-is not a claim about a deployed service.
+The same command at the base commit `f9d5b1577`, in a separate worktree with its
+own `bun install --frozen-lockfile`, ends the same way at the same point:
 
-## 4. What is not claimed
+```text
+panic: range end index 1077 out of range for slice of length 1023
+oh no: Bun has crashed. This indicates a bug in Bun, not your code.
+error: script "test:coverage" was terminated by signal SIGABRT (Abort)
+```
+
+Both runs die after about 143 seconds, in the same place, with the same docker
+registry rate limits in front of them (`public.ecr.aws` and `docker.io` answer
+`toomanyrequests` for the postgres image the container tests pull). The lane
+therefore does not complete here, before or after this change; what is proved
+here is the scripts lane, which contains the new files, and the unit task lane,
+which does complete and is identical at the base commit.
+
+The coverage of the new files, from the scripts lane:
+
+| File                               | % Funcs | % Lines |
+| ---------------------------------- | ------: | ------: |
+| `scripts/vp-r2-cache.mjs`          |   88.14 |   95.41 |
+| `scripts/vp-r2-cache.cbor.mjs`     |   92.31 |   97.84 |
+| `scripts/vp-r2-cache-fixtures.mjs` |   95.24 |  100.00 |
+| `scripts/vp-r2-cache-replay.mjs`   |   86.36 |   93.06 |
+
+## 6. What is not claimed
 
 - **No operational R2 completion is claimed.** No bucket, credential, account,
   endpoint or deployment was used or created. Nothing here has run against
@@ -308,12 +416,14 @@ is not a claim about a deployed service.
   repository calls the transport.
 - **The protocol above is the client's, not ours.** It was observed against
   `vite-plus@1.3.0`. The client owns it; a later client may change it, and the
-  envelope version is the seam where this transport would refuse to go on.
-- **The end-to-end proof covered one task in one throwaway project.** It shows
-  that the transport is compatible with the pinned client's remote cache
-  protocol. It does not show that any real build graph is safe to share this
-  way; the `apps/web build` task embeds its checkout's absolute path in its
-  output and is guarded by `ORCH_CHECKOUT`, which is unchanged here.
+  envelope version and the compatibility context are the seams where this
+  transport would refuse to go on.
+- **The replay covered one task in one throwaway project.** It shows that the
+  transport is compatible with the pinned client's remote cache protocol, and
+  that the restored bytes are the bytes that were written. It does not show
+  that any real build graph is safe to share this way; the `apps/web build`
+  task embeds its checkout's absolute path in its output and is guarded by
+  `ORCH_CHECKOUT`, which is unchanged here.
 - **The fallback is the local cache, always.** Whenever the remote side is
   missing, refused, unreadable or of an unknown version, the run continues on
   the local task cache and the local shared cache of `scripts/vp-local-run.mjs`.

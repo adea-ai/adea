@@ -26,14 +26,32 @@ export const CLIENT_FETCH_RESPONSE = [
   'pWRraW5kZWV4YWN0Y2tleVkFDRIAAAAFAAAAAAAAAG1hY29zBwAAAAAAAABhYXJjaDY0AAAAAAAAAAAAAAAAAwAAAAAAAABidW4CAAAAAAAAAAIAAAAAAAAALWVlAAAAAAAAAHJlcXVpcmUoJ2ZzJykubWtkaXJTeW5jKCdvdXQnLHtyZWN1cnNpdmU6dHJ1ZX0pO3JlcXVpcmUoJ2ZzJykud3JpdGVGaWxlU3luYygnb3V0L2EudHh0JywnaGVsbG8tYWRlYScpAAAAAAAAAAA3AAAAAAAAAAcAAAAAAAAAKl9UT0tFThwAAAAAAAAAQUNUSU9OU19JRF9UT0tFTl9SRVFVRVNUX1VSTAcAAAAAAAAAQVBQREFUQQoAAAAAAAAAQlVJTERLSVRfKgIAAAAAAAAAQ0kJAAAAAAAAAENPTVBPU0VfKgoAAAAAAAAAQ09SRVBBQ0tfKhgAAAAAAAAAREJVU19TRVNTSU9OX0JVU19BRERSRVNTBwAAAAAAAABESVNQTEFZCAAAAAAAAABET0NLRVJfKhoAAAAAAAAARFlMRF9GQUxMQkFDS19MSUJSQVJZX1BBVEgVAAAAAAAAAERZTERfSU5TRVJUX0xJQlJBUklFUxQAAAAAAAAARUxFQ1RST05fUlVOX0FTX05PREUIAAAAAAAAAEdJVEhVQl8qBAAAAAAAAABIT01FCQAAAAAAAABIT01FRFJJVkUIAAAAAAAAAEhPTUVQQVRICAAAAAAAAABKQl9JREVfKg4AAAAAAAAASkJfSU5URVJQUkVURVIEAAAAAAAAAExBTkcPAAAAAAAAAExEX0xJQlJBUllfUEFUSAoAAAAAAAAATERfUFJFTE9BRAcAAAAAAAAATElCUEFUSAwAAAAAAAAATE9DQUxBUFBEQVRBBgAAAAAAAABORVhUXyoMAAAAAAAAAE5PREVfT1BUSU9OUwsAAAAAAAAATk9XX0JVSUxERVIUAAAAAAAAAE5QTV9DT05GSUdfU1RPUkVfRElSBAAAAAAAAABQQVRIBwAAAAAAAABQQVRIRVhUDAAAAAAAAABQTEFZV1JJR0hUXyoJAAAAAAAAAFBOUE1fSE9NRQsAAAAAAAAAUFJPR1JBTURBVEEDAAAAAAAAAFBXRAwAAAAAAAAAUHJvZ3JhbUZpbGVzFQAAAAAAAABQcm9ncmFtRmlsZXNbKF14ODZbKV0IAAAAAAAAAFJVTk5FUl8qBQAAAAAAAABTSEVMTAsAAAAAAAAAU1lTVEVNRFJJVkUKAAAAAAAAAFNZU1RFTVJPT1QEAAAAAAAAAFRFTVADAAAAAAAAAFRNUAIAAAAAAAAAVFoEAAAAAAAAAFVTRVILAAAAAAAAAFVTRVJQUk9GSUxFHQAAAAAAAABVU0VfT1VUUFVUX0ZPUl9FREdFX0ZVTkNUSU9OUyIAAAAAAAAAVkNfTUlDUk9GUk9OVEVORFNfQ09ORklHX0ZJTEVfTkFNRQYAAAAAAAAAVkVSQ0VMCAAAAAAAAABWRVJDRUxfKgQAAAAAAAAAVlBfKggAAAAAAAAAVlNDT0RFXyoGAAAAAAAAAFdJTkRJUgoAAAAAAAAAWEFVVEhPUklUWQ8AAAAAAAAAWERHX1JVTlRJTUVfRElSJQAAAAAAAABfSkVUQlJBSU5TX1RFU1RfUlVOTkVSX1JVTl9TQ09QRV9UWVBFAQAAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAG1zZWNvbmRhcnlfa2V5WFASAAAABQAAAAAAAABtYWNvcwcAAAAAAAAAYWFyY2g2NAAAAAAEAAAAAAAAAGVtaXQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGV2YWx1ZVkBNgQAAAAAAAAADAAAAAAAAABub2RlX21vZHVsZXMCAAAAAAsAAAAAAAAAYnVuZmlnLnRvbWwAAAAADAAAAAAAAABwYWNrYWdlLmpzb24BAAAAjQEq89trHlMAAAAAAAAAAAIAAAABBQAAAAAAAAAMAAAAAAAAAG5vZGVfbW9kdWxlcwIAAAADAAAAAAAAAG91dAEAAAAMAAAAAAAAAHBhY2thZ2UuanNvbgAAAAADAAAAAAAAAHNyYwEAAAAOAAAAAAAAAHZpdGUuY29uZmlnLnRzAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8ZhAQAAAAAAAAAAASwAAAAAAAAANzJjZWZhMTYtMDRkZS00MWU3LWFkOWItZGFkYTM0OTQ3NTUzLnRhci56c3RnYmxvYl9pZHhAZWFmMzUzOWU0MTBjZDA4ZjM1N2Y4MmE5OWNjOWUwNzEwZTZiYjI1YzI5OThkNjgxMWJkZDg2ZmQ4ODI1NzlkNg==',
 ].join('')
 
-// Synthetic helpers for the shared R2 task-cache transport: an in-memory object store and builders for the client's
-// own wire messages.
+// Synthetic helpers for the shared R2 task-cache transport: an in-memory object store, trust domains, and builders for
+// the client's own wire messages, including the adversarial ones.
 
 import { createHash } from 'node:crypto'
 
 import { encode as cborEncode } from './vp-r2-cache.cbor.mjs'
+import { trustDomain } from './vp-r2-cache.mjs'
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
+
+/** A call that never answers, so a test can prove that the transport ends an operation that waits for it. */
+const never = () => new Promise(() => {})
+
+/** A store that honours the signal must not finish a write after the operation was cancelled. */
+const cancelled = (signal) => {
+  if (signal?.aborted) throw new Error('the operation was cancelled')
+}
+
+/** The trust domain the tests use: one namespace, the pinned client version and a pinned toolchain id. */
+export function testScope(
+  namespace = 'adea-ai/adea',
+  client = '1.3.0',
+  toolchain = 'adea-test-toolchain'
+) {
+  return trustDomain({ namespace, client, toolchain })
+}
 
 /**
  * An object store that keeps its objects in memory. Every call is recorded, so a test can assert that a refused
@@ -43,6 +61,9 @@ const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
  * The store reports the size and the digest of what it holds, which is what the transport checks a staged write
  * against. A store that cannot report a digest may leave it out; the transport then relies on the size and on reading
  * the object back.
+ *
+ * `options.stall` names the calls that never answer, so a test can prove that the transport ends an operation that
+ * waits for a store that is stuck.
  */
 export function createMemoryStore(options = {}) {
   const objects = new Map()
@@ -54,18 +75,23 @@ export function createMemoryStore(options = {}) {
   const failHead = fail('failHead')
   const failCopy = fail('failCopy')
   const failDelete = fail('failDelete')
+  const stall = new Set(options.stall ?? [])
   return {
     objects,
     calls,
-    put(key, bytes) {
+    put(key, bytes, { signal } = {}) {
       calls.push({ op: 'put', key })
+      if (stall.has('put')) return never()
+      cancelled(signal)
       if (failPut) throw new Error('the store refused the write')
       const copy = Buffer.from(bytes)
       objects.set(key, copy)
       return { size: copy.length, sha256: sha256(copy) }
     },
-    get(key, { maxBytes } = {}) {
+    get(key, { maxBytes, signal } = {}) {
       calls.push({ op: 'get', key })
+      if (stall.has('get')) return never()
+      cancelled(signal)
       if (failGet) throw new Error('the store refused the read')
       const held = objects.get(key)
       if (held === undefined) return null
@@ -73,20 +99,26 @@ export function createMemoryStore(options = {}) {
         throw new Error('the store returned too many bytes')
       return held
     },
-    head(key) {
+    head(key, { signal } = {}) {
       calls.push({ op: 'head', key })
+      if (stall.has('head')) return never()
+      cancelled(signal)
       if (failHead) throw new Error('the store refused the read')
       const held = objects.get(key)
       if (held === undefined) return null
       return { size: held.length, sha256: sha256(held) }
     },
-    delete(key) {
+    delete(key, { signal } = {}) {
       calls.push({ op: 'delete', key })
+      if (stall.has('delete')) return never()
+      cancelled(signal)
       if (failDelete) throw new Error('the store refused the delete')
       objects.delete(key)
     },
-    copy(from, to) {
+    copy(from, to, { signal } = {}) {
       calls.push({ op: 'copy', key: from, to })
+      if (stall.has('copy')) return never()
+      cancelled(signal)
       if (failCopy) throw new Error('the store refused the copy')
       const held = objects.get(from)
       if (held === undefined) throw new Error('the store has no such object')
@@ -132,4 +164,39 @@ export function storeRequestBody(entry, boundary = 'adea-boundary') {
 /** The content type of a `POST /store` body. */
 export function storeRequestContentType(boundary = 'adea-boundary') {
   return `multipart/form-data; boundary=${boundary}`
+}
+
+/**
+ * A `POST /store` body whose archive holds the boundary as plain bytes. The boundary appears without the CRLF that
+ * makes a delimiter, so the archive must be kept whole.
+ */
+export function storeRequestBodyWithEmbeddedBoundary(boundary = 'adea-boundary') {
+  const entry = syntheticEntry('embedded-boundary')
+  const blob = Buffer.concat([
+    Buffer.from('prefix', 'utf8'),
+    Buffer.from(`--${boundary}--suffix`, 'utf8'),
+  ])
+  return storeRequestBody({ ...entry, blob }, boundary)
+}
+
+/** A CBOR map whose `__proto__` field carries a key, to try to satisfy the validation through a prototype. */
+export function prototypePollutedFetchRequest() {
+  // A null-prototype map, so `__proto__` is an own property of the message and not its prototype.
+  const message = Object.create(null)
+  message.__proto__ = { key: 'inherited', secondary_key: 'inherited' }
+  return cborEncode(message)
+}
+
+/** A CBOR map that holds the same key twice, to try to make one message mean two things. */
+export function duplicateKeyFetchRequest() {
+  const key = Buffer.from('synthetic-entry-key:duplicate', 'utf8')
+  // Two `key` entries in one map: the codec must refuse the message rather than pick one of them.
+  const bytes = Buffer.concat([
+    Buffer.from([0xa2]),
+    cborEncode('key'),
+    cborEncode(key),
+    cborEncode('key'),
+    cborEncode(key),
+  ])
+  return bytes
 }
