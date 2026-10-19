@@ -327,3 +327,58 @@ jobs:
           project_id: ${{ vars.NEON_PROJECT_ID }}
           branch_id: ${{ steps.resolve.outputs.proof }}
           api_key: ${{ secrets.NEON_API_KEY }}
+
+  # A second, database-only proof. The hosted Neon branch, its Neon Auth JWKS
+  # proof and the gate above are unchanged: this lane adds a disposable
+  # PostgreSQL instance on the loopback interface and proves the database
+  # boundary against it. It reads no secret and reaches no hosted database.
+  disposable_postgres_proof:
+    name: Disposable PostgreSQL Proof
+    needs: setup
+    if: >-
+      github.event.action == 'opened' ||
+      github.event.action == 'reopened' ||
+      github.event.action == 'synchronize' ||
+      github.event.action == 'ready_for_review'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Prove the disposable PostgreSQL boundary
+        run: bun --no-env-file run scripts/disposable-postgres-cli.ts
+
+  disposable_postgres_gate:
+    # The same fail-closed shape as the hosted gate: it passes only when the
+    # setup and the disposable proof both succeed, and a failed, cancelled,
+    # skipped or missing result fails it.
+    name: Prove Disposable PostgreSQL
+    needs: [setup, disposable_postgres_proof]
+    if: >-
+      always() && github.event.pull_request.draft == false &&
+      (github.event.action == 'opened' || github.event.action == 'reopened' ||
+      github.event.action == 'synchronize' || github.event.action == 'ready_for_review')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require setup and the disposable proof to succeed
+        env:
+          SETUP_RESULT: ${{ needs.setup.result }}
+          PROOF_RESULT: ${{ needs.disposable_postgres_proof.result }}
+        run: |
+          echo "setup=$SETUP_RESULT proof=$PROOF_RESULT"
+          test "$SETUP_RESULT" = success
+          test "$PROOF_RESULT" = success
