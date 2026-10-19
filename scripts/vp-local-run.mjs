@@ -321,9 +321,12 @@ async function reclaimDead(lock, observed, owner, hooks) {
     await hooks.reclaimLocked?.()
     if (readRegular(lock) !== observed) return false
     if (ownerState(lock, observed).state !== 'dead') return false
-    rmSync(lock, { force: true })
+    // The stale lock still excludes every successor, so its run record is removed first: no successor can register
+    // a new run record that this removal could then take away. The lock goes last.
     const run = readRegular(`${lock}.run`)
     if (run !== null && parseToken(run)?.uuid === owner.uuid) rmSync(`${lock}.run`, { force: true })
+    await hooks.reclaimRunRemoved?.()
+    rmSync(lock, { force: true })
     return true
   } finally {
     if (readRegular(mutex) === mine) rmSync(mutex, { force: true })
@@ -353,7 +356,8 @@ function release(lock, run, mine, uuid) {
  *
  * Every wait is bounded by `timeoutMs`. Malformed, symlinked or foreign lock files raise `LockRefused` and are never deleted.
  * `hooks.staleObserved` runs after a dead owner was read and before the reclaim; `hooks.reclaimLocked` runs while a reclaimer
- * holds the reclaim mutex. Tests use them to force interleavings.
+ * holds the reclaim mutex; `hooks.reclaimRunRemoved` runs after a stale run record is removed and before the stale lock is.
+ * Tests use them to force interleavings.
  */
 export async function withLock(
   directory,
@@ -382,6 +386,19 @@ export async function withLock(
       waiting = `owner ${owner.pid} is live`
     }
     await sleep(pollMs)
+  }
+  // A run record present when a lock is newly acquired was left by something other than a clean release, and it may
+  // describe a group that is still running. It is preserved, never overwritten, and nothing is run.
+  let leftover
+  try {
+    leftover = readRegular(run)
+  } catch (error) {
+    if (readRegular(lock) === mine) rmSync(lock, { force: true })
+    throw error
+  }
+  if (leftover !== null) {
+    if (readRegular(lock) === mine) rmSync(lock, { force: true })
+    throw new LockRefused(`${run} is left from an earlier run; it is kept and nothing was run`)
   }
   try {
     return await work((pid) => replace(run, `${pid}\n${uuid}`))

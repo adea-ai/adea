@@ -90,7 +90,12 @@ Locking (`withLock`). A run takes `<directory>.lock`, published atomically, and 
 `<directory>.lock.run`.
 
 - A lock is reclaimed only when its owner has exited and no process group recorded by it still runs. A reclaimer takes
-  `<directory>.lock.reclaim` and removes the lock only while it still holds the exact bytes it read.
+  `<directory>.lock.reclaim`, re-checks the exact bytes it read, removes the stale run record of that owner, and only then
+  removes the lock. The stale lock excludes every successor until its run record is gone, so no successor's run record can
+  be removed by a reclaimer.
+- A run record present when a lock is newly acquired was left by something other than a clean release. It is kept byte for
+  byte, the lock is released, and nothing runs; the run falls back to bypass. Removing the file by hand is the recovery once
+  no build is running.
 - The reclaim mutex is never broken by its age or by a guess about its owner. While it is held, the wait is bounded and the
   run fails with a message naming it.
 - Malformed, symbolic-link, non-file or foreign lock and run records are refused and kept, and the run falls back to bypass.
@@ -115,14 +120,14 @@ Known limits:
   test suite) is present in one worktree and absent in another.
 - The `apps/web build` task fingerprints the repository root listing. Adding or removing a root file turns its replay into
   a miss. Keep scratch files outside the checkout.
-- Cross-checkout replay of `apps/web build` is deferred (option 2 below). Until Andrew approves it, that task is cached per
-  checkout, so a second checkout rebuilds it.
+- Cross-checkout replay of `apps/web build` is not done. That task is cached per checkout, so a second checkout rebuilds it.
 - A run stopped with Ctrl-C stops `vp` after the tasks it has started; the wrapper then exits 130 and releases its lock.
   The entries written before the stop stay valid, and the next run fills in the rest.
 - In bypass mode `vp` uses its own default cache under `node_modules`, as it did before this wrapper.
 
-Deferred option 2 (needs Andrew's approval, not in this change): make `apps/web build` path-free, or exclude it from the
-cache, so that it too shares across checkouts. Until then it is keyed per checkout.
+Possible future alternative (not implemented, not required for this scoped approach): make `apps/web build` path-free, or
+exclude it from the cache, so that it too shares across checkouts. The per-checkout identity described above is the accepted
+approach for now.
 
 Receipts for the path-sensitive change (commit `0a18eff`, base `e7f19faa`):
 

@@ -481,6 +481,69 @@ describe('withLock', () => {
     rmSync(mutex)
   })
 
+  test('a successor cannot take the lock between the removal of a stale run record and the removal of its lock', async () => {
+    const dir = join(scratch, 'run-cleanup', 'cache')
+    mkdirSync(join(scratch, 'run-cleanup'), { recursive: true })
+    const dead = token(deadPid())
+    writeFileSync(`${dir}.lock`, dead)
+    writeFileSync(`${dir}.lock.run`, `${deadPid()}\n${dead.split('\n')[1]}`)
+
+    let paused!: () => void
+    const atPause = new Promise<void>((done) => (paused = done))
+    let resume!: () => void
+    const gate = new Promise<void>((done) => (resume = done))
+    const first = withLock(dir, async () => 'first-ran', {
+      pollMs: 5,
+      timeoutMs: 5000,
+      hooks: {
+        reclaimRunRemoved: async () => {
+          paused()
+          await gate
+        },
+      },
+    })
+    await atPause
+    // The reclaimer is between the two removals: the run record is gone, and the stale lock still excludes a successor.
+    expect(existsSync(`${dir}.lock.run`)).toBe(false)
+    expect(readFileSync(`${dir}.lock`, 'utf8')).toBe(dead)
+    await expect(withLock(dir, () => 'second-ran', { pollMs: 5, timeoutMs: 300 })).rejects.toThrow(
+      'timed out waiting for the cache lock'
+    )
+    expect(existsSync(`${dir}.lock.run`)).toBe(false)
+
+    resume()
+    expect(await first).toBe('first-ran')
+    expect(existsSync(`${dir}.lock`)).toBe(false)
+    expect(existsSync(`${dir}.lock.reclaim`)).toBe(false)
+  })
+
+  test('a run record left by an earlier run is kept and nothing runs under the lock', async () => {
+    const dir = join(scratch, 'leftover', 'cache')
+    mkdirSync(join(scratch, 'leftover'), { recursive: true })
+    for (const leftover of [`${process.pid}\n${randomUUID()}`, 'garbage']) {
+      writeFileSync(`${dir}.lock.run`, leftover)
+      let ran = false
+      await expect(
+        withLock(dir, () => {
+          ran = true
+        })
+      ).rejects.toBeInstanceOf(LockRefused)
+      expect(ran).toBe(false)
+      expect(readFileSync(`${dir}.lock.run`, 'utf8')).toBe(leftover)
+      expect(existsSync(`${dir}.lock`)).toBe(false)
+      rmSync(`${dir}.lock.run`)
+    }
+
+    const target = join(scratch, 'leftover', 'target.txt')
+    writeFileSync(target, 'elsewhere')
+    symlinkSync(target, `${dir}.lock.run`)
+    await expect(withLock(dir, () => 'never')).rejects.toBeInstanceOf(LockRefused)
+    expect(lstatSync(`${dir}.lock.run`).isSymbolicLink()).toBe(true)
+    expect(readFileSync(target, 'utf8')).toBe('elsewhere')
+    expect(existsSync(`${dir}.lock`)).toBe(false)
+    rmSync(`${dir}.lock.run`)
+  })
+
   test('a reclaimer suspended while it holds the mutex keeps a second reclaimer out until it finishes', async () => {
     const dir = join(scratch, 'suspended', 'cache')
     mkdirSync(join(scratch, 'suspended'), { recursive: true })
