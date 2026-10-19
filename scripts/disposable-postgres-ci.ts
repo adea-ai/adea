@@ -347,29 +347,131 @@ function ownerOf(rows: ProofQueryResult, schema: string): string {
   return owner
 }
 
-/**
- * Installs the cleanup that removes the owned container when the run is
- * interrupted. The signal is re-raised after the removal so the process still
- * ends the way the signal asked it to.
- */
-export function attachOwnedContainerCleanup(options: {
+/** The teardown of the resources one run owns. */
+export type OwnedContainerCleanup = {
+  /** Detaches the signal listeners. Safe to call more than once. */
+  readonly detach: () => void
+  /**
+   * Removes the owned container and the owned temporary material, each at most
+   * once, and throws the first failure.
+   */
+  readonly teardown: () => void
+}
+
+/** How the owned container and the owned temporary material are removed. */
+export type OwnedContainerCleanupOptions = {
+  /** The name of the owned container. */
   readonly name: string
+  /** Removes the owned container. Throws when the removal fails. */
   readonly remove: (name: string) => void
-  readonly onSignal?: (signal: NodeJS.Signals) => void
-}): () => void {
-  const handler = (signal: NodeJS.Signals) => {
-    if (options.onSignal) {
-      options.onSignal(signal)
-      return
+  /** Removes the owned temporary material, such as the certificate directory. */
+  readonly removeTemporaryMaterial?: () => void
+  /** Reports a cleanup failure without throwing it. */
+  readonly reportFailure?: (message: string) => void
+  /**
+   * Re-raises the signal so the default action ends the process. The default
+   * sends the signal to this process, which terminates it with a non-success
+   * status.
+   */
+  readonly reRaise?: (signal: NodeJS.Signals) => void
+}
+
+function describeFailure(failure: unknown): string {
+  return failure instanceof Error ? failure.message : String(failure)
+}
+
+/**
+ * Installs the teardown that removes the owned container and the owned
+ * temporary material when the run is interrupted.
+ *
+ * The teardown is idempotent and never re-enters. The signal listener is
+ * detached before the signal is re-raised, so the re-raised signal reaches the
+ * default handler and ends the process the way the signal asked it to, instead
+ * of running this handler again. A removal failure is reported, never thrown:
+ * a throwing signal handler would escape the teardown, skip the re-raise and
+ * turn an interrupted run into a successful exit.
+ */
+export function attachOwnedContainerCleanup(
+  options: OwnedContainerCleanupOptions
+): OwnedContainerCleanup {
+  const reRaise = options.reRaise ?? ((signal: NodeJS.Signals) => process.kill(process.pid, signal))
+  let handled = false
+  let containerRemovalAttempted = false
+  let materialRemovalAttempted = false
+
+  const removeContainerOnce = (): unknown => {
+    if (containerRemovalAttempted) return undefined
+    containerRemovalAttempted = true
+    try {
+      options.remove(options.name)
+      return undefined
+    } catch (error) {
+      return error
     }
-    options.remove(options.name)
-    process.kill(process.pid, signal)
   }
-  process.on('SIGINT', handler)
-  process.on('SIGTERM', handler)
-  return () => {
+
+  const removeMaterialOnce = (): unknown => {
+    if (materialRemovalAttempted) return undefined
+    materialRemovalAttempted = true
+    try {
+      options.removeTemporaryMaterial?.()
+      return undefined
+    } catch (error) {
+      return error
+    }
+  }
+
+  // Both steps always run, so a failed container removal cannot leave the
+  // temporary certificate material behind.
+  const runSteps = (): unknown => {
+    const containerFailure = removeContainerOnce()
+    const materialFailure = removeMaterialOnce()
+    if (containerFailure !== undefined) {
+      if (materialFailure !== undefined) {
+        options.reportFailure?.(
+          `the temporary material cleanup also failed: ${describeFailure(materialFailure)}`
+        )
+      }
+      return containerFailure
+    }
+    return materialFailure
+  }
+
+  function detach(): void {
     process.off('SIGINT', handler)
     process.off('SIGTERM', handler)
+  }
+
+  function handler(signal: NodeJS.Signals): void {
+    // The teardown runs at most once, so a second signal cannot re-enter it.
+    if (handled) return
+    handled = true
+    // Detach first: the re-raised signal must reach the default handler rather
+    // than this one.
+    detach()
+    const failure = runSteps()
+    if (failure !== undefined) {
+      options.reportFailure?.(describeFailure(failure))
+    }
+    try {
+      reRaise(signal)
+    } catch (error) {
+      options.reportFailure?.(`re-raising ${signal} failed: ${describeFailure(error)}`)
+      // The interrupted run must not continue as if nothing had happened.
+      process.exit(1)
+    }
+  }
+
+  process.on('SIGINT', handler)
+  process.on('SIGTERM', handler)
+
+  return {
+    detach,
+    teardown: () => {
+      detach()
+      const failure = runSteps()
+      if (failure !== undefined) throw failure
+    },
   }
 }
 
@@ -400,7 +502,23 @@ export async function runDisposablePostgresProof(
   const directory = mkdtempSync(join(tmpdir(), 'adea-ci-postgres-'))
   const certificatePath = join(directory, 'server.crt')
   const secrets = [password]
-  let detach: (() => void) | undefined
+  let materialRemoved = false
+  const removeTemporaryMaterial = () => {
+    if (materialRemoved) return
+    materialRemoved = true
+    rmSync(directory, { recursive: true, force: true })
+  }
+  // The teardown is installed before the container exists, so an interruption
+  // during the setup removes the temporary material too. The container removal
+  // tolerates a container that was never created.
+  const cleanup = attachOwnedContainerCleanup({
+    name: containerName,
+    remove: (name) => dependencies.removeContainer(name),
+    removeTemporaryMaterial,
+    reportFailure: (message) => {
+      console.error(`the disposable PostgreSQL cleanup failed: ${message}`)
+    },
+  })
   let bodyError: unknown
   let receipt: DisposableProofReceipt | undefined
 
@@ -411,10 +529,6 @@ export async function runDisposablePostgresProof(
       password,
       image: options.image,
       startScript: disposableStartScript(),
-    })
-    detach = attachOwnedContainerCleanup({
-      name: containerName,
-      remove: dependencies.removeContainer,
     })
 
     const copied = dependencies.docker(
@@ -506,13 +620,14 @@ export async function runDisposablePostgresProof(
 
   let cleanupError: unknown
   try {
-    detach?.()
-    dependencies.removeContainer(containerName)
+    cleanup.teardown()
   } catch (error) {
     cleanupError = error
   }
   try {
-    rmSync(directory, { recursive: true, force: true })
+    // The teardown already removed it when it ran; this covers a run that
+    // failed before the teardown could.
+    removeTemporaryMaterial()
   } catch (error) {
     if (cleanupError === undefined) cleanupError = error
   }

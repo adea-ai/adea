@@ -254,13 +254,32 @@ describe('the disposable PostgreSQL proof is additive', () => {
 
   test('the disposable proof removes only its own container and fails when cleanup fails', () => {
     const helper = readFileSync(resolve(root, 'scripts/disposable-postgres-ci.ts'), 'utf8')
-    expect(helper).toContain('dependencies.removeContainer(containerName)')
+    expect(helper).toContain('dependencies.removeContainer(name)')
     expect(helper).toContain('could not clean up its container')
     expect(helper).toContain('cleanup also failed')
     expect(helper).toContain('attachOwnedContainerCleanup')
+    expect(helper).toContain('removeTemporaryMaterial')
 
     const cli = readFileSync(resolve(root, 'scripts/disposable-postgres-cli.ts'), 'utf8')
-    expect(cli).toContain("dockerCaptureRun(['rm', '--force', name]")
+    expect(cli).toContain("'rm', '--force', name")
+    expect(cli).toContain('killSignal:')
+    expect(cli).toContain('timeout: 60_000')
+  })
+
+  test('the teardown is idempotent and detaches before it re-raises the signal', () => {
+    const helper = readFileSync(resolve(root, 'scripts/disposable-postgres-ci.ts'), 'utf8')
+    // The teardown runs at most once.
+    expect(helper).toContain('if (handled) return')
+    expect(helper).toContain('containerRemovalAttempted')
+    expect(helper).toContain('materialRemovalAttempted')
+    // The listener is detached before the signal is re-raised, so the default
+    // action ends the process.
+    const detachIndex = helper.indexOf('    detach()\n    const failure = runSteps()')
+    const reRaiseIndex = helper.indexOf('reRaise(signal)')
+    expect(detachIndex).toBeGreaterThanOrEqual(0)
+    expect(detachIndex).toBeLessThan(reRaiseIndex)
+    // A cleanup failure is reported, never thrown out of the signal handler.
+    expect(helper).toContain('options.reportFailure?.(describeFailure(failure))')
   })
 
   test('the disposable proof never prints a credential', () => {

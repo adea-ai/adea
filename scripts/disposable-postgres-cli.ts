@@ -16,7 +16,6 @@ import { fileURLToPath } from 'node:url'
 
 import {
   captureProvisioningImage,
-  dockerCaptureRun,
   dockerDaemonAvailable,
   startFromCaptureImage,
 } from './capture-provisioning.mjs'
@@ -274,11 +273,26 @@ function command(
   }
 }
 
-/** Removes the owned container and nothing else. */
+/**
+ * Removes the owned container and nothing else, within a bounded time. A
+ * container Docker reports as absent is already removed, so a run that failed
+ * before the container existed still tears down cleanly.
+ */
 function removeContainer(name: string): void {
-  // The helper throws when the removal fails, so a leaked instance fails the
-  // lane instead of being ignored.
-  dockerCaptureRun(['rm', '--force', name], 'removing the disposable PostgreSQL instance')
+  const result = spawnSync('docker', ['rm', '--force', name], {
+    encoding: 'utf8',
+    // SIGKILL, because a removal that outlives its bound must not hold the
+    // teardown, and therefore the termination, open.
+    killSignal: 'SIGKILL',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 60_000,
+  })
+  if (result.error) {
+    throw new Error('removing the disposable PostgreSQL instance failed')
+  }
+  if (result.status !== 0 && !/no such container/i.test(result.stderr ?? '')) {
+    throw new Error('removing the disposable PostgreSQL instance failed')
+  }
 }
 
 const dependencies: DisposableProofDependencies = {

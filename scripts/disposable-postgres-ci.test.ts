@@ -526,20 +526,49 @@ describe('the disposable proof helpers', () => {
     expect(script).toContain('exec docker-entrypoint.sh postgres')
   })
 
-  test('an interrupted run removes the owned container', () => {
+  test('an interrupted run removes the owned container and the temporary material once', () => {
     const removed: string[] = []
+    const materials: string[] = []
     const signals: NodeJS.Signals[] = []
-    const detach = attachOwnedContainerCleanup({
+    const cleanup = attachOwnedContainerCleanup({
       name: 'adea-ci-postgres-owned',
       remove: (name) => removed.push(name),
-      onSignal: (signal) => signals.push(signal),
+      removeTemporaryMaterial: () => materials.push('removed'),
+      reRaise: (signal) => signals.push(signal),
     })
     process.emit('SIGTERM', 'SIGTERM')
     expect(signals).toEqual(['SIGTERM'])
-    detach()
+    expect(removed).toEqual(['adea-ci-postgres-owned'])
+    expect(materials).toEqual(['removed'])
+    // The listener is detached before the signal is re-raised, so a second
+    // signal cannot re-enter the teardown or remove the container twice.
     process.emit('SIGTERM', 'SIGTERM')
+    expect(removed).toHaveLength(1)
+    expect(materials).toHaveLength(1)
     expect(signals).toHaveLength(1)
-    expect(removed).toHaveLength(0)
+    cleanup.detach()
+  })
+
+  test('a failed cleanup is reported, never thrown, and still re-raises the signal', () => {
+    const failures: string[] = []
+    const materials: string[] = []
+    const signals: NodeJS.Signals[] = []
+    const cleanup = attachOwnedContainerCleanup({
+      name: 'adea-ci-postgres-owned',
+      remove: () => {
+        throw new Error('the disposable container removal failed')
+      },
+      removeTemporaryMaterial: () => materials.push('removed'),
+      reportFailure: (message) => failures.push(message),
+      reRaise: (signal) => signals.push(signal),
+    })
+    expect(() => process.emit('SIGTERM', 'SIGTERM')).not.toThrow()
+    expect(failures).toEqual(['the disposable container removal failed'])
+    // The temporary material is still removed after a failed container removal.
+    expect(materials).toEqual(['removed'])
+    // The interruption is still re-raised, so the run cannot end successfully.
+    expect(signals).toEqual(['SIGTERM'])
+    cleanup.detach()
   })
 
   test('the hosted TLS rule is unchanged for a hosted target', () => {
