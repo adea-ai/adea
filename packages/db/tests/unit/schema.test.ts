@@ -651,4 +651,29 @@ describe('persistence schema', () => {
       ],
     ])
   })
+
+  test('binds each Sim session to the one launch code that created it, without cascading deletion', () => {
+    const { simLaunchCodes, simSessions } = schemaIndex
+    expectReferences(simLaunchCodes, [])
+    expectReferences(simSessions, [[[simSessions.launchCodeId], [simLaunchCodes.id], 'no action']])
+    const codeConfig = getTableConfig(simLaunchCodes)
+    const sessionConfig = getTableConfig(simSessions)
+    expect(codeConfig.uniqueConstraints.map(({ name }) => name)).toEqual([
+      'sim_launch_codes_code_digest_unique',
+    ])
+    expect(codeConfig.checks.map(({ name }) => name)).toEqual([
+      'sim_launch_codes_digest_nonempty',
+      'sim_launch_codes_surface_closed',
+      'sim_launch_codes_workspace_nonempty',
+    ])
+    expect(sessionConfig.uniqueConstraints.map(({ name }) => name)).toEqual([
+      'sim_sessions_session_digest_unique',
+      'sim_sessions_launch_code_unique',
+    ])
+    expect(sessionConfig.checks.map(({ name }) => name)).toEqual([
+      'sim_sessions_digest_nonempty',
+      'sim_sessions_surface_closed',
+      'sim_sessions_workspace_nonempty',
+    ])
+  })
 })

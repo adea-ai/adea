@@ -59,6 +59,17 @@ export type SimLaunchCodeStore = Readonly<{
     presented: Omit<LaunchCodeBinding, 'surface'>,
     now: number
   ): MaybePromise<LaunchCodeRedemption>
+  /**
+   * Optional atomic form of redeem-then-save. A store that provides it spends the code and saves the
+   * session in one step: when saving fails, the spend is rolled back and the code stays redeemable. The
+   * session surface is the code's bound surface. A store without it uses redeem, then sessions.save.
+   */
+  redeemAndSave?(
+    code: string,
+    presented: Omit<LaunchCodeBinding, 'surface'>,
+    now: number,
+    session: Readonly<{ value: string; expiresAt: number }>
+  ): MaybePromise<LaunchCodeRedemption>
 }>
 
 export type SimSessionRecord = Readonly<{ surface: SimSurface; expiresAt: number }>
@@ -209,22 +220,28 @@ export function createSimSessionExchange(
     }
     if (!expiresAtIso) return { body: { status: 'unavailable' } }
 
+    const presented = { bridgeId: request.bridgeId, origin }
     let redemption: LaunchCodeRedemption
+    if (config.store.redeemAndSave) {
+      // One atomic step: a failed session save rolls the spend back, so the code stays redeemable.
+      try {
+        redemption = await config.store.redeemAndSave(request.code, presented, at, {
+          value,
+          expiresAt,
+        })
+      } catch {
+        return { body: { status: 'unavailable' } }
+      }
+      if (!redemption.ok) return { body: rejectedBody(redemption.reason) }
+      return { body: { status: 'session', expiresAt: expiresAtIso }, setCookie }
+    }
+
     try {
-      redemption = await config.store.redeem(
-        request.code,
-        { bridgeId: request.bridgeId, origin },
-        at
-      )
+      redemption = await config.store.redeem(request.code, presented, at)
     } catch {
       return { body: { status: 'unavailable' } }
     }
-    if (!redemption.ok) {
-      // An unknown code carries no more information than an expired one; the reply never says
-      // whether a code ever existed.
-      const reason = redemption.reason === 'unknown' ? 'code_expired' : redemption.reason
-      return { body: { status: 'rejected', reason } }
-    }
+    if (!redemption.ok) return { body: rejectedBody(redemption.reason) }
 
     // The code is spent from here on: if saving fails the same code is not retryable, and the client
     // starts a new launch.
@@ -235,6 +252,13 @@ export function createSimSessionExchange(
     }
     return { body: { status: 'session', expiresAt: expiresAtIso }, setCookie }
   }
+}
+
+/** A refused redemption, with the reason the reply may carry. */
+function rejectedBody(reason: 'unknown' | 'code_expired' | 'code_used' | 'origin_refused') {
+  // An unknown code carries no more information than an expired one; the reply never says
+  // whether a code ever existed.
+  return { status: 'rejected' as const, reason: reason === 'unknown' ? 'code_expired' : reason }
 }
 
 /**
