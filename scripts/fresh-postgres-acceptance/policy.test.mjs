@@ -162,3 +162,86 @@ test('complete preflight never imports provisioning or connects to a database', 
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+function runSyntheticPostgresAcceptance(cleanupFails) {
+  const root = mkdtempSync(join(tmpdir(), 'fresh-schema-cleanup-'))
+  try {
+    for (const path of [
+      'packages/auth/src/better-auth-server.ts',
+      'packages/auth/src/delivery.ts',
+      'scripts/fresh-postgres-acceptance/auth-lifecycle.ts',
+      'scripts/fresh-postgres-acceptance/fixture.ts',
+    ]) {
+      const file = join(root, path)
+      mkdirSync(join(file, '..'), { recursive: true })
+      writeFileSync(file, '// synthetic source prerequisite only\n')
+    }
+    writeFileSync(
+      join(root, 'packages/auth/package.json'),
+      JSON.stringify({ dependencies: { 'better-auth': 'synthetic', pg: 'synthetic' } })
+    )
+    writeFileSync(
+      join(root, 'scripts/capture-provisioning.mjs'),
+      `export function startCaptureProvisioning(register) {
+        const fixture = {
+          databaseUrl: ${JSON.stringify(local)},
+          async stop() {
+            await Promise.resolve();
+            console.log('SYNTHETIC_CLEANUP');
+            ${cleanupFails ? "throw new Error('synthetic cleanup failure');" : ''}
+          }
+        };
+        register(fixture);
+        return fixture;
+      }`
+    )
+    const shim = join(root, 'synthetic-child.mjs')
+    writeFileSync(
+      shim,
+      `import childProcess from 'node:child_process';
+      import { syncBuiltinESMExports } from 'node:module';
+      childProcess.spawnSync = (command) => {
+        if (command === 'docker') return { status: 0, stdout: JSON.stringify('unix:///synthetic/docker.sock') };
+        if (command !== 'bun') throw new Error('unexpected synthetic command');
+        return { status: 0, stdout: 'FRESH_SCHEMA_ACCEPTANCE {"status":"passed","migrations":3}\\n' };
+      };
+      syncBuiltinESMExports();`
+    )
+    return spawnSync(
+      process.execPath,
+      [
+        '--import',
+        shim,
+        fileURLToPath(new URL('./run.mjs', import.meta.url)),
+        '--repository',
+        root,
+      ],
+      { encoding: 'utf8', env: { DOCKER_HOST: 'unix:///synthetic/docker.sock' }, timeout: 10_000 }
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+test('failed owned cleanup exits nonzero without publishing a passed receipt', () => {
+  const result = runSyntheticPostgresAcceptance(true)
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stdout, /SYNTHETIC_CLEANUP/)
+  assert.doesNotMatch(result.stdout, /"status":"passed"/)
+  assert.match(result.stderr, /owned PostgreSQL cleanup failed/)
+})
+
+test('passed PostgreSQL receipt is published only after successful owned cleanup', () => {
+  const result = runSyntheticPostgresAcceptance(false)
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 0, result.stderr)
+  const lines = result.stdout.trim().split('\n')
+  assert.equal(lines[0], 'SYNTHETIC_CLEANUP')
+  assert.deepEqual(JSON.parse(lines[1]), {
+    status: 'passed',
+    migrations: 3,
+    verificationRequired: true,
+  })
+  assert.equal(lines.length, 2)
+})

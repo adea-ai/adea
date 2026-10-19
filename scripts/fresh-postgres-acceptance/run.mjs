@@ -108,6 +108,7 @@ const { startCaptureProvisioning } = await import(
 )
 let fixture
 let failed = false
+let passedReceipt
 try {
   fixture = startCaptureProvisioning((handle) => {
     fixture = handle
@@ -142,18 +143,17 @@ try {
   const receipt = JSON.parse(line.slice('FRESH_SCHEMA_ACCEPTANCE '.length))
   if (receipt.status !== 'passed' || !Number.isInteger(receipt.migrations))
     throw new Error('invalid fresh-schema receipt')
-  console.log(
-    JSON.stringify({ status: 'passed', migrations: receipt.migrations, verificationRequired: true })
-  )
+  passedReceipt = { status: 'passed', migrations: receipt.migrations, verificationRequired: true }
 } catch (error) {
   failed = true
   console.error(error.message)
 } finally {
   try {
-    fixture?.stop()
+    await fixture?.stop()
   } catch {
     failed = true
     console.error('owned PostgreSQL cleanup failed')
   }
 }
+if (!failed) console.log(JSON.stringify(passedReceipt))
 process.exitCode = failed ? 1 : 0

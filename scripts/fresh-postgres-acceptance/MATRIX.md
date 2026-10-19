@@ -68,7 +68,7 @@ node --test scripts/fresh-postgres-acceptance/policy.test.mjs
 node scripts/fresh-postgres-acceptance/run.mjs --preflight
 ```
 
-The seven policy tests run without dependencies or a database. Preflight checks source and
+The nine policy tests run without dependencies or a database. Preflight checks source and
 manifest prerequisites and exits before importing the provisioner. It currently
 fails on this base because #1466 is absent; that failure is expected and is not a
 PostgreSQL test pass. The source override is for memory tests only and is never
@@ -99,7 +99,9 @@ automatic environment-file loading is disabled. No inherited auth/database/mail/
 routing settings enter the child. Cleanup closes handles and drops the exact scratch
 database, and the runner removes its owned container on completion or failure. Raw
 child output is withheld because it may contain credentials or tokens. A missing
-fixture or failed cleanup makes the lane fail; it never reports a skipped pass.
+fixture or failed cleanup makes the lane fail without emitting a passed receipt.
+The passed receipt is emitted only after owned cleanup succeeds; synthetic tests
+cover both cleanup failure and receipt ordering. It never reports a skipped pass.
 
 The only new files are in `scripts/fresh-postgres-acceptance/`. Existing auth, DB,
 web and desktop implementations, fixtures, manifests, locks and workflows are unchanged.
