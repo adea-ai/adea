@@ -36,22 +36,29 @@ Workers requests, billed CPU time and subrequests continue afterwards, and the C
 side of the comparison does not go to zero. The comparison is therefore between two
 **totals**, not between two line items.
 
-| Total                     | Contains                                                                                                         | Read from                                                                      |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Continuing Worker charges | All Workers requests, billed CPU time and subrequests for the whole app, including the `/api/auth/*` path        | Cloudflare account analytics                                                   |
-| Railway charges           | Managed PostgreSQL storage, compute and connection time, and network egress for the auth database                | Railway project usage and billing console for the project that owns the target |
-| Legacy comparable total   | The same Worker charges for the same traffic, plus the Neon charges for the auth database while it lived on Neon | Cloudflare account analytics, and the Neon billing record for that period      |
+| Total                      | Window                                      | Contains                                                                                                    | Read from                                                                      |
+| -------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Continuing Worker charges  | each counted day, after the cutover         | All Workers requests, billed CPU time and subrequests for the whole app, including the `/api/auth/*` path   | Cloudflare account analytics                                                   |
+| Railway charges            | the same counted day, after the cutover     | Managed PostgreSQL storage, compute and connection time, and network egress for the auth database           | Railway project usage and billing console for the project that owns the target |
+| Legacy comparable baseline | a historical window from before the cutover | The same Worker charges for that window, plus the Neon charges for the auth database while it lived on Neon | Cloudflare account analytics, and the Neon billing record for that period      |
 
 Cloudflare CPU and subrequests on one side against a Railway database charge on the
 other are not substitutes and must not be compared as if they were. The Railway figure
-is an addition to a continuing Worker figure, not a replacement for it. The legacy
-comparable total is what the continuing total plus the Railway figure is measured
-against, and it must cover the same traffic.
+is an addition to a continuing Worker figure, not a replacement for it.
 
-Each column must be read for the **same** window, from the same production traffic. A
-cost figure without the traffic volume beside it is not a cost figure; record requests
-and the failed-request count next to every cost number so the reader can divide one by
-the other.
+The **same-window** requirement applies to the two post-cutover totals. Continuing
+Cloudflare charges and Railway charges must cover the same 24-hour window, because they
+are additive and are read as one total. A cost figure without the traffic volume beside
+it is not a cost figure; record requests and the failed-request count next to every cost
+number so the reader can divide one by the other.
+
+The **legacy comparable baseline** is different in kind. It is a historical window from
+before the cutover, so it cannot cover the same calendar window, and it is not required
+to. It is identified by its own bounds and **traffic-normalized**: its charges are
+expressed per request, and per failed request where the failure rate differs from the
+post-cutover window, so that the normalized baseline and the post-cutover total describe
+comparable traffic. Comparing unnormalized totals from two windows of different traffic
+is not a comparison, and the normalization factor is recorded next to the figures.
 
 This is an auth-database comparison. It does not complete the wider Adea/Control Plane
 database migration, which spans more than one database and carries its own runbooks for
@@ -115,12 +122,15 @@ window.
 
 ### What is not established
 
-- **Billed Cloudflare CPU time.** The only CPU figures measured in this repository come
-  from local fixtures: the profiling evidence states its CPU method as "OS
-  `proc_pid_rusage` v2 user+system Mach ticks multiplied 125/3ns, aggregate isolated
-  runtime and local proxy; **not Cloudflare billed CPU**", and its traffic method as
-  "Sequential synthetic one-developer guest workspace, one project, one conversation, 12
-  messages". Synthetic local CPU is not an organic baseline and is not used as one here.
+- **Billed Cloudflare CPU time.** Production **raw** CPU percentiles exist for two of
+  the three recorded windows above, and one of those windows straddles a deployment. Raw
+  percentiles are not the billed CPU figure, and billed CPU is not established here. The
+  CPU figures that were _measured_ in this repository are separate and local: the
+  profiling evidence states its CPU method as "OS `proc_pid_rusage` v2 user+system Mach
+  ticks multiplied 125/3ns, aggregate isolated runtime and local proxy; **not Cloudflare
+  billed CPU**", and its traffic method as "Sequential synthetic one-developer guest
+  workspace, one project, one conversation, 12 messages". Those local figures are not an
+  organic baseline and are not used as one.
 - **Per-route CPU and subrequest attribution.** The campaign ledger lists "Post-rollout
   health and route-level CPU/subrequest attribution" as remaining.
 - **Hyperdrive query and cache attribution.** The ledger lists "Hyperdrive
@@ -144,7 +154,7 @@ credential, and that route is blocked:
 | Route attempted                                    | the `wrangler` OAuth token in the operator's `~/.wrangler/config/default.toml`, recorded as expiring 2026-10-07T20:45:08.543Z                                              |
 | Read-only probe                                    | `GET https://api.cloudflare.com/client/v4/accounts` with that token, 2026-10-19                                                                                            |
 | Result                                             | **HTTP 403**, Cloudflare error code `9109`, "Invalid access token"                                                                                                         |
-| No Cloudflare CLI on `PATH`                        | neither `wrangler` nor `cf` is installed                                                                                                                                   |
+| No Cloudflare CLI on `PATH`                        | neither `wrangler` nor `cf` was on `PATH` when the check was made                                                                                                          |
 | No credential in the environment or the repository | no `CLOUDFLARE_*` or `CF_*` variable is set; no repository `.env` exists; no workflow in `.github/workflows/` references `api.cloudflare.com` or a GraphQL analytics query |
 
 The scope of that result is exactly the route that was tried. It shows that this local
@@ -171,10 +181,13 @@ Once the gate is satisfied:
 - [ ] Day 0 is the cutover day itself and is not counted. The first counted day is the
       first full 24-hour UTC window after the cutover.
 - [ ] Each day uses the same 24-hour UTC window, so the seven days are comparable with
-      each other and with the pre-cutover windows.
+      each other.
 - [ ] For each day, record the Railway figures, the Cloudflare figures, the request
       count, the failed-request count, the subrequest count, and the Hyperdrive query
-      count for the same window, with the exact window bounds in UTC.
+      count for that same post-cutover window, with the exact window bounds in UTC.
+- [ ] Identify the historical legacy baseline window separately, with its own bounds, and
+      record the traffic-normalization factor used against it. It is not read on the same
+      days as the week, because it precedes the cutover.
 - [ ] Record the deployment or version identifier in force that day. A day that spans a
       deployment is recorded as spanning it, not as belonging to either version.
 - [ ] Read the figures the same way every day. Changing the method mid-week makes the
@@ -183,16 +196,20 @@ Once the gate is satisfied:
       aimed at the deployment for measurement purposes.
 - [ ] Record a blank or a failure as a blank or a failure. A day with no data is a gap
       in the week, not a zero.
-- [ ] A day is counted only when both sides were read for the same window. A week with
-      a Cloudflare day and a missing Railway day is not a cost week.
+- [ ] A day is counted only when both post-cutover sides, Cloudflare and Railway, were
+      read for the same window. A week with a Cloudflare day and a missing Railway day is
+      not a cost week.
 
 ## Acceptance of the cost week
 
-The week is complete when seven consecutive daily records exist, each with both sides
-read for the same window, and each naming the version in force. The report then states:
+The week is complete when seven consecutive daily records exist, each with both
+post-cutover sides read for the same window, and each naming the version in force. The
+report then states:
 
-- the seven-day Railway cost and the seven-day Cloudflare cost, with the seven-day
-  request and failure counts beside them;
+- the seven-day continuing Cloudflare total and the seven-day Railway charge, with the
+  seven-day request and failure counts beside them;
+- the identified legacy baseline window, its traffic-normalization factor, and the
+  normalized baseline the post-cutover total is compared against;
 - the auth path's share of the Cloudflare side, and how it changed across the week;
 - every gap, every day that spanned a deployment, and every day whose figures were read
   differently from the others;
