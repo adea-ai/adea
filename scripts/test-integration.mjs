@@ -63,7 +63,8 @@ function run(command, args, environment, cwd = root) {
   })
   if (result.error) throw result.error
   if (result.status !== 0) {
-    throw new Error(`${command} ${args.join(' ')} failed with exit code ${result.status}`)
+    const outcome = result.signal ? `signal ${result.signal}` : `exit code ${result.status}`
+    throw new Error(`${command} ${args.join(' ')} failed with ${outcome}`)
   }
 }
 
@@ -132,8 +133,10 @@ try {
   // compiled database entry, with the explicit server-only runtime condition.
   run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
   if (!usesExplicitDatabase && !runningComposeServices().includes('postgres')) {
-    await composeUpPostgres()
+    // Acquire cleanup ownership before startup: a failed health wait may leave a container.
     startedLocalPostgres = true
+    attachLocalPostgresCleanup()
+    await composeUpPostgres()
   }
 
   run('node', ['scripts/database-health.mjs'], environment)
@@ -232,30 +235,59 @@ try {
   primaryFailure = error
 }
 
-if (startedLocalPostgres) {
-  // Cleanup runs on success AND failure, and never hides the primary result:
-  // when the lane already failed, a broken stop is reported to stderr instead
-  // of replacing the real failure; when the lane was green, a leaked container
-  // still fails the run.
-  try {
-    run('docker', ['compose', 'stop', 'postgres'], process.env)
-  } catch (error) {
-    console.error(`docker compose stop postgres failed: ${error.message}`)
-    primaryFailure ??= error
-  }
-}
-
-if (captureProvisioning) {
-  // Same contract as the compose cleanup above: the throwaway capture
-  // provisioning container is removed on success AND failure, a broken
-  // removal is reported without hiding the primary result, and a leak after a
-  // green run fails the lane.
-  try {
-    captureProvisioning.stop()
-  } catch (error) {
-    console.error(`removing the capture provisioning container failed: ${error.message}`)
-    primaryFailure ??= error
-  }
-}
-
+cleanupResources()
 if (primaryFailure) throw primaryFailure
+
+// Compose startup is asynchronous and may be interrupted after creating the service.
+// Keep signal listeners through normal teardown so a signal queued during spawnSync
+// still terminates the runner once the event loop resumes.
+function attachLocalPostgresCleanup() {
+  process.on('exit', (code) => {
+    cleanupResources()
+    if (code === 0 && primaryFailure) process.exitCode = 1
+  })
+  const listeners = ['SIGINT', 'SIGTERM'].map((signal) => [
+    signal,
+    () => {
+      for (const [name, listener] of listeners) process.off(name, listener)
+      cleanupResources()
+      process.kill(process.pid, signal)
+    },
+  ])
+  for (const [signal, listener] of listeners) process.on(signal, listener)
+}
+
+function cleanupResources() {
+  if (startedLocalPostgres) {
+    // Clear ownership before stopping so exit/signal teardown cannot stop it twice.
+    startedLocalPostgres = false
+    try {
+      const result = spawnSync('docker', ['compose', 'stop', 'postgres'], {
+        cwd: root,
+        env: process.env,
+        stdio: 'inherit',
+        timeout: 30_000,
+        killSignal: 'SIGKILL',
+      })
+      if (result.error) throw result.error
+      if (result.status !== 0) {
+        throw new Error(
+          `docker compose stop postgres failed with ${result.signal ? `signal ${result.signal}` : `exit code ${result.status}`}`
+        )
+      }
+    } catch (error) {
+      console.error(`docker compose stop postgres failed: ${error.message}`)
+      primaryFailure ??= error
+    }
+  }
+  if (captureProvisioning) {
+    const handle = captureProvisioning
+    captureProvisioning = null
+    try {
+      handle.stop()
+    } catch (error) {
+      console.error(`removing the capture provisioning container failed: ${error.message}`)
+      primaryFailure ??= error
+    }
+  }
+}
