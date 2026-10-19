@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { handleNeonAuthRequest } from '@adea-ai/auth/server'
 
+import { authDeliveryForRequest } from '../../../../server/auth-delivery'
 import { withRequestScope } from '../../../../server/request-scope'
 
 type RouteMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT'
@@ -9,7 +10,13 @@ type RouteMethod = 'DELETE' | 'GET' | 'PATCH' | 'POST' | 'PUT'
 function proxy(method: RouteMethod) {
   return ({ request, params }: { request: Request; params: Record<string, string | undefined> }) =>
     withRequestScope(() =>
-      handleNeonAuthRequest(method, request, decodeURIComponent(params['_splat'] ?? ''))
+      handleNeonAuthRequest(
+        method,
+        request,
+        decodeURIComponent(params['_splat'] ?? ''),
+        process.env,
+        { delivery: authDeliveryForRequest(process.env) }
+      )
     )
 }
 
