@@ -176,7 +176,9 @@ describe('late publication rechecks CP authority', () => {
 
   test('a stop pressed after completion is refused by CP and changes neither the result nor the child', async () => {
     const messages = await journey.channelMessages()
-    const before = await control('evidence')
+    // CP settles the child's usage rows on its own recovery interval; the baseline is only
+    // comparable once the terminal accounting receipt exists, as in the cases below.
+    const before = await journey.accounted()
     const stop = await journey.driver('cancel')
     expect(stop.exitCode).toBe(0)
     expect(stop.result.reasonCode).toBe('RUNTIME_UNAVAILABLE')

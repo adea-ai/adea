@@ -595,3 +595,111 @@ describe('port contract under concurrency and failure', () => {
     expect(sessions.size).toBe(1)
   })
 })
+
+// A store that mirrors the durable transaction: the spend and the session write commit together, and
+// a failed session write rolls the spend back so the code stays redeemable.
+function transactionalStore(options: { failSaves?: number } = {}) {
+  let failSaves = options.failSaves ?? 0
+  type Binding = Parameters<SimLaunchCodeStore['issue']>[1]
+  const entries = new Map<string, { binding: Binding; expiresAt: number; spent: boolean }>()
+  const saved = new Map<string, SimSessionRecord>()
+  const calls: string[] = []
+  const store: SimLaunchCodeStore = {
+    issue(code, binding, expiresAt) {
+      entries.set(code, { binding, expiresAt, spent: false })
+    },
+    redeem() {
+      calls.push('redeem')
+      throw new Error('the two-step path must not run when the atomic path exists')
+    },
+    redeemAndSave(code, presented, now, session) {
+      calls.push('atomic')
+      const entry = entries.get(code)
+      if (!entry) return { ok: false, reason: 'unknown' }
+      if (entry.spent) return { ok: false, reason: 'code_used' }
+      entry.spent = true
+      if (entry.expiresAt <= now) return { ok: false, reason: 'code_expired' }
+      if (
+        entry.binding.bridgeId !== presented.bridgeId ||
+        entry.binding.origin !== presented.origin
+      )
+        return { ok: false, reason: 'origin_refused' }
+      if (failSaves > 0) {
+        failSaves -= 1
+        entry.spent = false
+        throw new Error('session write failed')
+      }
+      saved.set(session.value, { surface: entry.binding.surface, expiresAt: session.expiresAt })
+      return { ok: true, surface: entry.binding.surface }
+    },
+  }
+  return { store, calls, saved }
+}
+
+function wire(options: { failSaves?: number } = {}) {
+  const t = transactionalStore(options)
+  const issue = createSimLaunchIssuer({
+    frameOrigin: SIM,
+    entitlement: async () => 'entitled',
+    store: t.store,
+    now: () => NOW,
+  })
+  const sessionWrites: string[] = []
+  const exchange = createSimSessionExchange({
+    origin: SIM,
+    store: t.store,
+    sessions: {
+      save: async (value) => {
+        sessionWrites.push(value)
+      },
+    },
+    now: () => NOW,
+  })
+  return { ...t, issue, exchange, sessionWrites }
+}
+
+describe('atomic redemption and session save', () => {
+  test('the exchange saves the session through the atomic path only', async () => {
+    const w = wire()
+    const grant = await w.issue(request)
+    if (grant.status !== 'granted') throw new Error('expected a grant')
+    const result = await w.exchange({
+      schemaVersion: 1,
+      code: grant.code,
+      bridgeId: BRIDGE,
+    })
+    expect(result.body).toMatchObject({ status: 'session' })
+    expect(result.setCookie).toContain(SIM_SESSION_COOKIE_NAME)
+    expect(w.calls).toEqual(['atomic'])
+    expect(w.sessionWrites).toEqual([])
+    expect([...w.saved.values()]).toEqual([{ surface: 'hq', expiresAt: NOW + 3_600_000 }])
+  })
+
+  test('a failed session save is unavailable and leaves the code redeemable', async () => {
+    const w = wire({ failSaves: 1 })
+    const grant = await w.issue(request)
+    if (grant.status !== 'granted') throw new Error('expected a grant')
+    const body = { schemaVersion: 1, code: grant.code, bridgeId: BRIDGE }
+    expect((await w.exchange(body)).body).toEqual({ status: 'unavailable' })
+    expect(w.saved.size).toBe(0)
+    // Rolled back: the same code is still unspent, so the retry is granted a session instead of being refused as used.
+    const retry = await w.exchange(body)
+    expect(retry.body).toMatchObject({ status: 'session' })
+    expect(w.saved.size).toBe(1)
+  })
+
+  test('a refused presentation spends the code even on the atomic path', async () => {
+    const w = wire()
+    const grant = await w.issue(request)
+    if (grant.status !== 'granted') throw new Error('expected a grant')
+    const wrongBridge = await w.exchange({
+      schemaVersion: 1,
+      code: grant.code,
+      bridgeId: 'ZZZZZZZZZZZZZZZZZZZZ',
+    })
+    expect(wrongBridge.body).toEqual({ status: 'rejected', reason: 'origin_refused' })
+    const replay = await w.exchange({ schemaVersion: 1, code: grant.code, bridgeId: BRIDGE })
+    // Like the reference ledger, the first presentation spends the code whether or not it matched.
+    expect(replay.body).toEqual({ status: 'rejected', reason: 'code_used' })
+  })
+})

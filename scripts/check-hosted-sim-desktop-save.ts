@@ -116,6 +116,12 @@ simFetch = createSimHost({
   origin: simServer.url.origin,
   parentOrigins: [origin],
   allowLoopbackHttp: true,
+  assetPrefix: '/assets/agent-sim/',
+  entryFiles: {
+    hq: 'engine.js',
+    'room-designer': 'room-designer.js',
+    'character-designer': 'character-designer.js',
+  },
   frameScript: await frameBuild.outputs[0]!.text(),
   exchange,
   session: async (value) => sessions.get(value) ?? null,

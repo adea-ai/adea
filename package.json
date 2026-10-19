@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.97.0",
+  "version": "0.98.0",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "vp run orch:build",
+    "build": "node scripts/vp-local-run.mjs orch:build",
     "build:web-deps": "vp run orch:deps-of-web:build",
     "build:cloudflare": "bun scripts/build-cloudflare.mjs",
     "dev": "bun run --cwd apps/web dev",

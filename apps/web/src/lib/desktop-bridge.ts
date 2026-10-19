@@ -69,9 +69,15 @@ export async function openExternalUrl(url: string): Promise<void> {
  * still goes through the Dev Runtime's `dev.project.authorizeRoot`.
  */
 export async function pickDesktopFolder(): Promise<string | null> {
-  const result = await invoke<{ paths?: readonly string[] } | null>('desktop_folder_pick').catch(
-    () => null
-  )
+  // The shell may not be able to answer at all: a fresh install whose bridge
+  // injection has not landed yet, or the web lane, where there is no bridge. `invoke`
+  // throws synchronously in that case, before it can return a promise for the catch to
+  // attach to. Making the call inside the promise chain keeps the documented
+  // contract: the picker fails closed to `null`, and the typed path stays the
+  // fallback exactly as it does for a cancelled or failed pick.
+  const result = await Promise.resolve()
+    .then(() => invoke<{ paths?: readonly string[] } | null>('desktop_folder_pick'))
+    .catch(() => null)
   const path = result?.paths?.[0]
   return typeof path === 'string' && path !== '' ? path : null
 }

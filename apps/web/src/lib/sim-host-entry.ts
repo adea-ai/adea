@@ -1,5 +1,6 @@
 import { startSimFrame } from './sim-frame'
 import { prepareSimHostDocument, readSimHostConfiguration } from './sim-host-configuration'
+import { parseSimHostContract, SIM_SURFACES, type SimSurface } from './sim-host-contract'
 
 type Runtime = {
   mount(options: {
@@ -18,8 +19,11 @@ const root = document.getElementById('sim')
 const configuration = (await prepareSimHostDocument(window))
   ? await readSimHostConfiguration(window)
   : null
+// The asset prefix and entry names come only from the validated server contract; a missing or malformed one stops the frame.
+const contract = parseSimHostContract(configuration)
 if (
   root &&
+  contract &&
   Array.isArray(configuration?.parentOrigins) &&
   configuration?.parentOrigins.every((value) => typeof value === 'string')
 ) {
@@ -43,31 +47,28 @@ if (
       return result.status === 'session'
     },
     mount: async (launch, scene, onClose, actions) => {
-      const response = await fetch('/assets/agent-sim/engine.json', {
+      if (!(SIM_SURFACES as readonly string[]).includes(launch.surface))
+        throw new Error('Surface unavailable')
+      const surface = launch.surface as SimSurface
+      const response = await fetch(`${contract.assetPrefix}engine.json`, {
         credentials: 'same-origin',
         cache: 'no-store',
         redirect: 'error',
       })
       if (!response.ok) throw new Error('Engine unavailable')
-      const manifest = (await response.json()) as {
-        version?: unknown
-        surfaces?: Record<string, unknown>
-      }
+      const manifest = (await response.json()) as { version?: unknown }
       if (typeof manifest.version !== 'string' || !manifest.version)
         throw new Error('Invalid engine manifest')
-      const entry = launch.surface === 'hq' ? 'engine.js' : manifest.surfaces?.[launch.surface]
-      if (typeof entry !== 'string' || !/^[a-z-]+\.js$/.test(entry))
-        throw new Error('Surface unavailable')
-      const entryUrl = `/assets/agent-sim/${entry}`
+      const entryUrl = `${contract.assetPrefix}${contract.entryFiles[surface]}`
       await import(/* @vite-ignore */ entryUrl)
       const runtimeWindow = window as unknown as {
         __adeaAgentSim?: Runtime
         adeaAgentSimSurfaces?: Record<string, Runtime>
       }
       const runtime =
-        launch.surface === 'hq'
+        surface === 'hq'
           ? runtimeWindow.__adeaAgentSim
-          : runtimeWindow.adeaAgentSimSurfaces?.[launch.surface]
+          : runtimeWindow.adeaAgentSimSurfaces?.[surface]
       if (!runtime?.mount) throw new Error('Engine did not register')
       return runtime.mount({
         container: root,

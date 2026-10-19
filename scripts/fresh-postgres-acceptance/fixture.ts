@@ -6,15 +6,18 @@ import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 const dbRequire = createRequire(new URL('../../packages/db/package.json', import.meta.url))
-const authRequire = createRequire(new URL('../../packages/auth/package.json', import.meta.url))
 type PostgresFactory = typeof import('postgres').default
 const loadedPostgres = dbRequire('postgres') as PostgresFactory | { default: PostgresFactory }
 const postgres: PostgresFactory =
   typeof loadedPostgres === 'function' ? loadedPostgres : loadedPostgres.default
-const { getMigrations } = authRequire('better-auth/db/migration')
 import { createBetterAuthService } from '../../packages/auth/src/server'
 import { createRecordingAuthDelivery } from '../../packages/auth/src/delivery'
+import { applyAuthSchema } from '../../packages/auth/src/schema-init'
 import { runFreshAuthAcceptance } from './auth-lifecycle'
+import {
+  runDesktopPrincipalLifecycle,
+  type DesktopPrincipalLifecycleReceipt,
+} from './desktop-principal-lifecycle'
 import {
   canonicalUrl,
   createCanonicalDatabase,
@@ -45,12 +48,12 @@ const childEnvironment = {
   DATABASE_MIGRATION_URL: migrationUrl,
 }
 let provider: ReturnType<typeof postgres> | undefined
-let migrationService: ReturnType<typeof createBetterAuthService> | undefined
 let runtimeService: ReturnType<typeof createBetterAuthService> | undefined
 let migrated: ReturnType<typeof postgres> | undefined
 let bodyFailed = false
 let bodyError: unknown
 let migrationCount = 0
+let desktopPrincipal: DesktopPrincipalLifecycleReceipt | undefined
 const cleanupErrors: unknown[] = []
 const environment = (url: string) => ({
   AUTH_BASE_URL: 'https://fresh.example.test',
@@ -101,26 +104,18 @@ try {
   await migrated.unsafe('CREATE SCHEMA auth_acceptance AUTHORIZATION ' + MIGRATION_ROLE)
   await migrated.unsafe('GRANT USAGE ON SCHEMA auth_acceptance TO ' + RUNTIME_ROLE)
   const recorder = createRecordingAuthDelivery()
-  migrationService = createBetterAuthService(
-    environment(withProviderSchema(migrationUrl)),
-    recorder.delivery
-  )
-  const options = (
-    migrationService.auth as unknown as { options: Parameters<typeof getMigrations>[0] }
-  ).options
-  const first = await getMigrations(options)
-  assert.deepEqual(first.toBeCreated.map(({ table }) => table).toSorted(), [
-    'account',
-    'session',
-    'user',
-    'verification',
-  ])
-  await first.runMigrations()
-  const repeated = await getMigrations(options)
-  assert.equal(repeated.toBeCreated.length, 0)
-  assert.equal(repeated.toBeAdded.length, 0)
-  await migrationService.close()
-  migrationService = undefined
+  // The operator command's code path: migration role only, apply once, then replay as a no-op.
+  const schemaEnvironment = {
+    ...environment(withProviderSchema(migrationUrl)),
+    AUTH_MIGRATION_DATABASE_URL: withProviderSchema(migrationUrl),
+  }
+  const applied = await applyAuthSchema(schemaEnvironment)
+  assert.equal(applied.applied, true)
+  assert.deepEqual(applied.before.create, ['account', 'session', 'user', 'verification'])
+  assert.deepEqual(applied.after, { add: [], create: [] })
+  const repeated = await applyAuthSchema(schemaEnvironment)
+  assert.equal(repeated.applied, false)
+  assert.deepEqual(repeated.before, { add: [], create: [] })
   provider = postgres(withProviderSchema(runtimeUrl), { max: 1, onnotice: () => {} })
   const privileges =
     await provider`SELECT has_schema_privilege(current_user, 'auth_acceptance', 'CREATE') AS ddl`
@@ -130,13 +125,22 @@ try {
     recorder.delivery
   )
   await runFreshAuthAcceptance(runtimeService, recorder, provider)
+  // The desktop principal lifecycle phase owns its own application connection
+  // and closes it again. This fixture owns the runtime connection of the auth
+  // service and closes it below.
+  desktopPrincipal = await runDesktopPrincipalLifecycle({
+    applicationDatabaseUrl: runtimeUrl,
+    providerSchema: 'auth_acceptance',
+    providerSql: provider,
+    recorder,
+    service: runtimeService,
+  })
 } catch (error) {
   bodyFailed = true
   bodyError = error
 } finally {
   for (const close of [
     () => runtimeService?.close(),
-    () => migrationService?.close(),
     () => provider?.end(),
     () => migrated?.end(),
     () => cleanupScratchDatabase(admin, name),
@@ -151,5 +155,17 @@ try {
 }
 throwScratchFailures(bodyFailed, bodyError, cleanupErrors)
 console.log(
-  'FRESH_SCHEMA_ACCEPTANCE ' + JSON.stringify({ status: 'passed', migrations: migrationCount })
+  'FRESH_SCHEMA_ACCEPTANCE ' +
+    JSON.stringify({
+      status: 'passed',
+      migrations: migrationCount,
+      desktopPrincipal: desktopPrincipal && {
+        accounts: desktopPrincipal.accounts,
+        exchanges: desktopPrincipal.exchanges,
+        mappedUsers: desktopPrincipal.mappedUsers,
+        orphanUsers: desktopPrincipal.orphanUsers,
+        provider: desktopPrincipal.provider,
+        refused: desktopPrincipal.refused,
+      },
+    })
 )

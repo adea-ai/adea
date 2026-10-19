@@ -1,8 +1,9 @@
 # Hosted Sim bridge follow-up proposal
 
-Status: proposed for the existing bridge owner and lead coordination. No change
-to the owned bridge or hosted-component files is included in this proposal.
-Production authority and rollout decisions are separate.
+Status: the bridge contract below is delivered by merged PR #1450 (serialized
+characters, navigation and acknowledged saves), and the private engine hooks by
+merged AgentSim PR #111. The joined persistence acceptance in this document is not
+yet recorded. Production authority and rollout decisions are separate.
 
 ## Reproduced compatibility gaps
 
@@ -71,5 +72,5 @@ Use the actual private character designer, not only an engine fixture:
    or late save result may update the next attempt/workspace.
 
 The bridge owner must release or implement its owned files before the app owner
-overlaps them. Until this contract and the joined persistence proof land, the
-hosted customization/navigation journey remains incomplete and the PR stays draft.
+overlaps them. The contract is delivered; the hosted customization/navigation journey
+remains incomplete until the joined persistence proof above is recorded.

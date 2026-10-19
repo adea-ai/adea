@@ -414,6 +414,13 @@
       "when": 1792094313888,
       "tag": "0058_legacy_audience_quarantine",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1792441205256,
+      "tag": "0059_sim_launch_sessions",
+      "breakpoints": true
     }
   ]
 }
