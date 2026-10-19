@@ -363,7 +363,7 @@ describe('the web build declares everything it reads that no glob can see', () =
   })
 
   test('only the path-sensitive web build carries its checkout identity in its cached command', () => {
-    const graph = buildTasks(root, toolchain, { ADEA_AGENT_SIM_DIST: '' })
+    const graph = buildTasks(root, toolchain, { ADEA_AGENT_SIM_DIST: '' }) as typeof tasks
     expect(PACKAGE_RULES['apps/web']!.pathSensitive).toBe(true)
     expect(graph[web]!.command).toContain(`ORCH_CHECKOUT=${checkoutIdentity(root)} `)
     for (const [name, definition] of Object.entries(graph)) {

@@ -58,59 +58,97 @@ outputs after restore).
 ## Local shared cache
 
 `bun run build` runs `node scripts/vp-local-run.mjs orch:build` instead of `vp run orch:build`. The wrapper picks the
-directory `VITE_CACHE_PATH` names from the state of the run, outside every checkout:
+directory `VITE_CACHE_PATH` names from the state of the checkout, outside every checkout:
 
 ```text
 $ADEA_VP_CACHE_HOME (or $XDG_CACHE_HOME/adea-vp, or ~/.cache/adea-vp; absolute paths only)
-  <sha256 of the git common directory>/             one per repository; worktrees share it, other repositories do not
-    head-<commit>/<environment key>/                clean checkout: every clean worktree at that commit
-    checkout-<sha256 of the checkout path>/<key>/   local changes, untracked files or no commit: that checkout only
+  repo-<sha256 of the git common directory>/        clean checkouts of one repository
+    head-<commit>/<environment key>/                clean: every clean worktree at that commit shares it
+  checkout-<sha256 of the checkout path>/<key>/     local changes, untracked files or no commit: that checkout only
+    state-changed/ or state-no-commit/
 ```
 
 The environment key covers the Vite+ version, the Node version, platform and architecture, the bytes of `bun.lock` and
 `vite.config.ts`, and the variables named `NODE_ENV`, `NODE_OPTIONS`, `BUN_*`, `VITE_*`, `ORCH_*` and `NPM_CONFIG_*`.
 Changing any of them selects another directory, so the run starts cold and leaves the other state's entries alone; going
 back to the first state replays its entries (A, B, A hits). Vite Task still fingerprints the files, declared variables and
-`ORCH_TOOLCHAIN` of each task, so the directory only decides which entries are visible. Each directory is created only
-after its components pass `ensurePrivateDirectory`: none may be a symbolic link, each must belong to the current user and
-none may be writable by others. A directory that fails these checks is not used.
+`ORCH_TOOLCHAIN` of each task, so the directory only decides which entries are visible.
 
-Runs that share a directory take `<directory>.lock`, published atomically. A lock whose owner has exited is reclaimed
-under `<directory>.lock.reclaim`: the reclaimer removes the lock only while it still holds the exact bytes it read and their
-owner is gone, so a successor's live lock is never unlinked. The owner releases only a lock that still holds its own bytes.
+Sharing across checkouts is limited to outputs that are portable. `apps/web build` is the only task whose output embeds the
+absolute path of the checkout that built it (`dist/server/wrangler.json`, `dist/server/index.js`, and the TanStack Start
+manifest, whose file name is a hash of its content). Its cached command therefore carries `ORCH_CHECKOUT`, a hash of the
+checkout's canonical path (`scripts/orch-graph.mjs`, `checkoutIdentity`). A different checkout misses on that task and
+rebuilds it under its own path; it never replays another checkout's path. Every other task keeps its command and its input
+tracking, so its entries are shared across clean checkouts at one commit.
+
+Each directory is created only after its components pass `ensurePrivateDirectory`: no component above the home may be
+writable by group or others (sticky directories excepted), no component below it may be a symbolic link, owned by another
+user, or writable by group or others, and the directory must be its own real path. A directory that fails these checks
+is not used.
+
+Locking (`withLock`). A run takes `<directory>.lock`, published atomically, and records the process group it started at
+`<directory>.lock.run`.
+
+- A lock is reclaimed only when its owner has exited and no process group recorded by it still runs. A reclaimer takes
+  `<directory>.lock.reclaim` and removes the lock only while it still holds the exact bytes it read.
+- The reclaim mutex is never broken by its age or by a guess about its owner. While it is held, the wait is bounded and the
+  run fails with a message naming it.
+- Malformed, symbolic-link, non-file or foreign lock and run records are refused and kept, and the run falls back to bypass.
+  An empty lock file is refused at once; it is not read as owner 0.
+- Every wait is bounded by the lock timeout (60 minutes). A process group that a dead owner recorded keeps the lock held
+  until the group has gone.
+
+After the lock is acquired, the directory is planned again under the lock. If the commit, the cleanliness or the directory
+changed while the run waited, nothing is launched against the shared directory: the run goes through bypass.
 
 Bypass, with no environment change, no directory, no lock and no `--cache`: `CI` is set (the hosted lanes run the same
-`vp run` as before), `VITE_CACHE_PATH` is already in the environment, or the cache home is not absolute or its directory
-fails the checks. Run the wrapper with `-- <vp run args>` for other tasks.
+`vp run` as before), `VITE_CACHE_PATH` is already in the environment, the cache home is not absolute, the directory fails
+the checks, the lock is refused, or the checkout changed while the run waited. Run the wrapper with `-- <vp run args>` for
+other tasks.
 
-Known limits, observed on this graph:
+Known limits:
 
-- Built outputs can embed the absolute path of the checkout that built them. Two files in `apps/web/dist` do:
-  `server/wrangler.json` and the TanStack Start manifest. A replay in another worktree at the same commit restores those bytes,
-  so they name the worktree that built the cold run; a fresh build in the replaying worktree writes its own path and so
-  differs. Replays are byte-identical to the cold run that filled the directory, not to a fresh build elsewhere.
-- One entry per task per directory. Worktrees that differ in ignored, generated files that a task reads overwrite each
-  other's entries: the `apps/web build` entry is rebuilt when `apps/web/test/fixtures/source-contracts/.runtime` (written
-  by the test suite) is present in one worktree and absent in another.
-- The `apps/web build` task fingerprints the repository root listing. Adding or removing a root file turned its replay into
+- A reclaimer killed while it holds `<directory>.lock.reclaim` leaves that mutex behind. The runs that follow wait, then fail
+  with a message naming it. Removing the file by hand is the recovery; the wrapper never removes it by age.
+- One entry per task per directory. Worktrees at one commit whose ignored, generated files differ overwrite each other's
+  entries. The `apps/web build` entry is rebuilt when `apps/web/test/fixtures/source-contracts/.runtime` (written by the
+  test suite) is present in one worktree and absent in another.
+- The `apps/web build` task fingerprints the repository root listing. Adding or removing a root file turns its replay into
   a miss. Keep scratch files outside the checkout.
+- Cross-checkout replay of `apps/web build` is deferred (option 2 below). Until Andrew approves it, that task is cached per
+  checkout, so a second checkout rebuilds it.
 - A run stopped with Ctrl-C stops `vp` after the tasks it has started; the wrapper then exits 130 and releases its lock.
   The entries written before the stop stay valid, and the next run fills in the rest.
 - In bypass mode `vp` uses its own default cache under `node_modules`, as it did before this wrapper.
 
-Pilot receipts (local, base `3b9b108`, merged head `ce7d513` with `origin/main` `e7f19fa`):
+Deferred option 2 (needs Andrew's approval, not in this change): make `apps/web build` path-free, or exclude it from the
+cache, so that it too shares across checkouts. Until then it is keyed per checkout.
 
-- Cold run in one worktree: 0/15 hits, dist sha256 `f970153f39bc845f03d78aa6511ea4a89b02c6ffd18d108175698cfec19c71e4`
-  over 1891 files. Replay after deleting every workspace `dist`: 15/15, same sha256.
-- A second worktree at the same commit, first run: 14/15, dist sha256 `cb9b8ff2bb915f694f5c1bc60d8d0f656daddc1d9a2c827955f07ba3737dfaa6`.
-  The miss was `apps/web build`, whose ignored `.runtime` fixture existed in one worktree only; the rebuilt output names
-  the second worktree's path (see the first limit above).
-- Two worktrees at once in a fresh directory (`VITE_PILOT_PROBE=6`): one ran cold at 0/15, the other waited for the lock and
-  ran at 14/15 (same web-build miss).
-- Cancel with SIGINT 8 s into a cold run: `vp` stopped at 13 of 17 tasks, the wrapper exited 130 with no lock left behind,
-  and the next run hit 11/15 and reproduced `f970…`.
-- `CI=1`: `no shared cache (CI is set)`, no cache home created, no `--cache` in the command.
-- `VITE_CACHE_PATH` set: `no shared cache (VITE_CACHE_PATH is already set)`, no wrapper lock created beside it.
+Receipts for the path-sensitive change (commit `0a18eff`, base `e7f19faa`):
+
+- Writer checkout `proof-writer` at `0a18eff`, cold: 0/15 hits, 17/17 successful, `clean cache` in the shared directory.
+  Warm: 15/15.
+- Writer checkout deleted (`git worktree remove --force`, path absent).
+- Second checkout `adea-vp-cache-b` at the same commit, after the writer was deleted, with its ignored `.runtime`
+  fixture removed: cold 14/15 hits, 17/17 successful. The one miss is `apps/web build`, reported as
+  `cache miss: env 'ORCH_CHECKOUT' changed, executing`. Warm: 15/15.
+- The writer's checkout path appears in none of the second checkout's `dist` files. The second checkout's web build names its
+  own path (2 files).
+- The 14 portable packages' `dist` trees match the writer's byte for byte: 1681 files, `diff -r` empty, and the same
+  sha256 over the sorted file list and contents (`d224c577…eb185c`).
+- The web tree (210 files) differs from the writer's in five entries. After replacing the two checkout paths and the manifest's content
+  hash in the file name, the same content remains in every entry, so the difference is the checkout path alone.
+
+Full-suite diagnosis (`bun run test:unit`, same machine, nothing else running):
+
+- Base `e7f19faa`, run 1: `test:coverage` exited 1 with 1720 passing and no failing test reported.
+- Base `e7f19faa`, run 2: exited 1 with `a hung Compose down kills and reaps its owned process group` failing at
+  `docker-pull-backoff.test.ts:277` (`groupExited` false). Passing in isolation: 36/36.
+- Branch: the same test failed at the same line in its full run, and passes in isolation: 36/36.
+- Cause, measured here: after the group is SIGKILLed, the stub is reparented to PID 1 (`process_api`), which reaped it
+  1.57 to 1.71 seconds later in five of five trials. The test's reap budget is 1.5 seconds, and `groupHasExited` counts an
+  unreaped zombie as a live member (`kill(-pgid, 0)` succeeds). The failure is therefore a race with the container's init
+  under full-suite load, not a change in this code. It is recorded here and not fixed in this change.
 
 ## Receipts
 
