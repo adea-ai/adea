@@ -8,8 +8,13 @@ import type { UserPrincipalRef } from '@adea-ai/types'
 
 import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
 import {
+  archiveChannel,
   createGroupChannel,
   createRuntimeResultMessage,
+  getChannelForUser,
+  getMessageForUser,
+  listChannelsForUser,
+  listMessagesForUser,
   setChannelParticipants,
 } from '../../src/conversations'
 import {
@@ -24,7 +29,7 @@ import { createTemporaryUserSession } from '../../src/identity'
 import { workspaceMemberships } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import { applyMigrationTail, canonicalChainFolders } from '../fixtures/canonical-chain'
-import { migrationsFolderBefore } from '../fixtures/cutover-rehearsal'
+import { DRIZZLE_DIR, migrationsFolderBefore } from '../fixtures/cutover-rehearsal'
 import {
   canonicalUrl,
   createCanonicalDatabase,
@@ -378,6 +383,109 @@ describe.skipIf(!provisioned)(
       }
     })
 
+    test('production 0058 never restores a revoked archived audience from its retained roster', async () => {
+      const name = `${SCRATCH_PREFIX}revoked_${suffix}`
+      let fixture: Fixture | undefined
+      const preQuarantine = migrationsFolderBefore('0058_legacy_audience_quarantine')
+      try {
+        await createCanonicalDatabase(admin, adminUrl, name)
+        fixture = open(name)
+        await migrate(fixture.migration.db, { migrationsFolder: preQuarantine })
+        // The current readers need the quarantine schema while constructing the pre-0058 fixture.
+        // It is empty, then removed so the unchanged production migration creates and populates it.
+        await installLegacyAudienceQuarantine(fixture.migration.db)
+        const group = await buildFreshGroup(fixture)
+        const { channelId, workspaceId, owner, member } = group
+        const db = fixture.runtime.db
+        const page = await listMessagesForUser(db, workspaceId, channelId, owner)
+        const messageId = page.messages[0]!.id
+        const admission = await loadGroupAdmission(db, workspaceId, channelId, member)
+        expect(admission).not.toBeNull()
+        await revokeGroupGrant(db, workspaceId, channelId, owner, {
+          grantId: admission!.authorization.grantId,
+          kind: 'audience',
+          revokedAt: new Date().toISOString(),
+        })
+        const channel = await getChannelForUser(db, workspaceId, channelId, owner)
+        await archiveChannel(db, workspaceId, channelId, owner, channel.version)
+        const denied = async () => {
+          // Membership is still current: these denials must come from group standing.
+          expect(
+            await rowsOf(
+              db,
+              sql`select id from app.workspace_memberships
+            where workspace_id = ${workspaceId}::uuid and user_id = ${member.userId}::uuid`
+            )
+          ).toHaveLength(1)
+          await expect(listMessagesForUser(db, workspaceId, channelId, member)).rejects.toThrow()
+          await expect(
+            listGroupChannelMessagesForUser(db, workspaceId, channelId, member)
+          ).rejects.toThrow()
+          await expect(getMessageForUser(db, workspaceId, messageId, member)).rejects.toThrow()
+          await expect(getChannelForUser(db, workspaceId, channelId, member)).rejects.toThrow()
+          expect(
+            (await listChannelsForUser(db, workspaceId, member, { includeArchived: true })).map(
+              (row) => row.id
+            )
+          ).not.toContain(channelId)
+        }
+        await denied()
+        await rowsOf(fixture.migration.db, sql`drop table app.legacy_audience_quarantine`)
+        await migrate(fixture.migration.db, { migrationsFolder: DRIZZLE_DIR })
+        const withdrawals = await rowsOf(
+          db,
+          sql`select withdrawn_admissions, withdrawn_audience_grants
+          from app.legacy_audience_quarantine where channel_id = ${channelId}::uuid
+            and principal_id = ${member.userId}::uuid`
+        )
+        expect(withdrawals).toMatchObject([
+          { withdrawn_admissions: 1, withdrawn_audience_grants: 1 },
+        ])
+        expect(
+          await rowsOf(
+            db,
+            sql`select id from app.group_admissions where channel_id = ${channelId}::uuid`
+          )
+        ).toEqual([])
+        await denied()
+        await migrate(fixture.migration.db, { migrationsFolder: DRIZZLE_DIR })
+        await denied()
+      } finally {
+        rmSync(preQuarantine, { recursive: true, force: true })
+        await fixture?.runtime.close()
+        await fixture?.migration.close()
+        await admin.unsafe(`drop database if exists "${name}" with (force)`)
+      }
+    }, 300_000)
+
+    test('restoring workspace membership does not restore an archived legacy roster admission', async () => {
+      const { workspaceId, archivedGroupId, owner } = seed
+      const db = upgrade.runtime.db
+      expect((await getChannelForUser(db, workspaceId, archivedGroupId, owner)).id).toBe(
+        archivedGroupId
+      )
+      await rolledBack(db, async (tx) => {
+        await rowsOf(
+          tx,
+          sql`delete from app.workspace_memberships
+          where workspace_id = ${workspaceId}::uuid and user_id = ${owner.userId}::uuid`
+        )
+        await tx
+          .insert(workspaceMemberships)
+          .values({ workspaceId, userId: owner.userId, role: 'owner' })
+        await expect(listMessagesForUser(tx, workspaceId, archivedGroupId, owner)).rejects.toThrow()
+        await expect(getChannelForUser(tx, workspaceId, archivedGroupId, owner)).rejects.toThrow()
+        expect(
+          (await listChannelsForUser(tx, workspaceId, owner, { includeArchived: true })).map(
+            (row) => row.id
+          )
+        ).not.toContain(archivedGroupId)
+      })
+      expect((await getChannelForUser(db, workspaceId, archivedGroupId, owner)).id).toBe(
+        archivedGroupId
+      )
+    })
+
     test('fresh group: a newcomer reads only from the join point, an earlier-history grant unlocks the rest, and revocation closes it', async () => {
       const { channelId, early, late, member, owner, workspaceId } = freshGroup
       const db = fresh.runtime.db
@@ -465,7 +573,10 @@ describe.skipIf(!provisioned)(
       expect(after.removedAgentPublish).toEqual({ denied: 'Channel unavailable' })
     })
 
-    test('upgrade, after quarantine: a quarantined member of the archived group is denied its history and publication', async () => {
+    test('upgrade, after quarantine: the archived group keeps read-only history for its retained participant, and refuses publication', async () => {
+      // #1222 (approved 2026-10-18): archiving does not revoke a previously authorized participant.
+      // The quarantine still withdraws the canonical admission (`group_channel_not_active`), but the
+      // read path keeps the retained roster's read-only history; every write still denies.
       const read = await settle(() =>
         listGroupChannelMessagesForUser(
           upgrade.runtime.db,
@@ -475,7 +586,8 @@ describe.skipIf(!provisioned)(
           {}
         )
       )
-      expect('denied' in read).toBe(true)
+      expect('denied' in read).toBe(false)
+      expect('denied' in read ? [] : visibleSequences(read.value)).toEqual([])
       const write = await settle(() =>
         groupPost(
           upgrade.runtime.db,

@@ -184,6 +184,8 @@ type Fixture = {
   archivedChannelId: string
   /** Stable ids of the seeded records the exact-evidence assertions pin. */
   memberMessageId: string
+  /** The single message on the archived group, the read-only history its participants retain. */
+  archivedMessageId: string
   /** The highest sequence the owner, member and removed user had read on the shared channel. */
   ownerReadSequence: number
   removedReadSequence: number
@@ -295,7 +297,7 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     'Archived participant-only channel',
     { archived: true }
   )
-  await insertLegacyMessageSequence(connection.db, {
+  const archivedMessageId = await insertLegacyMessage(connection.db, {
     bodyText: 'rehearsal-closed-body',
     channelId: closedId,
     sender: owner,
@@ -442,6 +444,7 @@ async function seedLegacyFixture(connection: DatabaseConnection): Promise<Fixtur
     sharedChannelId: sharedId,
     archivedChannelId: closedId,
     memberMessageId,
+    archivedMessageId,
     ownerReadSequence: latestShared,
     removedReadSequence: Math.max(1, latestShared - 1),
     messageContentRefId: messageContentRef.id,
@@ -491,6 +494,10 @@ async function readThroughProduct(connection: DatabaseConnection, fixture: Fixtu
   const { workspaceId, sharedChannelId, archivedChannelId } = fixture
   const principals = {
     owner: fixture.owner,
+    // The clean archived-group participant and the departed one, so the archived policy is proven
+    // for a formerly authorized reader as well as a nonparticipant.
+    member: fixture.member,
+    removed: fixture.removed,
     collaborator: fixture.collaborator,
     outsider: fixture.outsider,
   }
@@ -873,6 +880,67 @@ async function probeCleanMember(connection: DatabaseConnection, fixture: Fixture
   }
 }
 
+/**
+ * Every write a formerly authorized participant might attempt on the archived group. The approved
+ * policy is read-only, so each is refused and leaves the frozen group's rows and version untouched.
+ */
+async function probeArchivedGroupWrites(connection: DatabaseConnection, fixture: Fixture) {
+  const { db } = connection
+  const { workspaceId, archivedChannelId: channelId, owner } = fixture
+  const footprint = async () => ({
+    messages: await count(
+      connection,
+      sql`select count(*)::int as count from app.messages where channel_id = ${channelId}::uuid`
+    ),
+    rosterRows: await count(
+      connection,
+      sql`select count(*)::int as count from ${channelParticipants} where channel_id = ${channelId}::uuid`
+    ),
+    version: await count(
+      connection,
+      sql`select version::int as count from app.channels where id = ${channelId}::uuid`
+    ),
+  })
+  const before = await footprint()
+  const version = before.version
+  const writes = {
+    create: await settle(() =>
+      createMessage(db, workspaceId, channelId, owner, {
+        bodyText: 'archived append through the legacy writer',
+        idempotencyKey: `archived-create-${crypto.randomUUID()}`,
+        sender: { kind: 'user', userId: owner.userId },
+      })
+    ),
+    post: await settle(() =>
+      postGroupChannelMessage(db, workspaceId, channelId, owner, owner, {
+        message: {
+          bodyText: 'archived canonical post',
+          idempotencyKey: `archived-post-${crypto.randomUUID()}`,
+        },
+        mode: 'direct',
+      })
+    ),
+    rename: await settle(() =>
+      updateChannel(db, workspaceId, channelId, owner, { title: 'renamed archived' }, version)
+    ),
+    archive: await settle(() => archiveChannel(db, workspaceId, channelId, owner, version)),
+    participants: await settle(() =>
+      setChannelParticipants(
+        db,
+        workspaceId,
+        channelId,
+        owner,
+        [
+          { kind: 'user', userId: fixture.owner.userId },
+          { kind: 'user', userId: fixture.member.userId },
+        ],
+        version
+      )
+    ),
+  }
+  return { writes, before, after: await footprint() }
+}
+
 type Scenario = Awaited<ReturnType<typeof executeScenario>>
 
 const resources: RehearsalResources = {}
@@ -1095,6 +1163,7 @@ async function executeScenario() {
     .values({ role: 'member', userId: fixture.removed.userId, workspaceId: fixture.workspaceId })
   const denial = await probeStaleAudience(connection, fixture, fixture.removed)
   const control = await probeCleanMember(connection, fixture)
+  const archivedGroupWrites = await probeArchivedGroupWrites(connection, fixture)
   const proof = {
     quarantineTableInProduct,
     cutover: fullAtCutover,
@@ -1167,6 +1236,7 @@ async function executeScenario() {
     repeatComparison,
     sensitivity,
     audience,
+    archivedGroupWrites,
     proof,
     grants: {
       registration,
@@ -1327,20 +1397,40 @@ describe.skipIf(!provisioningUrl && !inCi)('migration cutover rehearsal (#1222)'
     // A workspace member who is not a participant sees neither channel's content.
     expect(afterReads.collaborator.sharedMessages).toBe('denied')
     expect(afterReads.collaborator.archivedMessages).toBe('denied')
-    // Message reads exclude archived channels for everyone, participants included.
-    expect(afterReads.owner.archivedMessages).toBe('denied')
-    // UNRESOLVED acceptance item (not proven): the canonical backfill (0050) admits active groups
-    // only, so this archived legacy group has no canonical admission and no owner standing. The
-    // current expectation records that outcome; whether archived groups stay visible to their former
-    // participants is a separate decision and is deliberately not settled here.
-    expect(afterReads.owner.channels).not.toContain(fixture.archivedChannelId)
     expect(afterReads.collaborator.channels).not.toContain(fixture.archivedChannelId)
+    // The departed user is not a participant of the archived group either, so leaving the workspace
+    // is never undone by the frozen conversation.
+    expect(afterReads.removed.archivedMessages).toBe('denied')
     // Positive controls: the same resources are readable by an authorized principal, so each
     // denial above is a real authorization outcome and not a missing fixture.
     expect(afterReads.owner.sharedMessages).not.toBe('denied')
     expect(afterReads.owner.members).not.toBe('denied')
     expect(afterReads.collaborator.members).not.toBe('denied')
     expect(afterReads.collaborator.tasks).not.toBe('denied')
+  }, 300_000)
+
+  test('archived group history stays read-only for its previously authorized participants', async () => {
+    const { afterReads, repeatReads, fixture, archivedGroupWrites } = await runScenario()
+    // The approved #1222 policy: the retained, non-revoked participants keep reading the frozen
+    // history — before and after the repeat migration, with identical results.
+    for (const reads of [afterReads, repeatReads]) {
+      expect(reads.owner.archivedMessages).toEqual([fixture.archivedMessageId])
+      expect(reads.member.archivedMessages).toEqual([fixture.archivedMessageId])
+      expect(reads.owner.channels).toContain(fixture.archivedChannelId)
+      expect(reads.member.channels).toContain(fixture.archivedChannelId)
+      // Revoked/removed users and nonparticipants stay denied the same history.
+      expect(reads.collaborator.archivedMessages).toBe('denied')
+      expect(reads.outsider.archivedMessages).toBe('denied')
+      expect(reads.removed.archivedMessages).toBe('denied')
+      expect(reads.collaborator.channels).not.toContain(fixture.archivedChannelId)
+      expect(reads.removed.channels).not.toContain(fixture.archivedChannelId)
+    }
+    // Archiving is read-only: every write a formerly authorized participant might attempt is
+    // refused, and the frozen group's messages, roster and version are untouched.
+    for (const [name, result] of Object.entries(archivedGroupWrites.writes))
+      expect({ denied: 'denied' in result, name }).toEqual({ denied: true, name })
+    expect(archivedGroupWrites.after).toEqual(archivedGroupWrites.before)
+    expect(archivedGroupWrites.after.messages).toBe(1)
   }, 300_000)
 
   test('artifact-reference grants register, survive repeat migration, and revoke through the API', async () => {
