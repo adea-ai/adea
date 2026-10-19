@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import postgres from 'postgres'
 
-import { readDatabaseTarget, readDatabaseUrl } from '../../src/config'
+import { classifyDatabaseUrl, readDatabaseTarget, readDatabaseUrl } from '../../src/config'
 
 describe('database configuration', () => {
   test('requires a server-side PostgreSQL URL', () => {
@@ -78,6 +78,8 @@ describe('connection target qualification', () => {
       url: hostedUrl('db.example.com'),
       hostname: 'db.example.com',
       hosted: true,
+      pooled: false,
+      preparedStatements: true,
     })
     expect(
       readDatabaseTarget('postgresql://app:secret@127.0.0.1:5432/agent_hq?sslmode=disable')
@@ -136,5 +138,29 @@ describe('connection target qualification', () => {
     expect(() =>
       readDatabaseTarget(hostedUrl('db.example.com').replace('require', 'disable'))
     ).toThrow('Hosted DATABASE_URL must require TLS')
+  })
+
+  test('treats a Neon pooled endpoint as unprepared and every other host as prepared', () => {
+    const pooled = readDatabaseTarget(hostedUrl('ep-cool-1234-pooler.us-east-2.aws.neon.tech'))
+    expect([pooled.pooled, pooled.preparedStatements]).toEqual([true, false])
+    for (const host of [
+      'ep-cool-1234.us-east-2.aws.neon.tech',
+      'adea-db.hyperdrive.cloudflare.com',
+      'abc123.proxy.rlwy.net',
+    ]) {
+      const target = readDatabaseTarget(hostedUrl(host))
+      expect([target.pooled, target.preparedStatements]).toEqual([false, true])
+    }
+  })
+
+  test('classifyDatabaseUrl drops the hosted TLS requirement but keeps the pooling shape', () => {
+    // The Hyperdrive binding string need not carry sslmode; it is still prepared.
+    expect(
+      classifyDatabaseUrl('postgresql://app:secret@db.hyperdrive.cloudflare.com:5432/agent_hq')
+    ).toEqual({ pooled: false, preparedStatements: true })
+    expect(
+      classifyDatabaseUrl('postgresql://app:secret@ep-1-pooler.us-east-2.aws.neon.tech/agent_hq')
+    ).toEqual({ pooled: true, preparedStatements: false })
+    expect(classifyDatabaseUrl('not-a-url')).toEqual({ pooled: false, preparedStatements: true })
   })
 })

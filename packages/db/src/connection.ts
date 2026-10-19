@@ -9,7 +9,7 @@ import { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { PostgresJsSession } from 'drizzle-orm/postgres-js/session'
 import postgres, { type Sql } from 'postgres'
 
-import { readDatabaseUrl } from './config'
+import { classifyDatabaseUrl, readDatabaseUrl } from './config'
 import * as schema from './schema'
 
 type AppSchema = typeof schema
@@ -36,6 +36,43 @@ function sharedRelationalSchema(): AppRelationalSchema {
 
 const transparentParser = (value: unknown) => value
 
+type StatementOptions = Parameters<Sql['unsafe']>[2]
+
+/**
+ * drizzle's postgres-js session executes every statement as `client.unsafe(sql, params)`, and
+ * Postgres.js builds an `unsafe()` query with `prepare: false` unless the call says otherwise. So
+ * with the client's own `prepare: true`, which is what Cloudflare documents for Hyperdrive, the ORM
+ * path would still send every builder, relational, raw and transaction statement unprepared, and
+ * Cloudflare warns that unprepared statements "can cause queries to hang or fail intermittently"
+ * under Hyperdrive transaction pooling. This view of the client asks for `prepare: true` on each
+ * `unsafe()` call, and does the same for the clients `begin()` and `savepoint()` hand to their
+ * callbacks, which is where drizzle runs transaction statements. Nothing else about the client
+ * changes: the same connection pool, parsers and `end()` back it, and `db.$client` stays the real
+ * client.
+ */
+function preparedStatementView(client: Sql): Sql {
+  const scoped =
+    (method: 'begin' | 'savepoint') =>
+    (...args: unknown[]) => {
+      const callback = args.pop() as (scope: Sql) => unknown
+      const target = (
+        client as unknown as Record<typeof method, (...parameters: unknown[]) => unknown>
+      )[method]
+      return target.call(client, ...args, (scope: Sql) => callback(preparedStatementView(scope)))
+    }
+  const unsafe = (query: string, parameters?: unknown[], options?: StatementOptions) =>
+    client.unsafe(query, parameters as never, { prepare: true, ...options })
+
+  return new Proxy(client, {
+    get(target, property, receiver) {
+      if (property === 'unsafe') return unsafe
+      if (property === 'begin' || property === 'savepoint') return scoped(property)
+      const value = Reflect.get(target, property, receiver)
+      return typeof value === 'function' ? value.bind(target) : value
+    },
+  })
+}
+
 /**
  * Builds the same database object as `drizzle(client, { schema })` from drizzle-orm 0.45.3
  * (`postgres-js/driver.js`, `construct`) with the schema config shared instead of re-derived. The
@@ -43,7 +80,7 @@ const transparentParser = (value: unknown) => value
  * tests/unit/connection.test.ts compares the two constructions and fails when drizzle-orm changes
  * so this is re-read against the new `construct`.
  */
-function constructDatabase(client: Sql) {
+function constructDatabase(client: Sql, prepareStatements: boolean) {
   const options = client.options as unknown as {
     parsers: Record<string, unknown>
     serializers: Record<string, unknown>
@@ -57,10 +94,15 @@ function constructDatabase(client: Sql) {
 
   const dialect = new PgDialect({ casing: undefined })
   const relational = sharedRelationalSchema()
-  const session = new PostgresJsSession(client, dialect, relational, {
-    logger: undefined,
-    cache: undefined,
-  })
+  const session = new PostgresJsSession(
+    prepareStatements ? preparedStatementView(client) : client,
+    dialect,
+    relational,
+    {
+      logger: undefined,
+      cache: undefined,
+    }
+  )
   const db = new PostgresJsDatabase(
     dialect,
     session,
@@ -91,38 +133,41 @@ function isWorkersRuntime(): boolean {
  * Driver tuning for one connection URL, split out so it can be asserted without
  * opening a socket.
  *
- * `prepare` is `false` for every connection role. It is only a default: drizzle's
- * postgres-js session executes every statement, including those inside
- * `transaction()` and savepoints, through `client.unsafe(query, params)`, and
- * Postgres.js builds those queries with `prepare: false`, so the ORM path never
- * names a prepared statement regardless of this option. Setting it here keeps a
- * query issued directly on `client` (a tagged template) on the same footing,
- * which is what a transaction-pooled endpoint (Cloudflare Hyperdrive, PgBouncer)
- * needs. The unit tests exercise the real drizzle-to-driver path to keep this
- * honest; whether Hyperdrive itself caches or pools as expected is a cutover
- * gate checked against a live binding, not here. No `cache` option is set: the
- * drizzle database below owns `$cache: undefined`, and no database-level query
- * cache backs auth, session or permission reads.
+ * `prepare` follows the connection role, not a blanket toggle: a Neon `-pooler`
+ * endpoint is the only host that keeps `prepare: false`, while a direct Railway
+ * PostgreSQL connection and a Cloudflare Hyperdrive connection prepare
+ * statements. Cloudflare documents `prepare: true` for Hyperdrive and warns that
+ * `prepare: false` can hang or fail under its transaction pooling. The option
+ * alone does not reach the ORM (see `preparedStatementView`), so
+ * `createDatabase` also applies it to the drizzle session. No `cache` option is
+ * set: the drizzle database below owns `$cache: undefined`, and no database-level
+ * query cache backs auth, session or permission reads. Hyperdrive's own query
+ * cache is configured on the Hyperdrive binding, outside this package.
  */
 export interface CreateDatabaseOptions {
   maxConnections?: number
   connectTimeoutSeconds?: number
   idleTimeoutSeconds?: number
+  preparedStatements?: boolean
 }
 
-export function databaseConnectionOptions(options: CreateDatabaseOptions = {}): {
+export function databaseConnectionOptions(
+  connectionUrl: string,
+  options: CreateDatabaseOptions = {}
+): {
   max: number
   connect_timeout: number
   idle_timeout: number
-  prepare: false
+  prepare: boolean
 } {
+  const { preparedStatements } = classifyDatabaseUrl(connectionUrl)
   return {
     max:
       options.maxConnections ??
       (isWorkersRuntime() ? WORKERS_MAX_CONNECTIONS : SERVER_MAX_CONNECTIONS),
     connect_timeout: options.connectTimeoutSeconds ?? 10,
     idle_timeout: options.idleTimeoutSeconds ?? 20,
-    prepare: false,
+    prepare: options.preparedStatements ?? preparedStatements,
   }
 }
 
@@ -130,11 +175,12 @@ export function createDatabase(
   connectionUrl = readDatabaseUrl(),
   options: CreateDatabaseOptions = {}
 ) {
-  const client = postgres(connectionUrl, databaseConnectionOptions(options))
+  const driverOptions = databaseConnectionOptions(connectionUrl, options)
+  const client = postgres(connectionUrl, driverOptions)
 
   return {
     client,
-    db: constructDatabase(client),
+    db: constructDatabase(client, driverOptions.prepare),
     close: () => client.end({ timeout: 5 }),
   }
 }
