@@ -69,6 +69,22 @@ describe('pure browser dependency boundaries', () => {
     ).toBe(true)
   })
 
+  test('keeps the native inventory diagnostic out of the production web graph', () => {
+    expect(
+      desktopOnlyClientModule(
+        '/repo/packages/workspace-ui/src/native-session-inventory-diagnostic.tsx'
+      )
+    ).toBe(true)
+    expect(
+      desktopOnlyClientModule(
+        'C:\\repo\\packages\\workspace-ui\\src\\native-session-inventory-diagnostic.tsx'
+      )
+    ).toBe(true)
+    expect(desktopOnlyClientModule('/repo/packages/workspace-ui/src/runtime-nodes-pane.tsx')).toBe(
+      false
+    )
+  })
+
   test('keeps private bindings out of the explicit public substitution list', () => {
     expect(PUBLIC_ENV_NAMES).toEqual([
       'ADEA_PUBLIC_WORLD_URL',
