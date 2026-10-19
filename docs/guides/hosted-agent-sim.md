@@ -39,7 +39,7 @@ Use the repository's pinned Bun and frozen dependencies, build workspace
 prerequisites with `bun run build:web-deps`, then run:
 
 ```sh
-bun test apps/web/test/sim-http.test.ts apps/web/test/sim-frame.test.ts
+bun test apps/web/test/sim-host-config.test.ts apps/web/test/sim-http.test.ts apps/web/test/sim-frame.test.ts
 bun test apps/web/test/sim-offload-browser/acceptance.test.ts
 bun scripts/check-hosted-sim-desktop-client.ts
 ADEA_SIM_TEST_EXPORT=/path/to/existing/private/export \
@@ -83,7 +83,7 @@ query values, and the hash, then notifies the router. No asynchronous write can
 land after a cancelled attempt. HQ and reopened designers read the route's
 current character instead of the initial mount snapshot.
 
-The private engine hooks are tracked in AgentSim PR #111. Each HQ transition ends
+The private engine hooks merged in AgentSim PR #111. Each HQ transition ends
 its current attempt and requests a fresh designer grant. Character editing remains
 reactive; edits made during an acknowledgement remain dirty and open. Standalone
 designer URL persistence remains supported by the private engine.
@@ -125,7 +125,7 @@ rollout require separate explicit authorization. The local reference stores and
 entitlement fixture are not production substitutes. No live completion is claimed.
 
 The earlier [hosted Sim bridge follow-up](../plans/hosted-sim-bridge-follow-up.md)
-records the coordination proposal; reviewed PR #1450 supplies the bridge contract.
+records the coordination proposal; merged PR #1450 supplies the bridge contract.
 The [parent-save evidence](../evidence/hosted-sim-parent-save-local-2026-10-17.md)
 records the actual-client designer round trips and fresh installed payload proof.
 The [production composition proposal](../plans/hosted-sim-production-composition.md)

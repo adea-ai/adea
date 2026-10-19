@@ -1,34 +1,26 @@
-import {
-  canonicalBridgeOrigin,
-  type SimSessionExchangeResponse,
-  type SimSessionRecord,
-} from '@adea-ai/spatial/sim-bridge'
+import type { SimSessionExchangeResponse, SimSessionRecord } from '@adea-ai/spatial/sim-bridge'
+import { createSimHostIsolation, type SimHostIsolation } from './sim-host-config'
 import { simJsonBody } from './sim-http'
 
 export type SimPrivateAsset = { body: BodyInit; contentType: string }
 
-/** Separately hosted HTTP boundary. Asset storage never has a public bypass. */
-export function createSimHost(options: {
-  origin: string
-  parentOrigins: readonly string[]
-  allowLoopbackHttp?: boolean
-  frameScript: string
-  exchange: (body: unknown) => Promise<SimSessionExchangeResponse>
-  session: (value: string) => Promise<SimSessionRecord | null>
-  readAsset: (path: string) => Promise<SimPrivateAsset | null>
-  now?: () => number
-}) {
-  const origin = canonicalBridgeOrigin(options.origin, options)
-  const parents = options.parentOrigins.map((value) => canonicalBridgeOrigin(value, options))
-  if (!origin || parents.some((value) => !value) || !parents.length || parents.includes(origin)) {
-    throw new Error('Hosted Sim needs distinct canonical frame and parent origins')
+/**
+ * Separately hosted HTTP boundary. Asset storage never has a public bypass. The isolation settings are validated
+ * before anything is served; a missing or malformed value throws instead of falling back to a default.
+ */
+export function createSimHost(
+  options: SimHostIsolation & {
+    frameScript: string
+    exchange: (body: unknown) => Promise<SimSessionExchangeResponse>
+    session: (value: string) => Promise<SimSessionRecord | null>
+    readAsset: (path: string) => Promise<SimPrivateAsset | null>
+    now?: () => number
   }
-  // Keep the exact-origin allowlists above and on every request. Cookies have
-  // hostname scope rather than port scope, so additionally reject a shared
-  // cookie host: different ports alone cannot isolate the Sim-only cookie.
-  if (parents.some((parent) => new URL(parent!).hostname === new URL(origin).hostname)) {
-    throw new Error('Hosted Sim requires a separate cookie host')
-  }
+) {
+  const isolation = createSimHostIsolation(options)
+  if (typeof options.frameScript !== 'string') throw new Error('Hosted Sim needs a frame script')
+  const origin = isolation.origin
+  const parents = isolation.parentOrigins
   const headers = {
     'cache-control': 'private, no-store',
     'referrer-policy': 'no-referrer',
@@ -67,7 +59,7 @@ export function createSimHost(options: {
         headers: { ...headers, 'content-type': 'text/javascript' },
       })
     if (url.pathname === '/configuration')
-      return json({ parentOrigins: parents, allowLoopbackHttp: options.allowLoopbackHttp === true })
+      return json({ parentOrigins: parents, allowLoopbackHttp: isolation.allowLoopbackHttp })
     if (!url.pathname.startsWith('/assets/agent-sim/'))
       return new Response(null, { status: 404, headers })
     const cookies = (request.headers.get('cookie') ?? '').split(';').map((value) => value.trim())
