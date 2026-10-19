@@ -11,7 +11,10 @@ import { createBetterAuthService } from '../../src/server.ts'
 import { createRecordingAuthDelivery } from '../../src/delivery.ts'
 
 const mode = process.argv.at(-1)
-assert.ok(['--prepare', '--exercise'].includes(mode), 'choose --prepare or --exercise')
+assert.ok(
+  ['--prepare', '--exercise', '--fixture-exercise'].includes(mode),
+  'choose --prepare, --exercise or --fixture-exercise'
+)
 
 const baseUrl = process.env.AUTH_BASE_URL
 const databaseUrl = process.env.AUTH_POSTGRES_TEST_URL
@@ -376,41 +379,14 @@ async function exerciseWorker() {
   }
 }
 
-// The built bundle has no verification or reset transport, so the reset token never
-// leaves the Worker. The test schema is the only place the token can be read, and
-// it is read here, from the isolated schema, to finish the reset through the Worker.
-async function readResetToken(pool, email) {
-  const result = await pool.query(
-    `SELECT v.identifier
-     FROM "${schema}"."verification" v
-     JOIN "${schema}"."user" u ON u.id = v.value
-     WHERE u.email = $1 AND v.identifier LIKE 'reset-password:%'
-     ORDER BY v."createdAt" DESC
-     LIMIT 1`,
-    [email]
-  )
-  const identifier = result.rows[0]?.identifier
-  return identifier ? identifier.slice('reset-password:'.length) : undefined
-}
-
+// Production bundle, fail-closed only. The built Worker has no verification or reset
+// transport, so a reset request must be answered generically, issue no session, and
+// deliver nothing. Completing a reset from a token read out of PostgreSQL is not
+// delivery, so it is not asserted here; the fixture acceptance covers reset through
+// a recorded message instead.
 async function exerciseFailClosedReset() {
-  // The tables belong to the runtime role, so the token is read as that role. Its
-  // application name is the control name, which the backend-leak check excludes.
-  const tokenPool = new Pool({
-    connectionString: databaseUrlWithApplicationName(`${workerApplicationName}_control`),
-    max: 1,
-  })
-  try {
-    return await runFailClosedReset(tokenPool)
-  } finally {
-    await tokenPool.end()
-  }
-}
-
-async function runFailClosedReset(tokenPool) {
   const email = `worker-reset-${randomUUID()}@example.test`
   const password = `Local-C-${randomUUID()}!`
-  const nextPassword = `Local-D-${randomUUID()}!`
   const [signup] = await trackedWorkerRequest('reset fixture signup', [
     ['sign-up/email', { method: 'POST', body: { name: 'Worker Reset', email, password } }],
   ])
@@ -423,12 +399,6 @@ async function runFailClosedReset(tokenPool) {
   assert.match(requested.headers['cache-control'] ?? '', /no-store/)
   assert.equal(responseCookies(requested), '', 'a reset request must not issue a session')
 
-  let token
-  await waitFor(async () => {
-    token = await readResetToken(tokenPool, email)
-    return token !== undefined
-  }, 'reset token should be stored for the isolated test account')
-
   // Refused before the handler runs, so no database backend is expected to open.
   const hostile = await requestWorker('request-password-reset', {
     method: 'POST',
@@ -438,34 +408,9 @@ async function runFailClosedReset(tokenPool) {
   assert.equal(hostile.status, 403, `hostile origin: ${hostile.text}`)
   assert.match(hostile.headers['cache-control'] ?? '', /no-store/)
 
-  const [applied] = await trackedWorkerRequest('reset with the stored token', [
-    ['reset-password', { method: 'POST', body: { newPassword: nextPassword, token } }],
-  ])
-  assert.equal(applied.status, 200, `reset: ${applied.text}`)
-
-  const [replay] = await trackedWorkerRequest('reset token replay', [
-    [
-      'reset-password',
-      { method: 'POST', body: { newPassword: `Local-E-${randomUUID()}!`, token } },
-    ],
-  ])
-  assert.notEqual(replay.status, 200, 'a reset token must be single-use')
-
-  const [stale] = await trackedWorkerRequest('old password after reset', [
-    ['sign-in/email', { method: 'POST', body: { email, password } }],
-  ])
-  assert.notEqual(stale.status, 200, 'the old password must stop working')
-
-  const [current] = await trackedWorkerRequest('new password after reset', [
-    ['sign-in/email', { method: 'POST', body: { email, password: nextPassword } }],
-  ])
-  assert.equal(current.status, 200, `new password sign-in: ${current.text}`)
-  assert.ok(responseCookies(current), 'the new password sign-in must issue a session')
-
   return {
-    passwordResetThroughWorker: 'passed',
-    resetTokenSingleUse: true,
-    hostileOriginResetRefused: true,
+    passwordResetFailClosed: 'passed',
+    hostileOriginRefused: true,
   }
 }
 
@@ -501,5 +446,181 @@ async function exercise() {
   }
 }
 
+// Fixture composition only. The Worker was built with the loopback recording
+// transport (ADEA_AUTH_FIXTURE_BUILD=1) and the harness owns the outbox. Messages
+// are read from that outbox, and the delivered links are followed through the
+// Worker. Nothing here touches production configuration.
+const outboxUrl = process.env.ADEA_AUTH_FIXTURE_OUTBOX_URL
+
+async function outboxMessages(email, kind) {
+  assert.ok(outboxUrl, 'ADEA_AUTH_FIXTURE_OUTBOX_URL is required for --fixture-exercise')
+  const response = await fetch(new URL('/messages', outboxUrl))
+  assert.equal(response.status, 200)
+  const all = await response.json()
+  return all.filter((entry) => entry.email === email && (kind === undefined || entry.kind === kind))
+}
+
+async function waitForOutbox(email, kind, count) {
+  await waitFor(
+    async () => (await outboxMessages(email, kind)).length >= count,
+    `${kind} message for ${email} should be delivered`
+  )
+  return await outboxMessages(email, kind)
+}
+
+async function exerciseRequiredEmailFixture() {
+  const tokenPool = new Pool({
+    connectionString: databaseUrlWithApplicationName(`${workerApplicationName}_control`),
+    max: 1,
+  })
+  try {
+    return await runRequiredEmailFixture(tokenPool)
+  } finally {
+    await tokenPool.end()
+  }
+}
+
+async function runRequiredEmailFixture(tokenPool) {
+  const email = `fixture-${randomUUID()}@example.test`
+  const password = `Fixture-A-${randomUUID()}!`
+  const nextPassword = `Fixture-B-${randomUUID()}!`
+  const failing = `fail+${randomUUID()}@example.test`
+
+  // 1. Required-email signup emits exactly one verification message and no session.
+  const [signup] = await trackedWorkerRequest('required-email signup', [
+    ['sign-up/email', { method: 'POST', body: { name: 'Fixture User', email, password } }],
+  ])
+  assert.equal(signup.status, 200, `required-email signup: ${signup.text}`)
+  assert.equal(
+    responseCookies(signup),
+    '',
+    'a verification-required signup must not issue a session'
+  )
+  const [verification] = await waitForOutbox(email, 'verification', 1)
+  await delay(300)
+  assert.equal((await outboxMessages(email)).length, 1, 'signup must emit exactly one message')
+  assert.equal(verification.kind, 'verification')
+  assert.ok(verification.token, 'the delivered message must carry its token')
+  assert.equal(new URL(verification.url).origin, baseUrl)
+
+  // 2. Unverified sign-in is refused and issues no session.
+  const [blocked] = await trackedWorkerRequest('unverified sign-in', [
+    ['sign-in/email', { method: 'POST', body: { email, password } }],
+  ])
+  assert.notEqual(blocked.status, 200, 'an unverified account must not sign in')
+  assert.equal(responseCookies(blocked), '')
+
+  // 3. Following the delivered link verifies the account and issues a session.
+  const link = new URL(verification.url)
+  const [verified] = await trackedWorkerRequest('follow the delivered verification link', [
+    [`${link.pathname}${link.search}`, { method: 'GET' }],
+  ])
+  assert.ok([200, 302].includes(verified.status), `verification link: ${verified.status}`)
+  const verifiedCookie = responseCookies(verified)
+  assert.ok(verifiedCookie, 'the delivered link must issue a session')
+  await assertSession(email, verifiedCookie, 'session from the delivered link')
+  assert.equal((await outboxMessages(email)).length, 1, 'verifying must not emit another message')
+
+  // 5. Reset uses a recorded message, and a hostile origin delivers nothing.
+  const [requested] = await trackedWorkerRequest('password reset request', [
+    ['request-password-reset', { method: 'POST', body: { email, redirectTo: `${baseUrl}/reset` } }],
+  ])
+  assert.equal(requested.status, 200, `reset request: ${requested.text}`)
+  assert.match(requested.headers['cache-control'] ?? '', /no-store/)
+  assert.equal(responseCookies(requested), '', 'a reset request must not issue a session')
+  const [reset] = await waitForOutbox(email, 'password-reset', 1)
+  const hostile = await requestWorker('request-password-reset', {
+    method: 'POST',
+    body: { email, redirectTo: `${baseUrl}/reset` },
+    origin: 'https://evil.example.test',
+  })
+  assert.equal(hostile.status, 403)
+  await delay(300)
+  assert.equal(
+    (await outboxMessages(email, 'password-reset')).length,
+    1,
+    'a hostile origin delivers nothing'
+  )
+
+  // 6. The recorded reset token completes once, revokes the verified session, and is single-use.
+  const [applied] = await trackedWorkerRequest('reset with the recorded token', [
+    ['reset-password', { method: 'POST', body: { newPassword: nextPassword, token: reset.token } }],
+  ])
+  assert.equal(applied.status, 200, `reset: ${applied.text}`)
+  await assertNoSession(verifiedCookie, 'verified session after the password reset')
+  const [replay] = await trackedWorkerRequest('reset token replay', [
+    [
+      'reset-password',
+      { method: 'POST', body: { newPassword: `Fixture-C-${randomUUID()}!`, token: reset.token } },
+    ],
+  ])
+  assert.notEqual(replay.status, 200, 'a reset token must be single-use')
+  const [stale] = await trackedWorkerRequest('old password after reset', [
+    ['sign-in/email', { method: 'POST', body: { email, password } }],
+  ])
+  assert.notEqual(stale.status, 200, 'the old password must stop working')
+  const [current] = await trackedWorkerRequest('new password after reset', [
+    ['sign-in/email', { method: 'POST', body: { email, password: nextPassword } }],
+  ])
+  assert.equal(current.status, 200, `new password sign-in: ${current.text}`)
+  assert.ok(responseCookies(current), 'the new password must issue a session')
+
+  // 7. Expiry: a second recorded token, expired in the isolated schema, is refused and changes nothing.
+  const [second] = await trackedWorkerRequest('second password reset request', [
+    ['request-password-reset', { method: 'POST', body: { email, redirectTo: `${baseUrl}/reset` } }],
+  ])
+  assert.equal(second.status, 200)
+  const resets = await waitForOutbox(email, 'password-reset', 2)
+  const expiring = resets.at(-1)
+  await tokenPool.query(
+    `UPDATE "${schema}"."verification" SET "expiresAt" = now() - interval '1 minute' WHERE identifier = $1`,
+    [`reset-password:${expiring.token}`]
+  )
+  const [expired] = await trackedWorkerRequest('expired reset token', [
+    [
+      'reset-password',
+      {
+        method: 'POST',
+        body: { newPassword: `Fixture-D-${randomUUID()}!`, token: expiring.token },
+      },
+    ],
+  ])
+  assert.notEqual(expired.status, 200, 'an expired reset token must be refused')
+  const [unchanged] = await trackedWorkerRequest('password after expired token', [
+    ['sign-in/email', { method: 'POST', body: { email, password: nextPassword } }],
+  ])
+  assert.equal(unchanged.status, 200, 'an expired token must leave the password unchanged')
+
+  // 8. Delivery failure, run last: the transport refuses, so nothing is recorded and no session issues.
+  const [refused] = await trackedWorkerRequest('refused delivery signup', [
+    ['sign-up/email', { method: 'POST', body: { name: 'Refused User', email: failing, password } }],
+  ])
+  assert.equal(refused.status, 200, `refused delivery signup: ${refused.text}`)
+  assert.equal(responseCookies(refused), '', 'a refused delivery must not issue a session')
+  await delay(500)
+  assert.equal((await outboxMessages(failing)).length, 0, 'a refused delivery records nothing')
+
+  // Each check above throws on failure, so reaching this return means they all passed.
+  // The counts are read back from the outbox at the end.
+  return {
+    verificationMessagesForAccount: (await outboxMessages(email, 'verification')).length,
+    resetMessagesForAccount: (await outboxMessages(email, 'password-reset')).length,
+    refusedDeliveryMessages: (await outboxMessages(failing)).length,
+  }
+}
+
+async function fixtureExercise() {
+  assert.ok(caPath, 'ADEA_AUTH_WORKER_CA is required for --fixture-exercise')
+  // Trust only this run's minted loopback certificate for its local fixture Worker.
+  workerCa = await readFile(caPath)
+  try {
+    const result = await exerciseRequiredEmailFixture()
+    console.log(JSON.stringify({ mode: 'fixture-exercise', ...result }))
+  } finally {
+    await controlPool.end()
+  }
+}
+
 if (mode === '--prepare') await prepare()
+else if (mode === '--fixture-exercise') await fixtureExercise()
 else await exercise()

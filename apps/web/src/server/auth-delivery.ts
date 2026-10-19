@@ -7,14 +7,11 @@ import {
   type AuthMessageTransport,
 } from '@adea-ai/auth/server'
 
-/**
- * The verification and password-reset transport for the auth route. This
- * repository configures none: no mail provider, credential, or production
- * transport is wired here, so every message is refused and the flow fails
- * closed. A deployment that adds a transport supplies it in this one place.
- */
+import { authMessageTransport } from './auth-message-transport'
+
+/** The transport this build uses; production configures none (see the module). */
 export function configuredAuthMessageTransport(): AuthMessageTransport | undefined {
-  return undefined
+  return authMessageTransport
 }
 
 /**

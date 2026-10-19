@@ -322,6 +322,18 @@ export default defineConfig(({ command }) => ({
       // lucideDevShimAlias above). The production build keeps the `solid`
       // condition so build output is unchanged.
       ...(command === 'serve' ? [lucideDevShimAlias()] : []),
+      // Fixture builds only (ADEA_AUTH_FIXTURE_BUILD=1): the loopback recording
+      // transport replaces the production module. Ordinary builds never match.
+      ...(process.env.ADEA_AUTH_FIXTURE_BUILD === '1'
+        ? [
+            {
+              find: /^\.\/auth-message-transport$/,
+              replacement: fileURLToPath(
+                new URL('./test-fixtures/auth-message-transport.fixture.ts', import.meta.url)
+              ),
+            },
+          ]
+        : []),
     ],
   },
   // Never stringify process.env or expose server credentials through VITE_*.
