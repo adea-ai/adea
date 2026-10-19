@@ -118,13 +118,22 @@ The disposable proof:
   and connects with the pinned certificate so the initializer's own refusal of
   disabled certificate verification still applies.
 
-The instance is published on the loopback interface only, and the role
-passwords are generated for the run. The receipt carries no password and no
-credential-bearing URL. The container is removed on success and on a setup,
-provision or test failure, on a timeout, and on `SIGINT` or `SIGTERM`; a
-cleanup failure fails the lane, and the primary failure is preserved alongside
-the teardown failure. An unavailable container runtime or a missing OpenSSL
-fails the lane rather than producing a green skipped test.
+The instance is published on the loopback interface only. Its synthetic
+credentials are not all random: the container's admin password is generated
+for the run, but the canonical migration and runtime roles are created by the
+reused canonical boundary fixture
+(`packages/db/tests/fixtures/canonical-boundary.ts`) with the role name as the
+password, so those two fixture passwords are the role names
+`agent_hq_local_migration` and `agent_hq_local_app`. They are local-only
+synthetic fixture credentials on an ephemeral loopback instance, never hosted
+secrets, and they stay out of receipts and logs. The receipt carries no
+password and no credential-bearing URL. The container is removed on success and
+on a setup, provision or test failure, on a timeout, and on `SIGINT` or
+`SIGTERM`, and the removal takes the anonymous volumes Docker created for that
+container with it; it never prunes and never removes a resource the proof does
+not own. A cleanup failure fails the lane, and the primary failure is preserved
+alongside the teardown failure. An unavailable container runtime or a missing
+OpenSSL fails the lane rather than producing a green skipped test.
 
 This proof is database-only. It does not replace the hosted auth proof: the
 Neon Auth JWKS assertion in the hosted lane remains the only proof that an

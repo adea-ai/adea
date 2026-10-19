@@ -261,9 +261,23 @@ describe('the disposable PostgreSQL proof is additive', () => {
     expect(helper).toContain('removeTemporaryMaterial')
 
     const cli = readFileSync(resolve(root, 'scripts/disposable-postgres-cli.ts'), 'utf8')
-    expect(cli).toContain("'rm', '--force', name")
+    expect(cli).toContain('containerRemovalCommand(name)')
     expect(cli).toContain('killSignal:')
     expect(cli).toContain('timeout: 60_000')
+  })
+
+  test('the removal takes the owned container’s volumes and never prunes', () => {
+    const helper = readFileSync(resolve(root, 'scripts/disposable-postgres-ci.ts'), 'utf8')
+    expect(helper).toContain("return ['rm', '--force', '--volumes', name]")
+    // No command may prune, and no command may name a docker volume or every
+    // container: the removal is scoped to the one container it created.
+    expect(helper).not.toContain("'prune'")
+    expect(helper).not.toContain("'volume',")
+
+    const cli = readFileSync(resolve(root, 'scripts/disposable-postgres-cli.ts'), 'utf8')
+    expect(cli).not.toContain("'prune'")
+    expect(cli).not.toContain("'volume',")
+    expect(cli).not.toContain("'--all'")
   })
 
   test('the teardown is idempotent and detaches before it re-raises the signal', () => {

@@ -205,6 +205,41 @@ const READINESS_INTERVAL_MS = 1_000
 const EXPECTED_AUTH_TABLES = ['account', 'session', 'user', 'verification'] as const
 
 /**
+ * The command that removes one owned container and the anonymous volumes
+ * Docker created for it.
+ *
+ * `--volumes` removes the volumes attached to that one container. It is
+ * scoped to the named container: it is not a prune, it never names a volume,
+ * and it never removes a container it did not create. Without it, the pinned
+ * image's anonymous data volume survives every run.
+ */
+export function containerRemovalCommand(name: string): string[] {
+  return ['rm', '--force', '--volumes', name]
+}
+
+/** One mount of a container, as Docker reports it. */
+export type ContainerMount = {
+  readonly Destination?: string
+  readonly Name?: string
+  readonly Type?: string
+}
+
+/**
+ * The volume Docker created for one container, read from that container's own
+ * mounts. It names the volume so the caller can prove that exactly this
+ * volume is gone afterwards, and that a volume belonging to another container
+ * is untouched.
+ */
+export function ownedAnonymousVolume(mounts: readonly ContainerMount[]): string | null {
+  for (const mount of mounts) {
+    if (mount.Type === 'volume' && typeof mount.Name === 'string' && mount.Name.length > 0) {
+      return mount.Name
+    }
+  }
+  return null
+}
+
+/**
  * The container command. The official entrypoint runs as root before it drops
  * to the `postgres` user, so the certificate is copied into place and given to
  * the server user here, before the server starts with TLS enabled.

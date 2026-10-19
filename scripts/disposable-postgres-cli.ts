@@ -7,8 +7,12 @@
 // exercised without a container. This module supplies the real dependencies.
 //
 // Nothing here reaches a hosted database, a production resource or a
-// credential store. The container is published on the loopback interface only,
-// the passwords are generated for the run, and the receipt carries none of them.
+// credential store. The container is published on the loopback interface only.
+// The container's admin password is generated for the run; the canonical
+// migration and runtime roles keep the role-name passwords the reused
+// canonical boundary fixture gives them. Those are synthetic fixture
+// credentials on an ephemeral loopback instance, and the receipt carries none
+// of them.
 
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -20,6 +24,7 @@ import {
   startFromCaptureImage,
 } from './capture-provisioning.mjs'
 import {
+  containerRemovalCommand,
   LOOPBACK_HOST,
   PROOF_AUTH_SCHEMA,
   runDisposablePostgresProof,
@@ -274,12 +279,13 @@ function command(
 }
 
 /**
- * Removes the owned container and nothing else, within a bounded time. A
+ * Removes the owned container and nothing else, within a bounded time, and
+ * takes the anonymous volumes Docker created for that container with it. A
  * container Docker reports as absent is already removed, so a run that failed
  * before the container existed still tears down cleanly.
  */
 function removeContainer(name: string): void {
-  const result = spawnSync('docker', ['rm', '--force', name], {
+  const result = spawnSync('docker', containerRemovalCommand(name), {
     encoding: 'utf8',
     // SIGKILL, because a removal that outlives its bound must not hold the
     // teardown, and therefore the termination, open.

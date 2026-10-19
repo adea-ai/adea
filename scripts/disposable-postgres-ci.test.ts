@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import { inspectDatabaseConfiguration } from './database-config.mjs'
 import {
+  containerRemovalCommand,
+  ownedAnonymousVolume,
   CANONICAL_MIGRATION_ROLE,
   CANONICAL_RUNTIME_ROLE,
   LOOPBACK_HOST,
@@ -20,6 +24,7 @@ import {
   type DisposableProofOptions,
 } from './disposable-postgres-ci'
 
+const root = resolve(import.meta.dir, '..')
 const runtimeUrl = `postgresql://${CANONICAL_RUNTIME_ROLE}:${CANONICAL_RUNTIME_ROLE}@${LOOPBACK_HOST}:54321/${PROOF_DATABASE}?sslmode=require&connect_timeout=10`
 const migrationUrl = `postgresql://${CANONICAL_MIGRATION_ROLE}:${CANONICAL_MIGRATION_ROLE}@${LOOPBACK_HOST}:54321/${PROOF_DATABASE}?sslmode=require&connect_timeout=10`
 
@@ -578,5 +583,39 @@ describe('the disposable proof helpers', () => {
         DATABASE_MIGRATION_URL: 'postgresql://user2:pass@db.example.test/app',
       })
     ).toThrow(/must require TLS/)
+  })
+
+  test('the container removal takes that container’s volumes and nothing else', () => {
+    const command = containerRemovalCommand('adea-ci-postgres-owned')
+    expect(command).toEqual(['rm', '--force', '--volumes', 'adea-ci-postgres-owned'])
+    // A prune, or a removal that named a volume or every container, would reach
+    // resources this proof does not own.
+    expect(command).not.toContain('prune')
+    expect(command).not.toContain('volume')
+    expect(command).not.toContain('--all')
+    expect(command).not.toContain('-a')
+    expect(command.filter((part) => part.startsWith('-'))).toEqual(['--force', '--volumes'])
+  })
+
+  test('the owned volume is read from the container’s own mounts', () => {
+    expect(
+      ownedAnonymousVolume([
+        { Destination: '/var/lib/postgresql', Name: '1f2e3d4c5b6a', Type: 'volume' },
+      ])
+    ).toBe('1f2e3d4c5b6a')
+    // A bind mount is not a volume this proof owns.
+    expect(ownedAnonymousVolume([{ Destination: '/var/lib/postgresql', Type: 'bind' }])).toBeNull()
+    expect(ownedAnonymousVolume([])).toBeNull()
+  })
+
+  test('the proof removes its container through the shared removal command', () => {
+    const cli = readFileSync(resolve(root, 'scripts/disposable-postgres-cli.ts'), 'utf8')
+    expect(cli).toContain('containerRemovalCommand(name)')
+    // The proof must never prune, and must never remove a container or a volume
+    // it did not name itself.
+    expect(cli).not.toContain('prune')
+    expect(cli).not.toContain('volume ls')
+    expect(cli).not.toContain('volume rm')
+    expect(cli).not.toContain("'--all'")
   })
 })
