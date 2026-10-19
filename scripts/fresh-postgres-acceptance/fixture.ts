@@ -7,7 +7,10 @@ import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 const dbRequire = createRequire(new URL('../../packages/db/package.json', import.meta.url))
 const authRequire = createRequire(new URL('../../packages/auth/package.json', import.meta.url))
-const postgres = dbRequire('postgres')
+type PostgresFactory = typeof import('postgres').default
+const loadedPostgres = dbRequire('postgres') as PostgresFactory | { default: PostgresFactory }
+const postgres: PostgresFactory =
+  typeof loadedPostgres === 'function' ? loadedPostgres : loadedPostgres.default
 const { getMigrations } = authRequire('better-auth/db/migration')
 import { createBetterAuthService } from '../../packages/auth/src/server'
 import { createRecordingAuthDelivery } from '../../packages/auth/src/delivery'
