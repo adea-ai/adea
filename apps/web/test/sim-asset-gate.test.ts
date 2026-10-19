@@ -137,6 +137,31 @@ test('an unavailable session store refuses without a private read', async () => 
   expect(f.checks).toEqual([])
 })
 
+test('a session that expires while entitlement is pending is refused before any private read', async () => {
+  let clock = now
+  const f = build({
+    now: () => clock,
+    entitlement: async () => {
+      // The entitlement answer arrives after the session has expired.
+      clock = live.expiresAt
+      return 'entitled'
+    },
+  })
+  expect((await f.get('/assets/agent-sim/engine.js')).status).toBe(401)
+  expect(f.reads).toEqual([])
+
+  clock = now
+  const broken = build({
+    now: () => clock,
+    entitlement: async () => {
+      clock = Number.NaN
+      return 'entitled'
+    },
+  })
+  expect((await broken.get('/assets/agent-sim/engine.js')).status).toBe(401)
+  expect(broken.reads).toEqual([])
+})
+
 test('only an entitled verdict serves a private asset; every other outcome refuses without a read', async () => {
   const cases: Array<[string, () => Promise<SimEntitlementVerdict>, number]> = [
     ['not_entitled', async () => 'not_entitled', 403],

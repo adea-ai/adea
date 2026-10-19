@@ -124,7 +124,13 @@ simFetch = createSimHost({
   },
   frameScript: await frameBuild.outputs[0]!.text(),
   exchange,
-  session: async (value) => sessions.get(value) ?? null,
+  // Every session in this proof is issued only for the qualification workspace, so the trusted row carries it.
+  session: async (value) => {
+    const record = sessions.get(value)
+    return record ? { ...record, workspaceId: workspace.id } : null
+  },
+  entitlement: async (context) =>
+    context.workspaceId === workspace.id ? 'entitled' : 'not_entitled',
   readAsset: async (path) => {
     const file = await realpath(resolve(privateRoot, path)).catch(() => null)
     if (!file || !file.startsWith(privateRoot + sep) || !(await stat(file)).isFile()) return null

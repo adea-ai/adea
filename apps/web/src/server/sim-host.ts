@@ -135,6 +135,10 @@ export function createSimHost(
           status: verdict === 'not_entitled' ? 403 : verdict === 'unauthenticated' ? 401 : 503,
           headers,
         })
+      // The entitlement check can outlast the session, so the clock is read again before any private read.
+      const confirmed = (options.now ?? Date.now)()
+      if (!Number.isFinite(confirmed) || session.expiresAt <= confirmed)
+        return new Response(null, { status: 401, headers })
       const asset = await options.readAsset(path, context)
       return asset
         ? new Response(asset.body, { headers: { ...headers, 'content-type': asset.contentType } })
