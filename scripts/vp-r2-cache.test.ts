@@ -728,9 +728,11 @@ describe('the deadlines', () => {
     expect(successor.ok).toBe(true)
 
     slow = true
-    const expired = await publishEntry(store, entry, { scope, deadlineMs: 60 })
-    expect(expired.ok).toBe(false)
-    expect(expired.category).toBe(CATEGORY.timeout)
+    // The entry is already there, so this publication is an idempotent duplicate: it does not overwrite what the
+    // successor published, and it removes nothing.
+    const duplicate = await publishEntry(store, entry, { scope, deadlineMs: 60 })
+    expect(duplicate.ok).toBe(true)
+    expect(duplicate.duplicate).toBe(true)
 
     // The promotion that was in flight has landed by now, and it did not remove what the successor published.
     await sleep(300)
@@ -756,6 +758,95 @@ describe('the deadlines', () => {
     })
     expect(published.ok).toBe(false)
     expect(Date.now() - started).toBeLessThan(2000)
+  })
+})
+
+describe('the publication fence', () => {
+  test('a late acknowledgement never removes what a successor references', async () => {
+    // The store commits the write and only then acknowledges it: the archive is committed before the deadline and
+    // answered after it.
+    const store = createMemoryStore({
+      cooperative: false,
+      commitBeforeAck: true,
+      slowFor: (key: string) => !key.startsWith('staging/'),
+      slowMs: 100,
+    })
+    const entry = syntheticEntry('commit-before-timeout')
+    const first = await publishEntry(store, entry, { scope, deadlineMs: 20 })
+    expect(first.ok).toBe(false)
+    expect(first.category).toBe(CATEGORY.timeout)
+
+    // The successor reuses the committed archive and publishes its envelope.
+    const successor = await publishEntry(store, entry, { scope, deadlineMs: 5000 })
+    expect(successor.ok).toBe(true)
+
+    // The first acknowledgement settles late.
+    await sleep(250)
+
+    // Both the envelope and the archive it references are still there.
+    const found = await lookupEntry(
+      store,
+      { key: entry.key, secondaryKey: entry.secondaryKey },
+      { scope }
+    )
+    expect(found.ok).toBe(true)
+    const blob = await readBlob(store, found.envelope!.blob_id, { scope })
+    expect(blob.ok).toBe(true)
+    expect(blob.category).toBeUndefined()
+  })
+
+  test('a staged write that lands after the timeout is removed', async () => {
+    // A store that ignores the cancellation: the staged write lands after the deadline.
+    const store = createMemoryStore({
+      cooperative: false,
+      slowFor: (key: string) => key.startsWith('staging/'),
+      slowMs: 100,
+    })
+    const entry = syntheticEntry('late-staging')
+    const published = await publishEntry(store, entry, { scope, deadlineMs: 20 })
+    expect(published.ok).toBe(false)
+    expect(published.category).toBe(CATEGORY.timeout)
+    // The staged write lands at about 100ms and is removed when it settles.
+    await sleep(300)
+    expect([...store.objects.keys()].filter((name) => name.startsWith('staging/'))).toEqual([])
+  })
+
+  test('publishing the same entry again is an idempotent duplicate', async () => {
+    const store = createMemoryStore()
+    const entry = syntheticEntry('duplicate')
+    const first = await publishEntry(store, entry, {
+      scope,
+      createdAt: '2026-10-19T00:00:00.000Z',
+    })
+    expect(first.ok).toBe(true)
+    expect(first.duplicate).toBe(false)
+    const second = await publishEntry(store, entry, {
+      scope,
+      createdAt: '2026-10-20T00:00:00.000Z',
+    })
+    expect(second.ok).toBe(true)
+    expect(second.duplicate).toBe(true)
+    expect(second.created).toBe(false)
+    // The object that is there is the first publication, unchanged.
+    const stored = JSON.parse(store.objects.get(second.entryKey).toString('utf8'))
+    expect(stored.created_at).toBe('2026-10-19T00:00:00.000Z')
+    const found = await lookupEntry(
+      store,
+      { key: entry.key, secondaryKey: entry.secondaryKey },
+      { scope }
+    )
+    expect(found.ok).toBe(true)
+  })
+
+  test('another entry under the same key is not a duplicate', async () => {
+    const store = createMemoryStore()
+    const entry = syntheticEntry('other-entry')
+    const other = { ...entry, value: Buffer.from('another value', 'utf8') }
+    const first = await publishEntry(store, other, { scope })
+    expect(first.ok).toBe(true)
+    const second = await publishEntry(store, entry, { scope })
+    expect(second.ok).toBe(false)
+    expect(second.category).toBe(CATEGORY.integrity)
   })
 })
 
@@ -917,6 +1008,34 @@ describe('the transport', () => {
     )
     expect(answer.status).toBe(413)
     expect(store.objects.size).toBe(0)
+  })
+
+  test('the handler cannot loosen the transport deadline', async () => {
+    // The transport was built with a 20ms deadline; the handler asks for 200ms and the authorization takes 60ms.
+    const store = createMemoryStore()
+    const transport = createTransport({ scope, store, deadlineMs: 20 })
+    const entry = syntheticEntry('deadline-override')
+    const started = Date.now()
+    const answer = await handleRemoteCache(
+      {
+        method: 'POST',
+        path: CLIENT_PROTOCOL.storePath,
+        headers: { 'content-type': storeRequestContentType() },
+        body: storeRequestBody(entry),
+      },
+      transport,
+      {
+        enabled: true,
+        deadlineMs: 200,
+        authorize: async () => {
+          await sleep(60)
+          return allowScope(scope)
+        },
+      }
+    )
+    // The tightest deadline applies: the transport's 20ms, not the handler's 200ms.
+    expect(answer.status).toBe(503)
+    expect(Date.now() - started).toBeLessThan(200)
   })
 
   test('the whole request runs under one deadline', async () => {

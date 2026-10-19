@@ -62,25 +62,29 @@ export function pinnedClient(root) {
 }
 
 /** Serves the transport on loopback, over an in-memory store, for the duration of the replay. */
-async function serveTransport(scope, store) {
+export async function serveTransport(scope, store) {
   const transport = createTransport({ scope, store })
   const server = createServer((request, response) => {
     const chunks = []
     let size = 0
     let refused = false
     request.on('data', (chunk) => {
-      // The adapter bounds the input it buffers: it never holds more than the transport accepts.
+      // The adapter bounds the input it buffers: it never holds more than the transport accepts. What is over the
+      // bound is drained, not kept, so the answer that follows is a single valid one.
       size += chunk.length
       if (size > LIMITS.maxRequestBytes) {
         refused = true
-        response.writeHead(413)
-        response.end()
+        chunks.length = 0
         return
       }
       chunks.push(chunk)
     })
     request.on('end', () => {
-      if (refused) return
+      if (refused) {
+        response.writeHead(413, { 'content-type': 'application/json' })
+        response.end(JSON.stringify({ error: 'the request is larger than the limit' }))
+        return
+      }
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
       if (process.env.VP_R2_REPLAY_DEBUG)
         console.error('DEBUG request', request.method, url.pathname, 'bytes', chunks.length)

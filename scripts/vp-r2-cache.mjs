@@ -400,6 +400,40 @@ function boundedBy(promise, timeoutMs) {
   return Promise.race([Promise.resolve(promise), guard]).finally(() => clearTimeout(timer))
 }
 
+/**
+ * Whether two envelopes name the same entry: everything but the recorded creation time. The creation time says when an
+ * entry was published, not what it is, so two publications of one entry are the same entry.
+ */
+function sameEntry(left, right) {
+  const fields = [
+    'scope',
+    'namespace',
+    'client',
+    'toolchain',
+    'key',
+    'secondary_key',
+    'value',
+    'key_sha256',
+    'secondary_key_sha256',
+    'value_sha256',
+    'blob_id',
+    'blob_sha256',
+    'blob_size',
+  ]
+  return fields.every((field) => left?.[field] === right?.[field])
+}
+
+/**
+ * Removes an object that a write may still create: when the write settles after the cleanup has run, the object is
+ * removed then. The key belongs to this operation alone, so the removal is ownership-safe, and it is bounded.
+ */
+function cleanupWhenSettled(write, store, key, limits) {
+  Promise.resolve(write)
+    .catch(() => {})
+    .then(() => cleanupDelete(store, key, limits.cleanupTimeoutMs))
+    .catch(() => {})
+}
+
 /** A store call whose failure is not interesting: the call is run and its failure is dropped. */
 function ignoreFailure(call) {
   try {
@@ -419,6 +453,15 @@ function cleanupDelete(store, key, timeoutMs) {
     ignoreFailure(() => store.delete(key)),
     timeoutMs
   )
+}
+
+/**
+ * The deadline a request runs under: the tightest of the deadlines that apply. The transport's own deadline wins over a
+ * caller's, and the authorization's own deadline wins over both: a caller may tighten the deadline, never loosen it.
+ */
+export function effectiveDeadline(...bounds) {
+  const finite = bounds.filter((value) => typeof value === 'number' && Number.isFinite(value))
+  return finite.length ? Math.min(...finite) : DEFAULT_DEADLINE_MS
 }
 
 /**
@@ -452,21 +495,33 @@ async function storeGet(store, key, maxBytes, operation) {
  * of the complete staged object. Nothing is ever written to the final key in pieces, so a reader sees either nothing
  * or the whole object.
  *
- * The publication is **fenced**. A store that can create-if-absent (`putIfAbsent` or `copyIfAbsent`) is asked to, and
- * its answer says whether this operation created the final object: only an object this operation created may be
- * removed again. A store that cannot fence is expected to honour the cancellation signal instead, so a write whose
- * operation expired never lands. In neither case is a shared final key removed unconditionally: the key is shared, and
- * a successor may have published it in the meantime.
+ * The publication is **fenced**, and the fence is not a deletion. A store that can create-if-absent (`putIfAbsent` or
+ * `copyIfAbsent`) is asked to, and its answer says whether this operation created the final object. A `created: true`
+ * is **historical**: it says what happened when the write was committed, not what may be deleted later. The write may
+ * have committed before the deadline and only acknowledge afterwards, and a successor may have reused the object in
+ * the meantime - the shared archive is content addressed and the shared envelope is named by the entry. So a final key
+ * is **never** removed on the strength of a late acknowledgement: removing it could remove an object a successor
+ * references. A late acknowledgement is reported as what it is: the deadline passed, and the object may or may not be
+ * there.
+ *
+ * When the object was already there, it is not overwritten: it is read back and compared with the entry that is being
+ * published. The same entry under the same key is an **idempotent duplicate** and is a success; another entry under
+ * that key is an integrity failure.
  *
  * The staging object belongs to this operation alone, so it is removed with an independent bounded cleanup that carries
- * no signal: a store that honours cancellation must still be able to delete what this operation staged.
+ * no signal: a store that honours cancellation must still be able to delete what this operation staged. A staged write
+ * that settles *after* that cleanup - a store that ignores the cancellation - is removed when it settles.
  */
-async function stagedWrite(store, scope, key, bytes, { limits = LIMITS, operation }) {
+async function stagedWrite(store, scope, key, bytes, { limits = LIMITS, operation, equivalent }) {
   const staging = stagingObjectKey(scope)
+  const staged = store.put(staging, bytes, { signal: operation.signal })
   try {
     try {
-      await bounded(store.put(staging, bytes, { signal: operation.signal }), operation)
+      await bounded(staged, operation)
     } catch (error) {
+      // The staged write may land after the deadline. When it does, the object is removed then: the staging object
+      // belongs to this operation alone, so the removal is ownership-safe.
+      cleanupWhenSettled(staged, store, staging, limits)
       if (error instanceof TransportRefused) throw error
       throw new TransportRefused(CATEGORY.storeWrite)
     }
@@ -501,22 +556,21 @@ async function stagedWrite(store, scope, key, bytes, { limits = LIMITS, operatio
           : typeof store.copy === 'function'
             ? store.copy(staging, key, { signal: operation.signal })
             : store.put(key, readBack, { signal: operation.signal })
-    let created = null
-    try {
-      const outcome = await bounded(promotion, operation)
-      created = outcome?.created ?? null
-    } catch (error) {
-      // The promotion may still be in flight. When it lands, it is not rolled back by an unconditional delete: the
-      // final key is shared, and a successor may have published it in the meantime. Only an object this operation
-      // created is removed, and only then.
-      Promise.resolve(promotion)
-        .then((outcome) => {
-          if (outcome?.created !== true) return undefined
-          return cleanupDelete(store, key, limits.cleanupTimeoutMs)
-        })
-        .catch(() => {})
-      throw error
+    // The promotion may have committed before the deadline and only acknowledge afterwards. The final key is
+    // **shared** - a successor may already reference it - so it is not removed here, and it is not removed later
+    // either: a late acknowledgement is history, not ownership.
+    const outcome = await bounded(promotion, operation)
+    const created = outcome?.created ?? null
+    if (created === false && typeof equivalent === 'function') {
+      // The object was already there: it is not overwritten. It is read back and compared with the entry that is
+      // being published, so an idempotent duplicate is a success and another entry is an integrity failure.
+      const stored = await storeGet(store, key, limits.maxEnvelopeBytes, operation)
+      if (stored === null)
+        throw new TransportRefused(CATEGORY.storeWrite, 'the published object is not there')
+      if (!stored.equals(bytes) && !equivalent(stored))
+        throw new TransportRefused(CATEGORY.integrity, 'another entry is published under that key')
     }
+
     if (operation.expired()) {
       // The promotion finished after the deadline. The object is not published: it is removed again, but only when this
       // operation is the one that created it.
@@ -529,6 +583,21 @@ async function stagedWrite(store, scope, key, bytes, { limits = LIMITS, operatio
     const head2 = await bounded(store.head(key, { signal: operation.signal }), operation)
     if (head2 === null || head2 === undefined)
       throw new TransportRefused(CATEGORY.storeWrite, 'the promoted object is not there')
+    if (created === false) {
+      // The object that is there is the one that was published before this one: it must name the same entry, and it
+      // may carry another creation time, so it is compared as an entry and not byte for byte.
+      if (typeof equivalent === 'function') {
+        const stored = await storeGet(store, key, limits.maxEnvelopeBytes, operation)
+        if (stored === null)
+          throw new TransportRefused(CATEGORY.storeWrite, 'the published object is not there')
+        if (!stored.equals(bytes) && !equivalent(stored))
+          throw new TransportRefused(
+            CATEGORY.integrity,
+            'another entry is published under that key'
+          )
+      }
+      return { key, sha256: sha256(bytes), size: bytes.length, staged: staging, created }
+    }
     if (typeof head2.size === 'number' && head2.size !== bytes.length)
       throw new TransportRefused(CATEGORY.integrity, 'the promoted object has another size')
     if (head2.sha256 && head2.sha256 !== sha256(bytes))
@@ -591,7 +660,19 @@ export async function publishEntry(
     const blobKey = blobObjectKey(scope, envelope.blob_id)
     const entryKey = entryObjectKey(scope, key, secondaryKey)
     const blobWrite = await stagedWrite(store, scope, blobKey, blob, { limits, operation })
-    const entryWrite = await stagedWrite(store, scope, entryKey, bytes, { limits, operation })
+    const entryWrite = await stagedWrite(store, scope, entryKey, bytes, {
+      limits,
+      operation,
+      // The same entry published again is an idempotent duplicate: the object that is already there names the same
+      // entry, whatever creation time it recorded.
+      equivalent: (stored) => {
+        try {
+          return sameEntry(JSON.parse(stored.toString('utf8')), envelope)
+        } catch {
+          return false
+        }
+      },
+    })
     return {
       ok: true,
       envelope,
@@ -599,6 +680,9 @@ export async function publishEntry(
       blobKey,
       sha256: entryWrite.sha256,
       blobSha256: blobWrite.sha256,
+      // Whether this publication created the final envelope, and whether it was already there.
+      created: entryWrite.created,
+      duplicate: entryWrite.created === false,
     }
   } catch (error) {
     if (error instanceof TransportRefused) return fail(error.category, error.message)
@@ -922,8 +1006,13 @@ export async function handleRemoteCache(request, transport, options = {}) {
   if (!transport || !transport.scope) return refuse(503, CATEGORY.invalidRequest)
   const scope = transport.scope
   const limits = effectiveLimits(transport.limits ?? LIMITS, options.limits)
-  const deadlineMs = options.deadlineMs ?? transport.deadlineMs ?? DEFAULT_DEADLINE_MS
   if (typeof authorize !== 'function') return refuse(403, CATEGORY.unauthorized)
+  // The tightest deadline applies: the transport's own, the caller's and the authorization's.
+  const deadlineMs = effectiveDeadline(
+    transport.deadlineMs,
+    options.deadlineMs,
+    options.authorizeDeadlineMs ?? authorize.deadlineMs
+  )
   const operation = createOperation({ deadlineMs })
   try {
     let decision

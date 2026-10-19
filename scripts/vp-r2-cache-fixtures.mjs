@@ -59,6 +59,8 @@ export function testScope(
  *
  * `options.stall` names the calls that never answer, so a test can prove that the transport ends an operation that
  * waits for a store that is stuck.
+ * `options.commitBeforeAck` makes a conditional write commit and only then acknowledge it, so a
+ * test can reproduce a write that is committed before the deadline and answered after it.
  */
 export function createMemoryStore(options = {}) {
   const objects = new Map()
@@ -74,6 +76,8 @@ export function createMemoryStore(options = {}) {
   const cooperative = options.cooperative !== false
   const slowFor = options.slowFor ?? null
   const slowMs = options.slowMs ?? 200
+  // A store that commits a write and only then acknowledges it: the write is there before the answer is.
+  const commitBeforeAck = options.commitBeforeAck === true
   // A cooperative store refuses to finish a write after the operation was cancelled; a noncooperative one finishes it.
   const refuseIfCancelled = (signal) => {
     if (cooperative && signal?.aborted) throw new Error('the operation was cancelled')
@@ -112,12 +116,13 @@ export function createMemoryStore(options = {}) {
     async putIfAbsent(key, bytes, { signal } = {}) {
       calls.push({ op: 'putIfAbsent', key })
       if (stall.has('putIfAbsent')) return never()
-      await wait(key, signal)
-      refuseIfCancelled(signal)
       if (failPut) throw new Error('the store refused the write')
       if (objects.has(key)) return { created: false, size: objects.get(key).length }
       const copy = Buffer.from(bytes)
+      if (!commitBeforeAck) await wait(key, signal)
       objects.set(key, copy)
+      if (commitBeforeAck) await wait(key, signal)
+      refuseIfCancelled(signal)
       return { created: true, size: copy.length, sha256: sha256(copy) }
     },
     get(key, { maxBytes, signal } = {}) {
@@ -161,12 +166,14 @@ export function createMemoryStore(options = {}) {
     async copyIfAbsent(from, to, { signal } = {}) {
       calls.push({ op: 'copyIfAbsent', key: from, to })
       if (stall.has('copyIfAbsent')) return never()
-      await wait(to, signal)
       if (failCopy) throw new Error('the store refused the copy')
       const held = objects.get(from)
       if (held === undefined) throw new Error('the store has no such object')
       if (objects.has(to)) return { created: false, size: objects.get(to).length }
+      if (!commitBeforeAck) await wait(to, signal)
       objects.set(to, Buffer.from(held))
+      if (commitBeforeAck) await wait(to, signal)
+      refuseIfCancelled(signal)
       return { created: true, size: held.length, sha256: sha256(held) }
     },
   }
