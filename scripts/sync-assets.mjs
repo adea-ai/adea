@@ -60,10 +60,7 @@ await rm(backupAssets, { recursive: true, force: true })
 
 console.log(`Synced HQ scene manifests to ${publicAssets}`)
 
-// Stage the entitlement-gated Agent Sim engine pack when the build provides
-// one (official lanes set ADEA_AGENT_SIM_DIST; see scripts/pack-agent-sim.mjs).
-// Unset — the default for plain checkouts, forks, and CI lanes — keeps the
-// build manifests-only. This runs after the swap above so the engine pack
-// lands in the live public assets tree.
+// Retain the former staging entry as a migration guard: an old environment
+// must fail rather than silently reintroduce the private engine into a client.
 const { packFromEnv } = await import('./pack-agent-sim.mjs')
 await packFromEnv()

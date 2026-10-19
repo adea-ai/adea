@@ -12,32 +12,14 @@ import {
   setWorkspaceAppEnabled,
 } from '../../src/workspace-apps'
 
-test('built-in apps and Kanban start enabled; optional destinations require explicit enablement', () => {
-  // Kanban is the only place tasks are listed, so it is on by default.
-  expect(enabledWorkspaceApps(defaultRailPreferences).map((app) => app.id)).toEqual([
-    'virtual',
-    'chat',
-    'dev',
-    'kanban',
-  ])
-  expect(resolveWorkspaceApp(defaultRailPreferences, 'kanban')?.view).toBe('chat')
+test('Chat/Dev start enabled and extra destinations require explicit enablement', () => {
+  expect(enabledWorkspaceApps(defaultRailPreferences).map((app) => app.id)).toEqual(['chat', 'dev'])
+  expect(resolveWorkspaceApp(defaultRailPreferences, 'kanban')?.id).toBe('chat')
   const withoutKanban = setWorkspaceAppEnabled(defaultRailPreferences, 'kanban', false)
-  expect(enabledWorkspaceApps(withoutKanban).map((app) => app.id)).toEqual([
-    'virtual',
-    'chat',
-    'dev',
-  ])
-  // An explicitly enabled app is recorded in the order; a default-on app that
-  // was never placed follows the recorded ones.
+  expect(enabledWorkspaceApps(withoutKanban).map((app) => app.id)).toEqual(['chat', 'dev'])
   const next = setWorkspaceAppEnabled(defaultRailPreferences, 'source-control', true)
-  expect(enabledWorkspaceApps(next).map((app) => app.id)).toEqual([
-    'virtual',
-    'chat',
-    'dev',
-    'source-control',
-    'kanban',
-  ])
-  expect(defaultRailPreferences.order).toEqual(['virtual', 'chat', 'dev'])
+  expect(enabledWorkspaceApps(next).map((app) => app.id)).toEqual(['chat', 'dev', 'source-control'])
+  expect(defaultRailPreferences.order).toEqual(['chat', 'dev'])
 })
 
 test('App Library order shares rail placements and retains filtered, hidden, and unknown ids', () => {
@@ -57,27 +39,26 @@ test('App Library order shares rail placements and retains filtered, hidden, and
 
   const moved = reorderWorkspaceAppsRelativeTo(source, 'source-control', 'dev', 'before')
   expect(moved.order).toEqual(['virtual', 'app:future', 'chat', 'source-control', 'dev', 'kanban'])
-  expect(moved.hidden).toEqual(['chat', 'app:future', 'source-control'])
-  expect(enabledWorkspaceApps(moved).map((app) => app.id)).toEqual(['virtual', 'dev', 'kanban'])
+  expect(moved.hidden).toEqual(['chat', 'app:future', 'kanban', 'source-control'])
+  expect(enabledWorkspaceApps(moved).map((app) => app.id)).toEqual(['virtual', 'dev'])
 
   const enabled = setWorkspaceAppEnabled(moved, 'source-control', true)
   expect(enabledWorkspaceApps(enabled).map((app) => app.id)).toEqual([
     'virtual',
     'source-control',
     'dev',
-    'kanban',
   ])
 })
 
 test('App Library no-op moves leave the canonical record unchanged', () => {
-  expect(reorderWorkspaceAppsRelativeTo(defaultRailPreferences, 'virtual', 'chat', 'before')).toBe(
+  expect(reorderWorkspaceAppsRelativeTo(defaultRailPreferences, 'chat', 'dev', 'before')).toBe(
     defaultRailPreferences
   )
 })
 
 test('disabling an active app selects an enabled destination, or Library when all are off', () => {
   let next = setWorkspaceAppEnabled(defaultRailPreferences, 'chat', false)
-  expect(resolveWorkspaceApp(next, 'chat')?.id).toBe('virtual')
+  expect(resolveWorkspaceApp(next, 'chat')?.id).toBe('dev')
   next = setWorkspaceAppEnabled(next, 'kanban', false)
   next = setWorkspaceAppEnabled(setWorkspaceAppEnabled(next, 'dev', false), 'virtual', false)
   expect(resolveWorkspaceApp(next, 'dev')).toBeUndefined()

@@ -26,14 +26,14 @@
     },
     "apps/desktop": {
       "name": "@adea-ai/desktop",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/dev-view": "workspace:*",
       },
     },
     "apps/mobile": {
       "name": "@adea-ai/mobile",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@capacitor/android": "8.5.2",
         "@capacitor/core": "8.5.2",
@@ -46,18 +46,18 @@
     },
     "apps/web": {
       "name": "@adea-ai/web",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-core": "workspace:*",
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/audio": "workspace:*",
         "@adea-ai/auth": "workspace:*",
-        "@adea-ai/contracts": "1.21.3",
+        "@adea-ai/contracts": "1.21.4",
         "@adea-ai/data": "workspace:*",
         "@adea-ai/db": "workspace:*",
         "@adea-ai/dev-view": "workspace:*",
-        "@adea-ai/sdk": "1.19.0",
+        "@adea-ai/sdk": "1.20.0",
         "@adea-ai/spatial": "workspace:*",
         "@adea-ai/state": "workspace:*",
         "@adea-ai/types": "workspace:*",
@@ -89,21 +89,21 @@
     },
     "packages/api-client": {
       "name": "@adea-ai/api-client",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/app-core": {
       "name": "@adea-ai/app-core",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/audio": {
       "name": "@adea-ai/audio",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/ui": "0.142.3",
         "lucide-solid": "^1.51.0",
@@ -116,7 +116,7 @@
     },
     "packages/auth": {
       "name": "@adea-ai/auth",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "@neondatabase/auth": "0.5.0-beta",
@@ -125,11 +125,11 @@
     },
     "packages/config": {
       "name": "@adea-ai/config",
-      "version": "0.95.0",
+      "version": "0.96.0",
     },
     "packages/data": {
       "name": "@adea-ai/data",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/state": "workspace:*",
@@ -144,7 +144,7 @@
     },
     "packages/db": {
       "name": "@adea-ai/db",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/auth": "workspace:*",
         "@adea-ai/remote-content": "workspace:*",
@@ -159,7 +159,7 @@
     },
     "packages/dev-view": {
       "name": "@adea-ai/dev-view",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/state": "workspace:*",
@@ -188,18 +188,18 @@
     },
     "packages/remote-content": {
       "name": "@adea-ai/remote-content",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@hpke/core": "1.9.0",
       },
     },
     "packages/spatial": {
       "name": "@adea-ai/spatial",
-      "version": "0.95.0",
+      "version": "0.96.0",
     },
     "packages/state": {
       "name": "@adea-ai/state",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "solid-js": "^1.9.15",
@@ -207,11 +207,11 @@
     },
     "packages/types": {
       "name": "@adea-ai/types",
-      "version": "0.95.0",
+      "version": "0.96.0",
     },
     "packages/ui": {
       "name": "@adea-ai/app-ui",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/ui": "0.142.3",
         "lucide-solid": "^1.51.0",
@@ -224,7 +224,7 @@
     },
     "packages/workspace-nav": {
       "name": "@adea-ai/workspace-nav",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/types": "workspace:*",
@@ -239,7 +239,7 @@
     },
     "packages/workspace-ui": {
       "name": "@adea-ai/workspace-ui",
-      "version": "0.95.0",
+      "version": "0.96.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-ui": "workspace:*",
@@ -286,7 +286,7 @@
 
     "@adea-ai/config": ["@adea-ai/config@workspace:packages/config"],
 
-    "@adea-ai/contracts": ["@adea-ai/contracts@1.21.3", "", { "dependencies": { "zod": "4.6.5" } }, "sha512-42rToBkWzMe4xZmpvHph/6/welnuWNIhwtK+pAFzuhTxLoKXHnrTBpCVgf8emQ/+t0NamM3beH8PCVidp7xeqw=="],
+    "@adea-ai/contracts": ["@adea-ai/contracts@1.21.4", "", { "dependencies": { "zod": "4.6.5" } }, "sha512-XkceT/F0UQVtVwedHhyQkg1SdAMRVBuRrWdpqksMH/j4Az/5QvxqjZyj4jhL9GtS/tpzOjo8IGV6UmvPUJ7g0A=="],
 
     "@adea-ai/data": ["@adea-ai/data@workspace:packages/data"],
 
@@ -300,9 +300,9 @@
 
     "@adea-ai/remote-content": ["@adea-ai/remote-content@workspace:packages/remote-content"],
 
-    "@adea-ai/runtime-sdk": ["@adea-ai/runtime-sdk@1.16.0", "", { "dependencies": { "@adea-ai/contracts": "^1.21.3", "zod": "4.6.5" } }, "sha512-G9ll+lGCwZUzN0sCCUytNjEJIButw+0R53TtcnBh6T/4hsC+pULUgz49mbWuSVSzsTTMea3wOWeQcEbsWzTvrg=="],
+    "@adea-ai/runtime-sdk": ["@adea-ai/runtime-sdk@1.17.0", "", { "dependencies": { "@adea-ai/contracts": "^1.21.4", "zod": "4.6.5" } }, "sha512-NCPg2uIZ9I+AXfyWjQhHkSjb2/lmvlUe+RkerQTODcAmLYA2y2mhau4omkIpbIikp5bS25XSnz9/MgHleEsfmw=="],
 
-    "@adea-ai/sdk": ["@adea-ai/sdk@1.19.0", "", { "dependencies": { "@adea-ai/contracts": "^1.21.3", "@adea-ai/runtime-sdk": "^1.16.0", "zod": "4.6.5" } }, "sha512-LzBSn9QUbhPwtrC4xtTUQWTvPL+Us7qsh81IMrP/s9QC94Zkc2QJUUrJtX5wtueDSIKoq+CoJVLBRm6kwzOXOg=="],
+    "@adea-ai/sdk": ["@adea-ai/sdk@1.20.0", "", { "dependencies": { "@adea-ai/contracts": "^1.21.4", "@adea-ai/runtime-sdk": "^1.17.0", "zod": "4.6.5" } }, "sha512-qX6h+VMQNtCN1DlTSB1lx4bWkDU4HqCe7mKz3OHIMY4upEcVdFyS6DQ5wmYLXlN7HEKORLT4dBoaUrmFw1GoEA=="],
 
     "@adea-ai/spatial": ["@adea-ai/spatial@workspace:packages/spatial"],
 

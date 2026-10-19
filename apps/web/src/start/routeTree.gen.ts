@@ -19,6 +19,8 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiMarketplaceCatalogRouteImport } from './routes/api/marketplace/catalog'
 import { Route as ApiMarketplaceInstallRouteImport } from './routes/api/marketplace/install'
 import { Route as ApiMarketplaceInstallPlanRouteImport } from './routes/api/marketplace/install-plan'
+import { Route as ApiSimConfigRouteImport } from './routes/api/sim/config'
+import { Route as ApiSimLaunchRouteImport } from './routes/api/sim/launch'
 import { Route as ApiTelemetryScenePerformanceRouteImport } from './routes/api/telemetry/scene-performance'
 import { Route as ApiV1PortableImportsRouteImport } from './routes/api/v1/portable-imports'
 import { Route as ApiWorkspaceInvitationsAcceptRouteImport } from './routes/api/workspace-invitations/accept'
@@ -179,6 +181,16 @@ const ApiMarketplaceInstallPlanRoute =
     path: '/api/marketplace/install-plan',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiSimConfigRoute = ApiSimConfigRouteImport.update({
+  id: '/api/sim/config',
+  path: '/api/sim/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSimLaunchRoute = ApiSimLaunchRouteImport.update({
+  id: '/api/sim/launch',
+  path: '/api/sim/launch',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiTelemetryScenePerformanceRoute =
   ApiTelemetryScenePerformanceRouteImport.update({
     id: '/api/telemetry/scene-performance',
@@ -846,6 +858,8 @@ export interface FileRoutesByFullPath {
   '/api/marketplace/catalog': typeof ApiMarketplaceCatalogRoute
   '/api/marketplace/install': typeof ApiMarketplaceInstallRoute
   '/api/marketplace/install-plan': typeof ApiMarketplaceInstallPlanRoute
+  '/api/sim/config': typeof ApiSimConfigRoute
+  '/api/sim/launch': typeof ApiSimLaunchRoute
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/v1/portable-imports': typeof ApiV1PortableImportsRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
@@ -966,6 +980,8 @@ export interface FileRoutesByTo {
   '/api/marketplace/catalog': typeof ApiMarketplaceCatalogRoute
   '/api/marketplace/install': typeof ApiMarketplaceInstallRoute
   '/api/marketplace/install-plan': typeof ApiMarketplaceInstallPlanRoute
+  '/api/sim/config': typeof ApiSimConfigRoute
+  '/api/sim/launch': typeof ApiSimLaunchRoute
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/v1/portable-imports': typeof ApiV1PortableImportsRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
@@ -1087,6 +1103,8 @@ export interface FileRoutesById {
   '/api/marketplace/catalog': typeof ApiMarketplaceCatalogRoute
   '/api/marketplace/install': typeof ApiMarketplaceInstallRoute
   '/api/marketplace/install-plan': typeof ApiMarketplaceInstallPlanRoute
+  '/api/sim/config': typeof ApiSimConfigRoute
+  '/api/sim/launch': typeof ApiSimLaunchRoute
   '/api/telemetry/scene-performance': typeof ApiTelemetryScenePerformanceRoute
   '/api/v1/portable-imports': typeof ApiV1PortableImportsRoute
   '/api/workspace-invitations/accept': typeof ApiWorkspaceInvitationsAcceptRoute
@@ -1209,6 +1227,8 @@ export interface FileRouteTypes {
     | '/api/marketplace/catalog'
     | '/api/marketplace/install'
     | '/api/marketplace/install-plan'
+    | '/api/sim/config'
+    | '/api/sim/launch'
     | '/api/telemetry/scene-performance'
     | '/api/v1/portable-imports'
     | '/api/workspace-invitations/accept'
@@ -1329,6 +1349,8 @@ export interface FileRouteTypes {
     | '/api/marketplace/catalog'
     | '/api/marketplace/install'
     | '/api/marketplace/install-plan'
+    | '/api/sim/config'
+    | '/api/sim/launch'
     | '/api/telemetry/scene-performance'
     | '/api/v1/portable-imports'
     | '/api/workspace-invitations/accept'
@@ -1449,6 +1471,8 @@ export interface FileRouteTypes {
     | '/api/marketplace/catalog'
     | '/api/marketplace/install'
     | '/api/marketplace/install-plan'
+    | '/api/sim/config'
+    | '/api/sim/launch'
     | '/api/telemetry/scene-performance'
     | '/api/v1/portable-imports'
     | '/api/workspace-invitations/accept'
@@ -1570,6 +1594,8 @@ export interface RootRouteChildren {
   ApiMarketplaceCatalogRoute: typeof ApiMarketplaceCatalogRoute
   ApiMarketplaceInstallRoute: typeof ApiMarketplaceInstallRoute
   ApiMarketplaceInstallPlanRoute: typeof ApiMarketplaceInstallPlanRoute
+  ApiSimConfigRoute: typeof ApiSimConfigRoute
+  ApiSimLaunchRoute: typeof ApiSimLaunchRoute
   ApiTelemetryScenePerformanceRoute: typeof ApiTelemetryScenePerformanceRoute
   ApiV1PortableImportsRoute: typeof ApiV1PortableImportsRoute
   ApiWorkspaceInvitationsAcceptRoute: typeof ApiWorkspaceInvitationsAcceptRoute
@@ -1685,6 +1711,20 @@ declare module '@tanstack/solid-router' {
       path: '/api/marketplace/install-plan'
       fullPath: '/api/marketplace/install-plan'
       preLoaderRoute: typeof ApiMarketplaceInstallPlanRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/sim/config': {
+      id: '/api/sim/config'
+      path: '/api/sim/config'
+      fullPath: '/api/sim/config'
+      preLoaderRoute: typeof ApiSimConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/sim/launch': {
+      id: '/api/sim/launch'
+      path: '/api/sim/launch'
+      fullPath: '/api/sim/launch'
+      preLoaderRoute: typeof ApiSimLaunchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/telemetry/scene-performance': {
@@ -2938,6 +2978,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiMarketplaceCatalogRoute: ApiMarketplaceCatalogRoute,
   ApiMarketplaceInstallRoute: ApiMarketplaceInstallRoute,
   ApiMarketplaceInstallPlanRoute: ApiMarketplaceInstallPlanRoute,
+  ApiSimConfigRoute: ApiSimConfigRoute,
+  ApiSimLaunchRoute: ApiSimLaunchRoute,
   ApiTelemetryScenePerformanceRoute: ApiTelemetryScenePerformanceRoute,
   ApiV1PortableImportsRoute: ApiV1PortableImportsRoute,
   ApiWorkspaceInvitationsAcceptRoute: ApiWorkspaceInvitationsAcceptRoute,

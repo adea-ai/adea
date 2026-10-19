@@ -52,6 +52,11 @@ const CloudConnectionsPane = lazy(() =>
 const RuntimeNodesPane = lazy(() =>
   import('./control-plane-hosts').then((module) => ({ default: module.RuntimeNodesPane }))
 )
+const SelfHostedConnectionsSection = lazy(() =>
+  import('./control-plane-hosts').then((module) => ({
+    default: module.SelfHostedConnectionsSection,
+  }))
+)
 const LeadModelPane = lazy(() =>
   import('./control-plane-hosts').then((module) => ({ default: module.LeadModelPane }))
 )
@@ -64,6 +69,11 @@ const LeadModelPane = lazy(() =>
  * skills|connections` links open the matching section here.
  */
 export function WorkspaceDetailsDialog(props: {
+  /**
+   * The signed-in principal's stable id from the host's own session. The self-hosted section
+   * renders hosts only for a known account; absent, it says a signed-in account is needed.
+   */
+  accountPrincipalId?: () => string | null | undefined
   /**
    * The Adea API client for Control Plane-backed sections (Skills, cloud
    * connections). Falls back to `services.client`; without either those
@@ -327,6 +337,13 @@ export function WorkspaceDetailsDialog(props: {
                       nativeSessionInventoryDiagnostics={
                         props.services?.nativeSessionInventoryDiagnostics
                       }
+                      workspaceId={props.workspace.id}
+                    />
+                  </Suspense>
+                  <Suspense fallback={<p role="status">Loading self-hosted hosts…</p>}>
+                    <SelfHostedConnectionsSection
+                      accountId={props.accountPrincipalId}
+                      client={apiClient()}
                       workspaceId={props.workspace.id}
                     />
                   </Suspense>

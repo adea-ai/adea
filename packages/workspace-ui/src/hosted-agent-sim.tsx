@@ -7,10 +7,17 @@ import {
   createHostedSimController,
   type HostedSimController,
   type HostedSimFrame,
+  type HostedSimNavigateRequest,
+  type HostedSimSaveRequest,
   type HostedSimSnapshot,
 } from './hosted-agent-sim-controller'
 
-export type { HostedSimFrame, HostedSimSnapshot } from './hosted-agent-sim-controller'
+export type {
+  HostedSimFrame,
+  HostedSimNavigateRequest,
+  HostedSimSaveRequest,
+  HostedSimSnapshot,
+} from './hosted-agent-sim-controller'
 export { createHostedSimController } from './hosted-agent-sim-controller'
 
 /**
@@ -27,6 +34,7 @@ export function HostedAgentSim(props: {
   workspaceId: string
   surface: SimSurface
   platform: SimPlatform
+  /** Sent with the next `host.launch`; changing it does not relaunch a running frame. */
   character?: string
   requestGrant(request: SimLaunchRequest, signal: AbortSignal): Promise<unknown>
   /**
@@ -34,6 +42,13 @@ export function HostedAgentSim(props: {
    * origin (for example through the URL fragment); nothing is assumed here.
    */
   frameUrl(frame: HostedSimFrame): string
+  /**
+   * The frame asks to open the room or character designer. The caller changes `surface` so the
+   * launch is issued again with a fresh grant; the component never reuses a grant across surfaces.
+   */
+  onNavigate?(request: HostedSimNavigateRequest): void
+  /** The frame asks to save a character. Resolve `true` only after the app has committed it. */
+  onCharacterSave?(character: string, request: HostedSimSaveRequest): Promise<boolean> | boolean
   class?: string
 }) {
   const [snapshot, setSnapshot] = createSignal<HostedSimSnapshot | null>(null)
@@ -42,10 +57,13 @@ export function HostedAgentSim(props: {
   let frameUrl: ((frame: HostedSimFrame) => string) | undefined
 
   // One launch per configuration. Everything the launch is about (origin, workspace, surface,
-  // platform, character) is read here, and a change disposes the running launch and starts a new
-  // one, so the grant, the frame's address and the controller always belong to the same attempt.
-  // `requestGrant` and `frameUrl` are bound when the launch is created and are not tracked: change
-  // the configuration to launch again. A configuration that arrives later starts the launch then.
+  // platform) is read here, and a change disposes the running launch and starts a new one, so the
+  // grant, the frame's address and the controller always belong to the same attempt. The character
+  // is not part of the configuration: it is read when the launch is posted, so committing a save
+  // changes what the next launch carries without disposing the frame that asked for the save.
+  // `requestGrant`, `frameUrl`, `onNavigate` and `onCharacterSave` are bound when the launch is
+  // created and are not tracked: change the configuration to launch again. A configuration that
+  // arrives later starts the launch then.
   createEffect(() => {
     const config = {
       frameOrigin: props.frameOrigin,
@@ -53,13 +71,17 @@ export function HostedAgentSim(props: {
       workspaceId: props.workspaceId,
       surface: props.surface,
       platform: props.platform,
-      character: props.character,
     }
     untrack(() => {
-      const requestGrant = props.requestGrant
+      const { requestGrant, onNavigate, onCharacterSave } = props
       const instance = createHostedSimController({
         ...config,
+        // Read when the launch is posted, not tracked: a saved character must not relaunch the
+        // frame that is waiting for its acknowledgement.
+        character: () => props.character,
         requestGrant: (request, signal) => requestGrant(request, signal),
+        onNavigate: onNavigate && ((request) => onNavigate(request)),
+        onCharacterSave: onCharacterSave && ((value, request) => onCharacterSave(value, request)),
         isOnline: () => typeof navigator === 'undefined' || navigator.onLine !== false,
         frameWindow: () => frameElement?.contentWindow ?? null,
         onChange: (next) => {

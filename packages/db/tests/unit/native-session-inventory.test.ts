@@ -14,7 +14,8 @@ import {
   type NativeSessionInventoryPage,
   type NativeSessionInventoryScope,
   type NativeSessionInventorySource,
-} from '../../src/native-session-inventory'
+} from '../../../types/src/native-session-inventory'
+import { captureNativeSessionSection as capturePublicNativeSessionSection } from '../../src/native-session-inventory'
 
 /**
  * Unit proofs for the runtime-owned session inventory adapter: the canonical
@@ -96,7 +97,15 @@ function registryValidatingSource(total: number, scope: NativeSessionInventorySc
   return { requests, source: source(listRuntimeSessions, [scope]) }
 }
 
+// Exercise the authoritative TypeScript implementation directly: the package's
+// default export resolves to generated dist, which the source coverage lane excludes.
 describe('native session inventory adapter', () => {
+  test('keeps the public database compatibility export equivalent to the source contract', async () => {
+    const canonical = source(async () => ({ items: [session()] }))
+    const expected = await captureNativeSessionSection(canonical, 10)
+    expect(await capturePublicNativeSessionSection(canonical, 10)).toEqual(expected)
+  })
+
   test('maps the canonical read into the snapshot contract with exact provenance', async () => {
     const section = await captureNativeSessionSection(
       source(async () => ({

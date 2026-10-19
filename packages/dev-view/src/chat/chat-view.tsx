@@ -20,6 +20,8 @@ import {
   type HandoffActionKind,
   type HandoffActionState,
 } from './model/handoff'
+import { createHistoryControl, type HistoryControlState } from './model/history-control'
+import { latestUsageFigures, type ChatUsageModel } from './model/usage'
 import { statusLabel } from './presentation'
 import './chat.css'
 import { StatusChip } from '@adea-ai/ui/components/ui/status-chip'
@@ -82,6 +84,9 @@ export type ChatViewProps = Readonly<{
   onResolveQuestion?: ChatTranscriptProps['onResolveQuestion']
   onJumpToTerminal?: () => void
   autoAttach?: boolean
+  /** The model this conversation runs, when the host knows it. Without one, context figures
+   *  are drawn only if the generation reported a single model. */
+  usageModel?: ChatUsageModel
   handoffView?: DirectSessionHandoffView
   /** Production supplier config: derives the handoff view from the live
    *  conversation plus surface facts, with model-backed default actions.
@@ -102,18 +107,25 @@ export type ChatViewProps = Readonly<{
 type StreamState = 'idle' | 'connecting' | 'connected' | 'disconnected'
 
 function initialTranscript(conversation: ChatConversation): TranscriptAccumulator {
-  if (conversation.events.length === 0)
-    return createTranscriptAccumulator({
-      runtimeSessionId: conversation.runtimeSessionId,
-      generation: conversation.generation,
-      fromSequence: conversation.retention.oldestSequence ?? '0',
-    })
-  return transcriptWindow(conversation.events, {
-    runtimeSessionId: conversation.runtimeSessionId,
-    generation: conversation.generation,
-    fromSequence: conversation.retention.oldestSequence ?? '0',
-    limit: 1_000,
-  })
+  const accumulator =
+    conversation.events.length === 0
+      ? createTranscriptAccumulator({
+          runtimeSessionId: conversation.runtimeSessionId,
+          generation: conversation.generation,
+          fromSequence: conversation.retention.oldestSequence ?? '0',
+        })
+      : transcriptWindow(conversation.events, {
+          runtimeSessionId: conversation.runtimeSessionId,
+          generation: conversation.generation,
+          fromSequence: conversation.retention.oldestSequence ?? '0',
+          limit: 1_000,
+        })
+  // A window the host reported as incomplete is not complete because it is empty here: the
+  // thread never claims more than the conversation it was built from, until the stream
+  // (which owns the window from then on) says otherwise.
+  return conversation.retention.complete || !accumulator.retention.complete
+    ? accumulator
+    : { ...accumulator, retention: conversation.retention }
 }
 
 export function ChatView(props: ChatViewProps): JSX.Element {
@@ -135,13 +147,25 @@ export function ChatView(props: ChatViewProps): JSX.Element {
   // another's.
   const [handoffEpoch, setHandoffEpoch] = createSignal(0)
   const [handoffAction, setHandoffAction] = createSignal(initialHandoffActionState)
+  // Earlier turns: the stream owns the history; this only mirrors whether more remain,
+  // whether a load is running and whether the last one failed, per attachment.
+  const [history, setHistory] = createSignal<HistoryControlState>({
+    hasOlder: false,
+    loading: false,
+    failed: false,
+  })
+  const historyControl = createHistoryControl(setHistory)
   let closeStream: (() => void) | undefined
   let attachment = 0
+  // The host refused the position the last stream was opened from; asking for it again
+  // would be refused again, so the next attach starts from the beginning of the window.
+  let cursorRejected = false
 
   const detach = () => {
     attachment += 1
     closeStream?.()
     closeStream = undefined
+    historyControl.detach()
   }
 
   const attach = async () => {
@@ -153,12 +177,38 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     const generation = props.conversation.generation
     setStreamState('connecting')
     setStreamError(undefined)
+    const resumeFrom = cursorRejected
+      ? '0'
+      : (transcript().retention.newestSequence ??
+        props.conversation.retention.newestSequence ??
+        '0')
+    // The refusal is spent only by an attachment that gets going: a failed open, or a handle
+    // that has already ended, leaves the next attempt starting from the beginning too.
+    let settled = false
+    // The one place a transcript state is judged, for the state a handle opens with and for
+    // every later one: an ended or stale stream is never shown as live.
+    const observe = (next: TranscriptAccumulator): boolean => {
+      setTranscript(next)
+      if (
+        next.availability.status !== 'stale_generation' &&
+        next.availability.status !== 'resync_required' &&
+        next.streamClosed === undefined
+      )
+        return false
+      cursorRejected = next.streamClosed?.cursorRejected === true || (!settled && cursorRejected)
+      detach()
+      setStreamState('disconnected')
+      if (next.streamClosed !== undefined && next.availability.status !== 'stale_generation')
+        setStreamError(
+          next.streamClosed.cursorRejected
+            ? 'The live stream was closed because the host refused its position. Reconnect to reload the latest events.'
+            : 'The live stream closed. Reconnect to continue.'
+        )
+      return true
+    }
     try {
       const handle = await model.openTranscript(runtimeSessionId, {
-        fromSequence:
-          transcript().retention.newestSequence ??
-          props.conversation.retention.newestSequence ??
-          '0',
+        fromSequence: resumeFrom,
       })
       if (
         currentAttachment !== attachment ||
@@ -173,20 +223,17 @@ export function ChatView(props: ChatViewProps): JSX.Element {
       // was open, whether or not anything was streaming.
       const unsubscribe = handle.subscribe((next) => {
         if (currentAttachment !== attachment) return
-        setTranscript(next)
-        if (
-          next.availability.status === 'stale_generation' ||
-          next.availability.status === 'resync_required'
-        ) {
-          detach()
-          setStreamState('disconnected')
-        }
+        historyControl.refresh()
+        observe(next)
       })
       closeStream = () => {
         unsubscribe()
         handle.close()
       }
-      setTranscript(handle.state())
+      if (observe(handle.state())) return
+      settled = true
+      cursorRejected = false
+      historyControl.attach(handle)
       setStreamState('connected')
     } catch (error) {
       if (currentAttachment !== attachment) return
@@ -312,9 +359,16 @@ export function ChatView(props: ChatViewProps): JSX.Element {
     const supply = props.handoff
     if (!supply) return undefined
     const availability = transcript().availability.status
+    // The evidence strip and the approval state read the window the thread displays, which
+    // the stream and history loads update, not the snapshot the conversation was built from.
+    const displayed = transcript()
     return deriveDirectSessionHandoff(
       deriveHandoffInputFromConversation({
-        conversation: props.conversation,
+        conversation: {
+          ...props.conversation,
+          events: displayed.events,
+          retention: displayed.retention,
+        },
         connected: connected(),
         generationCurrent:
           availability !== 'stale_generation' && availability !== 'resync_required',
@@ -324,6 +378,9 @@ export function ChatView(props: ChatViewProps): JSX.Element {
         leadTurn: supply.leadTurn,
         leadAgent: supply.leadAgent,
         leadChannelId: supply.leadChannelId,
+        childJobs: supply.childJobs,
+        jobCancelWired: supply.jobCancelWired,
+        childObservations: supply.childObservations,
       })
     )
   }
@@ -392,6 +449,7 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           <ChatTranscriptNotices
             transcript={transcript()}
             projection={props.conversation.projection}
+            historyFailed={history().failed}
             onJumpToTerminal={props.onJumpToTerminal}
           />
           <Show when={suppliedHandoffView()}>
@@ -417,6 +475,11 @@ export function ChatView(props: ChatViewProps): JSX.Element {
           {() => (
             <ChatComposer
               conversation={props.conversation}
+              usage={latestUsageFigures(
+                transcript().events,
+                props.conversation.generation,
+                props.usageModel
+              )}
               authority={props.authority}
               connected={connected()}
               awaitingApproval={props.awaitingApproval}
@@ -458,6 +521,9 @@ export function ChatView(props: ChatViewProps): JSX.Element {
               awaitingApproval={props.awaitingApproval}
               onResolveApproval={props.onResolveApproval}
               onResolveQuestion={props.onResolveQuestion}
+              hasOlder={history().hasOlder}
+              loadingOlder={history().loading}
+              onLoadOlder={historyControl.load}
               readingPosition={props.readingPosition}
               onReadingPositionChange={(position) =>
                 props.onReadingPositionChange?.(readingIdentity, position)

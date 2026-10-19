@@ -15,7 +15,7 @@ import {
   makeChatUserInput,
   sessionResource,
 } from './commands'
-import { CHAT_EVENT_RETENTION_LIMIT, type TranscriptAccumulator } from './transcript'
+import { CHAT_EVENT_RETENTION_LIMIT } from './transcript'
 import type {
   ChatConversation,
   ChatConversationProjection,
@@ -28,13 +28,15 @@ import type {
   ChatDraftValue,
 } from './types'
 import { normalizeChatDraft } from '../draft'
-import { eventIdentity, openRuntimeEventStream } from './event-stream'
+import { eventIdentity, openRuntimeEventStream, type RuntimeEventStream } from './event-stream'
 
 export * from './commands'
 export * from './handoff'
 export * from './handoff-authority'
+export * from './handoff-observation'
 export * from './transcript'
 export * from './types'
+export * from './history'
 
 const lifecycleByEvent: Readonly<Record<string, ChatConversationStatus>> = {
   'session.starting': 'preparing',
@@ -257,17 +259,10 @@ export type ChatConversationModel = Readonly<{
   openTranscript(
     runtimeSessionId: string,
     options?: { fromSequence?: string; source?: RuntimeEvent['source'] }
-  ): Promise<{
-    state: () => TranscriptAccumulator
-    /**
-     * Registers a listener invoked on every accepted frame (and once on
-     * close). Subscribing replaces polling: a surface that only re-reads
-     * `state` on a timer wakes the UI thread forever while idle and still
-     * renders up to one tick stale.
-     */
-    subscribe: (listener: (state: TranscriptAccumulator) => void) => () => void
-    close: () => void
-  }>
+  ): Promise<
+    Pick<RuntimeEventStream, 'state' | 'subscribe' | 'close'> &
+      Partial<Pick<RuntimeEventStream, 'deliveredThrough' | 'loadOlder' | 'hasOlder'>>
+  >
 }>
 
 export function createChatConversationModel(
@@ -636,6 +631,13 @@ export function createChatConversationModel(
           runtimeSessionId,
           mergeSessionEvents(runtimeSessionId, events.get(runtimeSessionId) ?? [], [event])
         ),
+      onHistoryAccepted: (historyEvents) => {
+        if (sessions.get(runtimeSessionId)?.generation !== current.generation) return
+        events.set(
+          runtimeSessionId,
+          mergeSessionEvents(runtimeSessionId, events.get(runtimeSessionId) ?? [], historyEvents)
+        )
+      },
     })
   }
 

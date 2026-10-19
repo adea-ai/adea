@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/types",
-  "version": "0.95.0",
+  "version": "0.97.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -46,6 +46,11 @@
       "development": "./src/native-session-inventory.ts",
       "import": "./dist/native-session-inventory.js"
     },
+    "./dev-runtime-history": {
+      "types": "./dist/dev-runtime-history.d.ts",
+      "development": "./src/dev-runtime-history.ts",
+      "import": "./dist/dev-runtime-history.js"
+    },
     "./dev-runtime-follow-ups": {
       "types": "./dist/dev-runtime-follow-ups.d.ts",
       "development": "./src/dev-runtime-follow-ups.ts",
@@ -90,6 +95,11 @@
       "types": "./dist/management.d.ts",
       "development": "./src/management.ts",
       "import": "./dist/management.js"
+    },
+    "./dev-runtime-browser": {
+      "types": "./dist/dev-runtime-browser.d.ts",
+      "development": "./src/dev-runtime-browser.ts",
+      "import": "./dist/dev-runtime-browser.js"
     }
   },
   "scripts": {

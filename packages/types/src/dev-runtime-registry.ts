@@ -1478,6 +1478,13 @@ export const devOperationDefinitions = {
     resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
     stream: { protocol: 'runtime-events-v1', direction: 'read' },
   },
+  'dev.session.history': {
+    body: '{ runtimeSessionId: string; expectedGeneration: integer; beforeSequence?: uint64-string; cursor?: string(1..2048); limit?: integer(1..500) }',
+    capabilities: ['dev.session.read'],
+    reply: 'RuntimeEventHistoryPage',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
+    stream: null,
+  },
   'dev.session.followUps': {
     body: 'FollowUpQueueRequest',
     capabilities: ['dev.session.manage'],
@@ -1511,6 +1518,13 @@ export const devOperationDefinitions = {
     capabilities: ['dev.session.read'],
     reply: 'Page<RuntimeSession>',
     resource: null,
+    stream: null,
+  },
+  'dev.session.restoreCheckpoint': {
+    body: '{ runtimeSessionId: string(1..256); expectedGeneration: integer(0..9007199254740990); checkpointEventId: string(1..256) }',
+    capabilities: ['dev.session.manage'],
+    reply: 'CheckpointRestoreOutcome',
+    resource: { kind: 'runtime_session', idField: 'runtimeSessionId' },
     stream: null,
   },
   'dev.session.resumeHarness': {

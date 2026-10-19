@@ -574,6 +574,56 @@ async function sessionWithRun(shell: Boot, channel: Awaited<ReturnType<Boot['ope
 }
 
 describe('dev.session.events through the gate', () => {
+  test('history admits only the authenticated session resource at its current generation', async () => {
+    const shell = await boot()
+    try {
+      const channel = await shell.openChannel()
+      const { sessionId, liveGeneration } = await sessionWithRun(shell, channel)
+      const read = (scope = SCOPE_A, id = sessionId, generation = liveGeneration, body = {}) =>
+        channel.execute(
+          commandFor(
+            'dev.session.history',
+            scope,
+            { runtimeSessionId: id, expectedGeneration: generation, limit: 1, ...body },
+            { resource: { kind: 'runtime_session', id, generation } }
+          )
+        )
+      const first = okValue(await read())
+      expect((first.items as RuntimeEvent[]).length).toBe(1)
+      expect(first.runtimeSessionId).toBe(sessionId)
+      expect(first.generation).toBe(liveGeneration)
+      for (const scope of [
+        { ...SCOPE_A, accountId: randomUUID() },
+        { ...SCOPE_A, workspaceId: randomUUID() },
+        { ...SCOPE_A, runtimeNodeId: randomUUID() },
+      ])
+        expect(errorCode(await read(scope))).toBe('channel_unauthorized')
+      expect(errorCode(await read(SCOPE_A, sessionId, liveGeneration - 1))).toBe('stale_generation')
+      expect((await read(SCOPE_A, randomUUID())).ok).toBe(false)
+      expect((await read(SCOPE_A, sessionId, liveGeneration, { cursor: 'tampered' })).ok).toBe(
+        false
+      )
+      const mismatch = await channel.execute(
+        commandFor(
+          'dev.session.history',
+          SCOPE_A,
+          { runtimeSessionId: sessionId, expectedGeneration: liveGeneration },
+          { resource: { kind: 'runtime_session', id: randomUUID(), generation: liveGeneration } }
+        )
+      )
+      expect(mismatch.ok).toBe(false)
+      for (const body of [
+        { limit: 0 },
+        { limit: 501 },
+        { beforeSequence: '-1' },
+        { beforeSequence: '01' },
+        { cursor: 'x'.repeat(2049) },
+      ])
+        expect((await read(SCOPE_A, sessionId, liveGeneration, body)).ok).toBe(false)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
   test('mints a read grant bound to the caller channel and attaches exactly once', async () => {
     const shell = await boot()
     try {
@@ -795,6 +845,44 @@ function makeGrant(overrides: Partial<DevStreamGrant> = {}): DevStreamGrant {
 }
 
 describe('runtime-events-v1 stream handler', () => {
+  test('closes incompatible before any replay or heartbeat for retained opaque usage', async () => {
+    const shell = await boot()
+    try {
+      const events = shell.host().harness!.events
+      const sessionId = '00000000-0000-4000-8000-0000000000c1'
+      events.append(
+        eventInput({ runtimeSessionId: sessionId, kind: 'session.ready', sourceEventId: 'before' })
+      )
+      events.append(
+        eventInput({ runtimeSessionId: sessionId, kind: 'run.completed', sourceEventId: 'after' })
+      )
+      const file = join(shell.dataDir, 'dev-runtime', 'harness', 'session-events.json')
+      const stored = JSON.parse(readFileSync(file, 'utf8'))
+      stored.records[1] = { ...stored.records[1], kind: 'usage.observed', payload: { tokens: 123 } }
+      const original = JSON.stringify(stored)
+      writeFileSync(file, original)
+      for (const fromSequence of ['0', '2', '999']) {
+        const session = scriptedSession(
+          makeGrant({
+            resource: { kind: 'runtime_session', id: sessionId, generation: 1 },
+            fromSequence,
+          })
+        )
+        shell.capturedStreamProvider()(session as never)
+        expect(session.sent).toEqual([])
+        expect(session.closed).toEqual({
+          code: 'incompatible',
+          reason: 'runtime event history requires recovery',
+        })
+        expect(session.onFrame).toBeUndefined()
+        expect(session.onClose).toBeUndefined()
+      }
+      expect(readFileSync(file, 'utf8')).toBe(original)
+    } finally {
+      rmSync(shell.dataDir, { recursive: true, force: true })
+    }
+  })
+
   test('replays the bounded window, pushes live events, and closes on a newer generation', async () => {
     const shell = await boot()
     try {

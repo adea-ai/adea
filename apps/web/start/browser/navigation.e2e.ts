@@ -1,15 +1,17 @@
 import { expect, test } from './fixtures'
+import { retainOptionalWorkspaceViews } from '../../e2e/helpers/workspace-view-preferences'
 
 test('view switches, query preservation and browser history keep the workspace usable', async ({
   page,
 }) => {
+  await retainOptionalWorkspaceViews(page)
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   await page.goto('/?view=chat&roomDesigner=0&characterDesigner=0&unknown=retained&x=a%26b&x=c%2Bd')
   await expect(page.getByRole('button', { name: 'User settings' })).toBeVisible({ timeout: 20_000 })
   await page.getByRole('button', { name: 'Virtual view', exact: true }).click()
   await expect(page.locator('.workspace-frame--virtual')).toBeVisible()
-  await expect(page.getByRole('status', { name: 'Virtual view unavailable' })).toBeVisible()
+  await expect(page.getByText('Agent Sim is not set up here', { exact: true })).toBeVisible()
   await expect.poll(() => new URL(page.url()).searchParams.get('view')).toBe('virtual')
   await page.getByRole('button', { name: 'Chat view', exact: true }).click()
   await expect(page.locator('.workspace-frame--chat')).toBeVisible()

@@ -1,3 +1,4 @@
+import { retainOptionalWorkspaceViews } from './helpers/workspace-view-preferences'
 import { expect, test, type BrowserContext, type Page } from '@playwright/test'
 import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm'
 
@@ -223,4 +224,9 @@ test.describe('the task board survives a transient workspace refetch failure', (
     )
     expect(aborted).toBeGreaterThan(0)
   })
+})
+
+// This suite exercises explicitly enabled optional views in an existing profile.
+test.beforeEach(async ({ page }) => {
+  await retainOptionalWorkspaceViews(page)
 })

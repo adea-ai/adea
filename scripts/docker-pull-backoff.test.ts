@@ -3,8 +3,9 @@ import { spawnSync } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { test } from 'bun:test'
+import { spyOn, test } from 'bun:test'
 import {
   captureCommand,
   composeImageVariable,
@@ -33,8 +34,19 @@ const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 const integrationRunner = fileURLToPath(new URL('./test-integration.mjs', import.meta.url))
 const e2eSetup = fileURLToPath(new URL('./e2e-setup.mjs', import.meta.url))
 const testLocal = fileURLToPath(new URL('../apps/web/start/test-local.mjs', import.meta.url))
+const disconnectFixture = fileURLToPath(
+  new URL('../apps/web/start/test-stream-disconnect.mjs', import.meta.url)
+)
 
-type Result = { status: number | null; stdout?: string; stderr?: string; error?: Error }
+type Result = {
+  status: number | null
+  stdout?: string
+  stderr?: string
+  error?: Error
+  cancelled?: boolean
+  timedOut?: boolean
+  reaped?: boolean
+}
 
 // Each call returns the next scripted result; the last one repeats.
 function scripted(results: Result[]) {
@@ -58,6 +70,19 @@ async function withTempDir(run: (dir: string) => Promise<void>) {
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+}
+
+async function waitForLog(path: string, expected: string) {
+  const deadline = Date.now() + 5_000
+  while (Date.now() < deadline) {
+    try {
+      if ((await readFile(path, 'utf8')).includes(expected)) return
+    } catch {
+      /* The child has not created its log yet. */
+    }
+    await delay(10)
+  }
+  throw new Error(`Timed out waiting for ${expected} in ${path}`)
 }
 
 // A stand-in `docker` executable that runs `body` on every call.
@@ -126,6 +151,154 @@ test('reports a spawn failure as a result instead of rejecting', async () => {
   const result = await captureCommand('/nonexistent/adea-docker-missing', [])
   assert.equal(result.error?.code, 'ENOENT')
   assert.notEqual(result.status, 0)
+})
+
+test('interrupting delayed Compose provisioning reaps it before teardown and prevents fallback', async () => {
+  await withTempDir(async (dir) => {
+    const events = join(dir, 'events')
+    const env = { ...process.env, EVENTS: events }
+    const controller = new AbortController()
+    const script = `
+      const fs = require('node:fs')
+      const [command, ...args] = process.argv.slice(1)
+      const log = (event) => fs.appendFileSync(process.env.EVENTS, event + '\\n')
+      if (command === 'compose' && args.includes('up')) {
+        log('up:start')
+        process.stderr.write('postgres toomanyrequests: Rate exceeded')
+        const finish = setTimeout(() => { log('up:complete'); process.exit(1) }, 10_000)
+        process.on('SIGTERM', () => { clearTimeout(finish); log('up:cancel'); process.exit(1) })
+        log('up:ready')
+      } else if (command === 'compose' && args.includes('down')) {
+        log('down:start')
+        process.exit(0)
+      } else {
+        log('unexpected-command:' + command)
+        process.exit(1)
+      }
+    `
+    const lines: string[] = []
+    let pullCalls = 0
+    let provision: Awaited<ReturnType<typeof captureCommand>> | undefined
+    const operation = runWithPullFallback(
+      async () => {
+        provision = await captureCommand(
+          process.execPath,
+          ['-e', script, 'compose', '-p', 'fixture', 'up'],
+          {
+            env,
+            signal: controller.signal,
+            terminationGraceMs: 100,
+            reapTimeoutMs: 1_000,
+            processGroup: true,
+          }
+        )
+        return provision
+      },
+      canonicalImage,
+      {
+        signal: controller.signal,
+        pull: async () => {
+          pullCalls += 1
+          return succeeded
+        },
+        log: () => {},
+      }
+    )
+    try {
+      await waitForLog(events, 'up:ready')
+      controller.abort(new Error('fixture interrupted during provisioning'))
+      await assert.rejects(operation, /fixture interrupted during provisioning/)
+      assert.equal(provision?.cancelled, true)
+      assert.equal(provision?.reaped, true)
+      assert.equal(provision?.groupExited, true)
+      assert.equal(pullCalls, 0, 'Cancellation must prevent image fallback and retry commands')
+
+      const down = await captureCommand(
+        process.execPath,
+        ['-e', script, 'compose', '-p', 'fixture', 'down'],
+        {
+          env,
+          timeoutMs: 1_000,
+        }
+      )
+      assert.equal(down.status, 0)
+      lines.push(...(await readFile(events, 'utf8')).trim().split('\n'))
+      assert.deepEqual(lines, ['up:start', 'up:ready', 'up:cancel', 'down:start'])
+    } finally {
+      if (!controller.signal.aborted) controller.abort()
+      await operation.catch(() => {})
+    }
+  })
+})
+
+test.skipIf(process.platform === 'win32')(
+  'a hung Compose down kills and reaps its owned process group',
+  async () => {
+    await withTempDir(async (dir) => {
+      const parentPidFile = join(dir, 'hung-down-parent.pid')
+      const descendantPidFile = join(dir, 'hung-down-descendant.pid')
+      const lateSideEffect = join(dir, 'hung-down-late-side-effect')
+      const descendantScript = `
+      const fs = require('node:fs')
+      fs.writeFileSync(process.env.DESCENDANT_PID_FILE, String(process.pid))
+      process.on('SIGTERM', () => {})
+      setTimeout(() => fs.writeFileSync(process.env.LATE_SIDE_EFFECT, 'late'), 4_000)
+      setInterval(() => {}, 1_000)
+    `
+      const parentScript = `
+      const { spawn } = require('node:child_process')
+      const fs = require('node:fs')
+      spawn(process.execPath, ['-e', process.env.DESCENDANT_SCRIPT], { stdio: 'inherit' })
+      fs.writeFileSync(process.env.PARENT_PID_FILE, String(process.pid))
+      process.on('SIGTERM', () => {})
+      setInterval(() => {}, 1_000)
+    `
+      const env = {
+        ...process.env,
+        PARENT_PID_FILE: parentPidFile,
+        DESCENDANT_PID_FILE: descendantPidFile,
+        LATE_SIDE_EFFECT: lateSideEffect,
+        DESCENDANT_SCRIPT: descendantScript,
+      }
+      const startedAt = Date.now()
+      const result = await captureCommand(
+        process.execPath,
+        ['-e', parentScript, 'compose', '-p', 'fixture', 'down'],
+        {
+          env,
+          timeoutMs: 2_500,
+          terminationGraceMs: 100,
+          reapTimeoutMs: 1_500,
+          processGroup: true,
+        }
+      )
+      assert.equal(result.timedOut, true)
+      assert.equal(result.reaped, true)
+      assert.equal(result.groupExited, true, 'The Docker CLI and plugin stub group must be gone')
+      assert.equal(result.status, null)
+      assert.equal(result.signal, 'SIGKILL')
+      assert.match(result.error?.message ?? '', /timed out/)
+      assert.ok(Number(await readFile(parentPidFile, 'utf8')) > 0)
+      assert.ok(Number(await readFile(descendantPidFile, 'utf8')) > 0)
+      await delay(1_700)
+      await assert.rejects(readFile(lateSideEffect), { code: 'ENOENT' })
+      assert.ok(
+        Date.now() - startedAt < 6_000,
+        'Teardown and side-effect check must remain bounded'
+      )
+    })
+  },
+  8_000
+)
+
+test('native disconnect fixture reaps interrupted commands before bounded Compose teardown', async () => {
+  const source = await readFile(disconnectFixture, 'utf8')
+  assert.match(source, /new AbortController\(\)/)
+  assert.match(source, /await Promise\.allSettled\(inFlightCommands\)/)
+  assert.match(source, /signal: interruptionController\.signal/)
+  assert.match(source, /processGroup = true/)
+  assert.match(source, /!result\.value\.groupExited/)
+  assert.match(source, /timeoutMs: composeDownTimeoutMs/)
 })
 
 test('retries a real rate-limited child to eventual success', async () => {
@@ -407,5 +580,135 @@ test('e2e setup surfaces a missing docker executable as a spawn error', async ()
     })
     assert.notEqual(result.status, 0)
     assert.match(result.stderr, /ENOENT/)
+  })
+})
+
+async function withDefaultDocker(
+  mode: 'local' | 'fallback' | 'limited',
+  run: (readCalls: () => Promise<string[]>, messages: string[]) => Promise<void>
+) {
+  await withTempDir(async (directory) => {
+    const bin = join(directory, 'bin')
+    const callsPath = join(directory, 'calls')
+    await writeFile(callsPath, '')
+    await writeDockerStub(
+      bin,
+      [
+        'printf \'%s\\n\' "$*" >> "$DOCKER_CALLS"',
+        'if [ "$1" = image ]; then [ "$DOCKER_MODE" = local ]; exit $?; fi',
+        'if [ "$1" != pull ] || [ "$2" != --quiet ]; then exit 99; fi',
+        `if [ "$DOCKER_MODE" = limited ] || [ "$3" = '${canonicalImage}' ]; then`,
+        "  printf '%s\\n' 'toomanyrequests: Rate exceeded' >&2; exit 1",
+        'fi',
+        'exit 0',
+      ].join('\n')
+    )
+    const previous = process.env
+    const messages: string[] = []
+    const warning = spyOn(console, 'warn').mockImplementation(
+      (message) => void messages.push(String(message))
+    )
+    try {
+      // The default command callbacks can only find this stub; neither a real
+      // Docker daemon nor a registry is contacted, even on the failure path.
+      process.env = { PATH: bin, DOCKER_CALLS: callsPath, DOCKER_MODE: mode }
+      await run(
+        async () => (await readFile(callsPath, 'utf8')).trim().split('\n').filter(Boolean),
+        messages
+      )
+    } finally {
+      process.env = previous
+      warning.mockRestore()
+    }
+  })
+}
+
+test('default backoff uses its timer and warning without hiding the eventual result', async () => {
+  const messages: string[] = []
+  const warning = spyOn(console, 'warn').mockImplementation(
+    (message) => void messages.push(String(message))
+  )
+  try {
+    const { attempt, calls } = scripted([rateLimited, succeeded])
+    assert.equal(await runWithPullBackoff(attempt, { delaysMs: [0] }), succeeded)
+    assert.equal(calls.length, 2)
+    assert.deepEqual(messages, [
+      'Container registry rate-limited an image pull; retry 1 of 1 in 0s.',
+    ])
+  } finally {
+    warning.mockRestore()
+  }
+})
+
+test('default image inspection returns a local image without pulling', async () => {
+  await withDefaultDocker('local', async (readCalls) => {
+    const found = await ensureImage(canonicalImage)
+    assert.equal(found.image, canonicalImage)
+    assert.deepEqual(found.result, { status: 0, stdout: '', stderr: '' })
+    assert.deepEqual(await readCalls(), [`image inspect ${canonicalImage}`])
+  })
+})
+
+test('default inspect and pull callbacks preserve the pinned image through fallback', async () => {
+  await withDefaultDocker('fallback', async (readCalls, messages) => {
+    const found = await ensureImage(canonicalImage)
+    assert.equal(found.image, mirror)
+    assert.equal(found.result.status, 0)
+    assert.ok(messages.some((message) => message.includes('toomanyrequests')))
+    assert.ok(messages.some((message) => message.includes(`trying ${mirror}`)))
+    assert.deepEqual(await readCalls(), [
+      `image inspect ${canonicalImage}`,
+      `pull --quiet ${canonicalImage}`,
+      `pull --quiet ${mirror}`,
+    ])
+  })
+})
+
+test('default fallback pulls a mirror before running with it', async () => {
+  await withDefaultDocker('fallback', async (readCalls) => {
+    const attempted: (string | undefined)[] = []
+    const result = await runWithPullFallback((image) => {
+      attempted.push(image)
+      return image === undefined ? rateLimited : succeeded
+    }, canonicalImage)
+    assert.equal(result, succeeded)
+    assert.deepEqual(attempted, [undefined, mirror])
+    assert.deepEqual(await readCalls(), [`pull --quiet ${mirror}`])
+  })
+})
+
+test('default fallback timer and diagnostics stay bounded when every stub registry is limited', async () => {
+  await withDefaultDocker('limited', async (readCalls, messages) => {
+    let attempts = 0
+    const result = await runWithPullFallback(
+      () => {
+        attempts += 1
+        return rateLimited
+      },
+      canonicalImage,
+      { delaysMs: [0] }
+    )
+    assert.equal(result, rateLimited)
+    assert.equal(attempts, 2)
+    assert.deepEqual(
+      await readCalls(),
+      [mirror, hub, mirror, hub].map((image) => `pull --quiet ${image}`)
+    )
+    assert.equal(messages.filter((message) => message.includes('trying ')).length, 4)
+    assert.equal(messages.filter((message) => message.includes('retry 1 of 1 in 0s')).length, 1)
+    assert.equal(
+      messages.filter((message) => message.includes('failed: toomanyrequests')).length,
+      4
+    )
+  })
+})
+
+test('rejects a compose image without the required explicit fallback variable', async () => {
+  await withTempDir(async (directory) => {
+    await writeFile(
+      join(directory, 'compose.yml'),
+      'services:\n  postgres:\n    image: postgres:18-alpine\n'
+    )
+    assert.throws(() => composePostgresImage(directory), /must define the postgres image as/)
   })
 })

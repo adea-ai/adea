@@ -204,6 +204,16 @@ describe('boot adoption diagnostics at the seam (#1039)', () => {
         // The #1039 failure shape, modeled: the plan spawns a child that
         // exits 1 immediately (the packaged layout's dev fallback spawned a
         // nonexistent source-tree entry), stdout/stderr discarded.
+        const child = Bun.spawn([process.execPath, '-e', 'process.exit(1)'], {
+          stdout: 'ignore',
+          stderr: 'ignore',
+          cwd: dataDir,
+        })
+        // Prepare the actual failed-child condition before observing it.
+        // Runtime startup under load is not bounded by the seam's 600 ms
+        // endpoint window. An already-exited spawn is also a valid race the
+        // diagnostic path must journal and name correctly.
+        expect(await child.exited).toBe(1)
         const plan = {
           mode: 'dev' as const,
           executableIdentity: 'adea-terminal-sidecar@broken',
@@ -212,12 +222,7 @@ describe('boot adoption diagnostics at the seam (#1039)', () => {
             envKeys: ['HOME', 'PATH', 'ADEA_SIDECAR_VERSION'],
             cwd: dir,
           }),
-          start: (dir: string) =>
-            Bun.spawn([process.execPath, '-e', 'process.exit(1)'], {
-              stdout: 'ignore',
-              stderr: 'ignore',
-              cwd: dir,
-            }),
+          start: () => child,
         }
         const adoption = await adoptShellTerminalSidecar({
           dataDir,

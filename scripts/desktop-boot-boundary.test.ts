@@ -139,13 +139,9 @@ describe('desktop shell boot', () => {
   test('confines the served client root to the bundled client directory', async () => {
     const source = await readFile(entry, 'utf8')
 
-    expect(source).toContain('normalize(decodeURIComponent(url.pathname))')
-    expect(source).toContain('filePath.startsWith(CLIENT_ROOT)')
-    expect(source).toContain('status: 403')
-    // The traversal guard has to run before the file is read.
-    expect(source.indexOf('startsWith(CLIENT_ROOT)')).toBeLessThan(
-      source.indexOf('Bun.file(filePath)')
-    )
+    // Request-level stale-tree, encoded-path and confinement regressions run
+    // in apps/desktop/tests/client-assets.test.ts against this exact handler.
+    expect(source).toContain('serveDesktopClient(request, CLIENT_ROOT, injectBridge)')
   })
 
   test('keeps dynamic code evaluation out of the shell', async () => {

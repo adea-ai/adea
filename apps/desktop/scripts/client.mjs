@@ -40,6 +40,9 @@ run('bun', ['run', 'desktop:build'], {
 const clientRoot = join(webRoot, 'dist-desktop', 'client')
 mkdirSync(clientRoot, { recursive: true })
 writeFileSync(join(clientRoot, DESKTOP_TARGET_FILE), serializeDesktopTarget(target))
+run('node', ['scripts/check-desktop-sim-payload.mjs', '--client', 'apps/web/dist-desktop/client'], {
+  cwd: repositoryRoot,
+})
 console.log(
   `desktop client: ${clientRoot} (${target.mode} build, cloud origin ${target.cloudOrigin})`
 )

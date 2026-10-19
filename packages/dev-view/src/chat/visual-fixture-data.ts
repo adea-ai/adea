@@ -1,8 +1,9 @@
 // Canonical event windows for the ChatView visual fixture. Everything here is a
 // plausible RuntimeEvent a host could deliver today: only the payload keys the
 // chat reads (`text`, `name`, `summary`, `question`, `isError`) are used, and
-// nothing models data no producer sends (no checkpoints, token counts or call
-// identities). Source-reported summaries and cited responses use the exact
+// nothing models data no producer sends (no checkpoints or token counts). Tool and
+// subagent calls carry the identity the merged call contract admits (#1387).
+// Source-reported summaries and cited responses use the exact
 // payloads the merged wire contracts admit (#1388 and #1389).
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
@@ -100,6 +101,397 @@ export const richEvents: readonly RuntimeEvent[] = [
 ]
 
 /** The decisive part of this request sits past the 400 characters a card description shows. */
+const call = (
+  seq: string,
+  kind: RuntimeEvent['kind'],
+  payload: Record<string, unknown>,
+  eventId: string,
+  inline = false
+): RuntimeEvent => ({
+  ...event(seq, kind, { schemaVersion: 1, permissionEligibility: 'unknown', ...payload }, eventId),
+  // Inline call content is restricted to the machine that produced it.
+  classification: inline ? 'restricted_local' : 'workspace_private',
+})
+
+/**
+ * Tool and subagent calls with the identity the merged call contract (#1387) adds:
+ * a subagent that parents two tools, a tool that failed inside it, a root tool whose
+ * last word is still running, and a call whose parent never arrived.
+ */
+export const callEvents: readonly RuntimeEvent[] = [
+  event('1', 'turn.user_input', { text: 'Review the change with a subagent.' }),
+  call(
+    '2',
+    'subagent.observed',
+    { callId: 'agent-1', parentCallId: null, phase: 'started', name: 'reviewer' },
+    'call-agent-start'
+  ),
+  call(
+    '3',
+    'tool.started',
+    { callId: 'read-1', parentCallId: 'agent-1', phase: 'started', name: 'read_file' },
+    'call-read-start'
+  ),
+  call(
+    '4',
+    'tool.completed',
+    {
+      callId: 'read-1',
+      parentCallId: 'agent-1',
+      phase: 'completed',
+      durationMs: 420,
+      input: { type: 'inline', value: { path: 'packages/db/migrations/0055.sql' } },
+      output: { type: 'inline', value: { lines: 48 } },
+    },
+    'call-read-done',
+    true
+  ),
+  call(
+    '5',
+    'tool.failed',
+    {
+      callId: 'test-1',
+      parentCallId: 'agent-1',
+      phase: 'failed',
+      name: 'bun_test',
+      durationMs: 1070,
+      output: { type: 'reference', referenceId: 'blob-test-1', byteLength: 4096 },
+    },
+    'call-test-failed'
+  ),
+  call(
+    '6',
+    'subagent.observed',
+    { callId: 'agent-1', parentCallId: null, phase: 'completed', durationMs: 2400 },
+    'call-agent-done'
+  ),
+  call(
+    '7',
+    'tool.progress',
+    { callId: 'lint-1', phase: 'progress', name: 'oxlint' },
+    'call-lint-progress'
+  ),
+  call(
+    '8',
+    'tool.completed',
+    { callId: 'orphan-1', parentCallId: 'lost-parent', phase: 'completed', name: 'format' },
+    'call-orphan-done'
+  ),
+  event('9', 'turn.assistant_message', { text: 'The reviewer found one failing test.' }),
+]
+
+const result = (
+  seq: string,
+  kind: RuntimeEvent['kind'],
+  payload: Record<string, unknown>,
+  eventId: string
+): RuntimeEvent => event(seq, kind, { schemaVersion: 1, ...payload }, eventId)
+
+/**
+ * Structured results with the payloads the merged activity contract admits (#1394):
+ * a command's output, a failing test run with a stack, changed files, a plan and a task.
+ */
+export const resultEvents: readonly RuntimeEvent[] = [
+  event('1', 'turn.user_input', { text: 'Run the tests and plan the fix.' }),
+  result(
+    '2',
+    'terminal.output',
+    {
+      terminalId: 'term-1',
+      commandId: 'cmd-1',
+      sequence: '1',
+      phase: 'started',
+      status: 'running',
+      stream: 'combined',
+      command: 'bun test packages/db',
+    },
+    'res-term-start'
+  ),
+  result(
+    '3',
+    'terminal.output',
+    {
+      terminalId: 'term-1',
+      commandId: 'cmd-1',
+      sequence: '2',
+      phase: 'output',
+      status: 'running',
+      stream: 'stdout',
+      text: '(pass) applies every migration twice\n(fail) keeps applied history across a rebase\n',
+    },
+    'res-term-out'
+  ),
+  result(
+    '4',
+    'terminal.output',
+    {
+      terminalId: 'term-1',
+      commandId: 'cmd-1',
+      sequence: '3',
+      phase: 'finished',
+      status: 'failed',
+      stream: 'combined',
+      exitCode: 1,
+      durationMs: 1070,
+    },
+    'res-term-end'
+  ),
+  result(
+    '5',
+    'test_run.observed',
+    {
+      testRunId: 'run-1',
+      status: 'failed',
+      summary: { passed: 3, failed: 1 },
+      tests: [
+        { testId: 't-1', name: 'applies every migration twice', status: 'passed' },
+        {
+          testId: 't-2',
+          name: 'keeps applied history across a rebase',
+          status: 'failed',
+          failureIds: ['f-1'],
+        },
+      ],
+      failures: [
+        {
+          failureId: 'f-1',
+          name: 'AssertionError',
+          message: 'expected journal entry 0054 to be unchanged',
+          testId: 't-2',
+          stack: {
+            frames: [
+              {
+                functionName: 'compareJournal',
+                path: 'packages/db/src/journal.ts',
+                line: 41,
+                column: 9,
+              },
+              { native: true },
+            ],
+          },
+        },
+      ],
+    },
+    'res-tests'
+  ),
+  result(
+    '6',
+    'files.changed',
+    {
+      changeSetId: 'changes-1',
+      files: [
+        { path: 'packages/db/src/journal.ts', change: 'modified', additions: 12, deletions: 3 },
+        {
+          path: 'packages/db/src/journal-check.ts',
+          change: 'renamed',
+          previousPath: 'packages/db/src/check.ts',
+        },
+      ],
+      summary: { files: 2, additions: 12, deletions: 3 },
+    },
+    'res-files'
+  ),
+  result(
+    '7',
+    'plan.observed',
+    {
+      planId: 'plan-1',
+      status: 'in_progress',
+      title: 'Fix the journal check',
+      items: [
+        { id: 'i-1', title: 'Reproduce the failure', status: 'completed' },
+        { id: 'i-2', title: 'Keep applied entries unchanged', status: 'in_progress' },
+        { id: 'i-3', title: 'Add a regression test', status: 'pending' },
+      ],
+      complete: true,
+    },
+    'res-plan'
+  ),
+  result(
+    '8',
+    'task.observed',
+    { taskId: 'task-1', title: 'Follow up on the rollout order', status: 'pending' },
+    'res-task'
+  ),
+  {
+    ...event(
+      '9',
+      'checkpoint.observed',
+      {
+        schemaVersion: 1,
+        checkpointId: 'checkpoint-1',
+        name: 'Before the journal fix',
+        createdAt: '2026-09-22T10:00:00.000Z',
+        harnessInstallationId: 'harness-1',
+        restore: { supported: false, reason: 'harness_restore_unavailable' },
+      },
+      'res-checkpoint'
+    ),
+    classification: 'workspace_private',
+  },
+  {
+    ...event(
+      '10',
+      'usage.observed',
+      {
+        schemaVersion: 1,
+        model: { providerId: 'anthropic', modelId: 'fixture-model' },
+        generation: 3,
+        context: { used: 84_000, total: 200_000 },
+        breakdown: { input: 61_000, output: 23_000 },
+      },
+      'res-usage'
+    ),
+  },
+  event('11', 'turn.assistant_message', { text: 'One migration test fails; the plan is above.' }),
+]
+
+/**
+ * Results whose adapter must not say more than the producer did, in a session that has
+ * stopped: a failed suite with a passing test listed under it, a test and a suite still
+ * "running", a failed plan whose list is incomplete, changed files with no totals, a
+ * subagent whose input and output are held by reference or contain a private path, and
+ * two models' context figures.
+ */
+export const resultEdgeEvents: readonly RuntimeEvent[] = [
+  event('1', 'turn.user_input', { text: 'What did the last run say?' }),
+  call(
+    '2',
+    'subagent.observed',
+    {
+      callId: 'agent-in',
+      parentCallId: null,
+      phase: 'completed',
+      name: 'summarizer',
+      input: {
+        type: 'inline',
+        value: { goal: 'summarize', file: 'C:\\Users\\someone\\notes.txt' },
+      },
+      output: { type: 'reference', referenceId: 'blob-out', byteLength: 8192 },
+    },
+    'edge-agent-in',
+    true
+  ),
+  call(
+    '3',
+    'subagent.observed',
+    {
+      callId: 'agent-ref',
+      parentCallId: null,
+      phase: 'completed',
+      name: 'indexer',
+      input: { type: 'reference', referenceId: 'blob-in', byteLength: 2048 },
+    },
+    'edge-agent-ref'
+  ),
+  result(
+    '4',
+    'test_run.observed',
+    {
+      testRunId: 'run-edge',
+      status: 'failed',
+      suites: [
+        { suiteId: 's-auth', name: 'auth suite', status: 'failed' },
+        { suiteId: 's-ui', name: 'ui suite', status: 'running' },
+      ],
+      tests: [
+        { testId: 't-login', name: 'logs in', status: 'passed', suiteId: 's-auth' },
+        { testId: 't-render', name: 'renders the shell', status: 'running', suiteId: 's-ui' },
+      ],
+    },
+    'edge-tests'
+  ),
+  result(
+    '5',
+    'plan.observed',
+    {
+      planId: 'plan-edge',
+      status: 'failed',
+      title: 'Roll out the fix',
+      items: [{ id: 'e-1', title: 'Write the migration', status: 'completed' }],
+      complete: false,
+      summary: { total: 4, completed: 1, failed: 1 },
+    },
+    'edge-plan'
+  ),
+  result(
+    '6',
+    'files.changed',
+    { changeSetId: 'changes-edge', files: [{ path: 'src/auth.ts', change: 'modified' }] },
+    'edge-files'
+  ),
+  {
+    ...event(
+      '7',
+      'usage.observed',
+      {
+        schemaVersion: 1,
+        model: { providerId: 'anthropic', modelId: 'fixture-model' },
+        generation: 3,
+        context: { used: 30_000, total: 100_000 },
+        cost: { amount: '0.000000123456789', currency: 'USD' },
+      },
+      'edge-usage-a'
+    ),
+  },
+  {
+    ...event(
+      '8',
+      'usage.observed',
+      {
+        schemaVersion: 1,
+        model: { providerId: 'openai', modelId: 'other-model' },
+        generation: 3,
+        context: { used: 5_000, total: 1_000_000 },
+        cost: { amount: '9.99', currency: 'USD' },
+      },
+      'edge-usage-b'
+    ),
+  },
+  event('9', 'turn.assistant_message', { text: 'The run stopped before it finished.' }),
+]
+
+export const historyOlder: readonly RuntimeEvent[] = [
+  event('1', 'turn.user_input', { text: 'First question: what changed?' }),
+  event('2', 'turn.assistant_message', { text: 'The first answer.' }),
+]
+export const historyNewest: readonly RuntimeEvent[] = [
+  event('3', 'turn.user_input', { text: 'Second question: any risks?' }),
+  event('4', 'turn.assistant_message', { text: 'The second answer.' }),
+]
+
+/**
+ * One reply streamed in three deltas whose start lies behind the window on screen:
+ * the newest retained event is the end of the message, the middle is one page back
+ * and the prompt and first delta are two pages back.
+ */
+export const SPLIT_REPLY = 'The build failed in two places.'
+const splitDelta = (seq: string, text: string, deltaIndex: number) =>
+  event(seq, 'turn.assistant_delta', { text, messageId: 'split-reply', deltaIndex })
+export const historySplitPrompt = event('1', 'turn.user_input', {
+  text: 'What failed in the build?',
+})
+export const historySplitStart = splitDelta('2', 'The build ', 0)
+export const historySplitMiddle = splitDelta('3', 'failed in ', 1)
+export const historySplitEnd = splitDelta('4', 'two places.', 2)
+/**
+ * A tall answer after the split reply with a code block in the middle: enough content
+ * above and below to read mid-way, and a control the reader can have focused.
+ */
+export const SPLIT_TAIL_MARKER = 'Closing paragraph of the long answer.'
+const splitParagraph = (index: number) =>
+  `Paragraph ${index} of the long answer explains one more detail about the build, with enough words to wrap onto a second line at a narrow width.`
+export const historySplitTail = event('5', 'turn.assistant_message', {
+  text: [
+    ...Array.from({ length: 12 }, (_, index) => splitParagraph(index + 1)),
+    '```bash',
+    'bun run build',
+    '```',
+    ...Array.from({ length: 12 }, (_, index) => splitParagraph(index + 13)),
+    SPLIT_TAIL_MARKER,
+  ].join('\n\n'),
+})
+
 export const LONG_APPROVAL_TAIL = 'FINAL STEP: drop table audit_log (irreversible)'
 export const longApprovalEvents: readonly RuntimeEvent[] = [
   event('1', 'turn.user_input', { text: 'Clean up the audit tables.' }),

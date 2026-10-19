@@ -110,3 +110,37 @@ describe('agent persona change decision', () => {
     expect(decide({ change: { profileId: '  ', profileVersion: 'pfv_2' } }).allowed).toBe(false)
   })
 })
+
+describe('persona policy error and immutable plan', () => {
+  test('errors retain the refusal reason and give the stale revision recovery message', async () => {
+    const { AgentPersonaPolicyError } = await import('../../src/agent-persona-policy')
+    for (const reason of [
+      'agent_unavailable',
+      'persona_change_would_broaden_grants',
+      'persona_stale_revision',
+      'persona_invalid_profile',
+    ] as const) {
+      const error = new AgentPersonaPolicyError(reason)
+      expect(error).toBeInstanceOf(Error)
+      expect(error.name).toBe('AgentPersonaPolicyError')
+      expect(error.reason).toBe(reason)
+      expect(error.message).toBe(
+        reason === 'persona_stale_revision'
+          ? 'Agent profile changed; refresh and retry'
+          : 'Agent persona change refused'
+      )
+    }
+  })
+
+  test('copies and freezes preserved authority without freezing the caller snapshot', () => {
+    const observed = agent({ projectId: 'project-1', isWorkspaceLead: true })
+    const decision = decide({ agent: observed })
+    expect(decision.allowed).toBe(true)
+    if (!decision.allowed) return
+    expect(Object.isFrozen(decision.plan)).toBe(true)
+    expect(Object.isFrozen(decision.plan.preservedAuthority)).toBe(true)
+    expect(decision.plan.preservedAuthority).not.toBe(observed)
+    expect(decision.plan.preservedAuthority).toEqual(observed)
+    expect(Object.isFrozen(observed)).toBe(false)
+  })
+})

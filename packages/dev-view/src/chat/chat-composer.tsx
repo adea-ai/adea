@@ -3,8 +3,10 @@ import { AtomicChatComposer } from '@adea-ai/ui/components/conversation/atomic'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
+import { Context, hasContextFigures } from '@adea-ai/ui/components/composites/context'
 
 import type { ChatConversation } from './model'
+import type { ChatUsageFigures } from './model/usage'
 import type { ChatDraftValue } from './model'
 import type { ChatDraftIdentity as ScopedChatDraftIdentity } from './draft'
 import { chatComposerDisabledReason } from './composer-availability'
@@ -42,6 +44,8 @@ export type ChatDraftChange = (
 
 export type ChatComposerProps = Readonly<{
   conversation: ChatConversation
+  /** What the producer reported about the context window; absent draws no trigger. */
+  usage?: ChatUsageFigures
   authority?: ChatInputAuthority
   connected?: boolean
   awaitingApproval?: boolean
@@ -523,28 +527,56 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
           </Show>
         }
         trailingActions={
-          <Show when={props.busy}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={disabled() || stopUnavailable()}
-              onClick={() => props.onStop?.()}
-            >
-              Stop
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={disabled() || steerUnavailable() || draft().text.trim().length === 0}
-              onClick={() =>
-                void submit({ text: draft().text, blocks: draft().blocks, action: 'steer' })
-              }
-            >
-              Steer
-            </Button>
-          </Show>
+          <>
+            <Show when={props.usage}>
+              {(usage) => {
+                const figures = () => ({
+                  ...(usage().used !== undefined ? { used: usage().used } : {}),
+                  ...(usage().total !== undefined ? { total: usage().total } : {}),
+                  ...(usage().breakdown !== undefined ? { breakdown: usage().breakdown } : {}),
+                })
+                return (
+                  <span
+                    class="inline-flex items-center gap-1.5"
+                    data-usage-model={usage().model.modelId}
+                  >
+                    <Show when={hasContextFigures(figures())}>
+                      <Context {...figures()} />
+                    </Show>
+                    <Show when={usage().cost}>
+                      {(cost) => (
+                        <span class="text-xs text-muted-foreground" data-usage-cost="">
+                          Cost {cost().amount} {cost().currency}
+                        </span>
+                      )}
+                    </Show>
+                  </span>
+                )
+              }}
+            </Show>
+            <Show when={props.busy}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled() || stopUnavailable()}
+                onClick={() => props.onStop?.()}
+              >
+                Stop
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled() || steerUnavailable() || draft().text.trim().length === 0}
+                onClick={() =>
+                  void submit({ text: draft().text, blocks: draft().blocks, action: 'steer' })
+                }
+              >
+                Steer
+              </Button>
+            </Show>
+          </>
         }
       />
     </section>

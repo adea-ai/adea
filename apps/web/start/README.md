@@ -13,6 +13,12 @@ Worker setup, secrets, and caching.
 - `src/start/worker.ts` is the Worker entry. It captures Cloudflare bindings
   (Hyperdrive), enforces the migration-era HTTP policy for dynamic responses,
   and runs the account entry policy before any workspace document is rendered.
+  Requests for the unsupported root scripts `/wp-login.php` and `/xmlrpc.php`
+  receive a small private/no-store 404 before document rendering. API paths,
+  invitation paths and auth return targets retain their existing handlers.
+  Secret-store hydration still precedes this policy; the rejection avoids SSR,
+  not all upstream Worker work. HEAD returns the same status/private headers
+  with an empty body; GET and POST retain the small text response.
 - `src/start/routes/` holds the route tree: the root document, the auth
   documents, and every API route that previously lived in the Next app. API
   routes are ordinary `createFileRoute(...)` files with `server.handlers`
@@ -59,12 +65,21 @@ modules recorded by the client build and fail if a rendered module is missing.
 Type-only imports are ignored; unresolved shared UI imports and non-literal
 runtime imports fail closed because their Tailwind sources cannot be proven.
 
-Shared lazy utility models and shared UI primitives use separate chunk groups in
-`vite.config.ts`. Neither group recursively absorbs dependencies or pane components;
-model dependencies must not become Chat dependencies. At the #1385 repair,
+The shared utility host, command helper and lazy status models use one
+nonrecursive chunk group in `vite.config.ts`; shared UI primitives use another.
+Other pane components and model dependencies retain their existing boundaries,
+and model dependencies must not become Chat dependencies. Short internal names
+for the navigation-icon and shared-primitive groups reduce repeated preload-path
+bytes without changing those boundaries. At the #1385 repair,
 consolidating the existing small shared chunks reduced the measured Dev utility
 closure from 185,636 to 185,165 raw bytes and 16 to 12 files, within the unchanged
 185,344-byte budget. Every route/startup closure remains checked by `start:verify`.
+Runtime-contract grouping is nonrecursive so focused reply DTO dependencies keep
+their existing lazy boundaries. The lean envelope, kind discriminators, Unicode
+and CBOR length helpers stay together; complete event semantics remain a separate
+module so history admission does not pull its validators into unrelated utilities.
+Shared lazy badge and empty primitives co-locate with the existing lazy UI helpers,
+using the same grouping qualified on the runtime queue integration.
 
 ## Entry policy
 
@@ -132,6 +147,13 @@ Start, unknown paths cannot become an unguarded workspace shell, a failed
 workspace import produces a recoverable route error, view switching preserves
 query state, and guest cookies/durable writes/tenant isolation hold.
 
+The root Playwright config gives its managed dev Worker the same validated
+`DATABASE_URL` as the Node fixtures, using Hyperdrive's
+`CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` override. This keeps
+an isolated worktree database from being mixed with `wrangler.jsonc`'s default
+local port. With `PERF_BASE_URL`, the server is managed externally: set that
+override to the same test database when starting it.
+
 ### Visual regression
 
 `bun run test:e2e:visual` runs `apps/web/e2e/conventional-workspace.spec.ts`
@@ -184,3 +206,34 @@ cleanup is required. Do not reset or delete user data.
 - [TanStack Solid Router search params](https://tanstack.com/router/latest/docs/framework/solid/guide/search-params)
 - [Cloudflare Vite plugin](https://developers.cloudflare.com/workers/vite-plugin/)
 - [Decision 0007: SolidJS on TanStack Start](../../../docs/decisions/0007-solid-tanstack-start.md)
+
+## Stream disconnect qualification
+
+Both `wrangler.jsonc` and the release deploy configuration in
+`cloudflare.config.ts` opt in to Cloudflare's `enable_request_signal` flag so
+an incoming disconnect can reach the event route's existing abort handler. That
+handler stops the poll loop, releases its connection slot and lets the retained
+request scope close its database client after in-flight work settles. The route's
+authorization and cleanup ordering are unchanged.
+
+Disconnect notification is write-driven in the native local fixture. An idle
+connection can wait until the next 15-second heartbeat; this is not a promise of
+immediate TCP-disconnect detection or a hosted timing bound. Wrangler's local
+HTTP proxy added another heartbeat interval in the 2026-10-18 diagnostic.
+
+After building, run `bun run --cwd apps/web start:test:disconnect`. It resolves
+workerd from the locked Wrangler dependency and serves the current built Worker
+directly on loopback HTTPS, with an isolated synthetic PostgreSQL database and
+local Hyperdrive TCP binding. The no-flag control must continue polling after
+socket closure; configured idle and active streams must abort, close the original
+stream database connection once, and issue zero SQL in three settled ten-second
+windows. The client closes its response, request and socket explicitly. The
+fixture passes no production credentials, restricts Worker outbound traffic to
+loopback, and removes only its own processes, database and compose volume.
+`start:test:local` includes this regression after the existing browser checks.
+
+The timestamped evidence is in
+[`docs/evidence/worker-disconnect-2026-10-18.json`](../../../docs/evidence/worker-disconnect-2026-10-18.json).
+The captured 12:09 UTC deployment used for diagnosis predates the later release
+#1463 deployment. These local results do not establish current production CPU,
+Hyperdrive usage, Neon cost reductions, or browser hidden/resume behavior.

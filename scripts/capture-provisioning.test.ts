@@ -2,7 +2,7 @@
 // that records every call and answers the subcommands the helper uses, so these tests need no daemon and
 // never touch a real container. The real-Docker path is covered by scripts/smoke/capture-provisioning.smoke.test.ts.
 
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, spyOn, test } from 'bun:test'
 import {
   chmodSync,
   existsSync,
@@ -14,6 +14,12 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+
+import {
+  dockerCaptureRun,
+  dockerDaemonAvailable,
+  startCaptureProvisioning,
+} from './capture-provisioning.mjs'
 
 const helper = resolve(import.meta.dir, 'capture-provisioning.mjs')
 
@@ -58,7 +64,7 @@ import { startCaptureProvisioning } from ${JSON.stringify(helper)}
 const mode = process.argv[2]
 if (mode === 'no-ready') {
   writeFileSync(process.env.CHILD_PID_FILE, String(process.pid))
-  console.log('STARTED WITHOUT READY')
+  console.error('STARTED WITHOUT READY')
   setInterval(() => {}, 1000)
   await new Promise(() => {})
 }
@@ -205,6 +211,10 @@ async function startChild(
     stdout: 'pipe',
   })
   try {
+    // The no-ready proof times the readiness wait, not process startup. Its
+    // separate, bounded stderr acknowledgement follows the PID write, so a
+    // slow spawn cannot expire the 100 ms wait before the child is running.
+    if (mode === 'no-ready') await readUntil(child.stderr, /STARTED WITHOUT READY/)
     const [, name] = await readUntil(
       child.stdout,
       /READY (adea-capture-prov-[0-9a-f]+)/,
@@ -563,5 +573,178 @@ describe('startFromCaptureImage deadline', () => {
     )
     // The canonical attempt uses 600 ms, one fallback uses 600 more, and then nothing is left.
     expect(attempts).toBe(2)
+  })
+})
+
+async function withInstrumentedCapture(
+  settings: Record<string, string>,
+  run: (
+    log: string,
+    owned: (event: string) => ReturnType<typeof process.listeners>
+  ) => void | Promise<void>,
+  script = dockerShim
+) {
+  const directory = mkdtempSync(join(tmpdir(), 'adea-capture-unit-'))
+  const previous = { env: process.env, exitCode: process.exitCode }
+  const events = ['exit', 'SIGINT', 'SIGTERM']
+  const listeners = new Map(events.map((event) => [event, new Set(process.listeners(event))]))
+  const log = join(directory, 'calls')
+  try {
+    writeFileSync(log, '')
+    writeFileSync(join(directory, 'docker'), script)
+    chmodSync(join(directory, 'docker'), 0o755)
+    process.env = { PATH: `${directory}:/usr/bin:/bin`, SHIM_LOG: log, ...settings }
+    await run(log, (event) =>
+      process.listeners(event).filter((listener) => !listeners.get(event)?.has(listener))
+    )
+  } finally {
+    // Normal stop intentionally retains signal listeners in production. The
+    // unit owns and removes only the listeners created by its own handle.
+    for (const event of events)
+      for (const listener of process.listeners(event))
+        if (!listeners.get(event)?.has(listener)) process.off(event, listener)
+    process.env = previous.env
+    // Bun ignores undefined assignments; restore the default successful status explicitly.
+    process.exitCode = previous.exitCode ?? 0
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
+describe('instrumented capture ownership and cleanup with stub Docker', () => {
+  test('registers before start, uses the mapped loopback port and removes its own container once', async () => {
+    await withInstrumentedCapture({}, (log) => {
+      let registered = ''
+      const handle = startCaptureProvisioning(
+        (candidate) => {
+          registered = candidate.containerName
+          expect(candidate.databaseUrl).toBeNull()
+          expect(readFileSync(log, 'utf8')).not.toContain('run ')
+        },
+        { removalTimeoutMs: 2000, backoffMs: [] }
+      )
+      if (!handle) throw new Error('Stub daemon unavailable')
+      try {
+        expect(handle.containerName).toBe(registered)
+        const target = new URL(handle.databaseUrl)
+        expect(target.hostname).toBe('127.0.0.1')
+        expect(target.port).toBe('54329')
+        expect(target.pathname).toBe('/postgres')
+      } finally {
+        handle.stop()
+      }
+      handle.stop()
+      const recordedCommands = readFileSync(log, 'utf8').trim().split('\n')
+      expect(recordedCommands.filter((line) => line.startsWith('rm '))).toEqual([
+        `rm -f ${registered}`,
+      ])
+      expect(recordedCommands.some((line) => line.includes('pg_isready -h 127.0.0.1'))).toBe(true)
+    })
+  })
+
+  test('unavailable Docker returns null before registering a handle', async () => {
+    const previous = process.env
+    let registered = false
+    try {
+      process.env = { PATH: noDockerPath }
+      expect(dockerDaemonAvailable()).toBe(false)
+      expect(
+        startCaptureProvisioning(() => {
+          registered = true
+        })
+      ).toBeNull()
+      expect(registered).toBe(false)
+    } finally {
+      process.env = previous
+    }
+  })
+
+  test('start failure and retry exhaustion both retain cleanup ownership', async () => {
+    const warning = spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      for (const mode of ['fail', 'all'])
+        await withInstrumentedCapture({ SHIM_RUN: mode }, (log) => {
+          let name = ''
+          expect(() =>
+            startCaptureProvisioning(
+              (handle) => {
+                name = handle.containerName
+              },
+              { removalTimeoutMs: 2000, backoffMs: [0], budgetMs: 10000 }
+            )
+          ).toThrow('starting the throwaway capture provisioning container')
+          expect(readFileSync(log, 'utf8')).toContain(`rm -f ${name}`)
+          if (mode === 'all')
+            expect(
+              readFileSync(log, 'utf8')
+                .split('\n')
+                .filter((line) => line.startsWith('run '))
+            ).toHaveLength(6)
+        })
+    } finally {
+      warning.mockRestore()
+    }
+  })
+
+  test('a broken port mapping removes the started container rather than returning an unusable URL', async () => {
+    await withInstrumentedCapture(
+      {},
+      (log) => {
+        expect(() =>
+          startCaptureProvisioning(undefined, { removalTimeoutMs: 2000, backoffMs: [] })
+        ).toThrow('unreadable provisioning port mapping')
+        expect(readFileSync(log, 'utf8')).toContain('rm -f adea-capture-prov-')
+      },
+      dockerShim.replace('port) echo "127.0.0.1:54329"; exit 0 ;;', 'port) echo ""; exit 0 ;;')
+    )
+  })
+
+  test('owned signal callback removes once and re-raises only that signal', async () => {
+    const kill = spyOn(process, 'kill').mockImplementation(() => true)
+    try {
+      await withInstrumentedCapture({}, (log, owned) => {
+        const handle = startCaptureProvisioning(undefined, {
+          removalTimeoutMs: 2000,
+          backoffMs: [],
+        })
+        if (!handle) throw new Error('Stub daemon unavailable')
+        const signal = owned('SIGTERM')[0]
+        expect(signal).toBeDefined()
+        signal?.()
+        expect(kill).toHaveBeenCalledWith(process.pid, 'SIGTERM')
+        expect(readFileSync(log, 'utf8')).toContain(`rm -f ${handle.containerName}`)
+        expect(owned('SIGTERM')).toHaveLength(0)
+      })
+    } finally {
+      kill.mockRestore()
+    }
+  })
+
+  test('owned exit cleanup failure fails a clean exit and preserves an existing failure', async () => {
+    const error = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      for (const code of [0, 7])
+        await withInstrumentedCapture({ SHIM_RM: 'fail' }, (_log, owned) => {
+          const handle = startCaptureProvisioning(undefined, {
+            removalTimeoutMs: 2000,
+            backoffMs: [],
+          })
+          if (!handle) throw new Error('Stub daemon unavailable')
+          const exit = owned('exit')[0]
+          process.exitCode = code
+          exit?.(code)
+          expect(process.exitCode).toBe(code === 0 ? 1 : 7)
+          expect(error.mock.calls.flat().join(' ')).toContain(handle.containerName)
+        })
+    } finally {
+      error.mockRestore()
+    }
+  })
+
+  test('direct Docker command errors preserve context and do not silently succeed', async () => {
+    await withInstrumentedCapture({ SHIM_RUN: 'fail' }, () => {
+      expect(() => dockerCaptureRun(['run', 'fixture'], 'fixture operation', 2000)).toThrow(
+        'fixture operation failed: docker: Error response from daemon: manifest unknown'
+      )
+    })
   })
 })

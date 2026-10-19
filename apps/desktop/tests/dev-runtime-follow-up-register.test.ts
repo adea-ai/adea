@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { createHmac, randomBytes, randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -21,13 +21,21 @@ import { registerHarnessRuntime } from '../shell/src/dev-runtime/harness/registe
 import { createRepoMutationOwner } from '../shell/src/dev-runtime/worktrees/mutation-owner'
 import { createFollowUpStorage } from '../shell/src/dev-runtime/harness/follow-up-storage'
 import type { AcpLaneDriver } from '../shell/src/dev-runtime/harness/acp-lane'
+import type { CheckpointRestoreAdapter } from '../shell/src/dev-runtime/harness/checkpoints'
 
 const scope = {
   accountId: '00000000-0000-4000-8000-000000000001',
   workspaceId: '00000000-0000-4000-8000-000000000002',
   runtimeNodeId: '00000000-0000-4000-8000-000000000003',
 }
-function boot(withDelivery = true, withKey = true) {
+function boot(
+  withDelivery = true,
+  withKey = true,
+  restore?: {
+    adapter: CheckpointRestoreAdapter
+    timeoutMs?: number
+  }
+) {
   const dataDir = mkdtempSync(join(tmpdir(), 'adea-follow-up-gate-'))
   if (withKey) {
     mkdirSync(join(dataDir, 'desktop-state'))
@@ -47,7 +55,12 @@ function boot(withDelivery = true, withKey = true) {
     projection: 'structured',
     generation: 1,
     version: 1,
+    ...(restore ? { harnessInstallationId: 'installation-1' } : {}),
   }
+  const restoreCommits = new Map<
+    string,
+    { runtimeSessionId: string; generation: number; version: number }
+  >()
   let revoked = false
   let admission: (() => Promise<void>) | undefined
   const authority = createChannelAuthority({
@@ -104,9 +117,18 @@ function boot(withDelivery = true, withKey = true) {
     dataDir,
     scope,
     acpDriver: driver,
+    checkpointRestoreAdapter: restore?.adapter,
+    checkpointRestoreTimeoutMs: restore?.timeoutMs,
+    getSessionRestoreCommit: (id) => restoreCommits.get(id),
     resolveSession: (id) => (id === session.id ? session : undefined),
-    persistSession: (next) => {
+    persistSession: (next, restoreId) => {
       session = next
+      if (restoreId)
+        restoreCommits.set(restoreId, {
+          runtimeSessionId: next.id,
+          generation: next.generation,
+          version: next.version,
+        })
     },
   })
   const run: HarnessRun = {
@@ -188,6 +210,7 @@ function boot(withDelivery = true, withKey = true) {
   return {
     dataDir,
     host,
+    current: () => session,
     authority,
     command,
     execute,
@@ -217,6 +240,91 @@ function value(reply: DevReply): Record<string, unknown> {
 }
 
 describe('follow-up production registration and M10 gate', () => {
+  for (const retained of [
+    { runtimeSessionId: 'unrelated-session', generation: 1 },
+    { runtimeSessionId: 'session-1', generation: 0 },
+  ])
+    test(`queue publication ignores quarantined usage outside its exact binding: ${JSON.stringify(retained)}`, async () => {
+      const s = boot(false)
+      try {
+        s.host.events.append({
+          ...retained,
+          kind: 'capability.restored',
+          sourceEventId: 'legacy-usage',
+        })
+        const file = join(s.dataDir, 'dev-runtime', 'harness', 'session-events.json')
+        const stored = JSON.parse(readFileSync(file, 'utf8'))
+        stored.records[0].kind = 'usage.observed'
+        stored.records[0].payload = { tokens: 123 }
+        writeFileSync(file, JSON.stringify(stored))
+        expect(() => s.host.events.events()).toThrow()
+        expect(
+          value(
+            await s.execute(
+              s.command({
+                ...s.target,
+                action: 'enqueue',
+                expectedVersion: 0,
+                messageId: 'healthy',
+                text: 'valid follow up',
+              })
+            )
+          )
+        ).toMatchObject({ version: 1, items: [{ id: 'healthy' }] })
+        expect(value(await s.execute(s.command({ ...s.target, action: 'read' })))).toMatchObject({
+          version: 1,
+        })
+        const saved = JSON.parse(readFileSync(file, 'utf8'))
+        expect(
+          saved.records.find(
+            (event: { sourceEventId: string }) => event.sourceEventId === 'legacy-usage'
+          )
+        ).toEqual(stored.records[0])
+        expect(() =>
+          s.host.events.read(retained.runtimeSessionId, { generation: retained.generation })
+        ).toThrow()
+      } finally {
+        s.cleanup()
+      }
+    })
+
+  test('publication witness searches every retained page of only the target generation', async () => {
+    const s = boot(false)
+    try {
+      for (let i = 0; i < 501; i++)
+        s.host.events.append({
+          ...s.target,
+          generation: 1,
+          kind: 'capability.restored',
+          sourceEventId: `page-${i}`,
+        })
+      const unsubscribe = s.host.events.subscribe('session-1', (event) => {
+        if (event.kind === 'queue.updated') throw new Error('subscriber interrupted after append')
+      })
+      const request = {
+        ...s.target,
+        action: 'enqueue',
+        expectedVersion: 0,
+        messageId: 'later-page',
+        text: 'one follow up',
+      }
+      expect(
+        await s.execute(s.command(request, 'dev.session.followUps', 'later-page-retry'))
+      ).toMatchObject({ ok: false })
+      unsubscribe()
+      expect(
+        value(await s.execute(s.command(request, 'dev.session.followUps', 'later-page-retry')))
+      ).toMatchObject({ version: 1, items: [{ id: 'later-page' }] })
+      expect(
+        s.host.events
+          .read('session-1', { generation: 1, fromSequence: '501', limit: 10 })
+          .filter((event) => event.kind === 'queue.updated')
+      ).toHaveLength(1)
+    } finally {
+      s.cleanup()
+    }
+  })
+
   test('applies the full queue schema on the host before any state change', async () => {
     const s = boot(false)
     try {
@@ -626,4 +734,163 @@ describe('follow-up production registration and M10 gate', () => {
       s.cleanup()
     }
   })
+})
+
+function restoreReceipt(input: Parameters<CheckpointRestoreAdapter['restore']>[0]) {
+  return {
+    status: 'restored' as const,
+    restoreId: input.restoreId,
+    expectedGeneration: input.session.generation,
+    runtimeSessionId: input.session.id,
+    harnessRunId: 'run-1',
+    checkpointId: input.checkpoint.checkpointId,
+    providerRestoreId: `confirmed-${input.restoreId}`,
+    observedAt: new Date().toISOString(),
+  }
+}
+function checkpoint(s: ReturnType<typeof boot>) {
+  return s.host.checkpoints.observe({
+    runtimeSessionId: 'session-1',
+    expectedGeneration: 1,
+    checkpointId: 'checkpoint-1',
+    name: 'Before follow-up',
+    createdAt: new Date().toISOString(),
+    sourceEventId: 'native-checkpoint-1',
+  })!
+}
+
+test('checkpoint restore cannot overlap a held physical ACP follow-up and retries only after settlement', async () => {
+  let calls = 0
+  const s = boot(true, true, {
+    adapter: {
+      installationId: 'installation-1',
+      source: 'native',
+      restore: async (input) => {
+        input.assertCurrent()
+        calls++
+        return restoreReceipt(input)
+      },
+    },
+  })
+  let releaseSend!: () => void
+  let enteredSend!: () => void
+  const held = new Promise<void>((resolve) => {
+    releaseSend = resolve
+  })
+  const entered = new Promise<void>((resolve) => {
+    enteredSend = resolve
+  })
+  try {
+    await s.connect()
+    const observed = checkpoint(s)
+    value(
+      await s.execute(
+        s.command({
+          ...s.target,
+          action: 'enqueue',
+          expectedVersion: 0,
+          messageId: 'a',
+          text: 'held physical prompt',
+        })
+      )
+    )
+    value(
+      await s.execute(
+        s.command(
+          { ...s.target, harnessRunId: 'run-1', state: 'awaiting_input', source: 'native' },
+          'dev.harness.runStatus'
+        )
+      )
+    )
+    s.setHandoff(async (text) => {
+      enteredSend()
+      await held
+      return {
+        ok: true,
+        bytes: new TextEncoder().encode(text).byteLength,
+        processIdentity: 'fake-pid',
+      }
+    })
+    const sending = s.execute(s.command({ ...s.target, action: 'deliver', expectedVersion: 1 }))
+    await entered
+    const body = { ...s.target, checkpointEventId: observed.eventId }
+    expect(
+      await s.execute(s.command(body, 'dev.session.restoreCheckpoint', 'blocked-restore'))
+    ).toMatchObject({ ok: false, error: { code: 'invalid_state' } })
+    expect(calls).toBe(0)
+    expect(s.current().generation).toBe(1)
+    releaseSend()
+    expect(await sending).toMatchObject({ ok: true })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(
+      await s.execute(s.command(body, 'dev.session.restoreCheckpoint', 'settled-restore'))
+    ).toMatchObject({ ok: true, value: { status: 'resolved', restoredGeneration: 2 } })
+    expect(calls).toBe(1)
+    expect(s.current().generation).toBe(2)
+    expect(
+      await s.execute(s.command({ ...s.target, action: 'deliver', expectedVersion: 3 }))
+    ).toMatchObject({ ok: false, error: { code: 'stale_generation' } })
+  } finally {
+    releaseSend()
+    await new Promise((resolve) => setImmediate(resolve))
+    s.cleanup()
+  }
+})
+
+test('checkpoint restore retains the physical claim through timeout and a late fenced receipt', async () => {
+  let releaseRestore!: () => void
+  let enteredRestore!: () => void
+  const entered = new Promise<void>((resolve) => {
+    enteredRestore = resolve
+  })
+  const s = boot(true, true, {
+    timeoutMs: 5,
+    adapter: {
+      installationId: 'installation-1',
+      source: 'native',
+      restore: (input) => {
+        input.assertCurrent()
+        enteredRestore()
+        return new Promise((resolve) => {
+          releaseRestore = () => resolve(restoreReceipt(input))
+        })
+      },
+    },
+  })
+  const claims = createFollowUpStorage({ dataDir: s.dataDir, scope })
+  try {
+    await s.connect()
+    const observed = checkpoint(s)
+    const request = s.command(
+      { ...s.target, checkpointEventId: observed.eventId },
+      'dev.session.restoreCheckpoint',
+      'late-restore'
+    )
+    const restoring = s.execute(request)
+    await entered
+    expect(await restoring).toMatchObject({ ok: false, error: { code: 'delivery_ambiguous' } })
+    expect(s.current().generation).toBe(1)
+    const overlap = await claims.tryDeliveryClaim('session-1')
+    overlap?.()
+    expect(overlap).toBeUndefined()
+    expect(() => s.host.checkpoints.assertInputAvailable('session-1')).toThrow()
+    expect(s.host.events.events().some((item) => item.kind === 'checkpoint.restore_failed')).toBe(
+      false
+    )
+    releaseRestore()
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(s.current().generation).toBe(2)
+    expect(() => s.host.checkpoints.assertInputAvailable('session-1')).not.toThrow()
+    const released = await claims.tryDeliveryClaim('session-1')
+    expect(released).toBeDefined()
+    released?.()
+    expect(
+      await s.execute(s.command(request.body, 'dev.session.restoreCheckpoint', 'late-restore'))
+    ).toMatchObject({ ok: true, value: { status: 'resolved', restoredGeneration: 2 } })
+    expect(s.current().generation).toBe(2)
+  } finally {
+    releaseRestore?.()
+    await new Promise((resolve) => setImmediate(resolve))
+    s.cleanup()
+  }
 })

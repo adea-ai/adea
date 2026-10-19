@@ -2,7 +2,12 @@ import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
 import { createMemo, createSignal, For, onCleanup, onMount } from 'solid-js'
 import { ChatView } from './chat-view'
 import type { ChatDraftChange } from './chat-composer'
-import { acceptRuntimeEvent, createTranscriptAccumulator } from './model/transcript'
+import {
+  acceptRuntimeEvent,
+  acceptRuntimeStreamFrame,
+  createTranscriptAccumulator,
+} from './model/transcript'
+import { createRuntimeHistoryLoader } from './model/history'
 import type {
   ChatConversation,
   ChatConversationModel,
@@ -10,6 +15,7 @@ import type {
   TranscriptAccumulator,
 } from './model'
 import {
+  callEvents,
   cancelledEvents,
   codeStreamTexts,
   copyEvents,
@@ -27,6 +33,15 @@ import {
   retentionStreamEvents,
   retentionStreamScript,
   retentionTurnEvents,
+  resultEvents,
+  resultEdgeEvents,
+  historyNewest,
+  historyOlder,
+  historySplitEnd,
+  historySplitMiddle,
+  historySplitPrompt,
+  historySplitStart,
+  historySplitTail,
   retentionTurnScript,
   richEvents,
 } from './visual-fixture-data'
@@ -59,6 +74,22 @@ export type ChatVisualFixtureState =
   | 'grounded-stopped'
   /** Untrusted text in every summary and reference field. */
   | 'grounded-hostile'
+  /** Tool and subagent calls with producer identity: nested, failed, running and orphaned. */
+  | 'calls'
+  /** Structured results: terminal output, a failing test run with a stack, files, a plan and a task. */
+  | 'results'
+  /** Results that must not say more than the producer did, in a session that has stopped. */
+  | 'results-edge'
+  /** One earlier turn that loads when asked. */
+  | 'history'
+  /** The same, but the first request for it fails and the second succeeds. */
+  | 'history-retry'
+  /** The same, but every request fails. */
+  | 'history-offline'
+  /** One reply whose start is two history pages back; the real loader restores it. */
+  | 'history-split'
+  /** A live stream the test can close, with or without the host refusing its position. */
+  | 'stream-close'
   /** An approval whose request is longer than the card's description shows. */
   | 'approval-long'
   /** The real accumulator, one event per `chat-visual:append` (or `detail.count`): a turn whose prompt is evicted. */
@@ -84,6 +115,13 @@ const STATE_EVENTS: Partial<Record<ChatVisualFixtureState, readonly RuntimeEvent
   'grounded-stopped': groundedStoppedEvents,
   'grounded-hostile': groundedHostileEvents,
   'approval-long': longApprovalEvents,
+  calls: callEvents,
+  results: resultEvents,
+  'results-edge': resultEdgeEvents,
+  history: historyNewest,
+  'history-retry': historyNewest,
+  'history-offline': historyNewest,
+  'history-split': [historySplitEnd, historySplitTail],
   'retention-turn': retentionTurnEvents,
   'retention-stream': retentionStreamEvents,
 }
@@ -153,7 +191,7 @@ function conversation(
         ? 'disconnected'
         : state === 'failed'
           ? 'failed'
-          : state === 'cancelled' || state === 'grounded-stopped'
+          : state === 'cancelled' || state === 'grounded-stopped' || state === 'results-edge'
             ? 'cancelled'
             : state === 'empty' || state === 'grounded' || state === 'grounded-hostile'
               ? 'ready'
@@ -329,6 +367,186 @@ function streamingModel(
 }
 
 /**
+ * A stream that holds one earlier turn back until the reader asks for it. With `failFirst`
+ * the first request rejects (the turn stays unloaded and retryable) and the second lands it.
+ */
+function historyModel(
+  mode: 'ok' | 'fail-first' | 'offline'
+): Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> {
+  return {
+    openTranscript: async () => {
+      let state: TranscriptAccumulator = {
+        runtimeSessionId: sessionId,
+        generation: 3,
+        fromSequence: '3',
+        events: historyNewest,
+        availability: { status: 'available' },
+        retention: { maxEvents: 1_000, oldestSequence: '3', newestSequence: '4', complete: false },
+      }
+      let older = true
+      let attempts = 0
+      const listeners = new Set<(state: TranscriptAccumulator) => void>()
+      return {
+        state: () => state,
+        subscribe: (listener: (state: TranscriptAccumulator) => void) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        hasOlder: () => older,
+        loadOlder: async () => {
+          attempts += 1
+          ;(window as unknown as { chatHistoryAttempts?: number }).chatHistoryAttempts = attempts
+          await new Promise((resolve) => setTimeout(resolve, 50))
+          if (mode === 'offline' || (mode === 'fail-first' && attempts === 1))
+            throw new Error('offline')
+          older = false
+          state = {
+            ...state,
+            events: [...historyOlder, ...state.events],
+            retention: { ...state.retention, oldestSequence: '1', complete: true },
+          }
+          for (const listener of listeners) listener(state)
+        },
+        close: () => listeners.clear(),
+      }
+    },
+    send: async () => undefined,
+    cancel: async () => conversation('streaming', historyNewest),
+  }
+}
+
+const splitHistoryPage = (before: string, items: readonly RuntimeEvent[], more: boolean) => ({
+  runtimeSessionId: sessionId,
+  generation: 3,
+  beforeSequence: before,
+  retainedFromSequence: '1',
+  retainedThroughSequence: before,
+  historyStart: 'generation_start' as const,
+  items,
+  ...(more ? { nextCursor: 'older' } : {}),
+})
+
+/**
+ * The real accumulator and history loader over a reply that straddles the pages: the
+ * window on screen holds only its last delta, so nothing of it may be drawn until the
+ * pages that restore its start have loaded. Each request is counted for the test.
+ */
+function splitHistoryModel(): Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> {
+  return {
+    openTranscript: async () => {
+      let state: TranscriptAccumulator = acceptRuntimeEvent(
+        acceptRuntimeEvent(
+          createTranscriptAccumulator({
+            runtimeSessionId: sessionId,
+            generation: 3,
+            fromSequence: '4',
+          }),
+          historySplitEnd
+        ),
+        historySplitTail
+      )
+      const listeners = new Set<(state: TranscriptAccumulator) => void>()
+      let attempts = 0
+      const loader = createRuntimeHistoryLoader({
+        state: () => state,
+        commit: (next) => {
+          state = next
+          for (const listener of listeners) listener(state)
+        },
+        read: async (request) => {
+          attempts += 1
+          ;(window as unknown as { chatHistoryAttempts?: number }).chatHistoryAttempts = attempts
+          await new Promise((resolve) => setTimeout(resolve, 50))
+          return 'cursor' in request
+            ? splitHistoryPage('3', [historySplitPrompt, historySplitStart], false)
+            : splitHistoryPage('4', [historySplitMiddle], true)
+        },
+      })
+      // The test loads the earlier pages itself, from wherever the reader is scrolled to.
+      const loadOlder = () => void loader.loadOlder().catch(() => undefined)
+      window.addEventListener('chat-visual:load-older', loadOlder)
+      return {
+        state: () => state,
+        subscribe: (listener: (state: TranscriptAccumulator) => void) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        hasOlder: loader.hasOlder,
+        loadOlder: loader.loadOlder,
+        close: () => {
+          window.removeEventListener('chat-visual:load-older', loadOlder)
+          loader.close()
+          listeners.clear()
+        },
+      }
+    },
+    send: async () => undefined,
+    cancel: async () => conversation('streaming', [historySplitEnd, historySplitTail]),
+  }
+}
+
+/**
+ * A live stream that ends when told to: `chat-visual:close` carries the close code and,
+ * optionally, the error code the host sent before it. Every open records the position it
+ * asked for, so a test can see what a reconnect requests.
+ */
+function closableModel(): Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> {
+  return {
+    openTranscript: async (_runtimeSessionId, options) => {
+      const opens = ((window as unknown as { chatStreamOpens?: string[] }).chatStreamOpens ??= [])
+      opens.push(options?.fromSequence ?? '')
+      // `chatStreamScript` scripts the next opens: `fail` rejects, `closed` returns a handle
+      // that ended before anyone subscribed, `refused` one the host ended by refusing the cursor.
+      const script = (window as unknown as { chatStreamScript?: string[] }).chatStreamScript
+      const step = script?.shift() ?? 'ok'
+      if (step === 'fail') throw new Error('Runtime stream unavailable.')
+      let state = createTranscriptAccumulator({ runtimeSessionId: sessionId, generation: 3 })
+      for (const item of transcriptEvents) state = acceptRuntimeEvent(state, item)
+      const listeners = new Set<(state: TranscriptAccumulator) => void>()
+      const end = (detail: { code: string; error?: string }) => {
+        if (detail.error !== undefined)
+          state = acceptRuntimeStreamFrame(
+            state,
+            {
+              type: 'error',
+              error: {
+                code: detail.error,
+                message: 'The host refused the stream.',
+                retryable: false,
+              },
+            } as never,
+            'native'
+          )
+        state = acceptRuntimeStreamFrame(
+          state,
+          { type: 'close', code: detail.code } as never,
+          'native'
+        )
+        for (const listener of listeners) listener(state)
+      }
+      const onClose = (closeEvent: Event) =>
+        end((closeEvent as CustomEvent<{ code: string; error?: string }>).detail)
+      if (step === 'closed') end({ code: 'normal' })
+      if (step === 'refused') end({ code: 'incompatible', error: 'sequence_gap' })
+      window.addEventListener('chat-visual:close', onClose)
+      return {
+        state: () => state,
+        subscribe: (listener: (state: TranscriptAccumulator) => void) => {
+          listeners.add(listener)
+          return () => listeners.delete(listener)
+        },
+        close: () => {
+          listeners.clear()
+          window.removeEventListener('chat-visual:close', onClose)
+        },
+      }
+    },
+    send: async () => undefined,
+    cancel: async () => conversation('streaming', transcriptEvents),
+  }
+}
+
+/**
  * A transcript fed through the real accumulator, so the window fills and drops
  * its oldest event exactly as a live session's does. Each `chat-visual:append`
  * adds `detail.count` events (default one) and tells the subscriber once.
@@ -389,7 +607,21 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
               ? retainingModel(retentionTurnEvents, retentionTurnScript)
               : state === 'retention-stream'
                 ? retainingModel(retentionStreamEvents, retentionStreamScript)
-                : undefined
+                : state === 'stream-close'
+                  ? closableModel()
+                  : state === 'history-split'
+                    ? splitHistoryModel()
+                    : state === 'history' ||
+                        state === 'history-retry' ||
+                        state === 'history-offline'
+                      ? historyModel(
+                          state === 'history'
+                            ? 'ok'
+                            : state === 'history-retry'
+                              ? 'fail-first'
+                              : 'offline'
+                        )
+                      : undefined
   const [draft, setDraft] = createSignal<ChatDraftValue>({
     text: state === 'attention' ? 'I can clarify the target environment.' : '',
     blocks: [],
@@ -487,15 +719,29 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                 conversation={activeConversation()}
                 model={currentModel}
                 authority="chat"
-                connected={state !== 'reconnect'}
+                // The closable stream reports its own state; every other fixture is simply connected.
+                connected={state === 'stream-close' ? undefined : state !== 'reconnect'}
                 awaitingApproval={state === 'attention' || state === 'rich'}
+                handoff={
+                  new URLSearchParams(window.location.search).has('chatHandoff') ? {} : undefined
+                }
+                usageModel={
+                  state === 'results-edge'
+                    ? { providerId: 'anthropic', modelId: 'fixture-model' }
+                    : undefined
+                }
                 autoAttach={
                   state === 'reconnect' ||
                   state === 'streaming' ||
                   state === 'code-stream' ||
                   state === 'grounded-stream' ||
                   state === 'retention-turn' ||
-                  state === 'retention-stream'
+                  state === 'retention-stream' ||
+                  state === 'history' ||
+                  state === 'history-retry' ||
+                  state === 'history-offline' ||
+                  state === 'history-split' ||
+                  state === 'stream-close'
                 }
                 draftRevision={fallbackDraftModel ? undefined : draftRevision()}
                 onDraftChange={onDraftChange}

@@ -20,9 +20,12 @@ import type { AgentLifecycleState } from '@adea-ai/types'
 import type { ChatConversation } from './types'
 import {
   bindTargetObservation,
+  deriveChildEvidence,
   deriveChildJobRows,
   deriveHandoffActivity,
   type HandoffActivity,
+  type HandoffChildEvidence,
+  type HandoffChildObservations,
   type HandoffChildJob,
   type HandoffChildJobRow,
   type HandoffTargetObservation,
@@ -332,6 +335,8 @@ export type DirectSessionHandoffInput = Readonly<{
   childJobs?: readonly HandoffChildJob[]
   /** Whether the host wired the control-plane cancel-intent path. */
   jobCancelWired?: boolean
+  /** The control-plane children read: display-only, never authority. */
+  childObservations?: HandoffChildObservations
   /** Evidence counted from the retained transcript window. */
   activity?: HandoffActivity
 }>
@@ -378,6 +383,9 @@ export type DirectSessionHandoffView = Readonly<{
   returnedReason?: 'completed' | 'cancelled' | 'failed' | 'timed_out'
   /** Per-job rows; empty when no child job is observed. */
   childJobs: readonly HandoffChildJobRow[]
+  /** What the control plane reported about delegated children, with the
+   *  unavailable and partial states named. Display-only; grants no control. */
+  childEvidence: HandoffChildEvidence
   activity?: HandoffActivity
 }>
 
@@ -745,6 +753,7 @@ export function deriveDirectSessionHandoff(
           : 'none',
     ...(returnedReason === undefined ? {} : { returnedReason }),
     childJobs,
+    childEvidence: deriveChildEvidence(input.childObservations),
     ...(input.activity === undefined ? {} : { activity: input.activity }),
   }
 }
@@ -803,6 +812,8 @@ export type DirectSessionHandoffSupply = Readonly<{
   childJobs?: readonly HandoffChildJob[]
   /** The host wired the control-plane cancel-intent path. */
   jobCancelWired?: boolean
+  /** The control-plane children read (display-only). */
+  childObservations?: HandoffChildObservations
 }>
 
 /**
@@ -843,6 +854,7 @@ export function deriveHandoffInputFromConversation(
     leadChannelId?: string
     childJobs?: readonly HandoffChildJob[]
     jobCancelWired?: boolean
+    childObservations?: HandoffChildObservations
   }>
 ): DirectSessionHandoffInput {
   const generationCurrent = input.generationCurrent ?? true
@@ -922,6 +934,9 @@ export function deriveHandoffInputFromConversation(
           : 'none',
     ...(input.childJobs === undefined ? {} : { childJobs: input.childJobs }),
     ...(input.jobCancelWired === undefined ? {} : { jobCancelWired: input.jobCancelWired }),
+    ...(input.childObservations === undefined
+      ? {}
+      : { childObservations: input.childObservations }),
     activity: deriveHandoffActivity({
       events: input.conversation.events,
       projection: input.conversation.projection,

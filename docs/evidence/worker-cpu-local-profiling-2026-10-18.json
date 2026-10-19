@@ -1,0 +1,509 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-10-18",
+  "complete": false,
+  "ownerTask": "01a14ab7-c695-73ef-85de-c0b79d0c20f5",
+  "baselineEvidence": "toolchain-cache-campaign-2026-10-17.json",
+  "referenceCheckoutHead": "232a4a8750f8ce0c699323d84ac88974ca5ef08e",
+  "repairBase": "3db98b2b5b96190776f28bb99b4f4366ec5abf00",
+  "deployedVersion": "5d47969b-876f-49d3-ad88-d23e848dd1f6",
+  "deployedSourceIdentity": {
+    "fullBundleEqualityEstablished": false,
+    "deployedSourceCommit": "unknown; artifact captured and verified independently of Git attribution",
+    "identicalTargetFunctions": {
+      "createDatabase": {
+        "referenceContainsIdenticalFunction": true,
+        "characters": 282
+      },
+      "rootDocumentPolicy": {
+        "referenceContainsIdenticalFunction": true,
+        "characters": 234
+      }
+    },
+    "referenceBuildEqualsDeployment": "Not established; the earlier reference checkout is not the full deployed artifact.",
+    "capturedScriptEntrySHA256": "f052b59478468a1b22c98a423974ade2415255771e2d994520eb5793d87196e6",
+    "capturedBaselineArtifactExport": {
+      "all22ModuleHashesMatched": true,
+      "canonicalArchiveSHA256": "0b37f5c0c152c13a96fbf6c7bff934c6705c1f22230f452ac500484010e59ce0",
+      "entrySHA256": "f052b59478468a1b22c98a423974ade2415255771e2d994520eb5793d87196e6",
+      "exportedBytes": 3614477,
+      "method": "Authorized read-only script export and deployment metadata captured for the12:09 deployment;22 module hashes verified. This is a historical profiling baseline after the later16:13 rollout, not a current deployment assertion. No credential refresh or production invocation.",
+      "capturedDeploymentID": "3e9ce156-b7b3-4c00-aadd-28ccf65ae7f7",
+      "capturedVersionID": "5d47969b-876f-49d3-ad88-d23e848dd1f6",
+      "deploymentCreatedAt": "2026-10-18T12:09:20.307788Z"
+    },
+    "controlledCapturedCandidate": {
+      "base": "Captured12:09 deployment artifact;22module hashes verified",
+      "onlyChangedModule": "start-assets/http-policy-BVKtm2vS.js",
+      "onlyChangedFunction": "rootDocumentPolicy",
+      "beforeSHA256": "b36e4a59f732c00eea2bd478f4275964535e8eea7ee8707d8f54b268281dbf63",
+      "afterSHA256": "95eae18a01d535bc984e5f3de81922912e04d2b385507c3d1bd238108ed426b3",
+      "functionFromSourceHead": "6336da3ebaeba355accd02159e0beb429e0ae207",
+      "allOtherModulesByteIdentical": true
+    }
+  },
+  "method": {
+    "runtime": "workerd1.20261012.1 via pinnedWrangler4.147.0; local-only fixtures",
+    "cpu": "OS proc_pid_rusage v2 user+system Mach ticks multiplied125/3ns, aggregate isolated runtime and local proxy; not Cloudflare billed CPU",
+    "wall": "separate monotonic client elapsed time",
+    "calibration": "150ms process CPU loop converted150.041ms; error0.03%",
+    "traffic": "Sequential synthetic one-developer guest workspace, one project, one conversation,12 messages; foreign principal remains404",
+    "sql": "Active-artifact runs count multiline statements and catalog discovery; typeCatalog is a subset of SELECT, not additional queries. Earlier reference single-line SELECT counters remain explicitly lower bounds. SQL counts are not Hyperdrive billing.",
+    "v8Profile": {
+      "requests": 10,
+      "topFrames": [
+        "garbage collection",
+        "deriveBits (local PostgreSQL SCRAM authentication)",
+        "Postgres reads and array-type parsing"
+      ],
+      "caveat": "sample time is attribution, not billed CPU; local authentication/cache behavior differs from hosted Hyperdrive",
+      "referenceSamples": 747,
+      "referenceNodes": 441,
+      "activeArtifactProfile": {
+        "success": true,
+        "samples": 954,
+        "nodes": 461
+      }
+    }
+  },
+  "idleBackoffControlledComparison": {
+    "durationSeconds": 60,
+    "reference": "only idlePollDelay reverted to fixed1s; all other optimized code retained",
+    "fixedLoggedSingleLineSelects": 67,
+    "optimizedLoggedSingleLineSelects": 30,
+    "fixedCpuMs": 136.526,
+    "optimizedCpuMs": 96.83,
+    "notCompleteHistoricalBuild": true
+  },
+  "requestCancellation": {
+    "deployedFlagPresent": false,
+    "documentedFlag": "enable_request_signal",
+    "minimalNativeWorkerd": {
+      "disabled": {
+        "before": {
+          "opened": 0,
+          "canceled": 0,
+          "aborted": 0,
+          "ticks": 0
+        },
+        "connected": {
+          "opened": 1,
+          "canceled": 0,
+          "aborted": 0,
+          "ticks": 4
+        },
+        "after": {
+          "opened": 1,
+          "canceled": 0,
+          "aborted": 0,
+          "ticks": 5
+        }
+      },
+      "enabled": {
+        "before": {
+          "opened": 0,
+          "canceled": 0,
+          "aborted": 0,
+          "ticks": 0
+        },
+        "connected": {
+          "opened": 1,
+          "canceled": 0,
+          "aborted": 0,
+          "ticks": 4
+        },
+        "after": {
+          "opened": 1,
+          "canceled": 0,
+          "aborted": 1,
+          "ticks": 5
+        }
+      }
+    },
+    "fullLocalApplicationAfterDisconnect": {
+      "referenceSettled10sLoggedSingleLineSelects": 6,
+      "flagExperimentSettled10sLoggedSingleLineSelects": 2,
+      "conclusion": "Not zero; client close handling also differed. No complete application cancellation fix established; no flag/config change included.",
+      "activeArtifactSettled10sSelects": 15,
+      "activeArtifactConclusion": "After visible idle and active event delivery, the settled ten-second no-HTTP interval still logged15 SELECT statements. Full application cancellation and browser hidden/resume behavior remain unresolved."
+    }
+  },
+  "repair": {
+    "scope": [
+      "apps/web/src/start/http-policy.mjs",
+      "apps/web/test/start-host.test.ts",
+      "apps/web/start/README.md"
+    ],
+    "behavior": "Only unsupported root /wp-login.php and /xmlrpc.php bypass document SSR with private/no-store404. Query strings do not expand matching; valid API paths/auth targets preserve handling.",
+    "addressesAuthenticatedSummaryOverruns": false,
+    "upstreamWorkRetained": "captureWorkerBindings, captureWaitUntil and hydrateSecretStoreBindings still run before rootDocumentPolicy; this avoids SSR, not all upstream work.",
+    "headContract": "HEAD returns null body with404/private headers. GET/POST retain9-byte Not found response. Earlier unit assertion requiring HEAD body was corrected after coordinator review; no wire-level leakage claim.",
+    "locallyQualified": true
+  },
+  "productionTelemetryProvidedByCoordinator": {
+    "rolling24hInvocations": 1186,
+    "rolling24hCpuOverruns": 307,
+    "lastObservedExceededCpu": "2026-10-17T16:56:06.704Z",
+    "lastFailedRoute": "account/summary",
+    "lastFailedVersion": "ff34a1a5-0309-47d5-9ad6-5c414b90e96d",
+    "latestDeploymentRequests": 28,
+    "conclusion": "Sparse and non-comparable samples do not establish recovery or current deployment failure.",
+    "asOf": "2026-10-18T15:20:00Z"
+  },
+  "remaining": [
+    "Representative signed-in provider flow and real-browser hidden/resume/stream cancellation through the Worker host and local proxy.",
+    "Real Hyperdrive cache/connection attribution, rollout and passive per-route production CPU metrics after owner-approved deployment.",
+    "Git commit attribution for the captured deployed artifact; byte-level artifact provenance is established.",
+    "The PostgreSQL type-discovery experiment needs a separate compatibility review; no connection/auth changes included.",
+    "Historical service-cost attribution and campaign-wide caching completion are outside this bounded repair."
+  ],
+  "safety": {
+    "productionLoadRequests": 0,
+    "deployments": 0,
+    "credentialsChanged": false,
+    "limitsOrBudgetsChanged": false,
+    "authIsolationChanged": false
+  },
+  "references": [
+    "https://developers.cloudflare.com/workers/observability/dev-tools/cpu-usage/",
+    "https://developers.cloudflare.com/workers/configuration/compatibility-flags/#enable-requestsignal-for-incoming-requests"
+  ],
+  "earlierReferenceScriptComparison": [
+    {
+      "case": "unknown-root-php",
+      "requestsPerArm": 5,
+      "referenceCpuMsTotal": 60.604,
+      "candidateCpuMsTotal": 27.147,
+      "referenceWallMsTotal": 54.204,
+      "candidateWallMsTotal": 24.229,
+      "cpuReductionPercent": 55.2,
+      "referenceResponseBytes": 10429,
+      "candidateResponseBytes": 9,
+      "statusesBoth": 404,
+      "loggedSingleLineSqlStatementsBoth": 0
+    },
+    {
+      "case": "unknown-xmlrpc",
+      "requestsPerArm": 5,
+      "referenceCpuMsTotal": 47.456,
+      "candidateCpuMsTotal": 31.408,
+      "referenceWallMsTotal": 41.138,
+      "candidateWallMsTotal": 28.451,
+      "cpuReductionPercent": 33.8,
+      "referenceResponseBytes": 10429,
+      "candidateResponseBytes": 9,
+      "statusesBoth": 404,
+      "loggedSingleLineSqlStatementsBoth": 0
+    }
+  ],
+  "unsupportedRootScriptComparison": {
+    "baseline": "Captured2026-10-18T12:09:20.307788Z deployment artifact; all22 module hashes matched",
+    "candidate": "Same artifact, only rootDocumentPolicy replaced from reviewed source head6336da3",
+    "pairedSamples": [
+      {
+        "case": "unknown-root-php",
+        "requests": 5,
+        "beforeCpuMs": 46.00270833333332,
+        "afterCpuMs": 30.698375000000237,
+        "reductionPercent": 33.268331121808416,
+        "beforeWallMs": 42.28741599999921,
+        "afterWallMs": 31.25029099999847,
+        "beforeBytes": 9619,
+        "afterBytes": 9,
+        "sqlBefore": {
+          "typeCatalog": 0
+        },
+        "sqlAfter": {
+          "typeCatalog": 0
+        }
+      },
+      {
+        "case": "unknown-xmlrpc",
+        "requests": 5,
+        "beforeCpuMs": 40.28395833333337,
+        "afterCpuMs": 20.183541666666866,
+        "reductionPercent": 49.89682617667245,
+        "beforeWallMs": 34.90716700000121,
+        "afterWallMs": 18.552583000000595,
+        "beforeBytes": 9619,
+        "afterBytes": 9,
+        "sqlBefore": {
+          "typeCatalog": 0
+        },
+        "sqlAfter": {
+          "typeCatalog": 0
+        }
+      }
+    ],
+    "limits": "Five sequential requests per route per arm; aggregate isolated workerd plus local proxy CPU, not billed CPU or statistical production recovery."
+  },
+  "activeArtifactReadAndStreamBaseline": [
+    {
+      "name": "bootstrap-first-guest",
+      "wallMs": 189.05450000000008,
+      "userCpuMs": 92.01783333333337,
+      "systemCpuMs": 15.301208333333314,
+      "sql": {
+        "select": 8,
+        "begin": 2,
+        "insert": 7,
+        "commit": 2,
+        "typeCatalog": 1
+      },
+      "requests": 1,
+      "status": 200,
+      "totalCpuMs": 107.31904166666669
+    },
+    {
+      "name": "bootstrap-warm",
+      "wallMs": 247.18779199999994,
+      "userCpuMs": 100.731625,
+      "systemCpuMs": 22.560208333333374,
+      "sql": {
+        "select": 35,
+        "begin": 5,
+        "insert": 5,
+        "commit": 5,
+        "typeCatalog": 5
+      },
+      "requests": 5,
+      "statuses": {
+        "200": 5
+      },
+      "totalCpuMs": 123.29183333333337
+    },
+    {
+      "name": "summary-warm",
+      "wallMs": 460.88370799999984,
+      "userCpuMs": 126.274625,
+      "systemCpuMs": 17.655916666666627,
+      "sql": {
+        "select": 40,
+        "begin": 10,
+        "set": 10,
+        "commit": 10,
+        "typeCatalog": 10
+      },
+      "requests": 10,
+      "statuses": {
+        "200": 10
+      },
+      "totalCpuMs": 143.9305416666666
+    },
+    {
+      "name": "conversations-empty",
+      "wallMs": 516.7325839999999,
+      "userCpuMs": 138.07070833333324,
+      "systemCpuMs": 18.976625,
+      "sql": {
+        "select": 40,
+        "begin": 10,
+        "set": 10,
+        "commit": 10,
+        "typeCatalog": 10
+      },
+      "requests": 10,
+      "statuses": {
+        "200": 10
+      },
+      "totalCpuMs": 157.04733333333326
+    },
+    {
+      "name": "conversation-messages-12",
+      "wallMs": 970.9492500000006,
+      "userCpuMs": 285.43091666666675,
+      "systemCpuMs": 44.03604166666663,
+      "sql": {
+        "select": 150,
+        "begin": 20,
+        "set": 20,
+        "commit": 20,
+        "typeCatalog": 10
+      },
+      "requests": 10,
+      "statuses": {
+        "200": 10
+      },
+      "totalCpuMs": 329.46695833333337
+    },
+    {
+      "name": "summary-one-project-12-messages",
+      "wallMs": 547.7206669999996,
+      "userCpuMs": 134.9844583333335,
+      "systemCpuMs": 19.781708333333373,
+      "sql": {
+        "select": 40,
+        "begin": 10,
+        "set": 10,
+        "commit": 10,
+        "typeCatalog": 10
+      },
+      "requests": 10,
+      "statuses": {
+        "200": 10
+      },
+      "totalCpuMs": 154.76616666666686
+    },
+    {
+      "name": "idle-control-10s",
+      "wallMs": 10001.427290999998,
+      "userCpuMs": 3.0017083333330152,
+      "systemCpuMs": 1.587083333333254,
+      "sql": {
+        "typeCatalog": 0
+      },
+      "requests": 0,
+      "totalCpuMs": 4.588791666666269
+    },
+    {
+      "name": "visible-idle-stream-60s",
+      "wallMs": 60003.722833,
+      "userCpuMs": 75.22333333333397,
+      "systemCpuMs": 14.564583333333253,
+      "sql": {
+        "select": 31,
+        "typeCatalog": 1
+      },
+      "requests": 1,
+      "status": 200,
+      "chunks": 4,
+      "bytes": 52,
+      "posted": 0,
+      "totalCpuMs": 89.78791666666723
+    },
+    {
+      "name": "visible-active-stream-12s",
+      "wallMs": 12002.897458000007,
+      "userCpuMs": 193.0288333333335,
+      "systemCpuMs": 26.712,
+      "sql": {
+        "select": 133,
+        "begin": 16,
+        "set": 12,
+        "commit": 16,
+        "insert": 16,
+        "update": 12,
+        "typeCatalog": 5
+      },
+      "requests": 5,
+      "status": 200,
+      "chunks": 9,
+      "bytes": 2113,
+      "posted": 4,
+      "totalCpuMs": 219.74083333333348
+    },
+    {
+      "name": "hidden-aborted-stream-10s",
+      "wallMs": 10004.158458999998,
+      "userCpuMs": 46.57241666666698,
+      "systemCpuMs": 6.8995,
+      "sql": {
+        "select": 24,
+        "typeCatalog": 1
+      },
+      "requests": 1,
+      "status": 200,
+      "chunks": 1,
+      "bytes": 13,
+      "hiddenAbortAfterMs": 500,
+      "posted": 0,
+      "totalCpuMs": 53.471916666666985
+    },
+    {
+      "name": "hidden-settled-no-connection-10s",
+      "wallMs": 10001.544750000001,
+      "userCpuMs": 19.8145,
+      "systemCpuMs": 3.459291666666746,
+      "sql": {
+        "select": 15,
+        "typeCatalog": 0
+      },
+      "requests": 0,
+      "totalCpuMs": 23.273791666666746
+    },
+    {
+      "name": "foreign-conversation-denied",
+      "wallMs": 49.571707999988575,
+      "userCpuMs": 19.04658333333349,
+      "systemCpuMs": 2.904291666666746,
+      "sql": {
+        "select": 4,
+        "insert": 1,
+        "typeCatalog": 1
+      },
+      "requests": 1,
+      "status": 404,
+      "totalCpuMs": 21.950875000000238
+    }
+  ],
+  "validation": {
+    "sourceHead": "6336da3ebaeba355accd02159e0beb429e0ae207",
+    "checks": [
+      {
+        "name": "format",
+        "command": ["bun", "run", "format:check"],
+        "exitCode": 0
+      },
+      {
+        "name": "lint",
+        "command": ["bun", "run", "lint"],
+        "exitCode": 0
+      },
+      {
+        "name": "fresh-oxlint",
+        "command": ["bun", "x", "--no-install", "oxlint", "--deny-warnings"],
+        "exitCode": 0
+      },
+      {
+        "name": "typecheck",
+        "command": ["bun", "run", "typecheck"],
+        "exitCode": 0
+      },
+      {
+        "name": "build",
+        "command": ["bun", "run", "build"],
+        "exitCode": 0
+      },
+      {
+        "name": "host",
+        "command": ["bun", "run", "--cwd", "apps/web", "start:test"],
+        "exitCode": 0
+      },
+      {
+        "name": "bundle",
+        "command": ["bun", "run", "--cwd", "apps/web", "start:check-bundle"],
+        "exitCode": 0
+      },
+      {
+        "name": "unit",
+        "command": ["bun", "run", "test:unit"],
+        "exitCode": 0
+      },
+      {
+        "name": "docs",
+        "command": ["bun", "test", "scripts/docs-boundary.test.ts"],
+        "exitCode": 0
+      }
+    ],
+    "hostTestsPassed": 27,
+    "unitGraphTasksPassed": 32,
+    "coverageTestsPassed": 1553,
+    "coverageAssertions": 17100,
+    "coverageFunctionsPercent": 98.66,
+    "coverageLinesPercent": 97.9,
+    "docsTestsPassed": 4,
+    "docsAssertions": 15,
+    "hostedChecks": "Draft-skipped; Advance Queue owns readiness and coordinator owns merge.",
+    "fixture": "Captured12:09 deployment artifact and controlled candidate completed locally with isolated synthetic PostgreSQL; no production invocations."
+  },
+  "capturedBaselineDeploymentCreatedAt": "2026-10-18T12:09:20.307788Z",
+  "deploymentChronology": {
+    "source": "Coordinator personally verified repository automation; reported after local qualification",
+    "releasePR": 1463,
+    "releaseMergedAt": "2026-10-18T16:08Z",
+    "cloudflareWorkflowSucceededBy": "2026-10-18T16:13Z",
+    "containsThisRepair": false,
+    "baselineCaveat": "The captured12:09 deployment artifact is the local profiling baseline, not a claim about the deployment active after16:13."
+  },
+  "proposedNextDiagnostic": "Separate local-only tracing of stream IDs, Request.signal abort, reader cancel, scheduled poll lifetime and SQL connection identity around disconnect. Compare idle-only with active-then-disconnect to distinguish surviving streams from fixture/client cleanup. Establish a zero-query settled interval before proposing application cancellation changes; no production probes or compatibility/config changes."
+}

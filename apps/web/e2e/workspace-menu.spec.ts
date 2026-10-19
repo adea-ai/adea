@@ -1,3 +1,4 @@
+import { retainOptionalWorkspaceViews } from './helpers/workspace-view-preferences'
 import { expect, test } from '@playwright/test'
 import { resolve } from 'node:path'
 
@@ -84,4 +85,9 @@ test('the rail carries a static product mark and the global shortcut dispatches 
     await expect(page.getByRole('status', { name: 'Chat search requests' })).toHaveText('0')
     await page.keyboard.press('Escape')
   }
+})
+
+// This suite exercises explicitly enabled optional views in an existing profile.
+test.beforeEach(async ({ page }) => {
+  await retainOptionalWorkspaceViews(page)
 })

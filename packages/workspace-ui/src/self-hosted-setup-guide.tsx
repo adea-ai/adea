@@ -1,7 +1,7 @@
 // Setup guidance for connecting a Control Plane you run yourself (#188). The pairing values are
 // secret and live in this component's memory only: they are never written to storage, cleared
 // when they expire, are used, or the account or workspace changes, and shown once.
-import { SettingsRow, SettingsSection } from '@adea-ai/ui/components/composites/settings'
+import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { Alert, AlertDescription, AlertTitle } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
@@ -18,6 +18,7 @@ import {
   type PairingScope,
   type PairingState,
 } from './self-hosted-connection-model'
+import { SelfHostedSetupGuideShell } from './self-hosted-setup-guide-shell'
 
 type ActivePairing = Readonly<{
   grant: PairingGrant | undefined
@@ -46,16 +47,6 @@ const STATE_COPY: Readonly<Record<PairingState, { label: string; detail: string 
       'You switched account or workspace, so the values created for the previous one were cleared. A pairing only works where it was created.',
   },
 }
-
-/** Refusals a host can report when it registers, in the words this surface uses for them. */
-const HOST_REFUSALS = [
-  ['challenge_expired', 'The host says the challenge expired'],
-  ['challenge_used', 'The host says the challenge was already used'],
-  ['exchange_credential_invalid', 'The host says the registration credential was invalid'],
-  ['unauthorized', 'The host says it is not authorized'],
-  ['key_mismatch', 'The host says its keys do not match'],
-  ['revoked', 'The host says its identity was revoked'],
-] as const
 
 export type SetupGuideProps = Readonly<{
   scope: PairingScope
@@ -148,141 +139,66 @@ export function SelfHostedSetupGuide(props: SetupGuideProps) {
     }
   }
 
-  return (
-    <SettingsSection
-      title={props.reregistering ? 'Register this host again' : 'Connect a self-hosted host'}
-      description={
-        props.reregistering
-          ? 'A revoked identity cannot resume. Registering again creates a new, separate identity.'
-          : 'Run the Control Plane on a server you control, then register it with a one-time pairing. Adea does not create, host or access that server.'
-      }
-      bodyLayout="content"
-      action={
-        <Button type="button" variant="ghost" size="sm" onClick={props.onClose}>
-          Close setup
+  const step2 = (
+    <>
+      <div class="flex flex-wrap items-center gap-2">
+        <Button
+          ref={(element) => (createButton = element)}
+          type="button"
+          disabled={!props.openPairing}
+          aria-disabled={busy() || undefined}
+          aria-describedby={props.openPairing ? undefined : 'pairing-unavailable'}
+          onClick={() => void create()}
+        >
+          {busy() ? 'Creating…' : pairing() ? 'Create a new pairing' : 'Create pairing'}
         </Button>
-      }
-      aria-label="Connect a self-hosted host"
-    >
-      <ol class="flex flex-col gap-4 text-sm" data-testid="setup-steps">
-        <li class="flex flex-col gap-1">
-          <p class="font-medium">1. Prepare the host</p>
-          <ul class="text-muted-foreground flex list-disc flex-col gap-1 ps-5 text-pretty">
-            <li>
-              Deploy the Control Plane reference stack with Docker Compose on a Linux server you
-              control.
-            </li>
-            <li>
-              Keep its API on the server’s loopback address and do not publish the port. Adea
-              reaches the host through the host’s own outbound registration, not an open admin
-              endpoint.
-            </li>
-            <li>
-              Keep provider keys, database passwords and the host’s data on the host. Adea never
-              asks for them.
-            </li>
-          </ul>
-        </li>
-        <li class="flex flex-col gap-2">
-          <p class="font-medium">2. Create a one-time pairing</p>
-          <p class="text-muted-foreground text-pretty">
-            A pairing lasts ten minutes and registers one host. The registration credential is shown
-            only here and only once. Treat it like a password.
-          </p>
-          <div class="flex flex-wrap items-center gap-2">
-            <Button
-              ref={(element) => (createButton = element)}
-              type="button"
-              disabled={!props.openPairing}
-              aria-disabled={busy() || undefined}
-              aria-describedby={props.openPairing ? undefined : 'pairing-unavailable'}
-              onClick={() => void create()}
-            >
-              {busy() ? 'Creating…' : pairing() ? 'Create a new pairing' : 'Create pairing'}
-            </Button>
-            <Show when={pairing()}>
-              <Button type="button" variant="ghost" onClick={discard}>
-                Clear these values
-              </Button>
-            </Show>
-          </div>
-          <Show when={!props.openPairing}>
-            <p id="pairing-unavailable" class="text-muted-foreground text-sm">
-              Not available yet: creating a pairing is not connected in this build, so nothing can
-              be registered from here.
-            </p>
-          </Show>
-          <Show when={failure()}>
-            {(current) => (
-              <Alert variant="destructive" role="alert" data-testid="pairing-failure">
-                <AlertTitle>{current().title}</AlertTitle>
-                <AlertDescription>{current().guidance}</AlertDescription>
-              </Alert>
-            )}
-          </Show>
-          <Show when={pairing()}>
-            {(current) => (
-              <PairingValues
-                busy={busy()}
-                copied={copied()}
-                current={current()}
-                now={props.now}
-                revealed={revealed()}
-                state={state() ?? 'discarded'}
-                newHostCount={hostsRegisteredSince(props.hostIds, current().hostIdsAtIssue).length}
-                onCopy={copy}
-                onReveal={() => setRevealed(!revealed())}
-                setHeading={(element) => (valuesHeading = element)}
-                workspaceId={props.scope.workspaceId}
-              />
-            )}
-          </Show>
-        </li>
-        <li class="flex flex-col gap-2">
-          <p class="font-medium">3. Register the host</p>
-          <p class="text-muted-foreground text-pretty">
-            Give the four values to the host’s registration. The host signs the pairing with its own
-            key, so Adea receives only a public key and never a reusable server credential.
-          </p>
-          <Alert role="note" data-testid="host-step-unavailable">
-            <AlertTitle>Host-side step not available yet</AlertTitle>
-            <AlertDescription>
-              The reference stack does not include a registration command, so this step cannot be
-              completed from the product today. The values above are what that command will take.
-            </AlertDescription>
+        <Show when={pairing()}>
+          <Button type="button" variant="ghost" onClick={discard}>
+            Clear these values
+          </Button>
+        </Show>
+      </div>
+      <Show when={!props.openPairing}>
+        <p id="pairing-unavailable" class="text-muted-foreground text-sm">
+          Not available yet: creating a pairing is not connected in this build, so nothing can be
+          registered from here.
+        </p>
+      </Show>
+      <Show when={failure()}>
+        {(current) => (
+          <Alert variant="destructive" role="alert" data-testid="pairing-failure">
+            <AlertTitle>{current().title}</AlertTitle>
+            <AlertDescription>{current().guidance}</AlertDescription>
           </Alert>
-        </li>
-        <li class="flex flex-col gap-2">
-          <p class="font-medium">4. Check the connection</p>
-          <p class="text-muted-foreground text-pretty">
-            A registered host appears in the list. Select it and run a check. Registered does not
-            mean running, compatible or allowed to take work; the check shows each of those
-            separately.
-          </p>
-          <div>
-            <Button type="button" variant="outline" onClick={() => void props.onRefreshHosts()}>
-              Refresh hosts
-            </Button>
-          </div>
-        </li>
-      </ol>
-      <details class="text-sm" data-testid="refusal-reference">
-        <summary class="cursor-pointer font-medium">If the host reports a refusal</summary>
-        <dl class="mt-3 flex flex-col gap-3">
-          <For each={HOST_REFUSALS}>
-            {([code, heading]) => {
-              const guidance = classifyFailure({ code, status: 409 }, 'pairing')
-              return (
-                <div>
-                  <dt class="font-medium">{heading}</dt>
-                  <dd class="text-muted-foreground text-pretty">{guidance.guidance}</dd>
-                </div>
-              )
-            }}
-          </For>
-        </dl>
-      </details>
-    </SettingsSection>
+        )}
+      </Show>
+      <Show when={pairing()}>
+        {(current) => (
+          <PairingValues
+            busy={busy()}
+            copied={copied()}
+            current={current()}
+            now={props.now}
+            revealed={revealed()}
+            state={state() ?? 'discarded'}
+            newHostCount={hostsRegisteredSince(props.hostIds, current().hostIdsAtIssue).length}
+            onCopy={copy}
+            onReveal={() => setRevealed(!revealed())}
+            setHeading={(element) => (valuesHeading = element)}
+            workspaceId={props.scope.workspaceId}
+          />
+        )}
+      </Show>
+    </>
+  )
+
+  return (
+    <SelfHostedSetupGuideShell
+      onClose={props.onClose}
+      onRefreshHosts={props.onRefreshHosts}
+      reregistering={props.reregistering}
+      step2={step2}
+    />
   )
 }
 

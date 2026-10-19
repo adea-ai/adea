@@ -62,7 +62,13 @@ import type { MemoryAgentTrace } from '../../memory/provenance'
 import type { HarnessAccountResolution } from '../connections/register'
 import { harnessFamilySpec } from '../discovery/families'
 import type { VaultSecret } from '../vault'
-import { createSessionEventLog, type SessionEventLog } from './events'
+import {
+  createSessionEventLog,
+  RuntimeEventRecoveryRequiredError,
+  type SessionEventLog,
+} from './events'
+import { transcriptEvent, transcriptPromptText } from './transcript-content'
+import { createConversationCheckpointRuntime, type CheckpointRestoreAdapter } from './checkpoints'
 import { createManagedPiDriver, type ManagedPiDriver } from './managed-pi-driver'
 import { createHarnessDeviceDefaultAuthority } from './device-default'
 import { createHarnessPreferenceAuthority, type HarnessPreferenceAuthority } from './preferences'
@@ -72,6 +78,9 @@ import { summarizeWorkspaceRuns } from './workspace-summary'
 import { registerFollowUpQueue } from './follow-up-register'
 
 export type HarnessRuntimeInput = {
+  /** Absent in production until a native/ACP adapter proves restore support. */
+  checkpointRestoreAdapter?: CheckpointRestoreAdapter
+  checkpointRestoreTimeoutMs?: number
   authority: ChannelAuthority
   /** The verified local-lane scope; the shell IS the runtime node here. */
   scope: Scope
@@ -79,7 +88,10 @@ export type HarnessRuntimeInput = {
   /** Canonical RuntimeSession resolution (project/session projection). */
   resolveSession: (runtimeSessionId: string) => RuntimeSession | undefined
   /** Persists canonical session mutations so both views observe them. */
-  persistSession: (session: RuntimeSession) => void
+  persistSession: (session: RuntimeSession, checkpointRestoreId?: string) => void
+  getSessionRestoreCommit?: Parameters<
+    typeof createConversationCheckpointRuntime
+  >[0]['getSessionRestoreCommit']
   /** Shell event bus; harness changes publish so Dev and Chat share them. */
   publish?: (event: string, payload: unknown) => void
   /** Full-duplex gateway; the runtime-events-v1 stream serves through it. */
@@ -211,6 +223,7 @@ export type PromptDeliverySeam = (
 ) => PromptDeliveryResult | Promise<PromptDeliveryResult>
 
 export type HarnessRuntimeRegistration = Readonly<{
+  checkpoints: ReturnType<typeof createConversationCheckpointRuntime>
   commands: readonly DevOperation[]
   managedPi: ManagedPiDriver
   lane: AcpLane
@@ -271,6 +284,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         : {}),
     })
   const lane = createAcpLane({
+    assertSessionInputAvailable: (id) => checkpoints.assertInputAvailable(id),
     scope: input.scope,
     dataDir: input.dataDir,
     driver: input.acpDriver ?? fallbackAcpDriver(),
@@ -287,6 +301,17 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     dataDir: input.dataDir,
     scope: input.scope,
     resolveSession: input.resolveSession,
+  })
+  const checkpoints = createConversationCheckpointRuntime({
+    dataDir: input.dataDir,
+    scope: input.scope,
+    events,
+    resolveSession: input.resolveSession,
+    persistSession: input.persistSession,
+    getSessionRestoreCommit: input.getSessionRestoreCommit,
+    adapter: input.checkpointRestoreAdapter,
+    restoreTimeoutMs: input.checkpointRestoreTimeoutMs,
+    now,
   })
   const followUps = registerFollowUpQueue({
     authority: input.authority,
@@ -356,6 +381,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   }
 
   function requireLaunchableSession(session: RuntimeSession): void {
+    checkpoints.assertInputAvailable(session.id)
     if (session.archived) {
       throw devError('invalid_state', 'an archived session launches no harness run')
     }
@@ -558,7 +584,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
    *   hands the prompt to the lane adapter through the typed handoff
    *   (`lane.deliverPrompt`). An accepted handoff records ONE host
    *   `turn.user_input` provenance fact — transport `acp`, the lane's
-   *   connection identity/generation and byte count, never the prompt text,
+   *   connection identity/generation and byte count plus a filtered projection
+   *   of the original user prompt (never the workspace-memory preamble),
    *   never a harness turn event over the lane's own tier (the harness
    *   fabricates nothing here and the host fabricates nothing there). A
    *   typed lane refusal appends `capability.degraded` naming the reason;
@@ -569,8 +596,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
    *   event — `turn.user_input` for the delivered submit (the host performed
    *   this write; it never claims the harness consumed it), or
    *   `capability.degraded` naming the typed reason when nothing shipped.
-   *   The prompt text itself stays in the control plane only — the event
-   *   payload carries fenced-write provenance, never content.
+   *   The content proves delivery only, never harness consumption or a reply.
+   *   Failed delivery carries no user text. Legacy receipts stay textless.
    * A delivery failure does NOT fail the launch (partial failure retains the
    * terminal/worktree) and never retries blindly.
    */
@@ -578,15 +605,19 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     session: RuntimeSession
     run: HarnessRun
     prompt: string
+    /** Original user input only; never the memory preamble prepended to delivery. */
+    userPrompt?: string
     /** Counts of the memory preamble leading `prompt`, when one does. */
     memory?: Readonly<{ entries: number; bytes: number }>
   }): Promise<void> {
+    checkpoints.assertInputAvailable(params.session.id)
     const sourceEventId = `host:prompt:${params.run.id}`
     // Provenance names how much of the delivery was workspace memory —
     // counts only; neither the memory nor the prompt text enters the event.
     const memoryProvenance = params.memory
       ? { memoryEntries: params.memory.entries, memoryBytes: params.memory.bytes }
       : {}
+    const content = params.userPrompt !== undefined ? transcriptPromptText(params.userPrompt) : {}
     const liveLane = lane.readyFor(params.session.id)
     if (liveLane) {
       let result: Awaited<ReturnType<typeof lane.deliverPrompt>>
@@ -613,6 +644,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           classification: 'workspace_private',
           payload: {
             harnessRunId: params.run.id,
+            ...content,
             ...memoryProvenance,
             transport: 'acp',
             acpConnectionId: liveLane.id,
@@ -676,6 +708,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         classification: 'workspace_private',
         payload: {
           harnessRunId: params.run.id,
+          ...content,
           ...memoryProvenance,
           transport: 'pty_input',
           terminalId: result.terminalId,
@@ -980,6 +1013,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         session: nextSession,
         run,
         prompt: [memoryText, prompt].filter((part) => part !== undefined).join('\n\n'),
+        ...(prompt !== undefined ? { userPrompt: prompt } : {}),
         ...(memoryText !== undefined && memory.preamble
           ? { memory: { entries: memory.preamble.includedEntries, bytes: memory.preamble.bytes } }
           : {}),
@@ -1017,27 +1051,39 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       stream.send({
         type: 'data',
         sequence: event.seq,
-        bytes: encodeCbor(event),
+        bytes: encodeCbor(transcriptEvent(event)),
       })
     }
     // Bounded newest-frame replay: at most the newest 500 events of the
     // granted generation, never older than the requested fromSequence.
     const REPLAY_LIMIT = 500n
-    const latest = BigInt(events.latestSequence(runtimeSessionId, generation))
     const requested = BigInt(grant.fromSequence)
-    const windowStart = latest >= REPLAY_LIMIT ? (latest - REPLAY_LIMIT + 1n).toString() : '0'
-    const from = requested > BigInt(windowStart) ? requested.toString() : windowStart
+    let latest: bigint
+    let from: string
+    let replay: RuntimeEvent[]
+    try {
+      latest = BigInt(events.latestSequence(runtimeSessionId, generation))
+      const windowStart = latest >= REPLAY_LIMIT ? (latest - REPLAY_LIMIT + 1n).toString() : '0'
+      const retainedSequence = BigInt(
+        events.read(runtimeSessionId, { generation, limit: 1 })[0]?.seq ?? '0'
+      )
+      const retainedFloor = retainedSequence > 1n ? retainedSequence : 0n
+      from = [requested, BigInt(windowStart), retainedFloor]
+        .reduce((a, b) => (a > b ? a : b))
+        .toString()
+      replay = events.read(runtimeSessionId, { fromSequence: from, generation, limit: 500 })
+    } catch (error) {
+      if (!(error instanceof RuntimeEventRecoveryRequiredError)) throw error
+      stream.close('incompatible', 'runtime event history requires recovery')
+      return
+    }
     if (BigInt(from) > requested)
       stream.send({
         type: 'resync',
         reason: 'checkpoint_required',
         checkpointSequence: from,
       })
-    for (const event of events.read(runtimeSessionId, {
-      fromSequence: from,
-      generation,
-      limit: 500,
-    })) {
+    for (const event of replay) {
       sendEvent(event)
     }
     // The replay's end marker: the log has no other way to tell a reader that
@@ -1127,6 +1173,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
   }
 
   const providers: Partial<Record<DevOperation, ProviderHandler>> = {
+    'dev.session.restoreCheckpoint': (command) => checkpoints.restore(command),
     // ── Device-wide default harness (a family, shared by every workspace) ──
     'dev.harness.deviceDefault': (command) => {
       requireScope(command)
@@ -1400,6 +1447,8 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
       if (RUN_TERMINAL_STATES.includes(run.state)) {
         throw devError('already_completed', `harness run is already ${run.state}`)
       }
+      // Refuse quarantined history before mutating its run projection.
+      events.latestSequence(session.id, session.generation)
       const observedAt = iso()
       const next = runs.observe({
         runId: run.id,
@@ -1576,9 +1625,27 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         throw devError('identity_mismatch', 'harness run belongs to another runtime session')
       }
       requireLaunchInstallation(prior.installationId)
+      // Explicit resume is a recovery path for incompatible retained usage.
+      // Decide before changing the old run; its quarantined log stays intact.
+      let priorGenerationRequiresRecovery = false
+      try {
+        events.latestSequence(session.id, session.generation)
+      } catch (error) {
+        if (!(error instanceof RuntimeEventRecoveryRequiredError)) throw error
+        priorGenerationRequiresRecovery = true
+      }
       // Resume creates a new run generation under the SAME session; it never
       // reuses the stale run's write authority.
-      if (RUN_ACTIVE_STATES.includes(prior.state)) {
+      const disconnectPrior = RUN_ACTIVE_STATES.includes(prior.state)
+      const recordDisconnection = (target: RuntimeSession) =>
+        appendEventFact({
+          session: target,
+          harnessRunId: prior.id,
+          kind: 'run.disconnected',
+          payload: { harnessRunId: prior.id, reason: 'superseded by resume' },
+          sourceEventId: `host:run-resume-disconnect:${prior.id}`,
+        })
+      if (disconnectPrior) {
         runs.observe({
           runId: prior.id,
           to: 'disconnected',
@@ -1586,13 +1653,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
           observedAt: iso(),
           detail: 'superseded by resume',
         })
-        appendEventFact({
-          session: { ...session, generation: session.generation },
-          harnessRunId: prior.id,
-          kind: 'run.disconnected',
-          payload: { harnessRunId: prior.id, reason: 'superseded by resume' },
-          sourceEventId: `host:run-resume-disconnect:${prior.id}`,
-        })
+        if (!priorGenerationRequiresRecovery) recordDisconnection(session)
       }
       const run = createRun({
         session,
@@ -1608,6 +1669,9 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
         activeHarnessRunId: run.id,
         lifecycle: 'active',
       })
+      // Reconcile the superseded run in the new generation instead of trying
+      // to append into an intentionally quarantined generation mid-resume.
+      if (disconnectPrior && priorGenerationRequiresRecovery) recordDisconnection(nextSession)
       appendEventFact({
         session: nextSession,
         harnessRunId: run.id,
@@ -1704,6 +1768,21 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
     },
 
     // ── dev.session.events: grant minting (the stream attach path) ────────
+    'dev.session.history': (command) => {
+      requireScope(command)
+      const body = devOperationDecoders['dev.session.history'].request(command.body)
+      const session = resolveSessionOrThrow(body.runtimeSessionId as string)
+      requireSessionResource(command, session)
+      requireGeneration(command, session)
+      return events.history(session.id, {
+        generation: session.generation,
+        ...(body.beforeSequence !== undefined
+          ? { beforeSequence: body.beforeSequence as string }
+          : {}),
+        ...(body.cursor !== undefined ? { cursor: body.cursor as string } : {}),
+        ...(body.limit !== undefined ? { limit: body.limit as number } : {}),
+      })
+    },
     'dev.session.events': (command, identity) => {
       requireScope(command)
       const body = devOperationDecoders['dev.session.events'].request(command.body)
@@ -1833,6 +1912,7 @@ export function registerHarnessRuntime(input: HarnessRuntimeInput): HarnessRunti
 
   return {
     commands: [...Object.keys(providers), 'dev.session.followUps'] as DevOperation[],
+    checkpoints,
     managedPi,
     lane,
     events,

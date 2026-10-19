@@ -1,4 +1,4 @@
-import { decodeCbor, decodeRuntimeEnvelope } from '@adea-ai/types/dev-runtime-wire'
+import { decodeCbor, decodeRuntimeBrowserEnvelope } from '@adea-ai/types/dev-runtime-browser'
 import type { DevStreamFrame, RuntimeEvent } from '@adea-ai/types/dev-runtime'
 
 import type { ChatRetentionTruth } from './types'
@@ -26,13 +26,47 @@ export type TranscriptAccumulator = Readonly<{
   runtimeSessionId: string
   generation: number
   fromSequence: string
+  /** Lowest sequence the host says is still retained for this generation. */
+  retainedFloorSequence?: string
   expectedSequence?: string
   events: readonly RuntimeEvent[]
   /** The leading assistant streak lost its prefix; never store raw redaction context. */
   assistantContextLost?: boolean
   availability: TranscriptAvailability
   retention: ChatRetentionTruth
+  /** The code of the last `error` frame the host sent on this stream. */
+  streamErrorCode?: string
+  /**
+   * The live stream ended, by a close frame or by the socket dropping, and delivers
+   * nothing more. `cursorRejected` says the host refused the position the stream was
+   * opened from (an `incompatible` close, or a close after a sequence or resync
+   * error), so a reconnect must not ask for that position again.
+   */
+  streamClosed?: Readonly<{ code: StreamCloseCode; reason?: string; cursorRejected: boolean }>
 }>
+
+export type StreamCloseCode = Extract<DevStreamFrame, { type: 'close' }>['code'] | 'transport'
+
+const CURSOR_ERRORS = new Set(['sequence_gap', 'resync_required'])
+
+/** Record that the stream ended; a second close keeps the first, which says why. */
+export function markStreamClosed(
+  state: TranscriptAccumulator,
+  code: StreamCloseCode,
+  reason?: string
+): TranscriptAccumulator {
+  if (state.streamClosed !== undefined) return state
+  return {
+    ...state,
+    streamClosed: {
+      code,
+      ...(reason !== undefined && reason !== '' ? { reason } : {}),
+      cursorRejected:
+        code === 'incompatible' ||
+        (state.streamErrorCode !== undefined && CURSOR_ERRORS.has(state.streamErrorCode)),
+    },
+  }
+}
 
 /** A bounded-history notice should describe what the person can see, not invent a recovery dependency. */
 export function transcriptHistoryNotice(
@@ -55,12 +89,11 @@ function eventKey(event: RuntimeEvent): string {
   return `${event.runtimeSessionId}\u0000${event.generation}\u0000${event.source}\u0000${event.sourceEventId}`
 }
 
+// Both records already matched the full session/generation/source event key.
 function sameEvent(left: RuntimeEvent, right: RuntimeEvent): boolean {
   return (
     left.kind === right.kind &&
     left.seq === right.seq &&
-    left.runtimeSessionId === right.runtimeSessionId &&
-    left.generation === right.generation &&
     JSON.stringify(left.payload) === JSON.stringify(right.payload)
   )
 }
@@ -70,11 +103,9 @@ function retention(
   requestedFrom: string,
   reason?: ChatRetentionTruth['reason']
 ): ChatRetentionTruth {
-  const ordered = [...events].toSorted((left, right) =>
-    sequence(left.seq) < sequence(right.seq) ? -1 : 1
-  )
-  const oldestSequence = ordered[0]?.seq
-  const newestSequence = ordered.at(-1)?.seq
+  // Both callers pass the canonical sequence-sorted accumulator window.
+  const oldestSequence = events[0]?.seq
+  const newestSequence = events.at(-1)?.seq
   const bounded = oldestSequence !== undefined && sequence(requestedFrom) < sequence(oldestSequence)
   const retentionReason = reason ?? (bounded ? ('retention' as const) : undefined)
   return {
@@ -135,7 +166,14 @@ export function acceptRuntimeEvent(
 
   const existing = state.events.find((candidate) => eventKey(candidate) === eventKey(event))
   if (existing) {
-    if (sameEvent(existing, event)) return state
+    if (sameEvent(existing, event)) {
+      // A resync can replay an event already held by backfill. It still
+      // consumes the expected forward sequence; otherwise the next new frame
+      // would be rejected as a gap even though no event is missing.
+      if (state.expectedSequence === event.seq)
+        return { ...state, expectedSequence: (sequence(event.seq) + 1n).toString() }
+      return state
+    }
     return {
       ...state,
       availability: { status: 'conflict', sourceEventId: event.sourceEventId },
@@ -233,7 +271,7 @@ export function acceptRuntimeStreamFrame(
   if (frame.type === 'data') {
     try {
       const decoded = decodeCbor(frame.bytes)
-      const event = decodeRuntimeEnvelope(decoded.value, { source })
+      const event = decodeRuntimeBrowserEnvelope(decoded.value, { source })
       if (event.seq !== frame.sequence) return gapped(state, frame.sequence)
       return acceptRuntimeEvent(state, event)
     } catch {
@@ -258,8 +296,16 @@ export function acceptRuntimeStreamFrame(
       },
     }
   }
-  if (frame.type === 'close' && frame.code === 'stale_generation')
-    return { ...state, availability: { status: 'stale_generation', generation: state.generation } }
+  if (frame.type === 'error') return { ...state, streamErrorCode: frame.error.code }
+  if (frame.type === 'close') {
+    const closed = markStreamClosed(state, frame.code, frame.reason)
+    return frame.code === 'stale_generation'
+      ? {
+          ...closed,
+          availability: { status: 'stale_generation', generation: state.generation },
+        }
+      : closed
+  }
   return state
 }
 

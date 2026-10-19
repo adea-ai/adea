@@ -62,7 +62,7 @@ function staticClosure(entry: string): Set<string> {
 }
 
 const catalogPanes = ['skills-pane', 'cloud-connections-pane']
-const hostPanes = ['runtime-nodes-pane', 'lead-model-pane']
+const hostPanes = ['runtime-nodes-pane', 'self-hosted-connections-section', 'lead-model-pane']
 const leadChat = ['lead-turn-controls', 'lead-model-request']
 const entries = ['lead-chat', 'control-plane-catalog', 'control-plane-hosts']
 

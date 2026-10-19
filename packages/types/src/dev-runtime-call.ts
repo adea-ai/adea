@@ -1,3 +1,6 @@
+import { isRuntimeCallEventKind, type RuntimeCallEventKind } from './dev-runtime-event-kinds'
+export { runtimeCallEventKinds, isRuntimeCallEventKind } from './dev-runtime-event-kinds'
+export type { RuntimeCallEventKind } from './dev-runtime-event-kinds'
 import {
   exactKeys,
   fail,
@@ -10,15 +13,6 @@ import {
 } from './dev-runtime-validation-internal'
 import { assertWellFormedUnicode } from './dev-runtime-unicode'
 
-export const runtimeCallEventKinds = [
-  'tool.requested',
-  'tool.started',
-  'tool.progress',
-  'tool.completed',
-  'tool.failed',
-  'subagent.observed',
-] as const
-export type RuntimeCallEventKind = (typeof runtimeCallEventKinds)[number]
 export const runtimeCallPhases = [
   'requested',
   'started',
@@ -62,10 +56,6 @@ export const RUNTIME_CALL_JSON_NODES_MAX = 2048
 export const RUNTIME_CALL_JSON_DEPTH_MAX = 16
 export const RUNTIME_CALL_JSON_ENTRIES_MAX = 256
 export const RUNTIME_CALL_JSON_STRING_MAX = 16 * 1024
-
-export function isRuntimeCallEventKind(kind: unknown): kind is RuntimeCallEventKind {
-  return runtimeCallEventKinds.includes(kind as RuntimeCallEventKind)
-}
 
 function callId(value: unknown, path: string): string {
   const text = stringValue(value, path, 1, 256)

@@ -1,3 +1,4 @@
+import { retainOptionalWorkspaceViews } from './helpers/workspace-view-preferences'
 import { expect, test, type Page } from '@playwright/test'
 import { resolve } from 'node:path'
 
@@ -419,4 +420,9 @@ test('the embedded source-control app sends its notices to the frame stack, not 
   await expect(page.getByText('Source control needs the Adea desktop runtime')).toHaveCount(0)
   await expect(page.locator('.dev-scm').first()).toBeVisible()
   await expect(page.locator('[aria-label^="Notifications ("]')).toHaveCount(1)
+})
+
+// This suite exercises explicitly enabled optional views in an existing profile.
+test.beforeEach(async ({ page }) => {
+  await retainOptionalWorkspaceViews(page)
 })

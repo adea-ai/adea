@@ -44,6 +44,17 @@ const desktopOnlyWorkspaceModules = renderedModules.filter(desktopOnlyClientModu
 if (desktopOnlyWorkspaceModules.length)
   throw new Error(`Desktop-only workspace in web output: ${desktopOnlyWorkspaceModules.join(', ')}`)
 
+// The Connections mount connects none of the self-hosted write operations, so the modules that run
+// pairing, rename and revoke are imported only by the full pane (a test harness) and must stay out
+// of the production client, by module and by the text only they carry.
+const selfHostedWriteModules = modules.filter((id) =>
+  /\/packages\/workspace-ui\/src\/self-hosted-(?:host-actions|setup-guide|connection-pane)\.tsx$/.test(
+    id
+  )
+)
+if (selfHostedWriteModules.length)
+  throw new Error(`Self-hosted write modules in web output: ${selfHostedWriteModules.join(', ')}`)
+
 // The trimZodLocales Vite plugin narrows zod's locales barrel to English; a
 // dependency update that routes around it must be caught here, not in a
 // bundle-diff review.
@@ -77,6 +88,16 @@ for (const path of await filesUnder(clientDirectory)) {
     bytes: Buffer.byteLength(content),
     gzipBytes: gzipSync(content).byteLength,
   })
+}
+const SELF_HOSTED_WRITE_MARKERS = [
+  'revoke-effects',
+  'pairing-values',
+  'Host renamed',
+  'Clear these values',
+]
+for (const marker of SELF_HOSTED_WRITE_MARKERS) {
+  const carrier = chunks.find((chunk) => chunk.source.includes(marker))
+  if (carrier) throw new Error(`Self-hosted write code (${marker}) in client chunk ${carrier.file}`)
 }
 if (chunks.length === 0) throw new Error('No built client JavaScript found; run start:build first')
 const bundle = inspectClientBundle(chunks)

@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@adea-ai/sdk": ["./node_modules/@adea-ai/sdk/dist/index.js"]
+    }
+  }
+}

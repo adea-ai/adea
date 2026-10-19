@@ -49,6 +49,20 @@ export {
   decodeWorktree,
 } from './dev-runtime-registry-dto'
 import { decodeGithubCollaborationDto } from './dev-runtime-github-dto'
+import { decodeRuntimeEventHistoryPage } from './dev-runtime-history'
+export { decodeRuntimeEventHistoryPage } from './dev-runtime-history'
+export type { RuntimeEventHistoryPage } from './dev-runtime-history'
+import { decodeCheckpointRestoreOutcome } from './dev-runtime-checkpoints'
+export {
+  decodeConversationCheckpoint,
+  decodeCheckpointRestoreRequest,
+  decodeCheckpointRestoreOutcome,
+} from './dev-runtime-checkpoints'
+export type {
+  ConversationCheckpoint,
+  CheckpointRestoreRequest,
+  CheckpointRestoreOutcome,
+} from './dev-runtime-checkpoints'
 export type {
   FollowUpQueueRequest,
   FollowUpQueueSnapshot,
@@ -97,8 +111,9 @@ export {
   isRuntimeAssistantEventKind,
   decodeCbor,
   decodeRuntimeEvent,
-  decodeRuntimeActivityEvent,
+  decodeRuntimeUsageObservedPayload,
   decodeRuntimeEnvelope,
+  decodeRuntimeBrowserEnvelope,
   decodeRuntimeCallEvent,
   assertRuntimeEventFrameSize,
   RUNTIME_EVENT_CBOR_BYTES_MAX,
@@ -111,6 +126,7 @@ export {
   RUNTIME_CALL_JSON_DEPTH_MAX,
   RUNTIME_CALL_JSON_ENTRIES_MAX,
   RUNTIME_CALL_JSON_STRING_MAX,
+  decodeRuntimeActivityEvent,
   encodeCbor,
   runtimeEventKinds,
 } from './dev-runtime-wire'
@@ -140,7 +156,7 @@ export type {
   RuntimeEvent,
   RuntimeEventKind,
   RuntimeEventProvenance,
-  RuntimeActivityEvent,
+  RuntimeUsageObservedPayload,
   RuntimeCallEvent,
   RuntimeCallEventKind,
   RuntimeCallData,
@@ -148,6 +164,7 @@ export type {
   RuntimeCallPayload,
   RuntimeCallPermissionEligibility,
   RuntimeCallPhase,
+  RuntimeActivityEvent,
 } from './dev-runtime-wire'
 export {
   decodeRuntimeInteractionPayload,
@@ -167,6 +184,39 @@ export type {
   RuntimeQuestionResolution,
   RuntimeResponseEligibility,
 } from './dev-runtime-interactions'
+export {
+  decodeRuntimeActivityPayload,
+  isRuntimeActivityEventKind,
+  runtimeActivityEventKinds,
+  runtimeTestStatuses,
+  runtimeWorkStatuses,
+  runtimeFileChangeKinds,
+  ACTIVITY_PAYLOAD_BYTES_MAX,
+  ACTIVITY_JSON_NODES_MAX,
+  ACTIVITY_JSON_DEPTH_MAX,
+  ACTIVITY_TEXT_MAX,
+} from './dev-runtime-activity'
+export type {
+  RuntimeActivityEventKind,
+  RuntimeActivityPayloads,
+  RuntimeFailureRecord,
+  RuntimeFailurePayload,
+  RuntimeStackFrame,
+  RuntimeStackTrace,
+  RuntimeTestRunPayload,
+  RuntimeTestSummary,
+  RuntimeTestSuite,
+  RuntimeTestCase,
+  RuntimeTestStatus,
+  RuntimeTerminalOutputPayload,
+  RuntimeChangedFilesPayload,
+  RuntimeFileChange,
+  RuntimePlanPayload,
+  RuntimeTaskPayload,
+  RuntimeWorkStatus,
+  RuntimeWorkItem,
+} from './dev-runtime-activity'
+
 export {
   CITED_RESPONSE_BYTES_MAX,
   RESPONSE_CITATION_MAX,
@@ -4951,6 +5001,7 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.session.cancelHarness': (value) => decodeHarnessRun(value),
   'dev.session.launchHarness': (value) => decodeHarnessRun(value),
   'dev.session.resumeHarness': (value) => decodeHarnessRun(value),
+  'dev.session.restoreCheckpoint': (value) => decodeCheckpointRestoreOutcome(value),
   // #400 harness launch orchestration: preferences read/update/reset, the
   // observed run-status transition, the default-harness launch, and the
   // runtime-events-v1 stream grant.
@@ -4970,6 +5021,7 @@ const devReplyValueDecoders: Partial<Record<DevOperation, (value: unknown) => un
   'dev.harness.runStatus': (value) => decodeHarnessRun(value),
   'dev.session.launchDefault': (value) => decodeHarnessRun(value),
   'dev.session.events': (value) => decodeDevStreamGrant(value),
+  'dev.session.history': (value) => decodeRuntimeEventHistoryPage(value),
   // ADR 0012 workspace memory: an agent proposal lands pending; the reply is
   // the receipt, never the proposed text.
   'dev.memory.propose': (value) => namedType('MemoryProposalReceipt', value, 'reply.value'),
@@ -5657,36 +5709,3 @@ export function devStreamAttachProofMessage(input: {
     input.attach.fromSequence,
   ])
 }
-
-export {
-  decodeRuntimeActivityPayload,
-  isRuntimeActivityEventKind,
-  runtimeActivityEventKinds,
-  runtimeTestStatuses,
-  runtimeWorkStatuses,
-  runtimeFileChangeKinds,
-  ACTIVITY_PAYLOAD_BYTES_MAX,
-  ACTIVITY_JSON_NODES_MAX,
-  ACTIVITY_JSON_DEPTH_MAX,
-  ACTIVITY_TEXT_MAX,
-} from './dev-runtime-activity'
-export type {
-  RuntimeActivityEventKind,
-  RuntimeActivityPayloads,
-  RuntimeFailureRecord,
-  RuntimeFailurePayload,
-  RuntimeStackFrame,
-  RuntimeStackTrace,
-  RuntimeTestRunPayload,
-  RuntimeTestSummary,
-  RuntimeTestSuite,
-  RuntimeTestCase,
-  RuntimeTestStatus,
-  RuntimeTerminalOutputPayload,
-  RuntimeChangedFilesPayload,
-  RuntimeFileChange,
-  RuntimePlanPayload,
-  RuntimeTaskPayload,
-  RuntimeWorkStatus,
-  RuntimeWorkItem,
-} from './dev-runtime-activity'

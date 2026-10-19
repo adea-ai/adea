@@ -54,6 +54,8 @@ import {
   CHAT_ASSISTANT_TEXT_LIMIT,
   type ChatTurnActivity,
   type ChatTurnApproval,
+  type ChatTurnCall,
+  type ChatTurnResult,
   type ChatTurnMethod,
   type ChatTurnNotice,
   type ChatTurnQuestion,
@@ -68,6 +70,8 @@ import {
 import type { TranscriptAccumulator } from './model'
 import { transcriptHistoryNotice } from './model/transcript'
 import { ChatApproval } from './chat-approval'
+import { CallLine } from './chat-calls'
+import { ResultLine } from './chat-results'
 import { chatTranscriptActionDisabledReason } from './transcript-availability'
 
 export type ChatTranscriptProps = Readonly<{
@@ -90,6 +94,13 @@ export type ChatTranscriptProps = Readonly<{
   ) => void | Promise<void>
   onResolveQuestion?: (event: RuntimeEvent, answer: string) => void | Promise<void>
   onJumpToTerminal?: () => void
+  /** There are earlier turns the host can load; absent or false draws no control. */
+  hasOlder?: boolean
+  loadingOlder?: boolean
+  /** Load earlier turns; the scroller keeps the reader where they are while they land. */
+  onLoadOlder?: () => void | Promise<void>
+  /** The last attempt to load earlier turns failed; the control stays so the reader can retry. */
+  historyFailed?: boolean
   readingPosition?: Readonly<{ top: number; following: boolean }>
   onReadingPositionChange?: (position: Readonly<{ top: number; following: boolean }>) => void
 }>
@@ -163,13 +174,50 @@ function sameIds(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((id, index) => id === b[index])
 }
 
+const PIN_SETTLE_FRAMES = 4
+const READER_INPUTS = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const
+
+/**
+ * Remembers where the first visible entry sits in the scroller. `restore` waits
+ * for the scroller's own post-load restore (about two frames), then moves the
+ * scroll offset by whatever the entry still drifted, unless the reader acted.
+ */
+function pinFirstVisibleEntry(scroller: HTMLElement): { restore: () => Promise<void> } | undefined {
+  const top = scroller.getBoundingClientRect().top
+  const entry = Array.from(scroller.querySelectorAll<HTMLElement>('[data-entry-id]')).find(
+    (candidate) => candidate.getBoundingClientRect().bottom > top + 1
+  )
+  if (!entry) return undefined
+  const before = entry.getBoundingClientRect().top - top
+  let moved = false
+  const note = () => {
+    moved = true
+  }
+  for (const name of READER_INPUTS) scroller.addEventListener(name, note, { passive: true })
+  return {
+    restore: async () => {
+      for (let frame = 0; frame < PIN_SETTLE_FRAMES; frame++) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+      }
+      for (const name of READER_INPUTS) scroller.removeEventListener(name, note)
+      if (moved || !entry.isConnected) return
+      const drift =
+        entry.getBoundingClientRect().top - scroller.getBoundingClientRect().top - before
+      if (Math.abs(drift) >= 1) scroller.scrollTop += drift
+    },
+  }
+}
+
 /**
  * What the reader must know before reading any turn: a gap, an older generation,
  * bounded history, a terminal-only projection. They sit outside the scrolling
  * thread (the chat shell's notice row) so they cannot scroll away.
  */
 export function ChatTranscriptNotices(
-  props: Pick<ChatTranscriptProps, 'transcript' | 'projection' | 'onJumpToTerminal'>
+  props: Pick<
+    ChatTranscriptProps,
+    'transcript' | 'projection' | 'onJumpToTerminal' | 'historyFailed'
+  >
 ): JSX.Element {
   const availability = () => props.transcript?.availability
   const historyNotice = () => {
@@ -192,6 +240,13 @@ export function ChatTranscriptNotices(
           tone="danger"
           live="assertive"
           title="This transcript belongs to an older runtime generation."
+        />
+      </Show>
+      <Show when={props.historyFailed}>
+        <ChatNotice
+          tone="warning"
+          live="polite"
+          title="Earlier messages could not be loaded. Try again."
         />
       </Show>
       <Show when={historyNotice()}>
@@ -302,11 +357,32 @@ export function ChatTranscript(props: ChatTranscriptProps): JSX.Element {
 
   const hasEntries = () => items().length > 0
 
+  // MessageScroller keeps the reader's place by turn. A reply split across
+  // history pages stays one turn, so an entry above the reader that changes
+  // height inside it (a withheld placeholder becoming the restored text) moves
+  // the view with nothing to re-anchor it. Pin the first visible entry by node
+  // across the load and put it back once the scroller has restored its own turn;
+  // a reader who scrolled meanwhile keeps wherever they went.
+  const loadOlderPinned = async () => {
+    const load = props.onLoadOlder
+    const scroller = thread
+    if (!load) return
+    const pin = scroller ? pinFirstVisibleEntry(scroller) : undefined
+    try {
+      await load()
+    } finally {
+      void pin?.restore()
+    }
+  }
+
   return (
     <MessageScroller
       data-dev-chat-stream=""
       aria-label="Conversation transcript"
       resetKey={props.resetKey}
+      hasOlder={props.hasOlder}
+      loadingOlder={props.loadingOlder}
+      onLoadOlder={props.onLoadOlder ? loadOlderPinned : undefined}
       initialReadingPosition={props.readingPosition}
       onReadingPositionChange={props.onReadingPositionChange}
       announcement={announcement()}
@@ -493,6 +569,12 @@ function ActivityColumn(props: {
               <Show when={entry()?.type === 'activity' ? (entry() as ChatTurnActivity) : undefined}>
                 {(activity) => <ActivityLine item={() => byId().get(id) && activity().item} />}
               </Show>
+              <Show when={entry()?.type === 'call'}>
+                <CallLine entry={() => entry() as ChatTurnCall} live={props.live} />
+              </Show>
+              <Show when={entry()?.type === 'result'}>
+                <ResultLine entry={() => entry() as ChatTurnResult} live={props.live} />
+              </Show>
               <Show when={entry()?.type === 'reasoning'}>
                 <ReasoningLine entry={() => entry() as ChatTurnReasoning} live={props.live} />
               </Show>
@@ -675,6 +757,7 @@ function EntryView(props: {
       <Show when={entry().type === 'approval'}>
         <ChatApproval
           item={(entry() as ChatTurnApproval).item}
+          outcome={(entry() as ChatTurnApproval).outcome}
           onResolve={props.chat.onResolveApproval}
           disabledReason={chatTranscriptActionDisabledReason(
             'approval',
@@ -748,8 +831,25 @@ function TextEntry(props: { entry: ChatTurnText; streaming: boolean }): JSX.Elem
       <Show when={props.entry.truncated}>
         <TruncationNote contextUnavailable={props.entry.text.length === 0} />
       </Show>
+      <Show
+        when={
+          props.entry.source === 'message' &&
+          props.entry.text.length === 0 &&
+          !props.entry.truncated
+        }
+      >
+        <Marker variant="note" label="The runtime sent an empty message." />
+      </Show>
       <Show when={props.entry.failed}>
-        <Marker variant="note" tone="danger" label="The runtime reported an error for this turn." />
+        <Marker
+          variant="note"
+          tone="danger"
+          label={
+            props.entry.summary
+              ? `The runtime reported an error for this turn: ${props.entry.summary}`
+              : 'The runtime reported an error for this turn.'
+          }
+        />
       </Show>
       <Show when={sources().length > 0}>
         <Sources sources={sources()} />
@@ -808,7 +908,7 @@ function QuestionEntry(props: {
   const disabledReason = () =>
     interactionContextDisabledReason(item()) ??
     chatTranscriptActionDisabledReason('question', props.chat.onResolveQuestion)
-  const requested = () => item().state === 'requested'
+  const requested = () => item().state === 'requested' && props.entry.outcome === undefined
   const submit = async (value: QuestionnaireAnswers) => {
     const event = item().event
     const text = value.answer?.text.trim() ?? ''
@@ -832,8 +932,20 @@ function QuestionEntry(props: {
         <Trace>
           <TraceLine
             title={prompt()}
-            meta={item().state ? STATE_WORDS[item().state!] : undefined}
-            status={item().state === 'expired' ? 'cancelled' : undefined}
+            meta={
+              props.entry.outcome
+                ? props.entry.outcome.decision === 'expired'
+                  ? STATE_WORDS.expired
+                  : 'answered'
+                : item().state
+                  ? STATE_WORDS[item().state!]
+                  : undefined
+            }
+            status={
+              (props.entry.outcome?.decision ?? item().state) === 'expired'
+                ? 'cancelled'
+                : undefined
+            }
             data-entry-id={item().id}
             data-event-id={item().id}
           />

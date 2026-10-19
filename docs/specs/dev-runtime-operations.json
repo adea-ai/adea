@@ -1308,6 +1308,12 @@
         "direction": "read"
       }
     },
+    "dev.session.history": {
+      "capabilities": ["dev.session.read"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string; expectedGeneration: integer; beforeSequence?: uint64-string; cursor?: string(1..2048); limit?: integer(1..500) }",
+      "reply": "RuntimeEventHistoryPage"
+    },
     "dev.session.followUps": {
       "capabilities": ["dev.session.manage"],
       "resource": "runtime_session:required",
@@ -1337,6 +1343,12 @@
       "resource": null,
       "body": "{ projectId?: string; worktreeId?: string; archived?: boolean; cursor?: string; limit?: integer(1..500) }",
       "reply": "Page<RuntimeSession>"
+    },
+    "dev.session.restoreCheckpoint": {
+      "capabilities": ["dev.session.manage"],
+      "resource": "runtime_session:required",
+      "body": "{ runtimeSessionId: string(1..256); expectedGeneration: integer(0..9007199254740990); checkpointEventId: string(1..256) }",
+      "reply": "CheckpointRestoreOutcome"
     },
     "dev.session.resumeHarness": {
       "capabilities": ["dev.session.manage"],

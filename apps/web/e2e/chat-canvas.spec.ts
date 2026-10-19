@@ -35,7 +35,7 @@ function trackPageErrors(page: Page): string[] {
 async function openCanvas(
   page: Page,
   state: string,
-  options: { theme?: 'light' | 'dark'; width?: number; height?: number } = {}
+  options: { theme?: 'light' | 'dark'; width?: number; height?: number; query?: string } = {}
 ) {
   const theme = options.theme ?? 'light'
   await page.setViewportSize({ width: options.width ?? 1280, height: options.height ?? 800 })
@@ -60,7 +60,7 @@ async function openCanvas(
   await page.route('**/api/v1/**', (route) =>
     route.fulfill({ contentType: 'application/json', json: {} })
   )
-  await page.goto(`/?view=chat&chatE2e=visual&chatState=${state}`)
+  await page.goto(`/?view=chat&chatE2e=visual&chatState=${state}${options.query ?? ''}`)
   await expect(page.locator('[data-chat-visual-state]')).toHaveAttribute(
     'data-chat-visual-state',
     state,
@@ -865,6 +865,520 @@ test.describe('structure and assistive technology', () => {
             id: violation.id,
             targets: violation.nodes.map((node) => node.target.join(' ')),
           }))
+      })
+      expect(violations).toEqual([])
+    })
+  }
+})
+
+const call = (page: Page, id: string) => page.locator(`[data-entry-id="${id}"]`)
+
+test.describe('tool and subagent calls', () => {
+  test('calls the producer identified are drawn inside the call that parented them', async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'calls')
+    const agent = call(page, 'call-agent-start')
+    await expect(agent).toHaveAttribute('data-kind', 'subagent.observed')
+    await expect(agent).toHaveAttribute('data-call-phase', 'completed')
+    await expect(agent).toContainText('reviewer')
+    await expect(agent).toContainText('2 steps')
+    // Only the three top-level calls are drawn until the subagent is opened.
+    await expect(page.locator('[data-call-phase]')).toHaveCount(3)
+    await agent.getByRole('button').first().click()
+    await expect(page.locator('[data-call-phase]')).toHaveCount(5)
+    await expect(agent.locator('[data-call-phase]')).toHaveCount(2)
+    const read = agent.locator('[data-entry-id="call-read-start"]')
+    await expect(read).toContainText('read_file')
+    await expect(read).toContainText('<1s')
+    await read.getByRole('button').first().click()
+    await expect(read).toContainText('0055.sql')
+    await expect(read).toContainText('"lines": 48')
+    expect(errors).toEqual([])
+  })
+
+  test('a failed call says so, and content held by reference is not pretended to be shown', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'calls')
+    const agent = call(page, 'call-agent-start')
+    await agent.getByRole('button').first().click()
+    const failed = agent.locator('[data-entry-id="call-test-failed"]')
+    await expect(failed).toHaveAttribute('data-status', 'error')
+    await expect(failed.locator('.sr-only').first()).toHaveText('Failed')
+    await failed.getByRole('button').first().click()
+    await expect(failed.locator('[data-call-note]')).toContainText(
+      'Output is held by reference (4096 bytes) and is not shown here.'
+    )
+  })
+
+  test('a call with no known parent stays a top-level line, and a last word of progress is not a success', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'calls')
+    const orphan = call(page, 'call-orphan-done')
+    await expect(orphan).toHaveAttribute('data-call-phase', 'completed')
+    await expect(orphan.locator('xpath=ancestor::*[@data-call-phase]')).toHaveCount(0)
+    const progress = call(page, 'call-lint-progress')
+    await expect(progress).toHaveAttribute('data-call-phase', 'progress')
+    await expect(progress).not.toHaveAttribute('data-status', 'success')
+  })
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`no serious accessibility violations with nested calls open (${theme})`, async ({
+      page,
+    }) => {
+      await openCanvas(page, 'calls', { theme })
+      const agent = call(page, 'call-agent-start')
+      await agent.getByRole('button').first().click()
+      await agent.locator('[data-entry-id="call-read-start"]').getByRole('button').first().click()
+      await page.addScriptTag({ content: axe.source })
+      const violations = await page.evaluate(async () => {
+        const runner = (
+          window as unknown as {
+            axe: {
+              run: (c: Element) => Promise<{
+                violations: Array<{ id: string; impact: string | null }>
+              }>
+            }
+          }
+        ).axe
+        const result = await runner.run(document.querySelector('[data-dev-chat]') as Element)
+        return result.violations
+          .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
+          .map((violation) => violation.id)
+      })
+      expect(violations).toEqual([])
+    })
+  }
+})
+
+const older = (page: Page) => page.getByText('First question: what changed?')
+const attempts = (page: Page) =>
+  page.evaluate(
+    () => (window as unknown as { chatHistoryAttempts?: number }).chatHistoryAttempts ?? 0
+  )
+
+test.describe('earlier messages', () => {
+  test('an earlier turn loads once, above the one on screen', async ({ page }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'history')
+    await expect(page.getByText('Second question: any risks?')).toBeVisible()
+    // The reader is at the top of a short thread, so the scroller asks for it; a click
+    // would ask for the same page, never a second one.
+    const load = page.getByRole('button', { name: 'Load earlier messages' })
+    if (await load.isVisible()) await load.click()
+    await expect(older(page)).toHaveCount(1)
+    await expect(page.getByRole('button', { name: 'Load earlier messages' })).toHaveCount(0)
+    expect(await attempts(page)).toBe(1)
+    const order = await page
+      .locator('[data-dev-chat] [role="article"], [data-dev-chat] article')
+      .evaluateAll((nodes) => nodes.map((node) => node.textContent ?? ''))
+    const first = order.findIndex((text) => text.includes('First question'))
+    const second = order.findIndex((text) => text.includes('Second question'))
+    expect(first).toBeGreaterThanOrEqual(0)
+    expect(first).toBeLessThan(second)
+    expect(errors).toEqual([])
+  })
+
+  test('a failed load says so, keeps the control and does not retry on its own', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'history-offline')
+    await expect(page.getByText('Earlier messages could not be loaded')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Load earlier messages' })).toBeVisible()
+    await expect(older(page)).toHaveCount(0)
+    const settled = await attempts(page)
+    await page.waitForTimeout(1500)
+    expect(await attempts(page)).toBe(settled)
+    expect(settled).toBeLessThanOrEqual(2)
+  })
+
+  test('after a failure the reader can ask again and the turn lands', async ({ page }) => {
+    await openCanvas(page, 'history-retry')
+    await expect(page.getByText('Second question: any risks?')).toBeVisible()
+    await expect
+      .poll(async () => (await older(page).count()) > 0 || (await attempts(page)) >= 1)
+      .toBe(true)
+    // If the first (failing) request has not already been retried, ask again.
+    const load = page.getByRole('button', { name: 'Load earlier messages' })
+    if ((await older(page).count()) === 0) await load.click()
+    await expect(older(page)).toHaveCount(1)
+    await expect(page.getByText('Earlier messages could not be loaded')).toHaveCount(0)
+  })
+})
+
+const transcript = (page: Page) => page.locator('[data-dev-chat]')
+
+test.describe('a reply that starts behind the window', () => {
+  const REPLY = 'The build failed in two places.'
+
+  test('none of it is drawn until its start is restored, then it is one block', async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'history-split')
+    // The window holds only the last delta of the reply; showing it would show a fragment
+    // whose start (and any secret it began) is out of view.
+    await expect(transcript(page)).not.toContainText('two places.')
+    // Earlier messages load one page at a time through the scroller's own control.
+    const load = page.getByRole('button', { name: 'Load earlier messages' })
+    await expect(load).toBeAttached()
+    for (let step = 0; step < 4; step += 1) {
+      if (await transcript(page).getByText(REPLY).count()) break
+      await load.evaluate((node) => (node as HTMLElement).click()).catch(() => undefined)
+      await page.waitForTimeout(250)
+    }
+    await expect(transcript(page).getByText(REPLY)).toHaveCount(1)
+    await expect(transcript(page).getByText('What failed in the build?')).toBeVisible()
+    // The pieces were never drawn on their own.
+    await expect(transcript(page).getByText('failed in', { exact: true })).toHaveCount(0)
+    expect(await attempts(page)).toBe(2)
+    expect(errors).toEqual([])
+  })
+})
+
+const offsetOf = (page: Page, text: string) =>
+  page.evaluate((needle) => {
+    const scroller = document.querySelector('[data-dev-chat-stream]') as HTMLElement
+    const node = Array.from(scroller.querySelectorAll('p')).find((candidate) =>
+      candidate.textContent?.includes(needle)
+    )
+    if (!node) return null
+    return node.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+  }, text)
+
+test.describe('a reply split across history pages keeps the reader’s place', () => {
+  test('scroll offset and focus survive the earlier pages landing', async ({ page }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'history-split', { height: 600 })
+    const scroller = page.locator('[data-dev-chat-stream]')
+    await expect(scroller.getByText('Closing paragraph of the long answer.')).toBeVisible()
+    // Read the middle of the long answer, the code block a little below the top of the view:
+    // far from both ends, so nothing loads by itself and the view does not follow.
+    const copy = scroller.getByRole('button', { name: /copy/i }).first()
+    await copy.evaluate((node) => {
+      const view = document.querySelector('[data-dev-chat-stream]') as HTMLElement
+      view.scrollTop += node.getBoundingClientRect().top - view.getBoundingClientRect().top - 90
+      node.focus({ preventScroll: true })
+    })
+    await expect(copy).toBeFocused()
+    const room = await scroller.evaluate((node) => ({
+      above: node.scrollTop,
+      below: node.scrollHeight - node.clientHeight - node.scrollTop,
+    }))
+    expect(room.above).toBeGreaterThan(200)
+    expect(room.below).toBeGreaterThan(200)
+    const before = await offsetOf(page, 'Paragraph 13 of the long answer')
+    expect(before).not.toBeNull()
+    expect(await attempts(page)).toBe(0)
+
+    // The reader asks for earlier messages with the control, not by scrolling to the top: a
+    // click that reaches the control without moving the view, as a keyboard user's does.
+    const control = scroller.getByRole('button', { name: 'Load earlier messages' })
+    const ask = () => control.evaluate((node) => (node as HTMLElement).click())
+    await ask()
+    await expect.poll(() => attempts(page)).toBe(1)
+    // The first page reaches into the middle of the reply: its start is still unknown.
+    await expect(scroller.getByText('The build failed in two places.')).toHaveCount(0)
+    await expect(control).toBeAttached()
+    await page.waitForTimeout(300)
+    await ask()
+    await expect.poll(() => attempts(page)).toBe(2)
+    await expect(scroller.getByText('The build failed in two places.')).toHaveCount(1)
+    await expect(scroller.getByText('What failed in the build?')).toBeVisible()
+
+    const after = await offsetOf(page, 'Paragraph 13 of the long answer')
+    expect(Math.abs((after ?? 0) - (before ?? 0))).toBeLessThanOrEqual(2)
+    await expect(copy).toBeFocused()
+    expect(errors).toEqual([])
+  })
+})
+
+const status = (page: Page) => page.locator('[data-chat-status]')
+const opens = (page: Page) =>
+  page.evaluate(() => (window as unknown as { chatStreamOpens?: string[] }).chatStreamOpens ?? [])
+const close = (page: Page, detail: { code: string; error?: string }) =>
+  page.evaluate(
+    (value) => window.dispatchEvent(new CustomEvent('chat-visual:close', { detail: value })),
+    detail
+  )
+
+const script = (page: Page, steps: readonly string[]) =>
+  page.addInitScript((value) => {
+    ;(window as unknown as { chatStreamScript?: string[] }).chatStreamScript = [...value]
+  }, steps)
+const reconnect = (page: Page) => page.getByRole('button', { name: 'Reconnect transcript' })
+
+test.describe('a stream that ends is not shown as live', () => {
+  test('an ordinary close says disconnected and reconnects from where it was', async ({ page }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'stream-close')
+    await expect(status(page)).toHaveText(/Live/)
+    const first = await opens(page)
+    expect(first).toHaveLength(1)
+    await close(page, { code: 'normal' })
+    await expect(status(page)).toHaveText(/Disconnected/)
+    await expect(status(page)).not.toHaveText(/Live/)
+    await expect(page.getByText('The live stream closed. Reconnect to continue.')).toBeVisible()
+    await page.getByRole('button', { name: 'Reconnect transcript' }).click()
+    await expect(status(page)).toHaveText(/Live/)
+    const second = await opens(page)
+    expect(second).toHaveLength(2)
+    expect(second[1]).not.toBe('0')
+    expect(second[1]).toBe(first[0])
+    expect(errors).toEqual([])
+  })
+
+  test('a close after the host refused the position does not reconnect with it', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'stream-close')
+    await expect(status(page)).toHaveText(/Live/)
+    await close(page, { code: 'incompatible', error: 'sequence_gap' })
+    await expect(status(page)).toHaveText(/Disconnected/)
+    await expect(page.getByText(/host refused its position/)).toBeVisible()
+    await page.getByRole('button', { name: 'Reconnect transcript' }).click()
+    await expect(status(page)).toHaveText(/Live/)
+    const opened = await opens(page)
+    expect(opened).toHaveLength(2)
+    expect(opened[1]).toBe('0')
+    // The refusal is spent: the next ordinary reconnect resumes from the window again.
+    await close(page, { code: 'normal' })
+    await page.getByRole('button', { name: 'Reconnect transcript' }).click()
+    await expect.poll(async () => (await opens(page)).length).toBe(3)
+    expect((await opens(page))[2]).not.toBe('0')
+  })
+
+  test('a handle that has already ended when it is returned is not shown as live', async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page)
+    await script(page, ['closed'])
+    await openCanvas(page, 'stream-close')
+    await expect(status(page)).toHaveText(/Disconnected/)
+    await expect(status(page)).not.toHaveText(/Live/)
+    await expect(page.getByText('The live stream closed. Reconnect to continue.')).toBeVisible()
+    await reconnect(page).click()
+    await expect(status(page)).toHaveText(/Live/)
+    expect(await opens(page)).toHaveLength(2)
+    expect(errors).toEqual([])
+  })
+
+  test('a returned handle that ended on a refused cursor recovers from the beginning', async ({
+    page,
+  }) => {
+    await script(page, ['ok', 'refused', 'ok'])
+    await openCanvas(page, 'stream-close')
+    await expect(status(page)).toHaveText(/Live/)
+    await close(page, { code: 'normal' })
+    await reconnect(page).click()
+    await expect(status(page)).toHaveText(/Disconnected/)
+    await expect(page.getByText(/host refused its position/)).toBeVisible()
+    await reconnect(page).click()
+    await expect(status(page)).toHaveText(/Live/)
+    const opened = await opens(page)
+    expect(opened).toHaveLength(3)
+    expect(opened[1]).not.toBe('0')
+    expect(opened[2]).toBe('0')
+  })
+
+  test('a recovery that fails to open keeps asking from the beginning', async ({ page }) => {
+    await script(page, ['ok', 'fail', 'fail', 'ok'])
+    await openCanvas(page, 'stream-close')
+    await expect(status(page)).toHaveText(/Live/)
+    await close(page, { code: 'incompatible', error: 'sequence_gap' })
+    await reconnect(page).click()
+    await expect(page.getByText('Runtime stream unavailable.')).toBeVisible()
+    await reconnect(page).click()
+    await expect(page.getByText('Runtime stream unavailable.')).toBeVisible()
+    await reconnect(page).click()
+    await expect(status(page)).toHaveText(/Live/)
+    const opened = await opens(page)
+    expect(opened).toHaveLength(4)
+    expect(opened.slice(1)).toEqual(['0', '0', '0'])
+  })
+})
+
+const lastEvent = (page: Page) =>
+  page.getByRole('region', { name: 'Evidence from the retained transcript' }).locator('dd').first()
+
+test.describe('handoff evidence follows the displayed thread', () => {
+  test('a streamed event updates the last event', async ({ page }) => {
+    await openCanvas(page, 'streaming', { query: '&chatHandoff=1' })
+    const before = (await lastEvent(page).textContent()) ?? ''
+    await page.evaluate(() => window.dispatchEvent(new Event('chat-visual:append')))
+    await expect(page.getByText('A later stream update arrived.')).toBeVisible()
+    await expect(lastEvent(page)).not.toHaveText(before)
+    await expect(lastEvent(page)).toContainText('turn.assistant_delta')
+  })
+
+  test('loaded history changes the window completeness the strip reports', async ({ page }) => {
+    await openCanvas(page, 'history', { query: '&chatHandoff=1' })
+    await expect(page.getByText(/counts are lower bounds/)).toBeVisible()
+    const load = page.getByRole('button', { name: 'Load earlier messages' })
+    await expect(older(page).or(load)).toBeVisible()
+    // The scroller may already have asked; a click then has nothing to press.
+    await load.click({ timeout: 2_000 }).catch(() => undefined)
+    await expect(older(page)).toHaveCount(1)
+    await expect(page.getByText(/counts are lower bounds/)).toHaveCount(0)
+  })
+
+  test('history that never loads keeps the counts labelled as lower bounds', async ({ page }) => {
+    await openCanvas(page, 'history-offline', { query: '&chatHandoff=1' })
+    await expect(page.getByText(/counts are lower bounds/)).toBeVisible()
+  })
+})
+
+test.describe('structured results', () => {
+  test('terminal output, a test run with its stack, files, a plan and a task are drawn as such', async ({
+    page,
+  }) => {
+    const errors = trackPageErrors(page)
+    await openCanvas(page, 'results')
+    const terminal = call(page, 'res-term-start')
+    await expect(terminal).toHaveAttribute('data-result', 'terminal')
+    await expect(terminal).toContainText('bun test packages/db')
+    await expect(terminal).toHaveAttribute('data-status', 'error')
+    await terminal.getByRole('button').first().click()
+    await expect(terminal).toContainText('Exited with code 1')
+    await expect(terminal).toContainText('(fail) keeps applied history across a rebase')
+
+    // Counts are the producer's: three passed were reported, one test is listed.
+    const tests = call(page, 'res-tests')
+    await expect(tests).toHaveAttribute('data-status', 'error')
+    await tests.getByRole('button').first().click()
+    await expect(tests).toContainText('3 passed (1 listed)')
+    await expect(tests).toContainText('expected journal entry 0054 to be unchanged')
+    await expect(tests).toContainText('packages/db/src/journal.ts:41:9')
+
+    const files = call(page, 'res-files')
+    await expect(files).toContainText('2 files · +12 −3')
+    await files.getByRole('button').first().click()
+    await expect(files).toContainText('renamed from packages/db/src/check.ts')
+
+    // A plan is the thing being followed, so it opens by itself.
+    const plan = call(page, 'res-plan')
+    await expect(plan).toContainText('Fix the journal check')
+    await expect(plan).toContainText('1 of 3 steps done')
+    await expect(plan).toContainText('Keep applied entries unchanged')
+    await expect(call(page, 'res-task')).toContainText('Follow up on the rollout order')
+    expect(errors).toEqual([])
+  })
+
+  test('a checkpoint is only a marker, and the reported context is a trigger that opens its figures', async ({
+    page,
+  }) => {
+    await openCanvas(page, 'results')
+    const checkpoint = page.locator('[data-slot="checkpoint"]')
+    await expect(checkpoint).toContainText('Before the journal fix')
+    await expect(checkpoint).toContainText('2026-09-22 10:00 UTC')
+    // No restore operation reaches the canvas, so nothing offers one.
+    await expect(checkpoint.getByRole('button')).toHaveCount(0)
+
+    const trigger = page.locator('[data-slot="context"]')
+    await expect(trigger).toBeVisible()
+    await trigger.click()
+    await expect(page.getByRole('dialog')).toContainText('84,000')
+    await expect(page.getByRole('dialog')).toContainText('200,000')
+    await page.keyboard.press('Escape')
+    await expect(trigger).toBeFocused()
+  })
+
+  test.describe('adapters keep what the producer said', () => {
+    test('a subagent keeps its input, its references and the redaction of a private path', async ({
+      page,
+    }) => {
+      const errors = trackPageErrors(page)
+      await openCanvas(page, 'results-edge')
+      const agent = call(page, 'edge-agent-in')
+      await agent.getByRole('button').first().click()
+      const input = agent.locator('[data-call-input]')
+      await input.getByRole('button').first().click()
+      await expect(input).toContainText('summarize')
+      await expect(input).toContainText('[private path]')
+      await expect(input).not.toContainText('someone')
+      // An output held by reference is said to be, not dropped.
+      await expect(agent).toContainText('Output is held by reference (8192 bytes)')
+
+      const held = call(page, 'edge-agent-ref')
+      await held.getByRole('button').first().click()
+      await held.locator('[data-call-input]').getByRole('button').first().click()
+      await expect(held).toContainText('Input is held by reference (2048 bytes)')
+      expect(errors).toEqual([])
+    })
+
+    test('a suite keeps its reported status and nothing claims work is under way once stopped', async ({
+      page,
+    }) => {
+      await openCanvas(page, 'results-edge')
+      const tests = call(page, 'edge-tests')
+      await tests.getByRole('button').first().click()
+      const suites = tests.locator('[data-suite-status]')
+      await expect(suites).toContainText('auth suite: failed')
+      await expect(suites).toContainText('ui suite: not finished')
+      await expect(tests.locator('[data-status="running"]')).toHaveCount(0)
+    })
+
+    test('a failed plan with an incomplete list does not imply completion', async ({ page }) => {
+      await openCanvas(page, 'results-edge')
+      const plan = call(page, 'edge-plan')
+      await expect(plan).toContainText('Roll out the fix')
+      await expect(plan).toContainText('failed · 1 listed')
+      await expect(plan).toContainText('The producer marked this plan incomplete')
+      await expect(plan).toContainText('The producer counts 4 steps')
+      await expect(plan).toContainText('Write the migration')
+      await expect(plan).not.toContainText('done')
+    })
+
+    test('changed files with no totals claim neither a total nor zero lines', async ({ page }) => {
+      await openCanvas(page, 'results-edge')
+      const files = call(page, 'edge-files')
+      await expect(files).toContainText('1 listed')
+      await expect(files).not.toContainText('+0')
+      await expect(files).not.toContainText('1 file ')
+      await files.getByRole('button').first().click()
+      await expect(files).toContainText('did not say whether this list is complete')
+    })
+
+    test("context is the named model's, and its cost keeps the exact decimal text", async ({
+      page,
+    }) => {
+      await openCanvas(page, 'results-edge')
+      await expect(page.locator('[data-usage-model]')).toHaveAttribute(
+        'data-usage-model',
+        'fixture-model'
+      )
+      await expect(page.locator('[data-usage-cost]')).toHaveText('Cost 0.000000123456789 USD')
+      await page.locator('[data-slot="context"]').click()
+      await expect(page.getByRole('dialog')).toContainText('30,000')
+      await expect(page.getByRole('dialog')).not.toContainText('1,000,000')
+    })
+  })
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`no serious accessibility violations with every result open (${theme})`, async ({
+      page,
+    }) => {
+      await openCanvas(page, 'results', { theme })
+      for (const id of ['res-term-start', 'res-tests', 'res-files'])
+        await call(page, id).getByRole('button').first().click()
+      await page.addScriptTag({ content: axe.source })
+      const violations = await page.evaluate(async () => {
+        const runner = (
+          window as unknown as {
+            axe: {
+              run: (c: Element) => Promise<{
+                violations: Array<{ id: string; impact: string | null }>
+              }>
+            }
+          }
+        ).axe
+        const result = await runner.run(document.querySelector('[data-dev-chat]') as Element)
+        return result.violations
+          .filter((violation) => violation.impact === 'serious' || violation.impact === 'critical')
+          .map((violation) => violation.id)
       })
       expect(violations).toEqual([])
     })

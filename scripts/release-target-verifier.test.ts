@@ -73,10 +73,9 @@ function fixtureRoot(directory: string, scriptsOnly: boolean) {
   })
   if (!scriptsOnly) {
     mkdirSync(join(repo, 'scripts'), { recursive: true })
-    cpSync(
-      join(root, 'scripts/check-desktop-payload-version.mjs'),
-      join(repo, 'scripts/check-desktop-payload-version.mjs')
-    )
+    for (const script of ['check-desktop-payload-version.mjs', 'check-desktop-sim-payload.mjs']) {
+      cpSync(join(root, 'scripts', script), join(repo, 'scripts', script))
+    }
   }
   return repo
 }
@@ -195,6 +194,16 @@ describe('the published-assets verifier (Verify uploaded desktop assets)', () =>
         ].join('\n')
       )
       chmodSync(join(bin, 'gh'), 0o755)
+      // The real verify job runs on Ubuntu. Emulate only its standard GNU stat
+      // size query in this offline fixture when the local host supplies BSD stat.
+      if (process.platform === 'darwin') {
+        writeFileSync(
+          join(bin, 'stat'),
+          '#!/usr/bin/env node\nconst { statSync } = require("node:fs"); const args = process.argv.slice(2); if (args.slice(0,-1).join("").replaceAll(" ","") !== "-c%s") process.exit(2); console.log(statSync(args.at(-1)).size);\n'
+        )
+        chmodSync(join(bin, 'stat'), 0o755)
+      }
+
       return run(step.run, repo, {
         PATH: `${bin}:${process.env.PATH}`,
         RELEASE_TAG: 'v1.2.3',
