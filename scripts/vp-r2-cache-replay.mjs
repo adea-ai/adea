@@ -33,7 +33,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { createTransport, handleRemoteCache, trustDomain } from './vp-r2-cache.mjs'
+import { LIMITS, createTransport, handleRemoteCache, trustDomain } from './vp-r2-cache.mjs'
 import { createMemoryStore } from './vp-r2-cache-fixtures.mjs'
 
 /** The digest of a set of bytes. */
@@ -66,8 +66,21 @@ async function serveTransport(scope, store) {
   const transport = createTransport({ scope, store })
   const server = createServer((request, response) => {
     const chunks = []
-    request.on('data', (chunk) => chunks.push(chunk))
+    let size = 0
+    let refused = false
+    request.on('data', (chunk) => {
+      // The adapter bounds the input it buffers: it never holds more than the transport accepts.
+      size += chunk.length
+      if (size > LIMITS.maxRequestBytes) {
+        refused = true
+        response.writeHead(413)
+        response.end()
+        return
+      }
+      chunks.push(chunk)
+    })
     request.on('end', () => {
+      if (refused) return
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
       if (process.env.VP_R2_REPLAY_DEBUG)
         console.error('DEBUG request', request.method, url.pathname, 'bytes', chunks.length)
@@ -211,6 +224,8 @@ export async function replayPinnedClient({
       const outputsRemoved = !existsSync(produced)
 
       const second = await runClient({ root, project, runtime, port: bridge.port, cache })
+      if (second.code !== 0)
+        return { skipped: false, failed: 'the replay run did not finish', output: second.output }
       const restored = existsSync(produced) ? readFileSync(produced) : null
       return {
         skipped: false,
@@ -218,6 +233,8 @@ export async function replayPinnedClient({
         runtime,
         localCacheRemoved,
         outputsRemoved,
+        firstExitCode: first.code,
+        secondExitCode: second.code,
         remoteHit: /remote cache hit/i.test(second.output),
         restored: restored !== null,
         bytesMatch: restored !== null && restored.equals(expected),

@@ -231,6 +231,13 @@ anything that is not a digest or a generated identifier.
 - the final object is written by **one atomic step**: a server-side copy of the
   complete staged object, or a single put of the complete bytes. Nothing is
   written to the final key in pieces;
+- the publication is **fenced**. A store that can create-if-absent
+  (`putIfAbsent` or `copyIfAbsent`) is asked to, and its answer says whether
+  this operation created the final object. Only an object this operation
+  created is removed again; a shared final key is never removed unconditionally,
+  because a successor may have published it in the meantime. A store that cannot
+  fence is expected to honour the cancellation signal instead, so a write whose
+  operation expired never lands;
 - the envelope is checked against its own digests on every read, and against the
   key that was asked for, so an envelope stored under the wrong key is refused
   instead of replayed;
@@ -247,25 +254,53 @@ prototype that carries `key` or `secondary_key` cannot satisfy the validation.
 
 ### 2.7 The multipart body
 
-A multipart body is read by the complete delimiter grammar: the delimiter is
-the CRLF that precedes `--<boundary>`, followed by `--<boundary>` and then
-either CRLF (another part follows) or `--` (the closing delimiter). A
-`--<boundary>` that appears inside a part without a CRLF in front of it is part
-of the part's bytes and is kept as it is, so an archive that holds
-`prefix--adea-boundary--suffix` is stored whole. The closing delimiter must be
-there, a repeated part name is refused, and so is a part without a name.
+A multipart body is read by the complete delimiter grammar. A delimiter is a
+**complete line**: the CRLF that precedes `--<boundary>`, then `--<boundary>`,
+then either CRLF (a part follows) or `--` and the end of that line (the body is
+closed). A candidate that is not a complete line is not a delimiter and is
+skipped, so an archive keeps its bytes:
+
+| Bytes inside a part             | What they are                              | The archive |
+| ------------------------------- | ------------------------------------------ | ----------- |
+| `prefix--adea-boundary--suffix` | the boundary without a CRLF in front of it | kept whole  |
+| `\r\n--adea-boundary--suffix`   | a closing line that does not end there     | kept whole  |
+| `\r\n--adea-boundaryX`          | a prefix of another name                   | kept whole  |
+
+The closing delimiter must be there and must be a complete line: a body that
+stops in the middle, or whose closing line is cut short, is refused rather than
+read as a short part. A repeated part name is refused, and so is a part without
+a name.
 
 ### 2.8 Deadlines, cancellation and safe fallback
 
 Every external call is bounded by a deadline: the authorization call, the store
 calls and the cleanup alike. A call that does not answer in time ends the
-operation with a fallback, and an operation whose deadline passed cannot publish:
-the staged object is removed, and a final object that was promoted too late is
-removed again. Nothing throws at the caller: a refusal or a store error becomes a
-result with `fallback: true` and a fixed category, and the client's own behaviour
-takes over - the client reads a failed fetch as a cache miss and runs the task,
-and a failed store leaves the caller's local cache in charge. The categories are
-fixed strings that name no path, no key and no message from the store.
+operation with a fallback.
+
+The **whole request** runs under **one** deadline. The authorization call, the
+lookup, the publication and the archive read share a single operation, so a
+request cannot spend a full deadline on each of them: an authorization that took
+35ms of a 50ms request leaves 15ms for the publication, and the publication is
+refused rather than given a fresh deadline.
+
+The transport's own policy is the policy: the limits and the deadline the
+transport was constructed with are the ones the handler enforces. A caller may
+tighten them, never loosen them, so a transport configured with
+`maxBlobBytes: 4` refuses a larger upload even when the handler is called
+without repeating that bound.
+
+An operation whose deadline passed cannot publish. The staged object belongs to
+that operation alone, so it is removed by an **independent bounded cleanup that
+carries no signal**: a store that honours cancellation must still be able to
+delete what the operation staged. A final object is removed only when this
+operation is the one that created it.
+
+Nothing throws at the caller: a refusal or a store error becomes a result with
+`fallback: true` and a fixed category, and the client's own behaviour takes over
+
+- the client reads a failed fetch as a cache miss and runs the task, and a failed
+  store leaves the caller's local cache in charge. The categories are fixed strings
+  that name no path, no key and no message from the store.
 
 ### 2.9 Not a public read service
 
@@ -279,7 +314,8 @@ public-read service is not adopted, and nothing here serves a public endpoint.
 The handler is given a request body that the adapter has already buffered. The
 adapter reads the socket, so the adapter is the party that bounds the buffering:
 it must not hand over more than `LIMITS.maxRequestBytes`, and the transport
-refuses a larger body with `413` before it parses anything.
+refuses a larger body with `413` before it parses anything. The replay harness's
+own HTTP adapter bounds the input it buffers the same way.
 
 ## 3. The repairs review `5576644801` asked for
 
@@ -294,6 +330,19 @@ refuses a larger body with `413` before it parses anything.
 | -   | a reproducible pinned-client replay that removes the local cache **and** the generated outputs                                                      | `scripts/vp-r2-cache-replay.mjs`                                                                                                                                                                                                            | section 4                                                                                                                                 |
 | -   | the lower-level operations and the enabled and authenticated handler told apart                                                                     | section 2.1; the module header names both                                                                                                                                                                                                   | `createTransport` takes no authorization decision                                                                                         |
 | -   | the normal repository-pinned lint, typecheck and coverage                                                                                           | section 5                                                                                                                                                                                                                                   | section 5                                                                                                                                 |
+
+## 3.1 The repairs review `5577542289` asked for
+
+| #                                                                                   | The review asked for                                                                                                                                                                                                         | What was done                                                                                                                                                                                                                                                                                                                         | Where it is proved                                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1                                                                                   | the publication fenced with adapter-enforced ownership/cancellation or conditional generation semantics; never an unconditional delete of a shared final key; an independent bounded cleanup for the operation's own staging | the promotion asks for `copyIfAbsent` or `putIfAbsent` when the store offers one, and only an object the operation created is removed; a store that cannot fence is expected to honour the cancellation signal; the staging object is removed by a cleanup that carries no signal, so a cooperative store still deletes it            | `the deadlines > an expiry during the archive promotion publishes nothing`, `an expiry during the envelope promotion leaves the entry unreadable`, `a late promotion never removes the entry a successor published` |
+| 2                                                                                   | the multipart grammar to search complete delimiter lines, skip non-delimiter prefix candidates and validate the closing terminator                                                                                           | a delimiter is a complete line; a candidate that is not one is skipped, so `                                                                                                                                                                                                                                                          |
+| --<boundary>--suffix`and`                                                           |
+| --<boundary>X` stay inside the archive; a closing line that is cut short is refused | `the multipart body > keeps an archive that holds a boundary line as plain bytes`, `refuses a closing boundary that is not a complete line`                                                                                  |
+| 3                                                                                   | the transport constructor's policy to be enforced through every handler path                                                                                                                                                 | the handler takes the transport's limits and deadline, and a caller may only tighten them (`effectiveLimits`)                                                                                                                                                                                                                         | `the transport > the transport constructor policy is enforced through the handler`                                                                                                                                  |
+| 4                                                                                   | one operation and one remaining budget through the complete request                                                                                                                                                          | the authorization call, the lookup, the publication and the archive read share a single operation                                                                                                                                                                                                                                     | `the transport > the whole request runs under one deadline`                                                                                                                                                         |
+| 5                                                                                   | the replay proof to require the second client exit code and to bound the buffered input                                                                                                                                      | the harness refuses a replay run that did not finish, reports both exit codes, and its HTTP adapter bounds the input it buffers                                                                                                                                                                                                       | `the pinned client replay`, `scripts/vp-r2-cache-replay.mjs`                                                                                                                                                        |
+| -                                                                                   | the stale pull request metadata to be brought up to date, and the panic evidence to be told apart from the pinned checks                                                                                                     | the envelope version, the scoped keys and the file count in the pull request body and in this receipt match the code; the crash is reported separately from the pinned checks: it is recorded under the system Bun 1.4.2 and under the pinned Bun 1.4.3, while the repository-pinned checks ran under the pinned Bun 1.4.3 and passed | section 5                                                                                                                                                                                                           |
 
 ## 4. The reproducible pinned-client replay
 
@@ -347,15 +396,21 @@ repository pins.
 Everything below was run offline, against loopback and in memory. No storage
 service, no credential, no public endpoint and no deployment was involved.
 
-| Command                                                                                                    | Result                                                                  |
-| ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `bun test scripts/vp-r2-cache.test.ts scripts/vp-r2-cache.cbor.test.ts scripts/vp-r2-cache-replay.test.ts` | **76 pass, 0 fail**, 229 assertions                                     |
-| `bun run format:check` (whole repository, pinned `oxfmt`)                                                  | all matched files use the correct format                                |
-| `bun run lint` (pinned `vp run orch:lint` and `oxlint --deny-warnings`, repository configuration)          | 0 warnings, 0 errors                                                    |
-| `bun run typecheck` (pinned `vp run orch:typecheck`)                                                       | 33/33 tasks successful, "No type errors in 318 files"                   |
-| `vp run orch:test` (the repository's unit task lane)                                                       | **1734 tests across 135 files, 0 fail**, 32/32 tasks successful         |
-| `bun test scripts/vp-r2-cache*.test.ts --coverage`                                                         | aggregate 81.77% functions, 86.03% lines (the goal is 80%)              |
-| `bun run test:coverage`                                                                                    | **crashes** in this environment, at the base commit as well - see below |
+| Command                                                                                           | Result                                                                  |
+| ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `bun test scripts/vp-r2-cache*.test.ts`                                                           | **82 pass, 0 fail**, 251 assertions                                     |
+| `bun run format:check` (whole repository, pinned `oxfmt`)                                         | all matched files use the correct format                                |
+| `bun run lint` (pinned `vp run orch:lint` and `oxlint --deny-warnings`, repository configuration) | 0 warnings, 0 errors                                                    |
+| `bun run typecheck` (pinned `vp run orch:typecheck`)                                              | 33/33 tasks successful, "No type errors in 318 files"                   |
+| `vp run orch:test` (the repository's unit task lane)                                              | **1734 tests across 135 files, 0 fail**, 32/32 tasks successful         |
+| `bun test scripts/vp-r2-cache*.test.ts --coverage`                                                | aggregate 81.40% functions, 83.60% lines (the goal is 80%)              |
+| `bun run test:coverage`                                                                           | **crashes** in this environment, at the base commit as well - see below |
+
+The checks that completed ran under the **repository-pinned Bun 1.4.3** (the
+version the toolchain pins) and the **repository-pinned Node 24.21.0**, both
+installed for the run: `bun install --frozen-lockfile` for the dependencies, and
+the Node tarball verified against the `nodejs.org` `SHASUMS256.txt`. The
+coverage lane is the one exception, and it is told apart below.
 
 The lint run uses the repository's own `.oxlintrc.json` with no rule removed:
 the workspace plugin packages are installed by `bun install --frozen-lockfile`,
@@ -369,7 +424,11 @@ files, 0 fail, 32/32 tasks successful**. The new test files are in the
 
 ### The coverage lane crashes here, before and after this change
 
-`bun run test:coverage` ends in a **Bun 1.4.2 panic** in this environment:
+`bun run test:coverage` ends in a **Bun panic** in this environment. The panic
+is a Bun crash, not a test failure, and it is **not** the repository-pinned
+checks above: those ran under the pinned Bun 1.4.3 and passed. The crash is
+recorded under both runtimes that were tried - the system Bun 1.4.2 and the
+repository-pinned Bun 1.4.3, whose crash report the run names:
 
 ```text
 panic: range end index 1084 out of range for slice of length 1023
@@ -377,8 +436,9 @@ oh no: Bun has crashed. This indicates a bug in Bun, not your code.
 error: script "test:coverage" was terminated by signal SIGABRT (Abort)
 ```
 
-The same command at the base commit `f9d5b1577`, in a separate worktree with its
-own `bun install --frozen-lockfile`, ends the same way at the same point:
+The same command at the base commit `f9d5b1577` and at the qualification base
+`2498a8b7`, each in a separate worktree with its own
+`bun install --frozen-lockfile`, ends the same way at the same point:
 
 ```text
 panic: range end index 1077 out of range for slice of length 1023
@@ -397,10 +457,10 @@ The coverage of the new files, from the scripts lane:
 
 | File                               | % Funcs | % Lines |
 | ---------------------------------- | ------: | ------: |
-| `scripts/vp-r2-cache.mjs`          |   88.14 |   95.41 |
-| `scripts/vp-r2-cache.cbor.mjs`     |   92.31 |   97.84 |
-| `scripts/vp-r2-cache-fixtures.mjs` |   95.24 |  100.00 |
-| `scripts/vp-r2-cache-replay.mjs`   |   86.36 |   93.06 |
+| `scripts/vp-r2-cache.mjs`          |   91.53 |   94.79 |
+| `scripts/vp-r2-cache.cbor.mjs`     |   92.31 |   98.56 |
+| `scripts/vp-r2-cache-fixtures.mjs` |   89.66 |   86.83 |
+| `scripts/vp-r2-cache-replay.mjs`   |   86.36 |   91.53 |
 
 ## 6. What is not claimed
 

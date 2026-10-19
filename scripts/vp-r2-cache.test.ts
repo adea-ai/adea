@@ -341,6 +341,35 @@ describe('the multipart body', () => {
     expect(() => parseMultipart(body, 'b')).toThrow(TransportRefused)
   })
 
+  test('keeps an archive that holds a boundary line as plain bytes', () => {
+    const boundary = 'adea-boundary'
+    const blob = Buffer.concat([
+      Buffer.from('before', 'utf8'),
+      Buffer.from(`\r\n--${boundary}--suffix`, 'utf8'),
+      Buffer.from('between', 'utf8'),
+      Buffer.from(`\r\n--${boundary}X`, 'utf8'),
+      Buffer.from('after', 'utf8'),
+    ])
+    const parts = parseMultipart(
+      storeRequestBody({ ...syntheticEntry('crlf-boundary'), blob }, boundary),
+      boundary
+    )
+    const found = parts.find((part) => part.name === 'blob')
+    expect(found?.body.equals(blob)).toBe(true)
+  })
+
+  test('refuses a closing boundary that is not a complete line', () => {
+    const boundary = 'adea-boundary'
+    const body = storeRequestBody(syntheticEntry('truncated-close'), boundary)
+    const head = body.subarray(0, body.length - `--${boundary}--\r\n`.length)
+    expect(() =>
+      parseMultipart(Buffer.concat([head, Buffer.from(`\r\n--${boundary}-`)]), boundary)
+    ).toThrow(TransportRefused)
+    expect(() =>
+      parseMultipart(Buffer.concat([head, Buffer.from(`\r\n--${boundary}--\r`)]), boundary)
+    ).toThrow(TransportRefused)
+  })
+
   test('refuses a boundary that is not a plain boundary', () => {
     expect(() => parseMultipart(Buffer.from('x'), 'bad boundary')).toThrow(TransportRefused)
   })
@@ -547,8 +576,8 @@ describe('publishing and reading an entry', () => {
     const store = createMemoryStore()
     const entry = syntheticEntry('corrupt-stage')
     const original = store.put.bind(store)
-    store.put = (key: string, value: Buffer) => {
-      const result = original(key, value)
+    store.put = async (key: string, value: Buffer) => {
+      const result = await original(key, value)
       if (key.startsWith('staging/')) store.objects.set(key, Buffer.from('changed'))
       return result
     }
@@ -584,11 +613,19 @@ describe('publishing and reading an entry', () => {
     const store = createMemoryStore()
     const entry = syntheticEntry('atomic')
     const published = await publishEntry(store, entry, { scope })
-    const writes = store.calls.filter((call) => call.op === 'put' || call.op === 'copy')
+    const writes = store.calls.filter(
+      (call) =>
+        call.op === 'put' ||
+        call.op === 'copy' ||
+        call.op === 'putIfAbsent' ||
+        call.op === 'copyIfAbsent'
+    )
     const finalWrites = writes.filter(
       (call) => call.key === published.entryKey || call.to === published.entryKey
     )
     expect(finalWrites.length).toBe(1)
+    // The one step that publishes the final object is the fenced one.
+    expect(finalWrites[0].op).toBe('copyIfAbsent')
     const stored = store.objects.get(published.entryKey)
     expect(stored?.equals(canonicalEnvelopeBytes(published.envelope))).toBe(true)
   })
@@ -640,25 +677,72 @@ describe('the deadlines', () => {
     expect(store.calls).toEqual([])
   })
 
-  test('do not publish a write that lands after the deadline', async () => {
-    const store = createMemoryStore()
-    const slow = {
-      ...store,
-      copy: async (from: string, to: string) => {
-        const held = store.objects.get(from)
-        await sleep(200)
-        if (held) store.objects.set(to, Buffer.from(held))
-        return { size: held?.length ?? 0 }
-      },
-    }
-    const entry = syntheticEntry('late-write')
-    const published = await publishEntry(slow, entry, { scope, deadlineMs: 60 })
+  test('an expiry during the archive promotion publishes nothing', async () => {
+    // A cooperative store gives up when the operation is cancelled, so the archive is never published.
+    const store = createMemoryStore({
+      cooperative: true,
+      slowFor: (key: string) => key.startsWith('blobs/'),
+      slowMs: 200,
+    })
+    const entry = syntheticEntry('expired-blob')
+    const published = await publishEntry(store, entry, { scope, deadlineMs: 60 })
+    expect(published.ok).toBe(false)
+    expect(published.category).toBe(CATEGORY.timeout)
+    expect([...store.objects.keys()].filter((name) => name.startsWith('blobs/'))).toEqual([])
+    expect([...store.objects.keys()].filter((name) => name.startsWith('entries/'))).toEqual([])
+    // The staging object belongs to this operation, so it is removed even though the signal is already aborted.
+    expect([...store.objects.keys()].filter((name) => name.startsWith('staging/'))).toEqual([])
+  })
+
+  test('an expiry during the envelope promotion leaves the entry unreadable', async () => {
+    const store = createMemoryStore({
+      cooperative: true,
+      slowFor: (key: string) => key.startsWith('entries/'),
+      slowMs: 200,
+    })
+    const entry = syntheticEntry('expired-envelope')
+    const published = await publishEntry(store, entry, { scope, deadlineMs: 60 })
     expect(published.ok).toBe(false)
     expect(published.category).toBe(CATEGORY.timeout)
     expect([...store.objects.keys()].filter((name) => name.startsWith('entries/'))).toEqual([])
-    // The promotion that was already in flight lands later and is removed again: it never stays published.
+    expect([...store.objects.keys()].filter((name) => name.startsWith('staging/'))).toEqual([])
+    const found = await lookupEntry(
+      store,
+      { key: entry.key, secondaryKey: entry.secondaryKey },
+      { scope }
+    )
+    expect(found.ok).toBe(false)
+  })
+
+  test('a late promotion never removes the entry a successor published', async () => {
+    let slow = false
+    // A store that does not honour cancellation: the late write lands, and the transport may not roll it back by
+    // deleting a shared final key.
+    const store = createMemoryStore({
+      cooperative: false,
+      slowFor: (key: string) => slow && !key.startsWith('staging/'),
+      slowMs: 200,
+    })
+    const entry = syntheticEntry('successor')
+    const successor = await publishEntry(store, entry, { scope, deadlineMs: 2000 })
+    expect(successor.ok).toBe(true)
+
+    slow = true
+    const expired = await publishEntry(store, entry, { scope, deadlineMs: 60 })
+    expect(expired.ok).toBe(false)
+    expect(expired.category).toBe(CATEGORY.timeout)
+
+    // The promotion that was in flight has landed by now, and it did not remove what the successor published.
     await sleep(300)
-    expect([...store.objects.keys()].filter((name) => name.startsWith('entries/'))).toEqual([])
+    const found = await lookupEntry(
+      store,
+      { key: entry.key, secondaryKey: entry.secondaryKey },
+      { scope }
+    )
+    expect(found.ok).toBe(true)
+    const blob = await readBlob(store, found.envelope!.blob_id, { scope })
+    expect(blob.ok).toBe(true)
+    expect([...store.objects.keys()].filter((name) => name.startsWith('staging/'))).toEqual([])
   })
 
   test('do not wait for a cleanup that never answers', async () => {
@@ -814,6 +898,55 @@ describe('the transport', () => {
       { enabled: true, authorize: () => allowScope(theirs) }
     )
     expect(seen.status).toBe(404)
+  })
+
+  test('the transport constructor policy is enforced through the handler', async () => {
+    const store = createMemoryStore()
+    // The transport is configured with a small archive bound, and the handler does not repeat it.
+    const transport = createTransport({ scope, store, limits: { ...LIMITS, maxBlobBytes: 4 } })
+    const entry = syntheticEntry('constructor-limits')
+    const answer = await handleRemoteCache(
+      {
+        method: 'POST',
+        path: CLIENT_PROTOCOL.storePath,
+        headers: { 'content-type': storeRequestContentType() },
+        body: storeRequestBody(entry),
+      },
+      transport,
+      { enabled: true, authorize: () => allowScope(scope) }
+    )
+    expect(answer.status).toBe(413)
+    expect(store.objects.size).toBe(0)
+  })
+
+  test('the whole request runs under one deadline', async () => {
+    // The publication's promotion is slow, the staged write is not.
+    const store = createMemoryStore({
+      slowFor: (key: string) => !key.startsWith('staging/'),
+      slowMs: 30,
+    })
+    const transport = createTransport({ scope, store, deadlineMs: 50 })
+    const entry = syntheticEntry('one-deadline')
+    const started = Date.now()
+    const answer = await handleRemoteCache(
+      {
+        method: 'POST',
+        path: CLIENT_PROTOCOL.storePath,
+        headers: { 'content-type': storeRequestContentType() },
+        body: storeRequestBody(entry),
+      },
+      transport,
+      {
+        enabled: true,
+        authorize: async () => {
+          await sleep(35)
+          return allowScope(scope)
+        },
+      }
+    )
+    // The authorization spent 35ms of the 50ms the request had, so the publication cannot finish in the rest.
+    expect(answer.status).toBe(503)
+    expect(Date.now() - started).toBeLessThan(200)
   })
 
   test('answers a miss with a status the client reads as a miss', async () => {
