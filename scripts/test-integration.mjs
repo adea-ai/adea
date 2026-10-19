@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { assertLocalTestTargets } from './test-target-guard.mjs'
 import {
   captureCommand,
@@ -73,15 +74,24 @@ function run(command, args, environment, cwd = root) {
 // attempt settles so a rate-limited attempt stays visible in the log.
 async function composeUpPostgres() {
   const args = ['compose', 'up', '-d', '--wait', '--wait-timeout', '30', 'postgres']
-  const result = await runWithPullFallback(async (image) => {
-    const attempt = await captureCommand('docker', args, {
-      cwd: root,
-      env: withComposeImage(process.env, image),
-    })
-    if (attempt.stdout) process.stdout.write(attempt.stdout)
-    if (attempt.stderr) process.stderr.write(attempt.stderr)
-    return attempt
-  }, composePostgresImage(root))
+  const result = await runWithPullFallback(
+    async (image) => {
+      const attempt = await captureCommand('docker', args, {
+        cwd: root,
+        env: withComposeImage(process.env, image),
+        signal: startupAbort.signal,
+        processGroup: true,
+      })
+      if (attempt.stdout) process.stdout.write(attempt.stdout)
+      if (attempt.stderr) process.stderr.write(attempt.stderr)
+      return attempt
+    },
+    composePostgresImage(root),
+    {
+      signal: startupAbort.signal,
+      sleep: (milliseconds) => sleep(milliseconds, undefined, { signal: startupAbort.signal }),
+    }
+  )
   if (result.error) throw result.error
   if (result.status !== 0) {
     throw new Error(`docker ${args.join(' ')} failed with exit code ${result.status}`)
@@ -119,6 +129,10 @@ if (usesExplicitDatabase) {
 const environment = usesExplicitDatabase
   ? { ...process.env }
   : { ...process.env, ...localDatabaseEnvironment }
+const startupAbort = new AbortController()
+let startingLocalPostgres = false
+let interruptedSignal
+let signalListeners = []
 let startedLocalPostgres = false
 let captureProvisioning = null
 let primaryFailure
@@ -136,7 +150,12 @@ try {
     // Acquire cleanup ownership before startup: a failed health wait may leave a container.
     startedLocalPostgres = true
     attachLocalPostgresCleanup()
-    await composeUpPostgres()
+    startingLocalPostgres = true
+    try {
+      await composeUpPostgres()
+    } finally {
+      startingLocalPostgres = false
+    }
   }
 
   run('node', ['scripts/database-health.mjs'], environment)
@@ -236,6 +255,7 @@ try {
 }
 
 cleanupResources()
+if (interruptedSignal) terminateOnSignal()
 if (primaryFailure) throw primaryFailure
 
 // Compose startup is asynchronous and may be interrupted after creating the service.
@@ -246,15 +266,24 @@ function attachLocalPostgresCleanup() {
     cleanupResources()
     if (code === 0 && primaryFailure) process.exitCode = 1
   })
-  const listeners = ['SIGINT', 'SIGTERM'].map((signal) => [
+  signalListeners = ['SIGINT', 'SIGTERM'].map((signal) => [
     signal,
     () => {
-      for (const [name, listener] of listeners) process.off(name, listener)
+      interruptedSignal ??= signal
+      startupAbort.abort(new Error(`integration runner interrupted by ${signal}`))
+      // Await startup cancellation/reaping before stop: otherwise Compose could
+      // create the service after teardown has already completed.
+      if (startingLocalPostgres) return
       cleanupResources()
-      process.kill(process.pid, signal)
+      terminateOnSignal()
     },
   ])
-  for (const [signal, listener] of listeners) process.on(signal, listener)
+  for (const [signal, listener] of signalListeners) process.on(signal, listener)
+}
+
+function terminateOnSignal() {
+  for (const [name, listener] of signalListeners) process.off(name, listener)
+  process.kill(process.pid, interruptedSignal)
 }
 
 function cleanupResources() {

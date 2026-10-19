@@ -39,6 +39,7 @@ function exercise(options: {
       pid: 123,
     }
     const context = vm.createContext({
+      AbortController,
       console: { log() {}, warn() {}, error(message) { errors.push(message) } },
       process: {
         ...fakeProcess,
@@ -54,6 +55,7 @@ function exercise(options: {
     }, { context })
     const dependencies = {
       'node:path': stub({ resolve }),
+      'node:timers/promises': stub({ setTimeout: async () => {} }),
       'node:child_process': stub({ spawnSync(command, args) {
         calls.push([command, ...args])
         if (command === 'docker' && args[1] === 'ps')
@@ -252,11 +254,16 @@ async function exerciseBun(signal?: 'SIGINT' | 'SIGTERM', failMigration = false)
     export function composePostgresImage() { return 'synthetic' }
     export function withComposeImage(env) { return env }
     export function runWithPullFallback(attempt) { return attempt('synthetic') }
-    export async function captureCommand() {
+    export async function captureCommand(command, args, options) {
       log('compose-start');
       if (process.env.FIXTURE_INTERRUPT) {
         writeFileSync(process.env.FIXTURE_READY, 'ready');
-        await new Promise(() => { setInterval(() => {}, 1000) });
+        await new Promise((resolve, reject) => {
+          const timer = setInterval(() => {}, 1000);
+          options.signal.addEventListener('abort', () => {
+            clearInterval(timer); log('startup-reaped'); reject(options.signal.reason);
+          }, { once: true });
+        });
       }
       return { status: 0 };
     }
@@ -323,6 +330,10 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   test(`actual Bun runner cleans partial startup and terminates on ${signal}`, async () => {
     const result = await exerciseBun(signal)
     expect(result.signal).toBe(signal)
+    expect(result.calls.indexOf('startup-reaped')).toBeLessThan(
+      result.calls.indexOf('docker compose stop postgres')
+    )
+    expect(result.calls).toContain('startup-reaped')
     expect(result.calls.filter((call) => call === 'docker compose stop postgres')).toHaveLength(1)
   })
 }
