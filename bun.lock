@@ -28,6 +28,7 @@
       "name": "@adea-ai/desktop",
       "version": "0.97.0",
       "dependencies": {
+        "@adea-ai/auth": "workspace:*",
         "@adea-ai/dev-view": "workspace:*",
       },
     },
