@@ -352,3 +352,232 @@ test('actual Bun runner cleans both fixtures after a successful run', async () =
   expect(result.calls.filter((call) => call === 'docker compose stop postgres')).toHaveLength(1)
   expect(result.calls.filter((call) => call === 'capture-stop')).toHaveLength(1)
 })
+
+// Keep the production lifecycle modules byte-for-byte intact. Only the external
+// commands and unrelated inventory/target boundaries are disposable fixtures.
+async function exerciseRealLifecycle(
+  mode: 'startup' | 'backoff' | 'capture-signal' | 'primary-error'
+) {
+  const directory = mkdtempSync(join(tmpdir(), 'adea-real-lifecycle-'))
+  const scripts = join(directory, 'scripts')
+  const bin = join(directory, 'bin')
+  mkdirSync(scripts)
+  mkdirSync(bin)
+  const eventsPath = join(directory, 'events')
+  const ready = join(directory, 'ready')
+  const descendants = join(directory, 'descendants')
+  for (const file of [
+    'test-integration.mjs',
+    'docker-pull-backoff.mjs',
+    'capture-provisioning.mjs',
+  ]) {
+    writeFileSync(join(scripts, file), readFileSync(new URL(file, import.meta.url)))
+  }
+  writeFileSync(
+    join(directory, 'compose.yml'),
+    readFileSync(new URL('../compose.yml', import.meta.url))
+  )
+  writeFileSync(
+    join(scripts, 'test-target-guard.mjs'),
+    'export function assertLocalTestTargets() {}'
+  )
+  writeFileSync(
+    join(scripts, 'integration-inventory.mjs'),
+    `
+    export function parseIntegrationShard() {}
+    export function discoverIntegrationInventory() {}
+    export function planIntegrationRun() { return { packageFiles: [], routeFiles: [] } }
+  `
+  )
+  const executable = `#!${nodePath}
+    const fs = require('node:fs');
+    const { spawn } = require('node:child_process');
+    const path = require('node:path');
+    const command = path.basename(process.argv[1]);
+    const args = process.argv.slice(2);
+    const mode = process.env.FIXTURE_MODE;
+    const dir = process.env.FIXTURE_DIRECTORY;
+    const log = (event, detail) => fs.appendFileSync(path.join(dir, 'events'), JSON.stringify({ event, detail }) + '\\n');
+    const resource = name => path.join(dir, name);
+    const markReady = () => fs.writeFileSync(resource('ready'), 'ready');
+    if (command === 'docker') {
+      if (args[0] === 'compose' && args[1] === 'ps') process.exit(0);
+      if (args[0] === 'compose' && args[1] === 'up') {
+        log('compose-up'); fs.writeFileSync(resource('compose-resource'), 'owned');
+        if (mode === 'backoff') { console.error('toomanyrequests: synthetic registry limit'); process.exit(1); }
+        if (mode === 'startup') {
+          fs.writeFileSync(resource('compose-pid'), String(process.pid));
+          const code = \`const fs = require('node:fs');
+            fs.writeFileSync(process.env.FIXTURE_DIRECTORY + '/descendant-ready', 'ready');
+            process.on('SIGTERM', () => { fs.appendFileSync(process.env.FIXTURE_DIRECTORY + '/events', JSON.stringify({event:'descendant-term'}) + '\\\\n'); setTimeout(() => process.exit(0), 100) });
+            setInterval(() => {}, 1000);\`;
+          const descendant = spawn(process.execPath, ['-e', code], { env: process.env, stdio: 'ignore' });
+          fs.writeFileSync(resource('descendants'), String(descendant.pid));
+          process.on('SIGTERM', () => log('compose-term'));
+          descendant.on('exit', () => { log('descendant-reaped'); process.exit(0) });
+          const readyTimer = setInterval(() => {
+            if (fs.existsSync(resource('descendant-ready'))) { clearInterval(readyTimer); markReady() }
+          }, 5);
+          return;
+        }
+        process.exit(0);
+      }
+      if (args[0] === 'pull') { log('pull'); console.error('synthetic fallback unavailable'); process.exit(1); }
+      if (args[0] === 'compose' && args[1] === 'stop') {
+        let groupAlive = false;
+        if (fs.existsSync(resource('compose-pid'))) {
+          try { process.kill(-Number(fs.readFileSync(resource('compose-pid'), 'utf8')), 0); groupAlive = true }
+          catch (error) { if (error.code !== 'ESRCH') throw error }
+        }
+        log('compose-stop', { groupAlive });
+        fs.rmSync(resource('compose-resource'), { force: true });
+        if (mode === 'primary-error') { console.error('synthetic compose cleanup failure'); process.exit(9) }
+        process.exit(0);
+      }
+      if (args[0] === 'info') process.exit(0);
+      if (args[0] === 'run') {
+        const name = args[args.indexOf('--name') + 1];
+        log('capture-run', name); fs.writeFileSync(resource('capture-resource'), name);
+        console.log('synthetic-container-id'); process.exit(0);
+      }
+      if (args[0] === 'port') { console.log('127.0.0.1:54321'); process.exit(0) }
+      if (args[0] === 'exec') process.exit(0);
+      if (args[0] === 'rm') {
+        log('capture-rm', args[2]); fs.rmSync(resource('capture-resource'), { force: true });
+        if (mode === 'primary-error') { console.error('synthetic capture cleanup failure'); process.exit(8) }
+        process.exit(0);
+      }
+      throw new Error('Unexpected fake Docker command: ' + args[0]);
+    }
+    if (command === 'bun' && args.includes('test')) {
+      log('test');
+      if (mode === 'primary-error') process.exit(7);
+      if (mode === 'capture-signal') {
+        markReady(); setTimeout(() => process.exit(0), 200); return;
+      }
+    }
+  `.replaceAll('\\`', '`')
+  for (const command of ['docker', 'bun', 'node']) {
+    writeFileSync(join(bin, command), executable, { mode: 0o755 })
+  }
+  let child: ReturnType<typeof spawn> | undefined
+  try {
+    child = spawn(process.execPath, [join(scripts, 'test-integration.mjs')], {
+      env: { PATH: bin, FIXTURE_DIRECTORY: directory, FIXTURE_MODE: mode },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stderr = ''
+    child.stderr!.on('data', (data) => {
+      stderr += data
+    })
+    const completion = new Promise<{ code: number | null; signal: string | null }>(
+      (resolve, reject) => {
+        child!.once('error', reject)
+        child!.once('exit', (code, exitSignal) => resolve({ code, signal: exitSignal }))
+      }
+    )
+    const deadline = Date.now() + 6000
+    if (mode !== 'primary-error') {
+      while (!(mode === 'backoff' ? stderr.includes('retry 1 of') : existsSync(ready))) {
+        if (Date.now() >= deadline || child.exitCode !== null || child.signalCode !== null)
+          throw new Error('real-helper fixture did not become ready: ' + stderr)
+        await Bun.sleep(10)
+      }
+      child.kill('SIGTERM')
+      // Deliver a second signal while startup reaping or synchronous tests are
+      // pending. Cleanup must remain idempotent across both lifecycle listeners.
+      await Bun.sleep(25)
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
+    }
+    const result = await Promise.race([
+      completion,
+      Bun.sleep(6000).then(() => {
+        throw new Error('real-helper fixture completion deadline exceeded: ' + stderr)
+      }),
+    ])
+    const events = readFileSync(eventsPath, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line)) as {
+      event: string
+      detail?: { groupAlive: boolean } | string
+    }[]
+    if (existsSync(descendants)) {
+      const pid = Number(readFileSync(descendants, 'utf8'))
+      expect(() => process.kill(pid, 0)).toThrow()
+    }
+    return {
+      ...result,
+      stderr,
+      events,
+      resources: ['compose-resource', 'capture-resource'].filter((name) =>
+        existsSync(join(directory, name))
+      ),
+    }
+  } finally {
+    if (child && child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise((resolve) => child!.once('exit', resolve))
+      child.kill('SIGKILL')
+      await exited
+    }
+    // Reap only the fixture's recorded descendants if an assertion/deadline fails.
+    for (const file of ['descendants', 'compose-pid']) {
+      if (!existsSync(join(directory, file))) continue
+      killRecordedFixtureProcess(Number(readFileSync(join(directory, file), 'utf8')))
+    }
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
+for (const mode of ['startup', 'backoff', 'capture-signal'] as const) {
+  test(`real lifecycle helpers: duplicate signals during ${mode} clean only owned fixtures`, async () => {
+    const result = await exerciseRealLifecycle(mode)
+    expect(result.signal, result.stderr).toBe('SIGTERM')
+    expect(result.resources).toEqual([])
+    const composeStops = result.events.filter(({ event }) => event === 'compose-stop')
+    expect(composeStops).toEqual([{ event: 'compose-stop', detail: { groupAlive: false } }])
+    expect(result.events.filter(({ event }) => event === 'compose-up')).toHaveLength(1)
+    if (mode === 'startup') {
+      const names = result.events.map(({ event }) => event)
+      expect(names).toContain('descendant-term')
+      expect(names.indexOf('descendant-reaped')).toBeLessThan(names.indexOf('compose-stop'))
+      expect(names).not.toContain('pull')
+    }
+    if (mode === 'backoff') {
+      expect(result.stderr).toContain('retry 1 of')
+      expect(result.events.filter(({ event }) => event === 'pull')).toHaveLength(2)
+    }
+    const captures = result.events.filter(({ event }) => event === 'capture-run')
+    const removals = result.events.filter(({ event }) => event === 'capture-rm')
+    if (mode === 'capture-signal') {
+      expect(captures).toHaveLength(1)
+      expect(removals.map(({ detail }) => detail)).toEqual(captures.map(({ detail }) => detail))
+    } else {
+      expect(captures).toHaveLength(0)
+      expect(removals).toHaveLength(0)
+    }
+  }, 15000)
+}
+
+test('real lifecycle helpers preserve test failure when both resource teardowns fail', async () => {
+  const result = await exerciseRealLifecycle('primary-error')
+  expect(result.code).toBe(1)
+  expect(result.stderr).toContain('test --timeout 30000 failed with exit code 7')
+  expect(result.stderr).toContain('synthetic compose cleanup failure')
+  expect(result.stderr).toContain('synthetic capture cleanup failure')
+  expect(result.events.filter(({ event }) => event === 'compose-stop')).toHaveLength(1)
+  const captures = result.events.filter(({ event }) => event === 'capture-run')
+  expect(captures).toHaveLength(1)
+  expect(
+    result.events.filter(({ event }) => event === 'capture-rm').map(({ detail }) => detail)
+  ).toEqual(captures.map(({ detail }) => detail))
+  expect(result.resources).toEqual([])
+}, 15000)
+
+function killRecordedFixtureProcess(pid: number) {
+  try {
+    process.kill(pid, 'SIGKILL')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+  }
+}
