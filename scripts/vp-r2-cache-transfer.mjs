@@ -37,12 +37,13 @@
 // The qualification is offline and synthetic. It proves what the implemented contract does; it does not claim that any
 // task cache is portable in general, and it does not stand in for the client's own export and import, which do not
 // exist (see docs/evidence/vp-r2-cache-transport-2026-10-19.md).
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 
 import {
   CATEGORY,
   DEFAULT_DEADLINE_MS,
   LIMITS,
+  TransportRefused,
   canonicalEnvelopeBytes,
   entryObjectKey,
   lookupEntry,
@@ -105,14 +106,38 @@ function withDeadline(promise, { deadlineMs, signal }) {
   if (signal?.aborted) controller.abort()
   else signal?.addEventListener('abort', forward, { once: true })
   const guard = new Promise((_, reject) => {
-    controller.signal.addEventListener('abort', () => reject(new Error('the deadline passed')), {
-      once: true,
-    })
+    const abort = () => reject(new Error('the deadline passed'))
+    // The controller may already be aborted: the event has been sent, so a listener registered now would never
+    // fire and the read would wait for a promise that never answers.
+    if (controller.signal.aborted) abort()
+    else controller.signal.addEventListener('abort', abort, { once: true })
   })
   return Promise.race([Promise.resolve(promise), guard]).finally(() => {
     clearTimeout(timer)
     signal?.removeEventListener('abort', forward)
   })
+}
+
+/**
+ * One operation for a whole qualification: the publication, the lookup, the archive read and the reads of the stored
+ * envelope share its deadline and its signal, so the qualification cannot spend a full deadline on each of them.
+ */
+function createSharedOperation(deadlineMs) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), deadlineMs)
+  timer.unref?.()
+  const operation = {
+    signal: controller.signal,
+    ownership: { id: randomUUID(), live: () => !controller.signal.aborted },
+    expired: () => controller.signal.aborted,
+    assertLive() {
+      if (operation.expired()) throw new TransportRefused(CATEGORY.timeout, 'the deadline passed')
+    },
+    release() {
+      clearTimeout(timer)
+    },
+  }
+  return operation
 }
 
 /**
@@ -136,8 +161,12 @@ export async function readStoredEnvelope(
     return { refusedWith: CATEGORY.storeRead }
   }
   if (bytes === null || bytes === undefined) return { refusedWith: CATEGORY.notFound }
+  // The bytes are measured here, not taken on the store's word: a store that returns more than the bound is refused
+  // before anything is parsed.
+  const buffer = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes)
+  if (buffer.length > maxBytes) return { refusedWith: CATEGORY.tooLarge }
   try {
-    return { envelope: parseEnvelope(Buffer.from(bytes), { scope: domain.scope }) }
+    return { envelope: parseEnvelope(buffer, { scope: domain.scope }) }
   } catch (error) {
     return { refusedWith: error.category ?? CATEGORY.invalidEnvelope }
   }
@@ -178,78 +207,99 @@ export async function qualifyTransfer({
   createdAt = '2026-10-19T00:00:00.000Z',
   publish = true,
 }) {
+  // One operation for the whole qualification: the publication, the lookup, the archive read and the reads of the
+  // stored envelope share its deadline and its signal, so the qualification cannot spend a full deadline on each of
+  // them.
   const budget = Date.now() + (deadlineMs ?? DEFAULT_DEADLINE_MS)
   const remaining = () => Math.max(0, budget - Date.now())
-  const written = publish
-    ? await publishEntry(store, entry, { scope: from.scope, limits, deadlineMs, createdAt })
-    : { ok: false, skipped: true, category: null, envelope: null, entryKey: undefined }
-  const entryKey = written.entryKey ?? entryObjectKey(from.scope, entry.key, entry.secondaryKey)
-  // The envelope the report is built from is the **stored** one, read back and validated under the domain that wrote
-  // it. It is never reconstructed from the expected input: a store that holds a different entry under the same key
-  // must be reported as such.
-  const stored = await readStoredEnvelope(store, entryKey, from, {
-    maxBytes: limits?.maxEnvelopeBytes ?? LIMITS.maxEnvelopeBytes,
-    deadlineMs: remaining(),
-  })
-  const envelope = stored.envelope ?? null
-  const found = await lookupEntry(
-    store,
-    { key: entry.key, secondaryKey: entry.secondaryKey },
-    { scope: to.scope, limits, deadlineMs }
-  )
-  const blob = found.ok
-    ? await readBlob(store, found.envelope.blob_id, { scope: to.scope, limits, deadlineMs })
-    : null
-  const keys = listedKeys(store)
-  const staged = (keys ?? []).filter((name) => name.startsWith('staging/'))
-  const publishedObjects = (keys ?? []).filter((name) => name.startsWith('entries/'))
-  // Every byte of the entry is compared: the entry key, the task fingerprint key, the entry value and the archive.
-  const entryIdentical =
-    envelope !== null &&
-    envelope.keyBytes.equals(entry.key) &&
-    envelope.secondaryKeyBytes.equals(entry.secondaryKey) &&
-    envelope.valueBytes.equals(entry.value) &&
-    blob?.ok === true &&
-    Buffer.from(blob.bytes).equals(entry.blob)
-  const replayable = found.ok && entryIdentical
-  const handed = await readAsTarget(store, entryKey, to, {
-    maxBytes: limits?.maxEnvelopeBytes ?? LIMITS.maxEnvelopeBytes,
-    deadlineMs: remaining(),
-  })
-  return {
-    from: {
-      namespace: from.namespace,
-      client: from.client,
-      toolchain: from.toolchain,
-      platform: from.platform,
-      arch: from.arch,
-      domain: from.scope.id,
-    },
-    to: {
-      namespace: to.namespace,
-      client: to.client,
-      toolchain: to.toolchain,
-      platform: to.platform,
-      arch: to.arch,
-      domain: to.scope.id,
-    },
-    sameDomain: from.scope.id === to.scope.id,
-    published: written.ok === true,
-    publishSkipped: written.skipped === true,
-    publishCategory: written.ok ? null : written.category,
-    replayable,
-    refusedWith: found.ok ? null : found.category,
-    blobRefusedWith: blob?.ok === true ? null : (blob?.category ?? null),
-    envelopeRefusedWith: handed.refusedWith,
-    storedRefusedWith: stored.refusedWith ?? null,
-    // The identity of the **stored** envelope, not of the expected input.
-    transferIdentity: envelope === null ? null : transferIdentity(envelope),
-    entryIdentical,
-    valueIdentical: envelope === null ? null : envelope.valueBytes.equals(entry.value),
-    archiveSha256: digest(entry.blob),
-    archiveIdentical: entryIdentical,
-    stagedObjects: staged,
-    publishedObjects,
+  const operation = createSharedOperation(deadlineMs ?? DEFAULT_DEADLINE_MS)
+  try {
+    const written = publish
+      ? await publishEntry(store, entry, {
+          scope: from.scope,
+          limits,
+          deadlineMs,
+          createdAt,
+          operation,
+        })
+      : { ok: false, skipped: true, category: null, envelope: null, entryKey: undefined }
+    const entryKey = written.entryKey ?? entryObjectKey(from.scope, entry.key, entry.secondaryKey)
+    // The envelope the report is built from is the **stored** one, read back and validated under the domain that wrote
+    // it. It is never reconstructed from the expected input: a store that holds a different entry under the same key
+    // must be reported as such.
+    const stored = await readStoredEnvelope(store, entryKey, from, {
+      maxBytes: limits?.maxEnvelopeBytes ?? LIMITS.maxEnvelopeBytes,
+      deadlineMs: remaining(),
+      signal: operation.signal,
+    })
+    const envelope = stored.envelope ?? null
+    const found = await lookupEntry(
+      store,
+      { key: entry.key, secondaryKey: entry.secondaryKey },
+      { scope: to.scope, limits, deadlineMs, operation }
+    )
+    const blob = found.ok
+      ? await readBlob(store, found.envelope.blob_id, {
+          scope: to.scope,
+          limits,
+          deadlineMs,
+          operation,
+        })
+      : null
+    const keys = listedKeys(store)
+    const staged = (keys ?? []).filter((name) => name.startsWith('staging/'))
+    const publishedObjects = (keys ?? []).filter((name) => name.startsWith('entries/'))
+    // Every byte of the entry is compared: the entry key, the task fingerprint key, the entry value and the archive.
+    const entryIdentical =
+      envelope !== null &&
+      envelope.keyBytes.equals(entry.key) &&
+      envelope.secondaryKeyBytes.equals(entry.secondaryKey) &&
+      envelope.valueBytes.equals(entry.value) &&
+      blob?.ok === true &&
+      Buffer.from(blob.bytes).equals(entry.blob)
+    const replayable = found.ok && entryIdentical
+    const handed = await readAsTarget(store, entryKey, to, {
+      maxBytes: limits?.maxEnvelopeBytes ?? LIMITS.maxEnvelopeBytes,
+      deadlineMs: remaining(),
+      signal: operation.signal,
+    })
+    return {
+      from: {
+        namespace: from.namespace,
+        client: from.client,
+        toolchain: from.toolchain,
+        platform: from.platform,
+        arch: from.arch,
+        domain: from.scope.id,
+      },
+      to: {
+        namespace: to.namespace,
+        client: to.client,
+        toolchain: to.toolchain,
+        platform: to.platform,
+        arch: to.arch,
+        domain: to.scope.id,
+      },
+      sameDomain: from.scope.id === to.scope.id,
+      published: written.ok === true,
+      publishSkipped: written.skipped === true,
+      publishCategory: written.ok ? null : written.category,
+      replayable,
+      refusedWith: found.ok ? null : found.category,
+      blobRefusedWith: blob?.ok === true ? null : (blob?.category ?? null),
+      envelopeRefusedWith: handed.refusedWith,
+      storedRefusedWith: stored.refusedWith ?? null,
+      // The identity of the **stored** envelope, not of the expected input.
+      transferIdentity: envelope === null ? null : transferIdentity(envelope),
+      entryIdentical,
+      valueIdentical: envelope === null ? null : envelope.valueBytes.equals(entry.value),
+      archiveSha256: digest(entry.blob),
+      archiveIdentical: entryIdentical,
+      stagedObjects: staged,
+      publishedObjects,
+    }
+  } finally {
+    operation.release()
   }
 }
 

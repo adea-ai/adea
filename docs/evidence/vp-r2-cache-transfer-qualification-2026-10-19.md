@@ -185,6 +185,12 @@ refused`);
   by the deadline that is left, and it carries the caller's signal: a store that
   rejects the read or never answers ends the read with a refusal instead of
   ending the qualification with an exception or a hang;
+- the publication, the lookup, the archive read and the reads of the stored
+  envelope share **one** operation, so the qualification has one deadline and
+  one signal instead of a deadline each;
+- a signal that was **already aborted** ends a read at once - the guard cannot
+  wait for an event that has been sent - and the bytes a store returns are
+  **measured** before anything is parsed, not taken on the store's word;
 - a transfer that fails in the middle publishes nothing and leaves no staging
   object behind;
 - a store that never answers ends the transfer with a timeout fallback rather
@@ -198,16 +204,25 @@ on**: neither `package.json` nor any workflow under `.github/workflows` names
 `ADEA_VP_R2_CACHE_ENABLED` or `VP_REMOTE_CACHE`. The transport stays off unless
 it is turned on explicitly, and no workflow, script or task calls it.
 
+## 4.1 The repairs of the review of `9c2f1688`
+
+| #   | The review asked for                                                           | What was done                                                                                                                                 | Where it is proved                                                                                                                                                         |
+| --- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | a signal that is already aborted must not slip into a read that never answers  | the guard checks the controller before it registers its listener, because the abort event has already been sent                               | `the bounded reads of the qualification > a read that is given an aborted signal ends at once`                                                                             |
+| 2   | the returned bytes must be measured before they are parsed                     | the length is checked against the bound in the qualification, not taken on the store's `maxBytes`                                             | `a store that returns more than the bound is refused before it is parsed`                                                                                                  |
+| 3   | the remaining budget and the signal must reach the lookup and the archive read | the publication, the lookup, the archive read and the reads of the stored envelope share **one** operation, with its deadline and its signal  | `the whole qualification runs under one deadline`                                                                                                                          |
+| 4   | the test discovery was wrong: a missing import and the wrong `skipIf` form     | `existsSync` is imported, the skip uses Bun's `test.skipIf(condition)(name, fn)` form, and both the present and the absent client are covered | `records whether the pinned-client qualification is established`, `the client discovery reports a checkout without the pinned client`, and the skipped export/import check |
+
 ## 5. What was run
 
 | Command                                                                                                                      | Result                                                                                                                                                                        |
 | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun test scripts/vp-r2-cache*.test.ts`                                                                                      | **116 pass, 0 fail**, 452 assertions (the transport, the codec, the pinned-client replay and this qualification)                                                              |
+| `bun test scripts/vp-r2-cache*.test.ts`                                                                                      | **120 pass, 0 fail**, 460 assertions (the transport, the codec, the pinned-client replay and this qualification)                                                              |
 | `bun run format:check` (whole repository, pinned `oxfmt`)                                                                    | all matched files use the correct format                                                                                                                                      |
 | `bun run lint` (pinned `vp run orch:lint` and `oxlint --deny-warnings`, the repository's own configuration, no rule removed) | 0 warnings, 0 errors                                                                                                                                                          |
 | `bun run typecheck` (pinned `vp run orch:typecheck`)                                                                         | 33/33 tasks successful, "No type errors in 318 files"                                                                                                                         |
 | `vp run orch:test` (the repository's unit task lane)                                                                         | **1734 tests across 135 files, 0 fail**, 32/32 tasks successful - the same numbers as the qualification base and as `f9d5b1577`                                               |
-| `bun test scripts/vp-r2-cache*.test.ts --coverage`                                                                           | aggregate 85.60% functions, 87.95% lines (the goal is 80%); `scripts/vp-r2-cache-transfer.mjs` at 95.45%/100.00% and `scripts/vp-r2-cache-transfer-fixtures.mjs` at 100%/100% |
+| `bun test scripts/vp-r2-cache*.test.ts --coverage`                                                                           | aggregate 85.27% functions, 87.95% lines (the goal is 80%); `scripts/vp-r2-cache-transfer.mjs` at 92.86%/100.00% and `scripts/vp-r2-cache-transfer-fixtures.mjs` at 100%/100% |
 | `bun run test:coverage`                                                                                                      | **crashes** in this environment, at the base commit and at the qualification base as well - see below                                                                         |
 
 ### The coverage lane crashes here, before and after this change

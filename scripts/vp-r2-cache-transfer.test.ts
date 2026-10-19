@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
@@ -17,6 +18,7 @@ import {
   machine,
   qualifyMatrix,
   qualifyTransfer,
+  readStoredEnvelope,
   toolchainId,
   transferIdentity,
 } from './vp-r2-cache-transfer.mjs'
@@ -412,6 +414,63 @@ describe('what survives a transfer', () => {
   })
 })
 
+describe('the bounded reads of the qualification', () => {
+  test('a read that is given an aborted signal ends at once', async () => {
+    // A store that never answers, and a signal that was aborted before the read started.
+    const store = { ...createMemoryStore(), get: () => new Promise(() => {}) }
+    const controller = new AbortController()
+    controller.abort()
+    const started = Date.now()
+    const read = await readStoredEnvelope(store, 'entries/x/entry.json', profiles['darwin-a'], {
+      deadlineMs: 5000,
+      signal: controller.signal,
+    })
+    expect(read.envelope).toBeUndefined()
+    expect(read.refusedWith).toBe(CATEGORY.storeRead)
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  test('a store that returns more than the bound is refused before it is parsed', async () => {
+    const store = { ...createMemoryStore(), get: () => Buffer.alloc(1024, 0x41) }
+    const read = await readStoredEnvelope(store, 'entries/x/entry.json', profiles['darwin-a'], {
+      maxBytes: 16,
+    })
+    expect(read.envelope).toBeUndefined()
+    expect(read.refusedWith).toBe(CATEGORY.tooLarge)
+  })
+
+  test('the whole qualification runs under one deadline', async () => {
+    // Every read takes 40ms; a 60ms budget cannot pay for four of them.
+    const inner = createMemoryStore()
+    const store = {
+      ...inner,
+      get: (key: string, options: unknown) =>
+        new Promise((resolve) => {
+          setTimeout(() => {
+            // The read may be refused because the operation expired while it waited; that is an answer, not a throw.
+            try {
+              resolve(inner.get(key, options as never))
+            } catch {
+              resolve(null)
+            }
+          }, 40)
+        }),
+    }
+    const entry = binaryEntry('one-deadline')
+    const started = Date.now()
+    const result = await qualifyTransfer({
+      store,
+      entry,
+      from: profiles['darwin-a'],
+      to: profiles['darwin-b'],
+      deadlineMs: 60,
+    })
+    // The reads share one deadline, so the qualification ends with the budget and not with four times it.
+    expect(Date.now() - started).toBeLessThan(120)
+    expect(result.replayable).toBe(false)
+  })
+})
+
 describe('the qualification helpers', () => {
   test('a machine without a namespace, a client or a toolchain is refused', () => {
     expect(() => machine({ namespace: '', client: PINNED_CLIENT, toolchain: 'x' })).toThrow()
@@ -442,15 +501,28 @@ describe('what the qualification does not do', () => {
     expect(client.asked).toContain(client.version)
   })
 
-  test.skipIf(!client, 'the pinned client still has no export and no import')(async () => {
-    const help = spawnSync(clientRuntime(), [client.bin, 'cache', '--help'], {
-      encoding: 'utf8',
-      timeout: 120_000,
-    })
-    expect(help.stdout).toContain('clean')
-    expect(help.stdout).not.toMatch(/export/i)
-    expect(help.stdout).not.toMatch(/import/i)
-  }, 180_000)
+  test('the client discovery reports a checkout without the pinned client', () => {
+    const empty = mkdtempSync(join(tmpdir(), 'vp-r2-no-client-'))
+    try {
+      expect(pinnedClient(empty)).toBe(null)
+    } finally {
+      rmSync(empty, { recursive: true, force: true })
+    }
+  })
+
+  test.skipIf(!client)(
+    'the pinned client still has no export and no import',
+    async () => {
+      const help = spawnSync(clientRuntime(), [client.bin, 'cache', '--help'], {
+        encoding: 'utf8',
+        timeout: 120_000,
+      })
+      expect(help.stdout).toContain('clean')
+      expect(help.stdout).not.toMatch(/export/i)
+      expect(help.stdout).not.toMatch(/import/i)
+    },
+    180_000
+  )
 
   test('nothing in the repository turns the transport on', () => {
     const root = process.cwd()
