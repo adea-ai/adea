@@ -1,8 +1,12 @@
 import { canonicalBridgeOrigin } from '@adea-ai/spatial/sim-bridge'
+import {
+  SIM_ASSET_PREFIX,
+  SIM_ENTRY_FILE,
+  SIM_SURFACES,
+  type SimSurface,
+} from '../lib/sim-host-contract'
 
-/** The closed set of Agent Sim surfaces. Configuration can rename their entry files but cannot add or change a surface. */
-export const SIM_SURFACES = ['hq', 'room-designer', 'character-designer'] as const
-export type SimSurface = (typeof SIM_SURFACES)[number]
+export { SIM_SURFACES, type SimSurface }
 
 /** What an operator supplies. Every field is required except `allowLoopbackHttp`, which defaults to false. */
 export type SimHostConfigurationInput = {
@@ -25,9 +29,6 @@ export type SimHostConfiguration = Readonly<{
   assetPrefix: string
   entryFiles: Readonly<Record<SimSurface, string>>
 }>
-
-const ASSET_PREFIX = /^\/(?:[a-z0-9][a-z0-9-]*\/){1,4}$/
-const ENTRY_FILE = /^[a-z0-9][a-z0-9-]{0,62}\.js$/
 
 /**
  * Validates the host configuration and returns it frozen. It throws on anything missing or malformed, so the host
@@ -60,7 +61,7 @@ export function createSimHostConfiguration(input: unknown): SimHostConfiguration
     throw new Error('Hosted Sim requires a separate cookie host')
   }
 
-  if (typeof value.assetPrefix !== 'string' || !ASSET_PREFIX.test(value.assetPrefix))
+  if (typeof value.assetPrefix !== 'string' || !SIM_ASSET_PREFIX.test(value.assetPrefix))
     throw new Error('Hosted Sim assetPrefix must be a plain path such as /assets/agent-sim/')
 
   const entries = value.entryFiles
@@ -73,7 +74,7 @@ export function createSimHostConfiguration(input: unknown): SimHostConfiguration
     if (!Object.hasOwn(entries, surface))
       throw new Error(`Hosted Sim entryFiles is missing the ${surface} surface`)
     const file = (entries as Record<string, unknown>)[surface]
-    if (typeof file !== 'string' || !ENTRY_FILE.test(file))
+    if (typeof file !== 'string' || !SIM_ENTRY_FILE.test(file))
       throw new Error(`Hosted Sim entry file for ${surface} must be a plain .js file name`)
     entryFiles[surface] = file
   }

@@ -63,7 +63,12 @@ export function createSimHost(
         headers: { ...headers, 'content-type': 'text/javascript' },
       })
     if (url.pathname === '/configuration')
-      return json({ parentOrigins: parents, allowLoopbackHttp: config.allowLoopbackHttp })
+      return json({
+        parentOrigins: parents,
+        allowLoopbackHttp: config.allowLoopbackHttp,
+        assetPrefix: config.assetPrefix,
+        entryFiles: config.entryFiles,
+      })
     if (!url.pathname.startsWith(config.assetPrefix))
       return new Response(null, { status: 404, headers })
     const cookies = (request.headers.get('cookie') ?? '').split(';').map((value) => value.trim())

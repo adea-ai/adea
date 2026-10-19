@@ -171,6 +171,11 @@ test('a configured prefix and renamed entries are the only paths served privatel
   const cookie = `__Host-adea-sim=${'s'.repeat(40)}`
   const get = (path: string) => host(new Request(`${origin}${path}`, { headers: { cookie } }))
 
+  // The public contract carries the configured prefix and names, so the frame bootstrap reads the same values.
+  expect(await (await host(new Request(`${origin}/configuration`))).json()).toMatchObject({
+    assetPrefix: '/private/sim/',
+    entryFiles: { hq: 'hq-1.js', 'room-designer': 'rd-1.js', 'character-designer': 'cd-1.js' },
+  })
   expect((await get('/private/sim/rd-1.js')).status).toBe(200)
   expect((await get('/private/sim/hq-1.js')).status).toBe(403)
   expect((await get('/assets/agent-sim/rd-1.js')).status).toBe(404)
