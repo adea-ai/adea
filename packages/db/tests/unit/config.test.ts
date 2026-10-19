@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
+import postgres from 'postgres'
 
-import { classifyDatabaseUrl, readDatabaseTarget, readDatabaseUrl } from '../../src/config'
+import { readDatabaseTarget, readDatabaseUrl } from '../../src/config'
 
 describe('database configuration', () => {
   test('requires a server-side PostgreSQL URL', () => {
@@ -61,45 +62,79 @@ describe('database configuration', () => {
 
 const hostedUrl = (host: string) => `postgresql://app:secret@${host}:5432/agent_hq?sslmode=require`
 
-describe('connection role qualification', () => {
+const driverSsl = (url: string) => {
+  // postgres(url) is lazy: parsing the options opens no socket.
+  const sql = postgres(url)
+  try {
+    return sql.options.ssl
+  } finally {
+    void sql.end({ timeout: 0 })
+  }
+}
+
+describe('connection target qualification', () => {
   test('reports host, hosted and URL through readDatabaseTarget', () => {
-    const target = readDatabaseTarget(hostedUrl('db.example.com'))
-    expect(target).toEqual({
+    expect(readDatabaseTarget(hostedUrl('db.example.com'))).toEqual({
       url: hostedUrl('db.example.com'),
       hostname: 'db.example.com',
       hosted: true,
-      pooled: false,
-      preparedStatements: true,
     })
+    expect(
+      readDatabaseTarget('postgresql://app:secret@127.0.0.1:5432/agent_hq?sslmode=disable')
+    ).toMatchObject({ hosted: false })
   })
 
-  test('treats a Neon pooled endpoint as transaction-pooled and keeps prepare: false', () => {
-    const target = readDatabaseTarget(hostedUrl('ep-cool-1234-pooler.us-east-2.aws.neon.tech'))
-    expect(target.pooled).toBe(true)
-    expect(target.preparedStatements).toBe(false)
-  })
-
-  test('treats a Neon direct endpoint and a Hyperdrive host as prepared-statement safe', () => {
-    for (const host of [
-      'ep-cool-1234.us-east-2.aws.neon.tech',
-      'adea-db.hyperdrive.cloudflare.com',
-      'abc123.proxy.rlwy.net',
-    ]) {
-      const target = readDatabaseTarget(hostedUrl(host))
-      expect(target.pooled).toBe(false)
-      expect(target.preparedStatements).toBe(true)
+  test('accepts each hosted TLS mode exactly once, and the driver then enables TLS', () => {
+    for (const mode of ['require', 'verify-ca', 'verify-full']) {
+      const url = `postgresql://app:secret@db.example.com:5432/agent_hq?sslmode=${mode}`
+      expect(readDatabaseTarget(url).hosted).toBe(true)
+      expect(driverSsl(url)).toBeTruthy()
     }
   })
 
-  test('classifyDatabaseUrl drops the hosted TLS requirement but keeps the pooling shape', () => {
-    // Hyperdrive's binding string need not carry sslmode; it still keeps prepared statements.
-    expect(
-      classifyDatabaseUrl('postgresql://app:secret@db.hyperdrive.cloudflare.com:5432/agent_hq')
-    ).toEqual({ pooled: false, preparedStatements: true })
-    expect(
-      classifyDatabaseUrl('postgresql://app:secret@ep-1-pooler.us-east-2.aws.neon.tech/agent_hq')
-    ).toEqual({ pooled: true, preparedStatements: false })
-    // An unparsable URL cannot be a known pooler; keep the driver default.
-    expect(classifyDatabaseUrl('not-a-url')).toEqual({ pooled: false, preparedStatements: true })
+  const ambiguous = [
+    // The first value passes a first-value check; Postgres.js applies the last one.
+    'sslmode=require&sslmode=disable',
+    'sslmode=disable&sslmode=require',
+    'sslmode=require&sslmode=require',
+    'sslmode=require&ssl=false',
+    'ssl=true&sslmode=require',
+    'sslmode=verify-full&sslrootcert=a&sslrootcert=b',
+  ]
+
+  test('the driver really reads a repeated sslmode last-value-wins (the hazard)', () => {
+    const url =
+      'postgresql://app:secret@db.example.com:5432/agent_hq?sslmode=require&sslmode=disable'
+    // URLSearchParams.get() sees "require"; Postgres.js connects without TLS.
+    expect(new URL(url).searchParams.get('sslmode')).toBe('require')
+    expect(driverSsl(url)).toBe(false)
+  })
+
+  test('rejects repeated or doubly-named transport parameters for hosted hosts', () => {
+    for (const query of ambiguous) {
+      const url = `postgresql://app:secret@db.example.com:5432/agent_hq?${query}`
+      expect(() => readDatabaseTarget(url)).toThrow(/must not (repeat|combine)/)
+      expect(() => readDatabaseUrl({ DATABASE_URL: url })).toThrow(/must not (repeat|combine)/)
+    }
+  })
+
+  test('rejects the same ambiguity on a loopback host', () => {
+    expect(() =>
+      readDatabaseTarget(
+        'postgresql://app:secret@localhost:5432/agent_hq?sslmode=disable&sslmode=require'
+      )
+    ).toThrow('must not repeat the sslmode parameter')
+  })
+
+  test('every accepted hosted URL leaves the driver with TLS on', () => {
+    // Guards the validator against drifting from what Postgres.js actually applies.
+    for (const mode of ['require', 'verify-ca', 'verify-full']) {
+      const url = `postgresql://app:secret@db.example.com:5432/agent_hq?sslmode=${mode}`
+      readDatabaseTarget(url)
+      expect(driverSsl(url)).not.toBe(false)
+    }
+    expect(() =>
+      readDatabaseTarget(hostedUrl('db.example.com').replace('require', 'disable'))
+    ).toThrow('Hosted DATABASE_URL must require TLS')
   })
 })

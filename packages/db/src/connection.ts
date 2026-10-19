@@ -9,7 +9,7 @@ import { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { PostgresJsSession } from 'drizzle-orm/postgres-js/session'
 import postgres, { type Sql } from 'postgres'
 
-import { classifyDatabaseUrl, readDatabaseUrl } from './config'
+import { readDatabaseUrl } from './config'
 import * as schema from './schema'
 
 type AppSchema = typeof schema
@@ -91,40 +91,38 @@ function isWorkersRuntime(): boolean {
  * Driver tuning for one connection URL, split out so it can be asserted without
  * opening a socket.
  *
- * `prepare` follows the connection role, not a blanket toggle: a Neon `-pooler`
- * endpoint multiplexes transactions and keeps `prepare: false`, while a direct
- * Railway PostgreSQL connection and a Cloudflare Hyperdrive connection keep
- * prepared statements. Hyperdrive supports the named prepared statements
- * Postgres.js emits and documents that `prepare: false` makes the driver probe
- * parameter types before every query, which its transaction pooling does not
- * reliably support. No `cache` option is set: the drizzle database below owns
- * `$cache: undefined`, and no database-level query cache backs auth, session or
- * permission reads.
+ * `prepare` is `false` for every connection role. It is only a default: drizzle's
+ * postgres-js session executes every statement, including those inside
+ * `transaction()` and savepoints, through `client.unsafe(query, params)`, and
+ * Postgres.js builds those queries with `prepare: false`, so the ORM path never
+ * names a prepared statement regardless of this option. Setting it here keeps a
+ * query issued directly on `client` (a tagged template) on the same footing,
+ * which is what a transaction-pooled endpoint (Cloudflare Hyperdrive, PgBouncer)
+ * needs. The unit tests exercise the real drizzle-to-driver path to keep this
+ * honest; whether Hyperdrive itself caches or pools as expected is a cutover
+ * gate checked against a live binding, not here. No `cache` option is set: the
+ * drizzle database below owns `$cache: undefined`, and no database-level query
+ * cache backs auth, session or permission reads.
  */
 export interface CreateDatabaseOptions {
   maxConnections?: number
   connectTimeoutSeconds?: number
   idleTimeoutSeconds?: number
-  preparedStatements?: boolean
 }
 
-export function databaseConnectionOptions(
-  connectionUrl: string,
-  options: CreateDatabaseOptions = {}
-): {
+export function databaseConnectionOptions(options: CreateDatabaseOptions = {}): {
   max: number
   connect_timeout: number
   idle_timeout: number
-  prepare: boolean
+  prepare: false
 } {
-  const { preparedStatements } = classifyDatabaseUrl(connectionUrl)
   return {
     max:
       options.maxConnections ??
       (isWorkersRuntime() ? WORKERS_MAX_CONNECTIONS : SERVER_MAX_CONNECTIONS),
     connect_timeout: options.connectTimeoutSeconds ?? 10,
     idle_timeout: options.idleTimeoutSeconds ?? 20,
-    prepare: options.preparedStatements ?? preparedStatements,
+    prepare: false,
   }
 }
 
@@ -132,7 +130,7 @@ export function createDatabase(
   connectionUrl = readDatabaseUrl(),
   options: CreateDatabaseOptions = {}
 ) {
-  const client = postgres(connectionUrl, databaseConnectionOptions(connectionUrl, options))
+  const client = postgres(connectionUrl, databaseConnectionOptions(options))
 
   return {
     client,

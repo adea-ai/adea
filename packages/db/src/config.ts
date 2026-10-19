@@ -18,44 +18,42 @@ export type DatabaseEnvironment = Record<string, string | undefined>
 const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', '::1', '[::1]', 'localhost'])
 const TLS_REQUIRED_SSL_MODES = new Set(['require', 'verify-ca', 'verify-full'])
 
-// Neon's pooled endpoint runs PgBouncer in transaction mode (`<endpoint>-pooler`
-// host). Transaction pooling multiplexes many client sessions onto shared server
-// backends, so the conservative `prepare: false` stays for that endpoint only.
-// Cloudflare Hyperdrive and a direct Railway PostgreSQL connection are not this
-// shape: Hyperdrive supports the named prepared statements Postgres.js uses and
-// documents that `prepare: false` makes the driver probe parameter types before
-// every query, which transaction pooling does not reliably support.
-const NEON_POOLED_HOST_MARKER = '-pooler.'
-const NEON_HOST_SUFFIX = '.neon.tech'
-
 export function isLoopbackDatabaseHost(hostname: string): boolean {
   const host = hostname.trim().toLowerCase()
   return LOOPBACK_HOSTNAMES.has(host) || host.endsWith('.localhost')
 }
 
-export function isTransactionPooledHost(hostname: string): boolean {
-  const host = hostname.trim().toLowerCase()
-  return host.includes(NEON_POOLED_HOST_MARKER) && host.endsWith(NEON_HOST_SUFFIX)
+// Postgres.js reduces repeated query parameters last-value-wins and then maps `sslmode` onto its
+// `ssl` option, while `URL.searchParams.get` returns the FIRST value. A URL such as
+// `?sslmode=require&sslmode=disable` therefore validates as TLS here and connects in plaintext in
+// the driver. Any transport parameter that could be read two ways is rejected outright.
+const TLS_PARAMETERS = ['sslmode', 'ssl', 'sslrootcert', 'sslcert', 'sslkey'] as const
+
+function assertUnambiguousTransport(url: URL, key: string): void {
+  for (const name of TLS_PARAMETERS) {
+    if (url.searchParams.getAll(name).length > 1) {
+      throw new Error(`${key} must not repeat the ${name} parameter`)
+    }
+  }
+  if (url.searchParams.has('sslmode') && url.searchParams.has('ssl')) {
+    throw new Error(`${key} must not combine the sslmode and ssl parameters`)
+  }
 }
 
-/**
- * The connection role a database URL names, and what it means for Postgres.js
- * prepared statements. `pooled` is true only for a host that multiplexes client
- * transactions onto shared backends (Neon's `-pooler` endpoint); a Hyperdrive or
- * direct connection keeps prepared statements.
- */
+/** The connection target a database URL names. */
 export interface DatabaseConnectionTarget {
   readonly url: string
   readonly hostname: string
   readonly hosted: boolean
-  readonly pooled: boolean
-  readonly preparedStatements: boolean
 }
 
 /**
  * Parses and strictly validates one server-side PostgreSQL URL. Hosted hosts
- * must carry an explicit TLS mode of `require`, `verify-ca` or `verify-full`;
- * loopback hosts may use `sslmode=disable` for local/throwaway databases.
+ * must carry exactly one TLS mode of `require`, `verify-ca` or `verify-full`;
+ * loopback hosts may use `sslmode=disable` for local/throwaway databases. A URL
+ * that repeats a transport parameter, or names both `sslmode` and `ssl`, is
+ * rejected for every host because the driver and this check would disagree on
+ * which value applies.
  */
 export function readDatabaseTarget(value: string, key = 'DATABASE_URL'): DatabaseConnectionTarget {
   let url: URL
@@ -72,6 +70,8 @@ export function readDatabaseTarget(value: string, key = 'DATABASE_URL'): Databas
     throw new Error(`${key} must include role, password, host, and database`)
   }
 
+  assertUnambiguousTransport(url, key)
+
   const hostname = url.hostname
   const hosted = !isLoopbackDatabaseHost(hostname)
   if (hosted) {
@@ -81,29 +81,7 @@ export function readDatabaseTarget(value: string, key = 'DATABASE_URL'): Databas
     }
   }
 
-  const pooled = isTransactionPooledHost(hostname)
-  return { url: value, hostname, hosted, pooled, preparedStatements: !pooled }
-}
-
-/**
- * The prepared-statement behaviour a URL names, without the hosted-TLS
- * requirement of `readDatabaseTarget`. This is for URLs another layer has
- * already trusted — the Cloudflare `HYPERDRIVE` binding (whose own hop is TLS
- * terminated by Cloudflare) or a validated migration URL — where only the
- * pooling shape decides whether `prepare: false` is needed. An unparsable URL
- * keeps the driver default; `postgres.js` reports the real error when it
- * connects.
- */
-export function classifyDatabaseUrl(
-  value: string
-): Pick<DatabaseConnectionTarget, 'pooled' | 'preparedStatements'> {
-  try {
-    const hostname = new URL(value).hostname
-    const pooled = isTransactionPooledHost(hostname)
-    return { pooled, preparedStatements: !pooled }
-  } catch {
-    return { pooled: false, preparedStatements: true }
-  }
+  return { url: value, hostname, hosted }
 }
 
 export function readDatabaseUrl(

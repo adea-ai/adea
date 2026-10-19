@@ -34,6 +34,21 @@ describe('inspectDatabaseConfiguration', () => {
     ).toThrow('Hosted DATABASE_URL must require TLS')
   })
 
+  test('rejects a repeated or doubled transport parameter that Postgres.js would read last-wins', () => {
+    for (const query of [
+      'sslmode=require&sslmode=disable',
+      'sslmode=disable&sslmode=require',
+      'sslmode=require&ssl=false',
+    ]) {
+      expect(() =>
+        inspectDatabaseConfiguration({
+          ...localEnvironment,
+          DATABASE_URL: `postgresql://agent_hq_prod_app:secret@prod.example.com/agent_hq?${query}`,
+        })
+      ).toThrow(/must not (repeat|combine)/)
+    }
+  })
+
   test('keeps runtime and migration credentials separate', () => {
     expect(() =>
       inspectDatabaseConfiguration({

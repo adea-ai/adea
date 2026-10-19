@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
+import { eq, sql } from 'drizzle-orm'
 import { npmVersion as drizzleVersion } from 'drizzle-orm/version'
 import { drizzle } from 'drizzle-orm/postgres-js'
-import postgres from 'postgres'
+import postgres, { type Sql } from 'postgres'
 
 import { createDatabase, databaseConnectionOptions } from '../../src/connection'
 import * as schema from '../../src/schema'
@@ -148,33 +149,13 @@ describe('createDatabase construction', () => {
 })
 
 describe('databaseConnectionOptions', () => {
-  const LOCAL = 'postgresql://app:secret@127.0.0.1:55432/agent_hq?sslmode=disable'
-  const DIRECT_HOSTED = 'postgresql://app:secret@db.example.com:5432/agent_hq?sslmode=require'
-  const NEON_POOLED =
-    'postgresql://app:secret@ep-cool-1234-pooler.us-east-2.aws.neon.tech/agent_hq?sslmode=require'
-
-  test('keeps prepared statements for a direct connection and bounds the pool', () => {
-    expect(databaseConnectionOptions(DIRECT_HOSTED)).toEqual({
+  test('never prepares statements and bounds the pool', () => {
+    expect(databaseConnectionOptions()).toEqual({
       max: 10,
       connect_timeout: 10,
       idle_timeout: 20,
-      prepare: true,
+      prepare: false,
     })
-  })
-
-  test('keeps the previous ceilings for local development', () => {
-    expect(databaseConnectionOptions(LOCAL)).toMatchObject({ max: 10, prepare: true })
-  })
-
-  test('disables prepared statements only for a transaction-pooled endpoint', () => {
-    expect(databaseConnectionOptions(NEON_POOLED)).toMatchObject({ prepare: false })
-    // A Hyperdrive connection string is not a Neon pooler and keeps prepared
-    // statements even though it has no explicit sslmode.
-    expect(
-      databaseConnectionOptions(
-        'postgresql://app:secret@db.hyperdrive.cloudflare.com:5432/agent_hq'
-      )
-    ).toMatchObject({ prepare: true })
   })
 
   test('caps a Cloudflare Worker client at five edge connections', () => {
@@ -185,7 +166,7 @@ describe('databaseConnectionOptions', () => {
         configurable: true,
         writable: true,
       })
-      expect(databaseConnectionOptions(DIRECT_HOSTED)).toMatchObject({ max: 5, prepare: true })
+      expect(databaseConnectionOptions()).toMatchObject({ max: 5, prepare: false })
     } finally {
       if (original) Object.defineProperty(globalThis, 'navigator', original)
     }
@@ -193,12 +174,103 @@ describe('databaseConnectionOptions', () => {
 
   test('honors explicit overrides for tests, fixtures and migration roles', () => {
     expect(
-      databaseConnectionOptions(NEON_POOLED, {
+      databaseConnectionOptions({
         maxConnections: 1,
-        preparedStatements: true,
         connectTimeoutSeconds: 3,
         idleTimeoutSeconds: 5,
       })
-    ).toEqual({ max: 1, connect_timeout: 3, idle_timeout: 5, prepare: true })
+    ).toEqual({ max: 1, connect_timeout: 3, idle_timeout: 5, prepare: false })
+  })
+})
+
+// `prepare: false` has to hold on the path the application actually uses, not only in the options
+// object. drizzle's postgres-js session runs every statement through `client.unsafe(sql, params)`.
+// These tests wrap that call on a real client built by createDatabase, record the options of the
+// real Postgres.js Query it produces, and answer with a stub so nothing connects.
+describe('prepared statements on the drizzle path', () => {
+  const HOSTED = 'postgresql://app:secret@db.example.com:5432/agent_hq?sslmode=require'
+
+  type Recorded = { prepare: unknown; simple: unknown }
+
+  function instrument(client: Sql, transaction = false) {
+    const recorded: Recorded[] = []
+    const unsafe = client.unsafe.bind(client)
+    // The real Query is built, inspected and dropped unawaited: Postgres.js Queries are lazy.
+    ;(client as { unsafe: unknown }).unsafe = (...args: Parameters<Sql['unsafe']>) => {
+      const query = unsafe(...args) as unknown as { options: Recorded }
+      recorded.push({ prepare: query.options.prepare, simple: query.options.simple })
+      return Object.assign(Promise.resolve([]), { values: () => Promise.resolve([]) })
+    }
+    if (transaction) {
+      // Stand-in for `begin`: a real transaction needs a server. Postgres.js builds the scoped
+      // client from the same `unsafe` definition and options, so the recorded Query is the same.
+      ;(client as { begin: unknown }).begin = (callback: (sql: Sql) => unknown) => callback(client)
+    }
+    return recorded
+  }
+
+  test('the driver is created with prepare: false', () => {
+    const { client } = createDatabase(HOSTED)
+    expect((client.options as { prepare: boolean }).prepare).toBe(false)
+    void client.end({ timeout: 0 })
+  })
+
+  test('raw SQL, builder queries and relational queries are unprepared', async () => {
+    const { client, db } = createDatabase(HOSTED)
+    const recorded = instrument(client)
+    try {
+      await db.execute(sql`select ${1}::int`)
+      await db.select().from(workspaces).where(eq(workspaces.id, 'w1'))
+      await db.query.workspaces.findFirst({ where: eq(workspaces.id, 'w1') })
+      expect(recorded.length).toBe(3)
+      for (const query of recorded) expect(query.prepare).toBe(false)
+    } finally {
+      await client.end({ timeout: 0 })
+    }
+  })
+
+  test('a named drizzle .prepare() is unprepared too', async () => {
+    const { client, db } = createDatabase(HOSTED)
+    const recorded = instrument(client)
+    try {
+      const statement = db
+        .select()
+        .from(workspaces)
+        .where(eq(workspaces.id, sql.placeholder('id')))
+        .prepare('workspace_by_id')
+      await statement.execute({ id: 'w1' })
+      expect(recorded.map((query) => query.prepare)).toEqual([false])
+    } finally {
+      await client.end({ timeout: 0 })
+    }
+  })
+
+  test('statements inside a transaction callback are unprepared', async () => {
+    const { client, db } = createDatabase(HOSTED)
+    const recorded = instrument(client, true)
+    try {
+      await db.transaction(async (tx) => {
+        await tx.select().from(workspaces).where(eq(workspaces.id, 'w1'))
+        await tx.execute(sql`select 1`)
+      })
+      expect(recorded.length).toBe(2)
+      for (const query of recorded) expect(query.prepare).toBe(false)
+    } finally {
+      await client.end({ timeout: 0 })
+    }
+  })
+
+  test('control: a client built with prepare: true prepares tagged queries but not unsafe()', () => {
+    // Shows the instrument can tell the two apart, so the assertions above are not vacuous.
+    const client = postgres(HOSTED, { prepare: true })
+    try {
+      const tagged = client`select 1` as unknown as { options: Record<string, unknown> }
+      const raw = client.unsafe('select 1') as unknown as { options: Record<string, unknown> }
+      expect('prepare' in tagged.options).toBe(false) // falls back to the client's prepare: true
+      expect((client.options as { prepare: boolean }).prepare).toBe(true)
+      expect(raw.options.prepare).toBe(false) // drizzle's path: unprepared whatever the client says
+    } finally {
+      void client.end({ timeout: 0 })
+    }
   })
 })

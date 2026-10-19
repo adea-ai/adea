@@ -30,6 +30,17 @@ function readConnection(environment, name) {
     throw new Error(`${name} must include role, password, host, and database`)
   }
 
+  // Postgres.js reads repeated query parameters last-value-wins while searchParams.get() returns
+  // the first, so a repeated or doubly-named transport parameter is rejected rather than guessed.
+  for (const param of ['sslmode', 'ssl', 'sslrootcert', 'sslcert', 'sslkey']) {
+    if (url.searchParams.getAll(param).length > 1) {
+      throw new Error(`${name} must not repeat the ${param} parameter`)
+    }
+  }
+  if (url.searchParams.has('sslmode') && url.searchParams.has('ssl')) {
+    throw new Error(`${name} must not combine the sslmode and ssl parameters`)
+  }
+
   const localHosts = new Set(['127.0.0.1', '::1', 'localhost'])
   const hosted = !localHosts.has(url.hostname)
   const sslMode = url.searchParams.get('sslmode')
