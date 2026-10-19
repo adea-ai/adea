@@ -179,13 +179,13 @@ async function exerciseRecordingDelivery() {
   }
 }
 
-function requestWorker(path, { method = 'GET', cookie, body } = {}) {
+function requestWorker(path, { method = 'GET', cookie, body, origin = baseUrl } = {}) {
   const url = new URL(path.startsWith('/') ? path : `/api/auth/${path}`, workerUrl)
   assert.ok(['127.0.0.1', 'localhost', '::1'].includes(url.hostname))
   assert.equal(url.protocol, 'https:')
   assert.ok(url.pathname.startsWith('/api/auth/'))
   const serialized = body === undefined ? undefined : JSON.stringify(body)
-  const headers = { origin: baseUrl }
+  const headers = { origin }
   if (cookie) headers.cookie = cookie
   if (serialized !== undefined) headers['content-type'] = 'application/json'
 
@@ -376,6 +376,99 @@ async function exerciseWorker() {
   }
 }
 
+// The built bundle has no verification or reset transport, so the reset token never
+// leaves the Worker. The test schema is the only place the token can be read, and
+// it is read here, from the isolated schema, to finish the reset through the Worker.
+async function readResetToken(pool, email) {
+  const result = await pool.query(
+    `SELECT v.identifier
+     FROM "${schema}"."verification" v
+     JOIN "${schema}"."user" u ON u.id = v.value
+     WHERE u.email = $1 AND v.identifier LIKE 'reset-password:%'
+     ORDER BY v."createdAt" DESC
+     LIMIT 1`,
+    [email]
+  )
+  const identifier = result.rows[0]?.identifier
+  return identifier ? identifier.slice('reset-password:'.length) : undefined
+}
+
+async function exerciseFailClosedReset() {
+  // The tables belong to the runtime role, so the token is read as that role. Its
+  // application name is the control name, which the backend-leak check excludes.
+  const tokenPool = new Pool({
+    connectionString: databaseUrlWithApplicationName(`${workerApplicationName}_control`),
+    max: 1,
+  })
+  try {
+    return await runFailClosedReset(tokenPool)
+  } finally {
+    await tokenPool.end()
+  }
+}
+
+async function runFailClosedReset(tokenPool) {
+  const email = `worker-reset-${randomUUID()}@example.test`
+  const password = `Local-C-${randomUUID()}!`
+  const nextPassword = `Local-D-${randomUUID()}!`
+  const [signup] = await trackedWorkerRequest('reset fixture signup', [
+    ['sign-up/email', { method: 'POST', body: { name: 'Worker Reset', email, password } }],
+  ])
+  assert.equal(signup.status, 200, `reset fixture signup: ${signup.text}`)
+
+  const [requested] = await trackedWorkerRequest('password reset request', [
+    ['request-password-reset', { method: 'POST', body: { email, redirectTo: `${baseUrl}/reset` } }],
+  ])
+  assert.equal(requested.status, 200, `reset request: ${requested.text}`)
+  assert.match(requested.headers['cache-control'] ?? '', /no-store/)
+  assert.equal(responseCookies(requested), '', 'a reset request must not issue a session')
+
+  let token
+  await waitFor(async () => {
+    token = await readResetToken(tokenPool, email)
+    return token !== undefined
+  }, 'reset token should be stored for the isolated test account')
+
+  // Refused before the handler runs, so no database backend is expected to open.
+  const hostile = await requestWorker('request-password-reset', {
+    method: 'POST',
+    body: { email, redirectTo: `${baseUrl}/reset` },
+    origin: 'https://evil.example.test',
+  })
+  assert.equal(hostile.status, 403, `hostile origin: ${hostile.text}`)
+  assert.match(hostile.headers['cache-control'] ?? '', /no-store/)
+
+  const [applied] = await trackedWorkerRequest('reset with the stored token', [
+    ['reset-password', { method: 'POST', body: { newPassword: nextPassword, token } }],
+  ])
+  assert.equal(applied.status, 200, `reset: ${applied.text}`)
+
+  const [replay] = await trackedWorkerRequest('reset token replay', [
+    [
+      'reset-password',
+      { method: 'POST', body: { newPassword: `Local-E-${randomUUID()}!`, token } },
+    ],
+  ])
+  assert.notEqual(replay.status, 200, 'a reset token must be single-use')
+
+  const [stale] = await trackedWorkerRequest('old password after reset', [
+    ['sign-in/email', { method: 'POST', body: { email, password } }],
+  ])
+  assert.notEqual(stale.status, 200, 'the old password must stop working')
+
+  const [current] = await trackedWorkerRequest('new password after reset', [
+    ['sign-in/email', { method: 'POST', body: { email, password: nextPassword } }],
+  ])
+  assert.equal(current.status, 200, `new password sign-in: ${current.text}`)
+  assert.ok(responseCookies(current), 'the new password sign-in must issue a session')
+
+  return {
+    passwordResetThroughWorker: 'passed',
+    resetTokenSingleUse: true,
+    hostileOriginResetRefused: true,
+  }
+}
+
 let workerCa
 
 async function prepare() {
@@ -401,7 +494,8 @@ async function prepare() {
 async function exercise() {
   try {
     const result = await exerciseWorker()
-    console.log(JSON.stringify({ mode: 'exercise', ...result }))
+    const reset = await exerciseFailClosedReset()
+    console.log(JSON.stringify({ mode: 'exercise', ...result, ...reset }))
   } finally {
     await controlPool.end()
   }
