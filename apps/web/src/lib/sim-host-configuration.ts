@@ -2,7 +2,12 @@
 export async function readSimHostConfiguration(
   lifecycle: EventTarget & { readonly closed?: boolean },
   request: (input: string, init: RequestInit) => Promise<Response> = fetch
-): Promise<{ parentOrigins?: unknown; allowLoopbackHttp?: unknown } | null> {
+): Promise<{
+  parentOrigins?: unknown
+  allowLoopbackHttp?: unknown
+  assetPrefix?: unknown
+  entryFiles?: unknown
+} | null> {
   if (lifecycle.closed) return null
   const controller = new AbortController()
   const dispose = () => controller.abort()
@@ -16,6 +21,8 @@ export async function readSimHostConfiguration(
     const configuration = (await response.json()) as {
       parentOrigins?: unknown
       allowLoopbackHttp?: unknown
+      assetPrefix?: unknown
+      entryFiles?: unknown
     }
     return controller.signal.aborted || lifecycle.closed ? null : configuration
   } catch (error) {
