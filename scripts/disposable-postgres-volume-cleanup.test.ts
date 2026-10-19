@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import {
   RESOURCE_STATE,
@@ -46,12 +48,15 @@ const failed = (): Result => ({
 function fakeDocker(options: {
   containers?: readonly string[]
   volumes?: readonly string[]
+  /** The anonymous volume each container owns; a removal takes it with it. */
+  containerVolumes?: Readonly<Record<string, string>>
   fail?: readonly string[]
   unknown?: readonly string[]
   calls?: string[][]
 }) {
   const containers = new Set(options.containers ?? [])
   const volumes = new Set(options.volumes ?? [])
+  const containerVolumes = new Map(Object.entries(options.containerVolumes ?? {}))
   const fail = new Set(options.fail ?? [])
   const unknown = new Set(options.unknown ?? [])
   const calls: string[][] = options.calls ?? []
@@ -71,6 +76,12 @@ function fakeDocker(options: {
       const name = args[args.length - 1] ?? ''
       if (fail.has(name)) return failed()
       containers.delete(name)
+      // `--volumes` takes the container's anonymous volume with it.
+      if (args.includes('--volumes')) {
+        const volume = containerVolumes.get(name)
+        if (volume) volumes.delete(volume)
+        containerVolumes.delete(name)
+      }
       return ok()
     }
     if (args[0] === 'volume' && args[1] === 'rm') {
@@ -211,6 +222,81 @@ describe('the owned-resource teardown', () => {
     expect(outcome.remaining).toContain(CONTAINER)
   })
 
+  test('a container registered before its create is removed when a later step failed', () => {
+    // The proof container was created, and the run failed before its volume was
+    // discovered. The name was registered before the create, so the teardown
+    // still removes the container, and the container's volume goes with it.
+    const calls: string[][] = []
+    const run = fakeDocker({
+      containers: [CONTAINER],
+      volumes: [VOLUME],
+      containerVolumes: { [CONTAINER]: VOLUME },
+      calls,
+    })
+    const outcome = cleanupOwnedResources({
+      containers: [CONTAINER],
+      volumes: [],
+      removeContainer,
+      run,
+    })
+    expect(outcome.errors).toEqual([])
+    expect(outcome.remaining).toEqual([])
+    expect(outcome.removed).toEqual([CONTAINER])
+    // The removal takes the volume with it, so the undiscovered volume is gone.
+    expect(calls).toContainEqual(removeContainer(CONTAINER))
+    expect(calls.some((call) => call[0] === 'volume' && call[1] === 'inspect')).toBe(false)
+  })
+
+  test('a container whose state cannot be read is still removed', () => {
+    // The state is unknown, so the removal is the only way to take the
+    // container and its volume with it. The unknown state is reported too.
+    const calls: string[][] = []
+    const run = fakeDocker({
+      containers: [CONTAINER],
+      volumes: [VOLUME],
+      containerVolumes: { [CONTAINER]: VOLUME },
+      unknown: [CONTAINER],
+      calls,
+    })
+    const outcome = cleanupOwnedResources({
+      containers: [CONTAINER],
+      volumes: [],
+      removeContainer,
+      run,
+    })
+    expect(calls).toContainEqual(removeContainer(CONTAINER))
+    expect(outcome.errors.join(' ')).toContain('could not be read')
+  })
+
+  test('a volume whose state cannot be read is still removed', () => {
+    const calls: string[][] = []
+    const run = fakeDocker({ volumes: [VOLUME], unknown: [VOLUME], calls })
+    const outcome = cleanupOwnedResources({
+      containers: [],
+      volumes: [VOLUME],
+      removeContainer,
+      run,
+    })
+    expect(calls).toContainEqual(['volume', 'rm', VOLUME])
+    expect(outcome.errors.join(' ')).toContain('could not be read')
+  })
+
+  test('an uncertain timeout outcome is still cleaned up', () => {
+    // The create timed out, so the container may or may not exist. Its name was
+    // registered before the attempt, and the teardown removes it if it is there.
+    const calls: string[][] = []
+    const run = fakeDocker({ containers: [CONTAINER], calls })
+    const outcome = cleanupOwnedResources({
+      containers: [CONTAINER],
+      volumes: [],
+      removeContainer,
+      run,
+    })
+    expect(calls).toContainEqual(removeContainer(CONTAINER))
+    expect(outcome.errors).toEqual([])
+    expect(outcome.remaining).toEqual([])
+  })
+
   test('the state classifier separates present, absent and unknown', () => {
     expect(classifyResource(ok(), /no such/iu)).toBe(RESOURCE_STATE.present)
     expect(classifyResource(absent('object'), /no such/iu)).toBe(RESOURCE_STATE.absent)
@@ -229,5 +315,47 @@ describe('the bounded command runner', () => {
     const result = runBounded('true', [], { spawnSync, timeoutMs: 10_000 })
     expect(result.timedOut).toBe(false)
     expect(result.status).toBe(0)
+  })
+})
+
+describe('the disposable volume proof registration', () => {
+  const source = readFileSync(
+    resolve(import.meta.dir, 'smoke/disposable-postgres-volume.smoke.test.ts'),
+    'utf8'
+  )
+
+  test('every container name is owned before its create attempt', () => {
+    // The proof container.
+    const proofOwn = source.indexOf('ownContainer(proofContainer)')
+    const proofCreate = source.indexOf("'create',\n    '--name',\n    proofContainer")
+    expect(proofOwn).toBeGreaterThanOrEqual(0)
+    expect(proofCreate).toBeGreaterThan(proofOwn)
+    // The unrelated sentinel.
+    const sentinelOwn = source.indexOf('ownContainer(sentinelContainer)')
+    const sentinelCreate = source.indexOf("'create',\n    '--name',\n    sentinelContainer")
+    expect(sentinelOwn).toBeGreaterThanOrEqual(0)
+    expect(sentinelCreate).toBeGreaterThan(sentinelOwn)
+  })
+
+  test('every discovered volume is recorded immediately', () => {
+    for (const name of ['ownedVolume', 'sentinelVolume']) {
+      const discovery = source.indexOf(
+        `ownedAnonymousVolume(containerMounts(${name === 'ownedVolume' ? 'proofContainer' : 'sentinelContainer'}))`
+      )
+      const record = source.indexOf(`ownVolume(${name})`)
+      expect(discovery).toBeGreaterThanOrEqual(0)
+      expect(record).toBeGreaterThan(discovery)
+    }
+  })
+
+  test('no success receipt survives a failed cleanup', () => {
+    // The cleanup failure is raised before the receipt is written.
+    const failure = source.indexOf('the disposable volume proof left owned resources')
+    const receipt = source.indexOf('DISPOSABLE_VOLUME_NO_LEAK')
+    expect(failure).toBeGreaterThanOrEqual(0)
+    expect(receipt).toBeGreaterThan(failure)
+    // The receipt is only written once the teardown reported no failure.
+    expect(source).toContain('if (outcome.errors.length > 0) {')
+    expect(source).toContain('if (proofOutcome) {')
   })
 })

@@ -98,8 +98,10 @@ export function cleanupOwnedResources({ containers = [], volumes = [], removeCon
       continue
     }
     if (state === RESOURCE_STATE.unknown) {
+      // The state could not be read. The container may still be there, and
+      // removing it is the only way to take its anonymous volume with it, so
+      // the attempt still runs.
       errors.push(`the state of the owned container ${name} could not be read`)
-      continue
     }
     const result = run(removeContainer(name))
     if (result.timedOut) {
@@ -120,8 +122,8 @@ export function cleanupOwnedResources({ containers = [], volumes = [], removeCon
       continue
     }
     if (state === RESOURCE_STATE.unknown) {
+      // The state could not be read, and the volume may still be there.
       errors.push(`the state of the owned volume ${volume} could not be read`)
-      continue
     }
     const result = run(['volume', 'rm', volume])
     if (result.timedOut) {

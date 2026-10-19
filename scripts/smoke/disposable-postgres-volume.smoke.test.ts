@@ -51,11 +51,26 @@ const sentinelContainer = `adea-ci-volume-sentinel-${suffix}`
 const sentinelPassword = `synthetic-${randomBytes(12).toString('hex')}`
 
 /**
- * The resources this proof owns. Their identities are recorded before
- * anything is deleted, so the teardown can still name a volume whose
- * container is already gone.
+ * The resources this proof owns.
+ *
+ * Every container name is registered before its create attempt, so a create
+ * whose outcome is uncertain, or a later setup step that fails, still leaves
+ * the teardown a name to remove. Every discovered volume is recorded the
+ * moment it is discovered, for the same reason.
  */
 const owned = { containers: [] as string[], volumes: [] as string[] }
+
+/** Registers an owned container before it is created. */
+function ownContainer(name: string): string {
+  if (!owned.containers.includes(name)) owned.containers.push(name)
+  return name
+}
+
+/** Registers an owned volume the moment it is discovered. */
+function ownVolume(name: string): string {
+  if (!owned.volumes.includes(name)) owned.volumes.push(name)
+  return name
+}
 
 /** What the proof established, published only after the teardown is verified. */
 let proofOutcome: Record<string, boolean> | undefined
@@ -111,6 +126,9 @@ test('removing the proof container removes only that container’s anonymous vol
   )
 
   // The proof container and an unrelated sentinel, both from the local image.
+  // Each name is owned before its create attempt, so an uncertain create, or a
+  // later setup step that fails, still leaves the teardown something to remove.
+  ownContainer(proofContainer)
   const created = docker([
     'create',
     '--name',
@@ -119,6 +137,14 @@ test('removing the proof container removes only that container’s anonymous vol
     captureProvisioningImage,
   ])
   expect(created.status).toBe(0)
+
+  // The specific anonymous volume the proof container owns, recorded the
+  // moment it is discovered.
+  const ownedVolume = ownedAnonymousVolume(containerMounts(proofContainer))
+  if (ownedVolume) ownVolume(ownedVolume)
+  expect(ownedVolume).toBeTruthy()
+
+  ownContainer(sentinelContainer)
   const sentinel = docker([
     'create',
     '--name',
@@ -129,17 +155,13 @@ test('removing the proof container removes only that container’s anonymous vol
     captureProvisioningImage,
   ])
   expect(sentinel.status).toBe(0)
-  expect(docker(['start', sentinelContainer]).status).toBe(0)
 
-  // The specific anonymous volume each container owns, tracked before
-  // anything is deleted.
-  const ownedVolume = ownedAnonymousVolume(containerMounts(proofContainer))
-  expect(ownedVolume).toBeTruthy()
+  // The sentinel's own volume, recorded the moment it is discovered.
   const sentinelVolume = ownedAnonymousVolume(containerMounts(sentinelContainer))
+  if (sentinelVolume) ownVolume(sentinelVolume)
   expect(sentinelVolume).toBeTruthy()
   expect(sentinelVolume).not.toBe(ownedVolume)
-  owned.containers = [proofContainer, sentinelContainer]
-  owned.volumes = [ownedVolume!, sentinelVolume!]
+  expect(docker(['start', sentinelContainer]).status).toBe(0)
 
   // The proof's own removal command: the container and the volumes attached
   // to it, and nothing else.
