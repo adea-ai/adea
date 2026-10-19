@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { access, readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
+import { assertFocusedJourneyPassed } from './acceptance-receipt.mjs'
 import { fixtureEnvironment, memoryEnvironment, resolveLocalDockerEndpoint } from './policy.mjs'
 
 const repositoryFlag = process.argv.indexOf('--repository')
@@ -143,7 +144,39 @@ try {
   const receipt = JSON.parse(line.slice('FRESH_SCHEMA_ACCEPTANCE '.length))
   if (receipt.status !== 'passed' || !Number.isInteger(receipt.migrations))
     throw new Error('invalid fresh-schema receipt')
-  passedReceipt = { status: 'passed', migrations: receipt.migrations, verificationRequired: true }
+  // The focused desktop principal journey runs in this lane, against the same
+  // validated instance and the same isolated environment. It never starts a
+  // container itself, so it can only execute here.
+  const focused = spawnSync(
+    'bun',
+    [
+      '--no-env-file',
+      '--conditions=react-server',
+      'test',
+      'scripts/fresh-postgres-acceptance/desktop-principal-lifecycle.test.ts',
+    ],
+    {
+      cwd: root,
+      env: fixtureEnvironment(fixture.databaseUrl),
+      encoding: 'utf8',
+      timeout: 600_000,
+      killSignal: 'SIGKILL',
+    }
+  )
+  const focusedOutput = (focused.stdout ?? '') + (focused.stderr ?? '')
+  if (focused.error || focused.status !== 0) {
+    throw new Error('the desktop principal acceptance phase failed; exit=' + focused.status)
+  }
+  // The journey must have executed: nothing skipped, and the receipt it prints
+  // must say it passed. A pass count alone cannot prove that, because the
+  // offline regressions of the focused file always run.
+  assertFocusedJourneyPassed(focusedOutput)
+  passedReceipt = {
+    status: 'passed',
+    migrations: receipt.migrations,
+    verificationRequired: true,
+    ...(receipt.desktopPrincipal ? { desktopPrincipal: receipt.desktopPrincipal } : {}),
+  }
 } catch (error) {
   failed = true
   console.error(error.message)

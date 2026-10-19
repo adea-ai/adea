@@ -110,10 +110,17 @@ test('app -> launch -> cross-origin frame -> session -> private runtime; offline
       return issuer(body)
     },
   })
+  // A non-default prefix and renamed entries, one with digits, exercise the real frame bootstrap end to end.
   serve = createSimHost({
     origin,
     parentOrigins: [parentOrigin],
     allowLoopbackHttp: true,
+    assetPrefix: '/private/sim/',
+    entryFiles: {
+      hq: 'engine-1.js',
+      'room-designer': 'room-designer2.js',
+      'character-designer': 'character-designer3.js',
+    },
     frameScript,
     exchange,
     session: async (value) => sessions.get(value) ?? null,
@@ -139,16 +146,10 @@ test('app -> launch -> cross-origin frame -> session -> private runtime; offline
       }
       if (path === 'engine.json')
         return {
-          body: JSON.stringify({
-            version: 'local-fixture',
-            surfaces: {
-              'room-designer': 'room-designer.js',
-              'character-designer': 'character-designer.js',
-            },
-          }),
+          body: JSON.stringify({ version: 'local-fixture' }),
           contentType: 'application/json',
         }
-      if (['engine.js', 'room-designer.js', 'character-designer.js'].includes(path))
+      if (['engine-1.js', 'room-designer2.js', 'character-designer3.js'].includes(path))
         return {
           body: `const runtime={async mount({container,scene}){const node=document.createElement('canvas');node.dataset.testSimScene=scene;container.append(node);return{unmount(){node.remove()}}}};window.__adeaAgentSim=runtime;window.adeaAgentSimSurfaces={'room-designer':runtime,'character-designer':runtime}`,
           contentType: 'text/javascript',
@@ -162,7 +163,8 @@ test('app -> launch -> cross-origin frame -> session -> private runtime; offline
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   try {
-    expect((await fetch(`${origin}/assets/agent-sim/engine.js`)).status).toBe(401)
+    expect((await fetch(`${origin}/private/sim/engine-1.js`)).status).toBe(401)
+    expect((await fetch(`${origin}/assets/agent-sim/engine-1.js`)).status).toBe(404)
     expect(assetReads).toBe(0)
     await page.goto(parentOrigin)
     await page
@@ -188,7 +190,7 @@ test('app -> launch -> cross-origin frame -> session -> private runtime; offline
       .locator('body')
       .evaluate(async () => {
         return (
-          await fetch('/assets/agent-sim/engine.json', {
+          await fetch('/private/sim/engine.json', {
             credentials: 'same-origin',
             cache: 'no-store',
           })

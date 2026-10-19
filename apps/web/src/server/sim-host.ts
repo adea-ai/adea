@@ -1,34 +1,31 @@
+import type { SimSessionExchangeResponse, SimSessionRecord } from '@adea-ai/spatial/sim-bridge'
 import {
-  canonicalBridgeOrigin,
-  type SimSessionExchangeResponse,
-  type SimSessionRecord,
-} from '@adea-ai/spatial/sim-bridge'
+  createSimHostConfiguration,
+  entrySurface,
+  isRetiredEntry,
+  type SimHostConfigurationInput,
+} from './sim-host-config'
 import { simJsonBody } from './sim-http'
 
 export type SimPrivateAsset = { body: BodyInit; contentType: string }
 
-/** Separately hosted HTTP boundary. Asset storage never has a public bypass. */
-export function createSimHost(options: {
-  origin: string
-  parentOrigins: readonly string[]
-  allowLoopbackHttp?: boolean
-  frameScript: string
-  exchange: (body: unknown) => Promise<SimSessionExchangeResponse>
-  session: (value: string) => Promise<SimSessionRecord | null>
-  readAsset: (path: string) => Promise<SimPrivateAsset | null>
-  now?: () => number
-}) {
-  const origin = canonicalBridgeOrigin(options.origin, options)
-  const parents = options.parentOrigins.map((value) => canonicalBridgeOrigin(value, options))
-  if (!origin || parents.some((value) => !value) || !parents.length || parents.includes(origin)) {
-    throw new Error('Hosted Sim needs distinct canonical frame and parent origins')
+/**
+ * Separately hosted HTTP boundary. Asset storage never has a public bypass. The configuration is validated
+ * before anything is served; a missing or malformed value throws instead of falling back to a default.
+ */
+export function createSimHost(
+  options: SimHostConfigurationInput & {
+    frameScript: string
+    exchange: (body: unknown) => Promise<SimSessionExchangeResponse>
+    session: (value: string) => Promise<SimSessionRecord | null>
+    readAsset: (path: string) => Promise<SimPrivateAsset | null>
+    now?: () => number
   }
-  // Keep the exact-origin allowlists above and on every request. Cookies have
-  // hostname scope rather than port scope, so additionally reject a shared
-  // cookie host: different ports alone cannot isolate the Sim-only cookie.
-  if (parents.some((parent) => new URL(parent!).hostname === new URL(origin).hostname)) {
-    throw new Error('Hosted Sim requires a separate cookie host')
-  }
+) {
+  const config = createSimHostConfiguration(options)
+  if (typeof options.frameScript !== 'string') throw new Error('Hosted Sim needs a frame script')
+  const origin = config.origin
+  const parents = config.parentOrigins
   const headers = {
     'cache-control': 'private, no-store',
     'referrer-policy': 'no-referrer',
@@ -67,8 +64,13 @@ export function createSimHost(options: {
         headers: { ...headers, 'content-type': 'text/javascript' },
       })
     if (url.pathname === '/configuration')
-      return json({ parentOrigins: parents, allowLoopbackHttp: options.allowLoopbackHttp === true })
-    if (!url.pathname.startsWith('/assets/agent-sim/'))
+      return json({
+        parentOrigins: parents,
+        allowLoopbackHttp: config.allowLoopbackHttp,
+        assetPrefix: config.assetPrefix,
+        entryFiles: config.entryFiles,
+      })
+    if (!url.pathname.startsWith(config.assetPrefix))
       return new Response(null, { status: 404, headers })
     const cookies = (request.headers.get('cookie') ?? '').split(';').map((value) => value.trim())
     const values = cookies
@@ -86,7 +88,7 @@ export function createSimHost(options: {
         session.expiresAt <= at
       )
         return new Response(null, { status: 401, headers })
-      const path = decodeURIComponent(url.pathname.slice('/assets/agent-sim/'.length))
+      const path = decodeURIComponent(url.pathname.slice(config.assetPrefix.length))
       if (
         !path ||
         path.includes('\\') ||
@@ -94,9 +96,11 @@ export function createSimHost(options: {
         path.split('/').some((part) => part === '.' || part === '..' || part === '')
       )
         return new Response(null, { status: 404, headers })
-      const entry = /^(engine|room-designer|character-designer)\.js$/.exec(path)?.[1]
-      if (entry && (entry === 'engine' ? 'hq' : entry) !== session.surface)
+      const surface = entrySurface(config, path)
+      if (surface && surface !== session.surface)
         return new Response(null, { status: 403, headers })
+      // A renamed surface's old entry must not stay reachable as an ordinary shared asset.
+      if (isRetiredEntry(config, path)) return new Response(null, { status: 404, headers })
       const asset = await options.readAsset(path)
       return asset
         ? new Response(asset.body, { headers: { ...headers, 'content-type': asset.contentType } })
