@@ -119,16 +119,16 @@ describe('Neon branch lifecycle workflow', () => {
     expect(cleanup['timeout-minutes']).toBe(10)
     const lookup = stepNamed(cleanup, "Resolve this pull request's Neon branches")
     expect(lookup.env?.LEGACY_BRANCH).toBe(
-      'preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}'
+      'preview/pr-${{ github.event.number }}-${{ steps.branch_name.outputs.current_branch }}'
     )
     expect(lookup.env?.SHARD_1_BRANCH).toBe(
-      'preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}-s1'
+      'preview/pr-${{ github.event.number }}-${{ steps.branch_name.outputs.current_branch }}-s1'
     )
     expect(lookup.env?.SHARD_2_BRANCH).toBe(
-      'preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}-s2'
+      'preview/pr-${{ github.event.number }}-${{ steps.branch_name.outputs.current_branch }}-s2'
     )
     expect(lookup.env?.PROOF_BRANCH).toBe(
-      'preview/pr-${{ github.event.number }}-${{ needs.setup.outputs.branch }}-proof'
+      'preview/pr-${{ github.event.number }}-${{ steps.branch_name.outputs.current_branch }}-proof'
     )
     expect(lookup.run).toContain('`legacy=${idFor(LEGACY_BRANCH)}')
     expect(lookup.run).toContain('shard_1=${idFor(SHARD_1_BRANCH)}')
@@ -165,18 +165,27 @@ function evaluate(source: string, event: Event) {
 }
 
 // Mirrors the runner for job-level conditions: a job starts when its condition holds and every
-// job it needs succeeded. Only always() lets a skipped dependency leave a job running.
+// job it needs succeeded. Only always() lets a skipped or failed dependency leave a job running.
+// `forced` replaces the outcome of a job that starts, so a test can fail, cancel or skip setup.
+type Result = 'success' | 'failure' | 'cancelled' | 'skipped'
 const jobOrder = ['setup', 'neon_proof', 'migrate_gate', 'delete_neon_branch']
-function jobsThatRun(event: Event) {
-  const ran = new Map<string, boolean>()
+function jobResults(event: Event, forced: Partial<Record<string, Result>> = {}) {
+  const results = new Map<string, Result>()
   for (const id of jobOrder) {
     const job = jobs[id]!
-    const dependenciesRan = [job.needs ?? []].flat().every((need) => ran.get(need) === true)
+    const dependenciesSucceeded = [job.needs ?? []]
+      .flat()
+      .every((need) => results.get(need) === 'success')
     const condition = job.if === undefined || evaluate(job.if, event)
     const bypassesDependencies = job.if?.includes('always()') === true
-    ran.set(id, condition && (dependenciesRan || bypassesDependencies))
+    const starts = condition && (dependenciesSucceeded || bypassesDependencies)
+    results.set(id, starts ? (forced[id] ?? 'success') : 'skipped')
   }
-  return Object.fromEntries(jobOrder.map((id) => [id, ran.get(id)]))
+  return results
+}
+function jobsThatRun(event: Event) {
+  const results = jobResults(event)
+  return Object.fromEntries(jobOrder.map((id) => [id, results.get(id) !== 'skipped']))
 }
 
 // A pull_request event starts the workflow only when its action is listed under `types`; then the
@@ -212,7 +221,7 @@ describe('Neon branch lifecycle triggers', () => {
           setup: true,
           neon_proof: true,
           migrate_gate: true,
-          delete_neon_branch: true,
+          delete_neon_branch: false,
         },
       })
     }
@@ -250,5 +259,132 @@ describe('Neon branch lifecycle triggers', () => {
     for (const action of ['ready_for_review', 'synchronize']) {
       expect(evaluate(cancel, { action, draft: false })).toBe(true)
     }
+  })
+})
+
+// Renders a name template for one pull request, binding both branch-name sources to the same value.
+const render = (template: string, branch: string) =>
+  template
+    .replaceAll('${{ github.event.number }}', '42')
+    .replaceAll('${{ needs.setup.outputs.branch }}', branch)
+    .replaceAll('${{ steps.branch_name.outputs.current_branch }}', branch)
+
+describe('Neon cleanup is close-only and independent of setup', () => {
+  const cleanup = jobs.delete_neon_branch!
+  const branchNames = 'tj-actions/branch-names@5250492686b253f06fa55861556d1027b067aeb5'
+
+  test('has no dependency on setup or any other job', () => {
+    expect(cleanup.needs).toBeUndefined()
+    expect(cleanup.if).toBe("github.event.action == 'closed'")
+    expect(JSON.stringify(cleanup)).not.toContain('needs.')
+  })
+
+  test('resolves the branch name with the same pinned action setup uses', () => {
+    const own = stepNamed(cleanup, 'Get branch name')
+    const setupStep = stepNamed(jobs.setup!, 'Get branch name')
+    expect(cleanup.steps[0]).toBe(own)
+    expect(own.id).toBe('branch_name')
+    expect(own.uses).toBe(branchNames)
+    expect(setupStep.uses).toBe(branchNames)
+    // Setup and cleanup are the only users, and both keep the reviewed version comment.
+    expect(workflowText.split(`${branchNames} # v9.0.2`)).toHaveLength(3)
+    expect(setupStep.id).toBe(own.id)
+    expect((jobs.setup as unknown as { outputs: Record<string, string> }).outputs.branch).toBe(
+      '${{ steps.branch_name.outputs.current_branch }}'
+    )
+  })
+
+  test('cleans up when setup fails, is cancelled or is skipped, on draft and ready closes', () => {
+    for (const draft of [true, false]) {
+      for (const setup of ['failure', 'cancelled', 'skipped'] as const) {
+        const results = jobResults({ action: 'closed', draft }, { setup })
+        expect(results.get('setup')).toBe(setup)
+        expect(results.get('delete_neon_branch')).toBe('success')
+        expect(results.get('neon_proof')).toBe('skipped')
+        expect(results.get('migrate_gate')).toBe('skipped')
+      }
+    }
+  })
+
+  test('the model still suppresses a job that needs a failed setup, so the check is sensitive', () => {
+    const results = jobResults({ action: 'synchronize', draft: false }, { setup: 'failure' })
+    expect(results.get('neon_proof')).toBe('skipped')
+    expect(results.get('delete_neon_branch')).toBe('skipped')
+  })
+
+  test('never cleans up on any event other than a close', () => {
+    for (const action of ['ready_for_review', 'synchronize', 'opened', 'reopened']) {
+      for (const draft of [true, false]) {
+        for (const setup of ['success', 'failure'] as const) {
+          const results = jobResults({ action, draft }, { setup })
+          expect(results.get('delete_neon_branch')).toBe('skipped')
+        }
+      }
+    }
+  })
+
+  test('closed events are never superseded, so a queued close cleanup is not cancelled', () => {
+    const cancel = workflow.concurrency['cancel-in-progress'].replace(/^\$\{\{\s*|\s*\}\}$/g, '')
+    expect(evaluate(cancel, { action: 'closed', draft: true })).toBe(false)
+    expect(evaluate(cancel, { action: 'closed', draft: false })).toBe(false)
+    for (const step of cleanup.steps.filter((candidate) => candidate.uses?.includes('delete'))) {
+      expect(step.if).toContain('!cancelled()')
+    }
+  })
+
+  test('resolves current, legacy, shard and proof names exactly as the proof lane creates them', () => {
+    const created = stepNamed(jobs.neon_proof!, 'Create Neon branch').with?.branch_name ?? ''
+    const lookup = stepNamed(cleanup, "Resolve this pull request's Neon branches").env ?? {}
+
+    for (const branch of [
+      'feat-x',
+      'feat/x',
+      'dependabot/npm_and_yarn/foo-1.2.3',
+      'claude/p-f5kngn',
+    ]) {
+      const legacy = `preview/pr-42-${branch}`
+      expect(render(lookup.LEGACY_BRANCH!, branch)).toBe(legacy)
+      expect(render(lookup.SHARD_1_BRANCH!, branch)).toBe(`${legacy}-s1`)
+      expect(render(lookup.SHARD_2_BRANCH!, branch)).toBe(`${legacy}-s2`)
+      expect(render(lookup.PROOF_BRANCH!, branch)).toBe(`${legacy}-proof`)
+      expect(render(lookup.PROOF_BRANCH!, branch)).toBe(render(created, branch))
+      for (const name of Object.values(lookup)) {
+        if (name.startsWith('preview/')) expect(render(name, branch)).not.toContain('${{')
+      }
+    }
+  })
+
+  test('keeps bounded pagination, strict id validation, the pinned delete action and permissions', () => {
+    const lookup = stepNamed(cleanup, "Resolve this pull request's Neon branches")
+    expect(lookup.run).toContain('const MAX_PAGES = 50')
+    const idPattern = /const SAFE_BRANCH_ID = \/(.+)\/;/.exec(lookup.run ?? '')?.[1]
+    expect(idPattern).toBeDefined()
+    const safeId = new RegExp(idPattern!)
+    for (const id of ['br-abc', 'br-abc-123-def']) expect(safeId.test(id)).toBe(true)
+    for (const id of [
+      '',
+      'br-',
+      'BR-abc',
+      'br--a',
+      'br-a_b',
+      'br-a;b',
+      'br-a b',
+      'x-br-a',
+      'br-a\n',
+    ])
+      expect(safeId.test(id)).toBe(false)
+    expect(lookup.run).toContain('branch.id.length > 128')
+    expect(lookup.run).toContain('refusing to claim absence')
+    expect(lookup.env?.NEON_API_KEY).toBe('${{ secrets.NEON_API_KEY }}')
+    expect(lookup.env?.NEON_PROJECT_ID).toBe('${{ vars.NEON_PROJECT_ID }}')
+    const deletes = cleanup.steps.filter((step) => step.uses?.startsWith('neondatabase/delete'))
+    expect(deletes).toHaveLength(4)
+    for (const step of deletes) {
+      expect(step.uses).toBe(
+        'neondatabase/delete-branch-action@4468d825d5a88ef4012f1705a82f02ec3072f776'
+      )
+    }
+    expect((cleanup as unknown as { permissions?: unknown }).permissions).toBeUndefined()
+    expect(workflow.permissions).toEqual({})
   })
 })
