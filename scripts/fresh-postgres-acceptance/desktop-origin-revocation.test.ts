@@ -10,16 +10,19 @@ const source = (name: string) => pathToFileURL(resolve(root, 'packages/auth/src'
 test.skipIf(process.env.FRESH_AUTH_ACCEPTANCE !== '1' && !process.env.FRESH_AUTH_SOURCE_ROOT)(
   'dedicated opt-in: origin denial preserves the one-use PKCE code and session; trusted logout revokes saved credentials',
   async () => {
-    const { createDesktopAuthorizationAttempt, createDesktopHttpSessionBroker } = await import(
-      source('desktop.ts')
-    )
+    const {
+      consumeDesktopAuthorizationCallback,
+      createDesktopAuthorizationAttempt,
+      createDesktopAuthorizationUrl,
+      createDesktopHttpSessionBroker,
+    } = await import(source('desktop.ts'))
     const { createDesktopAuthorizationCodeBroker, createDesktopSessionService } = await import(
       source('desktop-server.ts')
     )
     const { parseDesktopExchangeRequest, parseDesktopSessionRequest, desktopCorsHeaders } =
       await import(source('desktop-http-server.ts'))
 
-    const now = Date.parse('2026-10-19T00:00:00Z')
+    let now = Date.parse('2026-10-19T00:00:00Z')
     const cloud = 'https://fresh.example.test'
     const shell = 'http://127.0.0.1:4789'
     const trusted = [shell]
@@ -172,6 +175,102 @@ test.skipIf(process.env.FRESH_AUTH_ACCEPTANCE !== '1' && !process.env.FRESH_AUTH
     await assert.rejects(client.refresh(rotated), /request failed/)
     await assert.rejects(client.revoke(rotated), /request failed/)
     assert.equal(revocations, 1)
+    // PKCE callback binding, expiry and replay refusal through the shared
+    // desktop authorization boundary (no native/browser shell required).
+    const boundAttempt = await createDesktopAuthorizationAttempt({ now })
+    const authorize = new URL(createDesktopAuthorizationUrl(cloud, boundAttempt))
+    assert.equal(authorize.origin, cloud)
+    assert.equal(authorize.searchParams.get('code_challenge'), boundAttempt.codeChallenge)
+    assert.equal(authorize.searchParams.get('code_challenge_method'), 'S256')
+    assert.equal(authorize.searchParams.get('nonce'), boundAttempt.nonce)
+    assert.equal(authorize.searchParams.get('state'), boundAttempt.state)
+    assert.equal(authorize.searchParams.get('redirect_uri'), boundAttempt.redirectUri)
+    const boundCode = 'b'.repeat(16)
+    const boundCallback = (state: string, nonce: string, extra = '') =>
+      `adea://auth/callback?code=${boundCode}&nonce=${encodeURIComponent(nonce)}` +
+      `&state=${encodeURIComponent(state)}${extra}`
+    assert.throws(
+      () =>
+        consumeDesktopAuthorizationCallback(
+          boundAttempt,
+          boundCallback('untrusted-state', boundAttempt.nonce),
+          now
+        ),
+      /state mismatch/
+    )
+    assert.throws(
+      () =>
+        consumeDesktopAuthorizationCallback(
+          boundAttempt,
+          boundCallback(boundAttempt.state, 'untrusted-nonce'),
+          now
+        ),
+      /nonce mismatch/
+    )
+    assert.throws(
+      () =>
+        consumeDesktopAuthorizationCallback(
+          boundAttempt,
+          boundCallback(boundAttempt.state, boundAttempt.nonce, '&access_token=synthetic'),
+          now
+        ),
+      /must not contain credentials/
+    )
+    assert.throws(
+      () =>
+        consumeDesktopAuthorizationCallback(
+          boundAttempt,
+          boundCallback(boundAttempt.state, boundAttempt.nonce),
+          boundAttempt.expiresAt
+        ),
+      /expired/
+    )
+    const boundExchange = consumeDesktopAuthorizationCallback(
+      boundAttempt,
+      boundCallback(boundAttempt.state, boundAttempt.nonce),
+      now
+    )
+    assert.equal(boundExchange.code, boundCode)
+    assert.equal(boundExchange.codeVerifier, boundAttempt.codeVerifier)
+    assert.equal(boundExchange.nonce, boundAttempt.nonce)
+    assert.equal(boundExchange.redirectUri, boundAttempt.redirectUri)
+    assert.throws(
+      () =>
+        consumeDesktopAuthorizationCallback(
+          boundAttempt,
+          boundCallback(boundAttempt.state, boundAttempt.nonce),
+          now
+        ),
+      /already consumed/
+    )
+    // A server-issued code that outlives its short TTL is refused, not exchanged.
+    const expiringAttempt = await createDesktopAuthorizationAttempt({ now })
+    const expiringCallback = new URL(
+      await codesBroker.issue({
+        codeChallenge: expiringAttempt.codeChallenge,
+        nonce: expiringAttempt.nonce,
+        state: expiringAttempt.state,
+        redirectUri: expiringAttempt.redirectUri,
+        email: 'fresh-desktop@example.test',
+        providerExpiresAt: now + 3_600_000,
+        providerSessionId: 'synthetic-provider-session',
+        userId: 'synthetic-user',
+      })
+    )
+    const sessionsBeforeExpiry = sessions.size
+    now += 60_001
+    requestOrigin = shell
+    await assert.rejects(
+      client.exchange({
+        code: expiringCallback.searchParams.get('code')!,
+        codeVerifier: expiringAttempt.codeVerifier,
+        nonce: expiringAttempt.nonce,
+        redirectUri: expiringAttempt.redirectUri,
+      }),
+      /request failed/
+    )
+    assert.equal(codes.size, 0)
+    assert.equal(sessions.size, sessionsBeforeExpiry)
     assert.ok(
       requests.every(
         (url) => !url.includes(session.credential) && !url.includes(rotated.credential)

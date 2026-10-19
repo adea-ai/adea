@@ -163,6 +163,67 @@ test('complete preflight never imports provisioning or connects to a database', 
   }
 })
 
+function runSyntheticMemoryAcceptance(childOutput) {
+  const root = mkdtempSync(join(tmpdir(), 'fresh-memory-gate-'))
+  try {
+    for (const path of [
+      'packages/auth/src/better-auth-server.ts',
+      'packages/auth/src/delivery.ts',
+    ]) {
+      const file = join(root, path)
+      mkdirSync(join(file, '..'), { recursive: true })
+      writeFileSync(file, '// synthetic source prerequisite only\n')
+    }
+    const shim = join(root, 'synthetic-memory-child.mjs')
+    writeFileSync(
+      shim,
+      `import childProcess from 'node:child_process';
+      import { syncBuiltinESMExports } from 'node:module';
+      childProcess.spawnSync = (command) => {
+        if (command !== 'bun') throw new Error('unexpected synthetic command');
+        return { status: 0, stdout: ${JSON.stringify(childOutput)}, stderr: '' };
+      };
+      syncBuiltinESMExports();`
+    )
+    return spawnSync(
+      process.execPath,
+      [
+        '--import',
+        shim,
+        fileURLToPath(new URL('./run.mjs', import.meta.url)),
+        '--repository',
+        root,
+        '--memory',
+      ],
+      { encoding: 'utf8', env: { PATH: process.env.PATH }, timeout: 10_000 }
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+}
+
+test('memory acceptance fails closed on an incomplete or skipped journey run', () => {
+  for (const output of ['\n 1 pass\n 0 fail\n', '\n 2 pass\n 1 skip\n']) {
+    const result = runSyntheticMemoryAcceptance(output)
+    assert.equal(result.error, undefined)
+    assert.equal(result.status, 1, result.stderr)
+    assert.doesNotMatch(result.stdout, /"status":"passed"/)
+    assert.match(result.stderr, /did not execute both journeys/)
+  }
+})
+
+test('memory acceptance publishes a passed receipt only for both executed journeys', () => {
+  const result = runSyntheticMemoryAcceptance('\n 2 pass\n 0 fail\n')
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(JSON.parse(result.stdout.trim()), {
+    status: 'passed',
+    mode: 'memory',
+    journeys: 2,
+    postgres: 'not-run',
+  })
+})
+
 function runSyntheticPostgresAcceptance(cleanupFails) {
   const root = mkdtempSync(join(tmpdir(), 'fresh-schema-cleanup-'))
   try {

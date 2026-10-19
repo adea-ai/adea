@@ -4,60 +4,64 @@ This opt-in harness covers fresh-account web and desktop authentication without
 importing legacy identities, passwords or sessions. It adds no default-suite,
 deployment or workflow changes.
 
-The two memory journeys were qualified using a read-only source override to #1466
-head `04ed9e20f2cca9bcdb3fe62361e5ca2168ebee6b`. The PostgreSQL fixture has not run:
-this branch starts at main `c57334422b3b295b6c8935601d22d37bfabebb30`, which does not
-contain the auth APIs/dependencies. Execution needs a reviewed integration baseline
-with #1466 and the #1465 owner repairs (published DB head
-`0de35bb65ec9707b6d438fa2f4eb1d35deffeccc`). These prerequisites must not be merged
-or copied implicitly by the harness.
+This branch integrates `origin/main` (merge `a6ca13aafa4225c7d7fa85f47aca00c6893c6b5f`),
+which contains the merged self-hosted Better Auth boundary #1466
+(`c32221e4a6eced7e7dbd9e9e58b380ca3396d7a5`). Its `packages/auth/src` is byte-identical to
+the previously reviewed #1466 head `04ed9e20f2cca9bcdb3fe62361e5ca2168ebee6b`, so the two
+memory journeys now run against the in-repo integrated baseline with no source override.
 
-| Boundary                                                                                           | Executable evidence                                                                               | Result                                          |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| Verification-required signup issues no session; unverified login denied                            | web-lifecycle-memory.test.ts, real Better Auth memory adapter and production config/server APIs   | Passed                                          |
-| Synthetic mailbox verification gives verified email and secure HTTP-only SameSite cookie           | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
-| Missing/hostile-origin password reset creates no delivery                                          | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
-| Reset consumes token once, deletes previous sessions, refuses old password                         | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
-| Expired reset rejected, no session/cookie; current password still works                            | web-lifecycle-memory.test.ts, modifies one synthetic memory record deadline                       | Passed                                          |
-| Browser logout and explicit revoke invalidate saved cookie replay                                  | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
-| Every browser response including denial is no-store                                                | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
-| Missing/hostile-origin desktop exchange preserves one-use PKCE code                                | desktop-origin-revocation.test.ts, real broker/client/parser/service primitives and memory stores | Passed                                          |
-| Trusted PKCE exchange works once; refresh rotates credential                                       | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
-| Origin-denied desktop logout preserves session; trusted logout revokes                             | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
-| Saved desktop credential fails refresh/revoke after logout                                         | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
-| Desktop response no-store, no hostile CORS reflection, no credential URLs                          | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
-| Provider/app schema creation, replay, runtime DML and DDL denial                                   | fixture.ts and auth-lifecycle.ts                                                                  | Not run; reviewed integration baseline required |
-| Actual web route registration, native vault/OS callback, PKCE authorization route identity mapping | Not exercised by these memory compositions                                                        | Pending separate qualification                  |
-| Hosted strict TLS, Hyperdrive/cache behavior, production delivery                                  | Not exercised by plaintext-free memory tests                                                      | Pending owner qualification                     |
+The PostgreSQL fixture has not run: it still needs the #1465 owner repairs (published DB
+head `0de35bb65ec9707b6d438fa2f4eb1d35deffeccc`) and must not run until #1465 is merged.
+These prerequisites must not be merged or copied implicitly by the harness.
+
+| Boundary                                                                                                            | Executable evidence                                                                               | Result                                          |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Verification-required signup issues no session; unverified login denied                                             | web-lifecycle-memory.test.ts, real Better Auth memory adapter and production config/server APIs   | Passed                                          |
+| Synthetic mailbox verification gives verified email and secure HTTP-only SameSite cookie                            | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
+| Missing/hostile-origin password reset creates no delivery                                                           | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
+| Reset consumes token once, deletes previous sessions, refuses old password                                          | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
+| Expired reset rejected, no session/cookie; current password still works                                             | web-lifecycle-memory.test.ts, modifies one synthetic memory record deadline                       | Passed                                          |
+| Browser logout and explicit revoke invalidate saved cookie replay                                                   | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
+| Every browser response including denial is no-store                                                                 | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
+| Missing/hostile-origin desktop exchange preserves one-use PKCE code                                                 | desktop-origin-revocation.test.ts, real broker/client/parser/service primitives and memory stores | Passed                                          |
+| Trusted PKCE exchange works once; refresh rotates credential                                                        | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
+| Origin-denied desktop logout preserves session; trusted logout revokes                                              | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
+| Saved desktop credential fails refresh/revoke after logout                                                          | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
+| Desktop response no-store, no hostile CORS reflection, no credential URLs                                           | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
+| PKCE callback state/nonce binding, attempt and server-code expiry, replay and credential-carrying callbacks refused | desktop-origin-revocation.test.ts, shared desktop.ts callback boundary and broker code TTL        | Passed                                          |
+| Provider/app schema creation, replay, runtime DML and DDL denial                                                    | fixture.ts and auth-lifecycle.ts                                                                  | Not run; reviewed integration baseline required |
+| Actual web route registration, native vault/OS callback, PKCE authorization route identity mapping                  | Not exercised by these memory compositions                                                        | Pending separate qualification                  |
+| Hosted strict TLS, Hyperdrive/cache behavior, production delivery                                                   | Not exercised by plaintext-free memory tests                                                      | Pending owner qualification                     |
 
 ## Memory qualification and ordinary discovery
 
-Dedicated command (source override reads existing reviewed code without copying it):
+Dedicated command against the integrated baseline (no source override):
 
 ```sh
-FRESH_AUTH_SOURCE_ROOT=<existing-reviewed-auth-checkout> \
-  node scripts/fresh-postgres-acceptance/run.mjs --memory
+node scripts/fresh-postgres-acceptance/run.mjs --memory
 ```
 
-After #1466 is integrated into an approved baseline, omit the source override.
 The memory runner checks source prerequisites before executing tests, provides a
 clean child environment, enables the explicit acceptance flag, and requires both
 journeys to execute. Missing prerequisites, failures or skipped journeys fail the
 explicit command; they never produce a pass receipt. It never imports provisioning.
+`--memory --preflight` passes source prerequisites on the integrated branch and
+starts no tests or database.
 
-Ordinary test discovery without `FRESH_AUTH_ACCEPTANCE=1` or a source override
-records these two journeys as named **dedicated opt-in skips** without importing
-the unavailable auth dependencies. A focused ordinary-discovery check produced
-0 passed, 2 skipped, 0 failed on this base. Those skips are not acceptance evidence.
-The configured root coverage lane selects `scripts/*.test.ts`, so these nested
-acceptance files do not enter that lane. No CI/workflow applicability is changed.
-The always-runnable policy tests cover the fail-closed entry and environment gates.
+Ordinary test discovery without `FRESH_AUTH_ACCEPTANCE=1` records these two journeys
+as named **dedicated opt-in skips**; they are not acceptance evidence. A focused
+ordinary-discovery check produced 0 passed, 2 skipped, 0 failed. The configured root
+coverage lane selects `scripts/*.test.ts`, so these nested acceptance files do not
+enter that lane. No CI/workflow applicability is changed. The always-runnable policy
+tests cover the fail-closed entry and environment gates, including a synthetic gate
+that refuses a pass receipt for an incomplete or skipped memory run.
 
-Result: 2 passed, 0 failed under Bun 1.4.3. The expected invalid-password warning
-contained no credentials. These are complete synthetic journeys, not end-to-end
-browser/native/deployment or PostgreSQL receipts. Verification replay is deliberately
-not asserted single-use: Better Auth 1.6.23 accepts already-verified mailbox replay.
-Desktop grant lifetime is separate from browser provider-session lifetime.
+Result: 2 passed, 0 failed under Bun 1.4.3, with no source override. The expected
+invalid-password warning contained no credentials. These are complete synthetic
+journeys, not end-to-end browser/native/deployment or PostgreSQL receipts.
+Verification replay is deliberately not asserted single-use: Better Auth 1.6.23
+accepts already-verified mailbox replay. Desktop grant lifetime is separate from
+browser provider-session lifetime.
 
 ## Policy checks and PostgreSQL opt-in
 
@@ -68,11 +72,12 @@ node --test scripts/fresh-postgres-acceptance/policy.test.mjs
 node scripts/fresh-postgres-acceptance/run.mjs --preflight
 ```
 
-The nine policy tests run without dependencies or a database. Preflight checks source and
-manifest prerequisites and exits before importing the provisioner. It currently
-fails on this base because #1466 is absent; that failure is expected and is not a
-PostgreSQL test pass. The source override is for memory tests only and is never
-used to construct an unreviewed app/auth integration baseline.
+The eleven policy tests run without dependencies or a database. Preflight checks source
+and manifest prerequisites and exits before importing the provisioner. On the integrated
+baseline the fresh-schema preflight passes its source/manifest prerequisites and stops
+before Docker/provisioning; PostgreSQL execution still waits for #1465, so no provisioner
+or database runs here. The source override is for memory tests only and is never used to
+construct an unreviewed app/auth integration baseline; the memory lane no longer needs it.
 
 After root approves the integration baseline, install that baseline's locked
 dependencies and run the isolated PostgreSQL lane through the Fleet heavy wrapper:
