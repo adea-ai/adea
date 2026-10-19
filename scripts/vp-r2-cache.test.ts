@@ -609,6 +609,27 @@ describe('publishing and reading an entry', () => {
     expect(store.objects.size).toBe(0)
   })
 
+  test('the conditional writes of a store are atomic under overlapping calls', async () => {
+    // The store is slow before it answers, so two overlapping calls would both decide to create the object if the
+    // check and the write were two steps.
+    const store = createMemoryStore({ slowFor: () => true, slowMs: 50 })
+    const [first, second] = await Promise.all([
+      store.putIfAbsent('entries/k', Buffer.from('first')),
+      store.putIfAbsent('entries/k', Buffer.from('second')),
+    ])
+    expect([first.created, second.created].filter(Boolean).length).toBe(1)
+    const held = store.objects.get('entries/k')
+    expect(held?.equals(Buffer.from('first')) || held?.equals(Buffer.from('second'))).toBe(true)
+
+    await store.put('staging/s', Buffer.from('staged'))
+    const [copied, alsoCopied] = await Promise.all([
+      store.copyIfAbsent('staging/s', 'entries/c'),
+      store.copyIfAbsent('staging/s', 'entries/c'),
+    ])
+    expect([copied.created, alsoCopied.created].filter(Boolean).length).toBe(1)
+    expect(store.objects.get('entries/c')?.equals(Buffer.from('staged'))).toBe(true)
+  })
+
   test('publishes the final object in one atomic step', async () => {
     const store = createMemoryStore()
     const entry = syntheticEntry('atomic')
@@ -728,11 +749,11 @@ describe('the deadlines', () => {
     expect(successor.ok).toBe(true)
 
     slow = true
-    // The entry is already there, so this publication is an idempotent duplicate: it does not overwrite what the
-    // successor published, and it removes nothing.
+    // The store is slow to answer, so the deadline passes. Nothing is removed and nothing that is already there is
+    // overwritten.
     const duplicate = await publishEntry(store, entry, { scope, deadlineMs: 60 })
-    expect(duplicate.ok).toBe(true)
-    expect(duplicate.duplicate).toBe(true)
+    expect(duplicate.ok).toBe(false)
+    expect(duplicate.category).toBe(CATEGORY.timeout)
 
     // The promotion that was in flight has landed by now, and it did not remove what the successor published.
     await sleep(300)
@@ -836,6 +857,60 @@ describe('the publication fence', () => {
       { scope }
     )
     expect(found.ok).toBe(true)
+  })
+
+  test('a corrupt archive that is already there is not republished as a success', async () => {
+    const store = createMemoryStore()
+    const entry = syntheticEntry('corrupt-archive')
+    const first = await publishEntry(store, entry, { scope })
+    expect(first.ok).toBe(true)
+    // The shared archive is replaced by something that is not the archive.
+    const blobKey = [...store.objects.keys()].find((name) => name.startsWith('blobs/'))!
+    store.objects.set(blobKey, Buffer.from('not the archive'))
+    const second = await publishEntry(store, entry, { scope })
+    expect(second.ok).toBe(false)
+    expect(second.category).toBe(CATEGORY.integrity)
+  })
+
+  test('an envelope of an unknown version is not accepted as a duplicate', async () => {
+    const store = createMemoryStore()
+    const entry = syntheticEntry('unknown-version')
+    const first = await publishEntry(store, entry, { scope })
+    expect(first.ok).toBe(true)
+    // The stored envelope names another version: the lookup refuses it, and so must the duplicate comparison.
+    const stored = JSON.parse(store.objects.get(first.entryKey).toString('utf8'))
+    stored.v = stored.v + 1
+    store.objects.set(first.entryKey, Buffer.from(JSON.stringify(stored)))
+    const second = await publishEntry(store, entry, { scope })
+    expect(second.ok).toBe(false)
+    expect(second.category).toBe(CATEGORY.integrity)
+    // And the lookup of that envelope is refused as well.
+    const found = await lookupEntry(
+      store,
+      { key: entry.key, secondaryKey: entry.secondaryKey },
+      { scope }
+    )
+    expect(found.ok).toBe(false)
+    expect(found.category).toBe(CATEGORY.invalidEnvelope)
+  })
+
+  test('an operation that expires after the promotion committed leaves the object published', async () => {
+    // The store commits the write and only then acknowledges it, so the deadline passes after the commit.
+    const store = createMemoryStore({
+      cooperative: false,
+      commitBeforeAck: true,
+      slowFor: (key: string) => !key.startsWith('staging/'),
+      slowMs: 150,
+    })
+    const entry = syntheticEntry('expired-after-commit')
+    const published = await publishEntry(store, entry, { scope, deadlineMs: 30 })
+    expect(published.ok).toBe(false)
+    expect(published.category).toBe(CATEGORY.timeout)
+    // The object that was committed is not removed: the final key is shared and a `created: true` is history.
+    await sleep(300)
+    const blobKey = [...store.objects.keys()].find((name) => name.startsWith('blobs/'))
+    expect(blobKey).toBeDefined()
+    expect(store.objects.get(blobKey)).toBeDefined()
   })
 
   test('another entry under the same key is not a duplicate', async () => {
