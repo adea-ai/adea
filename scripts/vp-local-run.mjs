@@ -36,7 +36,15 @@ import { fileURLToPath } from 'node:url'
 
 export const DEFAULT_TASK = 'orch:build'
 const SCHEMA = 'vp-local-run-v1'
-const ENV_PREFIXES = ['NODE_ENV', 'NODE_OPTIONS', 'BUN_', 'VITE_', 'ORCH_', 'NPM_CONFIG_', 'npm_config_']
+const ENV_PREFIXES = [
+  'NODE_ENV',
+  'NODE_OPTIONS',
+  'BUN_',
+  'VITE_',
+  'ORCH_',
+  'NPM_CONFIG_',
+  'npm_config_',
+]
 const LOCK_TIMEOUT_MS = 60 * 60_000
 const LOCK_POLL_MS = 100
 
@@ -45,10 +53,14 @@ const sha256 = (data) => createHash('sha256').update(data).digest('hex')
 /** The shared git directory of the checkout, or the checkout itself when it is not a git repository. */
 export function repositoryIdentity(root) {
   try {
-    const common = execFileSync('git', ['-C', root, 'rev-parse', '--path-format=absolute', '--git-common-dir'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim()
+    const common = execFileSync(
+      'git',
+      ['-C', root, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }
+    ).trim()
     return realpathSync(common)
   } catch {
     return realpathSync(root)
@@ -62,8 +74,10 @@ function fileDigest(file) {
 /** The build-relevant environment, as sorted pairs. Variables outside the prefixes never affect the key. */
 export function relevantEnvironment(env) {
   return Object.keys(env)
-    .filter((name) => name !== 'VITE_CACHE_PATH' && ENV_PREFIXES.some((prefix) => name.startsWith(prefix)))
-    .sort()
+    .filter(
+      (name) => name !== 'VITE_CACHE_PATH' && ENV_PREFIXES.some((prefix) => name.startsWith(prefix))
+    )
+    .toSorted()
     .map((name) => [name, env[name]])
 }
 
@@ -89,7 +103,10 @@ export function cacheDirectory({ cacheHome, repository, environment }) {
 
 export function defaultCacheHome(env) {
   if (env.ADEA_VP_CACHE_HOME) return env.ADEA_VP_CACHE_HOME
-  const base = env.XDG_CACHE_HOME && isAbsolute(env.XDG_CACHE_HOME) ? env.XDG_CACHE_HOME : join(homedir(), '.cache')
+  const base =
+    env.XDG_CACHE_HOME && isAbsolute(env.XDG_CACHE_HOME)
+      ? env.XDG_CACHE_HOME
+      : join(homedir(), '.cache')
   return join(base, 'adea-vp')
 }
 
@@ -109,7 +126,11 @@ const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
  * file, so it is never seen half-written and creating it is atomic. A lock held by a process that no longer exists
  * is reclaimed; a live one is waited for.
  */
-export async function withLock(directory, work, { timeoutMs = LOCK_TIMEOUT_MS, pollMs = LOCK_POLL_MS } = {}) {
+export async function withLock(
+  directory,
+  work,
+  { timeoutMs = LOCK_TIMEOUT_MS, pollMs = LOCK_POLL_MS } = {}
+) {
   const lock = `${directory}.lock`
   mkdirSync(dirname(lock), { recursive: true })
   const started = Date.now()
@@ -128,7 +149,8 @@ export async function withLock(directory, work, { timeoutMs = LOCK_TIMEOUT_MS, p
         rmSync(lock, { force: true })
         continue
       }
-      if (Date.now() - started > timeoutMs) throw new Error(`timed out waiting for the cache lock ${lock}`)
+      if (Date.now() - started > timeoutMs)
+        throw new Error(`timed out waiting for the cache lock ${lock}`, { cause: error })
       await sleep(pollMs)
     }
   }
@@ -163,7 +185,7 @@ export function vpRunArguments({ task, passthrough, cacheEnabled }) {
   return ['run', ...(cacheEnabled ? ['--cache'] : []), task, ...passthrough]
 }
 
-export function vitePlusVersion(root) {
+export function readVitePlusVersion(root) {
   const manifest = join(root, 'node_modules', 'vite-plus', 'package.json')
   return existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).version : 'absent'
 }
@@ -177,7 +199,8 @@ async function main(argv) {
   const { task, passthrough } = parseArgs(argv)
   const env = { ...process.env }
   const preset = env.VITE_CACHE_PATH
-  if (preset !== undefined && !isAbsolute(preset)) throw new Error('VITE_CACHE_PATH must be an absolute path')
+  if (preset !== undefined && !isAbsolute(preset))
+    throw new Error('VITE_CACHE_PATH must be an absolute path')
   const ci = Boolean(env.CI)
   const cacheEnabled = !ci
   const directory =
@@ -191,23 +214,29 @@ async function main(argv) {
         nodeVersion: process.version,
         platform: process.platform,
         arch: process.arch,
-        vitePlusVersion: vitePlusVersion(root),
+        vitePlusVersion: readVitePlusVersion(root),
       }),
     })
   if (preset === undefined) env.VITE_CACHE_PATH = directory
   const vp = join(root, 'node_modules', '.bin', 'vp')
   const args = vpRunArguments({ task, passthrough, cacheEnabled })
 
+  // A signal that reached the wrapper is a cancellation even when `vp` exits 0 after stopping early, so the wrapper
+  // never reports success for a run it was asked to stop.
   const runVp = () =>
     new Promise((done, fail) => {
-      const child = spawn(vp, args, { cwd: root, env, stdio: 'inherit' })
-      const forward = (signal) => child.kill(signal)
+      let received = null
+      const forward = (signal) => {
+        received = signal
+        child.kill(signal)
+      }
       const signals = ['SIGINT', 'SIGTERM']
+      const child = spawn(vp, args, { cwd: root, env, stdio: 'inherit' })
       for (const signal of signals) process.on(signal, forward)
       child.on('error', fail)
       child.on('exit', (code, signal) => {
         for (const sig of signals) process.off(sig, forward)
-        done({ code, signal })
+        done({ code, signal: received ?? signal })
       })
     })
 

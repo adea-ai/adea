@@ -25,9 +25,13 @@ function checkout(name: string): string {
   writeFileSync(join(root, 'bun.lock'), '{"lock":1}\n')
   writeFileSync(join(root, 'vite.config.ts'), 'export default {}\n')
   execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: root })
-  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init'], {
-    cwd: root,
-  })
+  execFileSync(
+    'git',
+    ['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'init'],
+    {
+      cwd: root,
+    }
+  )
   return root
 }
 
@@ -38,7 +42,11 @@ const base = {
   arch: 'x64',
 }
 
-function key(root: string, env: Record<string, string> = {}, overrides: Partial<typeof base> = {}): string {
+function key(
+  root: string,
+  env: Record<string, string> = {},
+  overrides: Partial<typeof base> = {}
+): string {
   return environmentKey({ root, env, ...base, ...overrides })
 }
 
@@ -101,7 +109,13 @@ describe('environmentKey', () => {
 describe('relevantEnvironment', () => {
   test('keeps only the prefixed names, sorted, and drops the wrapper-owned cache path', () => {
     expect(
-      relevantEnvironment({ VITE_B: 'b', HOME: '/h', NODE_ENV: 'test', VITE_CACHE_PATH: '/c', BUN_X: 'x' })
+      relevantEnvironment({
+        VITE_B: 'b',
+        HOME: '/h',
+        NODE_ENV: 'test',
+        VITE_CACHE_PATH: '/c',
+        BUN_X: 'x',
+      })
     ).toEqual([
       ['BUN_X', 'x'],
       ['NODE_ENV', 'test'],
@@ -149,11 +163,9 @@ describe('parseArgs and vpRunArguments', () => {
       '--cache',
       'orch:build',
     ])
-    expect(vpRunArguments({ task: 'orch:build', passthrough: ['-x'], cacheEnabled: false })).toEqual([
-      'run',
-      'orch:build',
-      '-x',
-    ])
+    expect(
+      vpRunArguments({ task: 'orch:build', passthrough: ['-x'], cacheEnabled: false })
+    ).toEqual(['run', 'orch:build', '-x'])
   })
 })
 
@@ -171,16 +183,25 @@ describe('withLock', () => {
     expect(events).toHaveLength(4)
     const [first] = events
     const second = first.startsWith('a') ? 'b' : 'a'
-    expect(events).toEqual([`${first}`, `${first.replace(':in', ':out')}`, `${second}:in`, `${second}:out`])
+    expect(events).toEqual([
+      `${first}`,
+      first.replace(':in', ':out'),
+      `${second}:in`,
+      `${second}:out`,
+    ])
     expect(existsSync(`${dir}.lock`)).toBe(false)
   })
 
   test('reclaims a lock whose owner process has exited', async () => {
     const dir = join(scratch, 'stale', 'cache')
     mkdirSync(join(scratch, 'stale'), { recursive: true })
-    const deadPid = spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], {
-      encoding: 'utf8',
-    }).stdout
+    const deadPid = spawnSync(
+      process.execPath,
+      ['-e', 'process.stdout.write(String(process.pid))'],
+      {
+        encoding: 'utf8',
+      }
+    ).stdout
     writeFileSync(`${dir}.lock`, deadPid)
 
     let ran = false

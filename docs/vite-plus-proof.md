@@ -55,6 +55,43 @@ graph needs a new cold run, then a warm run that names its manifest.
 Commit-message lines assert the result: `vp-proof-expect: cold|warm` and `vp-proof-manifest: <sha256>` (the dist
 outputs after restore).
 
+## Local shared cache
+
+`bun run build` runs `node scripts/vp-local-run.mjs orch:build` instead of `vp run orch:build`. The wrapper sets
+`VITE_CACHE_PATH` to a directory outside every checkout, so a second worktree of the same repository at the same commit
+replays what the first one built:
+
+```text
+$ADEA_VP_CACHE_HOME (or $XDG_CACHE_HOME/adea-vp, or ~/.cache/adea-vp)
+  <sha256 of the git common directory>/        one per repository; worktrees share it, other repositories do not
+    <sha256 of the environment key>/           one per environment; Vite Task keeps one entry per task in each
+```
+
+The environment key covers the Vite+ version, the Node version, platform and architecture, the bytes of `bun.lock` and
+`vite.config.ts`, and the variables named `NODE_ENV`, `NODE_OPTIONS`, `BUN_*`, `VITE_*`, `ORCH_*` and `NPM_CONFIG_*`.
+Changing any of them selects another directory, so the run starts cold and leaves the other state's entries alone; going
+back to the first state replays its entries (A, B, A hits). Vite Task still fingerprints the files, declared variables and
+`ORCH_TOOLCHAIN` of each task, so the directory only decides which entries are visible. Concurrent runs that resolve to one
+directory take `<directory>.lock`; a lock whose owner has exited is reclaimed.
+
+In CI (`CI` set) the wrapper omits `--cache`, so the hosted lanes run the same `vp run` as before. A `VITE_CACHE_PATH`
+already set in the environment is used as given. Run the wrapper with `-- <vp run args>` for other tasks.
+
+Known limits, observed on this graph:
+
+- The `apps/web build` task fingerprints the contents of the repository root. Adding or removing any file at the root
+  (a scratch log, for example) turned its warm replay into a miss; the other fourteen tasks still hit. Keep scratch files
+  outside the checkout.
+- A run stopped with Ctrl-C stops `vp` after the tasks it has started; the wrapper then exits 130 and releases its lock.
+  The entries written before the stop stay valid, and the next run fills in the rest.
+
+Pilot receipts (local, commit `242ff55` on `feat/vp-local-shared-cache`, base `3b9b108`): the cold run in one worktree
+reported 0/15 hits and dist sha256 `f970153f39bc845f03d78aa6511ea4a89b02c6ffd18d108175698cfec19c71e4` over 1891 files. After
+deleting every workspace `dist`, the replay in that worktree reported 15/15 and the same sha256. A second worktree at the same
+commit reported 15/15 on its first run with the same sha256. A run with `VITE_PILOT_PROBE=1` in the environment started
+at 0/15 in its own directory, and the default key then replayed 15/15. Two worktrees run at the same moment against one
+directory: one ran cold at 0/15, the other waited for the lock and replayed 15/15, both with the same sha256.
+
 ## Receipts
 
 Graph `orch-v1.48.1` (before any listing was excluded): cold run 39018357793 saved (0/15, 1792 files, sha256
