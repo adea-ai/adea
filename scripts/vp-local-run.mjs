@@ -65,6 +65,34 @@ const TOKEN = /^([1-9]\d*)\n([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 /** A lock or run record that is not in the expected form. It is preserved and the run falls back to bypass. */
 export class LockRefused extends Error {}
 
+/** A refusal of the shared cache directory by its safety checks. Its message may name an environment-derived path. */
+export class CacheRefusal extends Error {}
+
+/** A rejected command line. Its message repeats the arguments it rejects. */
+export class UsageError extends Error {}
+
+/**
+ * The only text the wrapper prints about a failure. Messages can name paths taken from the environment (the cache home)
+ * or from the arguments, so no error message is printed; a failure is reported by its fixed category.
+ */
+export const CATEGORY = {
+  refused: 'the shared cache directory failed its safety checks',
+  unprepared: 'the shared cache directory could not be prepared',
+  lockRecord: 'the shared cache lock record was refused',
+  usage: 'usage: vp-local-run.mjs [task] [-- arguments]',
+  failed: 'the command failed',
+}
+
+/** The fixed category for a failure to prepare the cache directory. */
+export function directoryCategory(error) {
+  return error instanceof CacheRefusal ? CATEGORY.refused : CATEGORY.unprepared
+}
+
+/** The fixed category for a failure of the command as a whole. */
+export function failureCategory(error) {
+  return error instanceof UsageError ? CATEGORY.usage : CATEGORY.failed
+}
+
 const sha256 = (data) => createHash('sha256').update(data).digest('hex')
 const shortHash = (value) => sha256(value).slice(0, 32)
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
@@ -189,20 +217,20 @@ function lstatOrNull(path) {
 
 /** Components above the cache home may be system directories: owned by the user or root, not writable by others. */
 function assertAncestor(path, stats, uid) {
-  if (stats.isSymbolicLink()) throw new Error(`${path} is a symbolic link`)
-  if (!stats.isDirectory()) throw new Error(`${path} is not a directory`)
+  if (stats.isSymbolicLink()) throw new CacheRefusal(`${path} is a symbolic link`)
+  if (!stats.isDirectory()) throw new CacheRefusal(`${path} is not a directory`)
   if (uid !== null && stats.uid !== uid && stats.uid !== 0)
-    throw new Error(`${path} is owned by another user`)
+    throw new CacheRefusal(`${path} is owned by another user`)
   if (stats.mode & 0o022 && !(stats.mode & 0o1000))
-    throw new Error(`${path} is writable by group or others`)
+    throw new CacheRefusal(`${path} is writable by group or others`)
 }
 
 /** Components under the cache home belong to the current user and are writable by no one else. */
 function assertOwned(path, stats, uid) {
-  if (stats.isSymbolicLink()) throw new Error(`${path} is a symbolic link`)
-  if (!stats.isDirectory()) throw new Error(`${path} is not a directory`)
-  if (uid !== null && stats.uid !== uid) throw new Error(`${path} is owned by another user`)
-  if (stats.mode & 0o022) throw new Error(`${path} is writable by group or others`)
+  if (stats.isSymbolicLink()) throw new CacheRefusal(`${path} is a symbolic link`)
+  if (!stats.isDirectory()) throw new CacheRefusal(`${path} is not a directory`)
+  if (uid !== null && stats.uid !== uid) throw new CacheRefusal(`${path} is owned by another user`)
+  if (stats.mode & 0o022) throw new CacheRefusal(`${path} is writable by group or others`)
 }
 
 /** Checks every ancestor of `home` that exists: a real directory, not writable by others unless sticky. */
@@ -220,10 +248,10 @@ function checkAncestors(home, uid) {
  */
 export function ensurePrivateDirectory(home, directory) {
   if (!isAbsolute(home) || !isAbsolute(directory))
-    throw new Error('cache home and directory must be absolute')
+    throw new CacheRefusal('cache home and directory must be absolute')
   const inside = relative(home, directory)
   if (inside.startsWith('..') || isAbsolute(inside))
-    throw new Error(`${directory} is outside the cache home`)
+    throw new CacheRefusal(`${directory} is outside the cache home`)
   const uid = typeof process.getuid === 'function' ? process.getuid() : null
 
   // Existing ancestors are checked before anything is created. Missing ones are created with owner-only mode, and every
@@ -242,7 +270,7 @@ export function ensurePrivateDirectory(home, directory) {
     assertOwned(current, stats, uid)
   }
   if (realpathSync(directory) !== directory)
-    throw new Error(`${directory} is not its own real path`)
+    throw new CacheRefusal(`${directory} is not its own real path`)
 }
 
 function alive(pid) {
@@ -427,7 +455,7 @@ export async function runUnderLock({ plan, replan, run }) {
     try {
       ensurePrivateDirectory(current.cacheHome, current.directory)
     } catch (error) {
-      return { replanned: true, reason: error.message }
+      return { replanned: true, reason: directoryCategory(error) }
     }
     return { replanned: false, value: await run(register) }
   })
@@ -438,9 +466,9 @@ export function parseArgs(argv) {
   const separator = argv.indexOf('--')
   const head = separator === -1 ? argv : argv.slice(0, separator)
   const passthrough = separator === -1 ? [] : argv.slice(separator + 1)
-  if (head.length > 1) throw new Error(`expected at most one task name, got ${head.join(' ')}`)
+  if (head.length > 1) throw new UsageError(`expected at most one task name, got ${head.join(' ')}`)
   const [task = DEFAULT_TASK] = head
-  if (!/^[\w:.-]+$/.test(task)) throw new Error(`task name ${task} is not a plain task name`)
+  if (!/^[\w:.-]+$/.test(task)) throw new UsageError(`task name ${task} is not a plain task name`)
   return { task, passthrough }
 }
 
@@ -516,7 +544,7 @@ export async function main(argv, root = resolveRoot()) {
     try {
       ensurePrivateDirectory(plan.cacheHome, plan.directory)
     } catch (error) {
-      console.warn(`vp-local-run: not using a shared cache: ${error.message}`)
+      console.warn(`vp-local-run: not using a shared cache: ${directoryCategory(error)}`)
       plan = { mode: 'bypass', reason: 'cache directory refused' }
     }
   }
@@ -529,7 +557,7 @@ export async function main(argv, root = resolveRoot()) {
 
   const cachedEnv = { ...env, VITE_CACHE_PATH: plan.directory }
   const args = vpRunArguments({ task, passthrough, cacheEnabled: true })
-  console.log(`vp-local-run: ${task}, ${plan.mode} cache ${plan.directory} (${plan.reason})`)
+  console.log(`vp-local-run: ${task}, ${plan.mode} cache (${plan.reason})`)
   let outcome
   try {
     outcome = await runUnderLock({
@@ -539,7 +567,7 @@ export async function main(argv, root = resolveRoot()) {
     })
   } catch (error) {
     if (!(error instanceof LockRefused)) throw error
-    console.warn(`vp-local-run: not using a shared cache: ${error.message}`)
+    console.warn(`vp-local-run: not using a shared cache: ${CATEGORY.lockRecord}`)
     return bypass('lock refused')
   }
   if (outcome.replanned) {
@@ -551,7 +579,7 @@ export async function main(argv, root = resolveRoot()) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main(process.argv.slice(2)).catch((error) => {
-    console.error(error.message)
+    console.error(failureCategory(error))
     process.exitCode = 1
   })
 }

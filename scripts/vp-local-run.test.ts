@@ -20,11 +20,15 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import {
+  CATEGORY,
+  CacheRefusal,
   checkoutState,
   defaultCacheHome,
+  directoryCategory,
   ensurePrivateDirectory,
   environmentKey,
   exitCodeFor,
+  failureCategory,
   LockRefused,
   main as runCommand,
   parseArgs,
@@ -33,6 +37,7 @@ import {
   relevantEnvironment,
   runVp,
   runUnderLock,
+  UsageError,
   vpRunArguments,
   withLock,
 } from './vp-local-run.mjs'
@@ -857,7 +862,7 @@ describe('runUnderLock', () => {
     })
     expect(launched).toBe(false)
     expect(outcome.replanned).toBe(true)
-    expect(outcome.reason).toContain('writable by group or others')
+    expect(outcome.reason).toBe(CATEGORY.refused)
     chmodSync(plan.directory, 0o700)
   })
 })
@@ -1150,5 +1155,90 @@ describe('main, runVp and exit codes', () => {
     const root = fixtureCheckout('vp-version')
     expect(readVitePlusVersion(root)).toBe('1.3.0')
     expect(readVitePlusVersion(checkout('vp-version-absent'))).toBe('absent')
+  })
+})
+
+/** Everything the wrapper prints during `work`, joined into one string. */
+async function printed(work: () => unknown): Promise<string> {
+  const lines: string[] = []
+  const capture = (...args: unknown[]) => {
+    lines.push(args.map(String).join(' '))
+  }
+  const log = spyOn(console, 'log').mockImplementation(capture)
+  const warn = spyOn(console, 'warn').mockImplementation(capture)
+  const error = spyOn(console, 'error').mockImplementation(capture)
+  try {
+    await work()
+  } finally {
+    log.mockRestore()
+    warn.mockRestore()
+    error.mockRestore()
+  }
+  return lines.join('\n')
+}
+
+describe('failure output names no environment path and no raw message', () => {
+  test('a cache home refused by its checks prints only the fixed category, never the path', async () => {
+    const sentinel = `SENTINEL-${randomUUID()}`
+    const root = fixtureCheckout('sentinel-link')
+    const target = join(scratch, `${sentinel}-target`)
+    mkdirSync(target)
+    const link = join(scratch, `${sentinel}-link`)
+    symlinkSync(target, link)
+    const log = join(scratch, 'sentinel-link.log')
+    const output = await withLocalCache(() =>
+      withEnv({ FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: link }, () =>
+        printed(() => runCommand(['orch:test'], root))
+      )
+    )
+    expect(output).toContain(CATEGORY.refused)
+    expect(output).not.toContain(sentinel)
+    expect(calls(log)).toEqual([{ args: ['run', 'orch:test'], cache: null }])
+  })
+
+  test('a refused lock record prints the fixed lock category, though its message names the cache path', async () => {
+    const sentinel = `SENTINEL-${randomUUID()}`
+    const root = fixtureCheckout('sentinel-lock')
+    const cacheHomeDir = join(scratch, sentinel, '.cache', 'adea-vp')
+    const log = join(scratch, 'sentinel-lock.log')
+    const output = await withLocalCache(() =>
+      withEnv(
+        { FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
+        async () => {
+          const plan = planCache({
+            root,
+            env: { ...process.env },
+            nodeVersion: process.version,
+            platform: process.platform,
+            arch: process.arch,
+            vitePlusVersion: readVitePlusVersion(root),
+            home: homedir(),
+          })
+          ensurePrivateDirectory(plan.cacheHome, plan.directory)
+          writeFileSync(`${plan.directory}.lock.run`, 'garbage')
+          return printed(() => runCommand(['orch:test'], root))
+        }
+      )
+    )
+    expect(output).toContain(CATEGORY.lockRecord)
+    expect(output).not.toContain(sentinel)
+    expect(calls(log)).toEqual([{ args: ['run', 'orch:test'], cache: null }])
+  })
+
+  test('the category of a failure does not depend on its message, and a usage error is named as one', () => {
+    const sentinel = `SENTINEL-${randomUUID()}`
+    expect(failureCategory(new Error(sentinel))).toBe(CATEGORY.failed)
+    expect(directoryCategory(new Error(sentinel))).toBe(CATEGORY.unprepared)
+    expect(directoryCategory(new CacheRefusal(sentinel))).toBe(CATEGORY.refused)
+    expect(failureCategory(new UsageError(sentinel))).toBe(CATEGORY.usage)
+    let rejected: unknown
+    try {
+      parseArgs(['orch:test', sentinel])
+    } catch (error) {
+      rejected = error
+    }
+    expect(rejected).toBeInstanceOf(UsageError)
+    expect(failureCategory(rejected)).toBe(CATEGORY.usage)
+    for (const category of Object.values(CATEGORY)) expect(category).not.toContain(sentinel)
   })
 })
