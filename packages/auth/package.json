@@ -48,7 +48,8 @@
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "bun check -p tsconfig.json",
     "test": "bun test tests/unit",
-    "test:integration": "bun test tests/integration"
+    "test:integration": "bun test tests/integration",
+    "schema-init": "bun src/schema-init-cli.ts"
   },
   "dependencies": {
     "@adea-ai/types": "workspace:*",
