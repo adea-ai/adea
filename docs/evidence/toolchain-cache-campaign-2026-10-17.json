@@ -1641,69 +1641,79 @@
   },
   "toolchainCacheCompatibilityCheckpoint": {
     "observedAt": "2026-10-19T19:42:30Z",
-    "precedence": "This checkpoint supersedes the remaining-work and status strings of latestUpdate and currentCheckpoint for the toolchain-cache and Code Foundry caller scope. The earlier checkpoints, their measurements and every receipt they cite stay exactly as recorded and keep their provenance; nothing earlier was rewritten or removed.",
+    "precedence": "This checkpoint supersedes the remaining-work and status strings of latestUpdate and currentCheckpoint for the toolchain-cache and Code Foundry caller scope. It also supersedes the Windows statements those two older checkpoints carry: latestUpdate.remaining recorded 'Cortana Windows cache identity unqualified; Windows commands intentionally remain uncached' and currentCheckpoint.remaining recorded 'Windows executable/cache identity remains unqualified; Windows tasks intentionally uncached'. Those older strings are left exactly as written, because they are the historical record of what was known at the time; what is known now is recorded in platformCoverage.windows below. The earlier checkpoints, their measurements and every receipt they cite stay exactly as recorded and keep their provenance; nothing earlier was rewritten or removed.",
     "complete": false,
-    "scope": "Consumer tooling for adea-ai/adea and adea-ai/themes only. The other campaign repositories are read here, never written. No secret, repository setting, release flow, Code Foundry repository or Cortana file was changed.",
-    "headStability": "The adea-ai/adea default branch moved three times while this checkpoint was being written: #1485, then #1486, then #1487. Each landed after the previous, and the recorded head is the one the API returned at observedAt. Every head in this file is a point-in-time observation, not a claim that the branch has not moved since. The two merges that landed during the write changed only test and spec files, so no production task in the graph changed and the writer/reader chain below is unaffected.",
+    "scope": "Consumer tooling for adea-ai/adea and adea-ai/themes only. The other campaign repositories are read here, never written. No secret, repository setting, release flow, Code Foundry repository or Cortana file was changed. In this correction no Cortana repository was accessed at all: the Windows evidence below is recorded exactly as supplied, and the Themes pull request was read but not mutated.",
+    "headStability": "The adea-ai/adea default branch moved three times while this checkpoint was being written: #1485, then #1486, then #1487. Each landed after the previous, and the recorded head is the one the API returned at observedAt. Every head in this file is a point-in-time observation, not a claim that the branch has not moved since. The two merges that landed during the write changed only test and spec files, so no production task in the graph changed and the restore/replay observations below are unaffected. Each entry of observedMergedHeads carries its own observedAt; adea-ai/adea and adea-ai/themes were read again at 2026-10-19T19:50:03Z and were unchanged, and the other seven were not re-read after the sweep at 2026-10-19T19:42:30Z.",
     "verificationMethod": {
-      "authoritativeHeads": "GET /repos/{owner}/{repo}/commits/main on 2026-10-19; the recorded sha is the default-branch head the API returned, with its committer date and subject.",
+      "observedHeads": "GET /repos/{owner}/{repo}/commits/main on 2026-10-19; the recorded sha is the default-branch head the API returned at that moment, with its committer date and subject. It is a snapshot, not a standing claim that the branch has not moved since.",
       "mergedPullRequests": "GET /repos/{owner}/{repo}/pulls/{number}; state, mergedAt, headRefOid and mergeCommit.oid are the API values.",
       "receipts": "GET /repos/{owner}/{repo}/actions/runs/{run_id} for existence, event, head sha and conclusion, plus GET .../actions/jobs for the runner labels, plus the immutable job log where a restore or save line is cited.",
-      "cacheInventory": "GET /repos/{owner}/{repo}/actions/caches; key, id, size and last_accessed_at are the API values."
+      "cacheInventory": "GET /repos/{owner}/{repo}/actions/caches; key, id, size and last_accessed_at are the API values.",
+      "cortanaWindows": "Supplied by the owner for this correction and recorded as supplied: Actions run 39188008084, job 117854425581 on windows-latest with a successful conclusion, at Cortana head bcb9bfc27deb1248074e1a8215c73113e2cb92c7, whose workflow declares a [ubuntu-latest, windows-latest] matrix, native executable identity tests, a real build replay, and Windows-keyed cache restore and save. The Cortana repository was not queried again for this correction."
     },
-    "authoritativeMergedHeads": {
+    "observedMergedHeads": {
       "adea-ai/adea": {
         "head": "fda29dd50b09f984f08b5c2294618a7c70702674",
         "committedAt": "2026-10-19T19:39:08Z",
         "subject": "test(db): cover the array parser registration lifecycle and the direct-write rows (#1487)",
+        "observedAt": "2026-10-19T19:42:30Z",
         "inScope": true
       },
       "adea-ai/themes": {
         "head": "112784ddf54945111513198d7bd5bca655663cc7",
         "committedAt": "2026-10-19T14:17:43Z",
         "subject": "chore(main): release 0.10.11 (#100)",
+        "observedAt": "2026-10-19T19:42:30Z",
         "inScope": true
       },
       "adea-ai/control-plane": {
         "head": "a4c9aa69a314dc0717b39b7d9307fbb960c7736d",
         "committedAt": "2026-10-19T08:07:15Z",
         "subject": "chore(main): release 1.105.0 (#1196)",
+        "observedAt": "2026-10-19T19:42:30Z",
         "inScope": false
       },
       "adea-ai/cortana": {
         "head": "bcb9bfc27deb1248074e1a8215c73113e2cb92c7",
         "committedAt": "2026-10-19T18:59:30Z",
         "subject": "chore(main): release 0.69.3 (#2604)",
+        "observedAt": "2026-10-19T19:42:30Z",
         "inScope": false
       },
       "adea-ai/ui": {
         "head": "ccc0cebbbf348658e63d5a5a1cfb2a14d848b2ab",
         "committedAt": "2026-10-18T23:31:21Z",
         "subject": "chore(main): release 0.142.4 (#466)",
+        "observedAt": "2026-10-19T19:42:30Z",
         "inScope": false
       },
       "adea-ai/plugins": {
         "head": "1a216133e9f3a1580cb73aad1b99963c1457ee13",
         "committedAt": "2026-10-17T18:29:12Z",
         "subject": "chore(main): release 2.0.40 (#247)",
+        "observedAt": "2026-10-19T19:42:30Z",
         "inScope": false
       },
       "adea-ai/agent-sim": {
         "head": "b955832f5f1d6b98d095fffc64a608d635f91495",
         "committedAt": "2026-10-19T14:26:11Z",
         "subject": "chore(main): release 0.15.3 (#122)",
+        "observedAt": "2026-10-19T19:42:30Z",
         "inScope": false
       },
       "adea-ai/assets": {
         "head": "15d1f784906738a0a0945e5557305eae7164ecaa",
         "committedAt": "2026-10-14T15:43:27Z",
         "subject": "docs: tailor repository agent guidance (#12)",
+        "observedAt": "2026-10-19T19:42:30Z",
         "inScope": false
       },
       "adea-ai/.github": {
         "head": "b32a0453aea4a6745520d32da82c3ab63ca5c1c8",
         "committedAt": "2026-10-15T00:19:39Z",
         "subject": "Merge pull request #1 from adea-ai/docs/repository-agent-guidance",
+        "observedAt": "2026-10-19T19:42:30Z",
         "inScope": false
       }
     },
@@ -1793,7 +1803,7 @@
         "platform": "Linux",
         "runner": "ubuntu-24.04",
         "lane": "Task cache qualification",
-        "writer": {
+        "sameHeadWriter": {
           "run": "https://github.com/adea-ai/adea/actions/runs/39060477290",
           "runId": 39060477290,
           "event": "push",
@@ -1806,7 +1816,7 @@
             "vp run: 15/15 cache hit (100%), 17/17 successful, 67.66s saved"
           ]
         },
-        "freshReader": {
+        "sameHeadFreshReader": {
           "run": "https://github.com/adea-ai/adea/actions/runs/39061003597",
           "runId": 39061003597,
           "event": "workflow_dispatch",
@@ -1818,9 +1828,24 @@
             "Cache Size: ~4 MB (4268152 B)",
             "vp run: 15/15 cache hit (100%), 17/17 successful, 67.66s saved"
           ],
-          "result": "The fresh runner restored the writer's exact key, which carries the writer run id 39060477290, and hit 15/15 on its first and second real builds."
+          "result": "A same-head writer/reader pair. The writer run 39060477290 and this reader run both stand at Adea head df72ac097ed21870898531666792ac29f96a3caf. This reader restored the writer's exact key, which carries the writer run id 39060477290, and hit 15/15 on its first and second real builds."
         },
-        "currentMergedHead": {
+        "crossHeadRestoreWithSameJobReplay": {
+          "headSha": "79790737d427a4b7902e733dcfdef3306786370b",
+          "run": "https://github.com/adea-ai/adea/actions/runs/39309703515",
+          "runId": 39309703515,
+          "event": "push",
+          "conclusion": "success",
+          "jobId": 118255798724,
+          "logEvidence": [
+            "Cache restored from key: production-tasks-v2-Linux-X64-node24.21.0-bun1.4.3-vp1.3.0-d9a6babfc249e28620fd04148d9f1d06fee7fa85d71ff58c617f4ebc4c213280-39306648213-1",
+            "Cache Size: ~7 MB (7239999 B)",
+            "vp run: 14/15 cache hit (93%), 17/17 successful, 26.30s saved",
+            "vp run: 15/15 cache hit (100%), 17/17 successful, 64.04s saved"
+          ],
+          "result": "A cross-head restore followed by a same-job replay. The restored key was written by run 39306648213 at an earlier head, so the first build in this job legitimately invalidated the task that had changed and scored 14/15; the replay build inside the same job then scored 15/15, which is the assertion the lane makes. This is not a fresh same-head writer/reader pair."
+        },
+        "latestMergedHeadObservation": {
           "run": "https://github.com/adea-ai/adea/actions/runs/39312766487",
           "runId": 39312766487,
           "event": "push",
@@ -1833,9 +1858,8 @@
             "vp run: 14/15 cache hit (93%), 17/17 successful, 59.20s saved",
             "vp run: 15/15 cache hit (100%), 17/17 successful, 63.35s saved"
           ],
-          "result": "A receipt at the authoritative merged head fda29dd5. The restored entry is the exact key of the preceding main-push writer run 39311334244, and the replay build at the same head hit 15/15, which is the assertion the lane makes.",
-          "writerChain": "Each run in this chain restored the exact key of its predecessor: 39306648213 wrote the key read by 39309703515, which wrote the key read by 39311334244, which wrote the key read by 39312766487. The first build of a run whose head has moved since its writer legitimately invalidates the changed task; the replay build at the same head is 15/15.",
-          "notClaimed": "The lane's 'Fresh runner restored all production tasks for the same head' summary line is only written when the restored entry's recorded head equals the current head. It is not claimed for these runs."
+          "result": "The same shape again, at the head observed in this checkpoint: a cross-head restore, 14/15 on the first build, followed by a same-job replay, 15/15. The restored key was written by run 39311334244 at an earlier head. This is not a fresh same-head writer/reader pair.",
+          "notClaimed": "The lane's 'Fresh runner restored all production tasks for the same head' summary line is only written when the restored entry's recorded head equals that run's head. It is not claimed for these runs."
         }
       },
       "themesDownloadCache": {
@@ -1851,9 +1875,9 @@
           "job": "Validation / CI / Format",
           "jobId": 117495059718,
           "logEvidence": [
-            "Cache saved with key: Linux-javascript-e93b77041c04137fd71751b910618f8143706b998eb050be417d09e89dd66985",
-            "Cache Size: ~80 MB (83538022 B)"
-          ]
+            "Cache saved with key: Linux-javascript-e93b77041c04137fd71751b910618f8143706b998eb050be417d09e89dd66985"
+          ],
+          "seedCacheRestoreInSameJob": "This job also restored an earlier seed cache before saving. The 83538022-byte figure belongs to that earlier seed-cache restore, not to the e93b770 key this job saved. The size of the saved e93b770 entry is 105642758 bytes, as read from the reader side below; the 83538022 value is not a measurement of the saved key."
         },
         "freshReader": {
           "run": "https://github.com/adea-ai/themes/actions/runs/39066576010",
@@ -1869,15 +1893,16 @@
             "frozen install 15.00ms"
           ],
           "writerBuildFrozenInstall": "208.00ms, run 39066457864 job Validation / CI / Build id 117495059696",
-          "result": "The reader restored the writer's exact key. Both recorded install timings were re-read from the two immutable job logs and match currentCheckpoint.themesHostedDownloadTransfer."
+          "result": "A same-head writer/reader pair. The writer run 39066457864 and this reader run both stand at Themes head 10a0832faec6783f7f842aeba41dc56d057a997c. The reader restored the writer's exact e93b770 key, and the 105642758-byte size it restored is the size of that saved key. Both recorded install timings were re-read from the two immutable job logs and match currentCheckpoint.themesHostedDownloadTransfer."
         },
-        "cacheInventoryAtCurrentHead": {
+        "defaultBranchRunAtObservedThemesHead": {
           "run": "https://github.com/adea-ai/themes/actions/runs/39267662710",
           "runId": 39267662710,
           "event": "dynamic",
           "headSha": "112784ddf54945111513198d7bd5bca655663cc7",
           "conclusion": "success",
-          "runner": "ubuntu-24.04"
+          "runner": "ubuntu-24.04",
+          "note": "A successful default-branch run at the Themes head observed in this checkpoint. It is a cache-lane receipt for that head, not a fresh writer/reader download-cache pair."
         }
       },
       "earlierCheckpointsStillResolvable": {
@@ -1889,7 +1914,7 @@
         "adea-ai/agent-sim": [39061625438, 39061768434],
         "adea-ai/cortana": [39066597973, 39066649161],
         "adea-ai/plugins": [39055921529, 39056020219],
-        "result": "All nineteen runs still exist and concluded success. The hit counts and manifest hashes they recorded in latestUpdate and currentCheckpoint were not re-derived here; only the adea and themes pairs above were re-read from their job logs.",
+        "result": "All eighteen runs listed here still exist and concluded success. The hit counts and manifest hashes they recorded in latestUpdate and currentCheckpoint were not re-derived here; only the adea and themes receipts above were re-read from their job logs.",
         "pluginsReaderCorrection": "Run 39056020219 is a pull_request run on release-please--branches--main--components--plugins at head 1ac5b0856a8c0192409af205cf1100158e90f7d8, not a default-branch run. The independent-reader claim is unchanged, but the reader branch is not main."
       }
     },
@@ -1897,19 +1922,47 @@
       "linux": {
         "status": "proven",
         "receipts": [
-          "adea-ai/adea task-cache writer/reader pair at head df72ac09 and a writer/reader chain at the authoritative head fda29dd5",
-          "adea-ai/themes download-cache writer/reader pair at head 10a0832f and a successful default-branch run at the current head 112784dd",
-          "the four other workspace graphs and the two standalone libraries, at the runs listed in earlierCheckpointsStillResolvable"
+          "adea-ai/adea same-head writer/reader pair at head df72ac097ed21870898531666792ac29f96a3caf: writer run 39060477290 and fresh reader run 39061003597, which restored the writer's exact key and hit 15/15 on its first and second builds",
+          "adea-ai/adea cross-head restore with a same-job replay at Adea commit 79790737d427a4b7902e733dcfdef3306786370b (run 39309703515: 14/15 on the first build, then 15/15 in the same job) and the same shape again at fda29dd50b09f984f08b5c2294618a7c70702674 (run 39312766487). Neither is a fresh same-head writer/reader pair",
+          "adea-ai/themes download-cache writer/reader pair at head 10a0832f: writer run 39066457864 saved the e93b770 key and reader run 39066576010 restored that exact key, and a successful default-branch run at the observed Themes head 112784dd",
+          "Linux receipts for the other campaign repositories are listed in earlierCheckpointsStillResolvable"
         ],
-        "note": "Every workspace graph in this campaign is Linux-only by construction: no consumer workflow declares a windows or macOS runner for the cache lanes."
+        "note": "This is a Linux-only list. It is not a statement about the campaign's Windows coverage, which is recorded separately under platformCoverage.windows, and it is not a claim that any workflow in the campaign runs only on Linux."
       },
       "windows": {
-        "status": "not proven",
-        "gap": "No Windows cache or executable-identity receipt exists for this campaign, and none can be produced from the two consumer repositories as they stand.",
-        "provenance": "currentCheckpoint.remaining already recorded 'Windows executable/cache identity remains unqualified; Windows tasks intentionally uncached', and latestUpdate.remaining recorded 'Cortana Windows cache identity unqualified; Windows commands intentionally remain uncached'. Both statements stand and are not superseded.",
-        "searchedOn2026-10-19": "The runner labels of every job in the last 100 workflow runs of adea-ai/adea, adea-ai/themes, adea-ai/cortana, adea-ai/control-plane, adea-ai/ui, adea-ai/agent-sim and adea-ai/plugins contain no windows label. adea-ai/adea and adea-ai/themes declare only ubuntu-latest and ubuntu-slim runners, and adea-ai/themes contains no windows reference at all.",
-        "cacheInventory": "Every production-tasks-v2 entry in adea-ai/adea is keyed Linux-X64. No Windows or macOS variant of the production task cache exists in either consumer repository.",
-        "notInferred": "No Windows receipt is manufactured, inferred from the Linux runs, or simulated locally. Closing this gap needs a Windows runner in a consumer workflow, which is outside this task's scope and outside the two consumer repositories' current runner set."
+        "status": "native executable identity and same-job build replay proven; independent same-head fresh-reader transfer unproven",
+        "proven": {
+          "run": "https://github.com/adea-ai/cortana/actions/runs/39188008084",
+          "runId": 39188008084,
+          "jobId": 117854425581,
+          "runner": "windows-latest",
+          "conclusion": "success",
+          "cortanaHead": "bcb9bfc27deb1248074e1a8215c73113e2cb92c7",
+          "workflowAtThatHead": "The workflow at that recorded head declares a [ubuntu-latest, windows-latest] matrix, runs native executable identity tests, performs a real build replay, and restores and saves a Windows-keyed cache.",
+          "claims": [
+            "Windows native executable identity is proven at that head.",
+            "A real build replay on Windows is proven at that head."
+          ],
+          "source": "Supplied by the owner for this correction and recorded as supplied. The Cortana repository was not queried again for this correction, and no Cortana file was changed."
+        },
+        "unproven": [
+          "An independent same-head fresh-reader writer/reader transfer on Windows: a fresh runner restoring the exact key that a trusted writer saved at the same head. The Windows evidence above is a same-job restore, replay and save, not that transfer."
+        ],
+        "supersedes": [
+          "The blanket statements this checkpoint previously made: that every campaign graph is Linux-only by construction, that no Windows receipt exists, and that Cortana Windows tasks are intentionally uncached. Those statements were wrong and are withdrawn here.",
+          "The older checkpoints' own words are left exactly in place, because they are the historical record of what was known at the time: latestUpdate.remaining recorded 'Cortana Windows cache identity unqualified; Windows commands intentionally remain uncached' and currentCheckpoint.remaining recorded 'Windows executable/cache identity remains unqualified; Windows tasks intentionally uncached'."
+        ],
+        "boundedRecentRunWindowObservation": {
+          "observedAt": "2026-10-19T19:42:30Z",
+          "observation": "The runner labels of every job in the last 100 workflow runs of adea-ai/adea, adea-ai/themes, adea-ai/cortana, adea-ai/control-plane, adea-ai/ui, adea-ai/agent-sim and adea-ai/plugins contained no windows label, and adea-ai/adea and adea-ai/themes declare only ubuntu-latest and ubuntu-slim runners.",
+          "scope": "This is a bounded search-window observation, not evidence of absence. The window did not contain the Cortana run recorded above, and it says nothing about runs outside it.",
+          "corrected": "This observation was previously read as proving that no Windows receipt exists. It does not, and the claim built on it is withdrawn."
+        },
+        "cacheInventoryScope": {
+          "observedAt": "2026-10-19T19:42:30Z",
+          "observation": "Every production-tasks-v2 entry in the adea-ai/adea cache listing was keyed Linux-X64 at that time.",
+          "scope": "This covers the adea-ai/adea cache listing only. It is not a statement about the Cortana cache and not a claim that a Windows-keyed cache exists nowhere in the campaign; the Cortana workflow above restores and saves a Windows-keyed cache."
+        }
       }
     },
     "codeFoundryCallerContracts": {
@@ -1929,20 +1982,31 @@
         ]
       },
       "adea-ai/themes": {
+        "state": "not changed by this pull request. The reconciliation is carried by the separate companion pull request adea-ai/themes#101, which is pending and not merged.",
+        "companionPullRequest": {
+          "repository": "adea-ai/themes",
+          "number": 101,
+          "url": "https://github.com/adea-ai/themes/pull/101",
+          "status": "pending, separate",
+          "observedHead": "36ac137af41a0f67b5498f5cddeba5e891aec177",
+          "observedAt": "2026-10-19T19:50:03Z",
+          "observedState": "OPEN, draft. The owner recorded the same pull request as open and ready at an earlier snapshot. Draft state is a point-in-time property, so the state observed at 2026-10-19T19:50:03Z is what is recorded here, and neither observation is a claim about the pull request's later state.",
+          "note": "This Adea pull request is JSON-only. It changed no Themes file and did not reconcile the Themes pin. The companion pull request did, and neither that pull request nor the Themes repository was modified here."
+        },
         "pinnedRefBefore": "v1.48.2",
         "pinnedRefAfter": "v1.48.3",
         "manifestPin": "1.48.3",
-        "state": "reconciled by this change",
         "callers": [
           ".github/workflows/validation.yml job validation -> code-foundry validation.yml@v1.48.3: 15 inputs, 2 secrets all declared",
           ".github/workflows/validation.yml job default-branch-codeql -> code-foundry codeql.yml@v1.48.3: 6 inputs, 0 secrets all declared",
           ".github/workflows/validation-audit.yml job validation -> code-foundry validation.yml@v1.48.3: 12 inputs, 2 secrets all declared",
           ".github/workflows/release.yml job release -> code-foundry release.yml@v1.48.3: 5 inputs, 2 secrets all declared",
           ".github/workflows/release-integrity.yml job verify -> code-foundry release-integrity.yml@v1.48.3: 2 inputs, 0 secrets all declared"
-        ]
+        ],
+        "callersVerifiedAgainst": "adea-ai/themes at the companion pull request's observed head 36ac137af41a0f67b5498f5cddeba5e891aec177, observed 2026-10-19T19:50:03Z. These are callers in the Themes repository, not in this one, and they are recorded here only as the companion pull request's state."
       },
       "releaseFlowUnchanged": "The v1.48.2..v1.48.3 comparison of 0xPlayerOne/code-foundry touches only .release-please-manifest.json, CHANGELOG.md, package.json and test/doctor-hook-shadow.test.mjs. No workflow file changed, so the reusable workflow contracts and the release flow are byte-identical across the two refs.",
-      "rendererAgreement": "The reconciled Themes files are byte-identical to what code-foundry 1.48.3's own sync renderer produces for this repository."
+      "rendererAgreement": "In the companion pull request adea-ai/themes#101, the reconciled Themes files are byte-identical to what code-foundry 1.48.3's own sync renderer produces for that repository. This pull request did not produce them and did not change Themes."
     },
     "turboCallerWiring": {
       "status": "dormant, and not removed from the consumer repositories",
@@ -1952,13 +2016,20 @@
         "adea-ai/themes .github/workflows/validation.yml job validation",
         "adea-ai/themes .github/workflows/validation-audit.yml job validation"
       ],
-      "dormancyEvidence": [
-        "No TURBO_TOKEN secret exists in adea-ai/adea or adea-ai/themes; the repository secret lists were read on 2026-10-19 and contain no TURBO_TOKEN and no NEXTAUTH_SECRET, so secrets.TURBO_TOKEN always resolves to an empty string.",
-        "Both consumer repositories set turbo_remote: false, so the Code Foundry doctor never raises its remote-caching credential warning and no remote cache is enabled.",
-        "adea-ai/adea sets monorepo_tool: vite-plus, which makes the setup action report turbo=false, so its 'Cache Turborepo' and 'Configure remote Turbo' steps are skipped outright.",
-        "adea-ai/themes has no turbo.json and no monorepo_tool key, so the auto profile also resolves to no Turbo runner.",
-        "The setup action gates the remote-cache step on TURBO_TOKEN and TURBO_TEAM both being non-empty, so an empty token can never change a run outcome."
-      ],
+      "dormancyEvidence": {
+        "observedSecretScope": [
+          "Observed exactly: the repository secret listing for adea-ai/adea and the repository secret listing for adea-ai/themes, each read on 2026-10-19, contain no TURBO_TOKEN entry and no NEXTAUTH_SECRET entry.",
+          "Scope of that observation: the repository secret scope of those two repositories at that time, and nothing else.",
+          "Limit of that observation: it does not establish that the effective TURBO_TOKEN is empty in every organization, environment or reusable-workflow scope, because those scopes were not inspected. No further secret or access inspection was performed for this correction, and none is proposed."
+        ],
+        "runnerSelectionEvidence": [
+          "adea-ai/adea sets turbo_remote: false, so the Code Foundry doctor does not raise its remote-caching credential warning and the remote-cache policy is off.",
+          "adea-ai/adea sets monorepo_tool: vite-plus, which makes the setup action report turbo=false, so its 'Cache Turborepo' and 'Configure remote Turbo' steps are skipped outright regardless of any token value.",
+          "adea-ai/themes has no turbo.json and no monorepo_tool key, so the auto profile also resolves to no Turbo runner.",
+          "The setup action gates its remote-cache step on TURBO_TOKEN and TURBO_TEAM both being non-empty, on the profile reporting a Turbo runner, and on the task actually using one. On these two repositories the runner conditions already fail, so the outcome does not turn on the token value."
+        ],
+        "note": "The runner-selection evidence stands on its own and does not depend on the secret listing. The secret listing is recorded only as the bounded observation it is."
+      },
       "whyNotRemoved": [
         "The two files carrying the pass-through are Code Foundry generated output, not consumer-owned files. The secrets block is byte-identical to code-foundry's .github/workflows/validation_self-ci.yml and src/templates/workflows/validation-audit.yml templates.",
         "A real code-foundry sync, run against a disposable copy of adea-ai/themes with the pass-through deleted, put the pass-through straight back at .github/workflows/validation.yml:107 and .github/workflows/validation-audit.yml:43. A consumer-side deletion is therefore reverted by the next runtime bump, which is exactly the drift this campaign exists to remove.",
@@ -1968,16 +2039,17 @@
       "requiredUpstreamChange": "Drop the TURBO_TOKEN pass-through from code-foundry's validation_self-ci.yml and src/templates/workflows/validation-audit.yml and update the matching assertion in code-foundry's test/cli.test.mjs, then re-sync both consumers. Until that lands, a consumer-side removal is inert but not durable."
     },
     "gaps": [
-      "Windows cache and executable identity are unqualified. No Windows receipt exists and none was invented.",
-      "The Adea fresh-reader receipt at head df72ac09 is at a merged head, not at the current head fda29dd5. The receipt at the current head is run 39312766487, whose restored entry is the exact key of the preceding main-push writer run 39311334244.",
-      "The Themes download-cache transfer pair is at head 10a0832f, the head that was current when it ran. The current Themes head 112784dd has a successful default-branch run but no fresh writer/reader download-cache pair.",
+      "Windows native executable identity and a same-job real build replay are proven by Cortana run 39188008084, job 117854425581 on windows-latest, at Cortana head bcb9bfc27deb1248074e1a8215c73113e2cb92c7. An independent same-head fresh-reader writer/reader transfer on Windows remains unproven, and no such receipt was invented.",
+      "The Adea same-head fresh-reader pair stands at head df72ac09, which is a merged head rather than the head observed in this checkpoint. The receipts at Adea commits 79790737d427a4b7902e733dcfdef3306786370b and fda29dd50b09f984f08b5c2294618a7c70702674 are cross-head restores with a same-job replay, not fresh same-head writer/reader pairs.",
+      "The Themes download-cache transfer pair is at head 10a0832f, the head that was current when it ran. The observed Themes head 112784dd has a successful default-branch run but no fresh writer/reader download-cache pair.",
       "The hit counts and manifest hashes recorded for the control-plane, ui, agent-sim, cortana and plugins graphs in earlier checkpoints were not re-derived; their runs were confirmed to exist and to have succeeded.",
       "Sizing, timing and CPU figures in earlier checkpoints remain single-run observations, not isolated benchmarks, and are not restated as measurements.",
-      "The plugin reader run 39056020219 ran on a release-please pull request, not on the default branch."
+      "The plugin reader run 39056020219 ran on a release-please pull request, not on the default branch.",
+      "The Themes pin reconciliation is pending in the separate companion pull request adea-ai/themes#101, observed at head 36ac137af41a0f67b5498f5cddeba5e891aec177 on 2026-10-19T19:50:03Z. It is not merged, and this pull request did not perform it."
     ],
     "remaining": [
-      "Qualify the Windows cache and executable identity, or record the decision that Windows tasks stay uncached, in the repository that owns the Windows lanes.",
-      "Re-run the Themes download-cache writer/reader pair at the current Themes head if a transfer proof at 112784dd is required.",
+      "Qualify an independent same-head fresh-reader writer/reader transfer on Windows in the repository that owns the Windows lanes. Native executable identity and the same-job real build replay are already proven there.",
+      "Re-run the Themes download-cache writer/reader pair at the observed Themes head if a transfer proof there is required.",
       "Make the Code Foundry renderer change that retires the Turbo pass-through, then re-sync both consumers."
     ]
   }
