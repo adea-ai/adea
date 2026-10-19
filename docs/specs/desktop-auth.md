@@ -29,10 +29,14 @@ sign-in handoff below.
 > (`apps/desktop/shell/src/auth-callback.ts` validates and queues the callback;
 > `apps/desktop/shell/src/auth-callback-channel.ts` subscribes to Electrobun's
 > `open-url` event), and the scheme is declared for packaging in
-> `apps/desktop/shell/electrobun.config.ts` (`app.urlSchemes`). Live OS
-> scheme registration still belongs to the signed packaging/release lane; the
-> shell carries the source configuration and the receiver, not the install-time
-> registration.
+> `apps/desktop/shell/electrobun.config.ts` (`app.urlSchemes`). That
+> declaration reaches the built bundle: the generated macOS app carries
+> `CFBundleURLTypes` → `CFBundleURLSchemes` = `adea` in its
+> `Contents/Info.plist` (pinned by
+> `apps/desktop/tests/packaged-scheme-target.test.ts`). Making macOS hand a
+> callback to an INSTALLED app still belongs to the signed packaging/release
+> lane; the shell carries the source configuration, the receiver, and the
+> bundle's registration entry, not the live registration.
 
 ## Current storage boundary
 
@@ -54,10 +58,12 @@ separate.
 re-encrypting the saved values. The next key access creates a new key, and old values
 cannot be read through that key. This command is not evidence of safe credential
 or content rotation. The shell's callback receiver routes an OS-delivered
-`adea://auth/callback` into the handoff, but live URL-scheme registration still
-belongs to the signed packaging/release lane. Cloud broker and client validation
-tests do not establish either native storage protection or packaged callback
-registration.
+`adea://auth/callback` into the handoff; the bundle's `adea` scheme entry is
+pinned, but live URL-scheme delivery to an installed app still belongs to the
+signed packaging/release lane. Cloud broker and client validation tests do not
+establish either native storage protection or packaged callback registration;
+the packaged scheme entry and the bundle's recorded build target are pinned
+separately, by `apps/desktop/tests/packaged-scheme-target.test.ts`.
 
 **Changelog discipline:** a change to the behaviour described here lands in the
 same commit as the update to this page (see `.github/CONTRIBUTING.md`).
@@ -333,6 +339,10 @@ boundary test bundles the real shell notification entry to check that graph.
 - `apps/desktop/tests/shell-channel.test.ts`: the invoke path authenticates
   the shell channel (bootstrap handshake, per-request HMAC, replay and
   origin refusals) before a handler runs.
+- `apps/desktop/tests/packaged-scheme-target.test.ts`: the generated macOS
+  bundle registers the `adea` URL scheme in its `Contents/Info.plist`, and the
+  bundle's embedded build target is the local development target that the
+  existing release gate refuses.
 
 ### Workspace deletion lifecycle commands
 
