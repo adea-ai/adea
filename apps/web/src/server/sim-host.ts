@@ -1,4 +1,9 @@
-import type { SimSessionExchangeResponse, SimSessionRecord } from '@adea-ai/spatial/sim-bridge'
+import type {
+  SimEntitlementVerdict,
+  SimSessionExchangeResponse,
+  SimSessionRecord,
+  SimSurface,
+} from '@adea-ai/spatial/sim-bridge'
 import {
   createSimHostConfiguration,
   entrySurface,
@@ -10,6 +15,15 @@ import { simJsonBody } from './sim-http'
 export type SimPrivateAsset = { body: BodyInit; contentType: string }
 
 /**
+ * The trusted context of a live session row. The store resolves it from the stored row after the digest,
+ * expiry and revocation checks. Nothing in the request can supply or change it.
+ */
+export type SimTrustedSession = SimSessionRecord & Readonly<{ workspaceId: string }>
+
+/** The context every private asset read carries, so a read cannot target another workspace or surface. */
+export type SimAssetContext = Readonly<{ workspaceId: string; surface: SimSurface }>
+
+/**
  * Separately hosted HTTP boundary. Asset storage never has a public bypass. The configuration is validated
  * before anything is served; a missing or malformed value throws instead of falling back to a default.
  */
@@ -17,13 +31,19 @@ export function createSimHost(
   options: SimHostConfigurationInput & {
     frameScript: string
     exchange: (body: unknown) => Promise<SimSessionExchangeResponse>
-    session: (value: string) => Promise<SimSessionRecord | null>
-    readAsset: (path: string) => Promise<SimPrivateAsset | null>
+    session: (value: string) => Promise<SimTrustedSession | null>
+    /** Explicit entitlement for the workspace and surface. Anything but 'entitled' serves no private asset. */
+    entitlement: (
+      context: SimAssetContext
+    ) => Promise<SimEntitlementVerdict> | SimEntitlementVerdict
+    readAsset: (path: string, context: SimAssetContext) => Promise<SimPrivateAsset | null>
     now?: () => number
   }
 ) {
   const config = createSimHostConfiguration(options)
   if (typeof options.frameScript !== 'string') throw new Error('Hosted Sim needs a frame script')
+  if (typeof options.entitlement !== 'function')
+    throw new Error('Hosted Sim needs an entitlement boundary')
   const origin = config.origin
   const parents = config.parentOrigins
   const headers = {
@@ -83,11 +103,18 @@ export function createSimHost(
       const at = (options.now ?? Date.now)()
       if (
         !session ||
+        typeof session.workspaceId !== 'string' ||
+        session.workspaceId.length === 0 ||
         !Number.isFinite(at) ||
         !Number.isFinite(session.expiresAt) ||
         session.expiresAt <= at
       )
         return new Response(null, { status: 401, headers })
+      // Only the stored row decides the workspace and surface. Query strings and headers are never consulted.
+      const context: SimAssetContext = {
+        workspaceId: session.workspaceId,
+        surface: session.surface,
+      }
       const path = decodeURIComponent(url.pathname.slice(config.assetPrefix.length))
       if (
         !path ||
@@ -101,7 +128,14 @@ export function createSimHost(
         return new Response(null, { status: 403, headers })
       // A renamed surface's old entry must not stay reachable as an ordinary shared asset.
       if (isRetiredEntry(config, path)) return new Response(null, { status: 404, headers })
-      const asset = await options.readAsset(path)
+      // No private read happens unless the injected entitlement says the workspace and surface may launch.
+      const verdict = await options.entitlement(context)
+      if (verdict !== 'entitled')
+        return new Response(null, {
+          status: verdict === 'not_entitled' ? 403 : verdict === 'unauthenticated' ? 401 : 503,
+          headers,
+        })
+      const asset = await options.readAsset(path, context)
       return asset
         ? new Response(asset.body, { headers: { ...headers, 'content-type': asset.contentType } })
         : new Response(null, { status: 404, headers })
