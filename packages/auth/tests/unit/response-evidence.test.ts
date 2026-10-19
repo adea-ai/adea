@@ -16,8 +16,8 @@ describe('built-Worker failure evidence', () => {
 
     expect(evidence).toEqual({
       status: 200,
-      connection: null,
-      cacheControl: 'private, no-store',
+      connection: 'absent',
+      cacheControl: 'no-store',
       bodyCategory: 'success',
     })
     expect(JSON.stringify(evidence)).not.toContain(sentinel)
@@ -34,7 +34,7 @@ describe('built-Worker failure evidence', () => {
     expect(batch[1]).toMatchObject({ status: 500, bodyCategory: 'error' })
   })
 
-  test('an error body keeps only a well-formed constant code', () => {
+  test('an error body keeps only a known code from the allowlist', () => {
     expect(
       describeResponse(
         response(403, JSON.stringify({ message: 'Email not verified', code: 'EMAIL_NOT_VERIFIED' }))
@@ -46,6 +46,31 @@ describe('built-Worker failure evidence', () => {
     )
     expect(tokenShaped.bodyCategory).toBe('error')
     expect(JSON.stringify(tokenShaped)).not.toContain(sentinel)
+  })
+
+  test('an uppercase code that is not on the allowlist is reported generically', () => {
+    const unknownCode = 'SENTINEL_UNKNOWN_CODE_4b1d'
+    const evidence = describeResponse(
+      response(400, JSON.stringify({ code: unknownCode, message: 'refused' }))
+    )
+
+    expect(evidence.bodyCategory).toBe('error')
+    expect(JSON.stringify(evidence)).not.toContain(unknownCode)
+  })
+
+  test('connection and cache-control values are normalized, never copied', () => {
+    const headerSentinel = 'SENTINEL-HEADER-VALUE-9e2f'
+    const evidence = describeResponse(
+      response(200, '', { connection: headerSentinel, 'cache-control': headerSentinel })
+    )
+
+    expect(evidence.connection).toBe('other')
+    expect(evidence.cacheControl).toBe('other')
+    expect(JSON.stringify(evidence)).not.toContain(headerSentinel)
+    expect(describeResponse(response(200, '', { connection: 'Keep-Alive' })).connection).toBe(
+      'keep-alive'
+    )
+    expect(describeResponse(response(200, '', { connection: 'close' })).connection).toBe('close')
   })
 
   test('an error body that is not JSON is categorised, not copied', () => {
