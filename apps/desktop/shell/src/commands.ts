@@ -1,6 +1,8 @@
 // Desktop command surface (the shell side of `apps/web/src/lib/desktop-bridge`).
-// File-backed state under the app data directory; AES-GCM for anything that was
-// keyring-protected under the previous shell. The observable command contract is
+// File-backed state under the app data directory. The auth vault entries
+// (pending attempt, user session, temporary workspace credential) live in the
+// OS credential store via `desktop-auth-store.ts`; local content and memory are
+// still AES-GCM under the device key. The observable command contract is
 // unchanged — see docs/specs/desktop-auth.md and docs/specs/local-content.md for
 // the behaviours these implement and the documented replacements.
 //
@@ -13,6 +15,11 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { version as packagedVersion } from '../../package.json'
+import {
+  createDesktopAuthStore,
+  createSystemKeychainPort,
+  type DesktopAuthKeychainPort,
+} from './desktop-auth-store'
 import { loadDeviceKey } from './device-key'
 import { createMacPermissionService, type MacPermissionService } from './desktop-permissions'
 import {
@@ -154,6 +161,14 @@ export function createCommandSurface(
      * `desktop_auth_start` refuses every URL rather than guessing an origin.
      */
     cloudOrigin?: string
+    /**
+     * The OS credential store behind the auth vault entries
+     * (`desktop_auth_attempt_*`, `desktop_user_session_*`,
+     * `desktop_temporary_workspace_*`). Production uses the macOS system
+     * keychain; tests inject an in-memory port. Absent, the system keychain is
+     * used and an unavailable store fails closed (never a file fallback).
+     */
+    authKeychain?: DesktopAuthKeychainPort
   }
 ) {
   const isAcceptableAuthorizationUrl = (url: string): boolean =>
@@ -162,6 +177,13 @@ export function createCommandSurface(
   const contentDir = join(dataDir, 'local-content')
   mkdirSync(stateDir, { recursive: true, mode: 0o700 })
   mkdirSync(contentDir, { recursive: true, mode: 0o700 })
+
+  // The three auth vault entries live in the OS credential store; a legacy
+  // `*.sealed` value is migrated on first read (see desktop-auth-store.ts).
+  const authStore = createDesktopAuthStore({
+    dataDir,
+    port: options?.authKeychain ?? createSystemKeychainPort(),
+  })
 
   const updates = createUpdateManager({
     appVersion: APP_VERSION,
@@ -214,16 +236,6 @@ export function createCommandSurface(
   function writeJson(name: string, value: unknown): void {
     writeFileSync(join(stateDir, name), JSON.stringify(value ?? null), { mode: 0o600 })
   }
-  function readSecret(name: string): unknown {
-    try {
-      return JSON.parse(open(readFileSync(join(stateDir, name), 'utf8')))
-    } catch {
-      return null
-    }
-  }
-  function writeSecret(name: string, value: unknown): void {
-    writeFileSync(join(stateDir, name), seal(JSON.stringify(value ?? null)), { mode: 0o600 })
-  }
   function clear(name: string): void {
     try {
       rmSync(join(stateDir, name))
@@ -264,22 +276,22 @@ export function createCommandSurface(
     return requested
   }
   const handlers: Record<string, (args?: Record<string, unknown>) => unknown> = {
-    desktop_user_session_load: () => readSecret('session.sealed'),
+    desktop_user_session_load: () => authStore.loadUserSession(),
     desktop_user_session_save: (args) => {
-      writeSecret('session.sealed', args?.session)
+      authStore.saveUserSession(args?.session)
       return null
     },
     desktop_user_session_clear: () => {
-      clear('session.sealed')
+      authStore.clearUserSession()
       return null
     },
-    desktop_auth_attempt_load: () => readSecret('auth-attempt.sealed'),
+    desktop_auth_attempt_load: () => authStore.loadAuthorizationAttempt(),
     desktop_auth_attempt_save: (args) => {
-      writeSecret('auth-attempt.sealed', args?.attempt)
+      authStore.saveAuthorizationAttempt(args?.attempt)
       return null
     },
     desktop_auth_attempt_clear: () => {
-      clear('auth-attempt.sealed')
+      authStore.clearAuthorizationAttempt()
       return null
     },
     desktop_auth_start: (args) => {
@@ -313,13 +325,13 @@ export function createCommandSurface(
       if (callback) clear('auth-callback.json')
       return callback
     },
-    desktop_temporary_workspace_load: () => readSecret('temporary-workspace.sealed'),
+    desktop_temporary_workspace_load: () => authStore.loadTemporaryWorkspaceCredential(),
     desktop_temporary_workspace_save: (args) => {
-      writeSecret('temporary-workspace.sealed', args?.credential)
+      authStore.saveTemporaryWorkspaceCredential(args?.credential)
       return null
     },
     desktop_temporary_workspace_clear: () => {
-      clear('temporary-workspace.sealed')
+      authStore.clearTemporaryWorkspaceCredential()
       return null
     },
     desktop_preferences_load: () => readJson('preferences.json'),

@@ -30,12 +30,19 @@ sign-in handoff below.
 
 ## Current storage boundary
 
-The Electrobun command registry uses AES-GCM files in `desktop-state` for the
-user session, pending authorization attempt, and temporary workspace credential.
-It keeps their shared encryption key in the local `device.key` file. This is
-separate from the Dev Runtime vault and does not establish OS credential-store
-protection for these three values. The legacy vault requirements below describe
-the target contract, not the current shell's storage implementation.
+The Electrobun command registry keeps the user session, pending authorization
+attempt, and temporary workspace credential in the operating-system credential
+store under the service `com.adea.desktop`, through
+`apps/desktop/shell/src/desktop-auth-store.ts`. macOS `/usr/bin/security` is the
+single backend; an unavailable, locked, or denied store fails closed and a file
+is never a fallback. Values written before this adapter
+(`desktop-state/{session,auth-attempt,temporary-workspace}.sealed`, AES-256-GCM
+under the local `device.key`) are migrated on first read: the legacy value is
+decrypted, validated, written to the OS store, read back for exact equality, and
+only then retired, so any failure leaves the legacy value intact. Local content
+and workspace memory still use the shared `device.key` file (see
+[Local content](./local-content.md)); the Dev Runtime credential vault is
+separate.
 
 `local_content_rotate_key` currently deletes the shared key file without
 re-encrypting the saved values. The next key access creates a new key, and old values
@@ -180,8 +187,10 @@ credential.
 
 ## Vault entries
 
-The target keeps all three in the operating-system credential store under the service
-`com.adea.desktop`:
+The shell keeps all three in the operating-system credential store under the
+service `com.adea.desktop`, through
+`apps/desktop/shell/src/desktop-auth-store.ts`. The shared codecs in
+`packages/auth/src/desktop.ts` enforce the rules below on read and on write:
 
 | Keychain user                   | Holds                                             | Validation on read and write                                                                                                                            |
 | ------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -190,6 +199,8 @@ The target keeps all three in the operating-system credential store under the se
 | `temporary-workspace-session`   | the guest credential (`adea_tmp_` + 43 base64url) | exact prefix and length, base64url alphabet                                                                                                             |
 
 A malformed entry is treated as absent for reads and never written on save. The
+session id keeps the runtime UUID rule (the codec rejects anything that is not a
+UUID), which is stricter than the `session_id` 16–128 range shown above. The
 pending attempt is kept in the vault rather than memory so a callback that
 launches a _new_ process can still finish, without weakening state or nonce
 verification.
@@ -278,6 +289,8 @@ boundary test bundles the real shell notification entry to check that graph.
 
 - `packages/auth/tests/unit`: origin allowlist, callback replay and credential
   rejection, single-use callback, vault validation for all three entries.
+- `apps/desktop/tests/desktop-auth-store.test.ts`: validation on read and write,
+  fail-closed store errors, and legacy `*.sealed` migration.
 - `packages/auth/tests/unit`: the default and injected origins are bare origins.
 - `scripts/desktop-origin-boundary.test.ts`: the canonical constant, the derived
   call sites, and no stray origin literal.
