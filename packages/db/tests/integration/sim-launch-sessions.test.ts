@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import {
@@ -14,14 +14,28 @@ const connectionUrl = process.env.DATABASE_URL
 
 const unique = () => crypto.randomUUID()
 
-/** A one-shot signal: `open` resolves `promise`. */
+/** A one-shot signal: `open` resolves `promise`, and `fail` rejects it. */
 const noop = () => undefined
 const latch = () => {
   let open = noop
-  const promise = new Promise<void>((resolve) => {
+  let fail: (error: unknown) => void = noop
+  const promise = new Promise<void>((resolve, reject) => {
     open = resolve
+    fail = reject
   })
-  return { promise, open: () => open() }
+  return { promise, open: () => open(), fail: (error: unknown) => fail(error) }
+}
+
+/** Resolves once another backend in this database is waiting on a lock, so a redemption is parked behind the holder. */
+const waitForLockWaiter = async (database: DatabaseConnection['db']) => {
+  for (let poll = 0; poll < 500; poll += 1) {
+    const rows = await database.execute<{ waiting: number }>(
+      sql`select count(*)::int as waiting from pg_stat_activity where datname = current_database() and wait_event_type = 'Lock' and pid <> pg_backend_pid()`
+    )
+    if (rows[0]?.waiting) return
+    await Bun.sleep(10)
+  }
+  throw new Error('the redemption never waited on the code row lock')
 }
 
 // Workspaces created by this suite, so its rows can be removed afterwards.
@@ -48,15 +62,20 @@ describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
     store = createSimLaunchStore(connection.db)
   })
   afterAll(async () => {
-    // Sessions reference their launch codes, so they go first.
-    const workspaceIds = [...createdWorkspaces]
-    if (workspaceIds.length > 0) {
-      await connection.db.delete(simSessions).where(inArray(simSessions.workspaceId, workspaceIds))
-      await connection.db
-        .delete(simLaunchCodes)
-        .where(inArray(simLaunchCodes.workspaceId, workspaceIds))
+    try {
+      // Sessions reference their launch codes, so they go first.
+      const workspaceIds = [...createdWorkspaces]
+      if (workspaceIds.length > 0) {
+        await connection.db
+          .delete(simSessions)
+          .where(inArray(simSessions.workspaceId, workspaceIds))
+        await connection.db
+          .delete(simLaunchCodes)
+          .where(inArray(simLaunchCodes.workspaceId, workspaceIds))
+      }
+    } finally {
+      await connection.close()
     }
-    await connection.close()
   })
 
   const presented = { bridgeId: 'bridge-a', origin: 'https://sim.example' }
@@ -209,46 +228,59 @@ describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
     const session = `session-${unique()}`
     await timed.issue(code, b, clockValue + 1_000)
 
-    // A holder takes the code row lock, and the redemption starts and waits behind it.
+    // A holder takes the code row lock. Any failure to take it fails the test rather than hanging it.
     const acquired = latch()
     const released = latch()
     const holder = connection.db
       .transaction(async (tx) => {
-        await tx
-          .select()
-          .from(simLaunchCodes)
-          .where(eq(simLaunchCodes.workspaceId, b.workspaceId))
-          .for('update')
+        try {
+          await tx
+            .select()
+            .from(simLaunchCodes)
+            .where(eq(simLaunchCodes.workspaceId, b.workspaceId))
+            .for('update')
+        } catch (error) {
+          acquired.fail(error)
+          throw error
+        }
         acquired.open()
         await released.promise
         // Rolling back releases the lock without writing anything.
         throw new Error('release the lock')
       })
-      .catch(() => undefined)
-    await acquired.promise
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.message === 'release the lock') return undefined
+        throw error
+      })
 
-    // The code is still live when the redemption starts, and expires while it waits.
-    const attempt = timed.redeemAndSave(code, presented, clockValue, {
-      value: session,
-      expiresAt: clockValue + 60_000,
-    })
-    await Bun.sleep(150)
-    clockValue += 2_000
-    released.open()
-    await holder
+    try {
+      await acquired.promise
 
-    expect(await attempt).toEqual({ ok: false, reason: 'code_expired' })
-    const sessions = await connection.db
-      .select()
-      .from(simSessions)
-      .where(eq(simSessions.workspaceId, b.workspaceId))
-    expect(sessions).toHaveLength(0)
-    expect(await findSimSession(connection.db, session, b.workspaceId, clockValue)).toBeNull()
-    // The refusal still spends the code, as with any presentation that reaches the row.
-    expect(await timed.redeem(code, presented, clockValue)).toEqual({
-      ok: false,
-      reason: 'code_used',
-    })
+      // The code is still live when the redemption starts, and it expires while the redemption waits.
+      const attempt = timed.redeemAndSave(code, presented, clockValue, {
+        value: session,
+        expiresAt: clockValue + 60_000,
+      })
+      await waitForLockWaiter(connection.db)
+      clockValue += 2_000
+      released.open()
+
+      expect(await attempt).toEqual({ ok: false, reason: 'code_expired' })
+      const sessions = await connection.db
+        .select()
+        .from(simSessions)
+        .where(eq(simSessions.workspaceId, b.workspaceId))
+      expect(sessions).toHaveLength(0)
+      expect(await findSimSession(connection.db, session, b.workspaceId, clockValue)).toBeNull()
+      // The refusal still spends the code, as with any presentation that reaches the row.
+      expect(await timed.redeem(code, presented, clockValue)).toEqual({
+        ok: false,
+        reason: 'code_used',
+      })
+    } finally {
+      released.open()
+      await holder
+    }
   })
 
   test('a separate session save is refused, so sessions exist only with a redemption', () => {
