@@ -101,6 +101,9 @@ const specs = [
   // App Library navigation and field preservation, browser-mounted: the real App Library page and the
   // real navigation rules, with the shell reduced to signals (no router, no native surface).
   'apps/web/e2e/app-library-navigation-mount.spec.ts',
+  // App Library on the real route: history steps for opening an app and enabling in place, over mocked
+  // workspace APIs (no database).
+  'apps/web/e2e/app-library-history.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)
