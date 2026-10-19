@@ -1,11 +1,18 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { Pool } from 'pg'
 
+import { getMigrations } from 'better-auth/db/migration'
+
+import { createBetterAuthOptions } from '../../src/better-auth-options'
+import { createUnconfiguredDelivery } from '../../src/delivery'
 import {
   AuthSchemaInitError,
   SCHEMA_INIT_APPLICATION_NAME,
   applyAuthSchema,
+  initializeAuthSchemaOn,
   planAuthSchema,
+  readAuthSchemaInitConfig,
+  type AuthMigrationPlanner,
 } from '../../src/schema-init'
 
 // Runs against a disposable loopback PostgreSQL only. It creates two temporary
@@ -69,6 +76,46 @@ async function auditBackendsSettle(): Promise<number> {
     await Bun.sleep(100)
   }
   return -1
+}
+
+// Counts the Better Auth table names across every schema, so a refused run can
+// be shown to have written nothing anywhere, not only in the intended schema.
+async function authTableCount(): Promise<number> {
+  const rows = await admin!.query<{ count: number }>(
+    `SELECT count(*)::int AS count FROM information_schema.tables
+     WHERE table_name = ANY($1::text[]) AND table_type = 'BASE TABLE'`,
+    [expectedTables]
+  )
+  return rows.rows[0]?.count ?? 0
+}
+
+function searchPathUrl(role: string, password: string, rawSearchPath: string): string {
+  const url = new URL(databaseUrl!)
+  url.username = role
+  url.password = password
+  url.searchParams.set('options', `-c search_path=${rawSearchPath}`)
+  return url.toString()
+}
+
+// The deferred index statements Better Auth runs after the tables and columns.
+// Read from the compiled plan so the test blocks a real generated index name.
+async function deferredIndexNames(schema: string, environment: Record<string, string>) {
+  const config = readAuthSchemaInitConfig(environment)
+  const pool = new Pool({ connectionString: config.databaseUrl, max: 1 })
+  try {
+    const migrations = await getMigrations({
+      ...createBetterAuthOptions({
+        config,
+        database: pool,
+        delivery: createUnconfiguredDelivery(),
+      }),
+      logger: { disabled: true },
+    })
+    const compiled = await migrations.compileMigrations()
+    return [...compiled.matchAll(/create (?:unique )?index "([^"]+)"/gi)].map((match) => match[1]!)
+  } finally {
+    await pool.end()
+  }
 }
 
 async function failureOf(run: Promise<unknown>): Promise<AuthSchemaInitError> {
@@ -171,7 +218,7 @@ describe.skipIf(!databaseUrl)('explicit Better Auth schema initialization (Postg
     const failure = await failureOf(applyAuthSchema(environment))
     expect(failure.stage).toBe('target')
     expect(failure.message).toBe(
-      'AUTH_MIGRATION_DATABASE_URL search_path does not name an existing schema'
+      'AUTH_MIGRATION_DATABASE_URL search_path must name exactly one existing, unquoted schema'
     )
     const exists = await admin!.query<{ count: number }>(
       `SELECT count(*)::int AS count FROM pg_namespace WHERE nspname = $1`,
@@ -212,4 +259,123 @@ describe.skipIf(!databaseUrl)('explicit Better Auth schema initialization (Postg
     expect(failure.stage).toBe('target')
     expect(await auditBackendsSettle()).toBe(0)
   }, 30_000)
+
+  test.each([
+    [
+      'a missing schema listed before a real one',
+      (real: string) => `auth_init_absent_${suffix},${real}`,
+    ],
+    ['a real schema followed by public', (real: string) => `${real},public`],
+    ['the $user placeholder before a real schema', (real: string) => `"$user",${real}`],
+    ['a quoted mixed-case schema name', (_real: string) => `"Quoted_${suffix}"`],
+  ])(
+    'an ambiguous search_path (%s) is refused with no table written anywhere',
+    async (_label, pathFor) => {
+      const real = `auth_init_ambig_${crypto.randomUUID().replaceAll('-', '')}`
+      await createSchema(real)
+      if (_label.startsWith('a quoted')) {
+        await admin!.query(`CREATE SCHEMA "Quoted_${suffix}" AUTHORIZATION "${ownerRole}"`)
+        createdSchemas.push(`Quoted_${suffix}`)
+      }
+      const before = await authTableCount()
+      const environment = environmentFor(searchPathUrl(ownerRole, ownerPassword, pathFor(real)))
+
+      const failure = await failureOf(applyAuthSchema(environment))
+      expect(failure.stage).toBe('target')
+      expect(await authTableCount()).toBe(before)
+      expect(await tablesIn(real)).toEqual([])
+    },
+    60_000
+  )
+
+  test('apply that leaves pending work is reported as a failure, never as success', async () => {
+    const schema = `auth_init_pending_${suffix}`
+    await createSchema(schema)
+    const config = readAuthSchemaInitConfig(
+      environmentFor(withCredentials(ownerRole, ownerPassword, schema))
+    )
+    const pool = new Pool({ connectionString: config.databaseUrl, max: 1 })
+    try {
+      // A planner that still reports `user` as pending after apply models an
+      // apply that returned without completing the schema.
+      const pendingPlanner = (async () => ({
+        compileMigrations: async () => 'SELECT 1',
+        runMigrations: async () => undefined,
+        toBeAdded: [],
+        toBeCreated: [{ fields: {}, order: 1, table: 'user' }],
+      })) as unknown as AuthMigrationPlanner
+      const failure = await failureOf(initializeAuthSchemaOn(pool, config, true, pendingPlanner))
+      expect(failure.stage).toBe('apply')
+      expect(failure.message).toContain('pending work after apply')
+    } finally {
+      await pool.end()
+    }
+  }, 30_000)
+
+  test('a failure during apply rolls the whole schema back, and a replay then completes it', async () => {
+    const schema = `auth_init_atomic_${suffix}`
+    await createSchema(schema)
+    const environment = environmentFor(withCredentials(ownerRole, ownerPassword, schema))
+    const [indexName] = await deferredIndexNames(schema, environment)
+    expect(indexName).toBeDefined()
+    // Injected mid-apply failure: a relation already holds the deferred index's
+    // name, so Better Auth's final CREATE INDEX fails after its tables exist.
+    await admin!.query(`CREATE TABLE "${schema}"."${indexName}" (blocker integer)`)
+
+    const failure = await failureOf(applyAuthSchema(environment))
+    expect(failure.stage).toBe('apply')
+    expect(await tablesIn(schema)).toEqual([indexName])
+    expect(await auditBackendsSettle()).toBe(0)
+
+    await admin!.query(`DROP TABLE "${schema}"."${indexName}"`)
+    const replay = await applyAuthSchema(environment)
+    expect(replay.applied).toBe(true)
+    expect(replay.after).toEqual({ add: [], create: [] })
+    expect(await tablesIn(schema)).toEqual(expectedTables)
+    const indexes = await admin!.query<{ indexname: string }>(
+      `SELECT indexname FROM pg_indexes WHERE schemaname = $1`,
+      [schema]
+    )
+    expect(indexes.rows.map((row) => row.indexname)).toContain(indexName)
+    expect(await auditBackendsSettle()).toBe(0)
+  }, 60_000)
+
+  test('the command writes nothing to stderr on success, and one JSON line on a refused target', async () => {
+    const schema = `auth_init_quiet_${suffix}`
+    await createSchema(schema)
+    // A column of the wrong type makes Better Auth's inspection log a warning.
+    await admin!.query(`CREATE TABLE "${schema}"."user" (id text PRIMARY KEY, email integer)`)
+    // The owner role must see the table, or inspection never reaches the column.
+    await admin!.query(`ALTER TABLE "${schema}"."user" OWNER TO "${ownerRole}"`)
+    const packageRoot = new URL('../../', import.meta.url).pathname
+    const run = async (migrationUrl: string) => {
+      const child = Bun.spawn(['bun', '--no-env-file', 'src/schema-init-cli.ts'], {
+        cwd: packageRoot,
+        env: {
+          PATH: process.env.PATH ?? '',
+          HOME: process.env.HOME ?? '',
+          ...environmentFor(migrationUrl),
+        },
+        stderr: 'pipe',
+        stdout: 'pipe',
+      })
+      const [stdout, stderr] = await Promise.all([
+        new Response(child.stdout).text(),
+        new Response(child.stderr).text(),
+      ])
+      return { code: await child.exited, stderr, stdout }
+    }
+
+    const planned = await run(withCredentials(ownerRole, ownerPassword, schema))
+    expect(planned.code).toBe(0)
+    expect(planned.stderr).toBe('')
+    expect(JSON.parse(planned.stdout.trim()).status).toBe('ok')
+
+    const refused = await run(
+      withCredentials(ownerRole, ownerPassword, `auth_init_absent_${suffix}`)
+    )
+    expect(refused.code).toBe(1)
+    expect(refused.stderr.trim().split('\n')).toHaveLength(1)
+    expect(JSON.parse(refused.stderr.trim()).stage).toBe('target')
+  }, 60_000)
 })

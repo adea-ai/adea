@@ -73,14 +73,21 @@ bun run --cwd packages/auth schema-init -- --apply # runs Better Auth's migratio
   runtime role) is ignored. `AUTH_BASE_URL`, `AUTH_SECRET` and `AUTH_TRUSTED_ORIGINS` are validated
   with the runtime rules, so the tables come from the same Better Auth options.
 - Ordering: (1) create the target schema and roles with the operator's own tooling; the search path
-  must name an existing schema, or the command refuses before any change; (2) plan; (3) apply with
+  must be a single unquoted schema name that exists (Better Auth inspects the first literal entry and
+  unqualified DDL lands in the first existing one, so anything ambiguous is refused before any change); (2) plan; (3) apply with
   the migration role; (4) only then start the runtime service with `AUTH_DATABASE_URL` set to the
   runtime role. Re-applying an initialized schema is a no-op. Apply only adds tables and columns
-  and never drops anything; if it fails part-way, plan again to see what remains and re-run apply.
+  and never drops anything. Success is reported only when a fresh inspection shows nothing pending.
+  Apply is all-or-nothing: the compiled statements (tables, columns and deferred indexes) run in one
+  transaction on one connection, so a failure rolls the whole schema back and re-running apply
+  completes it. Inspection does not compare indexes, so a schema some other tool left partly built
+  is not detected; initialize only a fresh schema with this command.
 - The runtime role has no `CREATE` on the auth schema, so it cannot create these tables even if
   misconfigured. It may plan (read-only) but apply is refused by the database.
-- Errors print one JSON line with the failing stage (`config`, `connect`, `target`, `inspect`,
-  `apply`, `cleanup`) and never the connection string or its password. The pool is always released.
+- Upstream migration logging is disabled for this command, so the only error output is the single JSON
+  line below. Errors print one JSON line with the failing stage (`config`, `connect`, `target`, `inspect`,
+  `apply`, `cleanup`). Each message is passed through redaction of the connection string and its password.
+  The pool is always released.
 
 `scripts/fresh-postgres-acceptance` uses the same `applyAuthSchema()` for its disposable PostgreSQL
 journey. Wiring the command into a hosted deploy step remains a separate, owner-approved change.

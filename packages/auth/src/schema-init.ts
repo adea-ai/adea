@@ -105,7 +105,7 @@ async function runSchemaInit(
   let result: AuthSchemaInitResult | undefined
   let bodyError: unknown
   try {
-    result = await runAgainstPool(pool, config, apply, secrets)
+    result = await runAgainstPool(pool, config, apply, secrets, getMigrations)
   } catch (error) {
     bodyError = error
   }
@@ -121,38 +121,120 @@ async function runSchemaInit(
   return result as AuthSchemaInitResult
 }
 
+/** The inspection entry point; injectable so the post-apply guard has a direct test. */
+export type AuthMigrationPlanner = typeof getMigrations
+
+// An unquoted, lower-case identifier: the only form whose effective name is the
+// same for Better Auth's textual reading of `search_path` and PostgreSQL's
+// unqualified DDL resolution.
+const PLAIN_SCHEMA_NAME = /^[a-z_][a-z0-9_]{0,62}$/
+
+/**
+ * Runs the plan (and, when asked, the apply) on an open pool. Exported so the
+ * tests can drive the guards directly; production callers use
+ * {@link planAuthSchema} and {@link applyAuthSchema}.
+ */
+export async function initializeAuthSchemaOn(
+  pool: Pool,
+  config: BetterAuthConfig,
+  apply: boolean,
+  planner: AuthMigrationPlanner = getMigrations
+): Promise<AuthSchemaInitResult> {
+  return runAgainstPool(pool, config, apply, redactionTargets(config.databaseUrl), planner)
+}
+
 async function runAgainstPool(
   pool: Pool,
   config: BetterAuthConfig,
   apply: boolean,
-  secrets: readonly string[]
+  secrets: readonly string[],
+  planner: AuthMigrationPlanner
 ): Promise<AuthSchemaInitResult> {
-  // Refuse a search_path that names no existing schema before Better Auth can
-  // create anything: `current_schema()` is null when none of its entries exists.
+  // Better Auth inspects the first literal `search_path` entry, while unqualified
+  // DDL lands in the first schema that exists. Those agree only when the path is a
+  // single plain name that exists, so anything else is refused before any change.
   const target = await atStage('connect', secrets, () =>
-    pool.query<{ schema: string | null }>('SELECT current_schema() AS schema')
+    pool.query<{ schema: string | null; search_path: string }>(
+      "SELECT current_setting('search_path') AS search_path, current_schema() AS schema"
+    )
   )
-  if (!target.rows[0]?.schema) {
+  const entries = (target.rows[0]?.search_path ?? '').split(',').map((entry) => entry.trim())
+  const schema = target.rows[0]?.schema ?? null
+  if (entries.length !== 1 || !PLAIN_SCHEMA_NAME.test(entries[0] ?? '') || schema !== entries[0]) {
     throw new AuthSchemaInitError(
       'target',
-      'AUTH_MIGRATION_DATABASE_URL search_path does not name an existing schema'
+      'AUTH_MIGRATION_DATABASE_URL search_path must name exactly one existing, unquoted schema'
     )
   }
 
-  const options = createBetterAuthOptions({
-    config,
-    database: pool,
-    delivery: createUnconfiguredDelivery(),
-  })
-  const migrations = await atStage('inspect', secrets, () => getMigrations(options))
+  // Migration logging is disabled here only. Upstream warnings would otherwise
+  // reach stderr beside the single JSON error line this command promises.
+  const options = {
+    ...createBetterAuthOptions({
+      config,
+      database: pool,
+      delivery: createUnconfiguredDelivery(),
+    }),
+    logger: { disabled: true },
+  }
+  const migrations = await atStage('inspect', secrets, () => planner(options))
   const before = tablesOf(migrations)
   if (!apply || (before.create.length === 0 && before.add.length === 0)) {
     return { applied: false, before }
   }
 
-  await atStage('apply', secrets, () => migrations.runMigrations())
-  const after = tablesOf(await atStage('inspect', secrets, () => getMigrations(options)))
+  // Better Auth's own runMigrations executes table, column and deferred index
+  // statements one by one, outside a transaction, so an interruption can leave
+  // a schema that replay mistakes for complete. Apply the same compiled
+  // statements as one transaction on a single connection instead.
+  const statements = await atStage('inspect', secrets, () => migrations.compileMigrations())
+  if (/\$\d/.test(statements)) {
+    throw new AuthSchemaInitError(
+      'apply',
+      'compiled schema statements contain bound parameters; refusing to apply them'
+    )
+  }
+  await applyInOneTransaction(pool, statements, secrets)
+  const after = tablesOf(await atStage('inspect', secrets, () => planner(options)))
+  // Success is reported only when the post-apply inspection is empty. Anything
+  // still pending means the schema is not initialized, whatever apply returned.
+  if (after.create.length > 0 || after.add.length > 0) {
+    throw new AuthSchemaInitError(
+      'apply',
+      'schema still has pending work after apply; initialization is not complete'
+    )
+  }
   return { after, applied: true, before }
+}
+
+/**
+ * Runs the statements on one checked-out connection inside BEGIN/COMMIT, so a
+ * failure at any point, including deferred indexes, leaves no partial schema.
+ * The connection is released once; it is destroyed if rollback itself fails.
+ */
+async function applyInOneTransaction(
+  pool: Pool,
+  statements: string,
+  secrets: readonly string[]
+): Promise<void> {
+  const client = await atStage('connect', secrets, () => pool.connect())
+  let failure: unknown
+  let rollbackFailed = false
+  try {
+    await atStage('apply', secrets, () => client.query('BEGIN'))
+    await atStage('apply', secrets, () => client.query(statements))
+    await atStage('apply', secrets, () => client.query('COMMIT'))
+  } catch (error) {
+    failure = error
+    try {
+      await client.query('ROLLBACK')
+    } catch {
+      rollbackFailed = true
+    }
+  } finally {
+    client.release(rollbackFailed ? true : undefined)
+  }
+  if (failure !== undefined) throw failure
 }
 
 function tablesOf(migrations: {
