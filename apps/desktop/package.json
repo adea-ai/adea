@@ -13,6 +13,7 @@
     "typecheck": "bun check -p shell/tsconfig.json"
   },
   "dependencies": {
+    "@adea-ai/auth": "workspace:*",
     "@adea-ai/dev-view": "workspace:*"
   }
 }
