@@ -167,6 +167,37 @@ export async function findSimSession(
   return row ? { surface: row.surface as SimSurface, expiresAt: row.expiresAt.valueOf() } : null
 }
 
+/**
+ * Resolves a presented session value to the workspace and surface stored on its row. Only the digest, expiry and
+ * revocation checks decide the result, so no workspace or surface can be supplied by the caller. Use this where a
+ * request has no verified workspace of its own; callers with one should use findSimSession.
+ */
+export async function findSimSessionContext(
+  database: AgentHqDatabase,
+  value: string,
+  now: number
+): Promise<Readonly<{ workspaceId: string; surface: SimSurface; expiresAt: number }> | null> {
+  if (!Number.isFinite(now)) return null
+  const [row] = await database
+    .select()
+    .from(simSessions)
+    .where(
+      and(
+        eq(simSessions.sessionDigest, digest(value)),
+        isNull(simSessions.revokedAt),
+        gt(simSessions.expiresAt, new Date(now))
+      )
+    )
+    .limit(1)
+  return row
+    ? {
+        workspaceId: row.workspaceId,
+        surface: row.surface as SimSurface,
+        expiresAt: row.expiresAt.valueOf(),
+      }
+    : null
+}
+
 /** Revokes a live session. Returns false when there was no live session to revoke. */
 export async function revokeSimSession(
   database: AgentHqDatabase,

@@ -6,6 +6,7 @@ import {
   bindSimLaunchStoreToWorkspace,
   createSimLaunchStore,
   findSimSession,
+  findSimSessionContext,
   revokeSimSession,
   type SimLaunchBinding,
 } from '../../src/sim-launch-sessions'
@@ -328,6 +329,52 @@ describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
     ).toEqual({ ok: true, surface: 'hq' })
     expect(await findSimSession(connection.db, session, workspaceId, Date.now())).not.toBeNull()
     expect(await findSimSession(connection.db, session, conflicting, Date.now())).toBeNull()
+  })
+
+  test('the value-only resolver returns the workspace and surface stored on the row and refuses unusable lookups', async () => {
+    const workspaceId = `ws-${unique()}`
+    createdWorkspaces.add(workspaceId)
+    const bound = bindSimLaunchStoreToWorkspace(store, workspaceId)
+    const code = `code-${unique()}`
+    const session = `session-${unique()}`
+    await bound.issue(
+      code,
+      { bridgeId: 'bridge-a', origin: 'https://sim.example', surface: 'character-designer' },
+      later
+    )
+    expect(
+      await bound.redeemAndSave(code, presented, Date.now(), { value: session, expiresAt: later })
+    ).toEqual({ ok: true, surface: 'character-designer' })
+    expect(await findSimSessionContext(connection.db, session, Date.now())).toEqual({
+      workspaceId,
+      surface: 'character-designer',
+      expiresAt: later,
+    })
+
+    // A session that expires resolves until its expiry instant, then stops.
+    const expiring = `session-${unique()}`
+    const soon = Date.now() + 5_000
+    const expiringCode = `code-${unique()}`
+    await bound.issue(
+      expiringCode,
+      { bridgeId: 'bridge-a', origin: 'https://sim.example', surface: 'hq' },
+      later
+    )
+    await bound.redeemAndSave(expiringCode, presented, Date.now(), {
+      value: expiring,
+      expiresAt: soon,
+    })
+    expect(await findSimSessionContext(connection.db, expiring, soon - 1)).not.toBeNull()
+    expect(await findSimSessionContext(connection.db, expiring, soon)).toBeNull()
+
+    // Unknown values and a non-finite clock resolve to nothing, and so does a session at its expiry.
+    expect(await findSimSessionContext(connection.db, `session-${unique()}`, Date.now())).toBeNull()
+    expect(await findSimSessionContext(connection.db, session, Number.NaN)).toBeNull()
+    expect(await findSimSessionContext(connection.db, session, later)).toBeNull()
+
+    // A revoked session stops resolving.
+    expect(await revokeSimSession(connection.db, session, Date.now())).toBe(true)
+    expect(await findSimSessionContext(connection.db, session, Date.now())).toBeNull()
   })
 
   test('a bound store refuses a workspace identifier outside the database shape', () => {

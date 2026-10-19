@@ -62,7 +62,12 @@ function fixture() {
     },
     frameScript: '// public bootstrap only',
     exchange,
-    session: async (value) => sessions.get(value) ?? null,
+    session: async (value) => {
+      const record = sessions.get(value)
+      return record ? { ...record, workspaceId: body.workspaceId } : null
+    },
+    entitlement: async (context) =>
+      context.workspaceId === body.workspaceId ? 'entitled' : 'not_entitled',
     now: () => now,
     readAsset: async (path) => {
       assetReads++

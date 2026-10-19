@@ -629,6 +629,7 @@ export {
   bindSimLaunchStoreToWorkspace,
   createSimLaunchStore,
   findSimSession,
+  findSimSessionContext,
   revokeSimSession,
   SIM_SURFACES,
   type SimLaunchBinding,

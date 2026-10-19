@@ -123,7 +123,12 @@ test('app -> launch -> cross-origin frame -> session -> private runtime; offline
     },
     frameScript,
     exchange,
-    session: async (value) => sessions.get(value) ?? null,
+    session: async (value) => {
+      const record = sessions.get(value)
+      return record ? { ...record, workspaceId: 'workspace-one' } : null
+    },
+    entitlement: async (context) =>
+      context.workspaceId === 'workspace-one' ? 'entitled' : 'not_entitled',
     readAsset: async (path) => {
       assetReads++
       if (privateRoot) {
