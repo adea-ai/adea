@@ -118,6 +118,29 @@ export function createSimLaunchStore(
   }
 }
 
+/** Workspace identifiers use the same shape as the rest of the database, so a session cannot carry an odd one. */
+const SIM_WORKSPACE_ID = /^[A-Za-z0-9_.:-]{1,128}$/
+
+/**
+ * Binds a store to one workspace already verified by the caller's authorization. The spatial issuer supplies
+ * only bridge, origin and surface; the workspace comes from here, never from the presented code.
+ */
+export function bindSimLaunchStoreToWorkspace(
+  store: ReturnType<typeof createSimLaunchStore>,
+  workspaceId: string
+) {
+  if (!SIM_WORKSPACE_ID.test(workspaceId))
+    throw new RangeError('Sim workspace id is not a valid identifier')
+  return {
+    issue(code: string, binding: Omit<SimLaunchBinding, 'workspaceId'>, expiresAt: number) {
+      return store.issue(code, { ...binding, workspaceId }, expiresAt)
+    },
+    redeem: store.redeem,
+    redeemAndSave: store.redeemAndSave,
+    save: store.save,
+  }
+}
+
 /** The live session for a value in one workspace, or null when it is unknown, expired, revoked or elsewhere. */
 export async function findSimSession(
   database: AgentHqDatabase,

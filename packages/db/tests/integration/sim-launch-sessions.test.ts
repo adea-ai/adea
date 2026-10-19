@@ -3,6 +3,7 @@ import { eq, inArray, sql } from 'drizzle-orm'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import {
+  bindSimLaunchStoreToWorkspace,
   createSimLaunchStore,
   findSimSession,
   revokeSimSession,
@@ -281,6 +282,38 @@ describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
       released.open()
       await holder
     }
+  })
+
+  test('a store bound to a verified workspace writes that workspace, whatever the presented binding says', async () => {
+    const workspaceId = `ws-${unique()}`
+    createdWorkspaces.add(workspaceId)
+    const bound = bindSimLaunchStoreToWorkspace(store, workspaceId)
+    const code = `code-${unique()}`
+    const session = `session-${unique()}`
+    await bound.issue(
+      code,
+      { bridgeId: 'bridge-a', origin: 'https://sim.example', surface: 'hq' },
+      later
+    )
+
+    expect(
+      await bound.redeemAndSave(code, presented, Date.now(), { value: session, expiresAt: later })
+    ).toEqual({ ok: true, surface: 'hq' })
+    expect(await findSimSession(connection.db, session, workspaceId, Date.now())).toEqual({
+      surface: 'hq',
+      expiresAt: later,
+    })
+    expect(await findSimSession(connection.db, session, `ws-${unique()}`, Date.now())).toBeNull()
+  })
+
+  test('a bound store refuses a workspace identifier outside the database shape', () => {
+    expect(() => bindSimLaunchStoreToWorkspace(store, '')).toThrow('not a valid identifier')
+    expect(() => bindSimLaunchStoreToWorkspace(store, 'ws with space')).toThrow(
+      'not a valid identifier'
+    )
+    expect(() => bindSimLaunchStoreToWorkspace(store, 'x'.repeat(129))).toThrow(
+      'not a valid identifier'
+    )
   })
 
   test('a separate session save is refused, so sessions exist only with a redemption', () => {
