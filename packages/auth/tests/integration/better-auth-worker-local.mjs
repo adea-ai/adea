@@ -9,6 +9,7 @@ import { getMigrations } from 'better-auth/db/migration'
 import { handleBetterAuthRequest } from '../../src/better-auth-server.ts'
 import { createBetterAuthService } from '../../src/server.ts'
 import { createRecordingAuthDelivery } from '../../src/delivery.ts'
+import { describeResponse } from './response-evidence.mjs'
 
 const mode = process.argv.at(-1)
 assert.ok(
@@ -265,12 +266,7 @@ async function trackedWorkerRequest(label, requests, expectedSessions = requests
   const before = await sessionCount()
   const results = await Promise.all(requests.map((request) => requestWorker(...request)))
   // Captured before the database wait, so a proxy-level failure is distinguishable from database inactivity.
-  const observed = results.map((result) => ({
-    status: result.status,
-    connection: result.headers.connection ?? null,
-    cacheControl: result.headers['cache-control'] ?? null,
-    body: result.text.slice(0, 160),
-  }))
+  const observed = results.map(describeResponse)
   await assertDatabaseSessionsStarted(
     before,
     expectedSessions,
