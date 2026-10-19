@@ -10,6 +10,7 @@ import { join } from 'node:path'
 
 import {
   createDesktopAuthorizationAttempt,
+  createDesktopAuthorizationManager,
   type DesktopAuthorizationAttempt,
 } from '../../../packages/auth/src/desktop'
 import {
@@ -28,6 +29,10 @@ import {
   createDesktopAuthCallbackChannel,
 } from '../shell/src/auth-callback-channel'
 import { createCommandSurface } from '../shell/src/commands'
+import {
+  createMemoryKeychainPort,
+  type DesktopAuthKeychainPort,
+} from '../shell/src/desktop-auth-store'
 
 const INSTANCE = 'instance-primary'
 const CODE = 'code-1234567890'
@@ -281,6 +286,108 @@ describe('desktop auth callback parsing', () => {
 })
 
 describe('desktop auth callback routing', () => {
+  test('shares the injected auth store from attempt save through renderer consume', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-auth-callback-store-'))
+    try {
+      const keychain = createMemoryKeychainPort()
+      const invoke = createCommandSurface(dataDir, { authKeychain: keychain })
+      const commandValue = <T>(command: string, args?: Record<string, unknown>): T => {
+        const result = invoke(command, args)
+        if (result instanceof Promise) throw new Error(`${command} unexpectedly became async`)
+        if (!result.ok) throw new Error(result.error)
+        return result.value as T
+      }
+      const manager = createDesktopAuthorizationManager({
+        createAttempt: () => createDesktopAuthorizationAttempt({ now: 1_000 }),
+        vault: {
+          clear: async () => {
+            commandValue('desktop_auth_attempt_clear')
+          },
+          load: async () =>
+            commandValue<DesktopAuthorizationAttempt | null>('desktop_auth_attempt_load'),
+          save: async (attempt) => {
+            commandValue('desktop_auth_attempt_save', { attempt })
+          },
+        },
+      })
+
+      const attempt = await manager.begin()
+      expect(commandValue<DesktopAuthorizationAttempt | null>('desktop_auth_attempt_load')).toEqual(
+        attempt
+      )
+
+      const receiver = createDesktopAuthCallbackReceiver({
+        deliver: (callback) => writeDesktopAuthCallback(dataDir, callback),
+        instanceId: INSTANCE,
+        loadAttempt: () =>
+          commandValue<DesktopAuthorizationAttempt | null>('desktop_auth_attempt_load'),
+        now: () => 2_000,
+      })
+      const callback = callbackFor(attempt)
+      expect(await receive(receiver, callback)).toEqual({ callback, status: 'delivered' })
+      expect(commandValue<string | null>('desktop_auth_take_callback')).toBe(callback)
+      expect(commandValue<string | null>('desktop_auth_take_callback')).toBeNull()
+
+      // The receiver validates on a clone. The renderer's manager owns the
+      // actual consume and clears the same keychain-backed attempt.
+      expect(
+        commandValue<DesktopAuthorizationAttempt | null>('desktop_auth_attempt_load')?.used
+      ).toBe(false)
+      expect(await manager.consume(callback, 2_000)).toEqual({
+        code: CODE,
+        codeVerifier: attempt.codeVerifier,
+        nonce: attempt.nonce,
+        redirectUri: 'adea://auth/callback',
+      })
+      expect(
+        commandValue<DesktopAuthorizationAttempt | null>('desktop_auth_attempt_load')
+      ).toBeNull()
+      await expect(manager.consume(callback, 2_000)).rejects.toThrow('unavailable')
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
+  test('fails closed when the injected credential store denies callback attempt reads', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-auth-callback-denied-'))
+    try {
+      const deniedKeychain: DesktopAuthKeychainPort = {
+        delete: () => {
+          throw new Error('credential store denied')
+        },
+        get: () => {
+          throw new Error('credential store denied')
+        },
+        set: () => {
+          throw new Error('credential store denied')
+        },
+      }
+      const invoke = createCommandSurface(dataDir, { authKeychain: deniedKeychain })
+      const receiver = createDesktopAuthCallbackReceiver({
+        deliver: (callback) => writeDesktopAuthCallback(dataDir, callback),
+        instanceId: INSTANCE,
+        loadAttempt: () => {
+          const result = invoke('desktop_auth_attempt_load')
+          if (result instanceof Promise) throw new Error('attempt load unexpectedly became async')
+          if (!result.ok) throw new Error(result.error)
+          return result.value as DesktopAuthorizationAttempt | null
+        },
+        now: () => 2_000,
+      })
+      const attempt = await pendingAttempt()
+
+      expect(await receive(receiver, callbackFor(attempt))).toEqual({
+        reason: 'no-pending-attempt',
+        status: 'rejected',
+      })
+      expect(existsSync(join(dataDir, 'desktop-state', 'auth-callback.json'))).toBe(false)
+      const loadResult = invoke('desktop_auth_attempt_load')
+      expect(loadResult).toEqual({ ok: false, error: 'credential store denied' })
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
   test('writes the validated callback into the existing handoff and reads it once', async () => {
     const attempt = await pendingAttempt()
     const dataDir = mkdtempSync(join(tmpdir(), 'adea-auth-callback-'))
