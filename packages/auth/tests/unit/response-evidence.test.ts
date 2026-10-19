@@ -49,7 +49,7 @@ describe('built-Worker failure evidence', () => {
   })
 
   test('an uppercase code that is not on the allowlist is reported generically', () => {
-    const unknownCode = 'SENTINEL_UNKNOWN_CODE_4b1d'
+    const unknownCode = 'SENTINEL_UNKNOWN_CODE_QZXWV'
     const evidence = describeResponse(
       response(400, JSON.stringify({ code: unknownCode, message: 'refused' }))
     )
