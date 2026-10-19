@@ -900,6 +900,24 @@ async function withEnv<T>(vars: Record<string, string>, work: () => Promise<T> |
   }
 }
 
+/**
+ * Runs `work` with the runner's CI and VITE_CACHE_PATH unset, so a local-cache fixture takes the shared
+ * path whatever the environment exports (GitHub Actions sets CI=true), and restores both afterwards.
+ */
+async function withLocalCache<T>(work: () => Promise<T> | T): Promise<T> {
+  const saved = { CI: process.env.CI, VITE_CACHE_PATH: process.env.VITE_CACHE_PATH }
+  delete process.env.CI
+  delete process.env.VITE_CACHE_PATH
+  try {
+    return await work()
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  }
+}
+
 /** Runs `work` with the wrapper's own console output silenced. */
 async function quietly<T>(work: () => Promise<T>): Promise<T> {
   const log = spyOn(console, 'log').mockImplementation(() => {})
@@ -909,6 +927,87 @@ async function quietly<T>(work: () => Promise<T>): Promise<T> {
   } finally {
     log.mockRestore()
     warn.mockRestore()
+  }
+}
+
+/** Resolves when `condition` holds, polling at a fixed interval; every timer it starts has fired. */
+async function until(condition: () => boolean, deadlineMs: number): Promise<void> {
+  const end = Date.now() + deadlineMs
+  while (!condition()) {
+    if (Date.now() > end) throw new Error('the condition was not reached in time')
+    await new Promise((done) => setTimeout(done, 20))
+  }
+}
+
+/**
+ * Runs `runVp` in a helper process the test owns, and sends it the signal once the fake vp has started (the fake
+ * writes its log before it sleeps, so the log is the readiness handshake). The helper is a separate process, so a
+ * signal aimed at it never reaches the test runner. Its guard timer is cleared and its process and any recorded
+ * vp group are killed in `finally`, whatever happened.
+ */
+async function signalledRun({ grouped, signal }: { grouped: boolean; signal: NodeJS.Signals }) {
+  const name = grouped ? 'grouped' : 'plain'
+  const root = fixtureCheckout(`runvp-signal-${name}`)
+  const log = join(scratch, `runvp-signal-${name}.log`)
+  const script = join(scratch, `runvp-signal-${name}.helper.mjs`)
+  writeFileSync(
+    script,
+    [
+      'const { runVp } = await import(process.env.VP_MODULE)',
+      "const register = process.env.VP_GROUPED === '1' ? (pid) => console.log(`registered ${pid}`) : undefined",
+      "const outcome = await runVp({ root: process.env.VP_ROOT, env: process.env, args: ['run'], register })",
+      'console.log(`outcome ${JSON.stringify(outcome)}`)',
+    ].join('\n')
+  )
+  const helper = spawn(process.execPath, [script], {
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: {
+      ...process.env,
+      VP_MODULE: MODULE,
+      VP_ROOT: root,
+      VP_GROUPED: grouped ? '1' : '0',
+      FAKE_VP_LOG: log,
+      FAKE_VP_SLEEP: '1',
+    },
+  })
+  let stdout = ''
+  let stderr = ''
+  helper.stdout.on('data', (chunk) => (stdout += chunk))
+  helper.stderr.on('data', (chunk) => (stderr += chunk))
+  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((done) =>
+    helper.once('close', (code, closedSignal) => done({ code, signal: closedSignal }))
+  )
+  let guard: ReturnType<typeof setTimeout> | undefined
+  const timedOut = new Promise<never>((_, fail) => {
+    guard = setTimeout(() => fail(new Error(`helper did not exit: ${stderr}`)), 30_000)
+  })
+  try {
+    await until(() => existsSync(log) && readFileSync(log, 'utf8').length > 0, 20_000)
+    helper.kill(signal)
+    const status = await Promise.race([closed, timedOut])
+    const line = (prefix: string) => stdout.split('\n').find((text) => text.startsWith(prefix))
+    const outcomeLine = line('outcome ')
+    const registeredLine = line('registered ')
+    const registered = registeredLine
+      ? Number(registeredLine.slice('registered '.length))
+      : undefined
+    return {
+      status,
+      outcome: outcomeLine ? JSON.parse(outcomeLine.slice('outcome '.length)) : undefined,
+      registered,
+    }
+  } finally {
+    clearTimeout(guard)
+    if (helper.exitCode === null && helper.signalCode === null) helper.kill('SIGKILL')
+    const registeredLine = stdout.split('\n').find((text) => text.startsWith('registered '))
+    if (registeredLine) {
+      try {
+        process.kill(-Number(registeredLine.slice('registered '.length)), 'SIGKILL')
+      } catch {
+        // the group has already exited
+      }
+    }
   }
 }
 
@@ -938,27 +1037,28 @@ describe('main, runVp and exit codes', () => {
     const root = fixtureCheckout('main-clean')
     const log = join(scratch, 'main-clean.log')
     const cacheHomeDir = join(scratch, 'main-clean-home', '.cache', 'adea-vp')
-    await withEnv(
-      { FAKE_VP_LOG: log, FAKE_VP_EXIT: '3', ADEA_VP_CACHE_HOME: cacheHomeDir, CI: '' },
-      async () => {
-        delete process.env.CI
-        await quietly(() => runCommand(['orch:test'], root))
-        const plan = planCache({
-          root,
-          env: { ...process.env },
-          nodeVersion: process.version,
-          platform: process.platform,
-          arch: process.arch,
-          vitePlusVersion: readVitePlusVersion(root),
-          home: homedir(),
-        })
-        expect(plan.mode).toBe('clean')
-        expect(calls(log)).toEqual([
-          { args: ['run', '--cache', 'orch:test'], cache: plan.directory },
-        ])
-        expect(existsSync(plan.directory)).toBe(true)
-        expect(process.exitCode).toBe(3)
-      }
+    await withLocalCache(() =>
+      withEnv(
+        { FAKE_VP_LOG: log, FAKE_VP_EXIT: '3', ADEA_VP_CACHE_HOME: cacheHomeDir },
+        async () => {
+          await quietly(() => runCommand(['orch:test'], root))
+          const plan = planCache({
+            root,
+            env: { ...process.env },
+            nodeVersion: process.version,
+            platform: process.platform,
+            arch: process.arch,
+            vitePlusVersion: readVitePlusVersion(root),
+            home: homedir(),
+          })
+          expect(plan.mode).toBe('clean')
+          expect(calls(log)).toEqual([
+            { args: ['run', '--cache', 'orch:test'], cache: plan.directory },
+          ])
+          expect(existsSync(plan.directory)).toBe(true)
+          expect(process.exitCode).toBe(3)
+        }
+      )
     )
   })
 
@@ -966,25 +1066,27 @@ describe('main, runVp and exit codes', () => {
     const root = fixtureCheckout('main-refused')
     const log = join(scratch, 'main-refused.log')
     const cacheHomeDir = join(scratch, 'main-refused-home', '.cache', 'adea-vp')
-    await withEnv(
-      { FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
-      async () => {
-        const plan = planCache({
-          root,
-          env: { ...process.env },
-          nodeVersion: process.version,
-          platform: process.platform,
-          arch: process.arch,
-          vitePlusVersion: readVitePlusVersion(root),
-          home: homedir(),
-        })
-        ensurePrivateDirectory(plan.cacheHome, plan.directory)
-        writeFileSync(`${plan.directory}.lock.run`, 'garbage')
-        await quietly(() => runCommand(['orch:test'], root))
-        expect(calls(log)).toEqual([{ args: ['run', 'orch:test'], cache: null }])
-        expect(readFileSync(`${plan.directory}.lock.run`, 'utf8')).toBe('garbage')
-        expect(existsSync(`${plan.directory}.lock`)).toBe(false)
-      }
+    await withLocalCache(() =>
+      withEnv(
+        { FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
+        async () => {
+          const plan = planCache({
+            root,
+            env: { ...process.env },
+            nodeVersion: process.version,
+            platform: process.platform,
+            arch: process.arch,
+            vitePlusVersion: readVitePlusVersion(root),
+            home: homedir(),
+          })
+          ensurePrivateDirectory(plan.cacheHome, plan.directory)
+          writeFileSync(`${plan.directory}.lock.run`, 'garbage')
+          await quietly(() => runCommand(['orch:test'], root))
+          expect(calls(log)).toEqual([{ args: ['run', 'orch:test'], cache: null }])
+          expect(readFileSync(`${plan.directory}.lock.run`, 'utf8')).toBe('garbage')
+          expect(existsSync(`${plan.directory}.lock`)).toBe(false)
+        }
+      )
     )
   })
 
@@ -1021,25 +1123,16 @@ describe('main, runVp and exit codes', () => {
   })
 
   test('a signal that reaches the wrapper stops vp and is reported as the signal, with or without a process group', async () => {
-    const root = fixtureCheckout('runvp-signal')
-    const env = {
-      ...process.env,
-      FAKE_VP_LOG: join(scratch, 'runvp-signal.log'),
-      FAKE_VP_SLEEP: '1',
-    }
-    const plain = runVp({ root, env, args: ['run'] })
-    setTimeout(() => process.kill(process.pid, 'SIGTERM'), 300)
-    const plainOutcome = await plain
-    expect(plainOutcome.signal).toBe('SIGTERM')
-    expect(exitCodeFor(plainOutcome)).toBe(143)
+    const plain = await signalledRun({ grouped: false, signal: 'SIGTERM' })
+    expect(plain.status).toEqual({ code: 0, signal: null })
+    expect(plain.outcome).toEqual({ code: null, signal: 'SIGTERM' })
+    expect(exitCodeFor(plain.outcome)).toBe(143)
 
-    let recorded
-    const grouped = runVp({ root, env, args: ['run'], register: (pid) => (recorded = pid) })
-    setTimeout(() => process.kill(process.pid, 'SIGINT'), 300)
-    const groupedOutcome = await grouped
-    expect(typeof recorded).toBe('number')
-    expect(groupedOutcome.signal).toBe('SIGINT')
-    expect(exitCodeFor(groupedOutcome)).toBe(130)
+    const grouped = await signalledRun({ grouped: true, signal: 'SIGINT' })
+    expect(grouped.status).toEqual({ code: 0, signal: null })
+    expect(typeof grouped.registered).toBe('number')
+    expect(grouped.outcome).toEqual({ code: null, signal: 'SIGINT' })
+    expect(exitCodeFor(grouped.outcome)).toBe(130)
   })
 
   test('exit codes: a signal maps to 128 plus its number, otherwise the code, and a missing code is 1', () => {
