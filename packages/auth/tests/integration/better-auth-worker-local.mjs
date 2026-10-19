@@ -448,7 +448,9 @@ async function prepare() {
     await controlPool.query(`GRANT USAGE, CREATE ON SCHEMA "${schema}" TO agent_hq_local_app`)
     await migrateAuthSchema()
     await exerciseRecordingDelivery()
-    await assertNoWorkerBackends()
+    // The in-process delivery pool's backend can still be listed for a moment after its close() resolves.
+    // The same assertion runs inside the existing bounded wait, so a backend that never closes still fails.
+    await waitFor(assertNoWorkerBackends, 'the in-process delivery backend should close')
     console.log(
       JSON.stringify({
         mode: 'prepare',
