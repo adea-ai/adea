@@ -260,6 +260,54 @@ to stale, expired or unknown without background network polling. Explicit
 refresh and committed node events fetch current observations. Either node read
 can downgrade revoked/stale/unknown registration; discovery is never admission.
 
+### Local native-session diagnostic
+
+In the desktop app, `Workspace details → Connections → Native session inventory`
+is an explicit,
+on-demand diagnostic for this desktop. It is available independently of cloud
+registration and the Execution hosts list, including when no host is registered
+or cloud discovery is unavailable. A cloud registration ID is not a local node
+identity mapping and is never supplied to this action. The UI names only its
+displayed workspace; the desktop service selects its own signed local node.
+An optional explicit node assertion on the service must match that same local
+node. Workspace or provider replacement clears previous results even if the
+new provider reuses an opaque binding generation. It reads only through the
+desktop runtime service's signed
+account/workspace/node scope and rechecks that binding before and after each
+page. The provider also binds to the live desktop session and account-principal
+accessors as an invalidation fence: a login, sign-out, principal change, or
+session rotation in the same workspace aborts a read and clears the previous
+result, even while the runtime service still holds a cached scope. Composition
+withholds the diagnostic during authentication/bootstrap and replaces it only
+after the current workspace scope selection settles. The replacement reads a
+fresh signed shell scope; a refused selection keeps it unavailable. The old
+provider remains invalidated through a monotonic local admission generation,
+even if the same app identity returns; other workspace services need not remount.
+These app identity values are not treated as runtime scope and are never included in the
+inventory. The action never creates or resumes a session. It downloads one local
+JSON section with at most 1,000 records, at most 500 records per
+`dev.session.list` page, and at most 1 MiB serialized output; a section that
+cannot meet the byte bound is unknown rather than a partial success.
+
+The file contains only the existing native-session snapshot allowlist:
+account, workspace and runtime-node ownership; stable session, project and
+worktree references; lifecycle, archived, generation and version metadata;
+and nullable harness-installation/run and agent-profile references/version.
+It excludes transcripts, prompts, process/terminal state, credentials, and
+provider payloads. The adapter rejects obvious absolute, home-relative, and
+file-URL path forms in every retained identifier. These values remain opaque
+runtime references, so the string-only runtime contract cannot prove that an
+arbitrary reference with ordinary identifier syntax contains no embedded path
+text; this diagnostic does not claim that broader guarantee. The file is
+downloaded locally and is not uploaded or persisted by Adea. A
+missing/offline/unsupported source, malformed or foreign row, changed signed
+scope or desktop identity, timeout, cancellation, or output-bound
+failure leaves the inventory unknown; it is never represented as an empty
+success. Cancellation prevents later pages and discards late replies, although
+the desktop transport cannot withdraw a command already in flight. A later
+capture uses the same stable session identity so the migration comparator can
+compare records across restarts.
+
 ## Self-hosted connection setup and recovery (#188)
 
 `packages/workspace-ui/src/self-hosted-connection-{model,panel,pane}` and

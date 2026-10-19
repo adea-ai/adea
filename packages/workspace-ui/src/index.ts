@@ -68,6 +68,8 @@ export type {
   CapabilitySnapshot,
   CapabilityState,
   CapabilityStatus,
+  NativeSessionInventoryDiagnosticResult,
+  NativeSessionInventoryDiagnosticService,
   PrivateContentResolver,
   TranscriptionProvider,
   TranscriptionSession,

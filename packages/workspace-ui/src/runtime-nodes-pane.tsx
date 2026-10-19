@@ -15,11 +15,20 @@ import {
   runtimeStateLabel,
   type NodeProof,
 } from './runtime-inventory-model'
+import { NativeSessionInventoryDiagnostic } from './native-session-inventory-diagnostic'
+import type { NativeSessionInventoryDiagnosticService } from './platform'
+
+declare const __ADEA_DESKTOP_COMPONENTS__: boolean
+
+// Production web removes the native diagnostic; desktop and unflagged hosts retain it.
+const nativeDiagnosticsEnabled =
+  typeof __ADEA_DESKTOP_COMPONENTS__ === 'undefined' || __ADEA_DESKTOP_COMPONENTS__
 
 const DESCRIPTION = 'Registered devices and self-hosted runtimes for this workspace.'
 
 export default function RuntimeNodesPane(props: {
   client?: AgentHqApiClient
+  nativeSessionInventoryDiagnostics?: NativeSessionInventoryDiagnosticService
   workspaceId: string
 }) {
   const scope = createMemo(() =>
@@ -27,6 +36,14 @@ export default function RuntimeNodesPane(props: {
   )
   return (
     <div class="workspace-runtime-inventory">
+      {nativeDiagnosticsEnabled && (
+        <Show when={props.nativeSessionInventoryDiagnostics}>
+          <NativeSessionInventoryDiagnostic
+            diagnostics={props.nativeSessionInventoryDiagnostics}
+            workspaceId={props.workspaceId}
+          />
+        </Show>
+      )}
       <Show
         when={scope()}
         keyed
@@ -38,7 +55,9 @@ export default function RuntimeNodesPane(props: {
           </SettingsSection>
         }
       >
-        {(current) => <RuntimeNodesContent {...current} />}
+        {(current) => (
+          <RuntimeNodesContent client={current.client} workspaceId={current.workspaceId} />
+        )}
       </Show>
     </div>
   )
