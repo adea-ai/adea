@@ -13,24 +13,29 @@ to the previously reviewed #1466 head `04ed9e20f2cca9bcdb3fe62361e5ca2168ebee6b`
 memory journeys and the PostgreSQL fixture use the integrated in-repository baseline with no
 source override. The disposable PostgreSQL lane is now unblocked; its result is recorded below.
 
-| Boundary                                                                                                            | Executable evidence                                                                               | Result                                       |
-| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------- |
-| Verification-required signup issues no session; unverified login denied                                             | web-lifecycle-memory.test.ts, real Better Auth memory adapter and production config/server APIs   | Passed                                       |
-| Synthetic mailbox verification gives verified email and secure HTTP-only SameSite cookie                            | web-lifecycle-memory.test.ts                                                                      | Passed                                       |
-| Missing/hostile-origin password reset creates no delivery                                                           | web-lifecycle-memory.test.ts                                                                      | Passed                                       |
-| Reset consumes token once, deletes previous sessions, refuses old password                                          | web-lifecycle-memory.test.ts                                                                      | Passed                                       |
-| Expired reset rejected, no session/cookie; current password still works                                             | web-lifecycle-memory.test.ts, modifies one synthetic memory record deadline                       | Passed                                       |
-| Browser logout and explicit revoke invalidate saved cookie replay                                                   | web-lifecycle-memory.test.ts                                                                      | Passed                                       |
-| Every browser response including denial is no-store                                                                 | web-lifecycle-memory.test.ts                                                                      | Passed                                       |
-| Missing/hostile-origin desktop exchange preserves one-use PKCE code                                                 | desktop-origin-revocation.test.ts, real broker/client/parser/service primitives and memory stores | Passed                                       |
-| Trusted PKCE exchange works once; refresh rotates credential                                                        | desktop-origin-revocation.test.ts                                                                 | Passed                                       |
-| Origin-denied desktop logout preserves session; trusted logout revokes                                              | desktop-origin-revocation.test.ts                                                                 | Passed                                       |
-| Saved desktop credential fails refresh/revoke after logout                                                          | desktop-origin-revocation.test.ts                                                                 | Passed                                       |
-| Desktop response no-store, no hostile CORS reflection, no credential URLs                                           | desktop-origin-revocation.test.ts                                                                 | Passed                                       |
-| PKCE callback state/nonce binding, attempt and server-code expiry, replay and credential-carrying callbacks refused | desktop-origin-revocation.test.ts, shared desktop.ts callback boundary and broker code TTL        | Passed                                       |
-| Provider/app schema creation, replay, runtime DML and DDL denial                                                    | fixture.ts and auth-lifecycle.ts; disposable loopback PostgreSQL 18                               | Passed; 59 migrations, verification required |
-| Actual web route registration, native vault/OS callback, PKCE authorization route identity mapping                  | Not exercised by these memory compositions                                                        | Pending separate qualification               |
-| Hosted strict TLS, Hyperdrive/cache behavior, production delivery                                                   | Not exercised by plaintext-free memory tests                                                      | Pending owner qualification                  |
+| Boundary                                                                                                            | Executable evidence                                                                               | Result                                          |
+| ------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| Verification-required signup issues no session; unverified login denied                                             | web-lifecycle-memory.test.ts, real Better Auth memory adapter and production config/server APIs   | Passed                                          |
+| Synthetic mailbox verification gives verified email and secure HTTP-only SameSite cookie                            | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
+| Missing/hostile-origin password reset creates no delivery                                                           | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
+| Reset consumes token once, deletes previous sessions, refuses old password                                          | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
+| Expired reset rejected, no session/cookie; current password still works                                             | web-lifecycle-memory.test.ts, modifies one synthetic memory record deadline                       | Passed                                          |
+| Browser logout and explicit revoke invalidate saved cookie replay                                                   | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
+| Every browser response including denial is no-store                                                                 | web-lifecycle-memory.test.ts                                                                      | Passed                                          |
+| Missing/hostile-origin desktop exchange preserves one-use PKCE code                                                 | desktop-origin-revocation.test.ts, real broker/client/parser/service primitives and memory stores | Passed                                          |
+| Trusted PKCE exchange works once; refresh rotates credential                                                        | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
+| Origin-denied desktop logout preserves session; trusted logout revokes                                              | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
+| Saved desktop credential fails refresh/revoke after logout                                                          | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
+| Desktop response no-store, no hostile CORS reflection, no credential URLs                                           | desktop-origin-revocation.test.ts                                                                 | Passed                                          |
+| PKCE callback state/nonce binding, attempt and server-code expiry, replay and credential-carrying callbacks refused | desktop-origin-revocation.test.ts, shared desktop.ts callback boundary and broker code TTL        | Passed                                          |
+| Provider/app schema creation, replay, runtime DML and DDL denial                                                    | fixture.ts and auth-lifecycle.ts; disposable loopback PostgreSQL 18                               | Passed; 59 migrations, verification required    |
+| A fresh provider identity maps to exactly one application user, and a second identity stays separate                | desktop-principal-lifecycle.ts; the production principal resolution over the production database  | Passed; better-auth subject to one app user     |
+| Repeated and concurrent provisioning of one identity is idempotent, and leaves one mapping                          | desktop-principal-lifecycle.ts; the production identity functions and the production join         | Passed; concurrent inserts converge on one user |
+| The desktop PKCE exchange persists the mapped identity, and refuses a hostile origin, a wrong verifier and a replay | desktop-principal-lifecycle.ts; the production brokers, stores and the exchange request parser    | Passed; one session, three refusals             |
+| A refresh invalidates the predecessor credential and a logout revokes the persisted credential                      | desktop-principal-lifecycle.ts; the production desktop session service over the production store  | Passed                                          |
+| Actual web route registration of the desktop authorize and exchange paths in the built Worker                       | Not exercised here; the routes bind the framework request scope and the hosted provider adapter   | Pending a later dependency                      |
+| Native vault and OS callback storage                                                                                | Not exercised by these compositions                                                               | Pending owner qualification                     |
+| Hosted strict TLS, Hyperdrive/cache behavior, production delivery                                                   | Not exercised by plaintext-free memory tests                                                      | Pending owner qualification                     |
 
 ## Memory qualification and ordinary discovery
 
@@ -98,7 +103,8 @@ the journal, checks empty product identity/workspace tables, initializes the sep
 `packages/auth/src/schema-init.ts` (apply, then a no-op replay), then exercises provider DML through
 the runtime role. It checks runtime schema DDL denial and the full auth lifecycle.
 
-The completed local receipt was `{"status":"passed","migrations":59,"verificationRequired":true}`.
+The completed local receipt was
+`{"status":"passed","migrations":59,"verificationRequired":true,"desktopPrincipal":{"accounts":2,"exchanges":1,"mappedUsers":2,"provider":"better-auth","refused":{"origin":1,"pkce":1,"replay":1}}}`.
 The child receives only PATH/TMPDIR/LANG and fixture-owned database variables; Bun
 automatic environment-file loading is disabled. No inherited auth/database/mail/PG
 routing settings enter the child. Cleanup closes handles and drops the exact scratch
@@ -107,6 +113,48 @@ child output is withheld because it may contain credentials or tokens. A missing
 fixture or failed cleanup makes the lane fail without emitting a passed receipt.
 The passed receipt is emitted only after owned cleanup succeeds; synthetic tests
 cover both cleanup failure and receipt ordering. It never reports a skipped pass.
+
+## The desktop principal lifecycle phase
+
+`desktop-principal-lifecycle.ts` adds one phase to that lane. It drives the real
+self-hosted Better Auth provider over a fresh account, resolves the provider
+identity through the production principal resolution
+(`resolveOrProvisionDesktopPrincipal`), and exercises the production database
+identity functions and the production desktop code and session brokers over the
+production PostgreSQL stores. It mocks no identity mapping and keeps no identity
+state in memory: the application users, the authorization codes and the desktop
+sessions are rows in the disposable database.
+
+`fixture.ts` only invokes that phase and closes the runtime connection it owns;
+the phase opens and closes its own application connection. The focused test
+`desktop-principal-lifecycle.test.ts` starts its own disposable instance and runs
+the same phase, so the phase is covered without the web lifecycle:
+
+```sh
+bun --conditions=react-server test scripts/fresh-postgres-acceptance/desktop-principal-lifecycle.test.ts
+```
+
+The phase needs the built workspace packages, because the production principal
+resolution imports `@adea-ai/auth` as a package rather than a source path:
+
+```sh
+bun run --cwd packages/types build && bun run --cwd packages/auth build
+```
+
+## What this phase does not prove
+
+- **The built Worker route registration.** The desktop authorize and exchange
+  routes bind the framework request scope and, for the authorize route, the
+  hosted provider adapter. This phase exercises the request path the exchange
+  route composes, not a Worker that registers it. That is a later dependency.
+- **The joined delivery qualification.** It stays blocked until the active
+  server-only delivery work merges. The pending head at the time of writing is
+  `4cc6195b2443affe47bcf56032928006fe24fe22` (PR #1478, `claude/auth-delivery-r2`,
+  open, draft, auto-merge off). The joined qualification must record the exact
+  joined head it ran against; the head above is the dependency, not a joined
+  result.
+- **Native vault and OS callback storage, hosted strict TLS, Hyperdrive and
+  production delivery.** These stay with their own owners.
 
 The only new files are in `scripts/fresh-postgres-acceptance/`. Existing auth, DB,
 web and desktop implementations, fixtures, manifests, locks and workflows are unchanged.

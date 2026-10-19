@@ -143,7 +143,12 @@ try {
   const receipt = JSON.parse(line.slice('FRESH_SCHEMA_ACCEPTANCE '.length))
   if (receipt.status !== 'passed' || !Number.isInteger(receipt.migrations))
     throw new Error('invalid fresh-schema receipt')
-  passedReceipt = { status: 'passed', migrations: receipt.migrations, verificationRequired: true }
+  passedReceipt = {
+    status: 'passed',
+    migrations: receipt.migrations,
+    verificationRequired: true,
+    ...(receipt.desktopPrincipal ? { desktopPrincipal: receipt.desktopPrincipal } : {}),
+  }
 } catch (error) {
   failed = true
   console.error(error.message)
