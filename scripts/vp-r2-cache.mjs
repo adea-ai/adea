@@ -512,7 +512,13 @@ async function storeGet(store, key, maxBytes, operation) {
  * no signal: a store that honours cancellation must still be able to delete what this operation staged. A staged write
  * that settles *after* that cleanup - a store that ignores the cancellation - is removed when it settles.
  */
-async function stagedWrite(store, scope, key, bytes, { limits = LIMITS, operation, equivalent }) {
+async function stagedWrite(
+  store,
+  scope,
+  key,
+  bytes,
+  { limits = LIMITS, operation, equivalent, verify }
+) {
   const staging = stagingObjectKey(scope)
   const staged = store.put(staging, bytes, { signal: operation.signal })
   try {
@@ -561,20 +567,27 @@ async function stagedWrite(store, scope, key, bytes, { limits = LIMITS, operatio
     // either: a late acknowledgement is history, not ownership.
     const outcome = await bounded(promotion, operation)
     const created = outcome?.created ?? null
-    if (created === false && typeof equivalent === 'function') {
-      // The object was already there: it is not overwritten. It is read back and compared with the entry that is
-      // being published, so an idempotent duplicate is a success and another entry is an integrity failure.
+    if (created === false) {
+      // The object was already there: it is not overwritten, and it is **validated** before the publication is a
+      // success. What is there is read back and checked: the content-addressed archive against its own digest and
+      // size, and the envelope by parsing it and comparing the entry it names. An object that is corrupt, or that is
+      // another entry, is an integrity failure rather than a duplicate.
       const stored = await storeGet(store, key, limits.maxEnvelopeBytes, operation)
       if (stored === null)
         throw new TransportRefused(CATEGORY.storeWrite, 'the published object is not there')
-      if (!stored.equals(bytes) && !equivalent(stored))
+      if (typeof verify === 'function' && !verify(stored))
+        throw new TransportRefused(
+          CATEGORY.integrity,
+          'the published object is not the object that was expected'
+        )
+      if (typeof equivalent === 'function' && !stored.equals(bytes) && !equivalent(stored))
         throw new TransportRefused(CATEGORY.integrity, 'another entry is published under that key')
     }
 
     if (operation.expired()) {
-      // The promotion finished after the deadline. The object is not published: it is removed again, but only when this
-      // operation is the one that created it.
-      if (created === true) await cleanupDelete(store, key, limits.cleanupTimeoutMs)
+      // The promotion finished after the deadline. The object is **not** removed: the final key is shared, a successor
+      // may reference it, and a `created: true` says what happened when the write was committed - not what may be
+      // deleted later. The deadline is reported; the object stays.
       throw new TransportRefused(
         CATEGORY.timeout,
         'the deadline passed while the object was promoted'
@@ -659,15 +672,22 @@ export async function publishEntry(
       return fail(CATEGORY.tooLarge, 'the envelope is larger than the bound')
     const blobKey = blobObjectKey(scope, envelope.blob_id)
     const entryKey = entryObjectKey(scope, key, secondaryKey)
-    const blobWrite = await stagedWrite(store, scope, blobKey, blob, { limits, operation })
+    const blobWrite = await stagedWrite(store, scope, blobKey, blob, {
+      limits,
+      operation,
+      // The archive is content addressed: the one that is already there must be exactly this archive.
+      verify: (stored) => stored.length === blob.length && sha256(stored) === envelope.blob_id,
+    })
     const entryWrite = await stagedWrite(store, scope, entryKey, bytes, {
       limits,
       operation,
       // The same entry published again is an idempotent duplicate: the object that is already there names the same
-      // entry, whatever creation time it recorded.
+      // entry, whatever creation time it recorded. It is **parsed and validated** first - an envelope of another
+      // version, of another kind or of another domain is not an entry of this kind, whatever its bytes say.
       equivalent: (stored) => {
         try {
-          return sameEntry(JSON.parse(stored.toString('utf8')), envelope)
+          const parsed = parseEnvelope(stored, { scope, limits })
+          return sameEntry(parsed, envelope)
         } catch {
           return false
         }

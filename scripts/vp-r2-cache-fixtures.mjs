@@ -117,9 +117,12 @@ export function createMemoryStore(options = {}) {
       calls.push({ op: 'putIfAbsent', key })
       if (stall.has('putIfAbsent')) return never()
       if (failPut) throw new Error('the store refused the write')
-      if (objects.has(key)) return { created: false, size: objects.get(key).length }
-      const copy = Buffer.from(bytes)
       if (!commitBeforeAck) await wait(key, signal)
+      // The check and the write are **one step**: nothing may be awaited between them, or two callers could both
+      // decide to create the object and the second would overwrite the first.
+      const existing = objects.get(key)
+      if (existing !== undefined) return { created: false, size: existing.length }
+      const copy = Buffer.from(bytes)
       objects.set(key, copy)
       if (commitBeforeAck) await wait(key, signal)
       refuseIfCancelled(signal)
@@ -169,8 +172,11 @@ export function createMemoryStore(options = {}) {
       if (failCopy) throw new Error('the store refused the copy')
       const held = objects.get(from)
       if (held === undefined) throw new Error('the store has no such object')
-      if (objects.has(to)) return { created: false, size: objects.get(to).length }
       if (!commitBeforeAck) await wait(to, signal)
+      // The check and the copy are **one step**: nothing may be awaited between them, or two callers could both
+      // decide to create the object and the second would overwrite the first.
+      const existing = objects.get(to)
+      if (existing !== undefined) return { created: false, size: existing.length }
       objects.set(to, Buffer.from(held))
       if (commitBeforeAck) await wait(to, signal)
       refuseIfCancelled(signal)
