@@ -15,6 +15,10 @@ import { createRecordingAuthDelivery } from '../../packages/auth/src/delivery'
 import { applyAuthSchema } from '../../packages/auth/src/schema-init'
 import { runFreshAuthAcceptance } from './auth-lifecycle'
 import {
+  runDesktopPrincipalLifecycle,
+  type DesktopPrincipalLifecycleReceipt,
+} from './desktop-principal-lifecycle'
+import {
   canonicalUrl,
   createCanonicalDatabase,
   MIGRATION_ROLE,
@@ -49,6 +53,7 @@ let migrated: ReturnType<typeof postgres> | undefined
 let bodyFailed = false
 let bodyError: unknown
 let migrationCount = 0
+let desktopPrincipal: DesktopPrincipalLifecycleReceipt | undefined
 const cleanupErrors: unknown[] = []
 const environment = (url: string) => ({
   AUTH_BASE_URL: 'https://fresh.example.test',
@@ -120,6 +125,16 @@ try {
     recorder.delivery
   )
   await runFreshAuthAcceptance(runtimeService, recorder, provider)
+  // The desktop principal lifecycle phase owns its own application connection
+  // and closes it again. This fixture owns the runtime connection of the auth
+  // service and closes it below.
+  desktopPrincipal = await runDesktopPrincipalLifecycle({
+    applicationDatabaseUrl: runtimeUrl,
+    providerSchema: 'auth_acceptance',
+    providerSql: provider,
+    recorder,
+    service: runtimeService,
+  })
 } catch (error) {
   bodyFailed = true
   bodyError = error
@@ -140,5 +155,17 @@ try {
 }
 throwScratchFailures(bodyFailed, bodyError, cleanupErrors)
 console.log(
-  'FRESH_SCHEMA_ACCEPTANCE ' + JSON.stringify({ status: 'passed', migrations: migrationCount })
+  'FRESH_SCHEMA_ACCEPTANCE ' +
+    JSON.stringify({
+      status: 'passed',
+      migrations: migrationCount,
+      desktopPrincipal: desktopPrincipal && {
+        accounts: desktopPrincipal.accounts,
+        exchanges: desktopPrincipal.exchanges,
+        mappedUsers: desktopPrincipal.mappedUsers,
+        orphanUsers: desktopPrincipal.orphanUsers,
+        provider: desktopPrincipal.provider,
+        refused: desktopPrincipal.refused,
+      },
+    })
 )

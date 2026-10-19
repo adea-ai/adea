@@ -70,6 +70,52 @@ The executable acceptance harness is a separate proposed test-only slice. Until 
 paths, dependencies and implementation are approved, this plan supplies no runnable
 combined acceptance command and makes no claim that the combined lifecycle passed.
 
+## Desktop principal lifecycle
+
+A desktop principal is a provider identity resolved to an application user. The
+acceptance harness proves that resolution against a disposable PostgreSQL
+instance and the real self-hosted provider, through the production composition:
+
+| Step                                                     | Production code exercised                                                                                                             |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| A fresh account is signed up, verified and signed in     | the provider request path (`handleBetterAuthRequest`, `createBetterAuthServerAdapter`) and the recording verification delivery        |
+| The provider identity is resolved to an application user | `resolveOrProvisionDesktopPrincipal` over `findUserPrincipalsByAuthIdentity` and `createUserWithAuthIdentity`                         |
+| Repeated and concurrent provisioning of one identity     | the same functions, against the same database                                                                                         |
+| A second fresh identity is kept separate                 | the same join                                                                                                                         |
+| The desktop authorization code is issued and exchanged   | the production desktop code broker, the production session service, the production PostgreSQL stores, and the exchange request parser |
+| A refresh and a logout are applied                       | the production desktop session service over the production store                                                                      |
+
+Mock an identity mapping and the proof is worthless, so the phase must use the
+production functions and the production database. Identity state belongs in the
+database, not in memory. The provider subject must be the real provider user id,
+and the persisted desktop credential must be a digest.
+
+The counts the phase reports must be measured, never assumed. It measures the
+provider accounts, the application users and the application users that carry no
+provider identity before and after it runs, and it requires one account and one
+user per identity with no orphan user. A concurrent provisioning loser that left
+a user behind would raise the user count without raising the mapping count, and
+that is a failure rather than a pass.
+
+The real database execution belongs to the dedicated opt-in lane. The lane
+validates the Docker target, pins its process to a local socket for its whole
+lifetime, isolates the child environment and provisions the disposable
+instance. Nothing in the acceptance journey may start a container or contact a
+Docker daemon on its own, so ordinary test discovery stays side-effect-free, and
+the cleanup of every owned connection is fatal: a cleanup that failed fails the
+run rather than leaving it green.
+
+Two dependencies stay open and are recorded rather than implied:
+
+- **The built Worker route registration.** The desktop authorize and exchange
+  routes bind the framework request scope and, for the authorize route, the
+  hosted provider adapter. The acceptance phase exercises the request path the
+  exchange route composes; it does not prove that a built Worker registers it.
+- **The joined delivery qualification.** It stays blocked until the active
+  server-only delivery work merges, and the joined qualification must record the
+  exact joined head it ran against. A pending head is a dependency, not a joined
+  result.
+
 ## Required account lifecycle
 
 | Case                        | Required assertions                                                                                                                                                                                            |
