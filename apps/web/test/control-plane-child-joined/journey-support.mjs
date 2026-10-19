@@ -11,7 +11,7 @@ const { eq, and } = await import(requireDb.resolve('drizzle-orm'))
 
 /**
  * Package and source identity, before any database connection is opened. Adea's lockfile pins
- * the registry packages (sdk 1.18.1, contracts 1.21.3, runtime-sdk 1.15.1) and the CP revision
+ * the registry packages (sdk 1.20.0, contracts 1.21.4, runtime-sdk 1.17.0) and the CP revision
  * under test builds the same versions, so the comparison is byte-identical for every file; there
  * is no allowed drift. A CP revision that moves past the lockfile fails here until Adea bumps.
  */
