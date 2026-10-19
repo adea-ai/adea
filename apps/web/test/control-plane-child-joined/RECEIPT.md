@@ -72,7 +72,9 @@ PI_FACTORY_MANIFEST=<dir>/manifest.json DATABASE_URL=<local postgres> \
   lockfile packages. `journey-identity.test.mjs` shows the identity gate refusing a changed byte
   (contracts and runtime-sdk), a missing file, a changed load field and a floating range.
 - It does not establish a CP OS-process restart, revocation inside the publication transaction, a
-  handoff target, a published CP release, a live provider, or any CI coverage. The CP revision is a
-  merged source revision, not a release.
+  handoff target, a published CP release, a live provider, or any CI coverage. For runs 1 to 3, the
+  CP revision is a merged source revision, not a release. Run 4 uses `69e6e746`, CP release 1.104.0
+  per `source-journey.json`, but run 4 does not establish release or deployment qualification.
+- Run 4 is author-reported local evidence. It is not hosted CI, and it does not complete #1173.
 - Run 4 does not establish lead terminal accounting in the production composition. That composition
   exposes only child settlement, so lead terminal settlement runs only in the periodic pass.

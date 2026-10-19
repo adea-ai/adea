@@ -333,9 +333,11 @@ Results at the final head (Bun 1.4.2, Node 22.22.0; scripted provider, synthetic
   `RECEIPT.md` with versions, digests and prerequisites.
 - 27 pass, 0 fail on Adea main `52548ed0` (after #1500), against CP `69e6e746` (CP release 1.104.0,
   the current `source-journey.json` pin), Bun 1.4.3 and PostgreSQL 18.6 on a disposable cluster;
-  recorded as run 4 in `RECEIPT.md`. The host's default periodic recovery interval is manual-only,
-  so CP's periodic pass does not run during the manual-scan stages. `journey-automatic-recovery.test.mjs`
-  sets a short test-local interval to observe that pass alone.
+  recorded as run 4 in `RECEIPT.md`. The test host sets CP's periodic recovery interval to
+  2,147,483,647 ms by default, which is beyond any test duration, so the periodic pass does not run
+  during the manual-scan stages. This is a test-host setting only; production keeps CP's 30 s
+  default. `journey-automatic-recovery.test.mjs` sets a short test-local interval to observe that
+  pass alone.
 - Counters at the end of the recovery journey: CP canonical commands 1, executions 2 (lead, child),
   attempts 2, budgets 2; physical provider sends 3 (lead 2, child 1); child starts 1, executor
   calls 1, funding writes 1, one reservation `runtime-attempt:<childAttempt>`; one
