@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "bun run cf-typegen && bun ../../scripts/sync-assets.mjs && vite build && bun run start:check-ui-sources",
+    "build": "bun run cf-typegen && bun ../../scripts/sync-assets.mjs && vite build && bun run start:check-ui-sources && bun run check:auth-fixture-absent",
     "build:cloudflare": "bun run --cwd ../.. build:cloudflare",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
     "deploy": "bun run build:cloudflare && cf-wrangler build && cf deploy --prebuilt",
@@ -23,6 +23,7 @@
     "start:e2e": "playwright test --config start/playwright.config.ts",
     "start:test": "bun test --preload ../../scripts/test-solid-transform.ts test/start-host.test.ts",
     "start:test:auth-worker": "node start/test-local.mjs --skip-browser",
+    "start:build:auth-fixture": "node start/build-auth-fixture.mjs",
     "start:test:auth-fixture-worker": "node start/test-auth-fixture-worker.mjs",
     "check:auth-fixture-absent": "node start/check-auth-fixture-absent.mjs dist",
     "start:test:disconnect": "node start/test-stream-disconnect.mjs",

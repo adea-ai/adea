@@ -1,28 +1,18 @@
-// Proves an output directory carries no auth fixture code. Run it on the production
-// build; it must report "absent" and exit 0. On the fixture build it reports "present".
-import { readdir, readFile, stat } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+// Proves an output directory carries no auth fixture code. The production build runs
+// it on dist and it must report "absent" (exit 0). With --expect-present it inverts:
+// it passes only when the directory carries the fixture markers.
+import { resolve } from 'node:path'
+import { findFixtureMarkers } from './auth-fixture-markers.mjs'
 
-const markers = ['ADEA_AUTH_FIXTURE_OUTBOX_URL', 'fixture transport refusal', 'fixture outbox']
 const target = resolve(process.argv[2] ?? 'dist')
-
-async function* files(directory) {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name)
-    if (entry.isDirectory()) yield* files(path)
-    else if ((await stat(path)).isFile()) yield path
-  }
-}
-
-const hits = []
-for await (const file of files(target)) {
-  const text = await readFile(file, 'utf8').catch(() => '')
-  for (const marker of markers) if (text.includes(marker)) hits.push(`${file}: ${marker}`)
-}
-if (hits.length > 0) {
-  console.log(JSON.stringify({ directory: target, status: 'present', hits }))
-  process.exitCode = process.argv.includes('--expect-present') ? 0 : 1
-} else {
-  console.log(JSON.stringify({ directory: target, status: 'absent' }))
-  process.exitCode = process.argv.includes('--expect-present') ? 1 : 0
-}
+const expectPresent = process.argv.includes('--expect-present')
+const hits = await findFixtureMarkers(target)
+const present = hits.length > 0
+console.log(
+  JSON.stringify(
+    present
+      ? { directory: target, status: 'present', hits }
+      : { directory: target, status: 'absent' }
+  )
+)
+process.exitCode = present === expectPresent ? 0 : 1

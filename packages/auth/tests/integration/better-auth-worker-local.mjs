@@ -447,7 +447,7 @@ async function exercise() {
 }
 
 // Fixture composition only. The Worker was built with the loopback recording
-// transport (ADEA_AUTH_FIXTURE_BUILD=1) and the harness owns the outbox. Messages
+// transport (vite.auth-fixture.config.ts) and the harness owns the outbox. Messages
 // are read from that outbox, and the delivered links are followed through the
 // Worker. Nothing here touches production configuration.
 const outboxUrl = process.env.ADEA_AUTH_FIXTURE_OUTBOX_URL

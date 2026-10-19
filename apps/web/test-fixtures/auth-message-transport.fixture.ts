@@ -1,5 +1,5 @@
 // FIXTURE ONLY. Substituted for src/server/auth-message-transport.ts by the fixture
-// build (ADEA_AUTH_FIXTURE_BUILD=1 in vite.config.ts). It is never part of the
+// build (vite.auth-fixture.config.ts, via start/build-auth-fixture.mjs). It is never part of the
 // production output. It hands each verification or reset message to a loopback
 // outbox owned by the local acceptance harness. No mail is sent anywhere.
 import 'server-only'
