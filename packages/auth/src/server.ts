@@ -139,3 +139,12 @@ export {
   parseDesktopExchangeRequest,
   parseDesktopSessionRequest,
 } from './desktop-http-server'
+
+export {
+  AuthDeliveryFailedError,
+  AuthDeliveryRejectedError,
+  createServerAuthDelivery,
+  type AuthMessageKind,
+  type AuthMessageTransport,
+  type ServerAuthDeliveryOptions,
+} from './delivery-server'
