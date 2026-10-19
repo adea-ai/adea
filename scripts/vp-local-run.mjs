@@ -1,25 +1,35 @@
 #!/usr/bin/env node
-// Runs a Vite+ task with a local task cache that lives outside every checkout, so a second clean worktree at the same
-// commit can replay what the first one built.
+// Runs a Vite+ task with a local task cache that lives outside every checkout.
 //
 //   node scripts/vp-local-run.mjs [task] [-- vp-args...]        (default task: orch:build)
 //
-// Vite Task keeps one cache entry per task inside the directory `VITE_CACHE_PATH` names, so the wrapper picks that
-// directory from the state of the run:
-//   - shared:   a clean checkout. The directory is keyed by the git common directory (every worktree of one repository,
-//               and no other), the commit, and the build-relevant environment. Clean worktrees at one commit share it.
-//   - isolated: a checkout with local changes, untracked files or no commit. Its directory is keyed by the checkout
-//               path as well, so no other worktree reads or overwrites its entries.
-//   - bypass:   `CI` is set, or `VITE_CACHE_PATH` is already in the environment, or the cache directory cannot be made
-//               private. The run is the plain `vp run <task>` it was before this wrapper existed; nothing is created,
-//               locked or added to the command.
-// Within a shared or isolated directory, one directory per environment means A, B, A replays the A entries instead of
-// re-running (Vite Task holds one entry per task).
+// Vite Task keeps one cache entry per task inside the directory `VITE_CACHE_PATH` names, and one `vp run` uses one
+// directory. The directory is chosen by the state of the checkout:
+//   - clean:   no local changes and no untracked files. The directory is shared by every clean checkout of the same
+//              repository at the same commit (`repo-<repository>/head-<commit>/<environment>`).
+//   - working: local changes, untracked files, or no commit. The directory belongs to this checkout alone
+//              (`checkout-<path>/state-*/<environment>`), so its files are never replayed anywhere else.
+// The environment part is the build-relevant environment (see `environmentKey`), so A, B, A replays the A entries.
 //
-// Vite Task still fingerprints the files, declared variables and `ORCH_TOOLCHAIN` (scripts/orch-toolchain.mjs) of every
-// task, so the directory only decides which entries are visible, never whether an entry is valid.
-// Runs that share a directory take `<directory>.lock`; a lock whose owner has exited is reclaimed under a reclaim mutex
-// (see `withLock`).
+// Sharing across checkouts is only as safe as the outputs are portable. Vite Task fingerprints the inputs of every task,
+// including `ORCH_TOOLCHAIN` (scripts/orch-toolchain.mjs), and a task whose output embeds the absolute path of the checkout
+// that built it carries that checkout's canonical path in its command (`ORCH_CHECKOUT`, see scripts/orch-graph.mjs). A
+// different checkout therefore misses and rebuilds rather than replaying a path that is not its own. The directory only
+// decides which entries are visible, never whether an entry is valid.
+//
+// Modes:
+//   - bypass: `CI` is set, `VITE_CACHE_PATH` is already in the environment, the cache home is not absolute, the cache
+//             directory fails the checks in `ensurePrivateDirectory`, the lock is malformed or foreign, or the checkout
+//             changed while the run waited for the lock. The run is the plain `vp run <task>` it was before this wrapper.
+//   - clean, working: the two shared-directory modes above, with `--cache`.
+//
+// Locking (`withLock`): a run holds `<directory>.lock`, and records the process group it started at `<directory>.lock.run`.
+// A lock whose owner has exited is reclaimed only when no recorded group is still running. Reclaiming takes the
+// `<directory>.lock.reclaim` mutex, which is never broken by age or guessed ownership: if it is held, the wait is bounded
+// and the run fails with a message naming it. Malformed, symlinked or foreign lock files are never deleted.
+//
+// After the lock is acquired, `runUnderLock` plans the directory again. A checkout can change during a long wait, so if its
+// commit, cleanliness or cache directory no longer matches the plan, nothing is launched against the shared directory.
 import { execFileSync, spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import {
@@ -29,8 +39,8 @@ import {
   mkdirSync,
   readFileSync,
   realpathSync,
+  renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
@@ -38,7 +48,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const DEFAULT_TASK = 'orch:build'
-const SCHEMA = 'vp-local-run-v2'
+const SCHEMA = 'vp-local-run-v3'
 const ENV_PREFIXES = [
   'NODE_ENV',
   'NODE_OPTIONS',
@@ -50,8 +60,10 @@ const ENV_PREFIXES = [
 ]
 const LOCK_TIMEOUT_MS = 60 * 60_000
 const LOCK_POLL_MS = 100
-// The reclaim mutex is held for one read and one unlink. A mutex older than this belongs to a reclaimer that died.
-const RECLAIM_STALE_MS = 30_000
+const TOKEN = /^([1-9]\d*)\n([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
+
+/** A lock or run record that is not in the expected form. It is preserved and the run falls back to bypass. */
+export class LockRefused extends Error {}
 
 const sha256 = (data) => createHash('sha256').update(data).digest('hex')
 const shortHash = (value) => sha256(value).slice(0, 32)
@@ -64,15 +76,6 @@ function git(root, args) {
   }).trim()
 }
 
-/** The shared git directory of the checkout, or the checkout itself when it is not a git repository. */
-export function repositoryIdentity(root) {
-  try {
-    return realpathSync(git(root, ['rev-parse', '--path-format=absolute', '--git-common-dir']))
-  } catch {
-    return realpathSync(root)
-  }
-}
-
 /** The commit the checkout is at, and whether it has changes that commit does not record (untracked files count). */
 export function checkoutState(root) {
   try {
@@ -81,6 +84,15 @@ export function checkoutState(root) {
     return { head: /^[0-9a-f]{40,64}$/.test(head) ? head : null, dirty }
   } catch {
     return { head: null, dirty: true }
+  }
+}
+
+/** The canonical git common directory: every worktree of one repository names the same one. `null` if there is none. */
+export function repositoryDirectory(root) {
+  try {
+    return realpathSync(resolve(root, git(root, ['rev-parse', '--git-common-dir'])))
+  } catch {
+    return null
   }
 }
 
@@ -123,8 +135,8 @@ export function defaultCacheHome(env, home = homedir()) {
 }
 
 /**
- * Chooses the cache for one run. See the header for the three modes. Nothing is created here; `ensurePrivateDirectory`
- * does that and can still refuse the directory, in which case the run falls back to bypass.
+ * Chooses the cache for one run (see the header). Nothing is created here; `ensurePrivateDirectory` does that and can
+ * still refuse the directory, in which case the run falls back to bypass.
  */
 export function planCache({ root, env, nodeVersion, platform, arch, vitePlusVersion, home }) {
   if (env.CI) return { mode: 'bypass', reason: 'CI is set' }
@@ -132,23 +144,35 @@ export function planCache({ root, env, nodeVersion, platform, arch, vitePlusVers
     return { mode: 'bypass', reason: 'VITE_CACHE_PATH is already set' }
   const cacheHome = defaultCacheHome(env, home)
   if (cacheHome === null) return { mode: 'bypass', reason: 'no absolute cache home' }
-  const repository = shortHash(repositoryIdentity(root))
   const environment = environmentKey({ root, env, nodeVersion, platform, arch, vitePlusVersion })
   const state = checkoutState(root)
-  if (state.head && !state.dirty)
+  const repository = repositoryDirectory(root)
+  if (state.head && !state.dirty && repository !== null)
     return {
-      mode: 'shared',
+      mode: 'clean',
+      reason: 'clean checkout, shared by the repository at this commit',
       cacheHome,
-      directory: join(cacheHome, repository, `head-${state.head}`, environment),
+      directory: join(
+        cacheHome,
+        `repo-${shortHash(repository)}`,
+        `head-${state.head}`,
+        environment
+      ),
     }
+  const checkout = `checkout-${shortHash(realpathSync(root))}`
+  const reason = !state.head
+    ? 'no commit'
+    : state.dirty
+      ? 'local changes or untracked files'
+      : 'no git repository'
   return {
-    mode: 'isolated',
-    reason: state.head ? 'local changes or untracked files' : 'no commit',
+    mode: 'working',
+    reason,
     cacheHome,
     directory: join(
       cacheHome,
-      repository,
-      `checkout-${shortHash(realpathSync(root))}`,
+      checkout,
+      state.head ? 'state-changed' : 'state-no-commit',
       environment
     ),
   }
@@ -163,22 +187,42 @@ function lstatOrNull(path) {
   }
 }
 
-function assertPrivateDirectory(path, stats) {
+/** Components above the cache home may be system directories: owned by the user or root, not writable by others. */
+function assertAncestor(path, stats, uid) {
   if (stats.isSymbolicLink()) throw new Error(`${path} is a symbolic link`)
   if (!stats.isDirectory()) throw new Error(`${path} is not a directory`)
-  if (typeof process.getuid === 'function' && stats.uid !== process.getuid())
+  if (uid !== null && stats.uid !== uid && stats.uid !== 0)
     throw new Error(`${path} is owned by another user`)
-  if (stats.mode & 0o002) throw new Error(`${path} is writable by others`)
+  if (stats.mode & 0o022 && !(stats.mode & 0o1000))
+    throw new Error(`${path} is writable by group or others`)
+}
+
+/** Components under the cache home belong to the current user and are writable by no one else. */
+function assertOwned(path, stats, uid) {
+  if (stats.isSymbolicLink()) throw new Error(`${path} is a symbolic link`)
+  if (!stats.isDirectory()) throw new Error(`${path} is not a directory`)
+  if (uid !== null && stats.uid !== uid) throw new Error(`${path} is owned by another user`)
+  if (stats.mode & 0o022) throw new Error(`${path} is writable by group or others`)
 }
 
 /**
- * Creates `directory` under `home`, checking every component on the way: none may be a symbolic link, each must be a
- * directory owned by the current user and not writable by others. Nothing that exists is changed.
+ * Creates `directory` under `home`. Every ancestor of the home must be a real directory that is not writable by others
+ * (sticky directories excepted); the home and everything below it must be real directories owned by the current user,
+ * not writable by group or others; and the directory must be its own real path. Existing directories are never changed.
  */
 export function ensurePrivateDirectory(home, directory) {
+  if (!isAbsolute(home) || !isAbsolute(directory))
+    throw new Error('cache home and directory must be absolute')
   const inside = relative(home, directory)
   if (inside.startsWith('..') || isAbsolute(inside))
     throw new Error(`${directory} is outside the cache home`)
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null
+
+  for (let ancestor = dirname(home); ancestor !== dirname(ancestor); ancestor = dirname(ancestor)) {
+    const stats = lstatOrNull(ancestor)
+    if (stats === null) throw new Error(`${ancestor} does not exist`)
+    assertAncestor(ancestor, stats, uid)
+  }
   if (lstatOrNull(home) === null) mkdirSync(home, { recursive: true, mode: 0o700 })
   let current = home
   for (const part of ['', ...inside.split(sep).filter(Boolean)]) {
@@ -188,8 +232,10 @@ export function ensurePrivateDirectory(home, directory) {
       mkdirSync(current, { mode: 0o700 })
       stats = lstatSync(current)
     }
-    assertPrivateDirectory(current, stats)
+    assertOwned(current, stats, uid)
   }
+  if (realpathSync(directory) !== directory)
+    throw new Error(`${directory} is not its own real path`)
 }
 
 function alive(pid) {
@@ -201,8 +247,21 @@ function alive(pid) {
   }
 }
 
-const token = () => `${process.pid}\n${randomUUID()}`
-const ownerOf = (content) => Number(content.split('\n')[0])
+/** Whether any process is still running in the process group `pgid`. */
+function groupAlive(pgid) {
+  try {
+    process.kill(-pgid, 0)
+    return true
+  } catch (error) {
+    return error.code === 'EPERM'
+  }
+}
+
+const newToken = () => `${process.pid}\n${randomUUID()}`
+const parseToken = (content) => {
+  const match = TOKEN.exec(content)
+  return match ? { pid: Number(match[1]), uuid: match[2], text: content } : null
+}
 
 /** Publishes `content` at `path` only if nothing is there. The file is complete before it gets its name. */
 function tryCreate(path, content) {
@@ -219,50 +278,82 @@ function tryCreate(path, content) {
   }
 }
 
-function readIfPresent(path) {
-  try {
-    return readFileSync(path, 'utf8')
-  } catch (error) {
-    if (error.code === 'ENOENT') return null
-    throw error
-  }
+/** Replaces `path` with `content` atomically. Used only by the owner of a lock, for its own run record. */
+function replace(path, content) {
+  const staging = `${path}.${process.pid}.${randomUUID()}`
+  writeFileSync(staging, content)
+  renameSync(staging, path)
+}
+
+/** The content of a regular file, `null` when absent. A symbolic link or other non-file is refused, never followed. */
+function readRegular(path) {
+  const stats = lstatOrNull(path)
+  if (stats === null) return null
+  if (!stats.isFile()) throw new LockRefused(`${path} is not a regular file`)
+  return readFileSync(path, 'utf8')
 }
 
 /**
- * Removes the lock `observed` only while the reclaim mutex is held, and only if the lock still holds exactly the bytes
- * that were read and their owner is gone. A successor's lock is never unlinked: it has different bytes, and it can only
- * appear after a reclaimer removed the dead one, which required the same mutex.
+ * Whether the lock's owner is gone. `live` = the owner process runs, or a process group it recorded is still running;
+ * `dead` = neither; a malformed lock or run record is refused rather than judged.
  */
-async function reclaim(lock, observed, { pollMs, hooks }) {
+function ownerState(lock, content) {
+  const owner = parseToken(content)
+  if (owner === null) throw new LockRefused(`${lock} is not a recognised lock record`)
+  if (alive(owner.pid)) return { state: 'live', owner }
+  const run = readRegular(`${lock}.run`)
+  if (run === null) return { state: 'dead', owner }
+  const record = parseToken(run)
+  if (record === null) throw new LockRefused(`${lock}.run is not a recognised run record`)
+  if (record.uuid !== owner.uuid) return { state: 'dead', owner }
+  return { state: groupAlive(record.pid) ? 'live' : 'dead', owner }
+}
+
+/**
+ * Removes the dead lock `observed` while holding the reclaim mutex, after checking under the mutex that it still holds
+ * the same bytes and is still dead. A held mutex is never broken: the caller waits, bounded by its timeout.
+ */
+async function reclaimDead(lock, observed, owner, hooks) {
   const mutex = `${lock}.reclaim`
-  const mine = token()
-  if (!tryCreate(mutex, mine)) {
-    const age = Date.now() - (statOrZero(mutex) ?? Date.now())
-    if (age > RECLAIM_STALE_MS) rmSync(mutex, { force: true })
-    await sleep(pollMs)
-    return
-  }
+  const mine = newToken()
+  if (!tryCreate(mutex, mine)) return false
   try {
     await hooks.reclaimLocked?.()
-    if (readIfPresent(lock) === observed && !alive(ownerOf(observed))) rmSync(lock, { force: true })
+    if (readRegular(lock) !== observed) return false
+    if (ownerState(lock, observed).state !== 'dead') return false
+    rmSync(lock, { force: true })
+    const run = readRegular(`${lock}.run`)
+    if (run !== null && parseToken(run)?.uuid === owner.uuid) rmSync(`${lock}.run`, { force: true })
+    return true
   } finally {
-    if (readIfPresent(mutex) === mine) rmSync(mutex, { force: true })
-  }
-}
-
-function statOrZero(path) {
-  try {
-    return statSync(path).mtimeMs
-  } catch {
-    return null
+    if (readRegular(mutex) === mine) rmSync(mutex, { force: true })
   }
 }
 
 /**
- * Runs `work` while holding `<directory>.lock`. A lock whose owner process has exited is reclaimed (see `reclaim`); a
- * live one is waited for until `timeoutMs`. The lock is released only if it still holds this run's bytes.
- * `hooks.staleObserved` runs after a run has read a dead owner and before it reclaims; `hooks.reclaimLocked` runs while
- * a reclaimer holds the reclaim mutex. Tests use them to force an interleaving.
+ * Releases `lock` if it still holds this run's bytes and no process group recorded by this run is running. Otherwise the
+ * lock is left in place: the next run finds its owner dead, sees the group still running, and waits. A malformed or foreign
+ * file is left alone too.
+ */
+function release(lock, run, mine, uuid) {
+  try {
+    if (readRegular(lock) !== mine) return
+    const record = parseToken(readRegular(run) ?? '')
+    if (record !== null && record.uuid === uuid && groupAlive(record.pid)) return
+    if (record !== null && record.uuid === uuid) rmSync(run, { force: true })
+    rmSync(lock, { force: true })
+  } catch (error) {
+    if (!(error instanceof LockRefused)) throw error
+  }
+}
+
+/**
+ * Runs `work(register)` while holding `<directory>.lock`. `register(pid)` records the process group the work started, so
+ * that a later run does not reclaim the lock while that group still runs.
+ *
+ * Every wait is bounded by `timeoutMs`. Malformed, symlinked or foreign lock files raise `LockRefused` and are never deleted.
+ * `hooks.staleObserved` runs after a dead owner was read and before the reclaim; `hooks.reclaimLocked` runs while a reclaimer
+ * holds the reclaim mutex. Tests use them to force interleavings.
  */
 export async function withLock(
   directory,
@@ -270,27 +361,52 @@ export async function withLock(
   { timeoutMs = LOCK_TIMEOUT_MS, pollMs = LOCK_POLL_MS, hooks = {} } = {}
 ) {
   const lock = `${directory}.lock`
+  const run = `${lock}.run`
   mkdirSync(dirname(directory), { recursive: true, mode: 0o700 })
-  const mine = token()
-  const started = Date.now()
-  while (!tryCreate(lock, mine)) {
-    const observed = readIfPresent(lock)
+  const mine = newToken()
+  const { uuid } = parseToken(mine)
+  const deadline = Date.now() + timeoutMs
+  let waiting = 'the owner is live'
+  for (;;) {
+    if (tryCreate(lock, mine)) break
+    if (Date.now() >= deadline)
+      throw new Error(`timed out waiting for the cache lock ${lock} (${waiting})`)
+    const observed = readRegular(lock)
     if (observed === null) continue
-    const owner = ownerOf(observed)
-    if (!Number.isInteger(owner) || owner <= 0 || !alive(owner)) {
+    const { state, owner } = ownerState(lock, observed)
+    if (state === 'dead') {
       await hooks.staleObserved?.()
-      await reclaim(lock, observed, { pollMs, hooks })
-      continue
+      if (await reclaimDead(lock, observed, owner, hooks)) continue
+      waiting = `the reclaim mutex ${lock}.reclaim is held`
+    } else {
+      waiting = `owner ${owner.pid} is live`
     }
-    if (Date.now() - started > timeoutMs)
-      throw new Error(`timed out waiting for the cache lock ${lock}`)
     await sleep(pollMs)
   }
   try {
-    return await work()
+    return await work((pid) => replace(run, `${pid}\n${uuid}`))
   } finally {
-    if (readIfPresent(lock) === mine) rmSync(lock, { force: true })
+    release(lock, run, mine, uuid)
   }
+}
+
+/**
+ * Runs `run(register)` for `plan` while holding its lock. Under the lock the checkout is planned again: if its commit,
+ * its cleanliness or its cache directory no longer matches `plan`, nothing is launched and `{ replanned: true }` is
+ * returned, so the caller can run without the shared directory.
+ */
+export async function runUnderLock({ plan, replan, run }) {
+  return withLock(plan.directory, async (register) => {
+    const current = replan()
+    if (current.mode !== plan.mode || current.directory !== plan.directory)
+      return { replanned: true, reason: 'the checkout changed while waiting for the cache lock' }
+    try {
+      ensurePrivateDirectory(current.cacheHome, current.directory)
+    } catch (error) {
+      return { replanned: true, reason: error.message }
+    }
+    return { replanned: false, value: await run(register) }
+  })
 }
 
 /** Argument parsing: an optional task name, then everything after `--` goes to `vp run` unchanged. */
@@ -304,7 +420,7 @@ export function parseArgs(argv) {
   return { task, passthrough }
 }
 
-/** The `vp run` arguments: `--cache` is added only when a shared or isolated cache is in use. */
+/** The `vp run` arguments: `--cache` is added only when a shared cache is in use. */
 export function vpRunArguments({ task, passthrough, cacheEnabled }) {
   return ['run', ...(cacheEnabled ? ['--cache'] : []), task, ...passthrough]
 }
@@ -314,8 +430,12 @@ export function readVitePlusVersion(root) {
   return existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).version : 'absent'
 }
 
-/** Runs `vp` with the given arguments. A signal that reaches the wrapper is reported even if `vp` exits 0 after it. */
-export function runVp({ root, env, args }) {
+/**
+ * Runs `vp`. With `register`, `vp` starts in its own process group, which is recorded through `register` so the lock
+ * stays held while it runs, and signals go to the whole group. A signal that reaches the wrapper is reported even when
+ * `vp` exits 0 after it.
+ */
+export function runVp({ root, env, args, register }) {
   return new Promise((done, fail) => {
     let received = null
     const signals = ['SIGINT', 'SIGTERM']
@@ -323,10 +443,17 @@ export function runVp({ root, env, args }) {
       cwd: root,
       env,
       stdio: 'inherit',
+      detached: register !== undefined,
     })
+    if (register && child.pid !== undefined) register(child.pid)
     const forward = (signal) => {
       received = signal
-      child.kill(signal)
+      try {
+        if (register) process.kill(-child.pid, signal)
+        else child.kill(signal)
+      } catch {
+        // the group has already exited
+      }
     }
     for (const signal of signals) process.on(signal, forward)
     child.on('error', fail)
@@ -350,15 +477,17 @@ async function main(argv) {
   const root = resolveRoot()
   const { task, passthrough } = parseArgs(argv)
   const env = { ...process.env }
-  let plan = planCache({
-    root,
-    env,
-    nodeVersion: process.version,
-    platform: process.platform,
-    arch: process.arch,
-    vitePlusVersion: readVitePlusVersion(root),
-    home: homedir(),
-  })
+  const replan = () =>
+    planCache({
+      root,
+      env,
+      nodeVersion: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      vitePlusVersion: readVitePlusVersion(root),
+      home: homedir(),
+    })
+  let plan = replan()
   if (plan.mode !== 'bypass') {
     try {
       ensurePrivateDirectory(plan.cacheHome, plan.directory)
@@ -367,18 +496,33 @@ async function main(argv) {
       plan = { mode: 'bypass', reason: 'cache directory refused' }
     }
   }
-  if (plan.mode === 'bypass') {
-    console.log(`vp-local-run: ${task}, no shared cache (${plan.reason})`)
-    const args = vpRunArguments({ task, passthrough, cacheEnabled: false })
-    process.exitCode = exitCodeFor(await runVp({ root, env, args }))
-    return
+  const bypassArgs = vpRunArguments({ task, passthrough, cacheEnabled: false })
+  const bypass = async (reason) => {
+    console.log(`vp-local-run: ${task}, no shared cache (${reason})`)
+    process.exitCode = exitCodeFor(await runVp({ root, env, args: bypassArgs }))
   }
-  env.VITE_CACHE_PATH = plan.directory
+  if (plan.mode === 'bypass') return bypass(plan.reason)
+
+  const cachedEnv = { ...env, VITE_CACHE_PATH: plan.directory }
   const args = vpRunArguments({ task, passthrough, cacheEnabled: true })
-  console.log(
-    `vp-local-run: ${task}, ${plan.mode} cache ${plan.directory} (${plan.reason ?? 'clean checkout'})`
-  )
-  process.exitCode = exitCodeFor(await withLock(plan.directory, () => runVp({ root, env, args })))
+  console.log(`vp-local-run: ${task}, ${plan.mode} cache ${plan.directory} (${plan.reason})`)
+  let outcome
+  try {
+    outcome = await runUnderLock({
+      plan,
+      replan,
+      run: (register) => runVp({ root, env: cachedEnv, args, register }),
+    })
+  } catch (error) {
+    if (!(error instanceof LockRefused)) throw error
+    console.warn(`vp-local-run: not using a shared cache: ${error.message}`)
+    return bypass('lock refused')
+  }
+  if (outcome.replanned) {
+    console.warn(`vp-local-run: ${outcome.reason}; running without the shared cache`)
+    return bypass('checkout changed')
+  }
+  process.exitCode = exitCodeFor(outcome.value)
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

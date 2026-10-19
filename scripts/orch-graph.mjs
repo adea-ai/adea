@@ -110,6 +110,10 @@ export const PACKAGE_RULES = {
     // The pack is a directory outside the workspace, so its contents are not an input glob. Its digest is written
     // into the command instead (see `agentSimPackDigest`).
     agentSimPack: true,
+    // `dist` embeds the absolute paths of the checkout that built it, so its cache entry is keyed by that checkout's
+    // canonical path too (`ORCH_CHECKOUT`, see `checkoutIdentity`). It then misses in every other checkout instead of
+    // replaying a path that is not its own. The other packages' outputs are portable and are shared across checkouts.
+    pathSensitive: true,
     // TanStack Start's `loadEnvPlugin` calls `loadEnv(mode, root, '')`, and under `vp run` Vite reports that to the
     // runner as a dependency on EVERY environment variable (`getEnvs({ prefix: '' })`), so any ambient variable
     // (`OLDPWD`, a CI run id) would be a cache miss. Without the runner's client address Vite reports nothing; the
@@ -271,6 +275,14 @@ export function agentSimPackDigest(root, env = process.env) {
   return hash.digest('hex').slice(0, 16)
 }
 
+/**
+ * The canonical path of the checkout, hashed: the identity a path-sensitive task carries in its command, so that its
+ * cache entry is valid for this checkout only. Changing the checkout's location changes the identity.
+ */
+export function checkoutIdentity(root) {
+  return createHash('sha256').update(realpathSync(root)).digest('hex').slice(0, 16)
+}
+
 const hasViteBuild = (workspace) => /\bvite build\b/.test(workspace.scripts.build ?? '')
 
 /**
@@ -323,7 +335,12 @@ export function buildTasks(root, toolchainId, env = process.env) {
             }
           : cached(run(workspace, 'build'), buildDeps, {
               unsetEnv: rule.buildUnsetEnv,
-              prefix: packDigest === undefined ? undefined : `ORCH_AGENT_SIM_PACK=${packDigest}`,
+              prefix: [
+                rule.pathSensitive ? `ORCH_CHECKOUT=${checkoutIdentity(root)}` : '',
+                packDigest === undefined ? '' : `ORCH_AGENT_SIM_PACK=${packDigest}`,
+              ]
+                .filter(Boolean)
+                .join(' '),
               input: [
                 ...own(workspace, { includeDist: false }),
                 ...builtInputs,

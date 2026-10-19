@@ -17,6 +17,7 @@ import { PUBLIC_ENV_NAMES } from '../apps/web/start/client-policy.mjs'
 import {
   agentSimPackDigest,
   buildTasks,
+  checkoutIdentity,
   discoverWorkspaces,
   GLOBAL_INPUTS,
   PACKAGE_RULES,
@@ -122,7 +123,7 @@ describe('orch task graph mirrors the package manifests', () => {
       expect(definition.dependsOn, name).toContain('orch:toolchain')
       expect(definition.command, name).toMatch(
         new RegExp(
-          `^ORCH_TOOLCHAIN=${toolchain}( ORCH_AGENT_SIM_PACK=[0-9a-z]+)? env -u FORCE_COLOR `
+          `^ORCH_TOOLCHAIN=${toolchain}( ORCH_CHECKOUT=[0-9a-f]{16})?( ORCH_AGENT_SIM_PACK=[0-9a-z]+)? env -u FORCE_COLOR `
         )
       )
     }
@@ -359,6 +360,34 @@ describe('the web build declares everything it reads that no glob can see', () =
   test('an unset pack is cached under its own digest', () => {
     expect(agentSimPackDigest(root, {})).toBe('none')
     expect(buildTasks(root, toolchain, {})[web]!.command).toContain('ORCH_AGENT_SIM_PACK=none ')
+  })
+
+  test('only the path-sensitive web build carries its checkout identity in its cached command', () => {
+    const graph = buildTasks(root, toolchain, { ADEA_AGENT_SIM_DIST: '' })
+    expect(PACKAGE_RULES['apps/web']!.pathSensitive).toBe(true)
+    expect(graph[web]!.command).toContain(`ORCH_CHECKOUT=${checkoutIdentity(root)} `)
+    for (const [name, definition] of Object.entries(graph)) {
+      if (name === web || !definition.cache) continue
+      expect(definition.command, name).not.toContain('ORCH_CHECKOUT')
+    }
+  })
+
+  test('the checkout identity is the canonical path: an alias of the checkout has the same identity, another path does not', () => {
+    const base = mkdtempSync(join(tmpdir(), 'orch-identity-'))
+    try {
+      const alias = join(base, 'alias')
+      const other = join(base, 'other')
+      symlinkSync(root, alias)
+      mkdirSync(other)
+      expect(checkoutIdentity(alias)).toBe(checkoutIdentity(root))
+      expect(checkoutIdentity(other)).not.toBe(checkoutIdentity(root))
+      expect(checkoutIdentity(root)).toMatch(/^[0-9a-f]{16}$/)
+      expect(buildTasks(alias, toolchain, {})[web]!.command).toBe(
+        buildTasks(root, toolchain, {})[web]!.command
+      )
+    } finally {
+      rmSync(base, { recursive: true, force: true })
+    }
   })
 
   describe('links in the pack follow the staging script, which follows links and copies the rest as links', () => {
