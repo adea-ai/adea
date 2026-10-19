@@ -2053,8 +2053,9 @@ decode fails closed with `corrupt_state` and is retained unread. Other Dev
 Runtime authorities remain on the existing JSON store until an independently
 reviewed migration slice covers their schema and rollback contract.
 
-`dev.session.list` applies its optional project, worktree, archive-state, and
-runtime-session filters before pagination. It orders matches by the stable
+`dev.session.list` applies its optional project, worktree, and archive-state
+filters before pagination. Its signed request contract has no `runtimeSessionId`
+filter. It orders matches by the stable
 runtime session id using code-unit ordering, then treats `cursor` as a keyset
 boundary: only ids greater than the cursor are eligible for the next page.
 The default page size is 200; an explicit `limit` is an integer from 1 through 500. `nextCursor` is the last returned id only when another matching session

@@ -277,8 +277,13 @@ account/workspace/node scope and rechecks that binding before and after each
 page. The provider also binds to the live desktop session and account-principal
 accessors as an invalidation fence: a login, sign-out, principal change, or
 session rotation in the same workspace aborts a read and clears the previous
-result, even while the runtime service still holds a cached scope. These app
-identity values are not treated as runtime scope and are never included in the
+result, even while the runtime service still holds a cached scope. Composition
+withholds the diagnostic during authentication/bootstrap and replaces it only
+after the current workspace scope selection settles. The replacement reads a
+fresh signed shell scope; a refused selection keeps it unavailable. The old
+provider remains invalidated through a monotonic local admission generation,
+even if the same app identity returns; other workspace services need not remount.
+These app identity values are not treated as runtime scope and are never included in the
 inventory. The action never creates or resumes a session. It downloads one local
 JSON section with at most 1,000 records, at most 500 records per
 `dev.session.list` page, and at most 1 MiB serialized output; a section that

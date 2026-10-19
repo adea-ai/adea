@@ -94,6 +94,8 @@ export function DesktopWorkspaceEntry(props: {
   const [message, setMessage] = createSignal('Opening your workspace…')
   const [workspaceState, setWorkspaceState] = createSignal<DesktopWorkspaceBootstrap | null>(null)
   const [session, setSession] = createSignal<DesktopSession | undefined>()
+  const [nativeInventoryAuthorizationContext, setNativeInventoryAuthorizationContext] =
+    createSignal<string | undefined>()
   const [appVersion, setAppVersion] = createSignal('0.0.0')
   const [updatesOpen, setUpdatesOpen] = createSignal(false)
   // Seed the update-pending badge from the shell's own updater state once per
@@ -169,6 +171,9 @@ export function DesktopWorkspaceEntry(props: {
 
   const openWorkspace = async (activeSession?: DesktopSession) => {
     const requestIsCurrent = workspaceRequestGuard.begin()
+    // Drop captured output and abort an old read before changing app identity.
+    // A replacement is admitted only after this bootstrap's scope selection.
+    setNativeInventoryAuthorizationContext(undefined)
     setSession(activeSession)
     setStatus('loading')
     setMessage(
@@ -211,6 +216,9 @@ export function DesktopWorkspaceEntry(props: {
       workspaceStore.getState().switchWorkspace(nextWorkspace.workspace?.id ?? null)
       temporaryCredential = nextWorkspace.temporaryCredential
       setWorkspaceState(nextWorkspace)
+      setNativeInventoryAuthorizationContext(
+        JSON.stringify([activeSession?.sessionId ?? null, nextWorkspace.userId ?? null])
+      )
       setStatus(activeSession ? 'authenticated' : 'guest')
       setMessage(
         activeSession
@@ -393,6 +401,7 @@ export function DesktopWorkspaceEntry(props: {
                 characterDesigner={props.characterDesigner ?? false}
                 roomDesigner={props.roomDesigner ?? false}
                 session={session()}
+                nativeInventoryAuthorizationContext={nativeInventoryAuthorizationContext()}
                 onBeginSignIn={beginSignIn}
                 onSignOut={signOut}
                 onUpdatesOpenChange={setUpdatesOpen}
@@ -445,6 +454,7 @@ function DesktopWorkspace(props: {
   characterDesigner: boolean
   roomDesigner: boolean
   session: DesktopSession | undefined
+  nativeInventoryAuthorizationContext?: string
   onBeginSignIn: () => Promise<void>
   onSignOut: () => Promise<void>
   onUpdatesOpenChange: (open: boolean) => void
@@ -478,15 +488,40 @@ function DesktopWorkspace(props: {
     expectedWorkspaceId: props.devScopeWorkspaceId,
   })
   const connections = createDesktopWorkspaceConnectionsService(devRuntime)
-  const nativeSessionInventoryDiagnostics = createDesktopNativeSessionInventoryDiagnosticService(
-    devRuntime,
-    {
-      // This is a local invalidation fence only. The shell-bound Dev Runtime
-      // scope remains the authority; the credential is never read or copied.
-      authorizationContext: () =>
-        JSON.stringify([props.session?.sessionId ?? null, props.accountPrincipalId() ?? null]),
+  const nativeInventoryContext = createMemo(
+    (
+      previous: { identity: string; admission: string | undefined; generation: number } | undefined
+    ) => {
+      const identity = JSON.stringify([
+        props.session?.sessionId ?? null,
+        props.accountPrincipalId() ?? null,
+      ])
+      const admission = props.nativeInventoryAuthorizationContext
+      if (previous && previous.identity === identity && previous.admission === admission)
+        return previous
+      // A retired provider cannot revive if the same identity returns, or a
+      // bootstrap replaces its signed binding without changing that identity.
+      return { identity, admission, generation: (previous?.generation ?? 0) + 1 }
     }
   )
+  const nativeSessionInventoryDiagnostics = createMemo(() => {
+    const context = nativeInventoryContext()
+    if (context.admission !== context.identity) return undefined
+    // Re-read the shell's signed scope after the current bootstrap selection.
+    // The previous provider keeps its original, permanently invalidated fence.
+    const inventoryRuntime = createDesktopDevRuntimeService({
+      scopeSelection: props.devScope.ensure(props.devScopeWorkspaceId),
+      expectedWorkspaceId: props.devScopeWorkspaceId,
+    })
+    return createDesktopNativeSessionInventoryDiagnosticService(inventoryRuntime, {
+      // App identity invalidates the provider; it never declares runtime scope
+      // or reads/copies the credential.
+      authorizationContext: () => {
+        const current = nativeInventoryContext()
+        return JSON.stringify([current.identity, current.generation])
+      },
+    })
+  })
   // A new launched conversation starts on the stored direct default; a failed read blocks it.
   const chatModelHost = createDesktopChatModelHost(devRuntime, {
     initialModel: async () => {
@@ -514,7 +549,7 @@ function DesktopWorkspace(props: {
     client: props.client,
     connections,
     devRuntime,
-    nativeSessionInventoryDiagnostics,
+    nativeSessionInventoryDiagnostics: nativeSessionInventoryDiagnostics(),
     memory: desktopMemoryService,
     privateContent: localContentAuthority,
     plugins: props.plugins,

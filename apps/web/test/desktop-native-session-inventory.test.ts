@@ -348,7 +348,9 @@ describe('desktop native session inventory diagnostic caller', () => {
     expect(composition).toContain('props.session?.sessionId ?? null')
     expect(composition).toContain('props.accountPrincipalId() ?? null')
     expect(composition).not.toContain('props.session?.credential')
-    expect(composition).toContain('nativeSessionInventoryDiagnostics,')
+    expect(composition).toContain(
+      'nativeSessionInventoryDiagnostics: nativeSessionInventoryDiagnostics()'
+    )
     expect(utilityOwner).toBeDefined()
     expect(utilityOwner).not.toContain('nativeSessionInventoryDiagnostics')
   })
