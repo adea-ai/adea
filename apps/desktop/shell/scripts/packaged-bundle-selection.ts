@@ -1,6 +1,6 @@
-// The packaged lane's bundle selection and its exit code.
+// The packaged bundle selection and the packaged lane's exit code.
 //
-// The packaged lane drives the REAL packaged macOS bundle, so it may only ever
+// The packaged lanes drive the REAL packaged macOS bundle, so they may only ever
 // drive the one bundle the repository pins as the development target:
 // `<shell build>/dev-macos-arm64/Adea-dev.app` — the same path the install
 // helper, the transport probe and the packaged suites all use.
@@ -12,8 +12,8 @@
 // prove, so the selection is fail-closed: it returns the one supported bundle
 // or names why no candidate qualifies.
 //
-// Both decisions are pure over injected filesystem seams, so they are
-// testable without a build, a bundle, or an app.
+// Both decisions are pure over injected filesystem seams, so they are testable
+// without a build, a bundle, or an app.
 
 import path from 'node:path'
 
@@ -24,24 +24,40 @@ export const DEV_BUNDLE_NAME = 'Adea-dev.app'
 export const DEV_CHANNEL_DIRECTORY = 'dev-macos-arm64'
 
 /** Why a candidate did not qualify. */
-export const DEV_BUNDLE_REJECTIONS = Object.freeze({
+export const DEV_BUNDLE_REJECTIONS = {
   ambiguous: 'ambiguous',
   missing: 'missing',
   stableOnly: 'stable-only',
   wrongArchitecture: 'wrong-architecture',
   wrongLayout: 'wrong-layout',
-})
+} as const
+
+export type DevBundleRejection = (typeof DEV_BUNDLE_REJECTIONS)[keyof typeof DEV_BUNDLE_REJECTIONS]
+
+export type DevBundleSelection =
+  | { bundle: string; reason: 'selected' }
+  | { bundle: null; reason: DevBundleRejection }
+
+/**
+ * The filesystem seams the selection runs over: the names of the DIRECTORIES in
+ * a directory, and whether a path exists. An unreadable or absent directory
+ * lists as empty, which the selection treats as "no candidate" rather than as
+ * an error.
+ */
+export type DevBundleFileSystem = {
+  exists(path: string): boolean
+  listDirectory(path: string): readonly string[]
+}
 
 /**
  * Selects the packaged development bundle, or names why no candidate qualifies.
- *
- * `listDirectory` returns the names of the DIRECTORIES in a directory (an
- * unreadable or absent directory lists as empty), and `exists` reports whether
- * a path exists. Both are injected so the decision is deterministic and needs
- * no filesystem at all.
  */
-export function selectDevAppBundle({ buildRoot, exists, listDirectory }) {
-  const rootEntries = listDirectory(buildRoot)
+export function selectDevAppBundle(input: {
+  buildRoot: string
+  exists: (path: string) => boolean
+  listDirectory: (path: string) => readonly string[]
+}): DevBundleSelection {
+  const rootEntries = input.listDirectory(input.buildRoot)
   if (!rootEntries.includes(DEV_CHANNEL_DIRECTORY)) {
     // A development bundle for ANOTHER architecture is not this lane's target,
     // and neither is a stable-channel bundle.
@@ -53,7 +69,7 @@ export function selectDevAppBundle({ buildRoot, exists, listDirectory }) {
     return { bundle: null, reason: DEV_BUNDLE_REJECTIONS.missing }
   }
 
-  const channelEntries = listDirectory(path.join(buildRoot, DEV_CHANNEL_DIRECTORY))
+  const channelEntries = input.listDirectory(path.join(input.buildRoot, DEV_CHANNEL_DIRECTORY))
   const bundles = channelEntries.filter((name) => name.endsWith('.app'))
   if (bundles.length === 0) return { bundle: null, reason: DEV_BUNDLE_REJECTIONS.missing }
   // More than one candidate: nothing says which one is the development bundle.
@@ -63,8 +79,8 @@ export function selectDevAppBundle({ buildRoot, exists, listDirectory }) {
   if (bundles[0] !== DEV_BUNDLE_NAME)
     return { bundle: null, reason: DEV_BUNDLE_REJECTIONS.wrongLayout }
 
-  const bundle = path.join(buildRoot, DEV_CHANNEL_DIRECTORY, DEV_BUNDLE_NAME)
-  if (!exists(bundle)) return { bundle: null, reason: DEV_BUNDLE_REJECTIONS.missing }
+  const bundle = path.join(input.buildRoot, DEV_CHANNEL_DIRECTORY, DEV_BUNDLE_NAME)
+  if (!input.exists(bundle)) return { bundle: null, reason: DEV_BUNDLE_REJECTIONS.missing }
   return { bundle, reason: 'selected' }
 }
 
@@ -76,7 +92,10 @@ export function selectDevAppBundle({ buildRoot, exists, listDirectory }) {
  * lane FAILURE: the lane must not exit successfully for a run that proved
  * nothing.
  */
-export function packagedLaneExitCode({ buildStatus, bundle }) {
-  if (buildStatus !== 0) return buildStatus ?? 1
-  return bundle ? 0 : 1
+export function packagedLaneExitCode(input: {
+  buildStatus: number | null
+  bundle: string | null
+}): number {
+  if (input.buildStatus !== 0) return input.buildStatus ?? 1
+  return input.bundle ? 0 : 1
 }

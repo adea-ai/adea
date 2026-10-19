@@ -11,7 +11,10 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 import { writeLaneSummary } from './dev-runtime-lane-report.mjs'
-import { packagedLaneExitCode, selectDevAppBundle } from './packaged-bundle-selection.mjs'
+import {
+  packagedLaneExitCode,
+  selectDevAppBundle,
+} from '../apps/desktop/shell/scripts/packaged-bundle-selection.ts'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const startedAt = new Date()

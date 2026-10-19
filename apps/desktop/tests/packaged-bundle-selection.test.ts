@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -9,9 +17,17 @@ import {
   DEV_CHANNEL_DIRECTORY,
   packagedLaneExitCode,
   selectDevAppBundle,
-} from './packaged-bundle-selection.mjs'
+} from '../shell/scripts/packaged-bundle-selection'
+import { findAppBundle, findRunningAppBundle } from '../shell/scripts/packaged-install'
 
-const laneScript = readFileSync(new URL('./test-dev-runtime-packaged.mjs', import.meta.url), 'utf8')
+const laneScript = readFileSync(
+  new URL('../../../scripts/test-dev-runtime-packaged.mjs', import.meta.url),
+  'utf8'
+)
+const installScript = readFileSync(
+  new URL('../shell/scripts/packaged-install.ts', import.meta.url),
+  'utf8'
+)
 
 /**
  * A filesystem seam over a literal tree: `directories` maps a directory path to
@@ -238,7 +254,9 @@ describe('the packaged lane reads the real build root the same way', () => {
 describe('the packaged lane is bound to the fail-closed decisions', () => {
   test('the lane script selects through the helper and exits through it', () => {
     // The decisions only bind the lane if the lane USES them.
-    expect(laneScript).toContain("from './packaged-bundle-selection.mjs'")
+    expect(laneScript).toContain(
+      "from '../apps/desktop/shell/scripts/packaged-bundle-selection.ts'"
+    )
     expect(laneScript).toContain('selectDevAppBundle(')
     expect(laneScript).toContain('packagedLaneExitCode(')
     // The recursive "any .app" fallback is gone, so a stable-only or
@@ -249,6 +267,114 @@ describe('the packaged lane is bound to the fail-closed decisions', () => {
     // status, which is 0 for a successful build that produced no bundle.
     expect(laneScript).not.toContain('process.exit(build.status ?? 1)')
     expect(laneScript).toContain('process.exit(exitCode)')
+  })
+
+  test('the install helper selects through the same shared helper', () => {
+    // Both callers share ONE fail-closed selector, so neither can drift back
+    // to a recursive "any .app" fallback.
+    expect(installScript).toContain("from './packaged-bundle-selection'")
+    expect(installScript).toContain('selectDevAppBundle(')
+    // The build-root selection itself holds no ".app" fallback of its own.
+    const selection = installScript.slice(
+      installScript.indexOf('export function findAppBundle('),
+      installScript.indexOf('export type PackagedIdentity')
+    )
+    expect(selection).toContain('selectDevAppBundle(')
+    expect(selection).not.toContain(".endsWith('.app')")
+    expect(selection).not.toContain('depth')
+    // The running-bundle lookup is a DIFFERENT contract (it walks up from an
+    // entry directory to the .app that is running) and must not be routed
+    // through the build-root selector.
+    expect(installScript).toContain('export function findRunningAppBundle(')
+    const runningLookup = installScript.slice(
+      installScript.indexOf('export function findRunningAppBundle(')
+    )
+    expect(runningLookup).not.toContain('selectDevAppBundle(')
+  })
+})
+
+describe('the install helper selects only the supported development bundle', () => {
+  /** A build root with the given channel/bundle layout, over the real filesystem. */
+  function stageBuildRoot(layout: ReadonlyArray<readonly [string, string]>) {
+    const root = mkdtempSync(join(tmpdir(), 'packaged-install-selection-'))
+    for (const [channel, bundle] of layout) {
+      mkdirSync(join(root, channel, bundle), { recursive: true })
+    }
+    return root
+  }
+
+  test('selects the supported development candidate', () => {
+    const root = stageBuildRoot([[DEV_CHANNEL_DIRECTORY, DEV_BUNDLE_NAME]])
+    try {
+      expect(findAppBundle(root)).toBe(join(root, DEV_CHANNEL_DIRECTORY, DEV_BUNDLE_NAME))
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects a stable-only build root', () => {
+    const root = stageBuildRoot([['stable-macos-arm64', 'Adea.app']])
+    try {
+      expect(findAppBundle(root)).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects a missing build root', () => {
+    const root = mkdtempSync(join(tmpdir(), 'packaged-install-missing-'))
+    try {
+      expect(findAppBundle(root)).toBeNull()
+      expect(findAppBundle(join(root, 'absent'))).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects ambiguous candidates', () => {
+    const root = stageBuildRoot([
+      [DEV_CHANNEL_DIRECTORY, DEV_BUNDLE_NAME],
+      [DEV_CHANNEL_DIRECTORY, 'Adea-dev-copy.app'],
+    ])
+    try {
+      expect(findAppBundle(root)).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects a bundle built for another architecture', () => {
+    const root = stageBuildRoot([['dev-macos-x64', DEV_BUNDLE_NAME]])
+    try {
+      expect(findAppBundle(root)).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('rejects a bundle with another name in the supported channel directory', () => {
+    const root = stageBuildRoot([[DEV_CHANNEL_DIRECTORY, 'Adea.app']])
+    try {
+      expect(findAppBundle(root)).toBeNull()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('the running-bundle lookup is a different contract and is untouched', () => {
+    // findRunningAppBundle walks UP from an entry directory to the .app that is
+    // running; it is not a build-root selection and must keep its own rule.
+    const root = mkdtempSync(join(tmpdir(), 'packaged-install-running-'))
+    try {
+      const bundle = join(root, 'Adea.app')
+      mkdirSync(join(bundle, 'Contents', 'MacOS'), { recursive: true })
+      writeFileSync(join(bundle, 'Contents', 'MacOS', 'bun'), 'stub')
+      const entry = join(bundle, 'Contents', 'Resources', 'app')
+      mkdirSync(entry, { recursive: true })
+      expect(findRunningAppBundle(entry)).toBe(bundle)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 
