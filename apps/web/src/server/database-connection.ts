@@ -2,26 +2,37 @@ import { readDatabaseUrl, type DatabaseEnvironment } from '@adea-ai/db/config'
 
 import { workerBindings } from './worker-bindings'
 
-function readHyperdriveConnectionString(): string {
-  // The Worker entry captures bindings before any request is handled, so this
-  // throws only outside the Workers runtime (Bun tests, scripts), which drops
-  // through to DATABASE_URL below.
-  const binding = workerBindings()?.HYPERDRIVE
-  const connectionString = binding?.connectionString
-  if (typeof connectionString !== 'string' || connectionString.length === 0) {
-    throw new Error('HYPERDRIVE binding is unavailable')
-  }
+/** Which connection role the Worker resolved: the edge pooler or a direct URL. */
+export type DatabaseConnectionSource = 'hyperdrive' | 'direct'
+
+export interface ResolvedDatabaseConnection {
+  connectionString: string
+  source: DatabaseConnectionSource
+}
+
+function readHyperdriveConnectionString(): string | undefined {
+  // The Worker entry captures bindings before any request is handled, so an
+  // absent binding here means a non-Workers runtime (Bun tests, scripts), which
+  // resolves DATABASE_URL instead. Hyperdrive terminates TLS on its own hop, so
+  // the binding string is not held to the hosted `sslmode` rule that a direct
+  // URL must satisfy.
+  const connectionString = workerBindings()?.HYPERDRIVE?.connectionString
+  if (typeof connectionString !== 'string' || connectionString.length === 0) return undefined
   return connectionString
+}
+
+export function resolveDatabaseConnection(
+  environment: DatabaseEnvironment = process.env
+): ResolvedDatabaseConnection {
+  const hyperdrive = readHyperdriveConnectionString()
+  if (hyperdrive !== undefined) return { connectionString: hyperdrive, source: 'hyperdrive' }
+  return { connectionString: readDatabaseUrl(environment), source: 'direct' }
 }
 
 export function resolveDatabaseConnectionString(
   environment: DatabaseEnvironment = process.env
 ): string {
-  try {
-    return readHyperdriveConnectionString()
-  } catch {
-    return readDatabaseUrl(environment)
-  }
+  return resolveDatabaseConnection(environment).connectionString
 }
 
 export function shouldRegisterDatabaseShutdownHooks(): boolean {
