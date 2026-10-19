@@ -207,6 +207,8 @@ function startWorker(config, port, inspector, evidence, tls) {
     tls.certPath,
     '--https-key-path',
     tls.keyPath,
+    // Diagnostic only: ADEA_AUTH_DIAG_WORKERD=1 raises wrangler and workerd log detail.
+    ...(process.env.ADEA_AUTH_DIAG_WORKERD === '1' ? ['--log-level', 'debug'] : []),
   ]
   const child = spawn('bun', args, {
     cwd: web,
