@@ -12,7 +12,9 @@ import { createDatabase } from '../../src/connection'
 // lists the named statements of the current session. A single connection keeps that view complete.
 // Hyperdrive itself is not part of this lane: see the pull request for the live-qualification gate.
 
-const connectionUrl = process.env.DATABASE_URL
+// `pg_prepared_statements` is per session, so the observations need the direct endpoint when the
+// lane supplies both a pooled and an unpooled URL.
+const connectionUrl = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL
 const probe = pgTable('prepared_statement_probe', {
   id: integer('id').primaryKey(),
   label: text('label').notNull(),
@@ -21,7 +23,11 @@ const probe = pgTable('prepared_statement_probe', {
 type Named = { statement: string; types: string }
 
 describe.skipIf(!connectionUrl)('drizzle statements are named prepared statements', () => {
-  const { client, db, close } = createDatabase(connectionUrl!, { maxConnections: 1 })
+  const { client, db, close } = createDatabase(connectionUrl!, {
+    maxConnections: 1,
+    // The probe table is session-local, so the one connection must outlive the idle gaps.
+    idleTimeoutSeconds: 600,
+  })
 
   async function named(like: string): Promise<Named[]> {
     const rows = await client.unsafe(
@@ -32,15 +38,15 @@ describe.skipIf(!connectionUrl)('drizzle statements are named prepared statement
     return rows.map((row) => ({ statement: String(row.statement), types: String(row.types) }))
   }
 
+  // A session-local table: the runtime role has no CREATE on `app`, and the single pinned
+  // connection keeps the table (and the statements observed below) in one session.
   beforeAll(async () => {
-    await client.unsafe('drop table if exists prepared_statement_probe')
     await client.unsafe(
-      'create table prepared_statement_probe (id integer primary key, label text not null)'
+      'create temp table prepared_statement_probe (id integer primary key, label text not null)'
     )
   })
 
   afterAll(async () => {
-    await client.unsafe('drop table if exists prepared_statement_probe').catch(() => undefined)
     await close()
   })
 
