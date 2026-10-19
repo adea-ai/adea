@@ -7,7 +7,13 @@ test.use({ headless: true })
 
 type PickerMode = 'pick' | 'reject' | 'throw' | 'hang'
 
+// Uncaught page errors and unhandled rejections are collected per page and fail the test in afterEach.
+const pageErrors = new WeakMap<Page, string[]>()
+
 test.beforeEach(async ({ page }) => {
+  const errors: string[] = []
+  pageErrors.set(page, errors)
+  page.on('pageerror', (error) => errors.push(error.message))
   await page.route('**/__app-library-folder-picker', (route) =>
     route.fulfill({
       contentType: 'text/html',
@@ -23,6 +29,10 @@ test.beforeEach(async ({ page }) => {
       resolve(process.cwd(), 'apps/web/e2e/helpers/app-library-folder-picker-harness-app.tsx')
   )
   await expect(page.getByTestId('ready')).toHaveText('ready')
+})
+
+test.afterEach(({ page }) => {
+  expect(pageErrors.get(page) ?? []).toEqual([])
 })
 
 const setMode = (page: Page, mode: PickerMode) =>
@@ -88,6 +98,22 @@ test('a host that cannot open a panel keeps the typed path and the form stays us
   await expect(page.getByTestId('authorize-calls')).toHaveText('0')
 })
 
+test('a host that failed once answers the next Choose folder request and fills the field', async ({
+  page,
+}) => {
+  await setMode(page, 'reject')
+  const dialog = await openDialog(page)
+  const path = dialog.getByRole('textbox', { name: 'Folder path to authorize' })
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click()
+  await expect(page.getByTestId('picker-calls')).toHaveText('1')
+  await expect(dialog.getByRole('button', { name: 'Choose folder…' })).toBeEnabled()
+  await setMode(page, 'pick')
+  await dialog.getByRole('button', { name: 'Choose folder…' }).click()
+  await expect(page.getByTestId('picker-calls')).toHaveText('2')
+  await expect(path).toHaveValue('/Users/fixture/projects/app')
+  await expect(page.getByTestId('authorize-calls')).toHaveText('0')
+})
+
 test('a repeated Choose folder request while a pick is in flight reaches the host once', async ({
   page,
 }) => {
@@ -119,5 +145,26 @@ test('a pick that completes after the form closed does not fill a reopened form'
   await resolvePick(page, '/srv/late')
   const reopened = await openDialog(page)
   await expect(reopened.getByRole('textbox', { name: 'Folder path to authorize' })).toHaveValue('')
+  await expect(page.getByTestId('authorize-calls')).toHaveText('0')
+})
+
+test('a pick that completes while the replacement form is already open does not fill it', async ({
+  page,
+}) => {
+  await setMode(page, 'hang')
+  const first = await openDialog(page)
+  await first.getByRole('button', { name: 'Choose folder…' }).click()
+  await expect(page.getByTestId('picker-calls')).toHaveText('1')
+  await page.keyboard.press('Escape')
+  await expect(
+    page.getByRole('dialog', { name: 'Add a repository to Fixture project' })
+  ).toHaveCount(0)
+  // The replacement form opens and the user types into it before the old pick answers.
+  const replacement = await openDialog(page)
+  const path = replacement.getByRole('textbox', { name: 'Folder path to authorize' })
+  await path.fill('/srv/replacement')
+  await resolvePick(page, '/srv/late')
+  await expect(path).toHaveValue('/srv/replacement')
+  await expect(page.getByTestId('picker-calls')).toHaveText('1')
   await expect(page.getByTestId('authorize-calls')).toHaveText('0')
 })
