@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import {
@@ -14,13 +14,30 @@ const connectionUrl = process.env.DATABASE_URL
 
 const unique = () => crypto.randomUUID()
 
-const binding = (overrides: Partial<SimLaunchBinding> = {}): SimLaunchBinding => ({
-  workspaceId: `ws-${unique()}`,
-  bridgeId: 'bridge-a',
-  origin: 'https://sim.example',
-  surface: 'room-designer',
-  ...overrides,
-})
+/** A one-shot signal: `open` resolves `promise`. */
+const noop = () => undefined
+const latch = () => {
+  let open = noop
+  const promise = new Promise<void>((resolve) => {
+    open = resolve
+  })
+  return { promise, open: () => open() }
+}
+
+// Workspaces created by this suite, so its rows can be removed afterwards.
+const createdWorkspaces = new Set<string>()
+
+const binding = (overrides: Partial<SimLaunchBinding> = {}): SimLaunchBinding => {
+  const workspaceId = `ws-${unique()}`
+  createdWorkspaces.add(workspaceId)
+  return {
+    workspaceId,
+    bridgeId: 'bridge-a',
+    origin: 'https://sim.example',
+    surface: 'room-designer',
+    ...overrides,
+  }
+}
 
 describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
   let connection: DatabaseConnection
@@ -30,10 +47,21 @@ describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
     connection = createDatabase(connectionUrl!)
     store = createSimLaunchStore(connection.db)
   })
-  afterAll(async () => connection.close())
+  afterAll(async () => {
+    // Sessions reference their launch codes, so they go first.
+    const workspaceIds = [...createdWorkspaces]
+    if (workspaceIds.length > 0) {
+      await connection.db.delete(simSessions).where(inArray(simSessions.workspaceId, workspaceIds))
+      await connection.db
+        .delete(simLaunchCodes)
+        .where(inArray(simLaunchCodes.workspaceId, workspaceIds))
+    }
+    await connection.close()
+  })
 
   const presented = { bridgeId: 'bridge-a', origin: 'https://sim.example' }
-  const later = Date.now() + 60_000
+  // Far enough ahead that a slow run cannot expire the suite's codes.
+  const later = Date.now() + 10 * 60_000
 
   test('a redemption spends the code and saves a workspace-bound session in one step', async () => {
     const code = `code-${unique()}`
@@ -171,6 +199,56 @@ describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
     expect(await revokeSimSession(connection.db, revocable, Date.now())).toBe(true)
     expect(await findSimSession(connection.db, revocable, b.workspaceId, Date.now())).toBeNull()
     expect(await revokeSimSession(connection.db, revocable, Date.now())).toBe(false)
+  })
+
+  test('a presentation that waits behind a lock re-reads the clock and refuses a code that expired meanwhile', async () => {
+    let clockValue = Date.now()
+    const timed = createSimLaunchStore(connection.db, { clock: () => clockValue })
+    const b = binding()
+    const code = `code-${unique()}`
+    const session = `session-${unique()}`
+    await timed.issue(code, b, clockValue + 1_000)
+
+    // A holder takes the code row lock, and the redemption starts and waits behind it.
+    const acquired = latch()
+    const released = latch()
+    const holder = connection.db
+      .transaction(async (tx) => {
+        await tx
+          .select()
+          .from(simLaunchCodes)
+          .where(eq(simLaunchCodes.workspaceId, b.workspaceId))
+          .for('update')
+        acquired.open()
+        await released.promise
+        // Rolling back releases the lock without writing anything.
+        throw new Error('release the lock')
+      })
+      .catch(() => undefined)
+    await acquired.promise
+
+    // The code is still live when the redemption starts, and expires while it waits.
+    const attempt = timed.redeemAndSave(code, presented, clockValue, {
+      value: session,
+      expiresAt: clockValue + 60_000,
+    })
+    await Bun.sleep(150)
+    clockValue += 2_000
+    released.open()
+    await holder
+
+    expect(await attempt).toEqual({ ok: false, reason: 'code_expired' })
+    const sessions = await connection.db
+      .select()
+      .from(simSessions)
+      .where(eq(simSessions.workspaceId, b.workspaceId))
+    expect(sessions).toHaveLength(0)
+    expect(await findSimSession(connection.db, session, b.workspaceId, clockValue)).toBeNull()
+    // The refusal still spends the code, as with any presentation that reaches the row.
+    expect(await timed.redeem(code, presented, clockValue)).toEqual({
+      ok: false,
+      reason: 'code_used',
+    })
   })
 
   test('a separate session save is refused, so sessions exist only with a redemption', () => {

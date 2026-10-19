@@ -29,10 +29,13 @@ const digest = (value: string) => createHash('sha256').update(value).digest('hex
 /**
  * Spends a code and, when a session is given, creates that session in the same transaction. The row is
  * locked before it is read, so concurrent presentations serialize and exactly one can spend the code.
+ * The expiry decision uses a clock read after the lock is acquired, because a wait behind another
+ * transaction can outlast the code. The caller's `now` is only a finiteness check before the transaction.
  * A refusal returns and commits the spend. A failed session insert throws, which rolls the spend back.
  */
 async function redeemCore(
   database: AgentHqDatabase,
+  clock: () => number,
   code: string,
   presented: Readonly<{ bridgeId: string; origin: string }>,
   now: number,
@@ -48,12 +51,14 @@ async function redeemCore(
       .for('update')
     if (!row) return { ok: false, reason: 'unknown' }
     if (row.consumedAt) return { ok: false, reason: 'code_used' }
+    const current = clock()
+    if (!Number.isFinite(current)) return { ok: false, reason: 'code_expired' }
     // Spent by the first presentation, whether or not it matches the binding below.
     await tx
       .update(simLaunchCodes)
-      .set({ consumedAt: new Date(now) })
+      .set({ consumedAt: new Date(current) })
       .where(eq(simLaunchCodes.id, row.id))
-    if (row.expiresAt.valueOf() <= now) return { ok: false, reason: 'code_expired' }
+    if (row.expiresAt.valueOf() <= current) return { ok: false, reason: 'code_expired' }
     if (row.bridgeId !== presented.bridgeId || row.origin !== presented.origin)
       return { ok: false, reason: 'origin_refused' }
     // The check constraint on the table limits the stored surface to SIM_SURFACES.
@@ -71,7 +76,16 @@ async function redeemCore(
   })
 }
 
-export function createSimLaunchStore(database: AgentHqDatabase) {
+export type SimLaunchStoreOptions = Readonly<{
+  /** The authoritative clock, read after each row lock. Defaults to the system clock. */
+  clock?: () => number
+}>
+
+export function createSimLaunchStore(
+  database: AgentHqDatabase,
+  options: SimLaunchStoreOptions = {}
+) {
+  const clock = options.clock ?? (() => Date.now())
   return {
     async issue(code: string, binding: SimLaunchBinding, expiresAt: number): Promise<void> {
       if (!Number.isFinite(expiresAt)) throw new RangeError('launch code expiry must be finite')
@@ -85,7 +99,7 @@ export function createSimLaunchStore(database: AgentHqDatabase) {
       })
     },
     redeem(code: string, presented: Readonly<{ bridgeId: string; origin: string }>, now: number) {
-      return redeemCore(database, code, presented, now)
+      return redeemCore(database, clock, code, presented, now)
     },
     redeemAndSave(
       code: string,
@@ -93,7 +107,7 @@ export function createSimLaunchStore(database: AgentHqDatabase) {
       now: number,
       session: Readonly<{ value: string; expiresAt: number }>
     ) {
-      return redeemCore(database, code, presented, now, session)
+      return redeemCore(database, clock, code, presented, now, session)
     },
     /**
      * Sessions are written only by redeemAndSave. This fails closed if a caller tries the separate save.
