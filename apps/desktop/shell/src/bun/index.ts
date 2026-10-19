@@ -8,11 +8,18 @@ import { serveDesktopClient } from '../client-assets'
 // src/dev-runtime/channel/. The Dev Runtime scope is not injected as a
 // global: it is verified against the cloud from the app's own signed bind
 // request and enforced at the gate before any privileged dispatch.
-import { BrowserWindow, Utils } from 'electrobun/main'
+import { BrowserWindow, Utils, app as electrobunApp } from 'electrobun/main'
 import { promises as dns } from 'node:dns'
 import { existsSync, lstatSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { proxyCloudRequest, resolveCloudOrigin } from '../cloud-proxy'
+import { createDesktopAuthCallbackChannel } from '../auth-callback-channel'
+import {
+  DESKTOP_AUTH_CALLBACK_READY_EVENT,
+  createDesktopAuthCallbackReceiver,
+  writeDesktopAuthCallback,
+  type DesktopAuthorizationAttempt,
+} from '../auth-callback'
 import { createCommandSurface, type BridgeResult } from '../commands'
 import { loadDeviceKey } from '../device-key'
 import { retireInstallerArchive } from '../installer-archive'
@@ -75,6 +82,26 @@ const DATA_DIR =
   process.env.ADEA_DATA_DIR ?? join(process.env.HOME ?? '.', 'Library/Application Support/Adea')
 const PORT = Number(process.env.ADEA_SHELL_PORT ?? 4789)
 const SHELL_ORIGIN = `http://127.0.0.1:${PORT}`
+
+// The packaged `adea://auth/callback` deep link (docs/specs/desktop-auth.md
+// "The callback"): the scheme is registered declaratively in
+// electrobun.config.ts and Electrobun delivers the OS URL through `open-url`.
+// Subscribe at the top of the entry — before the boot's awaits — so a callback
+// that lands during start-up is buffered rather than dropped; the receiver is
+// attached below once the command surface and gateway exist.
+const authCallbackChannel = createDesktopAuthCallbackChannel(electrobunApp)
+// The native window is created at the end of this module. A callback that
+// arrives before then still reaches the handoff; the reveal is best effort
+// once the window exists.
+let desktopShellWindow: BrowserWindow | undefined
+function presentDesktopShellWindow(): void {
+  try {
+    desktopShellWindow?.activate()
+  } catch {
+    /* the window may already be gone; the queued handoff still stands */
+  }
+}
+
 // Optional Agent Sim engine pack directory (scripts/pack-agent-sim.mjs layout).
 
 // The installer's retained payload tar is only for Electrobun's own delta
@@ -260,6 +287,36 @@ async function invoke(cmd: string, args?: Record<string, unknown>): Promise<Brid
 }
 
 const gateway = createChannelGateway({ authority, invoke, shellOrigin: SHELL_ORIGIN })
+
+// The receiver half of the packaged deep link: validate the callback strictly,
+// bind it to the pending PKCE attempt, then queue it into the existing handoff
+// — `desktop-state/auth-callback.json`, read once by
+// `desktop_auth_take_callback` — and publish `desktop-auth-callback-ready` so
+// the renderer takes it. The attempt is loaded through the same command
+// surface the renderer uses; the receiver never consumes it.
+const authCallbackInstanceId = crypto.randomUUID()
+const authCallbackReceiver = createDesktopAuthCallbackReceiver({
+  instanceId: authCallbackInstanceId,
+  loadAttempt: async () => {
+    const loaded = await baseInvoke('desktop_auth_attempt_load')
+    return loaded.ok ? (loaded.value as DesktopAuthorizationAttempt | null) : null
+  },
+  deliver: (callback) => {
+    writeDesktopAuthCallback(DATA_DIR, callback)
+    gateway.publish(DESKTOP_AUTH_CALLBACK_READY_EVENT, null)
+    presentDesktopShellWindow()
+  },
+  onReceipt: (receipt) => {
+    if (receipt.status === 'delivered') {
+      console.log('desktop shell: queued the adea://auth/callback handoff')
+    } else if (receipt.status === 'rejected') {
+      console.log(`desktop shell: refused an adea://auth/callback (${receipt.reason})`)
+    }
+  },
+})
+authCallbackChannel.attach((rawUrl) => {
+  void authCallbackReceiver.receive({ rawUrl, targetInstanceId: authCallbackInstanceId })
+})
 
 // The renderer's bulk-stream attach relay (#399 residue): provider
 // byte-halves register through this view so the relay can drive them over an
@@ -674,3 +731,5 @@ nativeWindow.on('focus', () => {
 nativeWindow.on('blur', () => {
   desktopWindowFocused = false
 })
+// Expose the window to the deep-link receiver so a callback surfaces it.
+desktopShellWindow = nativeWindow
