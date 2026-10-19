@@ -32,6 +32,13 @@
 // workflow on that same registrar-owned service seam before exercising retry,
 // merge, and cleanup through signed registrar commands.
 //
+// Credential isolation: this lane's credential vault is backed by an
+// in-memory store, never the OS credential store (see
+// `createLaneCredentialVault`). The lane proves containment, not credential
+// use, so it must not reach Keychain — a store prompt or timeout there would
+// fail the containment proofs for an unrelated reason. The production vault
+// and the true-keychain packaged lane are untouched.
+//
 // Usage: bun apps/desktop/shell/scripts/packaged-worktree-smoke.ts [--app-bundle <path>] [--artifact <path>]
 import {
   existsSync,
@@ -61,7 +68,11 @@ import {
   workflowDigest,
 } from '../src/dev-runtime/worktrees/bootstrap'
 import { createChannelAuthority } from '../src/dev-runtime/channel/authority'
-import { createCredentialVault } from '../src/dev-runtime/vault'
+import {
+  createCredentialVault,
+  createInMemoryVaultKeyStore,
+  type VaultKeyStore,
+} from '../src/dev-runtime/vault'
 import { directoryIdentity } from '../src/dev-runtime/worktrees/identity'
 import { createWorktreeService } from '../src/dev-runtime/worktrees/service'
 import { registerWorktreeRuntime } from '../src/dev-runtime/worktrees/register'
@@ -70,7 +81,11 @@ import {
   type TemplateValidityComponents,
 } from '../src/dev-runtime/worktrees/templates'
 import { git, initRepo, projectIdA, scope } from '../../tests/worktree-fixtures'
-import { createOwnerApprovalVerifier, type OwnerApproval } from '../src/dev-runtime/authority'
+import {
+  createOwnerApprovalVerifier,
+  type OwnerApproval,
+  type OwnerApprovalVerifier,
+} from '../src/dev-runtime/authority'
 import { createRootBookmarkAuthority } from '../src/dev-runtime/roots'
 import {
   BUN_INSTALL_LABEL,
@@ -98,6 +113,41 @@ function approved(
   }
   verifier.recordIssuance(approval, scope, action)
   return approval
+}
+
+/**
+ * The credential vault for this containment lane.
+ *
+ * The packaged worktree smoke proves CONTAINMENT: that the production
+ * registrar refuses a worktree, a template, or an include-copy that escapes
+ * its authorized root. It never needs a durable credential, so it must not
+ * reach the operating system's credential store. A lane whose only job is to
+ * prove containment has no business prompting for Keychain access, and a
+ * Keychain call that times out is indistinguishable from a broken lane — the
+ * containment proofs would be lost to an unrelated store failure.
+ *
+ * `createCredentialVault` selects its backend with
+ * `options.credentialStore ?? createSystemVaultKeyStore()`, so supplying a
+ * store removes the native backend from this path entirely: the vault key is
+ * created in, and read back from, the injected store and nowhere else. The
+ * injected store is the production in-memory one
+ * (`createInMemoryVaultKeyStore`), which implements the same `VaultKeyStore`
+ * contract as the OS keychain adapter with no durability.
+ *
+ * The production vault and the true-keychain lane are untouched by this: only
+ * this evidence lane's own vault is isolated.
+ */
+export function createLaneCredentialVault(options: {
+  dataDir: string
+  approvalVerifier: OwnerApprovalVerifier
+  /** Overridable so a test can observe every store operation. */
+  credentialStore?: VaultKeyStore
+}) {
+  return createCredentialVault({
+    dataDir: options.dataDir,
+    approvalVerifier: options.approvalVerifier,
+    credentialStore: options.credentialStore ?? createInMemoryVaultKeyStore(),
+  })
 }
 
 type Check = { check: string; ok: boolean; detail?: string }
@@ -175,7 +225,7 @@ async function main(): Promise<number> {
     absolutePath: workspace,
     approval: approved(verifier, 'authorize a root bookmark'),
   })
-  const vault = createCredentialVault({ dataDir, approvalVerifier: verifier })
+  const vault = createLaneCredentialVault({ dataDir, approvalVerifier: verifier })
   const service = createWorktreeService({
     dataDir,
     runtimeNodeId: scope.runtimeNodeId,
@@ -690,9 +740,14 @@ function finish(
   return code
 }
 
-main()
-  .then((code) => process.exit(code))
-  .catch((error: unknown) => {
-    console.error('PACKAGED-WORKTREE-SMOKE ERROR', error)
-    process.exit(1)
-  })
+// The lane runs when this file is the entry point. The guard keeps the module
+// importable, so a test can assert the lane's credential isolation without
+// executing the lane (and therefore without touching the OS credential store).
+if (import.meta.main ?? process.argv[1] === new URL(import.meta.url).pathname) {
+  main()
+    .then((code) => process.exit(code))
+    .catch((error: unknown) => {
+      console.error('PACKAGED-WORKTREE-SMOKE ERROR', error)
+      process.exit(1)
+    })
+}

@@ -69,6 +69,11 @@ import type {
   WorkspaceDeepLink,
   WorkspaceNavHost,
 } from '@adea-ai/workspace-ui/conventional-workspace-shell'
+import {
+  appLibraryNavigationForPreferenceChange,
+  appLibraryNavigationForRecovery,
+  appLibraryNavigationForRequestedView,
+} from '../lib/app-library-navigation'
 import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { paintWorkspaceAccent } from '@adea-ai/app-ui/components/workspace-accent'
 import {
@@ -701,9 +706,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     const wasLibrary = libraryOpen()
     setRailPreferences(next)
     writeRailPreferences(() => window.localStorage, next)
-    const destination = resolveWorkspaceApp(next, requested)
-    if (!destination) openAppLibrary(true)
-    else if (!wasLibrary && destination.id !== requested) changeApp(destination.id, true)
+    const navigation = appLibraryNavigationForPreferenceChange({
+      preferences: next,
+      requestedAppId: requested,
+      libraryOpen: wasLibrary,
+    })
+    if (navigation.kind === 'open-library') openAppLibrary(navigation.replace)
+    else if (navigation.kind === 'open-app') changeApp(navigation.appId, navigation.replace)
   }
   // The stream lives above view switching: chat/virtual/dev share the query
   // cache, so one subscription keeps every lane's lists fresh instead of
@@ -1343,7 +1352,11 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     />
   )
   const changeView = (nextView: WorkspaceView) => {
-    if (resolveWorkspaceApp(railPreferences(), nextView)?.id !== nextView) openAppLibrary()
+    const navigation = appLibraryNavigationForRequestedView({
+      preferences: railPreferences(),
+      requestedAppId: nextView,
+    })
+    if (navigation.kind === 'open-library') openAppLibrary(navigation.replace)
     else changeApp(nextView)
   }
   const openAppLibrary = (replace = false) => {
@@ -1525,10 +1538,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   createEffect(() => {
     // Recovery is a real destination. Enabling the first app must not dismiss
     // Library before the user chooses Open, including stale disabled links.
-    if (currentSearch().app === 'library') return
-    const destination = activeApp()
-    if (!destination) openAppLibrary(true)
-    else if (destination.id !== requestedAppId()) changeApp(destination.id, true)
+    const navigation = appLibraryNavigationForRecovery({
+      preferences: railPreferences(),
+      requestedAppId: requestedAppId(),
+      libraryOpen: currentSearch().app === 'library',
+    })
+    if (navigation.kind === 'open-library') openAppLibrary(navigation.replace)
+    else if (navigation.kind === 'open-app') changeApp(navigation.appId, navigation.replace)
   })
   return (
     <div

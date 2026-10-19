@@ -79,6 +79,67 @@ write-heavy suite at a production or owner connection.
 
 `ADEA_INTEGRATION_SHARD=<index>/<total>` (for example `1/2`) runs one explicit half of the package suites. Shard 1 also runs the route-flow suite, so it is never run twice. `bun scripts/test-integration.mjs --plan` prints the selection without touching a database or Docker.
 
+## Disposable PostgreSQL proof (pull request CI)
+
+Pull-request CI carries two database proofs, and they are independent.
+
+The **hosted proof** is unchanged. It creates an isolated Neon branch from
+`development`, builds the three canonical URLs from the branch hostnames, proves
+the isolated Neon Auth JWKS endpoint is reachable, and verifies the role and
+migration checks against the hosted branch. It needs `NEON_API_KEY`,
+`NEON_CI_APP_PASSWORD`, `NEON_CI_MIGRATION_PASSWORD` and `NEON_PROJECT_ID`, and
+it reports the `Migrate Neon Branch` check.
+
+The **disposable proof** is additive. It starts a digest-pinned PostgreSQL
+container, publishes it on `127.0.0.1` only, proves the database boundary
+against it, and removes the container it created. It reads no repository secret
+and reaches no hosted database, production resource or credential. It reports
+the `Prove Disposable PostgreSQL` check, which fails closed in the same shape as
+the hosted gate.
+
+```sh
+bun --no-env-file run scripts/disposable-postgres-cli.ts
+```
+
+The disposable proof:
+
+- enables server-side TLS on the throwaway server and proves the session is
+  encrypted, using the server's own `pg_stat_ssl` and `SHOW ssl` reports, and
+  proves a plaintext session is distinguishable;
+- uses the canonical `agent_hq_local_migration` and `agent_hq_local_app` roles
+  from `packages/db/tests/fixtures/canonical-boundary.ts`, proves the migration
+  role owns the schemas, proves the runtime role may write through the
+  application tables, and proves the runtime role may not create objects;
+- runs the hosted lane's ordered migration checks — the role probe, the
+  Drizzle journal check, the migration verifier, the `DATABASE_URL` presence
+  check and the migration integration test — against the disposable instance;
+- runs the merged auth schema initializer (`packages/auth/src/schema-init.ts`),
+  proves it applies the four provider tables once and that a replay is a no-op,
+  and connects with the pinned certificate so the initializer's own refusal of
+  disabled certificate verification still applies.
+
+The instance is published on the loopback interface only. Its synthetic
+credentials are not all random: the container's admin password is generated
+for the run, but the canonical migration and runtime roles are created by the
+reused canonical boundary fixture
+(`packages/db/tests/fixtures/canonical-boundary.ts`) with the role name as the
+password, so those two fixture passwords are the role names
+`agent_hq_local_migration` and `agent_hq_local_app`. They are local-only
+synthetic fixture credentials on an ephemeral loopback instance, never hosted
+secrets, and they stay out of receipts and logs. The receipt carries no
+password and no credential-bearing URL. The container is removed on success and
+on a setup, provision or test failure, on a timeout, and on `SIGINT` or
+`SIGTERM`, and the removal takes the anonymous volumes Docker created for that
+container with it; it never prunes and never removes a resource the proof does
+not own. A cleanup failure fails the lane, and the primary failure is preserved
+alongside the teardown failure. An unavailable container runtime or a missing
+OpenSSL fails the lane rather than producing a green skipped test.
+
+This proof is database-only. It does not replace the hosted auth proof: the
+Neon Auth JWKS assertion in the hosted lane remains the only proof that an
+isolated environment publishes a reachable key-discovery document, and no
+self-hosted equivalent exists yet.
+
 ## Health and configuration validation
 
 Run the health probe from an environment that has `psql` and the three canonical variables:

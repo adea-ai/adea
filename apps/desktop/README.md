@@ -104,7 +104,9 @@ verifier through `@adea-ai/auth/desktop`; the shell accepts only the fixed
 desktop authorization endpoint and keeps the pending PKCE attempt in its
 encrypted state directory until it is consumed. Codes and user-session
 credentials are hashed before PostgreSQL storage and never appear in callback
-URLs. URL-scheme registration for the callback is still release-lane work.
+URLs. The packaged bundle registers the `adea` scheme
+(`Contents/Info.plist` → `CFBundleURLTypes`); making macOS actually hand a
+callback to an installed app is still release-lane work.
 
 The MVP is online-first. On restart, the desktop session manager loads a user
 session from the shell state and refreshes it through the broker. The rotating
@@ -135,5 +137,5 @@ they do not prove that a hosted service is deployed or entitled.
 The shell updates itself through the signed release feed. The version surface
 verifies each archive's digest and Ed25519 signature before installing it and
 relaunching. See [the updater spec](../../docs/specs/updater.md). Apple signing
-and notarization are still pending, and `adea://` URL-scheme registration for
-the auth callback is not packaged yet.
+and notarization are still pending, and the live `adea://` URL-scheme
+registration for the auth callback still needs an installed bundle.
