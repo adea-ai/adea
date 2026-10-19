@@ -22,19 +22,30 @@ describe('automatic recovery completes the journey without a manual scan', () =>
 
   test('the periodic pass alone settles the child outcome, and it is published exactly once', async () => {
     const { driver } = journey
+    // Hold the lead before dispatch, as the authority file does, so the lead cannot delegate before bind
+    // initializes the hooks. The release below lets it run; no scan, reopen or settle is requested.
+    await control('hold', { name: 'lead-first' })
     const prepared = await driver('prepare')
     expect(prepared.result.state).toBe('prepared')
     const dispatched = await driver('dispatch')
     await control('bind', { executionId: dispatched.result.executionId })
-    // No scan, reopen or settle is requested below: only the periodic pass may move the record.
-    const evidence = await journey.waitFor(
+    await control('release', { name: 'lead-first' })
+    const settled = await journey.waitFor(
       () => control('evidence'),
       (e) => e.costState === 'settled' && e.delegations[0]?.state === 'completed',
       'periodic recovery settles the child outcome',
       60000
     )
-    const terminal = evidence.publications.filter((r) => r.value.event.type === 'delegation.completed')
+    const terminal = settled.publications.filter((r) => r.value.event.type === 'delegation.completed')
     expect(terminal).toHaveLength(1)
     expect(terminal[0].revision).toBe(1)
+    // The interval is 500 ms, so this window holds several more periodic passes. A second publication, or
+    // a changed record, would show up here: the first settled snapshot alone is not enough.
+    await new Promise((resolve) => setTimeout(resolve, 2500))
+    const later = await control('evidence')
+    const laterTerminal = later.publications.filter((r) => r.value.event.type === 'delegation.completed')
+    expect(laterTerminal).toHaveLength(1)
+    expect(laterTerminal[0].revision).toBe(1)
+    expect(laterTerminal[0]).toEqual(terminal[0])
   }, 120000)
 })
