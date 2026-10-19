@@ -36,14 +36,18 @@ describe('automatic recovery completes the journey without a manual scan', () =>
       'periodic recovery settles the child outcome',
       60000
     )
-    const terminal = settled.publications.filter((r) => r.value.event.type === 'delegation.completed')
+    const terminal = settled.publications.filter(
+      (r) => r.value.event.type === 'delegation.completed'
+    )
     expect(terminal).toHaveLength(1)
     expect(terminal[0].revision).toBe(1)
     // The interval is 500 ms, so this window holds several more periodic passes. A second publication, or
     // a changed record, would show up here: the first settled snapshot alone is not enough.
     await new Promise((resolve) => setTimeout(resolve, 2500))
     const later = await control('evidence')
-    const laterTerminal = later.publications.filter((r) => r.value.event.type === 'delegation.completed')
+    const laterTerminal = later.publications.filter(
+      (r) => r.value.event.type === 'delegation.completed'
+    )
     expect(laterTerminal).toHaveLength(1)
     expect(laterTerminal[0].revision).toBe(1)
     expect(laterTerminal[0]).toEqual(terminal[0])
