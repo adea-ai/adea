@@ -36,6 +36,10 @@ import { createMemoryStore } from './vp-r2-cache-fixtures.mjs'
 
 const profiles = machines()
 
+// The pinned client of this checkout. Without it the pinned-client qualification is not established, and the checks
+// that need it are skipped visibly rather than passing quietly.
+const client = pinnedClient(process.cwd())
+
 /** An envelope with its recorded creation time blanked, so two machines' envelopes can be compared. */
 const blankTime = (envelope: Record<string, unknown>) => ({ ...envelope, created_at: '' })
 
@@ -219,6 +223,81 @@ describe('the boundaries of a transfer', () => {
   })
 })
 
+describe('the final read of the stored envelope', () => {
+  test('a read that is rejected ends the qualification with a refusal', async () => {
+    const inner = createMemoryStore()
+    const store = {
+      ...inner,
+      get: (key: string, options: unknown) => {
+        if (key.startsWith('entries/'))
+          return Promise.reject(new Error('the store refused the read'))
+        return inner.get(key, options as never)
+      },
+    }
+    const entry = binaryEntry('rejecting-read')
+    const result = await qualifyTransfer({
+      store,
+      entry,
+      from: profiles['darwin-a'],
+      to: profiles['darwin-b'],
+      deadlineMs: 500,
+    })
+    expect(result.replayable).toBe(false)
+    expect(result.storedRefusedWith).toBe(CATEGORY.storeRead)
+  })
+
+  test('a read that never answers ends the qualification within the deadline', async () => {
+    const inner = createMemoryStore()
+    const store = {
+      ...inner,
+      get: (key: string, options: unknown) => {
+        if (key.startsWith('entries/')) return new Promise(() => {})
+        return inner.get(key, options as never)
+      },
+    }
+    const entry = binaryEntry('stalled-read')
+    const started = Date.now()
+    const result = await qualifyTransfer({
+      store,
+      entry,
+      from: profiles['darwin-a'],
+      to: profiles['darwin-b'],
+      deadlineMs: 120,
+    })
+    expect(Date.now() - started).toBeLessThan(2000)
+    expect(result.replayable).toBe(false)
+  })
+
+  test('a stored entry with another value is not the entry that was expected', async () => {
+    const store = createMemoryStore()
+    const entry = binaryEntry('mismatched-value')
+    // The store holds an entry with the same key, task fingerprint key and archive, but another value.
+    const other = { ...entry, value: Buffer.from('another value', 'utf8') }
+    const published = await publishEntry(store, other, { scope: profiles['darwin-a'].scope })
+    expect(published.ok).toBe(true)
+    const result = await qualifyTransfer({
+      store,
+      entry,
+      from: profiles['darwin-a'],
+      to: profiles['darwin-b'],
+      publish: false,
+    })
+    expect(result.replayable).toBe(false)
+    expect(result.valueIdentical).toBe(false)
+    expect(result.entryIdentical).toBe(false)
+    // The identity is the one of the **stored** envelope, not of the expected input.
+    const expected = createEnvelope({
+      scope: profiles['darwin-a'].scope,
+      key: entry.key,
+      secondaryKey: entry.secondaryKey,
+      value: entry.value,
+      blob: entry.blob,
+      createdAt: '2026-10-19T00:00:00.000Z',
+    })
+    expect(result.transferIdentity).not.toBe(transferIdentity(expected))
+  })
+})
+
 describe('what survives a transfer', () => {
   test('an archive that holds a multipart boundary arrives whole', async () => {
     const store = createMemoryStore()
@@ -353,9 +432,17 @@ describe('the qualification helpers', () => {
 })
 
 describe('what the qualification does not do', () => {
-  test('the pinned client still has no export and no import', () => {
-    const client = pinnedClient(process.cwd())
-    if (!client) return
+  test('records whether the pinned-client qualification is established', () => {
+    // Without the pinned client this checkout cannot say anything about the client's export and import, and the
+    // check below is skipped. A skip is visible in the run, and no claim is made where the client is absent.
+    if (client === null) {
+      expect(existsSync('node_modules/vite-plus/package.json')).toBe(false)
+      return
+    }
+    expect(client.asked).toContain(client.version)
+  })
+
+  test.skipIf(!client, 'the pinned client still has no export and no import')(async () => {
     const help = spawnSync(clientRuntime(), [client.bin, 'cache', '--help'], {
       encoding: 'utf8',
       timeout: 120_000,
