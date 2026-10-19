@@ -232,14 +232,17 @@ export async function qualifyTransfer({
       deadlineMs: remaining(),
       signal: operation.signal,
     })
-    const envelope = stored.envelope ?? null
+    const source = stored.envelope ?? null
     const found = await lookupEntry(
       store,
       { key: entry.key, secondaryKey: entry.secondaryKey },
       { scope: to.scope, limits, deadlineMs, operation }
     )
-    const blob = found.ok
-      ? await readBlob(store, found.envelope.blob_id, {
+    // The envelope the report is about is the one the **target** read: it is what the target would replay. The source
+    // read is a second view of the same object, and the two may differ when the store changes between them.
+    const target = found.ok ? found.envelope : null
+    const blob = target
+      ? await readBlob(store, target.blob_id, {
           scope: to.scope,
           limits,
           deadlineMs,
@@ -249,12 +252,13 @@ export async function qualifyTransfer({
     const keys = listedKeys(store)
     const staged = (keys ?? []).filter((name) => name.startsWith('staging/'))
     const publishedObjects = (keys ?? []).filter((name) => name.startsWith('entries/'))
-    // Every byte of the entry is compared: the entry key, the task fingerprint key, the entry value and the archive.
+    // Every byte of the entry is compared against the target's snapshot: the entry key, the task fingerprint key, the
+    // entry value and the archive.
     const entryIdentical =
-      envelope !== null &&
-      envelope.keyBytes.equals(entry.key) &&
-      envelope.secondaryKeyBytes.equals(entry.secondaryKey) &&
-      envelope.valueBytes.equals(entry.value) &&
+      target !== null &&
+      target.keyBytes.equals(entry.key) &&
+      target.secondaryKeyBytes.equals(entry.secondaryKey) &&
+      target.valueBytes.equals(entry.value) &&
       blob?.ok === true &&
       Buffer.from(blob.bytes).equals(entry.blob)
     const replayable = found.ok && entryIdentical
@@ -289,10 +293,12 @@ export async function qualifyTransfer({
       blobRefusedWith: blob?.ok === true ? null : (blob?.category ?? null),
       envelopeRefusedWith: handed.refusedWith,
       storedRefusedWith: stored.refusedWith ?? null,
-      // The identity of the **stored** envelope, not of the expected input.
-      transferIdentity: envelope === null ? null : transferIdentity(envelope),
+      // The identity of the envelope the **target** read, not of the expected input and not of the source's view.
+      transferIdentity: target === null ? null : transferIdentity(target),
       entryIdentical,
-      valueIdentical: envelope === null ? null : envelope.valueBytes.equals(entry.value),
+      valueIdentical: target === null ? null : target.valueBytes.equals(entry.value),
+      // The source's own view, so a store that changed between the two reads is visible.
+      sourceValueIdentical: source === null ? null : source.valueBytes.equals(entry.value),
       archiveSha256: digest(entry.blob),
       archiveIdentical: entryIdentical,
       stagedObjects: staged,

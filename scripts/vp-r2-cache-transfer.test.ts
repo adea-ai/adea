@@ -10,6 +10,7 @@ import {
   canonicalEnvelopeBytes,
   createEnvelope,
   isEnabled,
+  parseEnvelope,
   publishEntry,
 } from './vp-r2-cache.mjs'
 import {
@@ -268,6 +269,46 @@ describe('the final read of the stored envelope', () => {
     })
     expect(Date.now() - started).toBeLessThan(2000)
     expect(result.replayable).toBe(false)
+  })
+
+  test('a target envelope that differs from the source read is not replayable', async () => {
+    const inner = createMemoryStore()
+    const entry = binaryEntry('changed-value')
+    const published = await publishEntry(inner, entry, { scope: profiles['darwin-a'].scope })
+    expect(published.ok).toBe(true)
+    const original = inner.objects.get(published.entryKey)!
+    // Another envelope under the same key with another value. It is valid: its digests match its own content.
+    const changed = JSON.parse(original.toString('utf8'))
+    const otherValue = Buffer.from('another value', 'utf8')
+    changed.value = otherValue.toString('base64')
+    changed.value_sha256 = digest(otherValue)
+    const changedBytes = Buffer.from(JSON.stringify(changed))
+    // The first read of the entry is the source's view; the later ones are the target's.
+    let entryReads = 0
+    const store = {
+      ...inner,
+      get: (key: string, options: unknown) => {
+        if (key !== published.entryKey) return inner.get(key, options as never)
+        entryReads += 1
+        return entryReads === 1 ? original : changedBytes
+      },
+    }
+    const result = await qualifyTransfer({
+      store,
+      entry,
+      from: profiles['darwin-a'],
+      to: profiles['darwin-b'],
+      publish: false,
+    })
+    // The source saw the original value and the target read another one, so the report follows the target.
+    expect(result.sourceValueIdentical).toBe(true)
+    expect(result.valueIdentical).toBe(false)
+    expect(result.replayable).toBe(false)
+    expect(result.entryIdentical).toBe(false)
+    // The identity is the one of the envelope the target read.
+    expect(result.transferIdentity).toBe(
+      transferIdentity(parseEnvelope(changedBytes, { scope: profiles['darwin-a'].scope }))
+    )
   })
 
   test('a stored entry with another value is not the entry that was expected', async () => {
