@@ -538,7 +538,15 @@ export async function runInstalledAppAcceptance(dependencies: {
     //     interface. This is the no-provider proof for this lane: the
     //     installed application had no hosted endpoint to reach, and none of
     //     its sockets left the machine.
+    // The sample is taken while the installed application is talking to its
+    // cloud, so the row is evidence of the traffic it actually makes rather
+    // than an empty snapshot of an idle application.
+    const inFlight = fetch(`${INSTALLED_APP_ORIGIN}/api/workspaces`, {
+      signal: AbortSignal.timeout(20_000),
+    }).catch(() => undefined)
+    await sleep(500)
     const peers = installedApplicationPeers(profile.installedApp)
+    await inFlight
     const offLoopback = peers.filter(
       (peer) => !peer.startsWith('127.') && !peer.startsWith('[::1]') && !peer.startsWith('::1')
     )
@@ -548,8 +556,8 @@ export async function runInstalledAppAcceptance(dependencies: {
         'every TCP peer of the installed application is on the loopback interface, so no hosted provider was reached',
       actual:
         peers.length === 0
-          ? 'the installed application had no connected TCP socket'
-          : `the installed application talked to ${peers.length} peer(s); ${offLoopback.length} of them off the loopback interface`,
+          ? 'the installed application held no connected TCP socket while it talked to its cloud'
+          : `the installed application talked to ${peers.length} peer(s) while it reached its cloud; ${offLoopback.length} of them off the loopback interface`,
       ok: offLoopback.length === 0,
       evidence: 'installed-app',
     })
