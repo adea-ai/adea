@@ -67,11 +67,108 @@ export function dockerCaptureRun(args, what, timeoutMs) {
   return result.stdout.trim()
 }
 
-// Removes one container by its exact name. A container Docker reports as absent
-// is already removed. A removal that outlives its bound is killed with SIGKILL
-// and throws, and every other failure throws too. Each error names the container,
-// so a leaked instance fails the run and the operator knows which one to remove.
+// The anonymous volumes Docker created for one owned container.
+//
+// The pinned image declares its data directory as a volume, so every instance
+// carries one anonymous volume that Docker creates for it and nobody else
+// names. The identity is read from that container's own mounts, before the
+// container goes, so the volume can be removed by identity afterwards.
+//
+// Only an anonymous volume is ever tracked. A named volume can belong to the
+// operator, to another container, or to another lane, and this helper never
+// removes one. A container that cannot be inspected has no tracked volume:
+// Docker has already removed it, and it removed the volume with it.
+function ownedAnonymousVolumes(name) {
+  const result = spawnSync('docker', ['inspect', '--format', '{{json .Mounts}}', name], {
+    encoding: 'utf8',
+    // SIGKILL, because the bound holds only if the killed client exits.
+    killSignal: 'SIGKILL',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 10_000,
+  })
+  if (result.error || result.status !== 0) return []
+  let mounts
+  try {
+    mounts = JSON.parse(result.stdout)
+  } catch {
+    return []
+  }
+  if (!Array.isArray(mounts)) return []
+  const volumes = []
+  for (const mount of mounts) {
+    if (mount?.Type !== 'volume') continue
+    if (typeof mount?.Name !== 'string' || !mount.Name) continue
+    if (!isAnonymousVolume(mount.Name)) continue
+    volumes.push(mount.Name)
+  }
+  return volumes
+}
+
+// Whether Docker created this volume itself. Docker marks the volumes it
+// creates for a container, and only those are this helper's to remove.
+function isAnonymousVolume(volume) {
+  const result = spawnSync(
+    'docker',
+    ['volume', 'inspect', '--format', '{{json .Labels}}', volume],
+    {
+      encoding: 'utf8',
+      // SIGKILL, because the bound holds only if the killed client exits.
+      killSignal: 'SIGKILL',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      timeout: 10_000,
+    }
+  )
+  if (result.error || result.status !== 0) return false
+  try {
+    const labels = JSON.parse(result.stdout)
+    return (
+      labels !== null &&
+      typeof labels === 'object' &&
+      Object.prototype.hasOwnProperty.call(labels, 'com.docker.volume.anonymous')
+    )
+  } catch {
+    return false
+  }
+}
+
+// Removes one anonymous volume this helper owns, by its exact name.
+//
+// A volume Docker already removed is gone, and nothing is left to do. Any other
+// failure throws, so a volume that survives fails the run instead of leaving a
+// green result behind a leaked instance.
+function removeOwnedVolume(volume) {
+  const result = spawnSync('docker', ['volume', 'rm', volume], {
+    encoding: 'utf8',
+    // SIGKILL, because the bound holds only if the killed client exits.
+    killSignal: 'SIGKILL',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 30_000,
+  })
+  const subject = `removing the throwaway volume ${volume}`
+  if (result.error?.code === 'ETIMEDOUT') {
+    throw new Error(`${subject} timed out after 30000 ms`)
+  }
+  if (result.error) throw new Error(`${subject} failed: ${result.error.message}`)
+  if (result.status === 0) return
+  if (result.stderr.includes('no such volume')) return
+  const detail =
+    result.stderr.trim() ||
+    (result.signal ? `ended by ${result.signal}` : `exit code ${result.status}`)
+  throw new Error(`${subject} failed: ${detail}`)
+}
+
+// Removes one container by its exact name, and the anonymous volumes Docker
+// created for it.
+//
+// The container is removed first, and its own anonymous volumes are removed
+// afterwards by the identity that was read from its mounts before it went. A
+// container Docker reports as absent is already removed, and Docker removed
+// its volume with it. A removal that outlives its bound is killed with SIGKILL
+// and throws, and every other failure throws too. Each error names the
+// container, and the volumes it still owns, so a leaked instance fails the run
+// and the operator knows which one to remove.
 function removeNamedContainer(name, timeoutMs) {
+  const volumes = ownedAnonymousVolumes(name)
   const result = spawnSync('docker', ['rm', '-f', name], {
     encoding: 'utf8',
     // SIGKILL, because the bound holds only if the killed client exits.
@@ -80,11 +177,19 @@ function removeNamedContainer(name, timeoutMs) {
     timeout: timeoutMs,
   })
   const subject = `removing the throwaway capture provisioning container ${name}`
+  const owned = volumes.length
+    ? `; its anonymous volume ${volumes.join(', ')} was not removed with it`
+    : ''
   if (result.error?.code === 'ETIMEDOUT') {
-    throw new Error(`${subject} timed out after ${timeoutMs} ms`)
+    throw new Error(`${subject} timed out after ${timeoutMs} ms${owned}`)
   }
-  if (result.error) throw new Error(`${subject} failed: ${result.error.message}`)
-  if (result.status === 0 || result.stderr.includes('No such container')) return
+  if (result.error) throw new Error(`${subject} failed: ${result.error.message}${owned}`)
+  if (result.status === 0 || result.stderr.includes('No such container')) {
+    // The container is gone, so its volumes are no longer in use and can be
+    // removed by the identity that was tracked before the removal.
+    for (const volume of volumes) removeOwnedVolume(volume)
+    return
+  }
   const detail =
     result.stderr.trim() ||
     (result.signal ? `ended by ${result.signal}` : `exit code ${result.status}`)

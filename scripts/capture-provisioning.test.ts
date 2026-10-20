@@ -25,6 +25,8 @@ const helper = resolve(import.meta.dir, 'capture-provisioning.mjs')
 
 // Records every call to its log, answers the helper's subcommands, and honours SHIM_RM for removal.
 // The hang mode replaces the shell with sleep, so a killed removal leaves no process behind.
+// The state file names the container the shim started, so an inspect of any other container answers the way
+// Docker answers it, and SHIM_MOUNTS and SHIM_ANONYMOUS model the volumes Docker attaches to it.
 const dockerShim = `#!/bin/sh
 echo "$*" >> "$SHIM_LOG"
 case "$1" in
@@ -44,9 +46,38 @@ case "$1" in
           mirror.gcr.io/*) echo "docker: Error response from daemon: manifest unknown" >&2; exit 125 ;;
         esac ;;
     esac
+    # The container exists from here on. Its name is recorded, so only that container can be inspected.
+    name=""
+    previous=""
+    for argument in "$@"; do
+      if [ "$previous" = "--name" ]; then name="$argument"; fi
+      previous="$argument"
+    done
+    if [ -n "$SHIM_STATE" ]; then printf '%s' "$name" > "$SHIM_STATE"; fi
     exit 0 ;;
   port) echo "127.0.0.1:54329"; exit 0 ;;
   exec) exit 0 ;;
+  inspect)
+    for last; do :; done
+    if [ -z "$SHIM_STATE" ] || [ ! -f "$SHIM_STATE" ] || [ "$(cat "$SHIM_STATE")" != "$last" ]; then
+      echo "Error response from daemon: No such object: $last" >&2
+      exit 1
+    fi
+    printf '%s\n' "\${SHIM_MOUNTS:-[]}"
+    exit 0 ;;
+  volume)
+    case "$2" in
+      inspect)
+        # A volume named in SHIM_ANONYMOUS carries Docker's own anonymous marker; any other one does not.
+        for last; do :; done
+        case ",$SHIM_ANONYMOUS," in
+          *",$last,"*) printf '%s\n' '{"com.docker.volume.anonymous":""}' ;;
+          *) printf '%s\n' '{}' ;;
+        esac
+        exit 0 ;;
+      rm) exit 0 ;;
+      *) exit 1 ;;
+    esac ;;
   rm)
     if [ "$SHIM_RM" = "missing" ]; then echo "Error response from daemon: No such container: $3" >&2; exit 1; fi
     if [ "$SHIM_RM" = "fail" ]; then echo "permission denied" >&2; exit 1; fi
@@ -186,6 +217,7 @@ function environmentFor(mode: string, extra: Record<string, string> = {}) {
       ...process.env,
       PATH: `${shimDir}:${process.env.PATH ?? ''}`,
       SHIM_LOG: log,
+      SHIM_STATE: join(workdir, `state-${Math.random().toString(16).slice(2)}`),
       SHIM_RM: ['missing', 'fail', 'hang'].includes(mode) ? mode : 'ok',
       ...extra,
     } as Record<string, string>,
@@ -514,11 +546,17 @@ describe('capture provisioning helper', () => {
     child.kill('SIGTERM')
     await child.exited
     for (const line of calls(log)) {
-      expect(['info', 'run', 'port', 'exec', 'rm -f']).toContain(
+      expect(['info', 'run', 'port', 'exec', 'rm -f', 'inspect', 'volume']).toContain(
         line.startsWith('rm -f') ? 'rm -f' : line.split(' ')[0]!
       )
     }
     expect(removals(log).every((line) => line === `rm -f ${name}`)).toBe(true)
+    // The only container the helper inspects is the one this invocation created.
+    expect(
+      calls(log)
+        .filter((line) => line.startsWith('inspect '))
+        .every((line) => line.endsWith(name))
+    ).toBe(true)
     expect(calls(log).some((line) => line.startsWith('ps'))).toBe(false)
   })
 })
@@ -593,7 +631,12 @@ async function withInstrumentedCapture(
     writeFileSync(log, '')
     writeFileSync(join(directory, 'docker'), script)
     chmodSync(join(directory, 'docker'), 0o755)
-    process.env = { PATH: `${directory}:/usr/bin:/bin`, SHIM_LOG: log, ...settings }
+    process.env = {
+      PATH: `${directory}:/usr/bin:/bin`,
+      SHIM_LOG: log,
+      SHIM_STATE: join(directory, 'state'),
+      ...settings,
+    }
     await run(log, (event) =>
       process.listeners(event).filter((listener) => !listeners.get(event)?.has(listener))
     )
@@ -639,6 +682,110 @@ describe('instrumented capture ownership and cleanup with stub Docker', () => {
       ])
       expect(recordedCommands.some((line) => line.includes('pg_isready -h 127.0.0.1'))).toBe(true)
     })
+  })
+
+  test('the removal takes the anonymous volume of its own container with it', async () => {
+    await withInstrumentedCapture(
+      {
+        SHIM_MOUNTS: JSON.stringify([
+          { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
+        ]),
+        SHIM_ANONYMOUS: 'volume-anonymous-1',
+      },
+      (log) => {
+        const handle = startCaptureProvisioning(undefined, {
+          removalTimeoutMs: 2000,
+          backoffMs: [],
+        })
+        if (!handle) throw new Error('Stub daemon unavailable')
+        handle.stop()
+        const commands = readFileSync(log, 'utf8').trim().split('\n')
+        const containerRemoval = commands.indexOf(`rm -f ${handle.containerName}`)
+        const volumeRemoval = commands.indexOf('volume rm volume-anonymous-1')
+        expect(containerRemoval).toBeGreaterThanOrEqual(0)
+        // The volume is taken after the container that held it, by the identity
+        // that was read from that container's own mounts.
+        expect(volumeRemoval).toBeGreaterThan(containerRemoval)
+      }
+    )
+  })
+
+  test('a named volume attached to the owned container is never removed', async () => {
+    await withInstrumentedCapture(
+      {
+        SHIM_MOUNTS: JSON.stringify([
+          { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
+          { Type: 'volume', Name: 'volume-named-shared', Destination: '/shared' },
+        ]),
+        SHIM_ANONYMOUS: 'volume-anonymous-1',
+      },
+      (log) => {
+        const handle = startCaptureProvisioning(undefined, {
+          removalTimeoutMs: 2000,
+          backoffMs: [],
+        })
+        if (!handle) throw new Error('Stub daemon unavailable')
+        handle.stop()
+        const commands = readFileSync(log, 'utf8').trim().split('\n')
+        expect(commands).toContain('volume rm volume-anonymous-1')
+        // A named volume can belong to the operator or to another lane, so it
+        // is never this helper's to remove.
+        expect(commands).not.toContain('volume rm volume-named-shared')
+      }
+    )
+  })
+
+  test('a start that fails after the container started still takes its volume with it', async () => {
+    await withInstrumentedCapture(
+      {
+        SHIM_MOUNTS: JSON.stringify([
+          { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
+        ]),
+        SHIM_ANONYMOUS: 'volume-anonymous-1',
+      },
+      (log) => {
+        expect(() =>
+          startCaptureProvisioning(undefined, { removalTimeoutMs: 2000, backoffMs: [] })
+        ).toThrow('unreadable provisioning port mapping')
+        const commands = readFileSync(log, 'utf8').trim().split('\n')
+        expect(commands.some((line) => line.startsWith('rm -f '))).toBe(true)
+        expect(commands).toContain('volume rm volume-anonymous-1')
+      },
+      dockerShim.replace('port) echo "127.0.0.1:54329"; exit 0 ;;', 'port) echo ""; exit 0 ;;')
+    )
+  })
+
+  test('a removal that times out leaves the volume in place and names it', async () => {
+    await withInstrumentedCapture(
+      {
+        SHIM_RM: 'hang',
+        SHIM_MOUNTS: JSON.stringify([
+          { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
+        ]),
+        SHIM_ANONYMOUS: 'volume-anonymous-1',
+      },
+      (log) => {
+        const handle = startCaptureProvisioning(undefined, {
+          removalTimeoutMs: 200,
+          backoffMs: [],
+        })
+        if (!handle) throw new Error('Stub daemon unavailable')
+        let failure = ''
+        try {
+          handle.stop()
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error)
+        }
+        expect(failure).toContain(
+          `removing the throwaway capture provisioning container ${handle.containerName} timed out after 200 ms`
+        )
+        // The container may still hold the volume, so the volume is left alone
+        // and the failure names it for the operator.
+        expect(failure).toContain('volume-anonymous-1')
+        const commands = readFileSync(log, 'utf8').trim().split('\n')
+        expect(commands).not.toContain('volume rm volume-anonymous-1')
+      }
+    )
   })
 
   test('unavailable Docker returns null before registering a handle', async () => {

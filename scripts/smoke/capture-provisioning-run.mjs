@@ -132,7 +132,7 @@ export async function runOwnedSmoke({
   bounds = smokeBounds,
 } = {}) {
   const sentinel = `adea-capture-prov-${randomBytes(6).toString('hex')}`
-  const observed = { sentinel }
+  const observed = { sentinel, ownedVolumes: [], sentinelVolumes: [] }
   const cleanupErrors = []
   let child
   let childStopAttempted = false
@@ -154,6 +154,46 @@ export async function runOwnedSmoke({
     return state.present && state.stdout.trim() === 'true'
   }
   const exists = (name) => inspect(name).present
+  // The volumes Docker created for one container. The pinned image declares its data directory as a volume, so
+  // every container carries one anonymous volume. They are read from that container's own mounts, so a container
+  // that is already gone contributes nothing and takes no volume's identity with it.
+  const containerVolumes = (name) => {
+    const result = docker(
+      ['container', 'inspect', '--format', '{{json .Mounts}}', name],
+      bounds.dockerCommandMs
+    )
+    if (result.error)
+      throw new Error(`inspecting the volumes of ${name} failed: ${result.error.message}`)
+    if (result.status !== 0) return []
+    let mounts
+    try {
+      mounts = JSON.parse(result.stdout)
+    } catch {
+      return []
+    }
+    if (!Array.isArray(mounts)) return []
+    return mounts
+      .filter((mount) => mount?.Type === 'volume' && typeof mount?.Name === 'string' && mount.Name)
+      .map((mount) => mount.Name)
+  }
+  // A volume Docker reports as absent is gone. Only that answer proves absence.
+  const volumeExists = (volume) => {
+    const result = docker(['volume', 'inspect', volume], bounds.dockerCommandMs)
+    if (result.error)
+      throw new Error(`inspecting the volume ${volume} failed: ${result.error.message}`)
+    if (result.status === 0) return true
+    if (result.stderr.includes('no such volume')) return false
+    throw new Error(`inspecting the volume ${volume} failed: ${failureText(result)}`)
+  }
+  // Removes one volume this lifecycle owns, by its exact name. A volume Docker already removed is gone.
+  const removeVolume = (volume) => {
+    const result = docker(['volume', 'rm', volume], bounds.removeMs)
+    if (result.error)
+      throw new Error(`removing the volume ${volume} failed: ${result.error.message}`)
+    if (result.status === 0) return
+    if (result.stderr.includes('no such volume')) return
+    throw new Error(`removing the volume ${volume} failed: ${failureText(result)}`)
+  }
   const removeNamed = (name) => {
     const result = docker(['rm', '-f', name], bounds.removeMs)
     if (result.error) throw new Error(`removing ${name} failed: ${result.error.message}`)
@@ -195,10 +235,16 @@ export async function runOwnedSmoke({
     if (ready !== ownedName)
       throw new Error(`the helper child named ${ownedName} and then reported ${ready}`)
     observed.running = isRunning(ownedName)
+    // The volumes of both containers are read while both exist, so each one keeps its own identity.
+    observed.ownedVolumes = containerVolumes(ownedName)
+    observed.sentinelVolumes = containerVolumes(sentinel)
     childStopAttempted = true
     await stopChild(child, bounds)
     observed.signal = child.signalCode
     observed.removed = !exists(ownedName)
+    // The helper took its own container's anonymous volume with it, and left the sentinel's volume alone.
+    observed.ownedVolumeRemoved = observed.ownedVolumes.every((volume) => !volumeExists(volume))
+    observed.sentinelVolumeKept = observed.sentinelVolumes.every((volume) => volumeExists(volume))
     observed.sentinelRunning = isRunning(sentinel)
   } catch (error) {
     failure = error
@@ -223,6 +269,14 @@ export async function runOwnedSmoke({
       removeNamed(sentinel)
     } catch (error) {
       cleanupErrors.push(error)
+    }
+    // The volumes of both containers are this lifecycle's own, so it removes them by the identity it tracked.
+    for (const volume of [...(observed.ownedVolumes ?? []), ...(observed.sentinelVolumes ?? [])]) {
+      try {
+        removeVolume(volume)
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
     }
   }
 

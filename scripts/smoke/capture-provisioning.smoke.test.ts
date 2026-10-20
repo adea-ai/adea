@@ -54,4 +54,10 @@ test('SIGTERM removes exactly the container the helper created and leaves a same
   expect(observed.signal).toBe('SIGTERM')
   expect(observed.removed).toBe(true)
   expect(observed.sentinelRunning).toBe(true)
+  // The helper took the anonymous volume Docker created for its own container with it.
+  expect(observed.ownedVolumes.length).toBeGreaterThan(0)
+  expect(observed.ownedVolumeRemoved).toBe(true)
+  // The sentinel's own anonymous volume is another container's, and the helper left it alone.
+  expect(observed.sentinelVolumes.length).toBeGreaterThan(0)
+  expect(observed.sentinelVolumeKept).toBe(true)
 }, 900_000)
