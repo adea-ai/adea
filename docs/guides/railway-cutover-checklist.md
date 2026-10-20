@@ -265,8 +265,8 @@ reports only. No live system was read.
   the desktop macOS build, desktop asset verification, the dev pre-release and CodeQL.
 - Compatibility: `createBetterAuthService` builds the Better Auth service from
   `readBetterAuthConfig` on every call, and the checks above do not change that. The
-  legacy reader `readAuthConfig` is exported, and its only caller is the re-export in
-  `server.ts`. So this commit cannot serve the legacy `NEON_AUTH_*` path. The verdict is
+  legacy reader `readAuthConfig` is exported and has no production caller. `server.ts`
+  only re-exports it. So this commit cannot serve the legacy `NEON_AUTH_*` path. The verdict is
   **incompatible as a legacy rollback artifact**.
 - Open item: the check run `Cloudflare Production / adea-web / Cloudflare Deploy /
 production` reports success on this commit, completed at 2026-10-20T03:52:29Z. That
@@ -288,7 +288,8 @@ Candidate triggers for root to accept, reject or set:
 
 1. Stop further traffic changes. Record the decision, its owner and the time.
 2. Check that the legacy `NEON_AUTH_BASE_URL` and `NEON_AUTH_COOKIE_SECRET` records are
-   present and unmodified. Read presence only, and never print a value.
+   present and unmodified. A presence check cannot prove the contents are unchanged, so
+   compare the approved version or audit metadata instead. Never print a value.
 3. Re-point the deployment at the named legacy-compatible artifact from the first
    checklist item above, not at the candidate artifact.
 4. Restore the previous binding set. Bind the legacy `NEON_AUTH_*` records. Do not
