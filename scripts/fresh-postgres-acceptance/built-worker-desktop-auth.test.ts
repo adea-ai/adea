@@ -838,6 +838,37 @@ describe('the built-Worker desktop credential material', () => {
     expect(leakage?.passed).toBe(false)
   })
 
+  test('an earlier escaped credential is not lost when a later duplicate is empty', async () => {
+    const correct = correctWorker()
+    const wire: string[] = []
+    let exchanges = 0
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        exchanges += 1
+        if (exchanges === 2 && answered.status !== 200) {
+          // The escaped spelling of the key comes first and carries a value;
+          // the later literal duplicate is empty.
+          const body = String.raw`{"\u0063redential":"FRESH_VALUE","credential":""}`
+          // The wire is checked before the qualification reads the body.
+          expect(body).toContain('\\u0063redential')
+          expect(body).toContain('"credential":""')
+          wire.push(body)
+          return { ...answered, body }
+        }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    expect(wire.join('\n')).toContain('\\u0063redential')
+    // The refusal that carried the earlier credential did not pass.
+    const denial = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-exchange-route-refuses-a-wrong-pkce-verifier'
+    )
+    expect(denial?.passed).toBe(false)
+    expect(receipt.status).toBe('failed')
+  })
+
   test('a refusal that carries a session cookie fails closed', async () => {
     const correct = correctWorker()
     const wire: string[] = []

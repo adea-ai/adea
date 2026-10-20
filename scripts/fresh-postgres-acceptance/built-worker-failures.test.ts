@@ -180,6 +180,12 @@ describe('the built-Worker top-level field removal', () => {
     expect(rawCredentialValues(inArray)).toEqual(['array-escaped'])
   })
 
+  test('an earlier escaped credential survives a later empty duplicate', () => {
+    const body = String.raw`{"\u0063redential":"FRESH_VALUE","credential":""}`
+    expect(body).toContain('\\u0063redential')
+    expect(rawCredentialValues(body)).toEqual(['FRESH_VALUE'])
+  })
+
   test('a raw duplicate member is read even when the first value is empty', () => {
     const body = '{"credential":"","credential":"later"}'
     expect(rawCredentialValues(body)).toEqual(['later'])

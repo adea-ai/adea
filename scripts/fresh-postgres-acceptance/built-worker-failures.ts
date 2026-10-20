@@ -316,18 +316,13 @@ export function decodedStringValues(value: unknown): string[] {
 export function rawCredentialValues(body: string): string[] {
   const found = new Set<string>()
   const values: string[] = []
-  for (const match of body.matchAll(/"credential"\s*:\s*"((?:[^"\\]|\\.)*)"/gu)) {
-    const raw = match[1] ?? ''
-    let value = raw
-    try {
-      value = JSON.parse(`"${raw}"`) as string
-    } catch {
-      // A value that is not a JSON string is kept as it was written.
-    }
-    if (value && !found.has(value)) {
-      found.add(value)
-      values.push(value)
-    }
+  // The body is read as text, member by member, so that a member that was
+  // written with an escaped key is the key it decodes to, and so that a later
+  // duplicate does not overwrite an earlier value.
+  for (const value of jsonMemberValues(body, 'credential')) {
+    if (!value || found.has(value)) continue
+    found.add(value)
+    values.push(value)
   }
   const decoded = decodeJsonBody(body)
   if (decoded !== undefined) {
@@ -339,6 +334,64 @@ export function rawCredentialValues(body: string): string[] {
       values.push(value)
     }
   }
+  return values
+}
+
+/**
+ * Decodes a JSON string that was written between quotes.
+ *
+ * The raw text is the only place an escaped spelling survives, so the key and
+ * the value are decoded from it.
+ */
+function decodeJsonString(raw: string): string {
+  try {
+    return JSON.parse(`"${raw}"`) as string
+  } catch {
+    return raw
+  }
+}
+
+/**
+ * Every string value of every member with the given name, at any depth.
+ *
+ * The body is walked as text: a member is a string followed by a colon, and the
+ * member's name is the decoded string. Every occurrence is read, so a duplicate
+ * member is not lost when a later one is empty.
+ */
+export function jsonMemberValues(body: string, field: string): string[] {
+  const values: string[] = []
+  const collect = (from: number, to: number): void => {
+    let index = from
+    while (index < to) {
+      const character = body[index]!
+      if (character !== '"') {
+        index += 1
+        continue
+      }
+      const end = scanString(body, index)
+      let cursor = end
+      while (cursor < to && /\s/u.test(body[cursor]!)) cursor += 1
+      if (body[cursor] !== ':') {
+        index = end
+        continue
+      }
+      const name = decodeJsonString(body.slice(index + 1, Math.max(index + 1, end - 1)))
+      let value = cursor + 1
+      while (value < to && /\s/u.test(body[value]!)) value += 1
+      const valueEnd = scanValue(body, value)
+      if (name === field) {
+        if (body[value] === '"') {
+          const decoded = decodeJsonString(body.slice(value + 1, Math.max(value + 1, valueEnd - 1)))
+          if (decoded) values.push(decoded)
+        } else {
+          // The member carries a structure, and the member may be inside it.
+          collect(value, valueEnd)
+        }
+      }
+      index = valueEnd > value ? valueEnd : end
+    }
+  }
+  collect(0, body.length)
   return values
 }
 
