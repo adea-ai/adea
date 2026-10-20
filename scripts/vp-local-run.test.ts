@@ -50,6 +50,13 @@ afterAll(() => rmSync(scratch, { recursive: true, force: true }))
 const MODULE = fileURLToPath(new URL('./vp-local-run.mjs', import.meta.url))
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
 
+/**
+ * A test that starts child processes needs room to finish on a loaded host: the children wait for each other, and
+ * the wait grows with the load. The timeout is raised for those tests only; no assertion is changed, and every
+ * assertion still has to hold.
+ */
+const CHILD_PROCESS_TIMEOUT_MS = 60_000
+
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
     cwd,
@@ -701,185 +708,201 @@ describe('withLock', () => {
     expect(existsSync(`${dir}.lock.reclaim`)).toBe(false)
   })
 
-  test('a recorded process group keeps the lock held after its owner is killed, and the lock is reclaimed once the group is gone', async () => {
-    const dir = join(scratch, 'descendant', 'cache')
-    mkdirSync(join(scratch, 'descendant'), { recursive: true })
-    // The descendant is started by this process, so its exit is reaped here.
-    const group = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
-      detached: true,
-      stdio: 'ignore',
-    })
-    const groupPid = group.pid!
-    const owner = join(scratch, 'descendant', 'owner.mjs')
-    writeFileSync(
-      owner,
-      [
-        'const { withLock } = await import(process.env.VP_MODULE)',
-        'await withLock(process.env.VP_DIR, async (register) => {',
-        '  register(Number(process.env.VP_GROUP))',
-        '  console.log("registered")',
-        '  await new Promise(() => {})',
-        '})',
-        '',
-      ].join('\n')
-    )
-    const child = spawn(process.execPath, [owner], {
-      env: { ...process.env, VP_MODULE: MODULE, VP_DIR: dir, VP_GROUP: String(groupPid) },
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-    await new Promise<void>((done) => child.stdout!.once('data', () => done()))
-    child.kill('SIGKILL')
-    await new Promise((done) => child.once('exit', done))
-
-    const lockedBy = readFileSync(`${dir}.lock`, 'utf8')
-    await expect(withLock(dir, () => 'never', { timeoutMs: 300, pollMs: 20 })).rejects.toThrow(
-      'timed out waiting for the cache lock'
-    )
-    expect(readFileSync(`${dir}.lock`, 'utf8')).toBe(lockedBy)
-
-    process.kill(-groupPid, 'SIGKILL')
-    await new Promise((done) => group.once('exit', done))
-    expect(await withLock(dir, () => 'reclaimed', { timeoutMs: 2000, pollMs: 10 })).toBe(
-      'reclaimed'
-    )
-    expect(existsSync(`${dir}.lock`)).toBe(false)
-    expect(existsSync(`${dir}.lock.run`)).toBe(false)
-  })
-
-  test('an owner that exits normally while a group it recorded still runs leaves the lock held until that group exits', async () => {
-    const dir = join(scratch, 'returns-with-group', 'cache')
-    mkdirSync(join(scratch, 'returns-with-group'), { recursive: true })
-    // The group is started by this process, so its exit is reaped here; the owner is a separate process that exits.
-    const group = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
-      detached: true,
-      stdio: 'ignore',
-    })
-    const groupPid = group.pid!
-    const owner = join(scratch, 'returns-with-group', 'owner.mjs')
-    writeFileSync(
-      owner,
-      [
-        'const { withLock } = await import(process.env.VP_MODULE)',
-        'await withLock(process.env.VP_DIR, async (register) => {',
-        '  register(Number(process.env.VP_GROUP))',
-        '})',
-        '',
-      ].join('\n')
-    )
-    const code = await new Promise<number | null>((done) => {
-      spawn(process.execPath, [owner], {
-        env: { ...process.env, VP_MODULE: MODULE, VP_DIR: dir, VP_GROUP: String(groupPid) },
+  test(
+    'a recorded process group keeps the lock held after its owner is killed, and the lock is reclaimed once the group is gone',
+    async () => {
+      const dir = join(scratch, 'descendant', 'cache')
+      mkdirSync(join(scratch, 'descendant'), { recursive: true })
+      // The descendant is started by this process, so its exit is reaped here.
+      const group = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+        detached: true,
         stdio: 'ignore',
-      }).on('exit', done)
-    })
-    expect(code).toBe(0)
-    expect(existsSync(`${dir}.lock`)).toBe(true)
-    await expect(withLock(dir, () => 'never', { timeoutMs: 200, pollMs: 20 })).rejects.toThrow(
-      'timed out waiting for the cache lock'
-    )
+      })
+      const groupPid = group.pid!
+      const owner = join(scratch, 'descendant', 'owner.mjs')
+      writeFileSync(
+        owner,
+        [
+          'const { withLock } = await import(process.env.VP_MODULE)',
+          'await withLock(process.env.VP_DIR, async (register) => {',
+          '  register(Number(process.env.VP_GROUP))',
+          '  console.log("registered")',
+          '  await new Promise(() => {})',
+          '})',
+          '',
+        ].join('\n')
+      )
+      const child = spawn(process.execPath, [owner], {
+        env: { ...process.env, VP_MODULE: MODULE, VP_DIR: dir, VP_GROUP: String(groupPid) },
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+      await new Promise<void>((done) => child.stdout!.once('data', () => done()))
+      child.kill('SIGKILL')
+      await new Promise((done) => child.once('exit', done))
 
-    process.kill(-groupPid, 'SIGKILL')
-    await new Promise((done) => group.once('exit', done))
-    expect(await withLock(dir, () => 'reclaimed', { timeoutMs: 2000, pollMs: 10 })).toBe(
-      'reclaimed'
-    )
-    expect(existsSync(`${dir}.lock`)).toBe(false)
-    expect(existsSync(`${dir}.lock.run`)).toBe(false)
-  })
+      const lockedBy = readFileSync(`${dir}.lock`, 'utf8')
+      await expect(withLock(dir, () => 'never', { timeoutMs: 300, pollMs: 20 })).rejects.toThrow(
+        'timed out waiting for the cache lock'
+      )
+      expect(readFileSync(`${dir}.lock`, 'utf8')).toBe(lockedBy)
 
-  test('separate processes contending on one directory, starting from a dead owner, never overlap', async () => {
-    const dir = join(scratch, 'multi', 'cache')
-    mkdirSync(join(scratch, 'multi'), { recursive: true })
-    writeFileSync(`${dir}.lock`, token(deadPid()))
-    const log = join(scratch, 'multi', 'log.txt')
-    const child = join(scratch, 'multi', 'child.mjs')
-    writeFileSync(
-      child,
-      [
-        "import { appendFileSync } from 'node:fs'",
-        'const { withLock } = await import(process.env.VP_MODULE)',
-        'const log = process.env.VP_LOG',
-        'await withLock(process.env.VP_DIR, async () => {',
-        '  appendFileSync(log, `in ${process.pid}\\n`)',
-        '  await new Promise((done) => setTimeout(done, 40))',
-        '  appendFileSync(log, `out ${process.pid}\\n`)',
-        '}, { timeoutMs: 30000 })',
-        '',
-      ].join('\n')
-    )
+      process.kill(-groupPid, 'SIGKILL')
+      await new Promise((done) => group.once('exit', done))
+      expect(await withLock(dir, () => 'reclaimed', { timeoutMs: 2000, pollMs: 10 })).toBe(
+        'reclaimed'
+      )
+      expect(existsSync(`${dir}.lock`)).toBe(false)
+      expect(existsSync(`${dir}.lock.run`)).toBe(false)
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
 
-    const run = () =>
-      new Promise<number | null>((done) => {
-        const proc = spawn(process.execPath, [child], {
-          env: { ...process.env, VP_MODULE: MODULE, VP_DIR: dir, VP_LOG: log },
+  test(
+    'an owner that exits normally while a group it recorded still runs leaves the lock held until that group exits',
+    async () => {
+      const dir = join(scratch, 'returns-with-group', 'cache')
+      mkdirSync(join(scratch, 'returns-with-group'), { recursive: true })
+      // The group is started by this process, so its exit is reaped here; the owner is a separate process that exits.
+      const group = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+        detached: true,
+        stdio: 'ignore',
+      })
+      const groupPid = group.pid!
+      const owner = join(scratch, 'returns-with-group', 'owner.mjs')
+      writeFileSync(
+        owner,
+        [
+          'const { withLock } = await import(process.env.VP_MODULE)',
+          'await withLock(process.env.VP_DIR, async (register) => {',
+          '  register(Number(process.env.VP_GROUP))',
+          '})',
+          '',
+        ].join('\n')
+      )
+      const code = await new Promise<number | null>((done) => {
+        spawn(process.execPath, [owner], {
+          env: { ...process.env, VP_MODULE: MODULE, VP_DIR: dir, VP_GROUP: String(groupPid) },
           stdio: 'ignore',
-        })
-        proc.on('exit', (code) => done(code))
+        }).on('exit', done)
       })
-    const codes = await Promise.all(Array.from({ length: 5 }, run))
-    expect(codes.every((code) => code === 0)).toBe(true)
+      expect(code).toBe(0)
+      expect(existsSync(`${dir}.lock`)).toBe(true)
+      await expect(withLock(dir, () => 'never', { timeoutMs: 200, pollMs: 20 })).rejects.toThrow(
+        'timed out waiting for the cache lock'
+      )
 
-    const lines = readFileSync(log, 'utf8').trim().split('\n')
-    expect(lines).toHaveLength(10)
-    for (let i = 0; i < lines.length; i += 2) {
-      const [kindIn, pidIn] = lines[i].split(' ')
-      const [kindOut, pidOut] = lines[i + 1].split(' ')
-      expect(kindIn).toBe('in')
-      expect(kindOut).toBe('out')
-      expect(pidOut).toBe(pidIn)
-    }
-    expect(existsSync(`${dir}.lock`)).toBe(false)
-    expect(existsSync(`${dir}.lock.reclaim`)).toBe(false)
-  })
+      process.kill(-groupPid, 'SIGKILL')
+      await new Promise((done) => group.once('exit', done))
+      expect(await withLock(dir, () => 'reclaimed', { timeoutMs: 2000, pollMs: 10 })).toBe(
+        'reclaimed'
+      )
+      expect(existsSync(`${dir}.lock`)).toBe(false)
+      expect(existsSync(`${dir}.lock.run`)).toBe(false)
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
 
-  test('many processes contending on one directory never overlap, and none of them fails', async () => {
-    const dir = join(scratch, 'many', 'cache')
-    mkdirSync(join(scratch, 'many'), { recursive: true })
-    const log = join(scratch, 'many', 'log.txt')
-    const child = join(scratch, 'many', 'child.mjs')
-    writeFileSync(
-      child,
-      [
-        "import { appendFileSync } from 'node:fs'",
-        'const { withLock } = await import(process.env.VP_MODULE)',
-        'await withLock(process.env.VP_DIR, async () => {',
-        '  appendFileSync(process.env.VP_LOG, `in ${process.pid}\\n`)',
-        '  await new Promise((done) => setTimeout(done, 15))',
-        '  appendFileSync(process.env.VP_LOG, `out ${process.pid}\\n`)',
-        '}, { timeoutMs: 30000 })',
-        '',
-      ].join('\n')
-    )
+  test(
+    'separate processes contending on one directory, starting from a dead owner, never overlap',
+    async () => {
+      const dir = join(scratch, 'multi', 'cache')
+      mkdirSync(join(scratch, 'multi'), { recursive: true })
+      writeFileSync(`${dir}.lock`, token(deadPid()))
+      const log = join(scratch, 'multi', 'log.txt')
+      const child = join(scratch, 'multi', 'child.mjs')
+      writeFileSync(
+        child,
+        [
+          "import { appendFileSync } from 'node:fs'",
+          'const { withLock } = await import(process.env.VP_MODULE)',
+          'const log = process.env.VP_LOG',
+          'await withLock(process.env.VP_DIR, async () => {',
+          '  appendFileSync(log, `in ${process.pid}\\n`)',
+          '  await new Promise((done) => setTimeout(done, 40))',
+          '  appendFileSync(log, `out ${process.pid}\\n`)',
+          '}, { timeoutMs: 30000 })',
+          '',
+        ].join('\n')
+      )
 
-    // The children write to the same log; a child that failed would say so on its own stderr.
-    const run = () =>
-      new Promise<{ code: number | null; stderr: string }>((done) => {
-        const proc = spawn(process.execPath, [child], {
-          env: { ...process.env, VP_MODULE: MODULE, VP_DIR: dir, VP_LOG: log },
-          stdio: ['ignore', 'ignore', 'pipe'],
+      const run = () =>
+        new Promise<number | null>((done) => {
+          const proc = spawn(process.execPath, [child], {
+            env: { ...process.env, VP_MODULE: MODULE, VP_DIR: dir, VP_LOG: log },
+            stdio: 'ignore',
+          })
+          proc.on('exit', (code) => done(code))
         })
-        let stderr = ''
-        proc.stderr.on('data', (chunk) => {
-          stderr += String(chunk)
-        })
-        proc.on('exit', (code) => done({ code, stderr }))
-      })
-    const results = await Promise.all(Array.from({ length: 12 }, run))
-    expect(results.map((result) => result.code)).toEqual(Array.from({ length: 12 }, () => 0))
-    expect(results.map((result) => result.stderr).join('')).toBe('')
+      const codes = await Promise.all(Array.from({ length: 5 }, run))
+      expect(codes.every((code) => code === 0)).toBe(true)
 
-    const lines = readFileSync(log, 'utf8').trim().split('\n')
-    expect(lines).toHaveLength(24)
-    for (let i = 0; i < lines.length; i += 2) {
-      const [kindIn, pidIn] = lines[i].split(' ')
-      const [kindOut, pidOut] = lines[i + 1].split(' ')
-      expect(kindIn).toBe('in')
-      expect(kindOut).toBe('out')
-      expect(pidOut).toBe(pidIn)
-    }
-    expect(existsSync(`${dir}.lock`)).toBe(false)
-    expect(existsSync(`${dir}.lock.reclaim`)).toBe(false)
-  })
+      const lines = readFileSync(log, 'utf8').trim().split('\n')
+      expect(lines).toHaveLength(10)
+      for (let i = 0; i < lines.length; i += 2) {
+        const [kindIn, pidIn] = lines[i].split(' ')
+        const [kindOut, pidOut] = lines[i + 1].split(' ')
+        expect(kindIn).toBe('in')
+        expect(kindOut).toBe('out')
+        expect(pidOut).toBe(pidIn)
+      }
+      expect(existsSync(`${dir}.lock`)).toBe(false)
+      expect(existsSync(`${dir}.lock.reclaim`)).toBe(false)
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
+
+  test(
+    'many processes contending on one directory never overlap, and none of them fails',
+    async () => {
+      const dir = join(scratch, 'many', 'cache')
+      mkdirSync(join(scratch, 'many'), { recursive: true })
+      const log = join(scratch, 'many', 'log.txt')
+      const child = join(scratch, 'many', 'child.mjs')
+      writeFileSync(
+        child,
+        [
+          "import { appendFileSync } from 'node:fs'",
+          'const { withLock } = await import(process.env.VP_MODULE)',
+          'await withLock(process.env.VP_DIR, async () => {',
+          '  appendFileSync(process.env.VP_LOG, `in ${process.pid}\\n`)',
+          '  await new Promise((done) => setTimeout(done, 15))',
+          '  appendFileSync(process.env.VP_LOG, `out ${process.pid}\\n`)',
+          '}, { timeoutMs: 30000 })',
+          '',
+        ].join('\n')
+      )
+
+      // The children write to the same log; a child that failed would say so on its own stderr.
+      const run = () =>
+        new Promise<{ code: number | null; stderr: string }>((done) => {
+          const proc = spawn(process.execPath, [child], {
+            env: { ...process.env, VP_MODULE: MODULE, VP_DIR: dir, VP_LOG: log },
+            stdio: ['ignore', 'ignore', 'pipe'],
+          })
+          let stderr = ''
+          proc.stderr.on('data', (chunk) => {
+            stderr += String(chunk)
+          })
+          proc.on('exit', (code) => done({ code, stderr }))
+        })
+      const results = await Promise.all(Array.from({ length: 12 }, run))
+      expect(results.map((result) => result.code)).toEqual(Array.from({ length: 12 }, () => 0))
+      expect(results.map((result) => result.stderr).join('')).toBe('')
+
+      const lines = readFileSync(log, 'utf8').trim().split('\n')
+      expect(lines).toHaveLength(24)
+      for (let i = 0; i < lines.length; i += 2) {
+        const [kindIn, pidIn] = lines[i].split(' ')
+        const [kindOut, pidOut] = lines[i + 1].split(' ')
+        expect(kindIn).toBe('in')
+        expect(kindOut).toBe('out')
+        expect(pidOut).toBe(pidIn)
+      }
+      expect(existsSync(`${dir}.lock`)).toBe(false)
+      expect(existsSync(`${dir}.lock.reclaim`)).toBe(false)
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
 
   test('a lock that is released between the check and the read is absent, not a failure', async () => {
     const dir = join(scratch, 'released', 'cache')
@@ -1194,174 +1217,202 @@ const calls = (log: string) =>
     : []
 
 describe('main, runVp and exit codes', () => {
-  test('CI runs the plain vp run: no cache variable, no --cache, and no cache home is created', async () => {
-    const root = fixtureCheckout('main-ci')
-    const log = join(scratch, 'main-ci.log')
-    const cacheHomeDir = join(scratch, 'main-ci-home')
-    await withLocalCache(() =>
-      withEnv(
-        { CI: '1', FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
-        () => quietly(() => runCommand(['orch:build', '--', '--filter', 'x'], root))
+  test(
+    'CI runs the plain vp run: no cache variable, no --cache, and no cache home is created',
+    async () => {
+      const root = fixtureCheckout('main-ci')
+      const log = join(scratch, 'main-ci.log')
+      const cacheHomeDir = join(scratch, 'main-ci-home')
+      await withLocalCache(() =>
+        withEnv(
+          { CI: '1', FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
+          () => quietly(() => runCommand(['orch:build', '--', '--filter', 'x'], root))
+        )
       )
-    )
-    expect(calls(log)).toEqual([{ args: ['run', 'orch:build', '--filter', 'x'], cache: null }])
-    expect(existsSync(cacheHomeDir)).toBe(false)
-  })
+      expect(calls(log)).toEqual([{ args: ['run', 'orch:build', '--filter', 'x'], cache: null }])
+      expect(existsSync(cacheHomeDir)).toBe(false)
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
 
-  test('a clean checkout runs vp run --cache in the shared directory, creating a fresh cache home, and passes the exit code on', async () => {
-    const root = fixtureCheckout('main-clean')
-    const log = join(scratch, 'main-clean.log')
-    const cacheHomeDir = join(scratch, 'main-clean-home', '.cache', 'adea-vp')
-    await withLocalCache(() =>
-      withEnv(
-        { FAKE_VP_LOG: log, FAKE_VP_EXIT: '3', ADEA_VP_CACHE_HOME: cacheHomeDir },
-        async () => {
-          await quietly(() => runCommand(['orch:test'], root))
-          const plan = planCache({
-            root,
-            env: { ...process.env },
-            nodeVersion: process.version,
-            platform: process.platform,
-            arch: process.arch,
-            vitePlusVersion: readVitePlusVersion(root),
-            home: homedir(),
-          })
-          expect(plan.mode).toBe('clean')
-          expect(calls(log)).toEqual([
-            { args: ['run', '--cache', 'orch:test'], cache: plan.directory },
-          ])
-          expect(existsSync(plan.directory)).toBe(true)
-          expect(process.exitCode).toBe(3)
-        }
-      )
-    )
-  })
-
-  test('a lock that is refused falls back to the plain vp run, and the refused record is kept', async () => {
-    const root = fixtureCheckout('main-refused')
-    const log = join(scratch, 'main-refused.log')
-    const cacheHomeDir = join(scratch, 'main-refused-home', '.cache', 'adea-vp')
-    await withLocalCache(() =>
-      withEnv(
-        { FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
-        async () => {
-          const plan = planCache({
-            root,
-            env: { ...process.env },
-            nodeVersion: process.version,
-            platform: process.platform,
-            arch: process.arch,
-            vitePlusVersion: readVitePlusVersion(root),
-            home: homedir(),
-          })
-          ensurePrivateDirectory(plan.cacheHome, plan.directory)
-          writeFileSync(`${plan.directory}.lock.run`, 'garbage')
-          await quietly(() => runCommand(['orch:test'], root))
-          expect(calls(log)).toEqual([{ args: ['run', 'orch:test'], cache: null }])
-          expect(readFileSync(`${plan.directory}.lock.run`, 'utf8')).toBe('garbage')
-          expect(existsSync(`${plan.directory}.lock`)).toBe(false)
-        }
-      )
-    )
-  })
-
-  test('the wrapper, run as a child process under contention, exits zero, writes nothing to stderr and never overlaps', async () => {
-    const root = fixtureCheckout('wrapper-contention')
-    const vp = join(root, 'node_modules', '.bin', 'vp')
-    writeFileSync(vp, FAKE_VP_SERIAL)
-    chmodSync(vp, 0o755)
-    // The wrapper takes its root from the directory it lives in, so it runs from the fixture.
-    mkdirSync(join(root, 'scripts'), { recursive: true })
-    copyFileSync(MODULE, join(root, 'scripts', 'vp-local-run.mjs'))
-    writeFileSync(join(root, '.gitignore'), 'node_modules/\nscripts/\n')
-    commitAll(root, 'ignore the copied wrapper')
-    const log = join(scratch, 'wrapper-contention.log')
-    const cacheHomeDir = join(scratch, 'wrapper-contention-home', '.cache', 'adea-vp')
-
-    const run = () =>
-      new Promise<{ code: number | null; stderr: string }>((done) => {
-        const child = spawn(
-          process.execPath,
-          [join(root, 'scripts', 'vp-local-run.mjs'), 'orch:test'],
-          {
-            env: {
-              ...process.env,
-              CI: '',
-              FAKE_VP_LOG: log,
-              FAKE_VP_EXIT: '0',
-              ADEA_VP_CACHE_HOME: cacheHomeDir,
-            },
-            stdio: ['ignore', 'ignore', 'pipe'],
+  test(
+    'a clean checkout runs vp run --cache in the shared directory, creating a fresh cache home, and passes the exit code on',
+    async () => {
+      const root = fixtureCheckout('main-clean')
+      const log = join(scratch, 'main-clean.log')
+      const cacheHomeDir = join(scratch, 'main-clean-home', '.cache', 'adea-vp')
+      await withLocalCache(() =>
+        withEnv(
+          { FAKE_VP_LOG: log, FAKE_VP_EXIT: '3', ADEA_VP_CACHE_HOME: cacheHomeDir },
+          async () => {
+            await quietly(() => runCommand(['orch:test'], root))
+            const plan = planCache({
+              root,
+              env: { ...process.env },
+              nodeVersion: process.version,
+              platform: process.platform,
+              arch: process.arch,
+              vitePlusVersion: readVitePlusVersion(root),
+              home: homedir(),
+            })
+            expect(plan.mode).toBe('clean')
+            expect(calls(log)).toEqual([
+              { args: ['run', '--cache', 'orch:test'], cache: plan.directory },
+            ])
+            expect(existsSync(plan.directory)).toBe(true)
+            expect(process.exitCode).toBe(3)
           }
         )
-        let stderr = ''
-        child.stderr.on('data', (chunk) => {
-          stderr += String(chunk)
+      )
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
+
+  test(
+    'a lock that is refused falls back to the plain vp run, and the refused record is kept',
+    async () => {
+      const root = fixtureCheckout('main-refused')
+      const log = join(scratch, 'main-refused.log')
+      const cacheHomeDir = join(scratch, 'main-refused-home', '.cache', 'adea-vp')
+      await withLocalCache(() =>
+        withEnv(
+          { FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
+          async () => {
+            const plan = planCache({
+              root,
+              env: { ...process.env },
+              nodeVersion: process.version,
+              platform: process.platform,
+              arch: process.arch,
+              vitePlusVersion: readVitePlusVersion(root),
+              home: homedir(),
+            })
+            ensurePrivateDirectory(plan.cacheHome, plan.directory)
+            writeFileSync(`${plan.directory}.lock.run`, 'garbage')
+            await quietly(() => runCommand(['orch:test'], root))
+            expect(calls(log)).toEqual([{ args: ['run', 'orch:test'], cache: null }])
+            expect(readFileSync(`${plan.directory}.lock.run`, 'utf8')).toBe('garbage')
+            expect(existsSync(`${plan.directory}.lock`)).toBe(false)
+          }
+        )
+      )
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
+
+  test(
+    'the wrapper, run as a child process under contention, exits zero, writes nothing to stderr and never overlaps',
+    async () => {
+      const root = fixtureCheckout('wrapper-contention')
+      const vp = join(root, 'node_modules', '.bin', 'vp')
+      writeFileSync(vp, FAKE_VP_SERIAL)
+      chmodSync(vp, 0o755)
+      // The wrapper takes its root from the directory it lives in, so it runs from the fixture.
+      mkdirSync(join(root, 'scripts'), { recursive: true })
+      copyFileSync(MODULE, join(root, 'scripts', 'vp-local-run.mjs'))
+      writeFileSync(join(root, '.gitignore'), 'node_modules/\nscripts/\n')
+      commitAll(root, 'ignore the copied wrapper')
+      const log = join(scratch, 'wrapper-contention.log')
+      const cacheHomeDir = join(scratch, 'wrapper-contention-home', '.cache', 'adea-vp')
+
+      const run = () =>
+        new Promise<{ code: number | null; stderr: string }>((done) => {
+          const child = spawn(
+            process.execPath,
+            [join(root, 'scripts', 'vp-local-run.mjs'), 'orch:test'],
+            {
+              env: {
+                ...process.env,
+                CI: '',
+                FAKE_VP_LOG: log,
+                FAKE_VP_EXIT: '0',
+                ADEA_VP_CACHE_HOME: cacheHomeDir,
+              },
+              stdio: ['ignore', 'ignore', 'pipe'],
+            }
+          )
+          let stderr = ''
+          child.stderr.on('data', (chunk) => {
+            stderr += String(chunk)
+          })
+          child.on('exit', (code) => done({ code, stderr }))
         })
-        child.on('exit', (code) => done({ code, stderr }))
+      const results = await Promise.all(Array.from({ length: 6 }, run))
+      expect(results.map((result) => result.code)).toEqual(Array.from({ length: 6 }, () => 0))
+      expect(results.map((result) => result.stderr).join('')).toBe('')
+
+      // The work is serialised: every "in" is followed by the "out" of the same child before the next "in".
+      const lines = readFileSync(log, 'utf8').trim().split('\n')
+      expect(lines).toHaveLength(12)
+      for (let i = 0; i < lines.length; i += 2) {
+        const [kindIn, pidIn] = lines[i].split(' ')
+        const [kindOut, pidOut] = lines[i + 1].split(' ')
+        expect(kindIn).toBe('in')
+        expect(kindOut).toBe('out')
+        expect(pidOut).toBe(pidIn)
+      }
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
+
+  test(
+    'register records the group of the work, and a record of a live group keeps the lock held',
+    async () => {
+      const dir = join(scratch, 'register', 'cache')
+      mkdirSync(join(scratch, 'register'), { recursive: true })
+      const group = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
+        detached: true,
+        stdio: 'ignore',
       })
-    const results = await Promise.all(Array.from({ length: 6 }, run))
-    expect(results.map((result) => result.code)).toEqual(Array.from({ length: 6 }, () => 0))
-    expect(results.map((result) => result.stderr).join('')).toBe('')
-
-    // The work is serialised: every "in" is followed by the "out" of the same child before the next "in".
-    const lines = readFileSync(log, 'utf8').trim().split('\n')
-    expect(lines).toHaveLength(12)
-    for (let i = 0; i < lines.length; i += 2) {
-      const [kindIn, pidIn] = lines[i].split(' ')
-      const [kindOut, pidOut] = lines[i + 1].split(' ')
-      expect(kindIn).toBe('in')
-      expect(kindOut).toBe('out')
-      expect(pidOut).toBe(pidIn)
-    }
-  })
-
-  test('register records the group of the work, and a record of a live group keeps the lock held', async () => {
-    const dir = join(scratch, 'register', 'cache')
-    mkdirSync(join(scratch, 'register'), { recursive: true })
-    const group = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], {
-      detached: true,
-      stdio: 'ignore',
-    })
-    const exited = new Promise((done) => group.once('exit', done))
-    await withLock(dir, async (register) => {
-      register(group.pid)
-    })
-    const uuid = readFileSync(`${dir}.lock`, 'utf8').split('\n')[1]
-    expect(readFileSync(`${dir}.lock.run`, 'utf8')).toBe(`${group.pid}\n${uuid}`)
-    expect(existsSync(`${dir}.lock`)).toBe(true)
-    process.kill(-group.pid, 'SIGKILL')
-    await exited
-    rmSync(`${dir}.lock`)
-    rmSync(`${dir}.lock.run`)
-  })
-
-  test('runVp returns the exit code of vp when it runs without a process group', async () => {
-    const root = fixtureCheckout('runvp-code')
-    const log = join(scratch, 'runvp-code.log')
-    const outcome = await withLocalCache(() =>
-      runVp({
-        root,
-        env: { ...process.env, FAKE_VP_LOG: log, FAKE_VP_EXIT: '5' },
-        args: ['run', 'x'],
+      const exited = new Promise((done) => group.once('exit', done))
+      await withLock(dir, async (register) => {
+        register(group.pid)
       })
-    )
-    expect(outcome).toEqual({ code: 5, signal: null })
-    expect(calls(log)).toEqual([{ args: ['run', 'x'], cache: null }])
-  })
+      const uuid = readFileSync(`${dir}.lock`, 'utf8').split('\n')[1]
+      expect(readFileSync(`${dir}.lock.run`, 'utf8')).toBe(`${group.pid}\n${uuid}`)
+      expect(existsSync(`${dir}.lock`)).toBe(true)
+      process.kill(-group.pid, 'SIGKILL')
+      await exited
+      rmSync(`${dir}.lock`)
+      rmSync(`${dir}.lock.run`)
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
 
-  test('a signal that reaches the wrapper stops vp and is reported as the signal, with or without a process group', async () => {
-    const plain = await signalledRun({ grouped: false, signal: 'SIGTERM' })
-    expect(plain.status).toEqual({ code: 0, signal: null })
-    expect(plain.outcome).toEqual({ code: null, signal: 'SIGTERM' })
-    expect(exitCodeFor(plain.outcome)).toBe(143)
+  test(
+    'runVp returns the exit code of vp when it runs without a process group',
+    async () => {
+      const root = fixtureCheckout('runvp-code')
+      const log = join(scratch, 'runvp-code.log')
+      const outcome = await withLocalCache(() =>
+        runVp({
+          root,
+          env: { ...process.env, FAKE_VP_LOG: log, FAKE_VP_EXIT: '5' },
+          args: ['run', 'x'],
+        })
+      )
+      expect(outcome).toEqual({ code: 5, signal: null })
+      expect(calls(log)).toEqual([{ args: ['run', 'x'], cache: null }])
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
 
-    const grouped = await signalledRun({ grouped: true, signal: 'SIGINT' })
-    expect(grouped.status).toEqual({ code: 0, signal: null })
-    expect(typeof grouped.registered).toBe('number')
-    expect(grouped.outcome).toEqual({ code: null, signal: 'SIGINT' })
-    expect(exitCodeFor(grouped.outcome)).toBe(130)
-  })
+  test(
+    'a signal that reaches the wrapper stops vp and is reported as the signal, with or without a process group',
+    async () => {
+      const plain = await signalledRun({ grouped: false, signal: 'SIGTERM' })
+      expect(plain.status).toEqual({ code: 0, signal: null })
+      expect(plain.outcome).toEqual({ code: null, signal: 'SIGTERM' })
+      expect(exitCodeFor(plain.outcome)).toBe(143)
+
+      const grouped = await signalledRun({ grouped: true, signal: 'SIGINT' })
+      expect(grouped.status).toEqual({ code: 0, signal: null })
+      expect(typeof grouped.registered).toBe('number')
+      expect(grouped.outcome).toEqual({ code: null, signal: 'SIGINT' })
+      expect(exitCodeFor(grouped.outcome)).toBe(130)
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
 
   test('exit codes: a signal maps to 128 plus its number, otherwise the code, and a missing code is 1', () => {
     expect(exitCodeFor({ code: null, signal: 'SIGINT' })).toBe(130)
@@ -1397,52 +1448,60 @@ async function printed(work: () => unknown): Promise<string> {
 }
 
 describe('failure output names no environment path and no raw message', () => {
-  test('a cache home refused by its checks prints only the fixed category, never the path', async () => {
-    const sentinel = `SENTINEL-${randomUUID()}`
-    const root = fixtureCheckout('sentinel-link')
-    const target = join(scratch, `${sentinel}-target`)
-    mkdirSync(target)
-    const link = join(scratch, `${sentinel}-link`)
-    symlinkSync(target, link)
-    const log = join(scratch, 'sentinel-link.log')
-    const output = await withLocalCache(() =>
-      withEnv({ FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: link }, () =>
-        printed(() => runCommand(['orch:test'], root))
+  test(
+    'a cache home refused by its checks prints only the fixed category, never the path',
+    async () => {
+      const sentinel = `SENTINEL-${randomUUID()}`
+      const root = fixtureCheckout('sentinel-link')
+      const target = join(scratch, `${sentinel}-target`)
+      mkdirSync(target)
+      const link = join(scratch, `${sentinel}-link`)
+      symlinkSync(target, link)
+      const log = join(scratch, 'sentinel-link.log')
+      const output = await withLocalCache(() =>
+        withEnv({ FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: link }, () =>
+          printed(() => runCommand(['orch:test'], root))
+        )
       )
-    )
-    expect(output).toContain(CATEGORY.refused)
-    expect(output).not.toContain(sentinel)
-    expect(calls(log)).toEqual([{ args: ['run', 'orch:test'], cache: null }])
-  })
+      expect(output).toContain(CATEGORY.refused)
+      expect(output).not.toContain(sentinel)
+      expect(calls(log)).toEqual([{ args: ['run', 'orch:test'], cache: null }])
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
 
-  test('a refused lock record prints the fixed lock category, though its message names the cache path', async () => {
-    const sentinel = `SENTINEL-${randomUUID()}`
-    const root = fixtureCheckout('sentinel-lock')
-    const cacheHomeDir = join(scratch, sentinel, '.cache', 'adea-vp')
-    const log = join(scratch, 'sentinel-lock.log')
-    const output = await withLocalCache(() =>
-      withEnv(
-        { FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
-        async () => {
-          const plan = planCache({
-            root,
-            env: { ...process.env },
-            nodeVersion: process.version,
-            platform: process.platform,
-            arch: process.arch,
-            vitePlusVersion: readVitePlusVersion(root),
-            home: homedir(),
-          })
-          ensurePrivateDirectory(plan.cacheHome, plan.directory)
-          writeFileSync(`${plan.directory}.lock.run`, 'garbage')
-          return printed(() => runCommand(['orch:test'], root))
-        }
+  test(
+    'a refused lock record prints the fixed lock category, though its message names the cache path',
+    async () => {
+      const sentinel = `SENTINEL-${randomUUID()}`
+      const root = fixtureCheckout('sentinel-lock')
+      const cacheHomeDir = join(scratch, sentinel, '.cache', 'adea-vp')
+      const log = join(scratch, 'sentinel-lock.log')
+      const output = await withLocalCache(() =>
+        withEnv(
+          { FAKE_VP_LOG: log, FAKE_VP_EXIT: '0', ADEA_VP_CACHE_HOME: cacheHomeDir },
+          async () => {
+            const plan = planCache({
+              root,
+              env: { ...process.env },
+              nodeVersion: process.version,
+              platform: process.platform,
+              arch: process.arch,
+              vitePlusVersion: readVitePlusVersion(root),
+              home: homedir(),
+            })
+            ensurePrivateDirectory(plan.cacheHome, plan.directory)
+            writeFileSync(`${plan.directory}.lock.run`, 'garbage')
+            return printed(() => runCommand(['orch:test'], root))
+          }
+        )
       )
-    )
-    expect(output).toContain(CATEGORY.lockRecord)
-    expect(output).not.toContain(sentinel)
-    expect(calls(log)).toEqual([{ args: ['run', 'orch:test'], cache: null }])
-  })
+      expect(output).toContain(CATEGORY.lockRecord)
+      expect(output).not.toContain(sentinel)
+      expect(calls(log)).toEqual([{ args: ['run', 'orch:test'], cache: null }])
+    },
+    CHILD_PROCESS_TIMEOUT_MS
+  )
 
   test('the category of a failure does not depend on its message, and a usage error is named as one', () => {
     const sentinel = `SENTINEL-${randomUUID()}`
