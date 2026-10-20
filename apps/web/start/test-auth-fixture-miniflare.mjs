@@ -1,10 +1,15 @@
-// Fixture-only acceptance for the built auth Worker, run through the repository's pinned
-// Miniflare instead of `wrangler dev`. It consumes the same fixture build and the same
-// loopback outbox as test-auth-fixture-worker.mjs, and the test file it drives
-// (packages/auth/tests/integration/better-auth-worker-local.mjs) is unchanged. The
-// Worker is served on an HTTPS entry socket with the loopback certificate, so there is
-// no ProxyWorker hop. It never runs against production output or configuration, and
-// every process and socket it creates is reaped before it exits.
+// Acceptance for the built auth Worker, run through the repository's pinned Miniflare
+// instead of `wrangler dev`. Two artifacts are accepted, and each run names one:
+//   - the fixture build (default): recording transport and loopback outbox, run as
+//     `--prepare` then `--fixture-exercise` with the required email verification;
+//   - the ordinary production build (`--production`): no fixture marker, no outbox, the
+//     normal configuration (verification required by default), run as `--prepare` then
+//     `--exercise`.
+// The test file it drives (packages/auth/tests/integration/better-auth-worker-local.mjs)
+// is unchanged. The Worker is served on an HTTPS entry socket with the loopback
+// certificate, so there is no ProxyWorker hop. Neither artifact is production
+// qualification of the ProxyWorker path, and every process and socket is reaped before
+// the run exits.
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
 import { execFile, spawn } from 'node:child_process'
@@ -38,29 +43,35 @@ const databaseUrl = (role) =>
 const fixtureDist = resolve(
   process.env.ADEA_AUTH_FIXTURE_DIST ?? resolve(start, '.checks/auth-fixture/dist')
 )
+const production = process.argv.slice(2).includes('--production')
+const artifactKind = production ? 'production' : 'fixture'
+const artifactDir = production ? productionDist : fixtureDist
 
-// Reads the fixture output before any process or socket exists. A missing, malformed
-// or ordinary (marker-free) build is refused here, so nothing is started to fail later.
-async function loadFixtureOutput(directory) {
-  if (directory === productionDist)
-    throw new Error('refusing to run the fixture acceptance against the production output')
+// Reads the built output before any process or socket exists. A missing or malformed
+// build is refused here. The fixture run needs fixture markers; the production run
+// refuses any output that carries one, so each run only ever accepts its own artifact.
+async function loadArtifact(directory) {
   let built
   try {
     built = JSON.parse(await readFile(resolve(directory, 'server/wrangler.json'), 'utf8'))
   } catch (error) {
     const reason = error instanceof SyntaxError ? 'is malformed' : 'is missing'
     throw new Error(
-      `fixture output ${reason}: server/wrangler.json under ${directory}; run start:build:auth-fixture first`,
+      `${artifactKind} output ${reason}: server/wrangler.json under ${directory}; build it first`,
       { cause: error }
     )
   }
   if (
     typeof built.main !== 'string' ||
     typeof built.compatibility_date !== 'string' ||
-    typeof built.assets?.directory !== 'string'
+    typeof built.assets?.directory !== 'string' ||
+    !Array.isArray(built.compatibility_flags)
   )
-    throw new Error(`fixture output is malformed: server/wrangler.json under ${directory}`)
-  if ((await findFixtureMarkers(directory)).length === 0)
+    throw new Error(`${artifactKind} output is malformed: server/wrangler.json under ${directory}`)
+  const markers = (await findFixtureMarkers(directory)).length
+  if (production && markers > 0)
+    throw new Error(`production output carries fixture markers under ${directory}; refusing it`)
+  if (!production && markers === 0)
     throw new Error(`fixture output carries no fixture markers under ${directory}; refusing it`)
   return built
 }
@@ -209,7 +220,7 @@ async function startMiniflare({ built, fixtureServer, port, inspector, tls, vars
         config: {
           name: 'adea-auth-fixture-host',
           compatibilityDate: built.compatibility_date,
-          compatibilityFlags: ['nodejs_compat', 'enable_request_signal'],
+          compatibilityFlags: built.compatibility_flags,
           manifest: { mainModule: built.main, modulesRoot: fixtureServer, modules },
           assets: {
             directory: resolve(fixtureServer, built.assets.directory),
@@ -298,19 +309,19 @@ async function writeDiagnostics(directory) {
   // Every file under the fixture dist, sorted by path, so the digest covers each module,
   // asset and config byte the harness can serve, not only the entry.
   const tree = createHash('sha256')
-  const files = (await readdir(fixtureDist, { recursive: true, withFileTypes: true }))
+  const files = (await readdir(artifactDir, { recursive: true, withFileTypes: true }))
     .filter((entry) => entry.isFile())
     .map((entry) => resolve(entry.parentPath, entry.name))
     .map((absolute) =>
       absolute
-        .slice(fixtureDist.length + 1)
+        .slice(artifactDir.length + 1)
         .split('\\')
         .join('/')
     )
     .toSorted()
   for (const relative of files) {
     tree.update(relative).update('\0')
-    tree.update(await readFile(resolve(fixtureDist, relative)))
+    tree.update(await readFile(resolve(artifactDir, relative)))
     tree.update('\0')
   }
   const harness = createHash('sha256')
@@ -327,9 +338,10 @@ async function writeDiagnostics(directory) {
       {
         head,
         harnessSha256: harness,
-        fixtureTreeSha256: tree.digest('hex'),
-        fixtureTreeScope: `${files.length} files under the fixture dist, sorted by path, each as path, NUL, bytes, NUL`,
-        fixtureBuild: fixtureDist,
+        artifact: artifactKind,
+        artifactTreeSha256: tree.digest('hex'),
+        artifactTreeScope: `${files.length} files under the ${artifactKind} output, sorted by path, each as path, NUL, bytes, NUL`,
+        artifactDir,
         miniflare: createRequire(import.meta.url)('miniflare/package.json').version,
         node: process.version,
       },
@@ -339,10 +351,10 @@ async function writeDiagnostics(directory) {
   )
 }
 
-async function acceptFixture() {
-  const built = await loadFixtureOutput(fixtureDist)
+async function acceptArtifact() {
+  const built = await loadArtifact(artifactDir)
   await mkdir(resolve(start, '.checks'), { recursive: true })
-  const evidence = await mkdtemp(resolve(start, '.checks/fixture-miniflare-'))
+  const evidence = await mkdtemp(resolve(start, `.checks/${artifactKind}-miniflare-`))
   await writeDiagnostics(evidence)
   const tls = createLoopbackCertificate(evidence)
   const authSchema = `auth_worker_${randomUUID().replaceAll('-', '')}`
@@ -350,25 +362,28 @@ async function acceptFixture() {
   const authSecret = 'local-fixture-auth-secret-for-test-only-1234567'
   const [hostPort, inspector] = await Promise.all([availablePort(), availablePort()])
   const baseURL = `https://127.0.0.1:${hostPort}`
-  outbox = await startOutbox()
-  const outboxUrl = `http://127.0.0.1:${outbox.address().port}`
+  // Only the fixture run owns an outbox; the production run has no recording transport.
+  outbox = production ? undefined : await startOutbox()
+  const outboxUrl = outbox ? `http://127.0.0.1:${outbox.address().port}` : undefined
 
   const authDatabase = new URL(databaseUrl('agent_hq_local_app'))
   authDatabase.searchParams.set('options', `-c search_path=${authSchema}`)
   authDatabase.searchParams.set('application_name', workerApplicationName)
   const authDatabaseUrl = authDatabase.toString()
-  const fixtureServer = resolve(fixtureDist, 'server')
-  // The fixture Worker must reach the loopback outbox, which the production flag
-  // `global_fetch_strictly_public` refuses. The shipped fixture config drops it too;
-  // this harness never sets it.
+  const fixtureServer = resolve(artifactDir, 'server')
+  // The fixture Worker must reach the loopback outbox, so the fixture run uses the
+  // built config's flags as they are and this harness never adds or removes one. The
+  // production run gets the normal configuration: verification follows its default
+  // (required), and neither an outbox nor a fixture variable reaches the Worker.
   const vars = {
     AUTH_BASE_URL: baseURL,
     AUTH_DATABASE_URL: authDatabaseUrl,
-    AUTH_EMAIL_VERIFICATION_REQUIRED: 'true',
     AUTH_SECRET: authSecret,
     AUTH_SECURE_COOKIES: 'true',
     AUTH_TRUSTED_ORIGINS: baseURL,
-    ADEA_AUTH_FIXTURE_OUTBOX_URL: outboxUrl,
+    ...(production
+      ? {}
+      : { AUTH_EMAIL_VERIFICATION_REQUIRED: 'true', ADEA_AUTH_FIXTURE_OUTBOX_URL: outboxUrl }),
   }
 
   const authWorkerTest = 'packages/auth/tests/integration/better-auth-worker-local.mjs'
@@ -376,14 +391,15 @@ async function acceptFixture() {
     ...environment,
     AUTH_BASE_URL: baseURL,
     AUTH_DATABASE_URL: authDatabaseUrl,
-    AUTH_EMAIL_VERIFICATION_REQUIRED: 'true',
     AUTH_SECRET: authSecret,
     AUTH_SECURE_COOKIES: 'true',
     AUTH_TRUSTED_ORIGINS: baseURL,
     AUTH_POSTGRES_TEST_URL: databaseUrl('agent_hq_local_migration'),
     AUTH_TEST_SCHEMA: authSchema,
     AUTH_WORKER_APPLICATION_NAME: workerApplicationName,
-    ADEA_AUTH_FIXTURE_OUTBOX_URL: outboxUrl,
+    ...(production
+      ? {}
+      : { AUTH_EMAIL_VERIFICATION_REQUIRED: 'true', ADEA_AUTH_FIXTURE_OUTBOX_URL: outboxUrl }),
   }
 
   await run(
@@ -403,19 +419,25 @@ async function acceptFixture() {
   })
   await waitFor(
     async () => (await localHttps(baseURL, tls.certificate)).status === 200,
-    'Fixture host (Miniflare)',
+    `${artifactKind} host (Miniflare)`,
     evidence
   )
   await run(
     'bun',
-    ['--conditions=react-server', 'run', authWorkerTest, '--fixture-exercise'],
+    [
+      '--conditions=react-server',
+      'run',
+      authWorkerTest,
+      production ? '--exercise' : '--fixture-exercise',
+    ],
     root,
     { ...authTestEnvironment, ADEA_AUTH_WORKER_URL: baseURL, ADEA_AUTH_WORKER_CA: tls.certPath }
   )
   const report = {
     harness: 'miniflare',
-    fixtureBuild: fixtureDist,
-    outboxMessagesRecorded: messages.length,
+    artifact: artifactKind,
+    artifactDir,
+    outboxMessagesRecorded: outbox ? messages.length : null,
     node: process.version,
     evidence,
   }
@@ -425,7 +447,7 @@ async function acceptFixture() {
 
 let outcome
 try {
-  await acceptFixture()
+  await acceptArtifact()
 } catch (error) {
   // A reaped child reports its own exit; the interruption is the real cause.
   outcome = controller.signal.aborted ? controller.signal.reason : error
