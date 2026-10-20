@@ -196,6 +196,17 @@ describe('the built-Worker top-level field removal', () => {
     expect(values).toContain('safe')
   })
 
+  test('a nested duplicate under an unrelated wrapper is read', () => {
+    // The wrapper is not the member that is looked for, but it carries one.
+    const body = String.raw`{"data":{"\u0063redential":"FRESH_VALUE","credential":""}}`
+    expect(body).toContain('\\u0063redential')
+    expect(rawCredentialValues(body)).toEqual(['FRESH_VALUE'])
+    const values = jsonAllMemberValues(body)
+    expect(values).toContain('FRESH_VALUE')
+    // The empty duplicate is not a value, and it does not shadow the earlier one.
+    expect(values).not.toContain('')
+  })
+
   test('a raw duplicate member is read even when the first value is empty', () => {
     const body = '{"credential":"","credential":"later"}'
     expect(rawCredentialValues(body)).toEqual(['later'])

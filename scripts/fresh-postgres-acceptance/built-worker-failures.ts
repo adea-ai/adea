@@ -397,14 +397,16 @@ function collectJsonMembers(body: string, field: string | undefined, values: str
       let value = cursor + 1
       while (value < to && /\s/u.test(body[value]!)) value += 1
       const valueEnd = scanValue(body, value)
-      if (field === undefined || name === field) {
-        if (body[value] === '"') {
+      if (body[value] === '"') {
+        if (field === undefined || name === field) {
           const decoded = decodeJsonString(body.slice(value + 1, Math.max(value + 1, valueEnd - 1)))
           if (decoded) values.push(decoded)
-        } else {
-          // The member carries a structure, and the member may be inside it.
-          collect(value, valueEnd)
         }
+      } else {
+        // The member carries a structure, and the member may be inside it.
+        // The structure is walked whatever its own name is: a wrapper that is
+        // not the requested member must not hide what it carries.
+        collect(value, valueEnd)
       }
       index = valueEnd > value ? valueEnd : end
     }

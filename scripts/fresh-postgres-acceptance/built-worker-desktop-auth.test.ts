@@ -838,6 +838,36 @@ describe('the built-Worker desktop credential material', () => {
     expect(leakage?.passed).toBe(false)
   })
 
+  test('a nested escaped credential under an unrelated wrapper is not lost', async () => {
+    const correct = correctWorker()
+    const wire: string[] = []
+    let exchanges = 0
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        exchanges += 1
+        if (exchanges === 2 && answered.status !== 200) {
+          // The wrapper is not the member that is looked for, and it carries an
+          // earlier escaped credential that a later empty duplicate shadows.
+          const body = String.raw`{"data":{"\u0063redential":"FRESH_VALUE","credential":""}}`
+          // The wire is checked before the qualification reads the body.
+          expect(body).toContain('\\u0063redential')
+          expect(body).toContain('"credential":""')
+          wire.push(body)
+          return { ...answered, body }
+        }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    expect(wire.join('\n')).toContain('\\u0063redential')
+    const denial = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-exchange-route-refuses-a-wrong-pkce-verifier'
+    )
+    expect(denial?.passed).toBe(false)
+    expect(receipt.status).toBe('failed')
+  })
+
   test('an earlier escaped echo of a known secret is not lost when a later duplicate is safe', async () => {
     const correct = correctWorker()
     const wire: string[] = []
