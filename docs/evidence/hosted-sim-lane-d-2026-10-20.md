@@ -153,6 +153,12 @@ without a second fixture. The default is unchanged.
 | `bun run --cwd packages/db typecheck`                                                                          | No type errors in 114 files                                                           |
 | `bun run test:coverage`                                                                                        | 2069 pass, 0 fail; all files 98.36% lines, 97.97% functions — unchanged from the base |
 | `bun run test:unit`                                                                                            | exit 0; every workspace lane passed                                                   |
+| `bun run --cwd packages/db db:migrate` (disposable PostgreSQL)                                                 | Migration verification passed, 60 migrations applied                                  |
+| `DATABASE_URL=… bun test packages/db/tests/integration/sim-launch-sessions.test.ts` (disposable PostgreSQL)    | 17 pass, 0 fail, 55 assertions                                                        |
+
+The database-backed suite ran against a disposable PostgreSQL container that this lane started on
+`127.0.0.1:55439` with the repository's own `infra/postgres/init` roles, and removed again
+afterwards. No shared, pre-existing or live database was used.
 
 ### Environment notes
 
