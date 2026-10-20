@@ -41,7 +41,7 @@ const syntheticDockerEndpoint = 'unix:///tmp/adea-acceptance-fake-docker.sock'
 type Behaviour = {
   provisioning?: 'ok' | 'throws'
   fixture?: 'ok' | 'fails' | 'hangs'
-  journey?: 'ok' | 'fails' | 'skips' | 'silent'
+  journey?: 'ok' | 'fails' | 'skips' | 'silent' | 'hangs'
   cleanup?: 'ok' | 'throws'
 }
 
@@ -198,7 +198,7 @@ if (!existsSync(resolve(root, 'handlers-attached.txt'))) {
   console.error('the run was ready before its cleanup handlers were attached')
   process.exit(1)
 }
-writeFileSync(resolve(root, 'ready.txt'), 'ready')
+writeFileSync(resolve(root, 'fixture-ready.txt'), 'ready')
 process.on('exit', () => writeFileSync(resolve(root, 'fixture-finished.txt'), 'finished'))
 `
   const fixtureBody =
@@ -230,9 +230,15 @@ process.exit(1)`
   const journeyPrelude = `import { writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { afterAll } from 'bun:test'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-process.on('exit', () => writeFileSync(resolve(root, 'journey-finished.txt'), 'finished'))
+// The journey publishes when it starts and when its tests are done, so the
+// qualification knows that it started a child and can wait for that child to
+// settle. The test runner does not run an exit handler, so the end of the
+// file is the moment the journey publishes its finish.
+writeFileSync(resolve(root, 'journey-ready.txt'), 'ready')
+afterAll(() => writeFileSync(resolve(root, 'journey-finished.txt'), 'finished'))
 `
   const journeyBody =
     behaviour.journey === 'skips'
@@ -241,7 +247,9 @@ process.on('exit', () => writeFileSync(resolve(root, 'journey-finished.txt'), 'f
         ? "test('the journey failed', () => { throw new Error('the journey failed') })"
         : behaviour.journey === 'silent'
           ? "test('the journey ran without a receipt', () => {})"
-          : `test('the journey ran', () => {
+          : behaviour.journey === 'hangs'
+            ? "test('the journey is still running', async () => { await new Promise((settled) => setTimeout(settled, 3000)) })"
+            : `test('the journey ran', () => {
   console.log(
     'DESKTOP_PRINCIPAL_JOURNEY ' +
       JSON.stringify({
@@ -284,23 +292,24 @@ type LaneRun = {
   signal: NodeJS.Signals | null
   stdout: string
   stderr: string
+  // The temporary Docker the qualification handed the run, so the
+  // qualification can show that it removed it.
+  shimDirectory: string
 }
 
 /** Runs the lane against a fake repository and collects what it printed. */
 async function runLane(
   root: string,
   options: {
-    killWhenReady?: boolean
+    killWhenReady?: 'fixture' | 'journey'
     signal?: NodeJS.Signals
     environment?: Record<string, string>
     override?: Record<string, string>
     docker?: 'available' | 'unavailable'
   } = {}
 ): Promise<LaneRun> {
-  const bin = dockerShim(
-    mkdtempSync(join(tmpdir(), 'adea-acceptance-bin-')),
-    options.docker !== 'unavailable'
-  )
+  const binDirectory = mkdtempSync(join(tmpdir(), 'adea-acceptance-bin-'))
+  const bin = dockerShim(binDirectory, options.docker !== 'unavailable')
   const marker = join(root, 'docker-was-called.txt')
   const child = spawn('node', [lanePath, '--repository', root], {
     encoding: 'utf8',
@@ -334,30 +343,39 @@ async function runLane(
   if (options.killWhenReady) {
     // The signal reaches a run that is ready: its cleanup handlers are
     // attached and its instance exists, so the qualification sees the cleanup
-    // of an instance that really existed.
-    const ready = join(root, 'ready.txt')
+    // of an instance that really existed. The barrier is the child's own
+    // start, so the run is inside it when the signal arrives.
+    const ready = join(root, `${options.killWhenReady}-ready.txt`)
     for (let attempt = 0; attempt < 200 && !existsSync(ready); attempt += 1) {
       await new Promise((settled) => setTimeout(settled, 50))
     }
     child.kill(options.signal ?? 'SIGTERM')
   }
   const { code, signal } = await exited
-  return { code, signal, stdout, stderr }
+  // The Docker the qualification handed the run is the qualification's own
+  // temporary resource, and it is removed once the run has ended.
+  rmSync(binDirectory, { recursive: true, force: true })
+  return { code, signal, stdout, stderr, shimDirectory: binDirectory }
 }
 
 /**
- * Waits, for a bounded time, for the run's own children to finish.
+ * Waits, for a bounded time, for the children the run actually started.
  *
- * A run the runner destroyed leaves its child behind, and the fake repository
- * must not be removed while that child is still writing into it.
+ * A child that published its readiness started, and it has settled when it
+ * published its finish. A child that never started is not waited for, and a
+ * child that is still running keeps the repository it is writing into: the
+ * answer is then false, and the caller keeps the repository instead of
+ * removing it under a live child.
  */
 async function settleChildren(root: string, timeoutMs = 20_000): Promise<boolean> {
-  // The fixture only runs when the run reached its readiness barrier, so a
-  // run that never got there has no child to wait for.
-  if (!existsSync(join(root, 'ready.txt'))) return true
+  const started = (['fixture', 'journey'] as const).filter((child) =>
+    existsSync(join(root, `${child}-ready.txt`))
+  )
+  if (started.length === 0) return true
   const deadline = Date.now() + timeoutMs
   for (;;) {
-    if (existsSync(join(root, 'fixture-finished.txt'))) return true
+    const allSettled = started.every((child) => existsSync(join(root, `${child}-finished.txt`)))
+    if (allSettled) return true
     if (Date.now() > deadline) return false
     await new Promise((settled) => setTimeout(settled, 50))
   }
@@ -391,17 +409,30 @@ function expectOwnedInstanceRemoved(fake: { root: string }) {
 
 const withFakeRepository = async (
   behaviour: Behaviour,
-  body: (fake: { root: string; sha: string }) => Promise<void>
-) => {
+  body: (fake: { root: string; sha: string }) => Promise<void>,
+  options: { settlementTimeoutMs?: number } = {}
+): Promise<{ settled: boolean }> => {
   const fake = createFakeRepository(behaviour)
+  let failure: unknown
   try {
     await body(fake)
-  } finally {
-    // The repository is removed only after the run's own children settled, so
-    // no child is left writing into a directory that is gone.
-    await settleChildren(fake.root)
-    rmSync(fake.root, { recursive: true, force: true })
+  } catch (error) {
+    failure = error
   }
+  // The repository is removed only after every child the run started has
+  // settled. A child that is still running keeps the repository it writes
+  // into: the qualification fails and the repository is preserved, rather
+  // than being removed under a live child.
+  const settled = await settleChildren(fake.root, options.settlementTimeoutMs)
+  if (settled) {
+    rmSync(fake.root, { recursive: true, force: true })
+  } else if (!failure) {
+    failure = new Error(
+      `the run's children did not settle; the repository was preserved at ${fake.root}`
+    )
+  }
+  if (failure) throw failure
+  return { settled }
 }
 
 describe('the acceptance lane fails closed', () => {
@@ -487,7 +518,7 @@ describe('the acceptance lane fails closed', () => {
 
   test('an interrupted run publishes no receipt and settles its own instance', async () => {
     await withFakeRepository({ fixture: 'hangs' }, async (fake) => {
-      const run = await runLane(fake.root, { killWhenReady: true, signal: 'SIGTERM' })
+      const run = await runLane(fake.root, { killWhenReady: 'fixture', signal: 'SIGTERM' })
       // The interrupt does not let the run succeed, whichever way the process
       // ends: the run reports the failure and exits with it.
       expect(run.code).not.toBe(0)
@@ -505,7 +536,7 @@ describe('the acceptance lane fails closed', () => {
 
   test('a run the runner destroyed publishes no receipt and settles nothing', async () => {
     await withFakeRepository({ fixture: 'hangs' }, async (fake) => {
-      const run = await runLane(fake.root, { killWhenReady: true, signal: 'SIGKILL' })
+      const run = await runLane(fake.root, { killWhenReady: 'fixture', signal: 'SIGKILL' })
       expect(run.signal).toBe('SIGKILL')
       expect(printedReceipt(run)).toBeNull()
       expect(run.stdout).not.toContain('"status":"passed"')
@@ -523,18 +554,74 @@ describe('the acceptance lane fails closed', () => {
 
   test('the run publishes readiness only after its cleanup handlers are attached', async () => {
     await withFakeRepository({ fixture: 'hangs' }, async (fake) => {
-      const run = await runLane(fake.root, { killWhenReady: true, signal: 'SIGTERM' })
+      const run = await runLane(fake.root, { killWhenReady: 'fixture', signal: 'SIGTERM' })
       // The fixture refuses to start before the handlers are attached, so the
       // readiness it publishes can only exist after them. A parent that
       // signals the moment readiness appears therefore always reaches a run
       // that can clean up after itself.
       expect(existsSync(join(fake.root, 'handlers-attached.txt'))).toBe(true)
-      expect(existsSync(join(fake.root, 'ready.txt'))).toBe(true)
+      expect(existsSync(join(fake.root, 'fixture-ready.txt'))).toBe(true)
       expect(run.code).not.toBe(0)
       expect(printedReceipt(run)).toBeNull()
       expectOwnedInstanceRemoved(fake)
     })
   }, 40_000)
+
+  test('a live focused journey is settled before the repository is removed', async () => {
+    const result = await withFakeRepository({ journey: 'hangs' }, async (fake) => {
+      const run = await runLane(fake.root, { killWhenReady: 'journey', signal: 'SIGKILL' })
+      expect(run.signal).toBe('SIGKILL')
+      expect(printedReceipt(run)).toBeNull()
+      // The focused journey was live when the run was destroyed: it started,
+      // and it had not finished, so the repository it writes into is still
+      // here and the child is still running.
+      expect(existsSync(join(fake.root, 'journey-ready.txt'))).toBe(true)
+      expect(existsSync(join(fake.root, 'journey-finished.txt'))).toBe(false)
+    })
+    // The live child settled before the repository was removed.
+    expect(result.settled).toBe(true)
+  }, 40_000)
+
+  test('a child that never settles fails the qualification and keeps the repository', async () => {
+    // The fixture settled and the focused journey did not. The qualification
+    // fails, and the repository it would have removed is preserved, rather
+    // than being removed under a live child.
+    let failure: unknown
+    try {
+      await withFakeRepository(
+        { journey: 'hangs' },
+        async (fake) => {
+          const run = await runLane(fake.root, { killWhenReady: 'journey', signal: 'SIGKILL' })
+          expect(run.signal).toBe('SIGKILL')
+        },
+        { settlementTimeoutMs: 200 }
+      )
+    } catch (error) {
+      failure = error
+    }
+    expect(String(failure)).toContain('did not settle')
+    const preserved = /preserved at (.+)$/.exec(String(failure))?.[1]
+    expect(preserved).toBeTruthy()
+    expect(existsSync(preserved as string)).toBe(true)
+    // The child that did not settle is still there, and the repository that
+    // was preserved still holds it.
+    expect(existsSync(join(preserved as string, 'fixture-finished.txt'))).toBe(true)
+    expect(existsSync(join(preserved as string, 'journey-finished.txt'))).toBe(false)
+    // The live child is given the time it needs before the preserved
+    // repository is cleared by the qualification itself.
+    await new Promise((settled) => setTimeout(settled, 3500))
+    rmSync(preserved as string, { recursive: true, force: true })
+  }, 40_000)
+
+  test('the qualification removes its own temporary Docker', async () => {
+    await withFakeRepository({}, async (fake) => {
+      const run = await runLane(fake.root)
+      expect(run.code).toBe(0)
+      // The Docker the qualification handed the run was its own temporary
+      // resource, and it is gone with the run.
+      expect(existsSync(run.shimDirectory)).toBe(false)
+    })
+  }, 30_000)
 
   test('the failure evidence carries no credential', async () => {
     await withFakeRepository({ fixture: 'fails', cleanup: 'throws' }, async (fake) => {

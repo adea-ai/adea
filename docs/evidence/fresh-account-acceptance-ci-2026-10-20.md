@@ -164,12 +164,20 @@ Four properties hold on every one of those paths:
   and the pull-request lane's leak check reports it by name if it outlives
   the run. The cleanup qualification for a destroyed run therefore stays
   **pending**.
-- **The run's own child and output settle.** The qualification waits, for a
-  bounded time, for the run's child to finish before it removes the fake
-  repository, and it reads the run's output when the output is closed rather
-  than when the process ends, because a child the run left behind still holds
-  the output open. A parent that exits proves nothing about either, and the
-  qualification no longer takes the parent's word for it.
+- **Every child the run started settles.** The qualification tracks the
+  children the run actually started: a child that published its readiness
+  started, and it has settled when it published its finish, and a child that
+  never started is not waited for. Both the fixture and the focused journey
+  publish when they start and when they end, so a focused journey that is
+  still running is a child the settlement waits for. The qualification reads
+  the run's output when the output is closed rather than when the process
+  ends, because a child the run left behind still holds the output open. A
+  parent that exits proves nothing about any of it, and the qualification no
+  longer takes the parent's word for it.
+- **A settlement that times out fails and preserves.** When a child does not
+  settle within the bound, the qualification fails and the repository it
+  would have removed is preserved, rather than being removed under a live
+  child. The qualification's own temporary Docker is removed with the run.
 - **Readiness is published only when the run can clean up.** The provisioner
   attaches its exit and interrupt handlers before it publishes anything, and
   the fixture refuses to start before they are attached. The parent therefore
@@ -204,10 +212,10 @@ program the job runs is the program the qualification exercises.
 | Command                                                           | Result                                                                                                                                    |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `bun test scripts/ci-fresh-account-acceptance.test.ts`            | 23 pass, 0 fail                                                                                                                           |
-| `bun test scripts/ci-fresh-account-acceptance-failure.test.ts`    | 19 pass, 0 fail                                                                                                                           |
+| `bun test scripts/ci-fresh-account-acceptance-failure.test.ts`    | 22 pass, 0 fail                                                                                                                           |
 | `bun test scripts/database-proof-workflow.test.ts`                | 30 pass, 0 fail                                                                                                                           |
 | `bun test scripts/desktop-principal-acceptance-boundary.test.ts`  | 14 pass, 0 fail                                                                                                                           |
-| `bun run test:coverage` (the full unit coverage lane)             | 2149 pass, 0 fail across 159 files                                                                                                        |
+| `bun run test:coverage` (the full unit coverage lane)             | 2152 pass, 0 fail across 159 files                                                                                                        |
 | `bun test scripts/ci-fresh-account-acceptance.test.ts --coverage` | `scripts/ci-fresh-account-acceptance.mjs` at 100.00% functions and 99.21% lines (the one uncovered line is the program's own entry guard) |
 | `oxfmt --check` on the changed sources                            | all files use the correct format                                                                                                          |
 | `oxlint --deny-warnings` on the changed sources                   | no findings                                                                                                                               |
@@ -221,9 +229,10 @@ directions. The workflow's own regression runs the cleanup check's script
 against a Docker that answers like the real one and holds a container that was
 stopped and left behind: the check must fail, name it, and ask Docker to
 list and nothing else. The failure qualification covers the nine paths in the table
-above, the removal of the owned instance on each of them, the gate's refusal
-of a failed run and of a receipt from another tree, and the sanitized
-evidence. The workflow's structural test covers the job's identity, the draft
+above, the removal of the owned instance on each of them, a live focused
+journey, a settlement that times out, the readiness barrier, the removal of
+the qualification's own temporary Docker, the gate's refusal of a failed run
+and of a receipt from another tree, and the sanitized evidence. The workflow's structural test covers the job's identity, the draft
 filter, the checkout ref, the pinned Node runtime, the step order, the
 artifact, the owned-instance leak check, the fail-closed aggregate over both
 results, the fail-closed shape of the publish step, and that the job reads no
