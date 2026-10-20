@@ -11,11 +11,13 @@ import { applyAuthSchema, planAuthSchema } from '../../src/schema-init'
 // both in cleanup. Ownership and grants are not restored (--no-owner), so this
 // test proves table, column and row fidelity, not role or privilege fidelity.
 //
-// Every client in this file (pg, pg_dump, pg_restore) is pointed at one target
-// that is validated once: a loopback host and no query parameters, so no libpq
-// routing override (host, hostaddr, service) can move a client elsewhere. Tool
-// processes receive a fixed, minimal environment, and every subprocess and
-// database operation is bounded. Cleanup attempts each owned step independently.
+// Every client in this file (pg, pg_dump, pg_restore, and the auth initializer's
+// own pool) is pointed at one target that is validated once: a loopback host, a
+// TLS mode and an optional certificate path as the only query parameters, so no
+// libpq routing override (host, hostaddr, service, passfile) can move a client.
+// Every derived URL also carries server-side statement and lock bounds. Tool
+// processes receive a fixed, minimal environment. Every subprocess and database
+// operation is bounded, and every live child is reaped in cleanup.
 
 const databaseUrl = process.env.AUTH_POSTGRES_TEST_URL
 const origin = 'http://127.0.0.1:8787'
@@ -23,8 +25,11 @@ const secret = 'disposable-backup-restore-integration-secret-long-enough'
 const expectedTables = ['account', 'session', 'user', 'verification']
 const at = '2026-10-01T00:00:00.000Z'
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]'])
+const ALLOWED_QUERY_NAMES = new Set(['sslmode', 'sslrootcert'])
+const TLS_MODES = new Set(['require', 'verify-ca', 'verify-full'])
 const ROUTING_ENVIRONMENT_NAMES = ['PGHOST', 'PGHOSTADDR', 'PGSERVICE', 'PGSERVICEFILE']
 const TOOL_ENVIRONMENT_NAMES = ['PATH', 'HOME', 'TMPDIR', 'LANG']
+
 // Every operation has a bounded budget. The test's own deadline is the sum of
 // those budgets, so it can only fire after every bounded step has finished.
 const TOOL_TIMEOUT_MS = 60_000
@@ -39,6 +44,15 @@ const TEST_BUDGET_MS =
   CLEANUP_STEPS * CLEANUP_TIMEOUT_MS
 const BEFORE_ALL_BUDGET_MS = 2 * DB_QUERY_TIMEOUT_MS + 10_000
 const AFTER_ALL_BUDGET_MS = CLEANUP_STEPS * CLEANUP_TIMEOUT_MS + 5_000
+
+// Server-side bounds on every connection this test derives, including the ones the
+// auth initializer opens for itself, so a stalled server cannot hold a client.
+const SERVER_BOUNDS = [
+  `-c statement_timeout=${DB_QUERY_TIMEOUT_MS}`,
+  '-c lock_timeout=5000',
+  '-c idle_in_transaction_session_timeout=30000',
+].join(' ')
+const CONNECT_TIMEOUT_SECONDS = 10
 const POOL_OPTIONS = { connectionTimeoutMillis: 10_000, max: 1, query_timeout: DB_QUERY_TIMEOUT_MS }
 
 const suffix = crypto.randomUUID().replaceAll('-', '')
@@ -47,11 +61,13 @@ const restoredDatabase = `auth_bkp_restore_${suffix}`
 let target: URL | undefined
 let workDirectory: string | undefined
 let admin: Pool | undefined
+const liveChildren = new Set<ReturnType<typeof Bun.spawn>>()
 
 /**
  * Validates the one disposable target. It must use a PostgreSQL scheme, name a
- * loopback host, and carry no query parameters, so no libpq routing override can
- * apply. Returns a copy that every client in this file derives its URL from.
+ * loopback host and carry no fragment. Its only query parameters may be a TLS
+ * mode and a certificate path, which are not routing overrides. Returns a copy
+ * that every client in this file derives its URL from.
  */
 export function loopbackTargetOf(rawUrl: string): URL {
   let parsed: URL
@@ -66,18 +82,38 @@ export function loopbackTargetOf(rawUrl: string): URL {
   if (!LOOPBACK_HOSTNAMES.has(parsed.hostname)) {
     throw new Error('the target host must be localhost, 127.0.0.1 or [::1]')
   }
-  if (parsed.search !== '' || parsed.hash !== '') {
-    throw new Error('the target must carry no query or fragment, so no routing override can apply')
+  if (parsed.hash !== '') throw new Error('the target must carry no fragment')
+  for (const name of new Set(parsed.searchParams.keys())) {
+    if (!ALLOWED_QUERY_NAMES.has(name)) {
+      throw new Error(`the target may not set ${name}; no routing override is accepted`)
+    }
+    if (parsed.searchParams.getAll(name).length > 1) {
+      throw new Error(`the target may not repeat ${name}`)
+    }
   }
+  const mode = parsed.searchParams.get('sslmode')
+  if (mode !== null && !TLS_MODES.has(mode)) throw new Error('the target sslmode is not accepted')
   if (!parsed.username) throw new Error('the target must name a role')
   return new URL(parsed.toString())
 }
 
-/** One URL for one database, optionally pinned to a search_path. Derived only from `target`. */
+/**
+ * One URL for one database, bounded on the server and optionally pinned to a
+ * search_path. Derived only from `target`, and it never adds a routing parameter.
+ * The connect timeout bounds the TCP and TLS handshake that the server bounds
+ * cannot reach, for the auth initializer's own pools as well as the tools.
+ */
 function urlFor(validated: URL, database: string, searchPath?: string): string {
   const url = new URL(validated.toString())
   url.pathname = `/${database}`
-  if (searchPath) url.searchParams.set('options', `-c search_path=${searchPath}`)
+  const options = searchPath ? `${SERVER_BOUNDS} -c search_path=${searchPath}` : SERVER_BOUNDS
+  // Percent-encode by hand: URLSearchParams writes spaces as '+', which libpq reads literally.
+  const kept = [...url.searchParams.entries()]
+    .filter(([name]) => name !== 'options' && name !== 'connect_timeout')
+    .map(([name, value]) => `${encodeURIComponent(name)}=${encodeURIComponent(value)}`)
+  kept.push(`connect_timeout=${CONNECT_TIMEOUT_SECONDS}`)
+  kept.push(`options=${encodeURIComponent(options)}`)
+  url.search = kept.join('&')
   return url.toString()
 }
 
@@ -105,9 +141,13 @@ function toolEnvironment(): Record<string, string> {
   return environment
 }
 
-/** Runs a child process, kills it at the deadline, and reaps it before returning. */
+/**
+ * Runs a child process under a deadline. A live child is killed on every exit
+ * path, and its exit is awaited before this returns, so nothing outlives the call.
+ */
 async function runBounded(command: string[], timeoutMs: number) {
   const child = Bun.spawn(command, { env: toolEnvironment(), stderr: 'pipe', stdout: 'pipe' })
+  liveChildren.add(child)
   let timedOut = false
   const timer = setTimeout(() => {
     timedOut = true
@@ -122,9 +162,9 @@ async function runBounded(command: string[], timeoutMs: number) {
     return { code, pid: child.pid, stderr, timedOut }
   } finally {
     clearTimeout(timer)
-    // Every exit path, including a failed stream read, kills a live child and waits for it to be reaped.
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
     await child.exited.catch(() => undefined)
+    liveChildren.delete(child)
   }
 }
 
@@ -163,6 +203,30 @@ export async function runCleanups(
     }
   }
   return failures
+}
+
+/**
+ * One cleanup statement on its own connection, so an earlier step that stalled
+ * cannot hold the connection a later step needs. The server's statement bound
+ * ends any stalled statement before the step's own deadline.
+ */
+async function runOwnStatement(sql: string): Promise<void> {
+  const pool = poolFor(target!.toString())
+  try {
+    await pool.query(sql)
+  } finally {
+    await pool.end().catch(() => undefined)
+  }
+}
+
+/** Kills and reaps every child this file still owns. Used by cleanup as a backstop. */
+async function reapLiveChildren(): Promise<void> {
+  const reaped = [...liveChildren].map((child) => {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    return child.exited.catch(() => undefined)
+  })
+  await Promise.all(reaped)
+  liveChildren.clear()
 }
 
 async function tablesIn(schemaName: string): Promise<string[]> {
@@ -214,7 +278,10 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
     'postgresql://u:p@127.0.0.1:5432/db?host=/var/run/postgresql',
     'postgresql://u:p@127.0.0.1:5432/db?hostaddr=10.0.0.5',
     'postgresql://u:p@127.0.0.1:5432/db?service=production',
+    'postgresql://u:p@127.0.0.1:5432/db?passfile=/tmp/pass',
     'postgresql://u:p@127.0.0.1:5432/db?options=-c%20host%3Dexample.test',
+    'postgresql://u:p@127.0.0.1:5432/db?sslmode=disable',
+    'postgresql://u:p@127.0.0.1:5432/db?sslmode=verify-full&sslmode=require',
     'postgresql://u:p@127.0.0.1:5432/db#fragment',
     'postgresql://u:p@db.example.test:5432/db',
     'postgresql://u:p@[::ffff:10.0.0.1]:5432/db',
@@ -229,19 +296,25 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
     ['postgresql://u:p@localhost:5432/db', 'localhost'],
     ['postgresql://u:p@127.0.0.1:5432/db', '127.0.0.1'],
     ['postgresql://u:p@[::1]:5432/db', '[::1]'],
+    ['postgresql://u:p@[::1]:5432/db?sslmode=verify-full&sslrootcert=/tmp/ca.crt', '[::1]'],
   ])('accepts %s and derives every URL from it', (rawUrl, hostname) => {
     const validated = loopbackTargetOf(rawUrl)
     expect(validated.hostname).toBe(hostname)
     const derived = new URL(urlFor(validated, 'restored', 'auth_schema'))
     expect(derived.hostname).toBe(hostname)
     expect(derived.pathname).toBe('/restored')
-    expect([...derived.searchParams.keys()]).toEqual(['options'])
+    expect(derived.search).not.toContain('+')
+    const options = decodeURIComponent(derived.search.split('options=')[1] ?? '')
+    expect(options).toContain(`-c statement_timeout=${DB_QUERY_TIMEOUT_MS}`)
+    expect(options).toContain('-c search_path=auth_schema')
+    expect(derived.searchParams.get('sslmode')).toBe(validated.searchParams.get('sslmode'))
   })
 
   test('a subprocess that stalls is killed at its deadline and reaped', async () => {
     const result = await runBounded(['sleep', '30'], 200)
     expect(result.timedOut).toBe(true)
     expect(() => process.kill(result.pid, 0)).toThrow()
+    expect(liveChildren.size).toBe(0)
   }, 10_000)
 
   test('a failing cleanup step does not stop the others, and its failure is reported', async () => {
@@ -302,17 +375,17 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
   }, BEFORE_ALL_BUDGET_MS)
 
   afterAll(async () => {
-    const steps: Array<readonly [string, () => Promise<unknown>]> = []
+    const steps: Array<readonly [string, () => Promise<unknown>]> = [
+      ['reap live tool processes', reapLiveChildren],
+      [
+        'drop restored database',
+        () => runOwnStatement(`DROP DATABASE IF EXISTS "${restoredDatabase}" WITH (FORCE)`),
+      ],
+      ['drop schema', () => runOwnStatement(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)],
+    ]
     if (admin) {
       const pool = admin
-      steps.push(
-        [
-          'drop restored database',
-          () => pool.query(`DROP DATABASE IF EXISTS "${restoredDatabase}" WITH (FORCE)`),
-        ],
-        ['drop schema', () => pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)],
-        ['close admin pool', () => pool.end()]
-      )
+      steps.push(['close admin pool', () => pool.end()])
     }
     if (workDirectory) {
       const directory = workDirectory
@@ -374,8 +447,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         `--file=${dumpFile}`,
         `--dbname=${sourceConnection}`,
       ])
-      expect(dumped.code).toBe(0)
-      expect(dumped.stderr).toBe('')
+      expect({ code: dumped.code, stderr: dumped.stderr }).toEqual({ code: 0, stderr: '' })
 
       const restored = await runTool([
         'pg_restore',
@@ -385,7 +457,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         `--dbname=${restoredConnection}`,
         dumpFile,
       ])
-      expect(restored.code).toBe(0)
+      expect({ code: restored.code }).toEqual({ code: 0 })
 
       // 3. The restored schema matches the source exactly: tables, columns, counts and rows.
       const copy = await snapshotOf(restoredConnection, schema)
