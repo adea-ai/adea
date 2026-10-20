@@ -173,6 +173,16 @@ that no Railway service exists outside this repository.
 - [ ] `bun run --cwd apps/web start:test:auth-worker` passed at the cutover head. It
       runs the production-built Worker against a separate auth schema with a synthetic
       secret, and it must not become a green skipped test.
+- [ ] `bun run scripts/built-worker-desktop-auth-cli.ts` passed at the cutover head. It
+      runs the production-built Worker against a disposable loopback PostgreSQL and
+      proves the built desktop routes: the authorize route is registered, refuses a
+      caller without a session, refuses a request that carries a parameter the desktop
+      contract does not define, and issues an authorization code to a fresh account the
+      Worker signs up itself; the exchange route turns that code into a desktop session
+      and refuses a wrong PKCE verifier, an untrusted origin and a replayed code; and no
+      response carries the auth secret, the session cookie, the authorization code or
+      the desktop credential. The receipt carries every assertion by name and the full
+      auth lifecycle assertions, and it must not become a green skipped run.
 - [ ] The invalid, expired, revoked and wrong-origin cases, plus refresh, logout and
       delivery, passed. `docs/authentication.md` step 5 requires them before switching
       traffic.

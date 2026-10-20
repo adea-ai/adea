@@ -88,6 +88,25 @@ The **disposable PostgreSQL proof** (`disposable-postgres-proof`):
 - the owned disposable instance is removed on success, on failure and on
   interruption.
 
+The **built-Worker desktop authorization qualification**
+(`built-worker-desktop-auth`):
+
+- the production-built Worker served the desktop authorize and exchange routes
+  against a disposable loopback instance, and both routes answered;
+- the authorize route refused a caller without a session, refused a request that
+  carried a parameter the desktop contract does not define, and issued an
+  authorization code to a fresh account the Worker signed up itself;
+- the exchange route turned that code into a desktop session, and refused a wrong
+  PKCE verifier, an untrusted origin and a replayed code;
+- the exchange preflight refused an untrusted origin;
+- no response carried the auth secret, the session cookie, the authorization
+  code or the desktop credential;
+- the receipt carries every assertion by name, the number of assertions that
+  passed, and the full auth lifecycle assertions the lane proved against the same
+  instance;
+- the Worker and the disposable instance are removed on success, on failure and
+  on interruption.
+
 What a proved artifact was **not** shown to do, and what a live acceptance
 still has to establish:
 
@@ -96,7 +115,12 @@ still has to establish:
 - the hosted target's data state is **UNKNOWN**. The live target was not read,
   so no data-loss estimate is available, and an unobserved state is not an
   empty one;
-- no traffic was moved and no session was issued against the hosted target.
+- no traffic was moved and no session was issued against the hosted target;
+- the built Worker ran on the local development runtime, not on the hosted
+  Cloudflare runtime. The hosted runtime's own connections, its pooler binding
+  and its certificate handling were not exercised, and the local qualification
+  reaches the disposable instance with the repository's loopback development
+  policy rather than with the hosted lane's verified TLS connection.
 
 A different commit is not qualified by any of this. It needs its own proof
 against the same image, and that proof must carry its own provenance.
