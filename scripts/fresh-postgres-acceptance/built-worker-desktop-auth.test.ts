@@ -844,11 +844,14 @@ describe('the built-Worker desktop credential material', () => {
     const transport: BuiltWorkerTransport = async (request) => {
       const answered = await correct.transport(request)
       if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
-        // The known secret is an array element and the escape is written with a
-        // literal backslash-u sequence.
-        const body = String.raw`{"echo":["\u0062uilt-worker-auth-secret-for-the-test-only-123456"],{"deeper":[["\u0062uilt-worker-auth-secret-for-the-test-only-123456"]]}]}`
-        // The wire is checked before the qualification reads the body.
+        // The issuance is the one the product answers with, and the echo array
+        // carries the known secret as a scalar and inside a nested array, both
+        // written with a literal backslash-u sequence.
+        const body = String.raw`{"credential":"${'A'.repeat(40)}0","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000","echo":["\u0062uilt-worker-auth-secret-for-the-test-only-123456",["\u0062uilt-worker-auth-secret-for-the-test-only-123456"]]}`
+        // The wire is checked before the qualification reads the body, and the
+        // body is a body the product could have answered with.
         expect(body).toContain('\\u0062uilt-worker-auth-secret-for-the-test-only-123456')
+        expect(() => JSON.parse(body)).not.toThrow()
         wire.push(body)
         return { ...answered, body }
       }
@@ -859,6 +862,43 @@ describe('the built-Worker desktop credential material', () => {
       secrets: [CALLER_AUTH_SECRET],
     })
     expect(wire.join('\n')).toContain('\\u0062uilt-worker-auth-secret-for-the-test-only-123456')
+    // The issuance itself still succeeded: the session the Worker issued is a
+    // session the client can read.
+    const exchange = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-exchange-route-issues-a-session'
+    )
+    expect(exchange?.passed).toBe(true)
+    // The echo of the known secret is what failed the run.
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+    expect(receipt.status).toBe('failed')
+  })
+
+  test('a known secret escaped in a bare root string is not lost', async () => {
+    const correct = correctWorker()
+    const wire: string[] = []
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        // The whole body is one string, and it is the known secret.
+        const body = String.raw`"\u0062uilt-worker-auth-secret-for-the-test-only-123456"`
+        expect(() => JSON.parse(body)).not.toThrow()
+        wire.push(body)
+        return { ...answered, body }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth({
+      ...baseInput(transport),
+      secrets: [CALLER_AUTH_SECRET],
+    })
+    expect(wire.join('\n')).toContain('\\u0062uilt-worker-auth-secret-for-the-test-only-123456')
+    const exchange = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-exchange-route-issues-a-session'
+    )
+    expect(exchange?.passed).toBe(false)
     const leakage = receipt.assertions.find(
       (assertion) => assertion.name === 'no-response-carries-a-secret'
     )
