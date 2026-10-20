@@ -572,6 +572,9 @@ async function stagedWrite(
       // archive against its own digest and size, and the envelope by parsing it and comparing the entry it names. An
       // object that is corrupt, or that is another entry, is an integrity failure rather than a duplicate.
       const stored = await storeGet(store, key, bound, operation)
+      // The read is checked after it answers: a readback that arrived after the deadline is a timeout and not a
+      // duplicate. A timer cannot fire while the event loop is blocked, so the deadline is measured on the clock.
+      operation.assertLive()
       if (stored === null)
         throw new TransportRefused(CATEGORY.storeWrite, 'the published object is not there')
       if (typeof verify === 'function' && !verify(stored))
@@ -681,6 +684,9 @@ export async function publishEntry(
         }
       },
     })
+    // The publication is checked once more before it is reported as a success: a publication that overran the deadline
+    // is a timeout and not a stored entry.
+    operation.assertLive()
     return {
       ok: true,
       envelope,
