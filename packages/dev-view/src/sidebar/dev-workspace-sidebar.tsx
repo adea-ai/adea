@@ -189,7 +189,7 @@ type DialogState =
     }>
   | Readonly<{ kind: 'archive-project' | 'delete-project'; projectId: string; name: string }>
   | Readonly<{ kind: 'project-settings'; projectId: string; name: string }>
-  | Readonly<{ kind: 'add-repository'; projectId: string; name: string }>
+  | Readonly<{ kind: 'add-repository'; projectId: string; name: string; path?: string }>
   | Readonly<{ kind: 'new-project' }>
 
 /** A Dev deep link to a leaf's session (or its project when it has none). */
@@ -851,11 +851,12 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                         }
                       : undefined
                   }
-                  onChangeDirectory={() =>
+                  onChangeDirectory={(typedPath) =>
                     setDialog({
                       kind: 'add-repository',
                       projectId: state.projectId,
                       name: state.name,
+                      ...(typedPath ? { path: typedPath } : {}),
                     })
                   }
                   onClose={close}
@@ -868,6 +869,7 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                   {...repositoryFlow()}
                   projectId={state.projectId}
                   projectName={state.name}
+                  {...(state.path ? { initialPath: state.path } : {})}
                   onImported={() => void onRepositoryImported(state.projectId)}
                   onClose={close}
                 />

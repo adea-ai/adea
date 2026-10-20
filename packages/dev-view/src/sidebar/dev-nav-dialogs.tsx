@@ -221,6 +221,8 @@ export function DevAddRepositoryDialog(
   props: DevRepositoryFlowProps & {
     projectId: string
     projectName: string
+    /** A directory typed in project settings, filled in for the member to authorize. */
+    initialPath?: string
     onImported: () => void
     onClose: () => void
   }
@@ -239,6 +241,7 @@ export function DevAddRepositoryDialog(
           knownProjectNames={props.knownProjectNames}
           announce={props.announce}
           {...(props.pickFolder ? { pickFolder: props.pickFolder } : {})}
+          {...(props.initialPath ? { initialPath: props.initialPath } : {})}
           mintProjectId={() => props.projectId}
           onImported={() => {
             props.onImported()
@@ -402,8 +405,11 @@ export function DevProjectSettingsDialog(
     projectNames?: DevProjectNames
     /** Save the cloud identity; absent when the member cannot change it. */
     onSaveIdentity?: (identity: DevProjectIdentity) => Outcome
-    /** Open the authorize-and-import flow that binds or replaces the directory. */
-    onChangeDirectory: () => void
+    /**
+     * Open the authorize-and-import flow that binds or replaces the directory:
+     * Browse opens it empty, a typed path opens it with that path filled in.
+     */
+    onChangeDirectory: (typedPath?: string) => void
     onClose: () => void
   }
 ) {
@@ -416,6 +422,17 @@ export function DevProjectSettingsDialog(
   const [modelId, setModelId] = createSignal('')
   const [error, setError] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)
+  // Browse is the usual way to pick a directory; typing one is the fallback.
+  // The field shows the bound directory until the member types a different one.
+  const [typedDirectory, setTypedDirectory] = createSignal<string>()
+  const shownDirectory = () =>
+    props.remote
+      ? 'Managed clone in the remote runtime'
+      : (typedDirectory() ?? props.directory ?? '')
+  const directoryChanged = () => {
+    const typed = typedDirectory()?.trim()
+    return Boolean(typed) && typed !== props.directory
+  }
   const harnessSelectId = `dev-project-harness-${createUniqueId()}`
   const modelSelectId = `dev-project-model-${createUniqueId()}`
   const directoryId = `dev-project-directory-${createUniqueId()}`
@@ -510,22 +527,47 @@ export function DevProjectSettingsDialog(
                 id={directoryId}
                 class="min-w-0 flex-1"
                 aria-label="Project directory"
-                readOnly
-                value={
-                  props.remote
-                    ? 'Managed clone in the remote runtime'
-                    : (props.directory ?? 'No directory on this device yet')
-                }
+                readOnly={props.remote}
+                placeholder="No directory on this device yet"
+                value={shownDirectory()}
+                onInput={(event) => setTypedDirectory(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && directoryChanged()) {
+                    event.preventDefault()
+                    props.onChangeDirectory(typedDirectory()?.trim())
+                  }
+                }}
               />
               <Show when={!props.remote}>
-                <Button type="button" variant="outline" onClick={() => props.onChangeDirectory()}>
-                  {props.bound ? 'Browse…' : 'Choose…'}
-                </Button>
+                <Show
+                  when={directoryChanged()}
+                  fallback={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => props.onChangeDirectory()}
+                    >
+                      {props.bound ? 'Browse…' : 'Choose…'}
+                    </Button>
+                  }
+                >
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => props.onChangeDirectory(typedDirectory()?.trim())}
+                  >
+                    Use this folder
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => props.onChangeDirectory()}>
+                    Browse…
+                  </Button>
+                </Show>
               </Show>
             </div>
             <Text variant="caption" tone="muted">
-              Changing the directory authorizes the folder and imports its repository; existing
-              sessions keep the directory they started in.
+              Browse for a folder, or type its path. Either way the folder is authorized and its
+              repository imported before it replaces the directory; existing sessions keep the
+              directory they started in.
             </Text>
           </section>
           <section class="flex flex-col gap-3" aria-label="Defaults for new sessions">
