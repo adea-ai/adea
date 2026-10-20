@@ -177,7 +177,11 @@ Four properties hold on every one of those paths:
 - **A settlement that times out fails and preserves.** When a child does not
   settle within the bound, the qualification fails and the repository it
   would have removed is preserved, rather than being removed under a live
-  child. The qualification's own temporary Docker is removed with the run.
+  child. The regression that shows this waits for the child with the same
+  bounded settlement, asserts that it settled, and only then clears the
+  preserved repository; a settlement that fails leaves it in place, so a
+  timeout cannot pass as a successful cleanup. The qualification's own
+  temporary Docker is removed with the run.
 - **Readiness is published only when the run can clean up.** The provisioner
   attaches its exit and interrupt handlers before it publishes anything, and
   the fixture refuses to start before they are attached. The parent therefore

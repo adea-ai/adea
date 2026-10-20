@@ -607,10 +607,17 @@ describe('the acceptance lane fails closed', () => {
     // was preserved still holds it.
     expect(existsSync(join(preserved as string, 'fixture-finished.txt'))).toBe(true)
     expect(existsSync(join(preserved as string, 'journey-finished.txt'))).toBe(false)
-    // The live child is given the time it needs before the preserved
-    // repository is cleared by the qualification itself.
-    await new Promise((settled) => setTimeout(settled, 3500))
-    rmSync(preserved as string, { recursive: true, force: true })
+    // The live child is settled before the preserved repository is cleared, and
+    // the settlement is asserted rather than waited out: the repository is
+    // only removed once the child has settled, and it is preserved when it
+    // has not, so a timeout can never pass as a successful cleanup.
+    const settled = await settleChildren(preserved as string)
+    expect(settled).toBe(true)
+    expect(existsSync(join(preserved as string, 'journey-finished.txt'))).toBe(true)
+    if (settled) {
+      rmSync(preserved as string, { recursive: true, force: true })
+    }
+    expect(existsSync(preserved as string)).toBe(false)
   }, 40_000)
 
   test('the qualification removes its own temporary Docker', async () => {
