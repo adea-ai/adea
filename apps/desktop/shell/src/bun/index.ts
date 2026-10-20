@@ -61,7 +61,10 @@ import {
 import { createProcessAdapter } from '../supervision/process-adapter'
 import type { SupervisionAdapter, SupervisionEvent } from '../supervision/supervisor'
 import type { SidecarClient } from '../dev-runtime/terminal/sidecar/client'
-import { createBunSecretsVaultKeyStore, createSystemVaultKeyStore } from '../dev-runtime/vault'
+import {
+  isUnavailableCredentialStoreError,
+  resolveBootCredentialStore,
+} from './boot-credential-store'
 import { windowTransparentFor } from '../window-surface'
 import {
   adoptShellTerminalSidecar,
@@ -177,10 +180,19 @@ const approvalVerifier = createOwnerApprovalVerifier({ dataDir: DATA_DIR })
 // graph; unsupported packaged Bun versions retain the legacy `security` path.
 // Migration never deletes the legacy slot and fails closed on any ambiguous
 // native-store result, so a runtime upgrade cannot fabricate a replacement key.
-const credentialStore = await createBunSecretsVaultKeyStore({
-  legacyStore: createSystemVaultKeyStore(),
-  runtimeVersion: Bun.version,
-})
+// The boot-time credential store. When the OS credential store cannot answer
+// — no default keychain, a locked keychain, an authorization the operator has
+// not granted — the application still boots, with a store that fails closed:
+// the vault refuses every operation instead of the shell dying with an
+// unhandled rejection before its window exists. The reason is fixed and
+// secret-free (see boot-credential-store.ts).
+const bootCredentialStore = await resolveBootCredentialStore({ runtimeVersion: Bun.version })
+const credentialStore = bootCredentialStore.store
+if (bootCredentialStore.degraded) {
+  console.error(
+    `desktop shell: the OS credential store is unavailable (${bootCredentialStore.reason}); the Dev Runtime vault fails closed`
+  )
+}
 
 let host: DevRuntimeHost | undefined
 let workspaceCleanup: WorkspaceCleanup | undefined
@@ -392,7 +404,7 @@ const streamRelayCommands: Record<string, (args?: Record<string, unknown>) => un
 // succeeded; the composition binds it through the existing `sidecar` seam.
 let sidecarClient: SidecarClient | undefined
 function composeHost(scope = identity.currentScope()): {
-  host: DevRuntimeHost
+  host: DevRuntimeHost | undefined
   notifications: RunNotificationPublisher
 } {
   let composedHost: DevRuntimeHost | undefined
@@ -404,65 +416,83 @@ function composeHost(scope = identity.currentScope()): {
       requestNativeChatNotification(Utils, intent)
     },
   })
-  const nextHost = createDevRuntimeHost({
-    authority,
-    gateway: gatewayView,
-    dataDir: DATA_DIR,
-    credentialStore,
-    scope,
-    identity,
-    approvalVerifier,
-    memory: memoryStore,
-    runtimeRoot: join(DATA_DIR, 'dev-runtime', 'runtime'),
-    // #185: the packaged manifest feeds the one supervision engine; absent
-    // (dev run) or failed load keeps the truthful no-supervision composition.
-    ...(packagedManifest.ok ? { componentManifest: packagedManifest.manifest } : {}),
-    // #185: the engine spawns packaged components through the real bundled
-    // layout (dev runs have no adapter — the engine itself never starts).
-    ...(supervisionAdapter ? { supervisionAdapter } : {}),
-    // #396: the terminal lane runs on the adopted sidecar; without one the
-    // terminal operations stay typed-unavailable.
-    ...(sidecarClient ? { sidecar: sidecarClient } : {}),
-    // #31 consumer zero-config (the handoff the managed-Pi lane pinned): the
-    // production boot opts into the managed Pi warm — fire-and-forget, every
-    // failure a typed durable driver state, skipped for injected drivers.
-    managedPiAutoInstall: !workspaceCleanup?.isPaused(scope),
-    // M10 #30: the harness selector's explicit rescan probes this machine's
-    // installed harness executables (fixed-argv version probes, no shell).
-    discoverySources: [
-      createLocalExecutableDiscoverySource({ specs: harnessFamilySpecs, env: process.env }),
-    ],
-    runLsof: async () => {
-      const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
-        stdout: 'pipe',
-        stderr: 'ignore',
-      })
-      const text = await new Response(proc.stdout).text()
-      await proc.exited
-      return text
-    },
-    resolveDns: async (hostname) => {
-      try {
-        const [a, aaaa] = await Promise.all([
-          dns.resolve4(hostname).catch(() => [] as string[]),
-          dns.resolve6(hostname).catch(() => [] as string[]),
-        ])
-        return [
-          ...a.map((address) => ({ address, family: 4 as const })),
-          ...aaaa.map((address) => ({ address, family: 6 as const })),
-        ]
-      } catch {
-        return []
-      }
-    },
-    publish: (event, payload) => {
-      try {
-        gateway.publish(event, payload)
-      } finally {
-        notifications.onPublishedEvent(event, payload)
-      }
-    },
-  })
+  let nextHost: DevRuntimeHost
+  try {
+    nextHost = createDevRuntimeHost({
+      authority,
+      gateway: gatewayView,
+      dataDir: DATA_DIR,
+      credentialStore,
+      scope,
+      identity,
+      approvalVerifier,
+      memory: memoryStore,
+      runtimeRoot: join(DATA_DIR, 'dev-runtime', 'runtime'),
+      // #185: the packaged manifest feeds the one supervision engine; absent
+      // (dev run) or failed load keeps the truthful no-supervision composition.
+      ...(packagedManifest.ok ? { componentManifest: packagedManifest.manifest } : {}),
+      // #185: the engine spawns packaged components through the real bundled
+      // layout (dev runs have no adapter — the engine itself never starts).
+      ...(supervisionAdapter ? { supervisionAdapter } : {}),
+      // #396: the terminal lane runs on the adopted sidecar; without one the
+      // terminal operations stay typed-unavailable.
+      ...(sidecarClient ? { sidecar: sidecarClient } : {}),
+      // #31 consumer zero-config (the handoff the managed-Pi lane pinned): the
+      // production boot opts into the managed Pi warm — fire-and-forget, every
+      // failure a typed durable driver state, skipped for injected drivers.
+      managedPiAutoInstall: !workspaceCleanup?.isPaused(scope),
+      // M10 #30: the harness selector's explicit rescan probes this machine's
+      // installed harness executables (fixed-argv version probes, no shell).
+      discoverySources: [
+        createLocalExecutableDiscoverySource({ specs: harnessFamilySpecs, env: process.env }),
+      ],
+      runLsof: async () => {
+        const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
+          stdout: 'pipe',
+          stderr: 'ignore',
+        })
+        const text = await new Response(proc.stdout).text()
+        await proc.exited
+        return text
+      },
+      resolveDns: async (hostname) => {
+        try {
+          const [a, aaaa] = await Promise.all([
+            dns.resolve4(hostname).catch(() => [] as string[]),
+            dns.resolve6(hostname).catch(() => [] as string[]),
+          ])
+          return [
+            ...a.map((address) => ({ address, family: 4 as const })),
+            ...aaaa.map((address) => ({ address, family: 6 as const })),
+          ]
+        } catch {
+          return []
+        }
+      },
+      publish: (event, payload) => {
+        try {
+          gateway.publish(event, payload)
+        } finally {
+          notifications.onPublishedEvent(event, payload)
+        }
+      },
+    })
+  } catch (error) {
+    // The Dev Runtime host opens the credential vault during its composition.
+    // When the OS credential store is unavailable, that composition cannot
+    // succeed — and the shell's own contract is that an unavailable
+    // boot-time subsystem degrades the application, it never takes the
+    // application down with it. The Dev Runtime's own surfaces stay typed
+    // unavailable (no host, no fabricated state); the rest of the desktop
+    // application — the window, the client, the cloud surfaces — keeps
+    // working. Any other composition failure is a real fault and still
+    // fails loudly.
+    if (!isUnavailableCredentialStoreError(error)) throw error
+    console.error(
+      'desktop shell: the Dev Runtime host is unavailable (the OS credential store is unavailable); its surfaces stay typed unavailable'
+    )
+    return { host: undefined, notifications }
+  }
   composedHost = nextHost
   notifications.seed()
   return { host: nextHost, notifications }
