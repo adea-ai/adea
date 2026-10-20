@@ -146,7 +146,11 @@ jobs:
         # The lane removes the instance it created on success, on failure and
         # on interruption, and fails the run when it cannot. A container that is
         # still running here means the lane left one behind, and the job fails
-        # rather than reporting a proof next to a leak.
+        # rather than reporting a proof next to a leak. The check runs even when
+        # the lane itself failed, so the cleanup failure is reported next to the
+        # primary failure instead of being hidden by it. A cancelled job runs no
+        # step at all.
+        if: ${{ !cancelled() }}
         run: |
           leaked="$(docker ps --filter 'name=adea-capture-prov-' --format '{{.Names}}')"
           if [ -n "$leaked" ]; then

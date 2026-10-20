@@ -306,4 +306,40 @@ describe('the fresh-account acceptance job wires the acceptance lane into CI', (
     expect(gate).toContain("from './fresh-postgres-acceptance/recovery.mjs'")
     expect(gate).toContain("from './fresh-postgres-acceptance/provenance.mjs'")
   })
+
+  test('a failed lane publishes no receipt and no artifact', () => {
+    const body = JSON.stringify(job)
+    // A step that runs whatever happened before it would publish a receipt the
+    // gate refused, or one the lane never proved.
+    expect(body).not.toContain('continue-on-error')
+    expect(body).not.toContain('always()')
+    const publish = stepNamed(job, 'Publish the acceptance receipt')
+    expect(publish.if).toBeUndefined()
+    const gate = stepNamed(job, 'Gate and publish the acceptance receipt')
+    expect(gate.if).toBeUndefined()
+    // The receipt is published only after the gate, and the gate is the step
+    // that fails the job when the receipt is not a proof of the exact head.
+    const names = job.steps.map((step: { name?: string }) => step.name)
+    expect(names.indexOf('Gate and publish the acceptance receipt')).toBeLessThan(
+      names.indexOf('Publish the acceptance receipt')
+    )
+  })
+
+  test('a hung lane is cancelled by the job timeout, and a cancelled job publishes nothing', () => {
+    expect(job['timeout-minutes']).toBe(30)
+    // The cleanup check runs even when the lane failed, so a leaked container
+    // is reported next to the primary failure instead of being hidden by it. A
+    // cancelled job runs no step at all, so a cancelled run publishes nothing.
+    const cleanup = stepNamed(job, "Require the lane's own container to be gone")
+    expect(cleanup.if).toContain('!cancelled()')
+  })
+
+  test('the job removes nothing and reaches no hosted database', () => {
+    const body = JSON.stringify(job)
+    // The job reports a leak; it never removes a resource it did not create,
+    // and it never prunes.
+    expect(body).not.toContain('docker rm')
+    expect(body).not.toContain('prune')
+    expect(body).not.toContain('docker system')
+  })
 })

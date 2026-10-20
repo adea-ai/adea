@@ -150,9 +150,15 @@ describe('the published artifact', () => {
       workflow: 'Database Proof',
       repository: 'adea-ai/adea',
     })
-    // The lane's own fields are untouched.
+    // The lane’s own fields are untouched.
     expect(artifact.proofKind).toBe('fresh-schema-acceptance')
     expect(artifact.desktopPrincipal.accounts).toBe(3)
+    // The evidence the job publishes is sanitized: it names the commit, the
+    // class and the measured counts, and nothing that could carry a credential.
+    const published = JSON.stringify(artifact)
+    expect(published).not.toContain('postgresql://')
+    expect(published).not.toContain('password')
+    expect(published).not.toContain('secret')
   })
 
   test('outside CI the class is the lane’s own', () => {

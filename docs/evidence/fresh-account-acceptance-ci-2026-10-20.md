@@ -85,32 +85,90 @@ may claim: `laneEvidence` is the lane's `local-disposable`, and `evidence` is
 the `ci` class the acceptance lane's own helper computes for a run that
 happened in CI. The relabel hides nothing.
 
+## The failure and cleanup semantics
+
+The job only means something if a failed run cannot look like a proof. The
+failure paths are qualified for real: the lane is run against a fake repository
+in which its three seams — the provisioner, the fixture and the focused
+journey — are replaced with fakes, so every path is exercised without a
+container. The lane itself is not changed, and no part of it is copied.
+
+| Path                                    | What the lane does                                       | What the pull-request lane sees                    |
+| --------------------------------------- | -------------------------------------------------------- | -------------------------------------------------- |
+| setup failure                           | the provisioner fails, the run exits 1                   | no receipt, the failure named, no artifact         |
+| migration failure                       | the fixture fails, the run exits 1                       | no receipt, the failure named, no artifact         |
+| test failure                            | the focused journey fails, the run exits 1               | no receipt, the failure named, no artifact         |
+| skipped journey                         | the journey is skipped, the run exits 1                  | no receipt, the skip named, no artifact            |
+| missing journey receipt                 | the journey printed no receipt, the run exits 1          | no receipt, the gap named, no artifact             |
+| cleanup failure                         | the owned instance could not be removed, the run exits 1 | no receipt, the cleanup failure named, no artifact |
+| a primary failure and a cleanup failure | both are reported, the run exits 1                       | no receipt, both failures named, no artifact       |
+| cancellation                            | the run is terminated, it prints nothing                 | no receipt, no artifact                            |
+| the job's hard timeout                  | the run is killed, it prints nothing                     | no receipt, no artifact                            |
+
+Three properties hold on every one of those paths:
+
+- **No passed receipt.** The lane prints its receipt only when nothing failed,
+  and the gate refuses output that carries no receipt. A refused receipt writes
+  no artifact, so the job publishes no proof of a run that failed.
+- **The primary failure and the cleanup failure are both reported.** The lane
+  catches the primary failure and reports it, and the cleanup failure is
+  reported next to it; the workflow's container check runs even when the lane
+  failed, so a leaked instance is reported next to the failure instead of
+  being hidden by it.
+- **Only owned resources are removed, and the evidence is sanitized.** The
+  lane stops the instance it created and nothing else, and it never prunes. The
+  failure evidence names the failure and nothing else: the child's raw output,
+  which may carry the URL and its parameters, is never relayed, and the
+  published receipt carries the commit, the class and the measured counts and
+  no credential.
+
+The lifecycle result fields are the acceptance lane's own. They are asserted
+to survive — from the fixture's measured counts into the lane's receipt, and
+from there into the published artifact — and they are not redesigned here.
+
+The lane's own child timeouts (180 s for the fixture, 600 s for the focused
+journey, each with a kill signal) are pinned by the boundary test, and the
+lane's own structure — the receipt only on success, the exit code, the two
+reported failures, the owned instance, the unrelayed child output — is pinned
+there too. The run/teardown/receipt boundary test is the acceptance lane's
+boundary; this lane scopes it to those properties and changes nothing else.
+
 ## Evidence
 
 | Command                                                           | Result                                                                                                                                 |
 | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `bun test scripts/ci-fresh-account-acceptance.test.ts`            | 21 pass, 0 fail                                                                                                                        |
-| `bun test scripts/database-proof-workflow.test.ts`                | 23 pass, 0 fail                                                                                                                        |
+| `bun test scripts/ci-fresh-account-acceptance-failure.test.ts`    | 14 pass, 0 fail                                                                                                                        |
+| `bun test scripts/database-proof-workflow.test.ts`                | 26 pass, 0 fail                                                                                                                        |
+| `bun test scripts/desktop-principal-acceptance-boundary.test.ts`  | 13 pass, 0 fail                                                                                                                        |
 | `bun test scripts/ci-fresh-account-acceptance.test.ts --coverage` | `scripts/ci-fresh-account-acceptance.mjs` at 100% functions and 99.17% lines (the one uncovered line is the program's own entry guard) |
-| `oxfmt --check` on the three changed sources                      | all files use the correct format                                                                                                       |
-| `oxlint --deny-warnings` on the three changed sources             | no findings                                                                                                                            |
+| `oxfmt --check` on the changed sources                            | all files use the correct format                                                                                                       |
+| `oxlint --deny-warnings` on the changed sources                   | no findings                                                                                                                            |
 
 The gate's own tests cover the exact-head refusal, the dirty-tree refusal, the
 foreign-tree refusal, the zero-pass refusal for each measured count, the
 no-refusal refusal for each refused case, the simulated and failed results, a
 run that printed no receipt, the usage error, and the program's exit codes in
-both directions. The workflow's structural test covers the job's identity, the
-draft filter, the checkout ref, the step order, the artifact, the container
-check, and that the job reads no secret and names no provider.
+both directions. The failure qualification covers the nine paths in the table
+above, and the gate's refusal of a failed run and of a receipt from another
+tree. The workflow's structural test covers the job's identity, the draft
+filter, the checkout ref, the step order, the artifact, the container check, the
+fail-closed shape of the publish step, and that the job reads no secret, names
+no provider and removes nothing.
 
 ## Scope
 
-Three paths, all in this lane's scope:
+Five paths, all in this lane's scope or in the boundary this lane scopes:
 
-- `.github/workflows/database-proof.yml` — the job.
+- `.github/workflows/database-proof.yml` — the job, and the fail-closed shape of
+  its steps.
 - `scripts/ci-fresh-account-acceptance.mjs` — the CI-side gate.
 - `scripts/ci-fresh-account-acceptance.test.ts` — the gate's tests.
+- `scripts/ci-fresh-account-acceptance-failure.test.ts` — the failure and
+  cleanup qualification.
 - `scripts/database-proof-workflow.test.ts` — the workflow's structural test.
+- `scripts/desktop-principal-acceptance-boundary.test.ts` — the run/teardown/
+  receipt boundary test, scoped to the lane's fail-closed structure.
 
 No file of the acceptance lane's own is touched, no existing check is removed
 or renamed, no coverage threshold is lowered, and the draft pull request runs
