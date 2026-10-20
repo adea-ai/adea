@@ -211,14 +211,52 @@ function bundleDeclaresScheme(installedApp: string): boolean {
   }
 }
 
-/** Copies the candidate bundle into the disposable install root. */
+/**
+ * Copies the candidate bundle into the disposable install root.
+ *
+ * The copy is made with `ditto`, the tool macOS itself uses to copy an
+ * application bundle: it preserves the bundle's extended attributes, so the
+ * bundle's code signature still matches its contents. A plain copy breaks the
+ * sealed resources, and the operating system then refuses to route a URL to
+ * the copy. The bundle is never re-signed.
+ */
 function installBundle(sourceBundle: string, profile: AcceptanceProfile): void {
   rmSync(profile.installRoot, { force: true, recursive: true })
   mkdirSync(profile.installRoot, { recursive: true })
-  spawnSync('cp', ['-R', sourceBundle, profile.installedApp], { stdio: 'inherit' })
-  if (!existsSync(profile.installedApp)) {
+  const copied = spawnSync('/usr/bin/ditto', [sourceBundle, profile.installedApp], {
+    stdio: 'inherit',
+  })
+  if (copied.status !== 0 || !existsSync(profile.installedApp)) {
     throw new Error(`the candidate bundle was not installed at ${profile.installedApp}`)
   }
+}
+
+/**
+ * The TCP peers the installed application's own processes are talking to.
+ *
+ * Every peer of a connected socket, as `lsof` reports it. A listening socket
+ * has no peer and is not one.
+ */
+function installedApplicationPeers(installedApp: string): string[] {
+  const pids = (
+    spawnSync('/usr/bin/pgrep', ['-f', installedApp], { encoding: 'utf8' }).stdout ?? ''
+  )
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  if (pids.length === 0) return []
+  const listing = spawnSync('/usr/sbin/lsof', ['-nP', '-iTCP', '-a', '-p', ...pids], {
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  }).stdout
+  if (typeof listing !== 'string') return []
+  const peers: string[] = []
+  for (const line of listing.split('\n').slice(1)) {
+    if (line.includes('(LISTEN)')) continue
+    const peer = line.split(/->\s*/)[1]?.trim()
+    if (peer) peers.push(peer)
+  }
+  return [...new Set(peers)].toSorted()
 }
 
 /** Registers the installed copy with LaunchServices, the way an installer does. */
@@ -496,7 +534,45 @@ export async function runInstalledAppAcceptance(dependencies: {
       evidence: 'installed-app',
     })
 
-    // 4. The UI rows, over the installed application's own origin.
+    // 4a. The installed application's traffic never left the loopback
+    //     interface. This is the no-provider proof for this lane: the
+    //     installed application had no hosted endpoint to reach, and none of
+    //     its sockets left the machine.
+    const peers = installedApplicationPeers(profile.installedApp)
+    const offLoopback = peers.filter(
+      (peer) => !peer.startsWith('127.') && !peer.startsWith('[::1]') && !peer.startsWith('::1')
+    )
+    add({
+      id: 'the-installed-application-traffic-stayed-on-the-loopback-interface',
+      expected:
+        'every TCP peer of the installed application is on the loopback interface, so no hosted provider was reached',
+      actual:
+        peers.length === 0
+          ? 'the installed application had no connected TCP socket'
+          : `the installed application talked to ${peers.length} peer(s); ${offLoopback.length} of them off the loopback interface`,
+      ok: offLoopback.length === 0,
+      evidence: 'installed-app',
+    })
+
+    // 4b. The environment the installed application runs with names no Neon
+    //     endpoint, so the application cannot reach one even by accident.
+    const neonVariables = Object.entries(process.env).filter(
+      ([name, value]) =>
+        /neon/i.test(name) && typeof value === 'string' && /neon\.(tech|build|dev)/i.test(value)
+    )
+    add({
+      id: 'the-acceptance-environment-names-no-neon-endpoint',
+      expected:
+        'no environment variable of the acceptance run names a Neon endpoint, so the installed application cannot fall back to one',
+      actual:
+        neonVariables.length === 0
+          ? 'no Neon endpoint is configured in the acceptance environment'
+          : `${neonVariables.length} Neon endpoint variable(s) are configured`,
+      ok: neonVariables.length === 0,
+      evidence: 'host',
+    })
+
+    // 4c. The UI rows, over the installed application's own origin.
     if (dependencies.runUiRows) {
       const uiRows = await dependencies.runUiRows(INSTALLED_APP_ORIGIN)
       for (const row of uiRows) add(row)
