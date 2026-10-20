@@ -635,7 +635,7 @@ export async function runDisposablePostgresProof(
         options.authSchema
       ),
     })
-    await proveBackupRestore(dependencies, { adminUrl, certificatePath })
+    await proveBackupRestore(dependencies, { adminUrl, certificatePath }, secrets)
 
     receipt = {
       status: 'passed',
@@ -802,9 +802,9 @@ async function runOrderedMigrationChecks(
     }
     const result = dependencies.command(step.command, step.args, environment)
     if (result.status !== 0) {
-      // The output is carried so the failure says what went wrong. The caller
-      // redacts every secret before the message leaves the proof.
-      const detail = result.stderr.trim().slice(0, 500)
+      // The failing lines are carried so the failure says what went wrong. The
+      // caller redacts every secret before the message leaves the proof.
+      const detail = failureEvidence(`${result.stdout}\n${result.stderr}`)
       throw new Error(
         `${step.command} ${step.args.join(' ')} failed with exit code ${result.status}${detail ? `: ${detail}` : ''}`
       )
@@ -882,12 +882,32 @@ export function backupRestoreEnvironment(
 }
 
 /**
+ * The failure evidence of a command that did not pass.
+ *
+ * The first lines of a test run are its header and its passing tests, so
+ * keeping them hides the failure. The failing lines are kept instead, and
+ * every secret is redacted before the evidence leaves the proof.
+ */
+export function failureEvidence(output: string, secrets: readonly string[] = []): string {
+  const lines = String(output ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  const failing = lines.filter((line) =>
+    /\(fail\)|\(todo\)|error:|assertionerror|expected|received|exception/i.test(line)
+  )
+  const chosen = (failing.length > 0 ? failing : lines.slice(-5)).slice(0, 20)
+  return redactSecrets(chosen.join('\n'), secrets).slice(0, 2000)
+}
+
+/**
  * Runs the backup and restore test on the disposable instance. A failed run fails
  * the proof, and so does a run that passed nothing: a skipped test is not a proof.
  */
 async function proveBackupRestore(
   dependencies: DisposableProofDependencies,
-  input: { readonly adminUrl: string; readonly certificatePath: string }
+  input: { readonly adminUrl: string; readonly certificatePath: string },
+  secrets: readonly string[] = []
 ): Promise<void> {
   const testUrl = backupRestoreUrl(input.adminUrl, input.certificatePath)
   assertLoopbackTlsUrl(testUrl, 'AUTH_POSTGRES_TEST_URL', 'verify-full')
@@ -898,8 +918,9 @@ async function proveBackupRestore(
   )
   const output = `${result.stdout}\n${result.stderr}`
   if (result.status !== 0) {
+    const detail = failureEvidence(output, secrets)
     throw new Error(
-      `the backup and restore test failed with exit code ${result.status}: ${output.trim().slice(0, 500)}`
+      `the backup and restore test failed with exit code ${result.status}${detail ? `: ${detail}` : ''}`
     )
   }
   if (!/\b[1-9]\d* pass\b/.test(output) || /\b[1-9]\d* skip\b/.test(output)) {

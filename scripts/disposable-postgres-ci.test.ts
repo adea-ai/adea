@@ -19,6 +19,7 @@ import {
   attachOwnedContainerCleanup,
   authMigrationUrl,
   disposableStartScript,
+  failureEvidence,
   plaintextUrl,
   proofEnvironment,
   redactSecrets,
@@ -260,6 +261,62 @@ describe('the disposable PostgreSQL proof', () => {
     await expect(runDisposablePostgresProof(deps, options)).rejects.toThrow(
       /backup and restore test failed with exit code 1/
     )
+  })
+
+  test('a failed backup and restore run reports the failing line, not the header', async () => {
+    const { deps } = fake({
+      command: (command, args) => ({
+        status: args.includes(BACKUP_RESTORE_TEST) ? 1 : 0,
+        stdout: '',
+        stderr: args.includes(BACKUP_RESTORE_TEST)
+          ? [
+              'bun test v1.4.2',
+              '(pass) loopback target guard > refuses a remote host [0.23ms]',
+              '(fail) schema backup and restore > the restored rows differ',
+              'error: expect(received).toEqual(expected)',
+            ].join('\n')
+          : '',
+      }),
+    })
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
+    )
+    expect(failure).toContain('the restored rows differ')
+    expect(failure).not.toContain('refuses a remote host')
+  })
+
+  test('a failed backup and restore run never carries a secret out of the proof', async () => {
+    const { deps, state } = fake({
+      command: (command, args) => ({
+        status: args.includes(BACKUP_RESTORE_TEST) ? 1 : 0,
+        stdout: '',
+        stderr: args.includes(BACKUP_RESTORE_TEST)
+          ? `(fail) the dump failed for postgresql://postgres:${state.created[0]?.password ?? ''}@127.0.0.1/app`
+          : '',
+      }),
+    })
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
+    )
+    const password = state.created[0]?.password ?? ''
+    expect(password).not.toBe('')
+    expect(failure).toContain('the dump failed')
+    expect(failure).not.toContain(password)
+  })
+
+  test('the failure evidence keeps the failing lines and redacts every secret', () => {
+    const output = [
+      'bun test v1.4.2',
+      '(pass) a passing test [0.1ms]',
+      '(fail) the failing test',
+      'error: could not connect to postgresql://postgres:hunter2@127.0.0.1/app',
+    ].join('\n')
+    const evidence = failureEvidence(output, ['hunter2'])
+    expect(evidence).toContain('the failing test')
+    expect(evidence).toContain('could not connect')
+    expect(evidence).not.toContain('a passing test')
+    expect(evidence).not.toContain('hunter2')
+    expect(evidence).toContain('[redacted]')
   })
 
   test('fails the lane when the backup and restore test passes nothing', async () => {

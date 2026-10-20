@@ -11,8 +11,37 @@ import {
   memoryEnvironment,
   resolveLocalDockerEndpoint,
 } from './policy.mjs'
+import { parseJourneyReceipt } from './acceptance-receipt.mjs'
+import {
+  EVIDENCE_CLASSES,
+  assertEvidenceClass,
+  assertEvidenceNotPromoted,
+  classifyEvidence,
+  receiptEvidence,
+} from './evidence.mjs'
+import {
+  RECOVERY_METHODS,
+  TESTED_RECOVERY_ARTIFACT,
+  assertRecoveryMethod,
+  assertTestedRecoveryArtifact,
+  recoveryPlan,
+} from './recovery.mjs'
+import { CP_COMPATIBILITY_SCOPE, assertCpScope, cpOpenItems } from './cp-compatibility.mjs'
+import {
+  assertFreshAccountOnly,
+  freshAccountOnlyViolations,
+  freshAccountScopeFiles,
+  scanFreshAccountScope,
+} from './fresh-account-only.mjs'
 
 const local = 'postgresql://postgres:synthetic@127.0.0.1:54399/postgres?sslmode=disable'
+// The commands the acceptance runner issues, and the receipt each one prints.
+const FRESH_SCHEMA_COMMAND = 'scripts/fresh-postgres-acceptance/fixture.ts'
+const FOCUSED_JOURNEY_COMMAND =
+  'scripts/fresh-postgres-acceptance/desktop-principal-lifecycle.test.ts'
+const SYNTHETIC_FRESH_SCHEMA_OUTPUT = 'FRESH_SCHEMA_ACCEPTANCE {"status":"passed","migrations":3}\n'
+const SYNTHETIC_JOURNEY_OUTPUT =
+  '1 pass\n0 fail\n0 skip\nDESKTOP_PRINCIPAL_JOURNEY {"status":"passed","journeys":1}\n'
 test('Docker provisioning rejects remote hosts, remote contexts and TLS overrides before mutation', () => {
   const socket = 'unix:///synthetic/docker.sock'
   const inspect = () => JSON.stringify(socket)
@@ -221,10 +250,26 @@ test('memory acceptance publishes a passed receipt only for both executed journe
     mode: 'memory',
     journeys: 2,
     postgres: 'not-run',
+    evidence: 'simulated',
   })
 })
 
-function runSyntheticPostgresAcceptance(cleanupFails) {
+/**
+ * Runs the acceptance runner against a synthetic child.
+ *
+ * The child answers each command with its own output, so the fresh-schema
+ * receipt and the focused journey receipt stay distinct. A child that answered
+ * every command with the fresh-schema receipt produced no journey receipt at
+ * all, and the lane failed closed on a run that should have passed.
+ */
+function runSyntheticPostgresAcceptance(options = {}) {
+  const {
+    cleanupFails = false,
+    freshSchemaOutput = SYNTHETIC_FRESH_SCHEMA_OUTPUT,
+    journeyOutput = SYNTHETIC_JOURNEY_OUTPUT,
+    freshSchemaStatus = 0,
+    journeyStatus = 0,
+  } = options
   const root = mkdtempSync(join(tmpdir(), 'fresh-schema-cleanup-'))
   try {
     for (const path of [
@@ -261,10 +306,17 @@ function runSyntheticPostgresAcceptance(cleanupFails) {
       shim,
       `import childProcess from 'node:child_process';
       import { syncBuiltinESMExports } from 'node:module';
-      childProcess.spawnSync = (command) => {
+      childProcess.spawnSync = (command, args) => {
         if (command === 'docker') return { status: 0, stdout: JSON.stringify('unix:///synthetic/docker.sock') };
         if (command !== 'bun') throw new Error('unexpected synthetic command');
-        return { status: 0, stdout: 'FRESH_SCHEMA_ACCEPTANCE {"status":"passed","migrations":3}\\n' };
+        const list = Array.isArray(args) ? args : [];
+        if (list.includes(${JSON.stringify(FRESH_SCHEMA_COMMAND)})) {
+          return { status: ${freshSchemaStatus}, stdout: ${JSON.stringify(freshSchemaOutput)}, stderr: '' };
+        }
+        if (list.includes(${JSON.stringify(FOCUSED_JOURNEY_COMMAND)})) {
+          return { status: ${journeyStatus}, stdout: ${JSON.stringify(journeyOutput)}, stderr: '' };
+        }
+        throw new Error('unexpected synthetic command: ' + list.join(' '));
       };
       syncBuiltinESMExports();`
     )
@@ -285,7 +337,7 @@ function runSyntheticPostgresAcceptance(cleanupFails) {
 }
 
 test('failed owned cleanup exits nonzero without publishing a passed receipt', () => {
-  const result = runSyntheticPostgresAcceptance(true)
+  const result = runSyntheticPostgresAcceptance({ cleanupFails: true })
   assert.equal(result.error, undefined)
   assert.equal(result.status, 1, result.stderr)
   assert.match(result.stdout, /SYNTHETIC_CLEANUP/)
@@ -294,7 +346,7 @@ test('failed owned cleanup exits nonzero without publishing a passed receipt', (
 })
 
 test('passed PostgreSQL receipt is published only after successful owned cleanup', () => {
-  const result = runSyntheticPostgresAcceptance(false)
+  const result = runSyntheticPostgresAcceptance()
   assert.equal(result.error, undefined)
   assert.equal(result.status, 0, result.stderr)
   const lines = result.stdout.trim().split('\n')
@@ -303,6 +355,238 @@ test('passed PostgreSQL receipt is published only after successful owned cleanup
     status: 'passed',
     migrations: 3,
     verificationRequired: true,
+    evidence: 'local-disposable',
   })
   assert.equal(lines.length, 2)
+})
+
+test('the focused journey receipt is required, and a fresh-schema receipt never satisfies it', () => {
+  const result = runSyntheticPostgresAcceptance({ journeyOutput: SYNTHETIC_FRESH_SCHEMA_OUTPUT })
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 1, result.stderr)
+  assert.doesNotMatch(result.stdout, /"status":"passed"/)
+  assert.match(result.stderr, /the focused acceptance journey produced no receipt/)
+})
+
+test('a focused journey that skipped a test fails the lane closed', () => {
+  const result = runSyntheticPostgresAcceptance({
+    journeyOutput: '1 pass\n0 fail\n1 skip\nDESKTOP_PRINCIPAL_JOURNEY {"status":"passed"}\n',
+  })
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 1, result.stderr)
+  assert.doesNotMatch(result.stdout, /"status":"passed"/)
+  assert.match(result.stderr, /the focused acceptance journey skipped 1 test\(s\)/)
+})
+
+test('a focused journey that did not pass fails the lane closed', () => {
+  const result = runSyntheticPostgresAcceptance({
+    journeyOutput: '0 pass\n1 fail\n0 skip\nDESKTOP_PRINCIPAL_JOURNEY {"status":"failed"}\n',
+  })
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 1, result.stderr)
+  assert.doesNotMatch(result.stdout, /"status":"passed"/)
+  assert.match(result.stderr, /the focused acceptance journey did not pass/)
+})
+
+test('a focused journey that failed to run fails the lane closed', () => {
+  const result = runSyntheticPostgresAcceptance({ journeyStatus: 1 })
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 1, result.stderr)
+  assert.doesNotMatch(result.stdout, /"status":"passed"/)
+  assert.match(result.stderr, /the desktop principal acceptance phase failed/)
+})
+
+test('a missing fresh-schema receipt fails the lane closed', () => {
+  const result = runSyntheticPostgresAcceptance({ freshSchemaOutput: '' })
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 1, result.stderr)
+  assert.doesNotMatch(result.stdout, /"status":"passed"/)
+  assert.match(result.stderr, /fresh-schema receipt missing/)
+})
+
+test('an invalid fresh-schema receipt fails the lane closed', () => {
+  for (const output of [
+    'FRESH_SCHEMA_ACCEPTANCE {"status":"failed","migrations":3}\n',
+    'FRESH_SCHEMA_ACCEPTANCE {"status":"passed","migrations":"three"}\n',
+    'FRESH_SCHEMA_ACCEPTANCE not json\n',
+  ]) {
+    const result = runSyntheticPostgresAcceptance({ freshSchemaOutput: output })
+    assert.equal(result.error, undefined)
+    assert.equal(result.status, 1, result.stderr)
+    assert.doesNotMatch(result.stdout, /"status":"passed"/)
+    assert.match(result.stderr, /invalid fresh-schema receipt/)
+  }
+})
+
+test('a fresh-schema fixture that failed fails the lane closed', () => {
+  const result = runSyntheticPostgresAcceptance({ freshSchemaStatus: 1 })
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 1, result.stderr)
+  assert.doesNotMatch(result.stdout, /"status":"passed"/)
+  assert.match(result.stderr, /fresh-schema fixture failed/)
+})
+
+test('the focused journey receipt is distinct from the fresh-schema receipt', () => {
+  assert.equal(parseJourneyReceipt(SYNTHETIC_FRESH_SCHEMA_OUTPUT), null)
+  assert.deepEqual(parseJourneyReceipt(SYNTHETIC_JOURNEY_OUTPUT), {
+    status: 'passed',
+    journeys: 1,
+  })
+  assert.equal(parseJourneyReceipt('DESKTOP_PRINCIPAL_JOURNEY not json\n'), null)
+})
+
+test('an evidence class names how much a receipt is worth, and only live needs authorization', () => {
+  assert.deepEqual(EVIDENCE_CLASSES, ['simulated', 'local-disposable', 'ci', 'live'])
+  assert.equal(classifyEvidence('synthetic-child'), 'simulated')
+  assert.equal(classifyEvidence('memory-journey'), 'simulated')
+  assert.equal(classifyEvidence('local-disposable'), 'local-disposable')
+  assert.equal(classifyEvidence('ci-disposable-proof'), 'ci')
+  assert.throws(
+    () => classifyEvidence('live-railway'),
+    /live acceptance evidence is not authorized/
+  )
+  assert.equal(classifyEvidence('live-railway', { authorized: true }), 'live')
+  assert.throws(() => classifyEvidence('unknown-source'), /unknown acceptance evidence source/)
+  assert.throws(() => assertEvidenceClass('strong'), /unknown acceptance evidence class/)
+  assert.throws(() => assertEvidenceClass(undefined), /unknown acceptance evidence class/)
+})
+
+test('a receipt may not claim an evidence class stronger than its source produced', () => {
+  assert.equal(assertEvidenceNotPromoted({ evidence: 'simulated' }, 'synthetic-child'), 'simulated')
+  assert.equal(
+    assertEvidenceNotPromoted({ evidence: 'local-disposable' }, 'local-disposable'),
+    'local-disposable'
+  )
+  assert.equal(assertEvidenceNotPromoted({ evidence: 'ci' }, 'ci-disposable-proof'), 'ci')
+  assert.throws(
+    () => assertEvidenceNotPromoted({ evidence: 'ci' }, 'synthetic-child'),
+    /stronger than its source/
+  )
+  assert.throws(
+    () => assertEvidenceNotPromoted({ evidence: 'live' }, 'local-disposable'),
+    /stronger than its source/
+  )
+  assert.throws(
+    () => assertEvidenceNotPromoted({}, 'synthetic-child'),
+    /unknown acceptance evidence class/
+  )
+  assert.throws(
+    () => receiptEvidence({ evidence: 'simulated' }, 'local-disposable'),
+    /does not match its source/
+  )
+  assert.equal(
+    receiptEvidence({ evidence: 'local-disposable' }, 'local-disposable'),
+    'local-disposable'
+  )
+})
+
+test('recovery is a forward-fix or a Railway backup/restore, and nothing else', () => {
+  assert.deepEqual(RECOVERY_METHODS, ['forward-fix', 'railway-backup-restore'])
+  assert.equal(assertRecoveryMethod('forward-fix'), 'forward-fix')
+  assert.equal(assertRecoveryMethod('railway-backup-restore'), 'railway-backup-restore')
+  for (const method of [
+    'neon-rollback',
+    'legacy-artifact',
+    'previous-deployment',
+    'forward-compatibility',
+    '',
+  ]) {
+    assert.throws(() => assertRecoveryMethod(method), /unsupported recovery method/)
+  }
+})
+
+test('only the exact tested artifact may be named by a recovery', () => {
+  const artifact = assertTestedRecoveryArtifact(TESTED_RECOVERY_ARTIFACT.commit)
+  assert.equal(artifact.commit, TESTED_RECOVERY_ARTIFACT.commit)
+  assert.match(artifact.commit, /^[0-9a-f]{40}$/)
+  for (const commit of ['5747673e5d31ff2da2dcc8dbdaa908ca94f8ace8', 'previous-deployment', '']) {
+    assert.throws(
+      () => assertTestedRecoveryArtifact(commit),
+      /not the tested artifact; a different commit needs its own proof/
+    )
+  }
+  const plan = recoveryPlan()
+  assert.equal(plan.artifact.commit, TESTED_RECOVERY_ARTIFACT.commit)
+  assert.deepEqual(
+    plan.methods.map((entry) => entry.method),
+    ['forward-fix', 'railway-backup-restore']
+  )
+  for (const entry of plan.methods) {
+    assert.ok(entry.steps.length > 0, 'every method names its steps')
+    assert.match(entry.liveAction, /root-owned live operation/)
+  }
+})
+
+test('the compatibility scope never claims a Control Plane item with an Adea receipt', () => {
+  assert.equal(assertCpScope(), CP_COMPATIBILITY_SCOPE)
+  const open = cpOpenItems()
+  assert.ok(open.length > 0, 'the Control Plane items stay open')
+  for (const item of open) {
+    assert.equal(item.owner, 'control-plane')
+    assert.equal(item.qualifiedBy, 'control-plane-receipt')
+  }
+  assert.throws(
+    () =>
+      assertCpScope([
+        {
+          id: 'cp-migration-journal',
+          owner: 'control-plane',
+          qualifiedBy: 'adea-receipt',
+        },
+      ]),
+    /qualified by an evidence its owner does not hold/
+  )
+  assert.throws(
+    () =>
+      assertCpScope([
+        {
+          id: 'adea-application-migrations',
+          owner: 'adea',
+          qualifiedBy: 'control-plane-receipt',
+        },
+      ]),
+    /qualified by an evidence its owner does not hold/
+  )
+  assert.throws(() => assertCpScope([]), /scope is empty/)
+})
+
+test('the fresh-account scope carries no legacy import, dual write or remote target', () => {
+  const root = fileURLToPath(new URL('../../', import.meta.url))
+  const files = freshAccountScopeFiles(root)
+  assert.ok(files.length > 0, 'the scope is not empty')
+  assert.deepEqual(scanFreshAccountScope(root), [])
+  assert.equal(assertFreshAccountOnly(root), true)
+})
+
+test('the fresh-account rule catches every construct it claims to catch', () => {
+  const cases = [
+    ['const url = process.env.NEON_AUTH_BASE_URL\n', 'legacy-environment'],
+    ["const host = 'db.neon.tech'\n", 'legacy-host'],
+    ['await importLegacyIdentities(pool)\n', 'legacy-import'],
+    ['await seedLegacyUsers(pool)\n', 'legacy-import'],
+    ["const mode = 'dual-write'\n", 'dual-write'],
+    ['await dualWriteToBoth(pool)\n', 'dual-write'],
+    ["await pool.query('INSERT INTO app.users SELECT * FROM legacy.users')\n", 'row-copy'],
+    ["await pool.query('\\\\copy app.users FROM /tmp/users.csv')\n", 'row-copy'],
+    ["const url = 'postgresql://user:secret@db.example.test/app'\n", 'remote-database-target'],
+    [
+      "const url = 'postgresql://user:secret@127.0.0.1/app?host=db.example.test'\n",
+      'database-routing-override',
+    ],
+  ]
+  for (const [source, kind] of cases) {
+    const violations = freshAccountOnlyViolations('synthetic.ts', source)
+    assert.ok(
+      violations.some((violation) => violation.kind === kind),
+      'expected ' + kind + ' for ' + source
+    )
+  }
+  assert.deepEqual(freshAccountOnlyViolations('synthetic.ts', 'const local = 1\n'), [])
+  assert.deepEqual(
+    freshAccountOnlyViolations(
+      'synthetic.ts',
+      "// the lane must not import legacy identities\nconst local = 'postgresql://u:p@127.0.0.1:5432/db'\n"
+    ),
+    []
+  )
 })

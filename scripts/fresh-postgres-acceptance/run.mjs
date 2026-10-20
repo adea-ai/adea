@@ -3,6 +3,7 @@ import { access, readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
 import { assertFocusedJourneyPassed } from './acceptance-receipt.mjs'
+import { classifyEvidence } from './evidence.mjs'
 import { fixtureEnvironment, memoryEnvironment, resolveLocalDockerEndpoint } from './policy.mjs'
 
 const repositoryFlag = process.argv.indexOf('--repository')
@@ -56,7 +57,16 @@ if (process.argv.includes('--memory')) {
     )
   }
   console.log(
-    JSON.stringify({ status: 'passed', mode: 'memory', journeys: 2, postgres: 'not-run' })
+    JSON.stringify({
+      status: 'passed',
+      mode: 'memory',
+      journeys: 2,
+      postgres: 'not-run',
+      // The memory lane runs synthetic journeys against an in-memory database.
+      // It proves the provider's request path and nothing about PostgreSQL, so
+      // its receipt carries the weakest class and cannot be counted as more.
+      evidence: classifyEvidence('memory-journey'),
+    })
   )
   process.exit(0)
 }
@@ -141,7 +151,14 @@ try {
     .split('\n')
     .findLast((value) => value.startsWith('FRESH_SCHEMA_ACCEPTANCE '))
   if (!line) throw new Error('fresh-schema receipt missing')
-  const receipt = JSON.parse(line.slice('FRESH_SCHEMA_ACCEPTANCE '.length))
+  let receipt
+  try {
+    receipt = JSON.parse(line.slice('FRESH_SCHEMA_ACCEPTANCE '.length))
+  } catch {
+    // A receipt that is not JSON is an invalid receipt, not a parse error the
+    // caller has to interpret.
+    throw new Error('invalid fresh-schema receipt')
+  }
   if (receipt.status !== 'passed' || !Number.isInteger(receipt.migrations))
     throw new Error('invalid fresh-schema receipt')
   // The focused desktop principal journey runs in this lane, against the same
@@ -175,6 +192,10 @@ try {
     status: 'passed',
     migrations: receipt.migrations,
     verificationRequired: true,
+    // The receipt names the class of its own evidence: a disposable loopback
+    // instance of the real provider and the real database. It is not a CI
+    // result and not a live one, and it may not be recorded as either.
+    evidence: classifyEvidence('local-disposable'),
     ...(receipt.desktopPrincipal ? { desktopPrincipal: receipt.desktopPrincipal } : {}),
   }
 } catch (error) {
