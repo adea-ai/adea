@@ -5,6 +5,7 @@ import {
   BuiltWorkerFailure,
   failureMessage,
   publishedReceipt,
+  rawCredentialValues,
   sanitizeText,
   sanitizeValue,
   sanitizeWorkerLogs,
@@ -113,9 +114,16 @@ describe('the built-Worker receipt sanitization', () => {
 })
 
 describe('the built-Worker top-level field removal', () => {
-  test('the first top-level value is removed', () => {
+  test('the first top-level value is replaced with a placeholder', () => {
     const body = '{"credential":"first","other":"kept"}'
-    expect(withoutTopLevelValue(body, 'credential')).toBe('{"credential":,"other":"kept"}')
+    expect(withoutTopLevelValue(body, 'credential')).toBe(
+      '{"credential":"[redacted]","other":"kept"}'
+    )
+  })
+
+  test('the body stays parseable after the authorized value is replaced', () => {
+    const body = '{"credential":"first","other":"kept"}'
+    expect(() => JSON.parse(withoutTopLevelValue(body, 'credential'))).not.toThrow()
   })
 
   test('a duplicate occurrence stays in the text', () => {
@@ -151,6 +159,30 @@ describe('the built-Worker top-level field removal', () => {
   test('a nested member is not a top-level value', () => {
     const body = '{"data":{"credential":"nested"}}'
     expect(topLevelStringValue(body, 'credential')).toBeNull()
+  })
+
+  test('a credential is read at any depth', () => {
+    const nested = '{"data":{"credential":"nested"}}'
+    expect(rawCredentialValues(nested)).toEqual(['nested'])
+    const inArray = '{"data":[{"credential":"in-an-array"}]}'
+    expect(rawCredentialValues(inArray)).toEqual(['in-an-array'])
+    const escaped = '{"\u0063redential":"escaped"}'
+    expect(rawCredentialValues(escaped)).toEqual(['escaped'])
+  })
+
+  test('an escaped credential key is read at any depth', () => {
+    // The raw form: a single-backslash JavaScript escape would be cooked
+    // before the body is read, and the escape would never be exercised.
+    const nested = String.raw`{"data":{"\u0063redential":"nested-escaped"}}`
+    expect(nested).toContain('\\u0063')
+    expect(rawCredentialValues(nested)).toEqual(['nested-escaped'])
+    const inArray = String.raw`{"data":[{"\u0063redential":"array-escaped"}]}`
+    expect(rawCredentialValues(inArray)).toEqual(['array-escaped'])
+  })
+
+  test('a raw duplicate member is read even when the first value is empty', () => {
+    const body = '{"credential":"","credential":"later"}'
+    expect(rawCredentialValues(body)).toEqual(['later'])
   })
 })
 

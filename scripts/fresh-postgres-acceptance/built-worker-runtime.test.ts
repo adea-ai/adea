@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,10 +8,12 @@ import {
   artifactFingerprint,
   buildProvenancePath,
   builtWorkerArtifact,
+  createLoopbackCertificate,
   mayPublishReceipt,
   mayRemoveRuntimeMaterial,
   readBuildProvenance,
   removeOwnedMaterial,
+  runOwnedSetup,
   startBuiltWorker,
   tearDownAfterWorker,
   verifyBuildProvenance,
@@ -597,6 +599,51 @@ describe('the built-Worker runtime material', () => {
       // material stays because the group is still alive.
       worker.requestStop()
       expect(mayRemoveRuntimeMaterial({ worker })).toBe(false)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('the built-Worker owned setup', () => {
+  test('a failure to mint the certificate runs the owned cleanup', async () => {
+    let cleaned = 0
+    // The certificate cannot be written into a directory that does not exist,
+    // so the real minting path fails.
+    const missing = join(tmpdir(), 'adea-missing-certificate-directory')
+    await expect(
+      runOwnedSetup({
+        setup: () => createLoopbackCertificate(missing),
+        teardown: () => {
+          cleaned += 1
+        },
+      })
+    ).rejects.toThrow(/TLS material failed/u)
+    expect(cleaned).toBe(1)
+  })
+
+  test('a failure to copy the certificate runs the owned cleanup', async () => {
+    let cleaned = 0
+    const directory = mkdtempSync(join(tmpdir(), 'adea-worker-copy-'))
+    try {
+      const certificate = createLoopbackCertificate(directory)
+      await expect(
+        runOwnedSetup({
+          setup: () => {
+            // The copy cannot be written into a directory that does not exist,
+            // so the real copy path fails.
+            copyFileSync(
+              certificate.certificatePath,
+              join(directory, 'missing', 'built-worker-ca.crt')
+            )
+            return certificate
+          },
+          teardown: () => {
+            cleaned += 1
+          },
+        })
+      ).rejects.toThrow()
+      expect(cleaned).toBe(1)
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

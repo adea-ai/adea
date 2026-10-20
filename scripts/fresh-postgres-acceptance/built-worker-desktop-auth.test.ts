@@ -40,6 +40,16 @@ function response(
   return { status, headers, body }
 }
 
+/**
+ * The escaped forms travel on the wire as they are written.
+ *
+ * A single-backslash JavaScript escape is cooked before the request is sent,
+ * so the wire would carry the character and not the escape. These are the
+ * literal backslash sequences, and the regressions assert the wire.
+ */
+const ESCAPED_CREDENTIAL_KEY = String.raw`\u0063redential`
+const ESCAPED_SECRET_PREFIX = String.raw`\u0062`
+
 /** The caller's own secret, used by the credential accounting regressions. */
 const CALLER_AUTH_SECRET = 'built-worker-auth-secret-for-the-test-only-123456'
 
@@ -828,6 +838,30 @@ describe('the built-Worker desktop credential material', () => {
     expect(leakage?.passed).toBe(false)
   })
 
+  test('an issuance body with a known secret behind an escaped character fails the leak invariant', async () => {
+    const correct = correctWorker()
+    const wire: string[] = []
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        const body = `{"credential":"${'A'.repeat(40)}0","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000","echo":"${ESCAPED_SECRET_PREFIX}uilt-worker-auth-secret-for-the-test-only-123456"}`
+        wire.push(body)
+        return { ...answered, body }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth({
+      ...baseInput(transport),
+      secrets: [CALLER_AUTH_SECRET],
+    })
+    // The wire carried the literal backslash-u sequence.
+    expect(wire.join('\n')).toContain('\\u0062')
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+  })
+
   const denials: readonly { readonly name: string; readonly request: number }[] = [
     { name: 'a nested credential object', request: 2 },
     { name: 'a duplicate member with an empty first value', request: 2 },
@@ -840,39 +874,46 @@ describe('the built-Worker desktop credential material', () => {
     test(`a refused answer with ${denial.name} fails closed`, async () => {
       const correct = correctWorker()
       const fresh = `${'C'.repeat(40)}${denial.request}`
+      const wire: string[] = []
       let exchanges = 0
       const transport: BuiltWorkerTransport = async (request) => {
         const answered = await correct.transport(request)
         if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
           exchanges += 1
           if (exchanges === denial.request && answered.status !== 200) {
-            switch (denial.name) {
-              case 'a nested credential object':
-                return {
-                  ...answered,
-                  body: `{"error":"Desktop authorization exchange failed","data":{"credential":"${fresh}"}}`,
-                }
-              case 'a duplicate member with an empty first value':
-                return {
-                  ...answered,
-                  body: `{"credential":"","credential":"${fresh}","error":"Desktop authorization exchange failed"}`,
-                }
-              case 'a member behind an escaped key':
-                return {
-                  ...answered,
-                  body: `{"\u0063redential":"${fresh}","error":"Desktop authorization exchange failed"}`,
-                }
-              case 'a credential in a header':
-                return {
-                  ...answered,
-                  headers: { ...answered.headers, authorization: `Desktop ${fresh}` },
-                }
-              default:
-                return {
-                  ...answered,
-                  body: `{"error":"Desktop authorization exchange failed","echo":"\u0062uilt-worker-auth-secret-for-the-test-only-123456"}`,
-                }
-            }
+            const refused = (() => {
+              switch (denial.name) {
+                case 'a nested credential object':
+                  return {
+                    ...answered,
+                    body: `{"error":"Desktop authorization exchange failed","data":{"credential":"${fresh}"}}`,
+                  }
+                case 'a duplicate member with an empty first value':
+                  return {
+                    ...answered,
+                    body: `{"credential":"","credential":"${fresh}","error":"Desktop authorization exchange failed"}`,
+                  }
+                case 'a member behind an escaped key':
+                  return {
+                    ...answered,
+                    body: `{"${ESCAPED_CREDENTIAL_KEY}":"${fresh}","error":"Desktop authorization exchange failed"}`,
+                  }
+                case 'a credential in a header':
+                  return {
+                    ...answered,
+                    headers: { ...answered.headers, authorization: `Desktop ${fresh}` },
+                  }
+                default:
+                  return {
+                    ...answered,
+                    body: `{"error":"Desktop authorization exchange failed","echo":"${ESCAPED_SECRET_PREFIX}uilt-worker-auth-secret-for-the-test-only-123456"}`,
+                  }
+              }
+            })()
+            // What the transport puts on the wire is what the qualification
+            // reads, so the wire is recorded and asserted.
+            wire.push(refused.body)
+            return refused
           }
         }
         return answered
@@ -881,6 +922,15 @@ describe('the built-Worker desktop credential material', () => {
         ...baseInput(transport),
         secrets: [CALLER_AUTH_SECRET],
       })
+      // The wire carried the literal backslash-u sequence, not a cooked
+      // character: the qualification saw the escaped form.
+      if (denial.name === 'a member behind an escaped key') {
+        expect(wire.join('\n')).toContain('\\u0063')
+        expect(wire.join('\n')).not.toContain('"credential"')
+      }
+      if (denial.name === 'a known secret behind an escaped character') {
+        expect(wire.join('\n')).toContain('\\u0062')
+      }
       expect(receipt.status).toBe('failed')
       const failed = receipt.assertions.filter((assertion) => !assertion.passed)
       expect(failed.length).toBeGreaterThan(0)

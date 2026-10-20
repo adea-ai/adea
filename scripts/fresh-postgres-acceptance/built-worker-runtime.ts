@@ -20,7 +20,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { request as httpsRequest } from 'node:https'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 
 import { BuiltWorkerFailure } from './built-worker-failures'
 import type { BuiltWorkerRequest, BuiltWorkerResponse } from './built-worker-desktop-auth'
@@ -816,6 +816,69 @@ export function mayRemoveRuntimeMaterial(input: {
 }): boolean {
   if (!input.worker) return true
   return !input.worker.groupAlive()
+}
+
+/**
+ * Writes the one-day self-signed certificate the disposable instance and the
+ * Worker both serve with.
+ *
+ * The certificate never leaves the machine: the instance is bound to loopback
+ * and the material is removed with the run.
+ */
+export function createLoopbackCertificate(directory: string): {
+  certificatePath: string
+  keyPath: string
+} {
+  const certificatePath = join(directory, 'server.crt')
+  const keyPath = join(directory, 'server.key')
+  const result = spawnSync(
+    'openssl',
+    [
+      'req',
+      '-x509',
+      '-newkey',
+      'rsa:2048',
+      '-nodes',
+      '-keyout',
+      keyPath,
+      '-out',
+      certificatePath,
+      '-days',
+      '1',
+      '-subj',
+      '/CN=localhost',
+      '-addext',
+      'subjectAltName=DNS:localhost,IP:127.0.0.1',
+      '-addext',
+      'basicConstraints=critical,CA:TRUE',
+      '-addext',
+      'keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign',
+    ],
+    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 }
+  )
+  if (result.error || result.status !== 0) {
+    throw new Error('generating the loopback TLS material failed')
+  }
+  return { certificatePath, keyPath }
+}
+
+/**
+ * Runs the owned setup of a run and tears it down when the setup fails.
+ *
+ * The setup creates what the run owns — the certificate, the copy of it, the
+ * container. A failure in any of them must not leave the material behind, so
+ * the teardown runs before the failure is reported.
+ */
+export async function runOwnedSetup<T>(input: {
+  readonly setup: () => T | Promise<T>
+  readonly teardown: () => void
+}): Promise<T> {
+  try {
+    return await input.setup()
+  } catch (error) {
+    input.teardown()
+    throw error
+  }
 }
 
 /**

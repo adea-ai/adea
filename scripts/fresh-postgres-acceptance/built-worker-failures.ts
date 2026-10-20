@@ -259,7 +259,10 @@ function topLevelMemberValue(
 export function withoutTopLevelValue(body: string, field: string): string {
   const span = topLevelMemberValue(body, field)
   if (!span) return body
-  return `${body.slice(0, span.valueStart)}${body.slice(span.valueEnd)}`
+  // The authorized occurrence is replaced with a placeholder, not removed: the
+  // body has to stay parseable, or a value hidden behind an escaped character
+  // in the same body would go unseen.
+  return `${body.slice(0, span.valueStart)}"${REDACTED}"${body.slice(span.valueEnd)}`
 }
 
 /**
@@ -311,6 +314,7 @@ export function decodedStringValues(value: unknown): string[] {
  * text, and a member behind an escaped key survives only in the decoded body.
  */
 export function rawCredentialValues(body: string): string[] {
+  const found = new Set<string>()
   const values: string[] = []
   for (const match of body.matchAll(/"credential"\s*:\s*"((?:[^"\\]|\\.)*)"/gu)) {
     const raw = match[1] ?? ''
@@ -320,15 +324,40 @@ export function rawCredentialValues(body: string): string[] {
     } catch {
       // A value that is not a JSON string is kept as it was written.
     }
-    if (value) values.push(value)
+    if (value && !found.has(value)) {
+      found.add(value)
+      values.push(value)
+    }
   }
   const decoded = decodeJsonBody(body)
   if (decoded !== undefined) {
-    for (const [key, entry] of Object.entries(decoded as Record<string, unknown>)) {
-      if (key === 'credential' && typeof entry === 'string' && entry) values.push(entry)
+    const nested: string[] = []
+    collectDecodedCredentials(decoded, nested)
+    for (const value of nested) {
+      if (found.has(value)) continue
+      found.add(value)
+      values.push(value)
     }
   }
   return values
+}
+
+/**
+ * Every credential a decoded body carries, at any depth.
+ *
+ * The decoded body is walked through objects and arrays, and the keys are the
+ * decoded ones, so a member behind an escaped key is a member like any other.
+ */
+function collectDecodedCredentials(value: unknown, values: string[]): void {
+  if (Array.isArray(value)) {
+    for (const entry of value) collectDecodedCredentials(entry, values)
+    return
+  }
+  if (!value || typeof value !== 'object') return
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (key === 'credential' && typeof entry === 'string' && entry) values.push(entry)
+    collectDecodedCredentials(entry, values)
+  }
 }
 
 /**

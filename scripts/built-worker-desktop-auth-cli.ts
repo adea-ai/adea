@@ -69,8 +69,10 @@ import {
   buildBuiltWorker,
   buildLocalWorkerConfig,
   builtWorkerArtifact,
+  createLoopbackCertificate,
   mayPublishReceipt,
   removeOwnedMaterial,
+  runOwnedSetup,
   startBuiltWorker,
   tearDownAfterWorker,
   waitForWorkerReady,
@@ -159,45 +161,6 @@ function opensslAvailable(): boolean {
     timeout: 10_000,
   })
   return !result.error && result.status === 0
-}
-
-/**
- * Writes the one-day self-signed certificate the disposable instance and the
- * Worker both serve with. The certificate never leaves the machine: the
- * instance is bound to loopback and the material is removed with the run.
- */
-function createCertificate(directory: string): { certificatePath: string; keyPath: string } {
-  const certificatePath = join(directory, 'server.crt')
-  const keyPath = join(directory, 'server.key')
-  const result = spawnSync(
-    'openssl',
-    [
-      'req',
-      '-x509',
-      '-newkey',
-      'rsa:2048',
-      '-nodes',
-      '-keyout',
-      keyPath,
-      '-out',
-      certificatePath,
-      '-days',
-      '1',
-      '-subj',
-      '/CN=localhost',
-      '-addext',
-      'subjectAltName=DNS:localhost,IP:127.0.0.1',
-      '-addext',
-      'basicConstraints=critical,CA:TRUE',
-      '-addext',
-      'keyUsage=critical,digitalSignature,keyEncipherment,keyCertSign',
-    ],
-    { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 60_000 }
-  )
-  if (result.error || result.status !== 0) {
-    throw new Error('generating the loopback TLS material failed')
-  }
-  return { certificatePath, keyPath }
 }
 
 /** Creates the owned container from the digest-pinned image. */
@@ -340,9 +303,9 @@ async function main(): Promise<void> {
     repositoryRoot,
     'apps/web/dist/server/built-worker-desktop-auth-ca.crt'
   )
-  // The owned cleanup is installed before the certificate is minted and before
-  // it is copied, so a failure in either leaves no material behind.
-  attachOwnedContainerCleanup({
+  // The owned cleanup is installed before anything is created, so a failure in
+  // the setup leaves no material behind.
+  const cleanup = attachOwnedContainerCleanup({
     name: containerName,
     remove: removeContainer,
     removeTemporaryMaterial: () => {
@@ -366,13 +329,31 @@ async function main(): Promise<void> {
       console.error(`the built-Worker qualification cleanup failed: ${message}`)
     },
   })
-  const certificate = createCertificate(directory)
-  mkdirSync(join(repositoryRoot, 'apps/web/dist/server'), { recursive: true })
-  copyFileSync(certificate.certificatePath, workerCertificate)
+  // The ordinary exit path has no signal handler, so the owned teardown runs
+  // there as well. It is idempotent.
+  process.once('exit', () => {
+    try {
+      cleanup.teardown()
+    } catch {
+      // An exiting process cannot report a cleanup failure.
+    }
+  })
   let bodyError: unknown
   let receipt: Awaited<ReturnType<typeof runBuiltWorkerDesktopAuth>> | undefined
 
   try {
+    // The owned setup is inside the protected body: a failure to mint the
+    // certificate or to copy it into the Worker's directory is an ordinary
+    // failure, and the owned cleanup runs for it.
+    const certificate = await runOwnedSetup({
+      setup: () => {
+        const minted = createLoopbackCertificate(directory)
+        mkdirSync(join(repositoryRoot, 'apps/web/dist/server'), { recursive: true })
+        copyFileSync(minted.certificatePath, workerCertificate)
+        return minted
+      },
+      teardown: () => cleanup.teardown(),
+    })
     createContainer({
       name: containerName,
       password,
