@@ -512,6 +512,38 @@ describe('the bounded reads of the qualification', () => {
     expect(read.refusedWith).toBe(CATEGORY.storeRead)
   })
 
+  test('a blob that arrives after the deadline is not replayable', async () => {
+    // A seeded, valid entry. Only the archive read is slow: it answers in a microtask that blocks the event loop for
+    // 30ms, so the timer cannot fire and the result arrives after the 10ms budget.
+    const inner = createMemoryStore()
+    const entry = binaryEntry('microtask-block')
+    const published = await publishEntry(inner, entry, { scope: profiles['darwin-a'].scope })
+    expect(published.ok).toBe(true)
+    const store = {
+      ...inner,
+      get: (key: string, options: unknown) =>
+        key.startsWith('blobs/')
+          ? Promise.resolve().then(() => {
+              block(30)
+              return inner.get(key, options as never)
+            })
+          : inner.get(key, options as never),
+    }
+    const result = await qualifyTransfer({
+      store,
+      entry,
+      from: profiles['darwin-a'],
+      to: profiles['darwin-b'],
+      publish: false,
+      deadlineMs: 10,
+    })
+    // The result refuses the replay: the budget was spent, and the report says so.
+    expect(result.replayable).toBe(false)
+    expect(result.valueIdentical).not.toBe(true)
+    expect(result.timedOut).toBe(true)
+    expect(result.refusedWith).toBe(CATEGORY.timeout)
+  })
+
   test('a read that blocks past the budget is not replayable', async () => {
     // The read blocks the event loop, so the timer cannot fire: the budget is measured on the clock, and the report
     // must not claim that the entry is replayable.
