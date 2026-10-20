@@ -5,8 +5,9 @@ import { createApiClient } from '@adea-ai/api-client'
 import { workspaceStore } from '@adea-ai/state'
 import { HostedSimEntry } from '../../../src/components/hosted-sim-entry'
 
-workspaceStore.getState().setSelectedWorkspaceId('workspace-one')
-const requested = new URLSearchParams(window.location.search).get('surface')
+const query = new URLSearchParams(window.location.search)
+workspaceStore.getState().setSelectedWorkspaceId(query.get('workspace') ?? 'workspace-one')
+const requested = query.get('surface')
 const surface =
   requested === 'room-designer' || requested === 'character-designer' ? requested : 'hq'
 const api = createApiClient({ getTemporaryCredential: () => 'local-acceptance-fixture' })
