@@ -9,16 +9,18 @@ reconciled, and what it does **not** claim.
 
 ## 1. Scope
 
-| File                                                    | What changed                                                                                                       |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `scripts/vp-local-run.mjs`                              | a released lock is absent to the reader, not a failure; a component another run created is used, not refused       |
-| `scripts/vp-local-run.test.ts`                          | the regressions for both, and the never-overlap proof at two scales                                                |
-| `scripts/toolchain-pin.test.ts`                         | the guard that keeps the pinned Bun, Node and Vite+ versions, the native checker and the Actions cache key in step |
-| `docs/vite-plus-proof.md`                               | the locking and platform behaviour, as it is now                                                                   |
-| `AGENTS.md`                                             | the pinned Bun version the instructions name                                                                       |
-| `.oxlintrc.json`, `.gitignore`                          | the last live Turbo traces                                                                                         |
-| `.agents/skills/turborepo/`, `.agents/.skill-lock.json` | the Turbo skill this repository no longer uses                                                                     |
-| `docs/evidence/vp-local-cache-lane-e-2026-10-20.md`     | this receipt                                                                                                       |
+| File                                                      | What changed                                                                                                       |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `scripts/vp-local-run.mjs`                                | a released lock is absent to the reader, not a failure; a component another run created is used, not refused       |
+| `scripts/vp-local-run.test.ts`                            | the regressions for both, and the never-overlap proof at two scales                                                |
+| `scripts/toolchain-pin.test.ts`                           | the guard that keeps the pinned Bun, Node and Vite+ versions, the native checker and the Actions cache key in step |
+| `docs/vite-plus-proof.md`                                 | the locking and platform behaviour, as it is now                                                                   |
+| `AGENTS.md`                                               | the pinned Bun version the instructions name                                                                       |
+| `.oxlintrc.json`, `.gitignore`                            | the last live Turbo traces                                                                                         |
+| `.agents/skills/turborepo/`, `.agents/.skill-lock.json`   | the Turbo skill this repository no longer uses                                                                     |
+| `docs/evidence/vp-local-cache-lane-e-2026-10-20.md`       | this receipt                                                                                                       |
+| `docs/evidence/cache-tooling-no-neon-proof-2026-10-20.md` | the no-Neon proof for the admitted scope                                                                           |
+| `scripts/no-neon-cache-scope.test.ts`                     | the guard that holds it                                                                                            |
 
 No dependency was added, removed or moved. `bun.lock` and `package.json` are untouched: the toolchain pins were already in
 place, and they are now guarded rather than changed.
@@ -260,14 +262,15 @@ Host: macOS 14 (darwin-arm64), Node 24.21.0 and Bun 1.4.3 from the repository's 
 
 Each new regression was run against the module as it was, and fails there:
 
-| Regression                                                                              | Against the module as it was                    |
-| --------------------------------------------------------------------------------------- | ----------------------------------------------- |
-| a lock that is released between the check and the read is absent, not a failure         | fails: `ENOENT` leaves `withLock`               |
-| a run record that is released between the check and the read leaves the dead owner dead | fails: `ENOENT` leaves `withLock`               |
-| a lock that is released between the check and the read does not fail the release        | fails: the release throws over the run's result |
-| a component another run created at the same time is used, not refused                   | fails: `EEXIST` leaves `ensurePrivateDirectory` |
-| a component another run created at the same time is still judged by what it is          | fails: `EEXIST` leaves `ensurePrivateDirectory` |
-| the instructions name the pinned Bun version                                            | fails: the instructions named Bun 1.4.0         |
+| Regression                                                                              | Against the module as it was                                           |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| a lock that is released between the check and the read is absent, not a failure         | fails: `ENOENT` leaves `withLock`                                      |
+| a run record that is released between the check and the read leaves the dead owner dead | fails: `ENOENT` leaves `withLock`                                      |
+| a lock that is released between the check and the read does not fail the release        | fails: the release throws over the run's result                        |
+| a component another run created at the same time is used, not refused                   | fails: `EEXIST` leaves `ensurePrivateDirectory`                        |
+| a component another run created at the same time is still judged by what it is          | fails: `EEXIST` leaves `ensurePrivateDirectory`                        |
+| the instructions name the pinned Bun version                                            | fails: the instructions named Bun 1.4.0                                |
+| the admitted scope names no Neon service                                                | fails: a `NEON_AUTH_BASE_URL` comment in the transport trips the guard |
 
 The container tests in the coverage lane could not pull the postgres image (`toomanyrequests` from the registry mirrors),
 the same environment limit the campaign receipts record. The lane completed: those tests handle the pull failure
@@ -286,12 +289,20 @@ themselves, and the run passed with 0 failures.
 
 ## 7. Coordination and handoff
 
+- **Railway is the sole target.** The no-Neon proof for this lane's admitted scope is
+  [the cache and tooling no-Neon proof](cache-tooling-no-neon-proof-2026-10-20.md): the thirteen files the lane owns
+  name no Neon service, package, variable or host, no database service at all, and no repository secret, and the
+  R2 transport is off and falls back to the caller's own local cache. There is no Neon fallback, compatibility path or
+  rollback in the scope; the recovery is a Railway backup/restore or a forward fix. The one Neon trace in this lane's
+  own tooling surface - the coverage lane's list naming the auth driver's `neon-driver.test.ts` - is routed to that
+  test's owner rather than removed here, because taking it out of the list would weaken a gate another lane owns.
 - **Lane F** (CI and release compatibility) routes product and cache defects to their single owner. No cache or lock
   defect was reported to this lane. This lane owns `scripts/vp-*.mjs`, `scripts/vite-plus-proof.mjs`,
   `scripts/orch-*.mjs` and the cache lanes of `.github/workflows`; a CI or release file that F needs is not changed here.
 - **Lane H** (efficiency and no-Neon dependency audit) measures and audits. The cache and tooling scope holds no active
-  Neon coupling: the only match for "neon" in it is the file name of a test in the coverage lane's list, and no
-  dependency, script, configuration or workflow of the cache scope names a Neon service.
+  Neon coupling: the only match for "neon" in it is the file name of a test in the coverage lane's list, which is
+  recorded for the owner of that test. The repository-wide inventory of the traces this lane does not own is in
+  section 5 of the no-Neon proof, so the audit has the map without a second sweep.
 - The two repairs in this branch are in the shared cache's lock and directory code. A run that uses the shared cache on
   one machine is affected by them, so any measurement lane that runs builds concurrently should read this receipt before
   it compares timings.
