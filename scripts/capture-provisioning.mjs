@@ -367,6 +367,13 @@ function cleanupOwnedResources(name, state, timeoutMs, inspectionTimeoutMs) {
   // The volumes are known when the container's mounts were read and no mount id
   // is left unaccounted for.
   state.discoveryCertain = state.discoveryComplete && state.candidates.size === 0
+  if (state.pendingVolumes.size > 0) {
+    failures.push(
+      new Error(
+        `the anonymous volumes of the throwaway capture provisioning container ${name} are still on the host: ${[...state.pendingVolumes].join(', ')}`
+      )
+    )
+  }
   if (failures.length === 0) return
   if (failures.length === 1) throw failures[0]
   // The message carries every failure, so the operator learns what is still on the host.
@@ -567,16 +574,26 @@ export function startCaptureProvisioning(
         }
         return
       }
-      // The container is verified gone. The volumes that are still pending are
-      // retried, and the candidates whose ownership could not be read are
-      // inspected again, now that nothing holds them.
-      const failures = removePendingVolumes(state.pendingVolumes)
+      // The container is verified gone. The candidates whose ownership could not
+      // be read are inspected again first, now that nothing holds them, so a
+      // volume whose ownership only became readable is removed in this same
+      // attempt. The verified pending volumes are removed afterwards, so every
+      // one of them is gone before the cleanup reports itself clean.
+      const failures = []
       failures.push(...resolveCandidates(state, inspectionTimeoutMs))
+      failures.push(...removePendingVolumes(state.pendingVolumes))
       state.discoveryCertain = state.discoveryComplete && state.candidates.size === 0
       if (!state.discoveryCertain) {
         failures.push(
           new Error(
             `the anonymous volumes of the throwaway capture provisioning container ${name} are still unknown: ${state.discoveryReason}`
+          )
+        )
+      }
+      if (state.pendingVolumes.size > 0) {
+        failures.push(
+          new Error(
+            `the anonymous volumes of the throwaway capture provisioning container ${name} are still on the host: ${[...state.pendingVolumes].join(', ')}`
           )
         )
       }

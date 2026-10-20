@@ -82,6 +82,15 @@ case "$1" in
           status) echo "permission denied" >&2; exit 1 ;;
           hang) exec sleep 600 ;;
           malformed) printf '%s\n' 'not json'; exit 0 ;;
+          refuse-n)
+            # The first N inspections are refused, the way a daemon that recovers
+            # after a while answers.
+            count=0
+            if [ -n "$SHIM_VOLUME_INSPECT_COUNTER" ] && [ -f "$SHIM_VOLUME_INSPECT_COUNTER" ]; then count=$(cat "$SHIM_VOLUME_INSPECT_COUNTER"); fi
+            count=$((count + 1))
+            if [ -n "$SHIM_VOLUME_INSPECT_COUNTER" ]; then printf '%s' "$count" > "$SHIM_VOLUME_INSPECT_COUNTER"; fi
+            if [ "$count" -le "\${SHIM_VOLUME_INSPECT_FAILURES:-1}" ]; then echo "permission denied" >&2; exit 1; fi
+            ;;
           status-once)
             count=0
             if [ -n "$SHIM_VOLUME_INSPECT_COUNTER" ] && [ -f "$SHIM_VOLUME_INSPECT_COUNTER" ]; then count=$(cat "$SHIM_VOLUME_INSPECT_COUNTER"); fi
@@ -926,6 +935,47 @@ describe('instrumented capture ownership and cleanup with stub Docker', () => {
     } finally {
       error.mockRestore()
     }
+  })
+
+  test('a candidate whose ownership is unreadable in both inspections is removed by the second stop', async () => {
+    await withInstrumentedCapture(
+      {
+        // Both inspections of the first stop are refused, so the candidate
+        // survives it.
+        SHIM_VOLUME_INSPECT: 'refuse-n',
+        SHIM_VOLUME_INSPECT_FAILURES: '2',
+        SHIM_MOUNTS: JSON.stringify([
+          { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
+        ]),
+        SHIM_ANONYMOUS: 'volume-anonymous-1',
+      },
+      (log) => {
+        const handle = startCaptureProvisioning(undefined, {
+          removalTimeoutMs: 2000,
+          inspectionTimeoutMs: 200,
+          backoffMs: [],
+        })
+        if (!handle) throw new Error('Stub daemon unavailable')
+        let failure = ''
+        try {
+          handle.stop()
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error)
+        }
+        expect(failure).toContain(
+          'the throwaway volume volume-anonymous-1 could not be inspected: the inspection was refused'
+        )
+        const first = readFileSync(log, 'utf8').trim().split('\n')
+        // The ownership was never verified, so the volume was not removed.
+        expect(first).not.toContain('volume rm volume-anonymous-1')
+        // The second stop resolves the candidate and removes the volume before
+        // it reports success.
+        handle.stop()
+        const second = readFileSync(log, 'utf8').trim().split('\n')
+        expect(second).toContain('volume rm volume-anonymous-1')
+        expect(second.filter((line) => line === 'volume rm volume-anonymous-1')).toHaveLength(1)
+      }
+    )
   })
 
   test('a candidate whose ownership cannot be read is kept, inspected again, and then removed', async () => {
