@@ -47,7 +47,16 @@ import {
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 const bytes = (value: string) => Buffer.from(value, 'utf8')
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms))
+/** Blocks the event loop for `ms`, the way a slow synchronous read would. */
+const block = (ms: number) => {
+  const end = Date.now() + ms
+  while (Date.now() < end) {
+    // the event loop is busy here
+  }
+}
 const scope = testScope()
+
+/** An envelope with its recorded creation time blanked, so two machines' envelopes can be compared. */
 
 /** The authorization decision the transport accepts: bound to the trust domain. */
 const allowScope = (domain: { id: string }) => ({ allow: true, scope: domain.id })
@@ -881,6 +890,29 @@ describe('the publication fence', () => {
     const stored = await readBlob(store, found.envelope!.blob_id, { scope, limits })
     expect(stored.ok).toBe(true)
     expect(Buffer.from((stored as { bytes: Buffer }).bytes).equals(blob)).toBe(true)
+  })
+
+  test('a duplicate publication that reads back after the deadline is a timeout', async () => {
+    // A valid entry is seeded. Only the final read of the entry is slow: it answers in a microtask that blocks the
+    // event loop for 40ms, so the timer cannot fire while the publication is running.
+    const inner = createMemoryStore()
+    const entry = syntheticEntry('late-duplicate')
+    const published = await publishEntry(inner, entry, { scope })
+    expect(published.ok).toBe(true)
+    const store = {
+      ...inner,
+      get: (key: string, options: unknown) =>
+        key.startsWith('entries/')
+          ? Promise.resolve().then(() => {
+              block(40)
+              return inner.get(key, options as never)
+            })
+          : inner.get(key, options as never),
+    }
+    const again = await publishEntry(store, entry, { scope, deadlineMs: 15 })
+    // The publication overran its deadline, so it is a timeout and not a duplicate.
+    expect(again.ok).toBe(false)
+    expect(again.category).toBe(CATEGORY.timeout)
   })
 
   test('a corrupt archive that is already there is not republished as a success', async () => {
