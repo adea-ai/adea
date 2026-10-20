@@ -814,6 +814,57 @@ describe('the built-Worker desktop denial credential accounting', () => {
 })
 
 describe('the built-Worker desktop credential material', () => {
+  test('the session token inside the session cookie is one hand-off, not a leak', async () => {
+    const correct = correctWorker()
+    const token = 'the-session-token-value'
+    const transport: BuiltWorkerTransport = async (request) => {
+      if (request.method === 'POST' && request.path === '/api/auth/sign-up/email') {
+        // The Worker hands the session out twice: the token in the body and the
+        // signed cookie that carries that token.
+        return response(
+          200,
+          {
+            'set-cookie': `__Secure-better-auth.session_token=${token}.signature; Path=/; HttpOnly`,
+          },
+          `{"token":"${token}","user":{"id":"user-1"}}`
+        )
+      }
+      return correct.transport(request)
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(true)
+  })
+
+  test('a credential that appears in a later response is still a leak', async () => {
+    const correct = correctWorker()
+    let exchanges = 0
+    let credential = ''
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        exchanges += 1
+        if (exchanges === 1) {
+          credential = /"credential"\s*:\s*"([^"]+)"/u.exec(answered.body)?.[1] ?? ''
+          return answered
+        }
+        if (credential) {
+          // The one-time material appears in a later response than the one that
+          // issued it, under the field that issued it.
+          return { ...answered, body: `{"credential":"${credential}"}` }
+        }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+  })
+
   test('a session whose credential is the auth secret fails the leak invariant', async () => {
     const correct = correctWorker()
     const transport: BuiltWorkerTransport = async (request) => {

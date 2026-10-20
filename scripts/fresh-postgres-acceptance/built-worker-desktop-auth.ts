@@ -839,7 +839,14 @@ export async function runBuiltWorkerDesktopAuth(
         observeIssued(value, index, { header: 'set-cookie' })
       }
       const token = signupTokenFrom(response)
-      if (token) observeIssued(token, index, { bodyField: 'token' })
+      if (token) {
+        // The session token and the session cookie are one hand-off: the Worker
+        // sends the token in the body and the signed cookie that carries it, so
+        // the token appears inside the cookie value of this very response. The
+        // token is therefore authorized in both session fields of this response,
+        // and in no other response.
+        observeIssued(token, index, { bodyField: 'token', header: 'set-cookie' })
+      }
       return {
         passed: true,
         detail: 'the built Worker issued a session for a fresh account',
