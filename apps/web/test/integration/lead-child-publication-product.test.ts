@@ -20,6 +20,7 @@ import {
 } from '@adea-ai/db'
 import { createLeadTurnProduct } from '../../src/server/lead-turn-product'
 import { createLeadChildReconcileHandler } from '../../src/server/lead-child-reconcile'
+import { createLeadTurnSdkAdapter } from '../../src/server/lead-turn-sdk-adapter'
 import type { LeadRuntimeAdapter } from '../../src/server/lead-turn-runtime'
 
 const url = process.env.DATABASE_URL
@@ -308,6 +309,82 @@ describe.skipIf(!url)('connected child terminal to canonical timeline', () => {
         .select()
         .from(messages)
         .where(eq(messages.id, receipts[0]!.messageId))
+      expect(message?.bodyText).toBe('Child researcher completed: The requested answer is 42.')
+    }
+  )
+
+  test.skipIf(!process.env.PI_CP_CANDIDATE_SDK_ROOT)(
+    'installed local CP candidate SDK publication reaches one canonical PG timeline message',
+    async () => {
+      const sdkRoot = process.env.PI_CP_CANDIDATE_SDK_ROOT!
+      const { ControlPlaneClient } = await import(
+        pathToFileURL(join(sdkRoot, 'dist/index.js')).href
+      )
+      const { PublicContractFixtures } = await import(
+        pathToFileURL(join(sdkRoot, '../contracts/dist/index.js')).href
+      )
+      const f = await fixture()
+      const publication = {
+        ...f.binding,
+        schemaVersion: 'pi-child-publication/v1',
+        workspaceId: f.pin.workspaceId,
+        canonicalActorPrincipalId: `user:${f.owner.principal.userId}`,
+        delegationId: terminal.delegationId,
+        childExecutionId: terminal.childExecutionId,
+        childAttemptId: terminal.childAttemptId,
+        role: terminal.role,
+        state: terminal.state,
+        resultRef: terminal.resultRef,
+        conclusion: terminal.conclusion,
+        occurredAt: new Date().toISOString(),
+        authorityRevision: 1,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }
+      const client = new ControlPlaneClient({
+        baseUrl: 'https://control-plane.example',
+        credential: 'synthetic-service-credential',
+        fetch: async (_url: URL, init: RequestInit) => {
+          const request = JSON.parse(String(init.body)) as Record<string, unknown>
+          return new Response(
+            JSON.stringify({
+              contractVersion: request.contractVersion,
+              requestId: request.requestId,
+              correlation: request.correlation,
+              data: { publication },
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          )
+        },
+      })
+      const { projectId: _, ...read } = PublicContractFixtures.request
+      const candidate = createLeadTurnSdkAdapter({
+        workspaceId: f.pin.workspaceId,
+        dispatch: async () => ({}),
+        status: async () => ({}),
+        progress: async () => ({}),
+        cancel: async () => ({}),
+        childPublicationCurrent: (dispatchId, preparationRef, delegationId) =>
+          client.getPiDurableChildPublication({
+            ...read,
+            workspaceId: f.pin.workspaceId,
+            operation: 'pi-durable.child.publication.current',
+            parameters: { dispatchId, preparationRef, delegationId },
+          }),
+      })
+      const product = createLeadTurnProduct(connection.db, {
+        adapter: { ...f.adapter, childPublicationCurrent: candidate.childPublicationCurrent },
+      })
+      expect(await product.publishChildren(f.scope)).toEqual({ published: 1 })
+      expect(await product.publishChildren(f.scope)).toEqual({ published: 1 })
+      const [receipt] = await connection.db
+        .select()
+        .from(leadChildPublications)
+        .where(eq(leadChildPublications.intentId, f.pin.intentId))
+      expect(receipt).toBeDefined()
+      const [message] = await connection.db
+        .select()
+        .from(messages)
+        .where(eq(messages.id, receipt!.messageId))
       expect(message?.bodyText).toBe('Child researcher completed: The requested answer is 42.')
     }
   )
