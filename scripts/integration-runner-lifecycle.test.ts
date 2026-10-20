@@ -489,7 +489,29 @@ async function exerciseRealLifecycle(
       if (args[0] === 'run') {
         const name = args[args.indexOf('--name') + 1];
         log('capture-run', name); fs.writeFileSync(resource('capture-resource'), name);
+        // The pinned image declares its data directory as a volume, so the instance carries one
+        // anonymous volume, the way Docker creates it.
+        fs.writeFileSync(resource('capture-volume'), 'synthetic-anonymous-volume');
         console.log('synthetic-container-id'); process.exit(0);
+      }
+      if (args[0] === 'inspect') {
+        const name = args[args.length - 1];
+        if (!fs.existsSync(resource('capture-resource')) || fs.readFileSync(resource('capture-resource'), 'utf8') !== name) {
+          console.error('Error response from daemon: No such object: ' + name); process.exit(1);
+        }
+        console.log(JSON.stringify([{ Type: 'volume', Name: 'synthetic-anonymous-volume', Destination: '/var/lib/postgresql' }]));
+        process.exit(0);
+      }
+      if (args[0] === 'volume') {
+        if (args[1] === 'inspect') {
+          if (!fs.existsSync(resource('capture-volume'))) {
+            console.error('Error: no such volume: synthetic-anonymous-volume'); process.exit(1);
+          }
+          console.log(JSON.stringify({ 'com.docker.volume.anonymous': '' })); process.exit(0);
+        }
+        if (args[1] === 'rm') {
+          log('capture-volume-rm', args[2]); fs.rmSync(resource('capture-volume'), { force: true }); process.exit(0);
+        }
       }
       if (args[0] === 'port') { console.log('127.0.0.1:54321'); process.exit(0) }
       if (args[0] === 'exec') process.exit(0);
@@ -575,7 +597,7 @@ async function exerciseRealLifecycle(
       stderr,
       events,
       cleanupEvidence,
-      resources: ['compose-resource', 'capture-resource'].filter((name) =>
+      resources: ['compose-resource', 'capture-resource', 'capture-volume'].filter((name) =>
         existsSync(join(directory, name))
       ),
     }

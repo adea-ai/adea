@@ -54,6 +54,9 @@ case "$1" in
       previous="$argument"
     done
     if [ -n "$SHIM_STATE" ]; then printf '%s' "$name" > "$SHIM_STATE"; fi
+    # SHIM_INSPECT=error removes the client itself, so every later call fails the way a
+    # client that cannot be run at all fails.
+    if [ "$SHIM_INSPECT" = "error" ]; then rm -f "$0"; fi
     exit 0 ;;
   port) echo "127.0.0.1:54329"; exit 0 ;;
   exec) exit 0 ;;
@@ -63,6 +66,11 @@ case "$1" in
       echo "Error response from daemon: No such object: $last" >&2
       exit 1
     fi
+    case "$SHIM_INSPECT" in
+      status) echo "permission denied" >&2; exit 1 ;;
+      hang) exec sleep 600 ;;
+      malformed) printf '%s\n' 'not json'; exit 0 ;;
+    esac
     printf '%s\n' "\${SHIM_MOUNTS:-[]}"
     exit 0 ;;
   volume)
@@ -70,12 +78,31 @@ case "$1" in
       inspect)
         # A volume named in SHIM_ANONYMOUS carries Docker's own anonymous marker; any other one does not.
         for last; do :; done
+        case "$SHIM_VOLUME_INSPECT" in
+          status) echo "permission denied" >&2; exit 1 ;;
+          hang) exec sleep 600 ;;
+          malformed) printf '%s\n' 'not json'; exit 0 ;;
+        esac
         case ",$SHIM_ANONYMOUS," in
           *",$last,"*) printf '%s\n' '{"com.docker.volume.anonymous":""}' ;;
           *) printf '%s\n' '{}' ;;
         esac
         exit 0 ;;
-      rm) exit 0 ;;
+      rm)
+        # The removals are counted, so a failure can be limited to the first attempt.
+        count=0
+        if [ -n "$SHIM_COUNTER" ] && [ -f "$SHIM_COUNTER" ]; then count=$(cat "$SHIM_COUNTER"); fi
+        count=$((count + 1))
+        if [ -n "$SHIM_COUNTER" ]; then printf '%s' "$count" > "$SHIM_COUNTER"; fi
+        if [ "$SHIM_VOLUME_RM" = "fail-once" ] && [ "$count" -le 1 ]; then
+          echo "Error response from daemon: volume is in use - [volume $3]" >&2
+          exit 1
+        fi
+        if [ "$SHIM_VOLUME_RM" = "fail" ] || [ "$SHIM_VOLUME_RM" = "in-use" ]; then
+          echo "Error response from daemon: volume is in use - [volume $3]" >&2
+          exit 1
+        fi
+        exit 0 ;;
       *) exit 1 ;;
     esac ;;
   rm)
@@ -218,6 +245,7 @@ function environmentFor(mode: string, extra: Record<string, string> = {}) {
       PATH: `${shimDir}:${process.env.PATH ?? ''}`,
       SHIM_LOG: log,
       SHIM_STATE: join(workdir, `state-${Math.random().toString(16).slice(2)}`),
+      SHIM_COUNTER: join(workdir, `counter-${Math.random().toString(16).slice(2)}`),
       SHIM_RM: ['missing', 'fail', 'hang'].includes(mode) ? mode : 'ok',
       ...extra,
     } as Record<string, string>,
@@ -635,6 +663,7 @@ async function withInstrumentedCapture(
       PATH: `${directory}:/usr/bin:/bin`,
       SHIM_LOG: log,
       SHIM_STATE: join(directory, 'state'),
+      SHIM_COUNTER: join(directory, 'counter'),
       ...settings,
     }
     await run(log, (event) =>
@@ -755,10 +784,210 @@ describe('instrumented capture ownership and cleanup with stub Docker', () => {
     )
   })
 
-  test('a removal that times out leaves the volume in place and names it', async () => {
+  test('a container inspection that is refused is a failure, not an empty volume list', async () => {
+    await withInstrumentedCapture(
+      {
+        SHIM_INSPECT: 'status',
+        SHIM_MOUNTS: JSON.stringify([
+          { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
+        ]),
+        SHIM_ANONYMOUS: 'volume-anonymous-1',
+      },
+      (log) => {
+        const handle = startCaptureProvisioning(undefined, {
+          removalTimeoutMs: 2000,
+          inspectionTimeoutMs: 200,
+          backoffMs: [],
+        })
+        if (!handle) throw new Error('Stub daemon unavailable')
+        let failure = ''
+        try {
+          handle.stop()
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error)
+        }
+        // An inspection that could not be trusted is never an absence.
+        expect(failure).toContain(
+          `the throwaway capture provisioning container ${handle.containerName} could not be inspected: the inspection was refused`
+        )
+        const commands = readFileSync(log, 'utf8').trim().split('\n')
+        // The container is known and owned, so it is removed anyway.
+        expect(commands).toContain(`rm -f ${handle.containerName}`)
+        // The volumes it owned are unknown, so none is removed on a guess.
+        expect(commands.some((line) => line.startsWith('volume rm '))).toBe(false)
+      }
+    )
+  })
+
+  test('a container inspection with unreadable output is a failure', async () => {
+    await withInstrumentedCapture({ SHIM_INSPECT: 'malformed' }, (log) => {
+      const handle = startCaptureProvisioning(undefined, {
+        removalTimeoutMs: 2000,
+        inspectionTimeoutMs: 200,
+        backoffMs: [],
+      })
+      if (!handle) throw new Error('Stub daemon unavailable')
+      let failure = ''
+      try {
+        handle.stop()
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error)
+      }
+      expect(failure).toContain(
+        `the throwaway capture provisioning container ${handle.containerName} could not be inspected: the inspection returned unreadable output`
+      )
+      const commands = readFileSync(log, 'utf8').trim().split('\n')
+      expect(commands).toContain(`rm -f ${handle.containerName}`)
+    })
+  })
+
+  test('a container inspection that times out is a failure', async () => {
+    await withInstrumentedCapture({ SHIM_INSPECT: 'hang' }, (log) => {
+      const handle = startCaptureProvisioning(undefined, {
+        removalTimeoutMs: 2000,
+        inspectionTimeoutMs: 200,
+        backoffMs: [],
+      })
+      if (!handle) throw new Error('Stub daemon unavailable')
+      let failure = ''
+      try {
+        handle.stop()
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error)
+      }
+      expect(failure).toContain(
+        `the throwaway capture provisioning container ${handle.containerName} could not be inspected: the inspection timed out`
+      )
+      const commands = readFileSync(log, 'utf8').trim().split('\n')
+      expect(commands).toContain(`rm -f ${handle.containerName}`)
+    })
+  })
+
+  test('a client that cannot be run at all is an inspection failure', async () => {
+    const error = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await withInstrumentedCapture({ SHIM_INSPECT: 'error' }, () => {
+        // The client removes itself while the instance starts, so the cleanup
+        // cannot ask Docker anything.
+        expect(() =>
+          startCaptureProvisioning(undefined, {
+            removalTimeoutMs: 2000,
+            inspectionTimeoutMs: 200,
+            backoffMs: [],
+          })
+        ).toThrow()
+        const reported = error.mock.calls.flat().join(' ')
+        expect(reported).toContain('could not be inspected: the inspection failed')
+      })
+    } finally {
+      error.mockRestore()
+    }
+  })
+
+  test('a volume whose labels cannot be read is never removed and fails the cleanup', async () => {
+    await withInstrumentedCapture(
+      {
+        SHIM_VOLUME_INSPECT: 'status',
+        SHIM_MOUNTS: JSON.stringify([
+          { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
+        ]),
+        SHIM_ANONYMOUS: 'volume-anonymous-1',
+      },
+      (log) => {
+        const handle = startCaptureProvisioning(undefined, {
+          removalTimeoutMs: 2000,
+          inspectionTimeoutMs: 200,
+          backoffMs: [],
+        })
+        if (!handle) throw new Error('Stub daemon unavailable')
+        let failure = ''
+        try {
+          handle.stop()
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error)
+        }
+        expect(failure).toContain(
+          'the throwaway volume volume-anonymous-1 could not be inspected: the inspection was refused'
+        )
+        const commands = readFileSync(log, 'utf8').trim().split('\n')
+        // A volume that could not be read is never removed on a guess.
+        expect(commands.some((line) => line.startsWith('volume rm '))).toBe(false)
+      }
+    )
+  })
+
+  test('a failed volume deletion is retained, and a repeated stop removes it', async () => {
+    await withInstrumentedCapture(
+      {
+        SHIM_VOLUME_RM: 'fail-once',
+        SHIM_MOUNTS: JSON.stringify([
+          { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
+        ]),
+        SHIM_ANONYMOUS: 'volume-anonymous-1',
+      },
+      (log) => {
+        const handle = startCaptureProvisioning(undefined, {
+          removalTimeoutMs: 2000,
+          inspectionTimeoutMs: 200,
+          backoffMs: [],
+        })
+        if (!handle) throw new Error('Stub daemon unavailable')
+        let failure = ''
+        try {
+          handle.stop()
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error)
+        }
+        expect(failure).toContain('removing the throwaway volume volume-anonymous-1 failed')
+        const first = readFileSync(log, 'utf8').trim().split('\n')
+        expect(first.filter((line) => line === `rm -f ${handle.containerName}`)).toHaveLength(1)
+        expect(first.filter((line) => line === 'volume rm volume-anonymous-1')).toHaveLength(1)
+        // The identity is retained, so a repeated stop removes it.
+        handle.stop()
+        const second = readFileSync(log, 'utf8').trim().split('\n')
+        expect(second.filter((line) => line === 'volume rm volume-anonymous-1')).toHaveLength(2)
+        expect(second.filter((line) => line === `rm -f ${handle.containerName}`)).toHaveLength(1)
+      }
+    )
+  })
+
+  test('every known volume is attempted even when one deletion fails', async () => {
+    await withInstrumentedCapture(
+      {
+        SHIM_VOLUME_RM: 'fail-once',
+        SHIM_MOUNTS: JSON.stringify([
+          { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
+          { Type: 'volume', Name: 'volume-anonymous-2', Destination: '/var/lib/postgresql' },
+        ]),
+        SHIM_ANONYMOUS: 'volume-anonymous-1,volume-anonymous-2',
+      },
+      (log) => {
+        const handle = startCaptureProvisioning(undefined, {
+          removalTimeoutMs: 2000,
+          inspectionTimeoutMs: 200,
+          backoffMs: [],
+        })
+        if (!handle) throw new Error('Stub daemon unavailable')
+        let failure = ''
+        try {
+          handle.stop()
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error)
+        }
+        expect(failure).toContain('removing the throwaway volume volume-anonymous-1 failed')
+        const commands = readFileSync(log, 'utf8').trim().split('\n')
+        // The second volume is attempted even though the first one failed.
+        expect(commands).toContain('volume rm volume-anonymous-1')
+        expect(commands).toContain('volume rm volume-anonymous-2')
+      }
+    )
+  })
+
+  test('a removal that times out leaves the volume pending and names it', async () => {
     await withInstrumentedCapture(
       {
         SHIM_RM: 'hang',
+        SHIM_VOLUME_RM: 'in-use',
         SHIM_MOUNTS: JSON.stringify([
           { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
         ]),
@@ -767,6 +996,7 @@ describe('instrumented capture ownership and cleanup with stub Docker', () => {
       (log) => {
         const handle = startCaptureProvisioning(undefined, {
           removalTimeoutMs: 200,
+          inspectionTimeoutMs: 200,
           backoffMs: [],
         })
         if (!handle) throw new Error('Stub daemon unavailable')
@@ -779,11 +1009,11 @@ describe('instrumented capture ownership and cleanup with stub Docker', () => {
         expect(failure).toContain(
           `removing the throwaway capture provisioning container ${handle.containerName} timed out after 200 ms`
         )
-        // The container may still hold the volume, so the volume is left alone
-        // and the failure names it for the operator.
+        // The container may still hold the volume, so the failure names it.
         expect(failure).toContain('volume-anonymous-1')
         const commands = readFileSync(log, 'utf8').trim().split('\n')
-        expect(commands).not.toContain('volume rm volume-anonymous-1')
+        // The volume is attempted, and it stays pending because the container may hold it.
+        expect(commands).toContain('volume rm volume-anonymous-1')
       }
     )
   })

@@ -9,6 +9,7 @@
 // It sits outside scripts/*.test.ts, so the unit coverage lane never starts Docker. The failure paths of the
 // lifecycle run without Docker in scripts/capture-provisioning-smoke-faults.test.ts.
 import { afterAll, beforeAll, expect, test } from 'bun:test'
+import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -33,6 +34,15 @@ setInterval(() => {}, 1000)
 
 let workdir
 let childPath
+
+// Whether a volume is still on the host. Only Docker's own answer decides it.
+function volumeExists(volume: string): boolean {
+  const result = spawnSync('docker', ['volume', 'inspect', volume], {
+    encoding: 'utf8',
+    timeout: 30_000,
+  })
+  return result.status === 0
+}
 
 beforeAll(() => {
   workdir = mkdtempSync(join(tmpdir(), 'capture-provisioning-smoke-'))
@@ -60,4 +70,9 @@ test('SIGTERM removes exactly the container the helper created and leaves a same
   // The sentinel's own anonymous volume is another container's, and the helper left it alone.
   expect(observed.sentinelVolumes.length).toBeGreaterThan(0)
   expect(observed.sentinelVolumeKept).toBe(true)
+  // The lifecycle's own cleanup removes the volumes it owns, so nothing it started is left behind.
+  for (const volume of [...observed.ownedVolumes, ...observed.sentinelVolumes]) {
+    expect(volumeExists(volume)).toBe(false)
+  }
+  expect(observed.pendingVolumes).toEqual([])
 }, 900_000)

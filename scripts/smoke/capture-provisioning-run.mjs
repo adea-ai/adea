@@ -107,12 +107,9 @@ async function stopChild(child, bounds) {
 
 // Docker's answer for a container that does not exist, naming that container. Only this answer proves absence. Any
 // other failure, including a nonzero exit without this message, is an error.
-function absentAnswer(result, name) {
-  return (
-    result.status !== 0 &&
-    (result.stderr.includes(`No such container: ${name}`) ||
-      result.stderr.includes(`No such object: ${name}`))
-  )
+function absentAnswer(result, _name) {
+  // Docker's own answer for a name that is not there, in either spelling it uses.
+  return result.status !== 0 && /no such (object|container)/iu.test(result.stderr)
 }
 
 // What a Docker command that did not succeed reported.
@@ -132,7 +129,7 @@ export async function runOwnedSmoke({
   bounds = smokeBounds,
 } = {}) {
   const sentinel = `adea-capture-prov-${randomBytes(6).toString('hex')}`
-  const observed = { sentinel, ownedVolumes: [], sentinelVolumes: [] }
+  const observed = { sentinel, ownedVolumes: [], sentinelVolumes: [], pendingVolumes: [] }
   const cleanupErrors = []
   let child
   let childStopAttempted = false
@@ -157,6 +154,9 @@ export async function runOwnedSmoke({
   // The volumes Docker created for one container. The pinned image declares its data directory as a volume, so
   // every container carries one anonymous volume. They are read from that container's own mounts, so a container
   // that is already gone contributes nothing and takes no volume's identity with it.
+  //
+  // An inspection that cannot be trusted is a failure, never an empty list: a container whose volumes could not
+  // be read has unknown volumes, and unknown volumes are never removed on a guess.
   const containerVolumes = (name) => {
     const result = docker(
       ['container', 'inspect', '--format', '{{json .Mounts}}', name],
@@ -164,14 +164,19 @@ export async function runOwnedSmoke({
     )
     if (result.error)
       throw new Error(`inspecting the volumes of ${name} failed: ${result.error.message}`)
-    if (result.status !== 0) return []
+    if (result.status !== 0) {
+      // Only Docker's own answer for this name proves that the container is gone.
+      if (absentAnswer(result, name)) return []
+      throw new Error(`inspecting the volumes of ${name} failed: ${failureText(result)}`)
+    }
     let mounts
     try {
       mounts = JSON.parse(result.stdout)
     } catch {
-      return []
+      throw new Error(`inspecting the volumes of ${name} failed: the answer was unreadable`)
     }
-    if (!Array.isArray(mounts)) return []
+    if (!Array.isArray(mounts))
+      throw new Error(`inspecting the volumes of ${name} failed: the answer was unreadable`)
     return mounts
       .filter((mount) => mount?.Type === 'volume' && typeof mount?.Name === 'string' && mount.Name)
       .map((mount) => mount.Name)
@@ -182,7 +187,7 @@ export async function runOwnedSmoke({
     if (result.error)
       throw new Error(`inspecting the volume ${volume} failed: ${result.error.message}`)
     if (result.status === 0) return true
-    if (result.stderr.includes('no such volume')) return false
+    if (/no such volume/iu.test(result.stderr)) return false
     throw new Error(`inspecting the volume ${volume} failed: ${failureText(result)}`)
   }
   // Removes one volume this lifecycle owns, by its exact name. A volume Docker already removed is gone.
@@ -191,7 +196,7 @@ export async function runOwnedSmoke({
     if (result.error)
       throw new Error(`removing the volume ${volume} failed: ${result.error.message}`)
     if (result.status === 0) return
-    if (result.stderr.includes('no such volume')) return
+    if (/no such volume/iu.test(result.stderr)) return
     throw new Error(`removing the volume ${volume} failed: ${failureText(result)}`)
   }
   const removeNamed = (name) => {
@@ -215,6 +220,9 @@ export async function runOwnedSmoke({
     if (result.status !== 0) {
       throw new Error(`starting the sentinel container failed: ${failureText(result)}`)
     }
+    // The sentinel's own volumes are captured the moment it exists, so an early failure in the child
+    // still leaves the cleanup with the identity it has to remove.
+    observed.sentinelVolumes = containerVolumes(sentinel)
   }
 
   try {
@@ -235,9 +243,9 @@ export async function runOwnedSmoke({
     if (ready !== ownedName)
       throw new Error(`the helper child named ${ownedName} and then reported ${ready}`)
     observed.running = isRunning(ownedName)
-    // The volumes of both containers are read while both exist, so each one keeps its own identity.
+    // The owned container's volumes are read while it still exists, so its identity is known before
+    // anything stops or removes it.
     observed.ownedVolumes = containerVolumes(ownedName)
-    observed.sentinelVolumes = containerVolumes(sentinel)
     childStopAttempted = true
     await stopChild(child, bounds)
     observed.signal = child.signalCode
@@ -259,6 +267,15 @@ export async function runOwnedSmoke({
       }
     }
     if (ownedName !== undefined) {
+      // The owned container's volumes are captured before it is removed, so an early failure in the
+      // child still leaves the cleanup with the identity it has to remove. A container that is already
+      // gone contributes nothing, and never replaces an identity that was read while it existed.
+      try {
+        const volumes = containerVolumes(ownedName)
+        if (volumes.length > 0) observed.ownedVolumes = volumes
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
       try {
         removeNamed(ownedName)
       } catch (error) {
@@ -271,13 +288,29 @@ export async function runOwnedSmoke({
       cleanupErrors.push(error)
     }
     // The volumes of both containers are this lifecycle's own, so it removes them by the identity it tracked.
-    for (const volume of [...(observed.ownedVolumes ?? []), ...(observed.sentinelVolumes ?? [])]) {
+    const volumes = [
+      ...new Set([...(observed.ownedVolumes ?? []), ...(observed.sentinelVolumes ?? [])]),
+    ]
+    for (const volume of volumes) {
       try {
         removeVolume(volume)
       } catch (error) {
         cleanupErrors.push(error)
+        // The identity is retained, so a later attempt takes it.
+        observed.pendingVolumes.push(volume)
       }
     }
+    // A volume that could not be removed is retried once, and it stays pending when it still fails.
+    const stillPending = []
+    for (const volume of observed.pendingVolumes) {
+      try {
+        removeVolume(volume)
+      } catch (error) {
+        cleanupErrors.push(error)
+        stillPending.push(volume)
+      }
+    }
+    observed.pendingVolumes = stillPending
   }
 
   if (failure === undefined && cleanupErrors.length === 0) return observed
