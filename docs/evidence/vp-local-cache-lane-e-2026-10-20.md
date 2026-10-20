@@ -244,21 +244,23 @@ rather than taken here.
 ## 5. What was run
 
 Host: macOS 14 (darwin-arm64), Node 24.21.0 and Bun 1.4.3 from the repository's pinned toolchain, on the branch
-`fix/vp-local-cache-lock-release-race`: `6bf18976b` (the repair), `4233d83dd` (the reconciliation) and this receipt.
+`fix/vp-local-cache-lock-release-race`: `6bf18976b` (the repair), `4233d83dd` (the reconciliation), `c0138550a` (the
+no-Neon proof) and `15f64d5db` (the child-process timeouts), plus this receipt.
 
-| Command                                                               | Result                                                                                                                                                                        |
-| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun test scripts/vp-local-run.test.ts`                               | **67 pass, 0 fail**, 295 assertions                                                                                                                                           |
-| `bun test scripts/toolchain-pin.test.ts`                              | **10 pass, 0 fail**, 81 assertions                                                                                                                                            |
-| `bun test scripts/vp-local-run.test.ts scripts/toolchain-pin.test.ts` | **77 pass, 0 fail**, 376 assertions                                                                                                                                           |
-| `bun test scripts/*.test.ts` (the root scripts lane)                  | **999 pass, 0 fail**, 9,664 assertions, 76 files                                                                                                                              |
-| `bun run test:coverage` (the aggregate coverage lane)                 | **2,086 pass, 0 fail**, 19,503 assertions, 153 files; 98.36% functions and 97.97% lines against the 80% goal; `scripts/vp-local-run.mjs` at 92.86% functions and 96.38% lines |
-| `vp run orch:test` (the aggregate unit lane)                          | **32/32 tasks successful**, 0 failing tests                                                                                                                                   |
-| `bun run build`                                                       | **17/17 tasks successful**                                                                                                                                                    |
-| `bun run format:check`                                                | clean over 2,914 files                                                                                                                                                        |
-| `bunx oxlint --deny-warnings`                                         | exit 0, no warning and no error                                                                                                                                               |
-| `bun run typecheck` (the pre-commit gate)                             | **33/33 tasks successful**, no type errors in 324 files                                                                                                                       |
-| `bun test scripts/docs-boundary.test.ts`                              | **4 pass, 0 fail**                                                                                                                                                            |
+| Command                                                                                                   | Result                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bun test scripts/vp-local-run.test.ts`                                                                   | **67 pass, 0 fail**, 295 assertions                                                                                                                                            |
+| `bun test scripts/toolchain-pin.test.ts`                                                                  | **10 pass, 0 fail**, 81 assertions                                                                                                                                             |
+| `bun test scripts/no-neon-cache-scope.test.ts`                                                            | **10 pass, 0 fail**, 510 assertions                                                                                                                                            |
+| `bun test scripts/vp-local-run.test.ts scripts/toolchain-pin.test.ts scripts/no-neon-cache-scope.test.ts` | **87 pass, 0 fail**, 886 assertions                                                                                                                                            |
+| `bun test scripts/*.test.ts` (the root scripts lane)                                                      | **1,009 pass, 0 fail**, 10,174 assertions, 77 files (one re-run: a five-second timeout in `scripts/evidence-manifest.test.ts`, another lane's test, which passes in isolation) |
+| `bun run test:coverage` (the aggregate coverage lane)                                                     | **2,096 pass, 0 fail**, 20,013 assertions, 154 files; 98.36% functions and 97.97% lines against the 80% goal; `scripts/vp-local-run.mjs` at 92.86% functions and 96.38% lines  |
+| `vp run orch:test` (the aggregate unit lane)                                                              | **32/32 tasks successful**, 0 failing tests                                                                                                                                    |
+| `bun run build`                                                                                           | **17/17 tasks successful**                                                                                                                                                     |
+| `bun run format:check`                                                                                    | clean over 2,914 files                                                                                                                                                         |
+| `bunx oxlint --deny-warnings`                                                                             | exit 0, no warning and no error                                                                                                                                                |
+| `bun run typecheck` (the pre-commit gate)                                                                 | **33/33 tasks successful**, no type errors in 324 files                                                                                                                        |
+| `bun test scripts/docs-boundary.test.ts`                                                                  | **4 pass, 0 fail**                                                                                                                                                             |
 
 Each new regression was run against the module as it was, and fails there:
 
@@ -272,7 +274,25 @@ Each new regression was run against the module as it was, and fails there:
 | the instructions name the pinned Bun version                                            | fails: the instructions named Bun 1.4.0                                |
 | the admitted scope names no Neon service                                                | fails: a `NEON_AUTH_BASE_URL` comment in the transport trips the guard |
 
-The container tests in the coverage lane could not pull the postgres image (`toomanyrequests` from the registry mirrors),
+Two aggregate runs were re-run rather than reported as they landed, and what they showed was the same thing both
+times: the tests that start child processes were on the runner's five-second default, and the wait grows with
+the load of the host. Four other fleet workers were building and testing on the same machine. The first full
+scripts lane lost `scripts/theme-color-boundary.test.ts`, the first coverage run lost
+`scripts/evidence-manifest.test.ts` and `scripts/integration-runner-lifecycle.test.ts`, and a later run lost this
+lane's own wrapper contention test, which was killed at five seconds with two of its children killed with it.
+
+The fix was in this lane's own file and only in this lane's own file: the thirteen tests that start child processes
+now have a timeout of their own, so a loaded host does not decide the result. **No assertion changed, and the
+never-overlap assertion is still asserted in full**: the children still have to exit zero, still have to write
+nothing to their stderr, and their work still has to be shown to be serialised. The tests of other lanes that
+timed out pass in isolation (17, 43 and 89 tests) and were not touched.
+
+One task of the aggregate unit lane also failed for a reason outside the repository: the Vite+ runtime's staged
+Bun package in this session's runtime directory was missing its `bun.native` binary, so the launcher could not
+exec it and the desktop task exited 126 before it ran a test. The incomplete staged package was removed so the
+runtime could re-stage it, and the task then passed whole (1,829 pass, 7 skip, 0 fail across 141 files). No
+repository file changed for it.
+
 the same environment limit the campaign receipts record. The lane completed: those tests handle the pull failure
 themselves, and the run passed with 0 failures.
 
