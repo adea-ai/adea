@@ -95,6 +95,15 @@ const specs = [
   // Hosted Agent Sim host embed: initial offline, online recovery, configuration changes and the
   // channel-nonce fencing in a real browser, over its own local fixture server (no host inputs).
   'apps/web/e2e/hosted-agent-sim.spec.ts',
+  // Add repository folder picker, browser-mounted: the real dialog and form with a fake host picker,
+  // no native panel or OS interaction (five-plus cases, including late completion and pageerror checks).
+  'apps/web/e2e/app-library-folder-picker-mount.spec.ts',
+  // App Library navigation and field preservation, browser-mounted: the real App Library page and the
+  // real navigation rules, with the shell reduced to signals (no router, no native surface).
+  'apps/web/e2e/app-library-navigation-mount.spec.ts',
+  // App Library on the real route: history steps for opening an app and enabling in place, over mocked
+  // workspace APIs (no database).
+  'apps/web/e2e/app-library-history.spec.ts',
 ]
 
 const total = process.env.E2E_TOTAL_SHARDS === undefined ? 1 : Number(process.env.E2E_TOTAL_SHARDS)
