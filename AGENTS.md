@@ -54,7 +54,7 @@ module-spec router and shared UI guidance below when changing those subsystems.
 ## Adea commands
 
 Run from the repository root unless a package directory is specified.
-`package.json` pins Bun 1.4.0; `bun.lock` owns dependency resolution.
+`package.json` pins Bun 1.4.3; `bun.lock` owns dependency resolution.
 
 | Task                                 | Command                                                                        |
 | ------------------------------------ | ------------------------------------------------------------------------------ |
