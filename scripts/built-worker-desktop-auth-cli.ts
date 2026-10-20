@@ -71,7 +71,7 @@ import {
   buildLocalWorkerConfig,
   builtWorkerArtifact,
   createLoopbackCertificate,
-  mayPublishReceipt,
+  publishableReceipt,
   removeOwnedMaterial,
   runOwnedSetup,
   startBuiltWorker,
@@ -154,7 +154,6 @@ function command(
   }
 }
 
-/** True when the host can generate the disposable server's TLS material. */
 /**
  * True when the local runtime that serves the built Worker is on the path.
  *
@@ -170,6 +169,7 @@ function localRuntimeAvailable(): boolean {
   return !result.error && result.status === 0
 }
 
+/** True when the host can generate the disposable server's TLS material. */
 function opensslAvailable(): boolean {
   const result = spawnSync('openssl', ['version'], {
     encoding: 'utf8',
@@ -603,15 +603,22 @@ async function main(): Promise<void> {
   // The receipt is published only after the Worker was stopped and the
   // material was removed: a receipt that claims a pass must not be published
   // while the Worker is still running or its material is still there.
-  if (receipt && mayPublishReceipt({ verdict, cleanupFailed: cleanupError !== undefined })) {
+  const published =
+    receipt &&
+    publishableReceipt({
+      receipt,
+      verdict,
+      cleanupFailed: cleanupError !== undefined,
+    })
+  if (published) {
     // The published receipt is sanitized again, on the way out: the receipt is
     // the evidence of the run, and it must not carry a value.
-    const published = publishedReceipt({
-      receipt,
+    const sanitized = publishedReceipt({
+      receipt: published,
       verdict,
       secrets: [AUTH_SECRET, password],
     })
-    console.log(`BUILT_WORKER_DESKTOP_AUTH ${JSON.stringify(published)}`)
+    console.log(`BUILT_WORKER_DESKTOP_AUTH ${JSON.stringify(sanitized)}`)
   }
 
   const failures = [bodyError, stopError, cleanupError].filter(

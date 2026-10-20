@@ -15,6 +15,7 @@
 //     published only after that teardown ran.
 
 import { describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -27,6 +28,7 @@ import {
 } from './built-worker-desktop-auth'
 import {
   assertLocalRuntimePrerequisites,
+  publishableReceipt,
   removeOwnedMaterial,
   tearDownAfterWorker,
 } from './built-worker-runtime'
@@ -55,24 +57,44 @@ function response(
   return { status, headers, body }
 }
 
-/** A transport that answers like a correct built Worker. */
+/**
+ * A transport that answers like the built Worker does.
+ *
+ * It refuses what the product refuses: a code that was never issued or was
+ * already exchanged, a wrong verifier, and an origin the exchange does not
+ * trust. A fake that answered every exchange with a session would let the
+ * denial assertions pass without refusing anything.
+ */
 function correctWorker(): BuiltWorkerTransport {
+  const issued = new Map<string, { readonly challenge: string; readonly nonce: string }>()
   return async (request: BuiltWorkerRequest) => {
     if (request.method === 'POST' && request.path === '/api/auth/sign-up/email') {
       return response(
         200,
-        { 'set-cookie': '__Secure-better-auth.session_token=value; Path=/' },
-        '{"token":"value","user":{"id":"user-1"}}'
+        {
+          'set-cookie':
+            '__Secure-better-auth.session_token=session-token-value-0123456789abcdef; Path=/',
+        },
+        '{"token":"session-token-value-0123456789abcdef","user":{"id":"user-1"}}'
       )
     }
     if (request.method === 'GET' && request.path.startsWith('/api/auth/desktop/authorize')) {
       const url = new URL(request.path, 'https://desktop.invalid')
+      if ([...url.searchParams.keys()].length !== 7) {
+        // The route parses the request before it looks for a session, so a
+        // request that carries a parameter the desktop contract does not define
+        // is refused first.
+        return response(400, {}, '{"error":"Invalid desktop authorization request"}')
+      }
       if (!request.headers?.cookie) {
         return response(303, { location: '/auth/sign-in' }, '')
       }
+      const code = `code-${issued.size}-value`
+      const nonce = url.searchParams.get('nonce') ?? ''
+      issued.set(code, { challenge: url.searchParams.get('code_challenge') ?? '', nonce })
       const callback = new URL('adea://auth/callback')
-      callback.searchParams.set('code', 'code-value-0123456789')
-      callback.searchParams.set('nonce', url.searchParams.get('nonce') ?? '')
+      callback.searchParams.set('code', code)
+      callback.searchParams.set('nonce', nonce)
       callback.searchParams.set('state', url.searchParams.get('state') ?? '')
       return response(
         303,
@@ -80,11 +102,33 @@ function correctWorker(): BuiltWorkerTransport {
         ''
       )
     }
+    if (request.method === 'OPTIONS' && request.path === '/api/auth/desktop/exchange') {
+      return response(403, {}, '{"error":"Forbidden"}')
+    }
     if (request.method === 'POST' && request.path === '/api/auth/desktop/exchange') {
+      const body = JSON.parse(request.body ?? '{}') as {
+        code: string
+        codeVerifier: string
+        nonce: string
+      }
+      if (request.headers?.origin !== 'http://127.0.0.1:4789') {
+        // An origin the exchange does not trust is refused before anything is read.
+        return response(400, {}, '{"error":"Desktop authorization exchange failed"}')
+      }
+      const record = issued.get(body.code)
+      if (!record) {
+        // The code was never issued, or it was already exchanged.
+        return response(400, {}, '{"error":"Desktop authorization exchange failed"}')
+      }
+      issued.delete(body.code)
+      const challenge = createHash('sha256').update(body.codeVerifier).digest('base64url')
+      if (challenge !== record.challenge || body.nonce !== record.nonce) {
+        return response(400, {}, '{"error":"Desktop authorization exchange failed"}')
+      }
       return response(
         200,
         { 'access-control-allow-origin': 'http://127.0.0.1:4789' },
-        '{"credential":"credential-value-0123456789","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}'
+        '{"credential":"desktop-credential-value-0123456789abcdefghij","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}'
       )
     }
     return response(404, {}, '')
@@ -151,6 +195,69 @@ describe('the CI input contract of the built-Worker qualification', () => {
   })
 })
 
+describe('the fake Worker of this suite', () => {
+  test('it refuses what the product refuses', async () => {
+    const transport = correctWorker()
+    const exchange = (code: string, codeVerifier: string, nonce: string, origin: string) =>
+      transport({
+        method: 'POST',
+        path: '/api/auth/desktop/exchange',
+        headers: { 'content-type': 'application/json', origin },
+        body: JSON.stringify({
+          code,
+          codeVerifier,
+          nonce,
+          redirectUri: 'adea://auth/callback',
+        }),
+      })
+
+    // An origin the exchange does not trust.
+    const forbiddenOrigin = await exchange(
+      'code-0-value',
+      'a'.repeat(43),
+      'n'.repeat(16),
+      'https://attacker.example.test'
+    )
+    expect(forbiddenOrigin.status).toBe(400)
+
+    // A code that was never issued, or that was already exchanged.
+    const unknownCode = await exchange(
+      'code-0-value',
+      'a'.repeat(43),
+      'n'.repeat(16),
+      'http://127.0.0.1:4789'
+    )
+    expect(unknownCode.status).toBe(400)
+
+    // A verifier that does not match the challenge the code was issued for.
+    const issued = await transport({
+      method: 'GET',
+      path: '/api/auth/desktop/authorize?client=desktop&code_challenge=abc&code_challenge_method=S256&nonce=nnn&redirect_uri=adea%3A%2F%2Fauth%2Fcallback&response_type=code&state=sss',
+      headers: {
+        cookie: '__Secure-better-auth.session_token=session-token-value-0123456789abcdef',
+      },
+    })
+    expect(issued.status).toBe(303)
+    const wrongVerifier = await exchange(
+      'code-0-value',
+      'b'.repeat(43),
+      'nnn',
+      'http://127.0.0.1:4789'
+    )
+    expect(wrongVerifier.status).toBe(400)
+
+    // A request that carries a parameter the desktop contract does not define.
+    const undefinedParameter = await transport({
+      method: 'GET',
+      path: '/api/auth/desktop/authorize?client=desktop&code_challenge=abc&code_challenge_method=S256&nonce=nnn&redirect_uri=adea%3A%2F%2Fauth%2Fcallback&response_type=code&state=sss&access_token=x',
+      headers: {
+        cookie: '__Secure-better-auth.session_token=session-token-value-0123456789abcdef',
+      },
+    })
+    expect(undefinedParameter.status).toBe(400)
+  })
+})
+
 describe('the receipt contract of the built-Worker qualification', () => {
   test('the receipt names the source it ran and the artifact it proved', async () => {
     const receipt = await runBuiltWorkerDesktopAuth(input(correctWorker()))
@@ -171,10 +278,16 @@ describe('the receipt contract of the built-Worker qualification', () => {
     expect(() => assertBuiltWorkerDesktopAuthPassed(receipt)).toThrow(/assertion-failed/u)
   })
 
-  test('a receipt is a pass only when an assertion passed and none failed', async () => {
+  test('a receipt of a run that proved everything is a pass', async () => {
     const receipt = await runBuiltWorkerDesktopAuth(input(correctWorker()))
+    const failed = receipt.assertions
+      .filter((assertion) => !assertion.passed)
+      .map((assertion) => `${assertion.name}: ${assertion.detail}`)
     expect(receipt.passed).toBeGreaterThan(0)
-    expect(receipt.status).toBe(receipt.failed === 0 && receipt.passed > 0 ? 'passed' : 'failed')
+    expect(failed).toEqual([])
+    expect(receipt.failed).toBe(0)
+    expect(receipt.status).toBe('passed')
+    expect(() => assertBuiltWorkerDesktopAuthPassed(receipt)).not.toThrow()
   })
 
   test('a failed receipt carries no value', async () => {
@@ -190,7 +303,7 @@ describe('the receipt contract of the built-Worker qualification', () => {
     const receipt = await runBuiltWorkerDesktopAuth(input(correctWorker()))
     const printed = JSON.stringify(receipt)
     expect(printed).not.toContain('the-known-secret-value')
-    expect(printed).not.toContain('credential-value-0123456789')
+    expect(printed).not.toContain('desktop-credential-value-0123456789abcdefghij')
   })
 })
 
@@ -238,7 +351,31 @@ describe('the cleanup gate of the built-Worker qualification', () => {
     expect(published).toBeGreaterThan(teardown)
   })
 
-  test('a cleanup failure is a failure of the run', () => {
+  test('a failed teardown publishes no receipt', () => {
+    const receipt = { status: 'passed' }
+    const verdict = { workerStopped: true, containerRemoved: true, materialRemoved: true }
+    // The Worker is still alive, or its material is still there, or the teardown
+    // itself failed: no receipt is published.
+    expect(
+      publishableReceipt({
+        receipt,
+        verdict: { ...verdict, workerStopped: false },
+        cleanupFailed: false,
+      })
+    ).toBeNull()
+    expect(
+      publishableReceipt({
+        receipt,
+        verdict: { ...verdict, materialRemoved: false },
+        cleanupFailed: false,
+      })
+    ).toBeNull()
+    expect(publishableReceipt({ receipt, verdict, cleanupFailed: true })).toBeNull()
+    const published = publishableReceipt({ receipt, verdict, cleanupFailed: false })
+    expect(published?.cleanup.materialRemoved).toBe(true)
+  })
+
+  test('a cleanup failure is reported with its kind and a redacted detail', () => {
     const failure = new BuiltWorkerFailure('cleanup-failed', 'the container was not removed')
     expect(failure.kind).toBe('cleanup-failed')
     expect(failure.detail).toBe('the container was not removed')

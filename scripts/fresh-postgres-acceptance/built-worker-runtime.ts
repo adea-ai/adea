@@ -965,6 +965,27 @@ export function mayPublishReceipt(input: {
 }
 
 /**
+ * The receipt the runner may publish, or nothing when it may not.
+ *
+ * A receipt that claims a pass must not be published while the Worker is still
+ * running, while its material is still there, or when the teardown itself
+ * failed. The published receipt carries the verdict, so the evidence says what
+ * the teardown removed.
+ */
+export function publishableReceipt<T>(input: {
+  readonly receipt: T
+  readonly verdict: {
+    readonly workerStopped: boolean
+    readonly containerRemoved: boolean
+    readonly materialRemoved: boolean
+  }
+  readonly cleanupFailed: boolean
+}): (T & { readonly cleanup: typeof input.verdict }) | null {
+  if (!mayPublishReceipt(input)) return null
+  return { ...input.receipt, cleanup: input.verdict }
+}
+
+/**
  * The transport the qualification drives the Worker through.
  *
  * The Worker closes its per-request database connection when the request ends.
