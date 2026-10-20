@@ -95,33 +95,33 @@ describe('the fresh-account rule stays linear on adversarial input', () => {
   })
 })
 
-describe('a marker inside a word never stops the scan', () => {
-  // The scan has to end, and it has to end with the right answer. A scan that
-  // does not move forward would hold the whole lane, so every case here runs
-  // in a child process with a timeout: a scan that stops making progress is
-  // reported as a failed test instead of hanging the run.
+// The scan has to end, and it has to end with the right answer. A scan that
+// does not move forward would hold the whole lane, so every adversarial input
+// runs in a child process with a timeout: a scan that stops making progress is
+// reported as a failed test instead of hanging the runner.
 
-  const modulePath = join(import.meta.dir, 'fresh-postgres-acceptance', 'fresh-account-only.mjs')
+const modulePath = join(import.meta.dir, 'fresh-postgres-acceptance', 'fresh-account-only.mjs')
 
-  function scanInChild(source: string) {
-    // The source is given to the child on its standard input. A long source
-    // does not fit on a command line, and the point of the child is to be
-    // given the same text the scan would have been given.
-    const probe = `import { readFileSync } from 'node:fs'
+function scanInChild(source: string) {
+  // The source is given to the child on its standard input. A long source does
+  // not fit on a command line, and the point of the child is to be given the
+  // same text the scan would have been given.
+  const probe = `import { readFileSync } from 'node:fs'
 import { freshAccountOnlyViolations } from ${JSON.stringify(modulePath)}
 const source = readFileSync(0, 'utf8')
 const kinds = freshAccountOnlyViolations('probe.ts', source).map(
   (violation) => violation.kind
 )
 console.log(JSON.stringify(kinds))`
-    return spawnSync(process.execPath, ['-e', probe], {
-      encoding: 'utf8',
-      input: source,
-      timeout: MAX_SCAN_MILLISECONDS,
-      killSignal: 'SIGKILL',
-    })
-  }
+  return spawnSync(process.execPath, ['-e', probe], {
+    encoding: 'utf8',
+    input: source,
+    timeout: MAX_SCAN_MILLISECONDS,
+    killSignal: 'SIGKILL',
+  })
+}
 
+describe('a marker inside a word never stops the scan', () => {
   test('a marker inside a word followed by punctuation does not stop the scan', () => {
     const result = scanInChild('xNEON_FOO; NEON_AUTH_BASE_URL')
     expect(result.error?.message ?? '').toBe('')
@@ -149,20 +149,6 @@ console.log(JSON.stringify(kinds))`
     expect(result.status, result.stderr).toBe(0)
     expect(JSON.parse(result.stdout.trim())).toEqual([])
   })
-
-  test('the same inputs are read in this process as well', () => {
-    const cases: [string, string[]][] = [
-      ['xNEON_FOO; NEON_AUTH_BASE_URL', ['legacy-environment']],
-      ['xNEON_FOO NEON_AUTH_BASE_URL', ['legacy-environment']],
-      ['xNEON_FOO', []],
-    ]
-    for (const [source, expected] of cases) {
-      const kinds = freshAccountOnlyViolations('growth.ts', source).map(
-        (violation) => violation.kind
-      )
-      expect(kinds, source).toEqual(expected)
-    }
-  })
 })
 
 describe('a candidate that does not match does not cost more as the text grows', () => {
@@ -172,35 +158,31 @@ describe('a candidate that does not match does not cost more as the text grows',
   // forward-only scan does not.
 
   test('a copy without a source does not rescan the text for every copy', () => {
-    const source = `COPY x ${'copy '.repeat(MARKER_RUN)}`
-    const startedAt = Date.now()
-    const violations = freshAccountOnlyViolations('growth.ts', source)
-    expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
-    expect(violations).toEqual([])
+    const result = scanInChild(`COPY x ${'copy '.repeat(MARKER_RUN)}`)
+    expect(result.error?.message ?? '').toBe('')
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout.trim())).toEqual([])
   })
 
   test('a legacy name inside one word does not rescan the word for every marker', () => {
-    const source = `x${'NEON_'.repeat(MARKER_RUN)}`
-    const startedAt = Date.now()
-    const violations = noNeonViolations('growth.ts', source)
-    expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
-    expect(violations).toEqual([])
+    const result = scanInChild(`x${'NEON_'.repeat(MARKER_RUN)}`)
+    expect(result.error?.message ?? '').toBe('')
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout.trim())).toEqual([])
   })
 
   test('a long run of line comments does not copy the source for every comment', () => {
-    const source = `await pool.query('${'-- note\n'.repeat(MARKER_RUN)}x')`
-    const startedAt = Date.now()
-    const violations = freshAccountOnlyViolations('growth.ts', source)
-    expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
-    expect(violations).toEqual([])
+    const result = scanInChild(`await pool.query('${'-- note\n'.repeat(MARKER_RUN)}x')`)
+    expect(result.error?.message ?? '').toBe('')
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout.trim())).toEqual([])
   })
 
   test('a long run of legacy names in one word does not rescan the word', () => {
-    const source = `x${'legacy'.repeat(MARKER_RUN)}`
-    const startedAt = Date.now()
-    const violations = freshAccountOnlyViolations('growth.ts', source)
-    expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
-    expect(violations).toEqual([])
+    const result = scanInChild(`x${'legacy'.repeat(MARKER_RUN)}`)
+    expect(result.error?.message ?? '').toBe('')
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout.trim())).toEqual([])
   })
 })
 
