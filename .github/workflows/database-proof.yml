@@ -106,6 +106,14 @@ jobs:
         with:
           bun-version: 1.4.3
 
+      - name: Install the repository Node runtime
+        # The acceptance lane and the gate are Node programs, and they run on
+        # the runtime the repository pins, not on whatever the runner image
+        # happens to carry.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
@@ -134,6 +142,12 @@ jobs:
           bun run --cwd packages/types build
           bun run --cwd packages/auth build
 
+      - name: Record the containers the runner is running
+        # The names that are running before the lane starts. The instance the
+        # lane creates is the one that appears while it runs.
+        run: |
+          docker ps --format '{{.Names}}' | sort > "$RUNNER_TEMP/containers-before.txt"
+
       - name: Run the fresh-account acceptance lane
         # The lane prints its receipt on stdout and fails when it cannot prove
         # anything. The output goes outside the checkout, so the tree the
@@ -142,19 +156,25 @@ jobs:
           node scripts/fresh-postgres-acceptance/run.mjs \
             > "$RUNNER_TEMP/fresh-account-acceptance.out"
 
-      - name: Require the lane's own container to be gone
+      - name: Require the owned instance to be gone
         # The lane removes the instance it created on success, on failure and
-        # on interruption, and fails the run when it cannot. A container that is
-        # still running here means the lane left one behind, and the job fails
-        # rather than reporting a proof next to a leak. The check runs even when
-        # the lane itself failed, so the cleanup failure is reported next to the
-        # primary failure instead of being hidden by it. A cancelled job runs no
-        # step at all.
-        if: ${{ !cancelled() }}
+        # on interruption, and fails the run when it cannot. Only the
+        # containers this run created are looked at: the names that appeared
+        # while it ran, not a prefix sweep, and nothing is ever removed here.
+        # A container that is still running is reported by name and the job
+        # fails, so the cleanup failure is recorded next to the primary
+        # failure instead of being hidden by it. The check runs even when the
+        # lane failed and even when the job was cancelled.
+        if: always()
         run: |
-          leaked="$(docker ps --filter 'name=adea-capture-prov-' --format '{{.Names}}')"
-          if [ -n "$leaked" ]; then
-            echo "::error::the acceptance lane left a container running: $leaked" >&2
+          before="$RUNNER_TEMP/containers-before.txt"
+          if [ ! -f "$before" ]; then
+            : > "$before"
+          fi
+          docker ps --format '{{.Names}}' | sort > "$RUNNER_TEMP/containers-after.txt"
+          owned="$(comm -13 "$before" "$RUNNER_TEMP/containers-after.txt")"
+          if [ -n "$owned" ]; then
+            echo "::error::the acceptance lane left its own instance running: $owned" >&2
             exit 1
           fi
 
@@ -181,9 +201,11 @@ jobs:
   disposable_postgres_gate:
     # The same fail-closed shape as before: it passes only when the disposable
     # proof succeeds, and a failed, cancelled, skipped or missing result fails
-    # it. Draft pull requests skip it.
+    # it. The fresh-account acceptance proof is part of the same aggregate, so
+    # a run that failed or left its instance behind fails this gate too. Draft
+    # pull requests skip it.
     name: Prove Disposable PostgreSQL
-    needs: [disposable_postgres_proof]
+    needs: [disposable_postgres_proof, fresh_account_acceptance_proof]
     if: >-
       always() && github.event.pull_request.draft == false &&
       (github.event.action == 'synchronize' || github.event.action == 'ready_for_review')
@@ -193,6 +215,9 @@ jobs:
       - name: Require the disposable proof to succeed
         env:
           PROOF_RESULT: ${{ needs.disposable_postgres_proof.result }}
+          ACCEPTANCE_RESULT: ${{ needs.fresh_account_acceptance_proof.result }}
         run: |
           echo "proof=$PROOF_RESULT"
+          echo "acceptance=$ACCEPTANCE_RESULT"
           test "$PROOF_RESULT" = success
+          test "$ACCEPTANCE_RESULT" = success

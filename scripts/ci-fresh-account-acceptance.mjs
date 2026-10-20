@@ -38,6 +38,14 @@ export function assertFreshAccountReceipt(receipt, options = {}) {
     throw new Error('the expected head is not an exact commit')
   }
 
+  // The kind of proof this receipt has to be. The shared database-proof check
+  // accepts every kind the repository knows, and the disposable proof's receipt
+  // is a different proof of a different thing: the acceptance lane's own kind
+  // is required here, so a receipt of another kind is refused.
+  if (receipt.proofKind !== 'fresh-schema-acceptance') {
+    throw new Error('the receipt is not a fresh-schema acceptance proof')
+  }
+
   // The lane's own contract: a passed, real database proof. A simulated
   // result, a failed result and a result of another kind are refused there.
   assertDatabaseProof(receipt)
@@ -61,6 +69,12 @@ export function assertFreshAccountReceipt(receipt, options = {}) {
   }
   if (journey.provider !== 'better-auth') {
     throw new Error('the receipt did not run the real provider')
+  }
+  // Every identity the journey created is owned by an account. A mapped user
+  // that no account owns is a broken mapping, and a receipt that carries one is
+  // not a proof of a clean acceptance.
+  if (journey.orphanUsers !== 0) {
+    throw new Error('the receipt shows an orphan user')
   }
   for (const name of EXECUTED_COUNTS) {
     if (!Number.isInteger(journey[name]) || journey[name] < 1) {

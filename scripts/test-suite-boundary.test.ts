@@ -418,8 +418,12 @@ describe('test suite boundaries', () => {
       'fresh_account_acceptance_proof',
     ])
     expect(databaseWorkflow.jobs.disposable_postgres_gate!.name).toBe('Prove Disposable PostgreSQL')
+    // The aggregate covers both disposable proofs: the boundary proof and the
+    // fresh-account acceptance proof, which also proves a disposable loopback
+    // instance and nothing else.
     expect(databaseWorkflow.jobs.disposable_postgres_gate!.needs).toEqual([
       'disposable_postgres_proof',
+      'fresh_account_acceptance_proof',
     ])
   })
 

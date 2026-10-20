@@ -77,14 +77,46 @@ export function startCaptureProvisioning(register) {
     containerName: 'adea-capture-prov-fake',
     databaseUrl: ${JSON.stringify(fakeUrl)},
     stop() {
+      if (handle.stopped) return
+      handle.stopped = true
       writeFileSync(resolve(root, 'stopped.txt'), handle.containerName)
-      ${behaviour.cleanup === 'throws' ? "throw new Error('the owned container could not be removed')" : ''}
+      ${
+        behaviour.cleanup === 'throws'
+          ? "throw new Error('the owned container could not be removed')"
+          : ''
+      }
     },
   }
   ${
     behaviour.provisioning === 'throws'
       ? "throw new Error('the disposable instance could not start')"
-      : 'register(handle)\n  return handle'
+      : `register(handle)
+  writeFileSync(resolve(root, 'provisioned.txt'), handle.containerName)
+  // The provisioner owns the instance for the life of the process: a normal
+  // exit and an interrupt both remove it, and the removal is idempotent.
+  process.on('exit', () => {
+    try {
+      handle.stop()
+    } catch (error) {
+      console.error(error.message)
+      process.exitCode = 1
+    }
+  })
+  const signalListeners = []
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    const listener = () => {
+      for (const [other, otherListener] of signalListeners) process.off(other, otherListener)
+      try {
+        handle.stop()
+      } catch (error) {
+        console.error(error.message)
+      }
+      process.kill(process.pid, signal)
+    }
+    signalListeners.push([signal, listener])
+  }
+  for (const [signal, listener] of signalListeners) process.on(signal, listener)
+  return handle`
   }
 }
 `
@@ -93,7 +125,7 @@ export function startCaptureProvisioning(register) {
   // The fixture: it applies the schema and prints the receipt the lane reads.
   const fixtureBody =
     behaviour.fixture === 'hangs'
-      ? 'await new Promise((resolve) => setTimeout(resolve, 2000))'
+      ? 'await new Promise((resolve) => setTimeout(resolve, 4000))'
       : behaviour.fixture === 'fails'
         ? `import { writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -177,7 +209,7 @@ type LaneRun = {
 /** Runs the lane against a fake repository and collects what it printed. */
 async function runLane(
   root: string,
-  options: { killAfterMs?: number; signal?: NodeJS.Signals } = {}
+  options: { killWhenProvisioned?: boolean; signal?: NodeJS.Signals } = {}
 ): Promise<LaneRun> {
   const child = spawn('node', [lanePath, '--repository', root], {
     encoding: 'utf8',
@@ -197,8 +229,14 @@ async function runLane(
       child.on('exit', (code, signal) => resolveExit({ code, signal }))
     }
   )
-  if (options.killAfterMs !== undefined) {
-    setTimeout(() => child.kill(options.signal ?? 'SIGTERM'), options.killAfterMs)
+  if (options.killWhenProvisioned) {
+    // The signal reaches a run that owns an instance, so the qualification
+    // sees the cleanup of an instance that really existed.
+    const marker = join(root, 'provisioned.txt')
+    for (let attempt = 0; attempt < 200 && !existsSync(marker); attempt += 1) {
+      await new Promise((settled) => setTimeout(settled, 50))
+    }
+    child.kill(options.signal ?? 'SIGTERM')
   }
   const { code, signal } = await exited
   return { code, signal, stdout, stderr }
@@ -211,6 +249,16 @@ function printedReceipt(run: LaneRun): Record<string, unknown> | null {
   } catch {
     return null
   }
+}
+
+/**
+ * The instance the run created, and the only one it was allowed to remove.
+ *
+ * The provisioner records the container it stopped, so the qualification sees
+ * that the run removed its own instance and nothing else.
+ */
+function expectOwnedInstanceRemoved(fake: { root: string }) {
+  expect(readFileSync(join(fake.root, 'stopped.txt'), 'utf8')).toBe('adea-capture-prov-fake')
 }
 
 const withFakeRepository = async (
@@ -233,6 +281,8 @@ describe('the acceptance lane fails closed', () => {
       expect(printedReceipt(run)).toBeNull()
       expect(run.stdout).not.toContain('"status":"passed"')
       expect(run.stderr).toContain('the disposable instance could not start')
+      // The instance was never created, so there was nothing to remove.
+      expect(existsSync(join(fake.root, 'stopped.txt'))).toBe(false)
     })
   }, 30_000)
 
@@ -243,6 +293,7 @@ describe('the acceptance lane fails closed', () => {
       expect(printedReceipt(run)).toBeNull()
       expect(run.stdout).not.toContain('"status":"passed"')
       expect(run.stderr).toContain('fresh-schema fixture failed')
+      expectOwnedInstanceRemoved(fake)
     })
   }, 30_000)
 
@@ -253,6 +304,7 @@ describe('the acceptance lane fails closed', () => {
       expect(printedReceipt(run)).toBeNull()
       expect(run.stdout).not.toContain('"status":"passed"')
       expect(run.stderr).toContain('the desktop principal acceptance phase failed')
+      expectOwnedInstanceRemoved(fake)
     })
   }, 30_000)
 
@@ -262,6 +314,7 @@ describe('the acceptance lane fails closed', () => {
       expect(run.code).toBe(1)
       expect(printedReceipt(run)).toBeNull()
       expect(run.stderr).toContain('skipped 1 test(s)')
+      expectOwnedInstanceRemoved(fake)
     })
   }, 30_000)
 
@@ -271,6 +324,7 @@ describe('the acceptance lane fails closed', () => {
       expect(run.code).toBe(1)
       expect(printedReceipt(run)).toBeNull()
       expect(run.stderr).toContain('produced no receipt')
+      expectOwnedInstanceRemoved(fake)
     })
   }, 30_000)
 
@@ -280,6 +334,8 @@ describe('the acceptance lane fails closed', () => {
       expect(run.code).toBe(1)
       expect(printedReceipt(run)).toBeNull()
       expect(run.stderr).toContain('owned PostgreSQL cleanup failed')
+      // The removal was attempted for the owned instance, and it failed.
+      expectOwnedInstanceRemoved(fake)
     })
   }, 30_000)
 
@@ -292,24 +348,36 @@ describe('the acceptance lane fails closed', () => {
       // cleanup failure is not hidden by the primary one.
       expect(run.stderr).toContain('fresh-schema fixture failed')
       expect(run.stderr).toContain('owned PostgreSQL cleanup failed')
+      // The removal was attempted for the owned instance, and it failed.
+      expectOwnedInstanceRemoved(fake)
     })
   }, 30_000)
 
-  test('a cancelled run publishes no receipt', async () => {
+  test('a cancelled run publishes no receipt and removes its own instance', async () => {
     await withFakeRepository({ fixture: 'hangs' }, async (fake) => {
-      const run = await runLane(fake.root, { killAfterMs: 500, signal: 'SIGTERM' })
-      expect(run.signal).toBe('SIGTERM')
+      const run = await runLane(fake.root, { killWhenProvisioned: true, signal: 'SIGTERM' })
+      // The interrupt does not let the run succeed, whichever way the process
+      // ends: the run reports the failure and exits with it.
+      expect(run.code).not.toBe(0)
       expect(printedReceipt(run)).toBeNull()
       expect(run.stdout).not.toContain('"status":"passed"')
+      // The provisioner owns the instance for the life of the process, so the
+      // run removes it before it ends and a cancelled run leaves nothing
+      // behind.
+      expectOwnedInstanceRemoved(fake)
     })
   }, 30_000)
 
-  test('a run the job timeout killed publishes no receipt', async () => {
+  test('a run the runner destroyed publishes no receipt', async () => {
     await withFakeRepository({ fixture: 'hangs' }, async (fake) => {
-      const run = await runLane(fake.root, { killAfterMs: 500, signal: 'SIGKILL' })
+      const run = await runLane(fake.root, { killWhenProvisioned: true, signal: 'SIGKILL' })
       expect(run.signal).toBe('SIGKILL')
       expect(printedReceipt(run)).toBeNull()
       expect(run.stdout).not.toContain('"status":"passed"')
+      // A killed process cannot remove anything: the runner's own teardown is
+      // what ends the instance, and the pull-request lane's leak check reports
+      // it if it outlives the run.
+      expect(existsSync(join(fake.root, 'stopped.txt'))).toBe(false)
     })
   }, 30_000)
 

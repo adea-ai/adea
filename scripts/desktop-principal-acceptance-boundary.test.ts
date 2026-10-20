@@ -189,6 +189,22 @@ describe('the dedicated lane fails closed and cleans up after itself', () => {
     expect(runner).not.toContain('prune')
   })
 
+  test('the provisioner removes the owned instance when the process ends', () => {
+    // The instance is tied to the process that created it: a normal exit and
+    // an interrupt both remove it, and the removal happens once. A run that
+    // is cancelled therefore leaves nothing behind, and a run that fails
+    // cleans up after itself.
+    const provisioning = readFileSync(resolve(root, 'scripts/capture-provisioning.mjs'), 'utf8')
+    expect(provisioning).toContain('function attachRemoval(handle)')
+    expect(provisioning).toContain("process.on('exit', onExit)")
+    expect(provisioning).toContain('process.on(signal, listener)')
+    expect(provisioning).toContain('process.kill(process.pid, signal)')
+    expect(provisioning).toContain('if (stopped) return')
+    // Only the container it created is removed, and nothing is pruned.
+    expect(provisioning).toContain('removeNamedContainer(name, removalTimeoutMs)')
+    expect(provisioning).not.toContain("'prune'")
+  })
+
   test('a child that overruns is killed, and its output is never relayed', () => {
     // A child that hangs is killed instead of waiting forever, and a child that
     // failed is reported by a fixed message: the raw output is not relayed,

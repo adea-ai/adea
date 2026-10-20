@@ -50,6 +50,9 @@ The job, in order:
 2. **The pinned toolchain**, the same steps the disposable proof job uses: Bun
    1.4.3, `bun install --frozen-lockfile`, and the PostgreSQL 18 client tools
    from apt.postgresql.org, with the versions checked before anything runs.
+   The lane and the gate are Node programs, so the job also installs the
+   repository's Node runtime — the version `.mise.toml` pins — and not
+   whatever the runner image happens to carry.
 3. **The workspace packages the phase imports** are built
    (`packages/types`, `packages/auth`).
 4. **The acceptance lane's own entrypoint**, unchanged:
@@ -58,17 +61,30 @@ The job, in order:
    the clean tree the run happened in. The lane provisions its own disposable
    instance and removes it on success, on failure and on interruption, and
    fails the run when it cannot.
-5. **No container is left behind.** The job fails when a container of the
-   lane's own naming is still running, rather than reporting a proof next to a
-   leak.
+5. **No instance is left behind.** The names that were running before the lane
+   starts are recorded, and the names that are running afterwards are compared
+   with them: the containers that appeared while the run executed are the ones
+   the run created, and the check looks only at those. It is not a prefix
+   sweep, and it never removes anything. A container that is still running is
+   reported by name and the job fails, so the cleanup failure is recorded next
+   to the primary failure instead of being hidden by it. The check runs even
+   when the lane failed and even when the job was cancelled.
 6. **The receipt is gated before anything is published.**
    `scripts/ci-fresh-account-acceptance.mjs` refuses a receipt that is not the
-   lane's own passed database proof, that names another commit, whose tree was
-   not clean, whose code came from another tree, that shows no measured account,
-   mapping or exchange, that refused no case, or that did not run the real
-   provider. A refused receipt writes no artifact and fails the job.
+   acceptance lane's own proof kind, that is not the lane's own passed
+   database proof, that names another commit, whose tree was not clean, whose
+   code came from another tree, that shows no measured account, mapping or
+   exchange, that shows an orphan user, that refused no case, or that did not
+   run the real provider. A refused receipt writes no artifact and fails the
+   job.
 7. **The receipt is published** as the `fresh-account-acceptance-receipt`
    artifact, with `if-no-files-found: error`.
+
+The existing fail-closed aggregate now covers this result as well: the
+`Prove Disposable PostgreSQL` gate requires the disposable proof **and** the
+fresh-account acceptance proof. Its check name, its threshold and its shape
+are unchanged; a failed, cancelled, skipped or missing acceptance result
+fails it, exactly as a failed disposable proof does.
 
 ## What the gate reuses rather than restates
 
@@ -79,6 +95,14 @@ from `scripts/fresh-postgres-acceptance/recovery.mjs`,
 in CI exactly when it qualifies in the lane. No file under
 `scripts/fresh-postgres-acceptance/**` is edited, and no part of the lane's
 implementation is copied.
+
+The shared check accepts every proof kind the repository knows, and the
+disposable proof's receipt is a different proof of a different thing, so the
+gate requires the acceptance lane's own kind — `fresh-schema-acceptance` — and
+its own lifecycle result: every identity the journey created is owned by an
+account, so a receipt that carries an orphan user is refused. The lane's
+happy path is unaffected: the receipt it prints already names that kind and
+already reports no orphan user.
 
 The published artifact keeps the lane's own class beside the class the source
 may claim: `laneEvidence` is the lane's `local-disposable`, and `evidence` is
@@ -93,34 +117,40 @@ in which its three seams — the provisioner, the fixture and the focused
 journey — are replaced with fakes, so every path is exercised without a
 container. The lane itself is not changed, and no part of it is copied.
 
-| Path                                    | What the lane does                                       | What the pull-request lane sees                    |
-| --------------------------------------- | -------------------------------------------------------- | -------------------------------------------------- |
-| setup failure                           | the provisioner fails, the run exits 1                   | no receipt, the failure named, no artifact         |
-| migration failure                       | the fixture fails, the run exits 1                       | no receipt, the failure named, no artifact         |
-| test failure                            | the focused journey fails, the run exits 1               | no receipt, the failure named, no artifact         |
-| skipped journey                         | the journey is skipped, the run exits 1                  | no receipt, the skip named, no artifact            |
-| missing journey receipt                 | the journey printed no receipt, the run exits 1          | no receipt, the gap named, no artifact             |
-| cleanup failure                         | the owned instance could not be removed, the run exits 1 | no receipt, the cleanup failure named, no artifact |
-| a primary failure and a cleanup failure | both are reported, the run exits 1                       | no receipt, both failures named, no artifact       |
-| cancellation                            | the run is terminated, it prints nothing                 | no receipt, no artifact                            |
-| the job's hard timeout                  | the run is killed, it prints nothing                     | no receipt, no artifact                            |
+| Path                                    | What the lane does                                       | What the pull-request lane sees                     |
+| --------------------------------------- | -------------------------------------------------------- | --------------------------------------------------- |
+| setup failure                           | the provisioner fails, the run exits 1                   | no receipt, the failure named, no artifact          |
+| migration failure                       | the fixture fails, the run exits 1                       | no receipt, the failure named, no artifact          |
+| test failure                            | the focused journey fails, the run exits 1               | no receipt, the failure named, no artifact          |
+| skipped journey                         | the journey is skipped, the run exits 1                  | no receipt, the skip named, no artifact             |
+| missing journey receipt                 | the journey printed no receipt, the run exits 1          | no receipt, the gap named, no artifact              |
+| cleanup failure                         | the owned instance could not be removed, the run exits 1 | no receipt, the cleanup failure named, no artifact  |
+| a primary failure and a cleanup failure | both are reported, the run exits 1                       | no receipt, both failures named, no artifact        |
+| cancellation                            | the run is interrupted, it prints nothing                | no receipt, the owned instance removed, no artifact |
+| the runner destroyed the run            | the run is killed, it prints nothing                     | no receipt, no artifact                             |
 
-Three properties hold on every one of those paths:
+Four properties hold on every one of those paths:
 
 - **No passed receipt.** The lane prints its receipt only when nothing failed,
   and the gate refuses output that carries no receipt. A refused receipt writes
   no artifact, so the job publishes no proof of a run that failed.
 - **The primary failure and the cleanup failure are both reported.** The lane
   catches the primary failure and reports it, and the cleanup failure is
-  reported next to it; the workflow's container check runs even when the lane
+  reported next to it; the workflow's leak check runs even when the lane
   failed, so a leaked instance is reported next to the failure instead of
   being hidden by it.
-- **Only owned resources are removed, and the evidence is sanitized.** The
-  lane stops the instance it created and nothing else, and it never prunes. The
-  failure evidence names the failure and nothing else: the child's raw output,
-  which may carry the URL and its parameters, is never relayed, and the
-  published receipt carries the commit, the class and the measured counts and
-  no credential.
+- **Only the owned instance is removed, and the cleanup is verified.** The run
+  removes the instance it created and nothing else, and it never prunes. The
+  qualification checks the removal on every path: the provisioner records the
+  container it stopped, so a run that failed, a run whose journey was skipped
+  and a cancelled run are all seen to remove their own instance. A run the
+  runner destroyed cannot remove anything, and the runner's own teardown is
+  what ends the instance; the pull-request lane's leak check reports it by
+  name if it outlives the run.
+- **The evidence is sanitized.** The failure evidence names the failure and
+  nothing else: the child's raw output, which may carry the URL and its
+  parameters, is never relayed, and the published receipt carries the commit,
+  the class and the measured counts and no credential.
 
 The lifecycle result fields are the acceptance lane's own. They are asserted
 to survive — from the fixture's measured counts into the lane's receipt, and
@@ -130,31 +160,41 @@ The lane's own child timeouts (180 s for the fixture, 600 s for the focused
 journey, each with a kill signal) are pinned by the boundary test, and the
 lane's own structure — the receipt only on success, the exit code, the two
 reported failures, the owned instance, the unrelayed child output — is pinned
-there too. The run/teardown/receipt boundary test is the acceptance lane's
-boundary; this lane scopes it to those properties and changes nothing else.
+there too. The provisioner's own contract is pinned there as well: it ties the
+instance to the process, so a normal exit and an interrupt both remove it and
+the removal happens once. The run/teardown/receipt boundary test is the
+acceptance lane's boundary; this lane scopes it to those properties and
+changes nothing else.
+
+The gate's own program is run with Node, the runtime the job uses, and not
+only with the test runner's own binary: the CLI tests spawn `node`, so the
+program the job runs is the program the qualification exercises.
 
 ## Evidence
 
-| Command                                                           | Result                                                                                                                                 |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun test scripts/ci-fresh-account-acceptance.test.ts`            | 21 pass, 0 fail                                                                                                                        |
-| `bun test scripts/ci-fresh-account-acceptance-failure.test.ts`    | 14 pass, 0 fail                                                                                                                        |
-| `bun test scripts/database-proof-workflow.test.ts`                | 26 pass, 0 fail                                                                                                                        |
-| `bun test scripts/desktop-principal-acceptance-boundary.test.ts`  | 13 pass, 0 fail                                                                                                                        |
-| `bun test scripts/ci-fresh-account-acceptance.test.ts --coverage` | `scripts/ci-fresh-account-acceptance.mjs` at 100% functions and 99.17% lines (the one uncovered line is the program's own entry guard) |
-| `oxfmt --check` on the changed sources                            | all files use the correct format                                                                                                       |
-| `oxlint --deny-warnings` on the changed sources                   | no findings                                                                                                                            |
+| Command                                                           | Result                                                                                                                                    |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun test scripts/ci-fresh-account-acceptance.test.ts`            | 23 pass, 0 fail                                                                                                                           |
+| `bun test scripts/ci-fresh-account-acceptance-failure.test.ts`    | 14 pass, 0 fail                                                                                                                           |
+| `bun test scripts/database-proof-workflow.test.ts`                | 29 pass, 0 fail                                                                                                                           |
+| `bun test scripts/desktop-principal-acceptance-boundary.test.ts`  | 14 pass, 0 fail                                                                                                                           |
+| `bun test scripts/ci-fresh-account-acceptance.test.ts --coverage` | `scripts/ci-fresh-account-acceptance.mjs` at 100.00% functions and 99.21% lines (the one uncovered line is the program's own entry guard) |
+| `oxfmt --check` on the changed sources                            | all files use the correct format                                                                                                          |
+| `oxlint --deny-warnings` on the changed sources                   | no findings                                                                                                                               |
 
-The gate's own tests cover the exact-head refusal, the dirty-tree refusal, the
-foreign-tree refusal, the zero-pass refusal for each measured count, the
-no-refusal refusal for each refused case, the simulated and failed results, a
-run that printed no receipt, the usage error, and the program's exit codes in
-both directions. The failure qualification covers the nine paths in the table
-above, and the gate's refusal of a failed run and of a receipt from another
-tree. The workflow's structural test covers the job's identity, the draft
-filter, the checkout ref, the step order, the artifact, the container check, the
-fail-closed shape of the publish step, and that the job reads no secret, names
-no provider and removes nothing.
+The gate's own tests cover the wrong-proof-kind refusal, the orphan-user
+refusal, the exact-head refusal, the dirty-tree refusal, the foreign-tree
+refusal, the zero-pass refusal for each measured count, the no-refusal
+refusal for each refused case, the simulated and failed results, a run that
+printed no receipt, the usage error, and the program's exit codes in both
+directions. The failure qualification covers the nine paths in the table
+above, the removal of the owned instance on each of them, the gate's refusal
+of a failed run and of a receipt from another tree, and the sanitized
+evidence. The workflow's structural test covers the job's identity, the draft
+filter, the checkout ref, the pinned Node runtime, the step order, the
+artifact, the owned-instance leak check, the fail-closed aggregate over both
+results, the fail-closed shape of the publish step, and that the job reads no
+secret, names no provider and removes nothing.
 
 ## Scope
 

@@ -111,7 +111,6 @@ describe('the database proof lane proves only a disposable local instance', () =
 
   test('it has its own fail-closed gate', () => {
     const gate = jobs.disposable_postgres_gate!
-    expect([...(gate.needs as string[])]).toEqual(['disposable_postgres_proof'])
     expect(gate.if).toContain('always()')
     expect(gate.if).toContain('github.event.pull_request.draft == false')
     const check = stepNamed(gate, 'Require the disposable proof to succeed')
@@ -281,9 +280,9 @@ describe('the fresh-account acceptance job wires the acceptance lane into CI', (
     expect(upload.with?.path).toContain('fresh-account-acceptance-receipt.json')
   })
 
-  test('it fails when the lane left its own container behind', () => {
-    const step = stepNamed(job, "Require the lane's own container to be gone")
-    expect(step.run).toContain('adea-capture-prov-')
+  test('it fails when the lane left its own instance behind', () => {
+    const step = stepNamed(job, 'Require the owned instance to be gone')
+    expect(step.run).toContain('left its own instance running')
     expect(step.run).toContain('exit 1')
   })
 
@@ -312,7 +311,6 @@ describe('the fresh-account acceptance job wires the acceptance lane into CI', (
     // A step that runs whatever happened before it would publish a receipt the
     // gate refused, or one the lane never proved.
     expect(body).not.toContain('continue-on-error')
-    expect(body).not.toContain('always()')
     const publish = stepNamed(job, 'Publish the acceptance receipt')
     expect(publish.if).toBeUndefined()
     const gate = stepNamed(job, 'Gate and publish the acceptance receipt')
@@ -327,11 +325,64 @@ describe('the fresh-account acceptance job wires the acceptance lane into CI', (
 
   test('a hung lane is cancelled by the job timeout, and a cancelled job publishes nothing', () => {
     expect(job['timeout-minutes']).toBe(30)
-    // The cleanup check runs even when the lane failed, so a leaked container
-    // is reported next to the primary failure instead of being hidden by it. A
-    // cancelled job runs no step at all, so a cancelled run publishes nothing.
-    const cleanup = stepNamed(job, "Require the lane's own container to be gone")
-    expect(cleanup.if).toContain('!cancelled()')
+    // The cleanup check runs even when the lane failed and even when the job
+    // was cancelled, so a leaked instance is reported next to the primary
+    // failure instead of being hidden by it. The publish step and the gate
+    // have no condition of their own, so a cancelled run publishes nothing.
+    const cleanup = stepNamed(job, 'Require the owned instance to be gone')
+    expect(cleanup.if).toBe('always()')
+  })
+
+  test('the cleanup check looks only at the instance this run created', () => {
+    const names = job.steps.map((step: { name?: string }) => step.name)
+    const before = names.indexOf('Record the containers the runner is running')
+    const lane = names.indexOf('Run the fresh-account acceptance lane')
+    const cleanup = names.indexOf('Require the owned instance to be gone')
+    expect(before).toBeGreaterThanOrEqual(0)
+    expect(before).toBeLessThan(lane)
+    expect(lane).toBeLessThan(cleanup)
+
+    const step = stepNamed(job, 'Require the owned instance to be gone')
+    // The instance this run created is the name that appeared while it ran: a
+    // difference of two snapshots, not a prefix sweep.
+    expect(step.run).toContain('containers-before.txt')
+    expect(step.run).toContain('containers-after.txt')
+    expect(step.run).toContain('comm -13')
+    expect(step.run).not.toContain('--filter')
+    // The leak is reported by name, and nothing is ever removed here.
+    expect(step.run).toContain('left its own instance running')
+    expect(step.run).not.toContain('docker rm')
+    expect(step.run).not.toContain('prune')
+    expect(step.run).not.toContain('docker system')
+  })
+
+  test('the job runs the lane and the gate on the repository Node runtime', () => {
+    const node = stepNamed(job, 'Install the repository Node runtime')
+    expect(node.uses).toBe('actions/setup-node@820762786026740c76f36085b0efc47a31fe5020')
+    // The runtime the repository pins, so the job cannot drift from it.
+    const mise = readFileSync(resolve(root, '.mise.toml'), 'utf8')
+    expect(node.with?.['node-version']).toBe(mise.match(/node = "([^"]+)"/)?.[1])
+    const names = job.steps.map((step: { name?: string }) => step.name)
+    expect(names.indexOf('Install the repository Node runtime')).toBeLessThan(
+      names.indexOf('Run the fresh-account acceptance lane')
+    )
+  })
+
+  test('the fail-closed aggregate covers the fresh-account acceptance result', () => {
+    const gate = jobs.disposable_postgres_gate!
+    // The aggregate's own check name and threshold are unchanged; it now also
+    // requires the fresh-account acceptance result.
+    expect(gate.name).toBe('Prove Disposable PostgreSQL')
+    expect(gate['timeout-minutes']).toBe(5)
+    expect([...(gate.needs as string[])]).toEqual([
+      'disposable_postgres_proof',
+      'fresh_account_acceptance_proof',
+    ])
+    const check = stepNamed(gate, 'Require the disposable proof to succeed')
+    expect(check.run).toContain('test "$PROOF_RESULT" = success')
+    expect(check.run).toContain('test "$ACCEPTANCE_RESULT" = success')
+    expect(check.env?.PROOF_RESULT).toBe('${{ needs.disposable_postgres_proof.result }}')
+    expect(check.env?.ACCEPTANCE_RESULT).toBe('${{ needs.fresh_account_acceptance_proof.result }}')
   })
 
   test('the job removes nothing and reaches no hosted database', () => {

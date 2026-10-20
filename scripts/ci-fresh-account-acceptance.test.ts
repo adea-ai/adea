@@ -16,9 +16,14 @@ const scriptPath = resolve(import.meta.dir, 'ci-fresh-account-acceptance.mjs')
 const head = 'a'.repeat(40)
 const other = 'b'.repeat(40)
 
-/** The gate as the job runs it: the module is a program here, not an import. */
+/**
+ * The gate as the job runs it: the module is a program here, not an import.
+ *
+ * The job runs it with the repository's Node runtime, so the program is run
+ * with Node here too, and not only with the test runner's own binary.
+ */
 const runGate = (args: string[], environment: Record<string, string> = {}) => {
-  const result = spawnSync(process.execPath, [scriptPath, ...args], {
+  const result = spawnSync('node', [scriptPath, ...args], {
     encoding: 'utf8',
     env: { ...process.env, ...environment },
   })
@@ -123,6 +128,29 @@ describe('the fresh-account acceptance receipt gate', () => {
     expect(() =>
       assertFreshAccountReceipt(receipt({ status: 'failed' }), { expectedSha: head })
     ).toThrow('not a passed proof')
+  })
+
+  test('it refuses a receipt of another proof kind', () => {
+    // The shared database-proof check accepts every kind the repository knows,
+    // and the disposable proof's receipt is a different proof of a different
+    // thing. Only the acceptance lane's own kind qualifies here.
+    const disposable = receipt({
+      proofKind: 'disposable-postgres-proof',
+      migrations: { checks: [{ name: 'schema' }] },
+    })
+    expect(() => assertFreshAccountReceipt(disposable, { expectedSha: head })).toThrow(
+      'not a fresh-schema acceptance proof'
+    )
+    expect(() =>
+      assertFreshAccountReceipt(receipt({ proofKind: undefined }), { expectedSha: head })
+    ).toThrow('not a fresh-schema acceptance proof')
+  })
+
+  test('it refuses a receipt that carries an orphan user', () => {
+    const journey = { ...receipt().desktopPrincipal, orphanUsers: 1 }
+    expect(() =>
+      assertFreshAccountReceipt(receipt({ desktopPrincipal: journey }), { expectedSha: head })
+    ).toThrow('shows an orphan user')
   })
 
   test('it refuses an expected head that is not an exact commit', () => {
