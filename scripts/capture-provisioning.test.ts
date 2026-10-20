@@ -10,6 +10,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -62,6 +63,9 @@ case "$1" in
   exec) exit 0 ;;
   inspect)
     for last; do :; done
+    case "$SHIM_INSPECT" in
+      absent) echo "Error response from daemon: No such object: $last" >&2; exit 1 ;;
+    esac
     if [ -z "$SHIM_STATE" ] || [ ! -f "$SHIM_STATE" ] || [ "$(cat "$SHIM_STATE")" != "$last" ]; then
       echo "Error response from daemon: No such object: $last" >&2
       exit 1
@@ -678,7 +682,8 @@ async function withInstrumentedCapture(
     log: string,
     owned: (event: string) => ReturnType<typeof process.listeners>
   ) => void | Promise<void>,
-  script = dockerShim
+  script = dockerShim,
+  pathSuffix = '/usr/bin:/bin'
 ) {
   const directory = mkdtempSync(join(tmpdir(), 'adea-capture-unit-'))
   const previous = { env: process.env, exitCode: process.exitCode }
@@ -690,7 +695,7 @@ async function withInstrumentedCapture(
     writeFileSync(join(directory, 'docker'), script)
     chmodSync(join(directory, 'docker'), 0o755)
     process.env = {
-      PATH: `${directory}:/usr/bin:/bin`,
+      PATH: `${directory}:${pathSuffix}`,
       SHIM_LOG: log,
       SHIM_STATE: join(directory, 'state'),
       SHIM_COUNTER: join(directory, 'counter'),
@@ -712,6 +717,28 @@ async function withInstrumentedCapture(
     process.exitCode = previous.exitCode ?? 0
     rmSync(directory, { recursive: true, force: true })
   }
+}
+
+// A directory with the few utilities the stub needs and no Docker client at all.
+//
+// A stub that removes itself only leaves the next call with nothing to run when
+// nothing else on the PATH answers for it. On a machine that has a real
+// Docker client, the lookup would find that one instead and the call would
+// succeed against a real daemon. This directory keeps the utilities and drops
+// the client, so the stub's own removal is the only thing that can end the
+// client's life.
+function toolsWithoutDocker(directory: string): string {
+  const tools = join(directory, 'tools')
+  mkdirSync(tools, { recursive: true })
+  for (const name of ['rm', 'cat', 'sleep']) {
+    for (const candidate of [`/bin/${name}`, `/usr/bin/${name}`]) {
+      if (existsSync(candidate)) {
+        symlinkSync(candidate, join(tools, name))
+        break
+      }
+    }
+  }
+  return tools
 }
 
 describe('instrumented capture ownership and cleanup with stub Docker', () => {
@@ -1099,22 +1126,58 @@ describe('instrumented capture ownership and cleanup with stub Docker', () => {
     })
   })
 
+  test('a container that is gone leaves its volumes unknown, and the cleanup fails', async () => {
+    await withInstrumentedCapture({ SHIM_INSPECT: 'absent' }, (log) => {
+      const handle = startCaptureProvisioning(undefined, {
+        removalTimeoutMs: 2000,
+        inspectionTimeoutMs: 200,
+        backoffMs: [],
+      })
+      if (!handle) throw new Error('Stub daemon unavailable')
+      let failure = ''
+      try {
+        handle.stop()
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error)
+      }
+      // The container's volumes are unknown, and an unknown volume is never
+      // treated as an absent one.
+      expect(failure).toContain(
+        'the anonymous volumes of the throwaway capture provisioning container'
+      )
+      expect(failure).toContain(
+        'the container may have been created and removed before its volumes could be read'
+      )
+      const commands = readFileSync(log, 'utf8').trim().split('\n')
+      // The container is removed anyway, and no volume is removed on a guess.
+      expect(commands).toContain(`rm -f ${handle.containerName}`)
+      expect(commands.some((line) => line.startsWith('volume rm '))).toBe(false)
+    })
+  })
+
   test('a client that cannot be run at all is an inspection failure', async () => {
     const error = spyOn(console, 'error').mockImplementation(() => {})
     try {
-      await withInstrumentedCapture({ SHIM_INSPECT: 'error' }, () => {
-        // The client removes itself while the instance starts, so the cleanup
-        // cannot ask Docker anything.
-        expect(() =>
-          startCaptureProvisioning(undefined, {
-            removalTimeoutMs: 2000,
-            inspectionTimeoutMs: 200,
-            backoffMs: [],
-          })
-        ).toThrow()
-        const reported = error.mock.calls.flat().join(' ')
-        expect(reported).toContain('could not be inspected: the inspection failed')
-      })
+      // Nothing but the stub answers for Docker, so the stub's own removal ends
+      // the client's life on every machine.
+      await withInstrumentedCapture(
+        { SHIM_INSPECT: 'error' },
+        () => {
+          // The client removes itself while the instance starts, so the cleanup
+          // cannot ask Docker anything.
+          expect(() =>
+            startCaptureProvisioning(undefined, {
+              removalTimeoutMs: 2000,
+              inspectionTimeoutMs: 200,
+              backoffMs: [],
+            })
+          ).toThrow()
+          const reported = error.mock.calls.flat().join(' ')
+          expect(reported).toContain('could not be inspected: the inspection failed')
+        },
+        dockerShim,
+        toolsWithoutDocker(workdir)
+      )
     } finally {
       error.mockRestore()
     }

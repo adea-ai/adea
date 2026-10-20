@@ -277,7 +277,7 @@ function resolveCandidates(state, inspectionTimeoutMs) {
 // and the exact identities that are still on the host. A failure is retained
 // until the removal it belongs to is verified, so a later attempt tries it
 // again.
-function cleanupOwnedResources(name, state, timeoutMs, inspectionTimeoutMs) {
+function cleanupOwnedResources(name, state, removalTimeoutMs, inspectionTimeoutMs) {
   const failures = []
   const inspection = inspectContainerMounts(name, inspectionTimeoutMs)
   if (inspection.state === UNREADABLE) {
@@ -341,7 +341,7 @@ function cleanupOwnedResources(name, state, timeoutMs, inspectionTimeoutMs) {
   // The container is known and owned, so it is removed even when the
   // inspection of its mounts was uncertain.
   try {
-    removeNamedContainer(name, timeoutMs)
+    removeNamedContainer(name, removalTimeoutMs)
     // The removal is verified only when Docker confirmed it.
     state.containerRemoved = true
   } catch (error) {
@@ -558,55 +558,67 @@ export function startCaptureProvisioning(
     // The exact identities of the volumes that are still on the host.
     pendingVolumes: new Set(),
   }
+  let stopped = false
   const handle = {
     containerName: name,
     databaseUrl: null,
     stop() {
-      if (!state.containerRemoved) {
-        // The container's removal was not verified, so it is tried again, and
-        // the volumes it owns are discovered again.
-        try {
-          cleanupOwnedResources(name, state, removalTimeoutMs, inspectionTimeoutMs)
-        } finally {
-          // The exit listener is detached only once the container is verified
-          // gone, so a removal that failed is retried when the process ends.
-          if (state.containerRemoved) detachExit()
-        }
-        return
-      }
-      // The container is verified gone. The candidates whose ownership could not
-      // be read are inspected again first, now that nothing holds them, so a
-      // volume whose ownership only became readable is removed in this same
-      // attempt. The verified pending volumes are removed afterwards, so every
-      // one of them is gone before the cleanup reports itself clean.
-      const failures = []
-      failures.push(...resolveCandidates(state, inspectionTimeoutMs))
-      failures.push(...removePendingVolumes(state.pendingVolumes))
-      state.discoveryCertain = state.discoveryComplete && state.candidates.size === 0
-      if (!state.discoveryCertain) {
-        failures.push(
-          new Error(
-            `the anonymous volumes of the throwaway capture provisioning container ${name} are still unknown: ${state.discoveryReason}`
-          )
-        )
-      }
-      if (state.pendingVolumes.size > 0) {
-        failures.push(
-          new Error(
-            `the anonymous volumes of the throwaway capture provisioning container ${name} are still on the host: ${[...state.pendingVolumes].join(', ')}`
-          )
-        )
-      }
-      if (failures.length === 1) throw failures[0]
-      if (failures.length > 1) {
-        throw new AggregateError(
-          failures,
-          `the throwaway capture provisioning cleanup did not finish: ${failures
-            .map((failure) => failure.message)
-            .join('; ')}`
-        )
+      if (stopped) return
+      stopped = true
+      try {
+        stopOwnedResources()
+      } finally {
+        // The cleanup has finished, so a later stop may retry what it did not
+        // verify.
+        stopped = false
       }
     },
+  }
+  const stopOwnedResources = () => {
+    if (!state.containerRemoved) {
+      // The container's removal was not verified, so it is tried again, and
+      // the volumes it owns are discovered again.
+      try {
+        cleanupOwnedResources(name, state, removalTimeoutMs, inspectionTimeoutMs)
+      } finally {
+        // The exit listener is detached only once the container is verified
+        // gone, so a removal that failed is retried when the process ends.
+        if (state.containerRemoved) detachExit()
+      }
+      return
+    }
+    // The container is verified gone. The candidates whose ownership could not
+    // be read are inspected again first, now that nothing holds them, so a
+    // volume whose ownership only became readable is removed in this same
+    // attempt. The verified pending volumes are removed afterwards, so every
+    // one of them is gone before the cleanup reports itself clean.
+    const failures = []
+    failures.push(...resolveCandidates(state, inspectionTimeoutMs))
+    failures.push(...removePendingVolumes(state.pendingVolumes))
+    state.discoveryCertain = state.discoveryComplete && state.candidates.size === 0
+    if (!state.discoveryCertain) {
+      failures.push(
+        new Error(
+          `the anonymous volumes of the throwaway capture provisioning container ${name} are still unknown: ${state.discoveryReason}`
+        )
+      )
+    }
+    if (state.pendingVolumes.size > 0) {
+      failures.push(
+        new Error(
+          `the anonymous volumes of the throwaway capture provisioning container ${name} are still on the host: ${[...state.pendingVolumes].join(', ')}`
+        )
+      )
+    }
+    if (failures.length === 1) throw failures[0]
+    if (failures.length > 1) {
+      throw new AggregateError(
+        failures,
+        `the throwaway capture provisioning cleanup did not finish: ${failures
+          .map((failure) => failure.message)
+          .join('; ')}`
+      )
+    }
   }
   const detachExit = attachRemoval(handle)
   register(handle)
