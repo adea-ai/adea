@@ -533,6 +533,82 @@ after this repair. The §14 safety decision stands: without a supported per-run
 native profile root, the lane does not launch, and the installed-application
 rows stay pending rather than asserted.
 
+## 16. The fail-closed repair — a label is not evidence, and the decision comes first
+
+Root's review confirmed that the §14 repair addressed the immediate hazard by
+**refusing execution** rather than by proving isolation, and that every
+native-execution and profile-dependent row must stay pending. It found two
+remaining weaknesses, both fixed here.
+
+### (1) The isolation assessor was too permissive
+
+The previous assessor accepted a _descriptive label_ (`isolationRoute:
+'per-run-native-root'`) as proof, and accepted an outside path even with no
+route at all. A label is not evidence: nothing checks it against anything the
+native side honours.
+
+- **Evidence, not labels.** The assessor now takes `IsolationEvidence` — the
+  native profile root, the real user's Application Support root, and the
+  contract the caller _claims_ — and resolves the claim against
+  `SUPPORTED_ISOLATION_CONTRACTS`, a registry of contracts this repository
+  recognises and can **validate**.
+- **The registry is empty on purpose.** The Electrobun native core resolves
+  the CEF profile root from the real user's home and the devkit exposes no
+  per-run root, so no contract can be validated here. A claim naming any
+  other identifier — including the old labels — is refused with the reason
+  that a label, a bundle channel or a computed path is not evidence.
+- **An outside path is not evidence by itself.** Without a validated
+  supported contract the assessor fails closed even when the path is outside
+  the real root.
+- **No injected bypass.** `runInstalledAppAcceptance` takes the _evidence_
+  and computes the decision itself; an injected decision is not accepted.
+
+### (2) The decision came after the side effects
+
+The entry point copied the bundle with `ditto` and registered it with
+LaunchServices **before** it decided not to launch.
+
+- **A side-effect-free preflight.** `runInstalledAppPreflight` answers one
+  question — may this run launch? — by reading the bundle's own identity and
+  nothing else. It performs **no** install, **no** registration, **no**
+  launch and **no** real-user-profile access, and its artifact records
+  `installed: false`, `registered: false`, `launched: false`.
+- **The decision now comes first.** The entry point runs the preflight before
+  it creates the disposable directory, copies the bundle or registers
+  anything. When the proof is missing, the run writes the truthful pending
+  evidence and stops.
+
+### The focused tests
+
+`scripts/installed-app-acceptance.test.ts` grew from 49 cases to **55 (155
+assertions)**, all pure and synthetic:
+
+- a descriptive label is refused, and the reason says a label is not
+  evidence;
+- an outside path with no validated route is refused as well;
+- the supported-contract registry is empty, so nothing can be honoured yet;
+- a supported contract that is not in force does not isolate the run;
+- the preflight records **no** install, registration, launch or profile side
+  effect, creates no install root, and reports `installed/registered/launched`
+  as false;
+- the preflight's rows are truthful: every launch-dependent row is pending,
+  the isolation is reported as not isolated, and the run is not green;
+- a claimed label does not make the preflight launch anything.
+
+### The missing supported contract
+
+> A **supported, validated** per-run native profile root: a contract the
+> Electrobun native core honours for its Application Support, CEF-cache and
+> log roots — for example an environment override it reads, or a per-run
+> bundle identity it resolves — that this lane can check is in force, and that
+> establishes a profile root outside the real user's Application Support
+> directory.
+
+Until such a contract exists and is registered in
+`SUPPORTED_ISOLATION_CONTRACTS`, the lane refuses to install, register or
+launch, and the installed-application rows stay pending. The §15 log,
+navigation and exact-command repairs are unchanged.
+
 ## 12. Publication
 
 The branch is `test/installed-desktop-ui-acceptance-20261020`, three commits

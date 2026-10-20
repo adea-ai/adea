@@ -28,6 +28,7 @@ import {
   assessLogCompleteness,
   assessNativeProfileIsolation,
   assessSocketObservation,
+  SUPPORTED_ISOLATION_CONTRACTS,
   createDisposableRoot,
   createLogFailureLedger,
   defaultArtifactPath,
@@ -39,6 +40,7 @@ import {
   removeOwnedRoot,
   resolveAcceptanceProfile,
   runInstalledAppAcceptance,
+  runInstalledAppPreflight,
   summarizeAcceptance,
   type AcceptanceCheck,
 } from './installed-app-acceptance'
@@ -303,7 +305,32 @@ describe('the lane may not launch into the real user profile', () => {
       realRoot,
     })
     expect(isolation.isolated).toBe(false)
-    expect(isolation.missing).toContain('per-run native profile root')
+    expect(isolation.missing).toContain('supported native profile isolation contract')
+  })
+
+  test('a descriptive label is not evidence and is refused', () => {
+    for (const id of ['per-run-native-root', 'unique-identity', 'none', 'adea-acceptance']) {
+      const isolation = assessNativeProfileIsolation({
+        profilePath: `${realRoot}/dev/CEF`,
+        realRoot,
+        claimed: { id, environment: {} },
+      })
+      expect(isolation.isolated).toBe(false)
+      expect(isolation.missing).toContain('not a supported native profile isolation contract')
+    }
+  })
+
+  test('an outside path without a validated route is not evidence either', () => {
+    const isolation = assessNativeProfileIsolation({
+      profilePath: '/private/tmp/adea-acceptance-run/native-profile',
+      realRoot,
+    })
+    expect(isolation.isolated).toBe(false)
+    expect(isolation.missing).toContain('supported native profile isolation contract')
+  })
+
+  test('the supported contract registry is empty, so nothing can be honoured yet', () => {
+    expect(SUPPORTED_ISOLATION_CONTRACTS).toEqual([])
   })
 
   test('the absence of the path before a run proves nothing about ownership', () => {
@@ -324,14 +351,15 @@ describe('the lane may not launch into the real user profile', () => {
     expect(isolation.isolated).toBe(false)
   })
 
-  test('a native profile outside the real root is isolated', () => {
+  test('a supported contract that is not in force does not isolate the run', () => {
+    // The registry is empty, so every claim is refused: even an outside path
+    // with a plausible label.
     const isolation = assessNativeProfileIsolation({
       profilePath: '/private/tmp/adea-acceptance-run/native-profile',
       realRoot,
-      isolationRoute: 'per-run-native-root',
+      claimed: { id: 'per-run-native-root', environment: {} },
     })
-    expect(isolation.isolated).toBe(true)
-    expect(isolation.missing).toBeNull()
+    expect(isolation.isolated).toBe(false)
   })
 
   test('a profile that appears concurrently is never removed', () => {
@@ -352,10 +380,10 @@ describe('the lane may not launch into the real user profile', () => {
     const run = await runInstalledAppAcceptance({
       bundle: '/nonexistent/Adea-dev.app',
       profile: resolveAcceptanceProfile('/tmp/adea-acceptance-never-launched'),
-      isolation: assessNativeProfileIsolation({
+      isolationEvidence: {
         profilePath: `${realRoot}/dev/CEF`,
         realRoot,
-      }),
+      },
       launch: () => {
         launched = true
         throw new Error('the lane must not launch without a proved isolation route')
@@ -370,7 +398,7 @@ describe('the lane may not launch into the real user profile', () => {
     expect(run.artifact.launched).toBe(false)
     const isolation = run.artifact.isolation as { isolated: boolean; missing: string | null }
     expect(isolation.isolated).toBe(false)
-    expect(isolation.missing).toContain('per-run native profile root')
+    expect(isolation.missing).toContain('supported native profile isolation contract')
   })
 
   test('the pending rows cover every launch-dependent and UI row', () => {
@@ -584,5 +612,67 @@ describe('the folder-pick row needs the exact command identity', () => {
 
   test('a surface with no invoke at all fails', () => {
     expect(assessFolderCommandExposure({ hasInvoke: false, commands: [] }).status).toBe('fail')
+  })
+})
+
+describe('the preflight has no side effects', () => {
+  const realRoot = '/Users/operator/Library/Application Support/dev.adea.desktop'
+
+  test('no install, registration or launch happens when the proof is missing', async () => {
+    const recorded: string[] = []
+    const parent = mkdtempSync(join(tmpdir(), 'adea-acceptance-parent-'))
+    const preflight = await runInstalledAppPreflight({
+      bundle: join(parent, 'Adea-dev.app'),
+      evidence: {
+        profilePath: `${realRoot}/dev/CEF`,
+        realRoot,
+      },
+      sideEffects: { record: (event) => recorded.push(event) },
+    })
+    // Nothing was installed, registered, launched or profiled.
+    expect(recorded).toEqual([])
+    expect(preflight.artifact.installed).toBe(false)
+    expect(preflight.artifact.registered).toBe(false)
+    expect(preflight.artifact.launched).toBe(false)
+    expect(preflight.artifact.sideEffects).toEqual([])
+    // No install root was created for the application.
+    expect(existsSync(join(parent, 'Applications'))).toBe(false)
+    rmSync(parent, { force: true, recursive: true })
+  })
+
+  test('the preflight records the truthful pending evidence', async () => {
+    const preflight = await runInstalledAppPreflight({
+      bundle: '/nonexistent/Adea-dev.app',
+      evidence: {
+        profilePath: `${realRoot}/dev/CEF`,
+        realRoot,
+      },
+    })
+    const launchDependent = preflight.checks.filter((row) => row.id !== 'installed-bundle-identity')
+    expect(launchDependent.length).toBeGreaterThan(0)
+    expect(launchDependent.every((row) => row.status === 'pending')).toBe(true)
+    expect(launchDependent.every((row) => !row.ok)).toBe(true)
+    const isolation = preflight.artifact.isolation as { isolated: boolean; missing: string | null }
+    expect(isolation.isolated).toBe(false)
+    expect(isolation.missing).toContain('supported native profile isolation contract')
+    const summary = preflight.artifact.summary as { ok: boolean }
+    expect(summary.ok).toBe(false)
+  })
+
+  test('a claimed label does not make the preflight launch anything', async () => {
+    const recorded: string[] = []
+    const preflight = await runInstalledAppPreflight({
+      bundle: '/nonexistent/Adea-dev.app',
+      evidence: {
+        profilePath: '/private/tmp/adea-acceptance-run/native-profile',
+        realRoot,
+        claimed: { id: 'unique-identity', environment: {} },
+      },
+      sideEffects: { record: (event) => recorded.push(event) },
+    })
+    expect(recorded).toEqual([])
+    expect(preflight.artifact.launched).toBe(false)
+    const isolation = preflight.artifact.isolation as { isolated: boolean }
+    expect(isolation.isolated).toBe(false)
   })
 })

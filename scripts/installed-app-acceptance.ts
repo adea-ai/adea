@@ -435,46 +435,205 @@ export type NativeProfileIsolation = Readonly<{
 }>
 
 /**
- * The isolation route the lane was able to establish.
+ * The evidence a run offers about its native profile isolation.
  *
- * `none` is the honest default: the lane has no supported way to move the
- * native renderer's profile out of the real user's Application Support
- * directory.
+ * The evidence is a CONTRACT the repository recognises, plus the environment
+ * the run would use. A label, a channel name or a path somebody computed is
+ * not evidence: none of them is checked against anything the native side
+ * honours.
  */
-export type IsolationRoute = 'none' | 'per-run-native-root' | 'unique-identity'
+export type IsolationEvidence = Readonly<{
+  /** The native profile root the run would use. */
+  profilePath: string
+  /** The real user's Application Support root for this application's identity. */
+  realRoot: string
+  /** The contract the caller claims is in force, when it claims one. */
+  claimed?: Readonly<{
+    /** The contract's identifier. */
+    id: string
+    /** The environment the run would use. */
+    environment: Readonly<Record<string, string | undefined>>
+  }>
+}>
+
+/**
+ * A supported contract that can establish that a run's native profile root
+ * is outside the real user's Application Support directory.
+ */
+export type SupportedIsolationContract = Readonly<{
+  /** The contract's identifier, as the supported contract names it. */
+  id: string
+  /**
+   * Whether the contract is in force for this run, and the profile root it
+   * establishes. A contract that is not in force establishes nothing.
+   */
+  inForce: (evidence: IsolationEvidence) => {
+    inForce: boolean
+    profilePath: string | null
+  }
+}>
+
+/**
+ * The supported native profile isolation contracts.
+ *
+ * The registry is **EMPTY on purpose**. The Electrobun native core resolves
+ * the CEF profile root from the real user's home — the disposable `HOME` the
+ * lane sets does not move it — and the devkit exposes no per-run
+ * Application Support root (only `ELECTROBUN_INSTALL_ROOT_NAME`,
+ * `ELECTROBUN_LAUNCHER_PID` and the Linux `XDG_*` variables). There is
+ * therefore no contract this lane could validate, and the assessor fails
+ * closed.
+ *
+ * When a supported per-run native profile contract lands, it is registered
+ * here with the check that proves it is in force, and the assessor starts
+ * honouring it — and only then.
+ */
+export const SUPPORTED_ISOLATION_CONTRACTS: readonly SupportedIsolationContract[] = []
 
 /**
  * Decides whether the lane may launch the installed application at all.
  *
- * The native renderer resolves its profile root from the real user's home —
- * the disposable `HOME` the lane sets does not move it, and the Electrobun
- * devkit exposes no per-run Application Support root. Launching therefore
- * WRITES into the operator's own profile, and the absence of the path before
- * the run proves nothing: a real installation can create or use it at the
- * same time.
+ * The lane launches only when a SUPPORTED contract is in force and the profile
+ * root it establishes is outside the real user's Application Support
+ * directory. Everything else fails closed:
  *
- * So the lane launches only when the profile root is provably outside the
- * real user's Application Support directory, and otherwise reports the exact
- * contract that is missing.
+ *   - a claim that names a contract the repository does not support is
+ *     refused — a descriptive label is not evidence;
+ *   - a profile path outside the real root is not evidence by itself,
+ *     because nothing proves the native side would use it.
+ *
+ * The exact missing contract is reported so the record says what would be
+ * needed, instead of asserting an isolation nobody proved.
  */
-export function assessNativeProfileIsolation(input: {
-  profilePath: string
-  realRoot: string
-  isolationRoute?: IsolationRoute
-}): NativeProfileIsolation {
-  const profilePath = resolve(input.profilePath)
-  const realRoot = resolve(input.realRoot)
-  const insideRealRoot = profilePath === realRoot || profilePath.startsWith(resolve(realRoot) + '/')
-  const route = input.isolationRoute ?? 'none'
-  if (insideRealRoot && route === 'none') {
+export function assessNativeProfileIsolation(evidence: IsolationEvidence): NativeProfileIsolation {
+  const profilePath = resolve(evidence.profilePath)
+  const claimed = evidence.claimed
+  const contract = claimed
+    ? SUPPORTED_ISOLATION_CONTRACTS.find((entry) => entry.id === claimed.id)
+    : undefined
+  if (!contract) {
     return {
       isolated: false,
-      missing:
-        "the native renderer resolves its profile root from the real user home, so launching writes into the operator's own Application Support directory; a supported per-run native profile root (or a per-run bundle identity the native side honours) is required before the installed application may be launched",
+      missing: claimed
+        ? `the claimed isolation contract "${claimed.id}" is not a supported native profile isolation contract; a label, a bundle channel or a computed path is not evidence`
+        : "no supported native profile isolation contract is in force; the native renderer resolves its profile root from the real user home and the devkit exposes no per-run root, so launching writes into the operator's own Application Support directory",
       profilePath,
     }
   }
-  return { isolated: true, missing: null, profilePath }
+  const state = contract.inForce(evidence)
+  if (!state.inForce || !state.profilePath) {
+    return {
+      isolated: false,
+      missing: `the supported isolation contract "${contract.id}" is not in force for this run`,
+      profilePath,
+    }
+  }
+  const established = resolve(state.profilePath)
+  const realRoot = resolve(evidence.realRoot)
+  if (established === realRoot || established.startsWith(realRoot + '/')) {
+    return {
+      isolated: false,
+      missing: `the supported isolation contract "${contract.id}" resolved a profile root inside the real user's Application Support directory`,
+      profilePath: established,
+    }
+  }
+  return { isolated: true, missing: null, profilePath: established }
+}
+
+/**
+ * The evidence a run would offer about its native profile.
+ *
+ * It is read from the bundle's own identity, and reading it touches nothing:
+ * the bundle is read, never copied, and the real user's profile is never
+ * opened.
+ */
+export function isolationEvidenceForBundle(bundle: string, home = homedir()): IsolationEvidence {
+  const identifier = readBundleIdentifier(bundle) ?? INSTALLED_APP_IDENTIFIER
+  const channel = readBundleChannel(bundle)
+  const realRoot = join(home, 'Library', 'Application Support', identifier)
+  return {
+    profilePath: resolveOwnedApplicationSupportPath({ identifier, channel, home }),
+    realRoot,
+  }
+}
+
+/**
+ * The side effects a run performs, recorded for the evidence.
+ *
+ * The preflight records nothing: it exists so that a test can prove the
+ * preflight performs none.
+ */
+export type RunSideEffects = Readonly<{
+  /** Records one side effect. */
+  record: (event: 'install' | 'register' | 'launch' | 'profile-touch') => void
+}>
+
+/**
+ * The truthful result of a run that cannot launch.
+ *
+ * It is produced WITHOUT copying the bundle, WITHOUT registering it with
+ * LaunchServices, WITHOUT launching anything and WITHOUT touching the real
+ * user's profile: the decision to refuse comes first, and the evidence says
+ * exactly which rows are unproved and why.
+ */
+export type PreflightRun = {
+  checks: AcceptanceCheck[]
+  artifact: Record<string, unknown>
+}
+
+/**
+ * The side-effect-free preflight.
+ *
+ * It answers one question — may this run launch? — and records the truthful
+ * pending evidence when the answer is no. It performs no install, no
+ * registration, no launch and no profile access.
+ */
+export async function runInstalledAppPreflight(dependencies: {
+  bundle: string
+  evidence: IsolationEvidence
+  /** Records side effects; the preflight records none. */
+  sideEffects?: RunSideEffects
+}): Promise<PreflightRun> {
+  const isolation = assessNativeProfileIsolation(dependencies.evidence)
+  const checks: AcceptanceCheck[] = []
+  const add = (check: AcceptanceCheck) => {
+    checks.push(check)
+  }
+  const target = readBuildTarget(dependencies.bundle)
+  const scheme = bundleDeclaresScheme(dependencies.bundle)
+  add(
+    acceptanceRow({
+      id: 'installed-bundle-identity',
+      expected: `the installed bundle declares the ${INSTALLED_APP_SCHEME} URL scheme and carries its build target record`,
+      actual: scheme
+        ? `the scheme is declared; the recorded target is ${target?.mode ?? 'missing'} (${target?.cloudOrigin ?? 'no origin'})`
+        : 'the bundle does not declare the URL scheme',
+      status: scheme && target !== null ? 'pass' : 'fail',
+      evidence: 'host',
+    })
+  )
+  for (const row of launchDependentRows(isolation.missing ?? 'the isolation contract is unknown')) {
+    add(row)
+  }
+  const summary = summarizeAcceptance(checks)
+  return {
+    checks,
+    artifact: {
+      summary,
+      origin: INSTALLED_APP_ORIGIN,
+      bundle: redactRecordedText(dependencies.bundle),
+      isolation: {
+        isolated: isolation.isolated,
+        missing: isolation.missing,
+        profilePath: redactRecordedText(isolation.profilePath),
+      },
+      installed: false,
+      registered: false,
+      launched: false,
+      sideEffects: [],
+      checks,
+    },
+  }
 }
 
 /**
@@ -608,6 +767,18 @@ function readBuildTarget(installedApp: string): { mode?: string; cloudOrigin?: s
       'utf8'
     )
     return JSON.parse(text) as { mode?: string; cloudOrigin?: string }
+  } catch {
+    return null
+  }
+}
+
+/** The identifier the installed bundle carries. */
+function readBundleIdentifier(appBundle: string): string | null {
+  try {
+    const identity = JSON.parse(
+      readFileSync(join(appBundle, 'Contents', 'Resources', 'version.json'), 'utf8')
+    ) as { identifier?: unknown }
+    return typeof identity.identifier === 'string' ? identity.identifier : null
   } catch {
     return null
   }
@@ -876,8 +1047,12 @@ export type AcceptanceRun = {
 export async function runInstalledAppAcceptance(dependencies: {
   bundle: string
   profile: AcceptanceProfile
-  /** What the lane proved about where the native profile would be written. */
-  isolation?: NativeProfileIsolation
+  /**
+   * The evidence about the run's native profile isolation. The lane computes
+   * the decision from it through the supported-contract registry; an injected
+   * decision is not accepted, because a decision is not evidence.
+   */
+  isolationEvidence?: IsolationEvidence
   /** Starts the installed application; returns the running application. */
   launch?: (profile: AcceptanceProfile, ledger: LogFailureLedger, index: number) => RunningApp
   /** Fetches a path from the installed application's origin. */
@@ -942,15 +1117,9 @@ export async function runInstalledAppAcceptance(dependencies: {
   // lane does not launch on that basis. Without a proved isolation route the
   // lane records every row that needs the running application as PENDING, with
   // the exact contract that is missing, and touches nothing.
-  const isolation =
-    dependencies.isolation ??
-    assessNativeProfileIsolation({
-      profilePath: resolveOwnedApplicationSupportPath({
-        identifier: INSTALLED_APP_IDENTIFIER,
-        channel: readBundleChannel(profile.installedApp),
-      }),
-      realRoot: join(homedir(), 'Library', 'Application Support', INSTALLED_APP_IDENTIFIER),
-    })
+  const isolation = assessNativeProfileIsolation(
+    dependencies.isolationEvidence ?? isolationEvidenceForBundle(profile.installedApp)
+  )
   if (!isolation.isolated) {
     const pending = launchDependentRows(isolation.missing ?? 'the isolation contract is unknown')
     for (const row of pending) add(row)
@@ -1247,6 +1416,29 @@ async function main(): Promise<void> {
     process.exit(2)
   }
 
+  // The DECISION comes first, and it is side-effect free: the preflight reads
+  // the bundle's own identity and touches nothing else. Before this point
+  // the lane has NOT copied the bundle, NOT registered it with
+  // LaunchServices, NOT launched anything and NOT touched the real user's
+  // profile.
+  const evidence = isolationEvidenceForBundle(resolve(bundle))
+  const isolation = assessNativeProfileIsolation(evidence)
+  if (!isolation.isolated) {
+    const preflight = await runInstalledAppPreflight({ bundle: resolve(bundle), evidence })
+    const destination =
+      artifactPath ??
+      join(profileParent, `adea-acceptance-preflight-${randomUUID().slice(0, 8)}.json`)
+    mkdirSync(dirname(destination), { recursive: true })
+    writeFileSync(destination, `${JSON.stringify(preflight.artifact, null, 2)}\n`)
+    console.error(
+      `installed-app acceptance: ${isolation.missing}; the application is NOT installed, NOT registered and NOT launched, and every row that needs it stays pending`
+    )
+    console.log(
+      `installed-app acceptance: ${JSON.stringify(preflight.artifact.summary)} -> ${destination}`
+    )
+    process.exit(1)
+  }
+
   // The run creates its OWN unique directory inside the caller-named parent.
   // The parent is never removed, and the run never writes into it outside the
   // directory it created.
@@ -1260,25 +1452,8 @@ async function main(): Promise<void> {
   const destination = artifactPath ?? defaultArtifactPath(root)
   mkdirSync(dirname(destination), { recursive: true })
 
-  // Where the native renderer WOULD write, and whether that path is isolated
-  // from the real user's Application Support directory. The lane launches
-  // only when it is; it never writes, marks or removes anything under the
-  // real user's directory, whatever the path looked like before the run.
-  const supportParent = join(homedir(), 'Library', 'Application Support', INSTALLED_APP_IDENTIFIER)
-  const channel = readBundleChannel(resolve(bundle))
-  const supportPath = resolveOwnedApplicationSupportPath({
-    identifier: INSTALLED_APP_IDENTIFIER,
-    channel,
-  })
-  const isolation = assessNativeProfileIsolation({
-    profilePath: supportPath,
-    realRoot: supportParent,
-  })
-  if (!isolation.isolated) {
-    console.error(
-      `installed-app acceptance: the native profile root is not isolated from the real user's Application Support directory (${isolation.missing}); the installed application is NOT launched and every row that needs it stays pending`
-    )
-  }
+  const supportParent = evidence.realRoot
+  const supportPath = evidence.profilePath
 
   installBundle(resolve(bundle), profile)
   const registered = registerWithLaunchServices(profile.installedApp)
@@ -1294,7 +1469,7 @@ async function main(): Promise<void> {
     run = await runInstalledAppAcceptance({
       bundle: resolve(bundle),
       profile,
-      isolation,
+      isolationEvidence: evidence,
       runUiRows: (origin) => runInstalledAppUiRows(origin, dirname(destination)),
       ...(stopCloudCommand
         ? {
