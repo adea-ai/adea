@@ -168,7 +168,25 @@ without a second fixture. The default is unchanged.
   the coverage lane returned to the base numbers above. No threshold, exclusion or coverage
   configuration changed.
 
-## 7. What is still blocked
+## 7. No-Neon proof for the admitted scope
+
+Railway is the sole target. The admitted scope of this lane is the hosted AgentSim source, and it
+carries no Neon integration, trace, fallback, compatibility path or rollback:
+
+```sh
+grep -rn -i "neon" \
+  apps/web/src/server/sim-*.ts apps/web/src/lib/sim-*.ts \
+  apps/web/test/sim-*.test.ts apps/web/test/sim-offload-browser/*.ts \
+  packages/db/src/sim-launch-*.ts packages/spatial/src/sim-bridge/ \
+  docs/guides/hosted-agent-sim.md docs/plans/hosted-sim-*.md
+```
+
+Result: no match. The durable launch code and session are ordinary PostgreSQL tables
+(`packages/db/drizzle/0059_sim_launch_sessions.sql`) with no provider binding, so the storage
+target is a decision the approved service makes, and nothing in this lane preselects one. The
+wider Neon removal belongs to the Railway lanes; this is the proof for the admitted scope only.
+
+## 8. What is still blocked
 
 - **Live hosting is blocked and stays blocked.** No hosting destination, hostname, DNS, binding,
   credential, access change or deployment was made or authorized. The production route answers
@@ -181,9 +199,11 @@ without a second fixture. The default is unchanged.
 - **The installed integration is verified by lane G**, not by this lane.
 - **The seven-day cost measurement is the user's**, not this lane's.
 
-## 8. Publication
+## 9. Publication
 
 - Branch: `codex/20261020-hosted-sim-w6`, pushed to `origin`.
-- Pull request: a new **draft** pull request against `main`, auto-merge off. Root reviews the exact
-  head; readiness and merge are root's.
+- Commit: `a7c4df34738b188b3d16f4a77c376c1c5caf3db0` (the first push). The no-Neon proof in
+  section 7 was added afterwards in a follow-up commit on the same branch.
+- Pull request: draft [#1517](https://github.com/adea-ai/adea/pull/1517) against `main`, auto-merge
+  off (`autoMergeRequest` is null). Root reviews the exact head; readiness and merge are root's.
 - No force push, no secret, no credential and no production change is part of it.
