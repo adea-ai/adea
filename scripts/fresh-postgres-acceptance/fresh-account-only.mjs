@@ -332,18 +332,24 @@ function regularExpressionAllowed(copied) {
 }
 
 /**
- * Scans a source file.
+ * Scans a range of source text.
  *
- * The result is the text with the comments removed and the segments it was
- * built from. A segment is either code or a string literal, so a later step
- * can treat the two differently: a comment marker inside a string belongs to
- * that string and to nothing else.
+ * The result is the text with the comments removed, the segments it was built
+ * from and the index the scan stopped at. A segment is either code or a
+ * string literal, so a later step can treat the two differently: a comment
+ * marker inside a string belongs to that string and to nothing else.
+ *
+ * When `stopAtBrace` is set, the scan ends at the closing brace that matches
+ * the opening one. Comments and strings are skipped while that is counted, so
+ * a brace inside a comment or inside a string never ends the range: the code
+ * of a template interpolation is code, and it is scanned as code.
  */
-function scanSource(source) {
+function scanRange(source, start, stopAtBrace) {
   const segments = []
   let text = ''
   let code = ''
-  let index = 0
+  let index = start
+  let depth = 0
   const addCode = (value) => {
     if (!value) return
     text += value
@@ -358,6 +364,7 @@ function scanSource(source) {
   while (index < source.length) {
     const character = source[index]
     const next = source[index + 1]
+    if (stopAtBrace && character === '}' && depth === 0) break
     if (character === '/' && next === '/') {
       while (index < source.length && source[index] !== '\n') index += 1
       // A comment becomes whitespace, so the code around it cannot be joined
@@ -372,7 +379,8 @@ function scanSource(source) {
       }
       index += 2
       // A comment becomes whitespace, so `await/*note*/importLegacyIdentities`
-      // stays two tokens and the import is still read as an import.
+      // stays two tokens and the import is still read as an import. A brace
+      // inside the comment is part of the comment and does not close a range.
       addCode(' ')
       continue
     }
@@ -399,17 +407,32 @@ function scanSource(source) {
         continue
       }
     }
+    if (character === '{') depth += 1
+    if (character === '}') depth -= 1
     addCode(character)
     index += 1
   }
-  return { text, segments }
+  return { text, segments, code, index }
+}
+
+/**
+ * Scans a source file.
+ *
+ * The result is the text with the comments removed and the segments it was
+ * built from.
+ */
+function scanSource(source) {
+  const scanned = scanRange(source, 0, false)
+  return { text: scanned.text, segments: scanned.segments }
 }
 
 /**
  * Copies a template literal.
  *
  * The literal parts of a template are a string, and the expressions inside its
- * interpolations are code.
+ * interpolations are code. The interpolation is scanned with the same rules
+ * as the rest of the file, so a comment or a string inside it cannot end it
+ * early and hide the code after it.
  */
 function scanTemplate(source, start) {
   const parts = []
@@ -430,9 +453,10 @@ function scanTemplate(source, start) {
     }
     if (character === '$' && source[index + 1] === '{') {
       flush()
-      const [expression, end] = scanExpression(source, index + 2)
-      parts.push({ kind: 'code', text: expression })
-      index = end
+      const scanned = scanRange(source, index + 2, true)
+      for (const segment of scanned.segments) parts.push(segment)
+      index = scanned.index
+      if (source[index] === '}') index += 1
       continue
     }
     literal += character
@@ -441,30 +465,6 @@ function scanTemplate(source, start) {
   }
   flush()
   return [parts, index]
-}
-
-/**
- * Copies the code of a template interpolation, up to its closing brace.
- */
-function scanExpression(source, start) {
-  let expression = ''
-  let index = start
-  let depth = 0
-  while (index < source.length) {
-    const character = source[index]
-    if (character === '}' && depth === 0) break
-    if (character === '"' || character === "'") {
-      const [literal, end] = scanQuoted(source, index, character)
-      expression += literal
-      index = end
-      continue
-    }
-    if (character === '{') depth += 1
-    if (character === '}') depth -= 1
-    expression += character
-    index += 1
-  }
-  return [expression, index]
 }
 
 /**

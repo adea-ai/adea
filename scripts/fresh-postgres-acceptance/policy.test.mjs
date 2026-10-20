@@ -944,6 +944,13 @@ test('a comment marker inside a string does not hide the code around it', () => 
     ['await/*note*/importLegacyIdentities(pool)', 'legacy-import'],
     // A comment marker inside a string must not remove the code around it.
     ['const a = "/*"; dualWriteToBoth(pool); const b = "*/";', 'dual-write'],
+    // A closing brace inside a comment in an interpolation does not end the
+    // interpolation, so the code after it is still code.
+    ['const s = `${ /* } */ "/*" + dualWriteToBoth(pool) + "*/" }`;', 'dual-write'],
+    ['const s = `${ "}" + dualWriteToBoth(pool) }`;', 'dual-write'],
+    ['const s = `${ dualWriteToBoth(pool) }`;', 'dual-write'],
+    ['const s = `a${`b ${dualWriteToBoth(pool)}`}c`;', 'dual-write'],
+    ['const s = `${ process.env.NEON_AUTH_BASE_URL }`;', 'legacy-environment'],
     ['await /*note*/ importLegacyIdentities(pool)', 'legacy-import'],
     // A comment between the keywords of a statement is whitespace too.
     ["await pool.query('INSERT/**/INTO app.users SELECT * FROM legacy.users')", 'row-copy'],
@@ -966,6 +973,22 @@ test('a comment marker inside a string does not hide the code around it', () => 
     []
   )
   assert.deepEqual(freshAccountOnlyViolations('synthetic.ts', 'const a = total / count\n'), [])
+  // A legacy name that only appears in a comment inside an interpolation is a
+  // comment, and it is not a violation.
+  assert.deepEqual(
+    freshAccountOnlyViolations(
+      'synthetic.ts',
+      'const s = `${ /* importLegacyIdentities(pool) */ "ok" }`;\n'
+    ),
+    []
+  )
+  assert.deepEqual(
+    freshAccountOnlyViolations(
+      'synthetic.ts',
+      'const s = `${ /* dualWriteToBoth(pool) */ "ok" }`;\n'
+    ),
+    []
+  )
   assert.deepEqual(
     freshAccountOnlyViolations(
       'synthetic.ts',
