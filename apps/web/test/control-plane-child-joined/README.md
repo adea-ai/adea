@@ -187,10 +187,11 @@ the child funded with exactly the allowance and started once (retry starts nothi
 refused with `BUDGET_EXHAUSTED` after the lead settles; and the lead still `running` through the SDK
 afterwards.
 
-Limits: the public SDK has no child or allowance operation, so the child is allocated by CP's host
-(the same production delegation service) against the SDK-dispatched execution, not by the SDK. The
-lead never completes here (the provider port is held), so completion and timeline publication through
-the SDK are not part of this journey; the earlier installed-production-factory proof covers them
+Limits: the public SDK has no child-allowance or child-cancel operation, so the child is allocated
+by CP's host (the same production delegation service) against the SDK-dispatched execution, not by
+the SDK. The SDK does expose a read-only child page (`getPiDurableLeadChildren`, CP #1160). The lead
+never completes here (the provider port is held), so completion and timeline publication through the
+SDK are not part of this journey; the earlier installed-production-factory proof covers them
 (`docs/guides/pi-production-factory-consumer-proof.md`). Not live, not TLS, not a deployment.
 
 ### Still unproven
@@ -384,12 +385,14 @@ exercise it with real process restarts.
 
 ### Not proved (acceptance stays open on #1173)
 
-- **No public child interface.** CP's public lead contract (prepare, dispatch, lookup, status,
-  progress, cancel) has no child status, child outcome, child cancel or approval operation. Adea
-  therefore cannot show or publish the child's logical outcome, cancel a child, or surface an
-  approval, and these states are not drawn (see the changed-views note in
-  `design-consolidation/changed-views-1173-lead-child-states.md`). The child result was checked from
-  CP's own records only.
+- **Child cancel and approval have no public interface.** CP's public lead contract has a read-only
+  children operation (`pi-durable.lead.children`, CP #1160, in the pinned SDK 1.20.0), which returns
+  child status, input state and outcome. It has no child cancel or approval operation, so Adea
+  cannot cancel a child or surface a child approval. This journey does not exercise the read: the
+  child result was checked from CP's own records only. The product route (`lead-turn-children`) and
+  its tests cover the read separately. The child-state view is not drawn in this journey's proof.
+  The `design-consolidation/changed-views-1173-lead-child-states.md` note this section once cited is
+  not in the repository.
 - **CP process restart.** CP is reopened in-process only.
 - **Revocation inside the publication transaction.** The audience fault revokes before Adea's next
   audience check, so Adea refuses before the transaction; the in-transaction recheck is covered by
