@@ -94,6 +94,69 @@ describe('the fresh-account rule stays linear on adversarial input', () => {
   })
 })
 
+describe('a candidate that does not match does not cost more as the text grows', () => {
+  // Each input is a candidate that never matches, repeated so that the text
+  // grows while the candidate stays unsuccessful. A scan that reads the rest
+  // of the text again for every candidate costs the square of the length; a
+  // forward-only scan does not.
+
+  test('a copy without a source does not rescan the text for every copy', () => {
+    const source = `COPY x ${'copy '.repeat(MARKER_RUN)}`
+    const startedAt = Date.now()
+    const violations = freshAccountOnlyViolations('growth.ts', source)
+    expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
+    expect(violations).toEqual([])
+  })
+
+  test('a legacy name inside one word does not rescan the word for every marker', () => {
+    const source = `x${'NEON_'.repeat(MARKER_RUN)}`
+    const startedAt = Date.now()
+    const violations = noNeonViolations('growth.ts', source)
+    expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
+    expect(violations).toEqual([])
+  })
+
+  test('a long run of line comments does not copy the source for every comment', () => {
+    const source = `await pool.query('${'-- note\n'.repeat(MARKER_RUN)}x')`
+    const startedAt = Date.now()
+    const violations = freshAccountOnlyViolations('growth.ts', source)
+    expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
+    expect(violations).toEqual([])
+  })
+
+  test('a long run of legacy names in one word does not rescan the word', () => {
+    const source = `x${'legacy'.repeat(MARKER_RUN)}`
+    const startedAt = Date.now()
+    const violations = freshAccountOnlyViolations('growth.ts', source)
+    expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
+    expect(violations).toEqual([])
+  })
+})
+
+describe('a candidate that matches is reported at once', () => {
+  test('the first matching candidate ends the scan', () => {
+    const source = `await pool.query('INSERT INTO app.users SELECT * FROM legacy.users')`
+    const startedAt = Date.now()
+    const violations = freshAccountOnlyViolations('immediate.ts', source)
+    expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
+    expect(violations.map((violation) => violation.kind)).toContain('row-copy')
+  })
+
+  test('the first matching copy, environment name and import are reported', () => {
+    const cases: [string, string][] = [
+      ["await pool.query('COPY app.users FROM legacy.users')", 'row-copy'],
+      ['const url = process.env.NEON_AUTH_BASE_URL', 'legacy-environment'],
+      ['await importLegacyIdentities(pool)', 'legacy-import'],
+    ]
+    for (const [source, kind] of cases) {
+      const startedAt = Date.now()
+      const violations = freshAccountOnlyViolations('immediate.ts', source)
+      expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
+      expect(violations.map((violation) => violation.kind)).toContain(kind)
+    }
+  })
+})
+
 describe('the fresh-account rule reads source the way the language does', () => {
   test('a comment is removed and a string keeps its text', () => {
     expect(stripComments('const a = 1 // note\nconst b = 2')).toBe('const a = 1  \nconst b = 2')

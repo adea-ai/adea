@@ -122,9 +122,16 @@ function sqlCommentEnd(text, index) {
 function detectLegacyEnvironment(text) {
   const marker = 'NEON_'
   let index = text.indexOf(marker)
-  while (index !== -1) {
+  while (index !== -1 && index < text.length) {
+    // The boundary is checked first, and an occurrence inside a word skips
+    // that word: the marker cannot match inside a word, so the rest of the
+    // word does not have to be read again for every occurrence in it.
+    if (isWordCharacter(text[index - 1])) {
+      index = wordEnd(text, index)
+      continue
+    }
     const end = wordEnd(text, index)
-    if (end > index + marker.length && !isWordCharacter(text[index - 1])) {
+    if (end > index + marker.length) {
       return text.slice(index, end)
     }
     index = text.indexOf(marker, index + 1)
@@ -207,13 +214,14 @@ function detectLegacySuffix(text) {
 /**
  * The index of a word inside a range, or -1 when the range holds no such word.
  *
- * The range is read once, forwards only.
+ * The range is read once, forwards only, and the text is never copied or
+ * lowercased as a whole, so a search costs the length of its range and no
+ * more however many searches there are.
  */
 function findWordWithin(text, from, to, word) {
-  const lower = text.toLowerCase()
   let index = from
   while (index < to) {
-    if (startsWithWord(lower, index, word, true)) return index
+    if (startsWithWord(text, index, word, true)) return index
     index += 1
   }
   return -1
@@ -324,6 +332,9 @@ function detectCopyFrom(text) {
       if (afterKeyword > index + 'copy'.length) {
         const target = text[afterKeyword]
         if (target !== undefined && /[A-Za-z_"]/.test(target)) {
+          // The source has to be named before the statement ends. The statement
+          // is read once, and a statement without a `FROM` ends the search: a
+          // later `COPY` in the same statement cannot match either.
           let cursor = afterKeyword + 1
           while (cursor < lower.length) {
             if (text[cursor] === ';') break
@@ -332,6 +343,8 @@ function detectCopyFrom(text) {
             }
             cursor += 1
           }
+          index = cursor > index ? cursor : index + 1
+          continue
         }
       }
     }
