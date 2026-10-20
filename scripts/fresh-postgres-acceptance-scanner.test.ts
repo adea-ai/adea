@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 
 import {
@@ -91,6 +92,70 @@ describe('the fresh-account rule stays linear on adversarial input', () => {
     const startedAt = Date.now()
     expect(scanFreshAccountScope(root)).toEqual([])
     expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
+  })
+})
+
+describe('a marker inside a word never stops the scan', () => {
+  // The scan has to end, and it has to end with the right answer. A scan that
+  // does not move forward would hold the whole lane, so every case here runs
+  // in a child process with a timeout: a scan that stops making progress is
+  // reported as a failed test instead of hanging the run.
+
+  const modulePath = join(import.meta.dir, 'fresh-postgres-acceptance', 'fresh-account-only.mjs')
+
+  function scanInChild(source: string) {
+    const probe = `import { freshAccountOnlyViolations } from ${JSON.stringify(modulePath)}
+const kinds = freshAccountOnlyViolations('probe.ts', ${JSON.stringify(source)}).map(
+  (violation) => violation.kind
+)
+console.log(JSON.stringify(kinds))`
+    return spawnSync(process.execPath, ['-e', probe], {
+      encoding: 'utf8',
+      timeout: MAX_SCAN_MILLISECONDS,
+      killSignal: 'SIGKILL',
+    })
+  }
+
+  test('a marker inside a word followed by punctuation does not stop the scan', () => {
+    const result = scanInChild('xNEON_FOO; NEON_AUTH_BASE_URL')
+    expect(result.error?.message ?? '').toBe('')
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout.trim())).toEqual(['legacy-environment'])
+  })
+
+  test('a marker inside a word followed by whitespace does not stop the scan', () => {
+    const result = scanInChild('xNEON_FOO NEON_AUTH_BASE_URL')
+    expect(result.error?.message ?? '').toBe('')
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout.trim())).toEqual(['legacy-environment'])
+  })
+
+  test('a marker inside a word at the end of the text does not stop the scan', () => {
+    const result = scanInChild('xNEON_FOO')
+    expect(result.error?.message ?? '').toBe('')
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout.trim())).toEqual([])
+  })
+
+  test('a long run of markers inside words does not stop the scan', () => {
+    const result = scanInChild('xNEON_FOO;'.repeat(MARKER_RUN))
+    expect(result.error?.message ?? '').toBe('')
+    expect(result.status, result.stderr).toBe(0)
+    expect(JSON.parse(result.stdout.trim())).toEqual([])
+  })
+
+  test('the same inputs are read in this process as well', () => {
+    const cases: [string, string[]][] = [
+      ['xNEON_FOO; NEON_AUTH_BASE_URL', ['legacy-environment']],
+      ['xNEON_FOO NEON_AUTH_BASE_URL', ['legacy-environment']],
+      ['xNEON_FOO', []],
+    ]
+    for (const [source, expected] of cases) {
+      const kinds = freshAccountOnlyViolations('growth.ts', source).map(
+        (violation) => violation.kind
+      )
+      expect(kinds, source).toEqual(expected)
+    }
   })
 })
 

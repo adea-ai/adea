@@ -126,8 +126,12 @@ function detectLegacyEnvironment(text) {
     // The boundary is checked first, and an occurrence inside a word skips
     // that word: the marker cannot match inside a word, so the rest of the
     // word does not have to be read again for every occurrence in it.
+    //
+    // The search resumes after the word, so it always moves forward. A word
+    // that ends at a delimiter would otherwise be skipped again and again
+    // from the same place, and the scan would never end.
     if (isWordCharacter(text[index - 1])) {
-      index = wordEnd(text, index)
+      index = text.indexOf(marker, wordEnd(text, index))
       continue
     }
     const end = wordEnd(text, index)
