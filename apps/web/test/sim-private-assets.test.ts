@@ -1,0 +1,93 @@
+import { expect, test } from 'bun:test'
+
+import {
+  createSimPrivateAssetReader,
+  simPrivateAssetKey,
+  SIM_PRIVATE_ASSET_LOCATION,
+} from '../src/server/sim-private-assets'
+
+// The named private location: the rules that keep a private object behind the session gate and
+// out of any public alias.
+test('a plain location name is accepted and anything else is refused', () => {
+  expect(SIM_PRIVATE_ASSET_LOCATION.test('agent-sim-export')).toBe(true)
+  expect(SIM_PRIVATE_ASSET_LOCATION.test('agent_sim.export-2')).toBe(true)
+  for (const refused of [
+    'https://public.example/agent-sim',
+    '/agent-sim',
+    'agent sim',
+    '',
+    '.hidden',
+    'a'.repeat(65),
+  ]) {
+    expect(SIM_PRIVATE_ASSET_LOCATION.test(refused)).toBe(false)
+  }
+})
+
+test('a path that could leave the location has no key', () => {
+  expect(simPrivateAssetKey('engine.js')).toBe('engine.js')
+  expect(simPrivateAssetKey('shared/fonts/sans.woff2')).toBe('shared/fonts/sans.woff2')
+  for (const refused of [
+    '',
+    '/engine.js',
+    'shared//font.woff2',
+    '../escape.js',
+    'shared/../escape.js',
+    './engine.js',
+    'shared\\font.woff2',
+    'engine.js\0',
+  ]) {
+    expect(simPrivateAssetKey(refused)).toBeNull()
+  }
+})
+
+test('the reader asks for the named location and the key, and returns the bytes without an address', async () => {
+  const asked: { location: string; key: string }[] = []
+  const reader = createSimPrivateAssetReader({
+    location: 'agent-sim-export',
+    read: async (request) => {
+      asked.push(request)
+      return { body: 'private-bytes', contentType: 'text/javascript' }
+    },
+  })
+  const asset = await reader('engine.js')
+  expect(asset).toEqual({ body: 'private-bytes', contentType: 'text/javascript' })
+  expect(asked).toEqual([{ location: 'agent-sim-export', key: 'engine.js' }])
+  // The reader hands back the object, not an address to it. Whether the storage location itself
+  // is private is a deployment prerequisite and is not asserted here.
+  expect(JSON.stringify(asset)).not.toContain('agent-sim-export')
+})
+
+test('a malformed location name serves no object at all', async () => {
+  let read = 0
+  const reader = createSimPrivateAssetReader({
+    location: 'https://public.example/agent-sim',
+    read: async () => {
+      read += 1
+      return { body: 'private-bytes', contentType: 'text/javascript' }
+    },
+  })
+  expect(await reader('engine.js')).toBeNull()
+  expect(read).toBe(0)
+})
+
+test('a path that could leave the location is refused before the storage is read', async () => {
+  let read = 0
+  const reader = createSimPrivateAssetReader({
+    location: 'agent-sim-export',
+    read: async () => {
+      read += 1
+      return { body: 'private-bytes', contentType: 'text/javascript' }
+    },
+  })
+  expect(await reader('../escape.js')).toBeNull()
+  expect(await reader('/engine.js')).toBeNull()
+  expect(read).toBe(0)
+})
+
+test('an absent object is null, so the host can answer without one', async () => {
+  const reader = createSimPrivateAssetReader({
+    location: 'agent-sim-export',
+    read: async () => null,
+  })
+  expect(await reader('engine.js')).toBeNull()
+})

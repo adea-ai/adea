@@ -11,6 +11,11 @@ import {
   type SimLaunchBinding,
 } from '../../src/sim-launch-sessions'
 import { simLaunchCodes, simSessions } from '../../src/schema'
+import {
+  createSimIssuerStores,
+  createSimRedemptionStore,
+  createSimSessionLookup,
+} from '../../src/sim-launch-ports'
 
 const connectionUrl = process.env.DATABASE_URL
 
@@ -389,5 +394,60 @@ describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
 
   test('a separate session save is refused, so sessions exist only with a redemption', () => {
     expect(() => store.save()).toThrow('saved only with their launch code redemption')
+  })
+
+  test('the durable adapters compose an issuer store and a hosted session lookup', async () => {
+    const workspaceId = `ws-${unique()}`
+    createdWorkspaces.add(workspaceId)
+    const code = `code-${unique()}`
+    const session = `session-${unique()}`
+
+    // The issuer writes the code through a store bound to the verified workspace.
+    const issuerStores = createSimIssuerStores(connection.db)
+    await issuerStores(workspaceId).issue(
+      code,
+      { bridgeId: 'bridge-a', origin: 'https://sim.example', surface: 'hq' },
+      later
+    )
+
+    // The hosted service redeems with the unbound store: the stored row carries the workspace.
+    const redemption = createSimRedemptionStore(connection.db)
+    expect(
+      await redemption.redeemAndSave(code, presented, Date.now(), {
+        value: session,
+        expiresAt: later,
+      })
+    ).toEqual({ ok: true, surface: 'hq' })
+    expect(() =>
+      redemption.issue(
+        code,
+        { bridgeId: 'bridge-a', origin: 'https://sim.example', surface: 'hq' },
+        later
+      )
+    ).toThrow('only the Adea backend issues them')
+
+    // The private asset gate reads the workspace and the surface from the stored row.
+    const lookup = createSimSessionLookup(connection.db)
+    expect(await lookup(session)).toEqual({ workspaceId, surface: 'hq', expiresAt: later })
+    expect(await lookup(`session-${unique()}`)).toBeNull()
+  })
+
+  test('the durable adapters refuse an unusable workspace and never issue from the hosted service', () => {
+    // The issuer store is bound to the verified workspace, so an identifier outside the database
+    // shape is refused rather than written.
+    const issuerStores = createSimIssuerStores(connection.db)
+    expect(() => issuerStores('')).toThrow('not a valid identifier')
+    expect(() => issuerStores('ws with space')).toThrow('not a valid identifier')
+    expect(() => issuerStores('x'.repeat(129))).toThrow('not a valid identifier')
+
+    // The hosted service redeems codes; issuing them is the Adea backend's job alone.
+    const redemption = createSimRedemptionStore(connection.db)
+    expect(() =>
+      redemption.issue(
+        `code-${unique()}`,
+        { bridgeId: 'bridge-a', origin: 'https://sim.example', surface: 'hq' },
+        later
+      )
+    ).toThrow('only the Adea backend issues them')
   })
 })
