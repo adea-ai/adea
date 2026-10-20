@@ -257,6 +257,25 @@ The pre-aborted refusal before the store is asked, the refusal of a malformed ad
 comparison and the value-identity comparison are unchanged, as are the transport's large-blob duplicate fix and its
 integrity and corruption rejection tests.
 
+The exact reproduction, run against both modules:
+
+```console
+$ bun test scripts/vp-r2-cache-transfer.test.ts -t "a final read that arrives after the deadline is not replayable"
+# the module of f026cabe (before the repair)
+error: expect(received).toBe(expected)
+Expected: false
+Received: true
+(fail) the bounded reads of the qualification > a final read that arrives after the deadline is not replayable [37.04ms]
+
+# the module of 06fbb4ad (the repair)
+ 1 pass
+ 37 filtered out
+ 0 fail
+ 5 expect() calls
+```
+
+The repaired module refuses the replay and says that the budget was spent; the module before it reported a replay.
+
 ## 5. What was run
 
 | Command                                                                                                                      | Result                                                                                                                                                                        |
