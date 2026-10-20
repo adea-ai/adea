@@ -255,6 +255,25 @@ reviewed and qualified with the legacy bindings present. Its identity is not in 
 repository, and root has to name it. Until it is named, the first checklist item above
 stays open.
 
+**Provenance and compatibility check (candidate status stays CANDIDATE):** recorded
+against `origin/main` at `5747673e`. Recorded from repository reads and check-run
+reports only. No live system was read.
+
+- Provenance: the commit is the squash of #1511, whose reviewed head was `12405633`. It
+  was merged by the repository owner account at 2026-10-20T03:50:54Z. The check runs
+  reported on the commit are success for release validation, the production build,
+  the desktop macOS build, desktop asset verification, the dev pre-release and CodeQL.
+- Compatibility: `createBetterAuthService` builds the Better Auth service from
+  `readBetterAuthConfig` on every call, and the checks above do not change that. The
+  legacy reader `readAuthConfig` is exported, and its only caller is the re-export in
+  `server.ts`. So this commit cannot serve the legacy `NEON_AUTH_*` path. The verdict is
+  **incompatible as a legacy rollback artifact**.
+- Open item: the check run `Cloudflare Production / adea-web / Cloudflare Deploy /
+production` reports success on this commit, completed at 2026-10-20T03:52:29Z. That
+  reports a deploy workflow result. It does not show what is live, or which bindings the
+  live Worker runs with. The owner has to verify that before any rollback reasoning
+  relies on this artifact.
+
 **Decision owner and triggers:** not decided here. Root sets the owner, and the
 thresholds for any trigger listed below.
 
