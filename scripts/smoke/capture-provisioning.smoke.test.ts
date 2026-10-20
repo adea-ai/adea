@@ -35,13 +35,39 @@ setInterval(() => {}, 1000)
 let workdir
 let childPath
 
-// Whether a volume is still on the host. Only Docker's own answer decides it.
-function volumeExists(volume: string): boolean {
-  const result = spawnSync('docker', ['volume', 'inspect', volume], {
+// What a volume inspection answered: the volume is there, Docker confirmed it
+// is gone, or the answer could not be trusted. Only the confirmed absence is an
+// absence: an inspection that failed or timed out says nothing about the
+// volume, and never that it is gone.
+type VolumeState = 'present' | 'absent' | 'unknown'
+
+type DockerReply = { error?: Error; status: number | null; stderr: string; stdout: string }
+
+// The Docker command the checker uses. It is injectable, so the failure paths
+// are proved without a daemon.
+const dockerCommand = (args: string[]): DockerReply => {
+  const result = spawnSync('docker', args, {
     encoding: 'utf8',
     timeout: 30_000,
   })
-  return result.status === 0
+  return {
+    error: result.error,
+    status: result.status,
+    stderr: result.stderr ?? '',
+    stdout: result.stdout ?? '',
+  }
+}
+
+// The state of one volume on the host.
+function inspectVolume(
+  volume: string,
+  docker: (args: string[]) => DockerReply = dockerCommand
+): VolumeState {
+  const result = docker(['volume', 'inspect', volume])
+  if (result.error) return 'unknown'
+  if (result.status === 0) return 'present'
+  if (/no such volume/iu.test(result.stderr)) return 'absent'
+  return 'unknown'
 }
 
 beforeAll(() => {
@@ -71,8 +97,41 @@ test('SIGTERM removes exactly the container the helper created and leaves a same
   expect(observed.sentinelVolumes.length).toBeGreaterThan(0)
   expect(observed.sentinelVolumeKept).toBe(true)
   // The lifecycle's own cleanup removes the volumes it owns, so nothing it started is left behind.
+  // A volume that cannot be inspected is unknown, never absent, so the proof only
+  // passes when Docker confirmed that the volume is gone.
   for (const volume of [...observed.ownedVolumes, ...observed.sentinelVolumes]) {
-    expect(volumeExists(volume)).toBe(false)
+    expect(inspectVolume(volume)).toBe('absent')
   }
   expect(observed.pendingVolumes).toEqual([])
 }, 900_000)
+
+test('a refused volume inspection is unknown, never an absence', () => {
+  expect(
+    inspectVolume('volume-x', () => ({ status: 1, stderr: 'permission denied', stdout: '' }))
+  ).toBe('unknown')
+})
+
+test('a volume inspection that times out is unknown, never an absence', () => {
+  expect(
+    inspectVolume('volume-x', () => ({
+      error: new Error('spawnSync docker ETIMEDOUT'),
+      status: null,
+      stderr: '',
+      stdout: '',
+    }))
+  ).toBe('unknown')
+})
+
+test('only a confirmed absent volume is an absence', () => {
+  expect(
+    inspectVolume('volume-x', () => ({
+      status: 1,
+      stderr: 'Error: no such volume: volume-x',
+      stdout: '',
+    }))
+  ).toBe('absent')
+})
+
+test('a volume that is there is present', () => {
+  expect(inspectVolume('volume-x', () => ({ status: 0, stderr: '', stdout: '[]' }))).toBe('present')
+})

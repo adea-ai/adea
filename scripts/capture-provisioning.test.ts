@@ -82,6 +82,13 @@ case "$1" in
           status) echo "permission denied" >&2; exit 1 ;;
           hang) exec sleep 600 ;;
           malformed) printf '%s\n' 'not json'; exit 0 ;;
+          status-once)
+            count=0
+            if [ -n "$SHIM_VOLUME_INSPECT_COUNTER" ] && [ -f "$SHIM_VOLUME_INSPECT_COUNTER" ]; then count=$(cat "$SHIM_VOLUME_INSPECT_COUNTER"); fi
+            count=$((count + 1))
+            if [ -n "$SHIM_VOLUME_INSPECT_COUNTER" ]; then printf '%s' "$count" > "$SHIM_VOLUME_INSPECT_COUNTER"; fi
+            if [ "$count" -le 1 ]; then echo "permission denied" >&2; exit 1; fi
+            ;;
         esac
         case ",$SHIM_ANONYMOUS," in
           *",$last,"*) printf '%s\n' '{"com.docker.volume.anonymous":""}' ;;
@@ -255,6 +262,10 @@ function environmentFor(mode: string, extra: Record<string, string> = {}) {
       SHIM_LOG: log,
       SHIM_STATE: join(workdir, `state-${Math.random().toString(16).slice(2)}`),
       SHIM_COUNTER: join(workdir, `counter-${Math.random().toString(16).slice(2)}`),
+      SHIM_VOLUME_INSPECT_COUNTER: join(
+        workdir,
+        `volume-inspect-counter-${Math.random().toString(16).slice(2)}`
+      ),
       SHIM_RM_COUNTER: join(workdir, `rm-counter-${Math.random().toString(16).slice(2)}`),
       SHIM_RM: ['missing', 'fail', 'hang'].includes(mode) ? mode : 'ok',
       ...extra,
@@ -674,6 +685,7 @@ async function withInstrumentedCapture(
       SHIM_LOG: log,
       SHIM_STATE: join(directory, 'state'),
       SHIM_COUNTER: join(directory, 'counter'),
+      SHIM_VOLUME_INSPECT_COUNTER: join(directory, 'volume-inspect-counter'),
       SHIM_RM_COUNTER: join(directory, 'rm-counter'),
       ...settings,
     }
@@ -864,6 +876,98 @@ describe('instrumented capture ownership and cleanup with stub Docker', () => {
       )
       expect(repeated).toContain('the container could not be inspected')
     })
+  })
+
+  test('a start that may have created the container keeps the volumes unknown', async () => {
+    const error = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await withInstrumentedCapture({ SHIM_RUN: 'fail' }, (log) => {
+        // The run failed for a reason that does not prove the container was
+        // never created.
+        expect(() =>
+          startCaptureProvisioning(undefined, {
+            removalTimeoutMs: 2000,
+            inspectionTimeoutMs: 200,
+            backoffMs: [],
+          })
+        ).toThrow('starting the throwaway capture provisioning container')
+        const reported = error.mock.calls.flat().join(' ')
+        expect(reported).toContain(
+          'the anonymous volumes of the throwaway capture provisioning container'
+        )
+        expect(reported).toContain(
+          'the container may have been created and removed before its volumes could be read'
+        )
+        // The container is removed anyway, and no volume is removed on a guess.
+        expect(readFileSync(log, 'utf8')).toContain('rm -f adea-capture-prov-')
+        expect(readFileSync(log, 'utf8')).not.toContain('volume rm ')
+      })
+    } finally {
+      error.mockRestore()
+    }
+  })
+
+  test('an image that never arrived proves the container was never created', async () => {
+    const error = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await withInstrumentedCapture({ SHIM_RUN: 'all' }, () => {
+        // The registry refused the image, so the daemon never created the
+        // container, and there is nothing of it behind.
+        expect(() =>
+          startCaptureProvisioning(undefined, {
+            removalTimeoutMs: 2000,
+            inspectionTimeoutMs: 200,
+            backoffMs: [],
+          })
+        ).toThrow('starting the throwaway capture provisioning container')
+        const reported = error.mock.calls.flat().join(' ')
+        expect(reported).not.toContain('are still unknown')
+      })
+    } finally {
+      error.mockRestore()
+    }
+  })
+
+  test('a candidate whose ownership cannot be read is kept, inspected again, and then removed', async () => {
+    await withInstrumentedCapture(
+      {
+        SHIM_VOLUME_INSPECT: 'status-once',
+        SHIM_MOUNTS: JSON.stringify([
+          { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
+        ]),
+        SHIM_ANONYMOUS: 'volume-anonymous-1',
+      },
+      (log) => {
+        const handle = startCaptureProvisioning(undefined, {
+          removalTimeoutMs: 2000,
+          inspectionTimeoutMs: 200,
+          backoffMs: [],
+        })
+        if (!handle) throw new Error('Stub daemon unavailable')
+        let failure = ''
+        try {
+          handle.stop()
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error)
+        }
+        expect(failure).toContain(
+          'the throwaway volume volume-anonymous-1 could not be inspected: the inspection was refused'
+        )
+        const commands = readFileSync(log, 'utf8').trim().split('\n')
+        // The ownership is read again after the container is gone, and the
+        // volume is only removed once its ownership is verified.
+        const inspections = commands.filter((line) =>
+          line.startsWith('volume inspect --format {{json .Labels}} volume-anonymous-1')
+        )
+        expect(inspections).toHaveLength(2)
+        const removal = commands.indexOf('volume rm volume-anonymous-1')
+        expect(removal).toBeGreaterThan(commands.indexOf(inspections[1]!))
+        // The candidate is resolved, so a repeated stop is clean.
+        handle.stop()
+        const after = readFileSync(log, 'utf8').trim().split('\n')
+        expect(after.filter((line) => line === 'volume rm volume-anonymous-1')).toHaveLength(1)
+      }
+    )
   })
 
   test('a container inspection that is refused is a failure, not an empty volume list', async () => {

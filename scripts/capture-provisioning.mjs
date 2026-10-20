@@ -228,6 +228,42 @@ function removePendingVolumes(pending) {
   return failures
 }
 
+// Inspects the ownership of the candidates again, now that the container that
+// held them is gone.
+//
+// A candidate is a mount id whose ownership could not be read. It is never
+// removed without a verified anonymous ownership, and it is never lost either:
+// an ownership that is still unreadable keeps the candidate, and the failure
+// with it, so a later attempt can read it again.
+function resolveCandidates(state, inspectionTimeoutMs) {
+  const failures = []
+  for (const candidate of state.candidates) {
+    const ownership = inspectVolumeOwnership(candidate, inspectionTimeoutMs)
+    if (ownership.state === UNREADABLE) {
+      state.discoveryCertain = false
+      state.discoveryReason = `the volume ${candidate} could not be inspected: ${ownership.reason}`
+      failures.push(
+        new Error(`the throwaway volume ${candidate} could not be inspected: ${ownership.reason}`)
+      )
+      continue
+    }
+    if (ownership.state === ABSENT) {
+      // The volume is gone, so there is nothing left to remove.
+      state.candidates.delete(candidate)
+      continue
+    }
+    if (!ownership.anonymous) {
+      // A named volume can belong to the operator or to another lane, and it is
+      // never this helper's to remove.
+      state.candidates.delete(candidate)
+      continue
+    }
+    state.candidates.delete(candidate)
+    state.pendingVolumes.add(candidate)
+  }
+  return failures
+}
+
 // Removes the owned container and the anonymous volumes Docker created for it.
 //
 // The container's mounts are read first, so the volumes that belong to it are
@@ -236,9 +272,11 @@ function removePendingVolumes(pending) {
 // owned, and the cleanup fails, because the volumes it owned are then unknown.
 //
 // The state the handle keeps is updated as the cleanup runs: whether the
-// container's removal was verified, whether the volumes it owns are known, and
-// the exact identities that are still on the host. A failure is retained until
-// the removal it belongs to is verified, so a later attempt tries it again.
+// container was created at all, whether its removal was verified, whether the
+// volumes it owns are known, the mount ids whose ownership is still unreadable,
+// and the exact identities that are still on the host. A failure is retained
+// until the removal it belongs to is verified, so a later attempt tries it
+// again.
 function cleanupOwnedResources(name, state, timeoutMs, inspectionTimeoutMs) {
   const failures = []
   const inspection = inspectContainerMounts(name, inspectionTimeoutMs)
@@ -252,16 +290,17 @@ function cleanupOwnedResources(name, state, timeoutMs, inspectionTimeoutMs) {
       )
     )
   }
-  if (inspection.state === ABSENT) {
-    if (!state.containerStarted) {
+  if (inspection.state === ABSENT && !state.discoveryComplete) {
+    if (state.creation === 'not-created') {
       // The container was never created, so it owned nothing and there is
       // nothing of it left behind.
-      state.discoveryCertain = true
-      state.discoveryReason = ''
-    } else if (!state.discoveryCertain) {
-      // The container is gone and its volumes were never known, so what it owned
-      // is still unknown.
-      state.discoveryReason = 'the container was gone before its volumes could be read'
+      state.discoveryComplete = true
+    } else {
+      // The creation was never confirmed, so the container may have been
+      // created and removed again, and what it owned is unknown.
+      state.discoveryCertain = false
+      state.discoveryReason =
+        'the container may have been created and removed before its volumes could be read'
       failures.push(
         new Error(
           `the anonymous volumes of the throwaway capture provisioning container ${name} are still unknown: ${state.discoveryReason}`
@@ -270,13 +309,15 @@ function cleanupOwnedResources(name, state, timeoutMs, inspectionTimeoutMs) {
     }
   }
   if (inspection.state === INSPECTED) {
-    let certain = true
+    state.discoveryComplete = true
     for (const mount of inspection.mounts) {
       if (mount?.Type !== 'volume') continue
       if (typeof mount?.Name !== 'string' || !mount.Name) continue
       const ownership = inspectVolumeOwnership(mount.Name, inspectionTimeoutMs)
       if (ownership.state === UNREADABLE) {
-        certain = false
+        // The candidate is kept: its ownership is not verified, so it is never
+        // removed, and it is not lost either.
+        state.candidates.add(mount.Name)
         state.discoveryCertain = false
         state.discoveryReason = `the volume ${mount.Name} could not be inspected: ${ownership.reason}`
         failures.push(
@@ -287,14 +328,14 @@ function cleanupOwnedResources(name, state, timeoutMs, inspectionTimeoutMs) {
         continue
       }
       if (ownership.state === ABSENT) continue
-      // A named volume can belong to the operator or to another lane, and it is
-      // never this helper's to remove.
-      if (!ownership.anonymous) continue
+      if (!ownership.anonymous) {
+        // A named volume can belong to the operator or to another lane, and it is
+        // never this helper's to remove.
+        state.candidates.delete(mount.Name)
+        continue
+      }
+      state.candidates.delete(mount.Name)
       state.pendingVolumes.add(mount.Name)
-    }
-    if (certain) {
-      state.discoveryCertain = true
-      state.discoveryReason = ''
     }
   }
   // The container is known and owned, so it is removed even when the
@@ -317,8 +358,15 @@ function cleanupOwnedResources(name, state, timeoutMs, inspectionTimeoutMs) {
         : error
     )
   }
+  // The candidates are inspected again now that the container that held them is
+  // gone, so a volume whose ownership is only unknown right now can still be
+  // removed.
+  failures.push(...resolveCandidates(state, inspectionTimeoutMs))
   // Every known volume is attempted, even when an earlier one failed.
   failures.push(...removePendingVolumes(state.pendingVolumes))
+  // The volumes are known when the container's mounts were read and no mount id
+  // is left unaccounted for.
+  state.discoveryCertain = state.discoveryComplete && state.candidates.size === 0
   if (failures.length === 0) return
   if (failures.length === 1) throw failures[0]
   // The message carries every failure, so the operator learns what is still on the host.
@@ -481,16 +529,25 @@ export function startCaptureProvisioning(
   const name = `adea-capture-prov-${randomBytes(6).toString('hex')}`
   // What the cleanup has established so far.
   const state = {
-    // Whether the container was created at all. A container that was never
-    // created owned nothing, so it leaves nothing behind.
-    containerStarted: false,
+    // Whether the container was created at all: 'not-attempted' before the run
+    // is issued, 'not-created' when the image never arrived, 'attempted' when
+    // the run was issued but never confirmed the creation, and 'created' when
+    // the run succeeded. Only a proved non-creation clears the uncertainty
+    // about the volumes the container owned.
+    creation: 'not-attempted',
     // Whether the container's removal was verified. It is verified only when
     // Docker confirmed it, so a removal that failed is tried again.
     containerRemoved: false,
-    // Whether the volumes the container owns are known. An unresolved discovery
-    // is not an absence, and it keeps failing until a discovery completes.
+    // Whether the container's mounts were read at least once.
+    discoveryComplete: false,
+    // Whether every mount id is accounted for: the mounts were read and no
+    // candidate is unresolved. An unresolved discovery is not an absence, and
+    // it keeps failing until a discovery completes.
     discoveryCertain: false,
     discoveryReason: 'the container was never inspected',
+    // The mount ids whose ownership could not be read. They are never removed
+    // without a verified anonymous ownership, and they are never lost.
+    candidates: new Set(),
     // The exact identities of the volumes that are still on the host.
     pendingVolumes: new Set(),
   }
@@ -511,9 +568,11 @@ export function startCaptureProvisioning(
         return
       }
       // The container is verified gone. The volumes that are still pending are
-      // retried, and an unresolved discovery keeps failing: an unknown volume
-      // is never an absent one.
+      // retried, and the candidates whose ownership could not be read are
+      // inspected again, now that nothing holds them.
       const failures = removePendingVolumes(state.pendingVolumes)
+      failures.push(...resolveCandidates(state, inspectionTimeoutMs))
+      state.discoveryCertain = state.discoveryComplete && state.candidates.size === 0
       if (!state.discoveryCertain) {
         failures.push(
           new Error(
@@ -535,9 +594,12 @@ export function startCaptureProvisioning(
   const detachExit = attachRemoval(handle)
   register(handle)
   try {
+    // The creation is attempted from here on. A run that fails can still have
+    // created the container, so the attempt is what is tracked, not the success.
+    state.creation = 'attempted'
     runCaptureContainer(name, password, { backoffMs, budgetMs })
     // The container exists from here on, so it may own a volume.
-    state.containerStarted = true
+    state.creation = 'created'
     // Read the loopback ephemeral host port mapping back instead of guessing
     // one. The image's default POSTGRES_USER (postgres, superuser) owns the
     // default `postgres` admin database.
@@ -573,6 +635,12 @@ export function startCaptureProvisioning(
     handle.databaseUrl = `postgresql://postgres:${password}@127.0.0.1:${port}/postgres?sslmode=disable`
     return handle
   } catch (error) {
+    // An image that never arrived never created the container, and that is a
+    // positive proof that there is nothing of it behind. Any other failure may
+    // have created it, and the uncertainty stays.
+    if (isRegistryRateLimit(error instanceof Error ? error.message : String(error))) {
+      state.creation = 'not-created'
+    }
     // A container that started but never became healthy must not leak. The
     // removal failure is surfaced on stderr but never replaces the original
     // error — the caller's cleanup would report it again anyway.
