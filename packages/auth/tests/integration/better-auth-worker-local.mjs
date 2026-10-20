@@ -178,25 +178,88 @@ async function exerciseRecordingDelivery() {
   }
 }
 
-// The local dev proxy answers a lost connection with a 500 whose body is a transport
-// error rather than an application response. Every request below opens its own
-// connection: reusing a keep-alive socket through the local dev proxy failed
-// intermittently with "Network connection lost" on the next POST (6 of 12 reused runs).
-// A fresh connection removed the reuse, but the same signature still arrived on 3 of 14
-// runs, so the cause is the proxy's own hop to the Worker and not the socket this
-// harness opens. The signature is therefore classified and retried, a bounded number of
-// times: every other outcome, including a 500 from the route itself, is returned
-// untouched.
-const TRANSPORT_LOSS_BODY = 'Network connection lost'
+// The local dev proxy answers a lost connection with its own error page, never with a
+// route response. The captured envelope of that page is:
+//
+//   Error: Network connection lost.
+//       at async Object.fetch (file:///.../miniflare/dist/src/workers/core/entry.worker.js:5330:22)
+//
+// The signature is matched exactly, so an application response that merely mentions the
+// phrase — a JSON error body, or a route error with different words — is never mistaken
+// for a transport loss and is returned untouched.
+const TRANSPORT_LOSS_FIRST_LINE = 'Error: Network connection lost.'
+const TRANSPORT_LOSS_PROXY_FRAME = 'entry.worker.js'
 const TRANSPORT_LOSS_ATTEMPTS = 3
 
 /**
- * Is this response the local proxy reporting a lost connection rather than the route
- * answering? The body is the proxy's own transport error; it is matched here and never
- * reaches an assertion message.
+ * Is this response the local ProxyWorker reporting that its own hop to the Worker was
+ * lost? Only the captured envelope qualifies: the status is 500, the body is not JSON,
+ * its first line is exactly that sentence, and it carries the proxy's own fetch frame.
  */
 export function isTransportLoss(response) {
-  return response.status === 500 && response.text.includes(TRANSPORT_LOSS_BODY)
+  if (!response || response.status !== 500) return false
+  const text = typeof response.text === 'string' ? response.text : ''
+  if (!text) return false
+  const trimmed = text.trimStart()
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return false
+  const [firstLine] = text.split('\n', 1)
+  if (firstLine.replace(/\r$/, '') !== TRANSPORT_LOSS_FIRST_LINE) return false
+  return text.includes(TRANSPORT_LOSS_PROXY_FRAME)
+}
+
+/**
+ * A lost connection leaves the outcome of the request unknown. It is never reported as
+ * an application response: an infrastructure failure must not be readable as an
+ * application answer, and in particular must not satisfy a negative assertion such as
+ * "the old password must stop working".
+ */
+export class TransportInconclusiveError extends Error {
+  constructor(operation, attempts) {
+    super(
+      `the local Worker transport lost the connection during ${operation}; the outcome is unknown after ${attempts} attempt(s), and a later run starts from a fresh fixture`
+    )
+    this.name = 'TransportInconclusiveError'
+    this.operation = operation
+    this.attempts = attempts
+  }
+}
+
+/**
+ * Runs the attempts of one request under an explicit retry policy.
+ *
+ * `send` performs a single attempt and resolves a response-shaped object. `retry` is
+ * 'safe' only for an operation whose effect a lost response cannot hide, so the
+ * request may be sent again while the budget allows. Every other operation is
+ * 'unsafe': its outcome after a lost response is ambiguous — a reset can commit while
+ * its response is lost — so it is never sent again.
+ *
+ * The result is either the response, or an explicit transport-inconclusive outcome. The
+ * lost response itself is never returned.
+ */
+export async function sendUnderPolicy(
+  send,
+  { operation, retry = 'unsafe', attempts = TRANSPORT_LOSS_ATTEMPTS } = {}
+) {
+  let sent = 0
+  for (;;) {
+    sent += 1
+    const response = await send()
+    if (!isTransportLoss(response)) return { response, attempts: sent }
+    if (retry !== 'safe') break
+    if (sent >= attempts) break
+  }
+  return { inconclusive: true, operation, attempts: sent }
+}
+
+/**
+ * The response of an attempt, when the attempt produced one. A transport-inconclusive
+ * attempt throws here instead, before any application assertion can read it.
+ */
+export function applicationResponse(outcome) {
+  if (outcome.inconclusive) {
+    throw new TransportInconclusiveError(outcome.operation, outcome.attempts)
+  }
+  return outcome.response
 }
 
 function requestWorkerOnce(path, { method = 'GET', cookie, body, origin = baseUrl } = {}) {
@@ -248,18 +311,31 @@ function requestWorkerOnce(path, { method = 'GET', cookie, body, origin = baseUr
   })
 }
 
-// A lost connection is retried, a bounded number of times, and only for that one
-// signature. The retry re-sends the same request; it never changes what is asserted.
-async function requestWorker(path, options) {
-  let response = await requestWorkerOnce(path, options)
-  for (
-    let attempt = 1;
-    attempt < TRANSPORT_LOSS_ATTEMPTS && isTransportLoss(response);
-    attempt += 1
-  ) {
-    response = await requestWorkerOnce(path, options)
-  }
-  return response
+// The operation label names the route and the method only. A query string can carry a
+// one-use token, so it is never part of the label.
+function operationLabel(method, path) {
+  return `${method} ${String(path).split('?', 1)[0]}`
+}
+
+// Every request opens its own connection: reusing a keep-alive socket through the local
+// dev proxy failed intermittently with a lost connection on the next POST (6 of 12
+// reused runs). A fresh connection removed the reuse, but the same lost connection still
+// arrived on 3 of 14 runs, so the cause is the proxy's own hop to the Worker and not the
+// socket this harness opens.
+//
+// The retry policy is explicit. A request is only repeated when its effect cannot be
+// hidden by a lost response; every other request fails as transport-inconclusive, and a
+// later run starts from a fresh fixture.
+async function requestWorker(
+  path,
+  { method = 'GET', cookie, body, origin = baseUrl, retry = 'unsafe' } = {}
+) {
+  const operation = operationLabel(method, path)
+  const outcome = await sendUnderPolicy(
+    () => requestWorkerOnce(path, { method, cookie, body, origin }),
+    { operation, retry }
+  )
+  return applicationResponse(outcome)
 }
 
 function responseCookies(response) {
@@ -273,7 +349,20 @@ function responseCookies(response) {
 
 async function trackedWorkerRequest(label, requests, expectedSessions = requests.length) {
   const before = await sessionCount()
-  const results = await Promise.all(requests.map((request) => requestWorker(...request)))
+  // Every request is settled before the outcome is judged, so the Worker is never torn
+  // down while a request is still in flight.
+  const settled = await Promise.allSettled(requests.map((request) => requestWorker(...request)))
+  // A lost connection leaves the outcome unknown, so it is reported before any
+  // application assertion and before the database checks. An inconclusive attempt is
+  // never read as an answer.
+  const inconclusive = settled.find(
+    (result) => result.status === 'rejected' && result.reason instanceof TransportInconclusiveError
+  )
+  if (inconclusive) throw inconclusive.reason
+  const results = settled.map((result) => {
+    if (result.status === 'rejected') throw result.reason
+    return result.value
+  })
   // Captured before the database wait, so a proxy-level failure is distinguishable from database inactivity.
   const observed = results.map(describeResponse)
   await assertDatabaseSessionsStarted(
@@ -288,7 +377,8 @@ async function trackedWorkerRequest(label, requests, expectedSessions = requests
 
 async function assertSession(email, cookie, label) {
   const [response] = await trackedWorkerRequest(label, [
-    ['get-session?disableCookieCache=true', { cookie }],
+    // A session read changes nothing, so a lost response may be retried.
+    ['get-session?disableCookieCache=true', { cookie, retry: 'safe' }],
   ])
   assert.equal(response.status, 200, `${label}: ${response.text}`)
   assert.equal(response.json?.user?.email, email, `${label} must resolve only its cookie's user`)
@@ -298,7 +388,8 @@ async function assertSession(email, cookie, label) {
 
 async function assertNoSession(cookie, label) {
   const [response] = await trackedWorkerRequest(label, [
-    ['get-session?disableCookieCache=true', { cookie }],
+    // A session read changes nothing, so a lost response may be retried.
+    ['get-session?disableCookieCache=true', { cookie, retry: 'safe' }],
   ])
   assert.equal(response.status, 200, `${label}: ${response.text}`)
   assert.equal(response.json, null, `${label} should observe the revocation from PostgreSQL`)
@@ -348,8 +439,9 @@ async function exerciseWorker() {
     const [sessionAResponse, sessionBResponse] = await trackedWorkerRequest(
       'parallel session reads',
       [
-        ['get-session?disableCookieCache=true', { cookie: cookieA }],
-        ['get-session?disableCookieCache=true', { cookie: cookieB }],
+        // Session reads change nothing, so a lost response may be retried.
+        ['get-session?disableCookieCache=true', { cookie: cookieA, retry: 'safe' }],
+        ['get-session?disableCookieCache=true', { cookie: cookieB, retry: 'safe' }],
       ]
     )
     assert.equal(sessionAResponse.status, 200, sessionAResponse.text)
