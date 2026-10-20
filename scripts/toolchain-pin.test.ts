@@ -153,6 +153,87 @@ const keyTemplate = (): string => {
   return match?.[1] ?? ''
 }
 
+/**
+ * The prefix a later run restores: the primary key without the run that wrote it, up to the dash that separates the
+ * two. The workflow publishes it as the restore key, so a run can pick up the entry an earlier run wrote.
+ */
+const publishedRestorePrefixOf = (key: string): string =>
+  key.replace(/-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}$/, '-')
+
+/**
+ * The restore prefixes a workflow publishes, read from its `restore-keys` field alone.
+ *
+ * The field is parsed on its own because the primary key line contains the prefix as a substring: a search over the
+ * whole workflow is satisfied by the key, so it cannot tell a published restore prefix from a missing one.
+ */
+function restorePrefixes(text: string): string[] {
+  const lines = text.split('\n')
+  const prefixes: string[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^([ \t]*)restore-keys:[ \t]*(.*)$/.exec(lines[index])
+    if (!match) continue
+    const inline = match[2].trim()
+    if (inline !== '' && inline !== '|' && inline !== '>') {
+      prefixes.push(inline)
+      continue
+    }
+    const indent = match[1].length
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const line = lines[next]
+      if (line.trim() === '') break
+      if (line.length - line.trimStart().length <= indent) break
+      prefixes.push(line.trim())
+    }
+  }
+  return prefixes
+}
+
+/** Whether the workflow restores exactly that prefix, and nothing else. */
+function restorePrefixIsPublished(text: string, key: string): boolean {
+  const prefixes = restorePrefixes(text)
+  return prefixes.length > 0 && prefixes.every((prefix) => prefix === publishedRestorePrefixOf(key))
+}
+
+/** The workflow text with its `restore-keys` field, and the block under it, removed. */
+function withoutRestoreKeys(text: string): string {
+  const lines = text.split('\n')
+  const kept: string[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^([ \t]*)restore-keys:[ \t]*(.*)$/.exec(lines[index])
+    if (!match) {
+      kept.push(lines[index])
+      continue
+    }
+    const indent = match[1].length
+    while (index + 1 < lines.length) {
+      const line = lines[index + 1]
+      if (line.trim() === '') break
+      if (line.length - line.trimStart().length <= indent) break
+      index += 1
+    }
+  }
+  return kept.join('\n')
+}
+
+/** The workflow text with the prefix it restores changed to one that names another version of the key. */
+function withAlteredRestorePrefix(text: string): string {
+  const wrong =
+    'production-tasks-v1-${{ runner.os }}-${{ runner.arch }}-node24.21.0-bun1.4.3-vp1.3.0-'
+  const lines = text.split('\n')
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^([ \t]*)restore-keys:[ \t]*(.*)$/.exec(lines[index])
+    if (!match) continue
+    const indent = match[1].length
+    for (let next = index + 1; next < lines.length; next += 1) {
+      const line = lines[next]
+      if (line.trim() === '') break
+      if (line.length - line.trimStart().length <= indent) break
+      lines[next] = ' '.repeat(indent + 2) + wrong
+    }
+  }
+  return lines.join('\n')
+}
+
 describe('the Actions task-cache key', () => {
   test('the key names the pinned Bun, Node and Vite+ versions', () => {
     const key = keyTemplate()
@@ -173,5 +254,36 @@ describe('the Actions task-cache key', () => {
     const key = keyTemplate()
     const prefix = key.replace(/-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}$/, '')
     expect(text).toContain(prefix)
+  })
+
+  test('the restore prefix is published in the restore-keys field itself', () => {
+    const text = read('.github/workflows/task-cache-qualification.yml')
+    const key = keyTemplate()
+    // Read from the field alone: the key line contains the prefix as a substring, so a search over the whole
+    // workflow cannot tell a published restore prefix from a missing one.
+    expect(restorePrefixes(text)).toEqual([publishedRestorePrefixOf(key)])
+    expect(restorePrefixIsPublished(text, key)).toBe(true)
+  })
+
+  test('a restore-keys field that is removed or altered fails the guard', () => {
+    const text = read('.github/workflows/task-cache-qualification.yml')
+    const key = keyTemplate()
+    const prefix = key.replace(/-\$\{\{ github\.run_id \}\}-\$\{\{ github\.run_attempt \}\}$/, '')
+    const mutations: [string, string][] = [
+      ['removed', withoutRestoreKeys(text)],
+      ['altered', withAlteredRestorePrefix(text)],
+    ]
+    for (const [name, mutated] of mutations) {
+      // The existing check searched the whole workflow for the prefix, and the key line alone satisfies it: that is
+      // the gap this closes, so that check is shown to pass on the mutation.
+      expect({ name, existingCheck: mutated.includes(prefix) }).toEqual({
+        name,
+        existingCheck: true,
+      })
+      expect({ name, published: restorePrefixIsPublished(mutated, key) }).toEqual({
+        name,
+        published: false,
+      })
+    }
   })
 })
