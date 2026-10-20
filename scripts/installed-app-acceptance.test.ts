@@ -25,9 +25,11 @@ import { join } from 'node:path'
 import {
   ACCEPTANCE_OWNER_MARKER,
   acceptanceRow,
+  assessLogCompleteness,
   assessNativeProfileIsolation,
   assessSocketObservation,
   createDisposableRoot,
+  createLogFailureLedger,
   defaultArtifactPath,
   inspectProviderEnvironment,
   launchDependentRows,
@@ -40,7 +42,12 @@ import {
   summarizeAcceptance,
   type AcceptanceCheck,
 } from './installed-app-acceptance'
-import { INSTALLED_APP_UI_ROW_IDS } from './installed-app-ui-rows'
+import {
+  assessFolderCommandExposure,
+  assessInterruptedNavigation,
+  FOLDER_PICK_COMMAND,
+  INSTALLED_APP_UI_ROW_IDS,
+} from './installed-app-ui-rows'
 
 function check(overrides: Partial<AcceptanceCheck> = {}): AcceptanceCheck {
   return acceptanceRow({
@@ -443,5 +450,139 @@ describe('the provider proof looks at identifiers and at values', () => {
       PATH: '/usr/bin',
     })
     expect(finding.clean).toBe(true)
+  })
+})
+
+describe("the run's log failures are aggregated and they count", () => {
+  test('a write that arrives after the descriptor closed is counted', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-acceptance-log-'))
+    const ledger = createLogFailureLedger()
+    const log = openAcceptanceLog(join(directory, 'app.log'), ledger)
+    log.close()
+    expect(log.write(Buffer.from('too late\n'))).toBe(false)
+    expect(ledger.count()).toBe(1)
+    rmSync(directory, { force: true, recursive: true })
+  })
+
+  test('the failures of every launch are counted together', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-acceptance-log-'))
+    const ledger = createLogFailureLedger()
+    const first = openAcceptanceLog(join(directory, 'first.log'), ledger)
+    const second = openAcceptanceLog(join(directory, 'second.log'), ledger)
+    first.close()
+    second.close()
+    expect(first.write(Buffer.from('a\n'))).toBe(false)
+    expect(second.write(Buffer.from('b\n'))).toBe(false)
+    expect(ledger.count()).toBe(2)
+    rmSync(directory, { force: true, recursive: true })
+  })
+
+  test("the first launch's failure is not discarded when a second launch follows", () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-acceptance-log-'))
+    const ledger = createLogFailureLedger()
+    const first = openAcceptanceLog(join(directory, 'first.log'), ledger)
+    first.close()
+    expect(first.write(Buffer.from('a\n'))).toBe(false)
+    // The second launch opens its own descriptor and its own file; the first
+    // launch's failure is still in the ledger.
+    const second = openAcceptanceLog(join(directory, 'second.log'), ledger)
+    expect(second.path).not.toBe(first.path)
+    expect(ledger.count()).toBe(1)
+    rmSync(directory, { force: true, recursive: true })
+  })
+
+  test('any failure makes the logging row a failure, and the run red', () => {
+    expect(assessLogCompleteness(0, 2).status).toBe('pass')
+    expect(assessLogCompleteness(1, 2).status).toBe('fail')
+    expect(assessLogCompleteness(1, 2).actual).toContain('1 log write failure')
+    const summary = summarizeAcceptance([
+      check(),
+      acceptanceRow({
+        id: 'the-run-log-recorded-everything',
+        expected: 'every launch wrote its output',
+        actual: '1 log write failure',
+        status: 'fail',
+        evidence: 'installed-app',
+      }),
+    ])
+    expect(summary.ok).toBe(false)
+  })
+})
+
+describe('the interruption row claims only what it observed', () => {
+  const dev = '{"headings":["Dev"]}'
+  const chat = '{"headings":["Chat"]}'
+
+  test('overlapping requests that settle on the second destination pass', () => {
+    expect(
+      assessInterruptedNavigation({
+        issuedOverlapping: true,
+        settledSignature: dev,
+        devSignature: dev,
+        chatSignature: chat,
+      }).status
+    ).toBe('pass')
+  })
+
+  test('requests that were NOT overlapping cannot pass the interruption row', () => {
+    const verdict = assessInterruptedNavigation({
+      issuedOverlapping: false,
+      settledSignature: dev,
+      devSignature: dev,
+      chatSignature: chat,
+    })
+    expect(verdict.status).toBe('pending')
+    expect(verdict.actual).toContain('not dispatched concurrently')
+  })
+
+  test('overlapping requests that settle on the wrong view fail', () => {
+    expect(
+      assessInterruptedNavigation({
+        issuedOverlapping: true,
+        settledSignature: chat,
+        devSignature: dev,
+        chatSignature: chat,
+      }).status
+    ).toBe('fail')
+  })
+
+  test('destinations that render the same content cannot be told apart', () => {
+    expect(
+      assessInterruptedNavigation({
+        issuedOverlapping: true,
+        settledSignature: dev,
+        devSignature: dev,
+        chatSignature: dev,
+      }).status
+    ).toBe('pending')
+  })
+})
+
+describe('the folder-pick row needs the exact command identity', () => {
+  test('the exact command proves the row', () => {
+    expect(
+      assessFolderCommandExposure({ hasInvoke: true, commands: [FOLDER_PICK_COMMAND] }).status
+    ).toBe('pass')
+  })
+
+  test('a command that merely contains folder or pick does not prove it', () => {
+    for (const name of [
+      'desktop_folder_pick_extra',
+      'pick_folder',
+      'folder',
+      'pickDesktopFolder',
+    ]) {
+      const verdict = assessFolderCommandExposure({ hasInvoke: true, commands: [name] })
+      expect(verdict.status).not.toBe('pass')
+      expect(verdict.status).toBe('fail')
+    }
+  })
+
+  test('a surface with no command list cannot prove it', () => {
+    expect(assessFolderCommandExposure({ hasInvoke: true, commands: [] }).status).toBe('pending')
+  })
+
+  test('a surface with no invoke at all fails', () => {
+    expect(assessFolderCommandExposure({ hasInvoke: false, commands: [] }).status).toBe('fail')
   })
 })

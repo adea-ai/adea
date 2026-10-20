@@ -327,23 +327,29 @@ export type AcceptanceLog = Readonly<{
 }>
 
 /** Opens the run's log file with an explicit descriptor lifecycle. */
-export function openAcceptanceLog(path: string): AcceptanceLog {
+export function openAcceptanceLog(path: string, ledger?: LogFailureLedger): AcceptanceLog {
   const descriptor = openSync(path, 'w')
   let failures = 0
   let closed = false
+  const record = () => {
+    failures += 1
+    ledger?.record()
+  }
   return {
     path,
     failures: () => failures,
     write(chunk: Buffer) {
       if (closed) {
-        failures += 1
+        // A write that arrives after the descriptor closed is still a failure
+        // of this run's evidence, and it is counted.
+        record()
         return false
       }
       try {
         writeSync(descriptor, chunk)
         return true
       } catch {
-        failures += 1
+        record()
         return false
       }
     },
@@ -353,8 +359,61 @@ export function openAcceptanceLog(path: string): AcceptanceLog {
       try {
         closeSync(descriptor)
       } catch {
-        failures += 1
+        record()
       }
+    },
+  }
+}
+
+/**
+ * The ledger of log-write failures across a whole run.
+ *
+ * A run launches the application more than once and each launch owns its own
+ * descriptor. A failure in ANY launch — including a write that arrives after
+ * that launch's descriptor was closed — belongs to the run's evidence, so the
+ * failures are counted in one ledger that outlives every launch. A failure
+ * that is merely recorded and then discarded is a silent gap in the evidence.
+ */
+export type LogFailureLedger = Readonly<{
+  /** The number of failed writes across every launch of the run. */
+  count: () => number
+  /** Records one failed write. */
+  record: () => void
+}>
+
+/**
+ * The verdict of the run's own logging.
+ *
+ * A run whose evidence could not be written is not a pass: the failure count
+ * decides the row, and a failure in ANY launch — including a write that
+ * arrived after that launch's descriptor was closed — counts.
+ */
+export function assessLogCompleteness(
+  failures: number,
+  launches: number
+): {
+  status: AcceptanceStatus
+  actual: string
+} {
+  if (failures > 0) {
+    return {
+      status: 'fail',
+      actual: `${failures} log write failure(s) across ${launches} launch(es)`,
+    }
+  }
+  return {
+    status: 'pass',
+    actual: `${launches} launch(es) were logged with no write failure`,
+  }
+}
+
+/** Creates the run's log-failure ledger. */
+export function createLogFailureLedger(): LogFailureLedger {
+  let failures = 0
+  return {
+    count: () => failures,
+    record: () => {
+      failures += 1
     },
   }
 }
@@ -500,6 +559,7 @@ export const LAUNCH_DEPENDENT_ROW_IDS = [
   'the-operating-system-hands-the-callback-to-the-installed-app',
   'the-installed-application-traffic-stayed-on-the-loopback-interface',
   'the-installed-application-relaunches-with-its-own-state',
+  'the-run-log-recorded-everything',
   'the-installed-application-survives-an-unreachable-cloud',
   'the-installed-application-recovers-when-the-cloud-returns',
 ] as const
@@ -648,10 +708,16 @@ type RunningApp = {
 }
 
 /** Launches the installed application with the disposable profile. */
-function launchInstalledApp(profile: AcceptanceProfile): RunningApp {
-  const logPath = join(profile.root, 'installed-app.log')
+function launchInstalledApp(
+  profile: AcceptanceProfile,
+  ledger: LogFailureLedger,
+  index: number
+): RunningApp {
+  // One log file per launch: a second launch must not truncate the first
+  // launch's evidence.
+  const logPath = join(profile.root, `installed-app-${index}.log`)
   const launcher = join(profile.installedApp, 'Contents', 'MacOS', 'launcher')
-  const log = openAcceptanceLog(logPath)
+  const log = openAcceptanceLog(logPath, ledger)
   const child = spawn(launcher, [], {
     cwd: profile.root,
     env: {
@@ -671,7 +737,7 @@ function launchInstalledApp(profile: AcceptanceProfile): RunningApp {
   return {
     pid: child.pid ?? -1,
     logPath,
-    logWriteFailures: () => log.failures(),
+    logWriteFailures: () => ledger.count(),
     stop() {
       if (stopped) return
       stopped = true
@@ -766,6 +832,8 @@ export function launchDependentRows(missing: string): AcceptanceCheck[] {
       'every TCP peer of the installed application is on the loopback interface',
     'the-installed-application-relaunches-with-its-own-state':
       'the installed application starts again and keeps its state directory, owner-only',
+    'the-run-log-recorded-everything':
+      "every launch of the installed application wrote its output to the run's own log, with no failed write",
     'the-installed-application-survives-an-unreachable-cloud':
       'the installed application keeps serving and reports the cloud as unreachable instead of failing',
     'the-installed-application-recovers-when-the-cloud-returns':
@@ -811,7 +879,7 @@ export async function runInstalledAppAcceptance(dependencies: {
   /** What the lane proved about where the native profile would be written. */
   isolation?: NativeProfileIsolation
   /** Starts the installed application; returns the running application. */
-  launch?: (profile: AcceptanceProfile) => RunningApp
+  launch?: (profile: AcceptanceProfile, ledger: LogFailureLedger, index: number) => RunningApp
   /** Fetches a path from the installed application's origin. */
   fetchFromApp?: (path: string) => Promise<{ status: number; body: string }>
   /** Hands an `adea://` URL to the operating system. */
@@ -832,7 +900,14 @@ export async function runInstalledAppAcceptance(dependencies: {
     console.log(`${label} ${check.id}: ${check.actual}`)
   }
   const profile = dependencies.profile
-  const launch = dependencies.launch ?? launchInstalledApp
+  // One ledger for the whole run: every launch reports its failures here, and
+  // a failure anywhere in the run affects the verdict.
+  const ledger = createLogFailureLedger()
+  let launches = 0
+  const launch =
+    dependencies.launch ??
+    ((nextProfile: AcceptanceProfile, nextLedger: LogFailureLedger, index: number) =>
+      launchInstalledApp(nextProfile, nextLedger, index))
   const fetchFromApp = dependencies.fetchFromApp ?? fetchFromInstalledApp
   const openUrl =
     dependencies.openUrl ??
@@ -900,7 +975,7 @@ export async function runInstalledAppAcceptance(dependencies: {
   }
 
   // 3. The installed application starts and serves its own bundled client.
-  let running = launch(profile)
+  let running = launch(profile, ledger, ++launches)
   let logPath = running.logPath
   const served = await waitFor(installedAppAnswers, 60_000, 'the installed application to serve')
   add(
@@ -1064,7 +1139,7 @@ export async function runInstalledAppAcceptance(dependencies: {
   const modeBefore = directoryMode(stateDirectory)
   running.stop()
   await sleep(2_000)
-  running = launch(profile)
+  running = launch(profile, ledger, ++launches)
   const relaunched = await waitFor(
     installedAppAnswers,
     60_000,
@@ -1117,7 +1192,21 @@ export async function runInstalledAppAcceptance(dependencies: {
     )
   }
 
-  const logWriteFailures = running.logWriteFailures()
+  // Every launch's log failures, including writes that arrived after a
+  // descriptor closed, and the row makes them count: a run whose evidence
+  // could not be written is not a pass.
+  const logWriteFailures = ledger.count()
+  const completeness = assessLogCompleteness(logWriteFailures, launches)
+  add(
+    acceptanceRow({
+      id: 'the-run-log-recorded-everything',
+      expected:
+        "every launch of the installed application wrote its output to the run's own log, with no failed write",
+      actual: completeness.actual,
+      status: completeness.status,
+      evidence: 'installed-app',
+    })
+  )
   running.stop()
   stopInstalledProcesses(profile.installedApp)
   const summary = summarizeAcceptance(checks)

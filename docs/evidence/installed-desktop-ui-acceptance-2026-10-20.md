@@ -461,6 +461,78 @@ exists, is the same command as in §13 with `--profile-parent`, and the
 expectation is that the run launches, writes only under the isolated root, and
 removes only the unique directory it created.
 
+## 15. The review repair — three evidence-correctness defects
+
+Root's review of the §13/§14 repair (review `5588909120`, against the
+published head `5ac039904`) found three remaining evidence-correctness
+defects. The §14 safety decision is **unchanged**: the native renderer uses
+the real Application Support directory, supported per-run isolation is still
+unproved, so the lane does not launch and every dependent row stays pending.
+
+### (1) The run's log failures were lost, and did not affect the verdict
+
+Only the final launch's counter was read, and it was read before the
+descriptor closed; the first launch's failures were discarded entirely.
+
+- **One ledger for the whole run.** Every launch reports into it, and the
+  ledger outlives every launch. A write that arrives **after** a descriptor
+  closed is counted too — that failure used to be invisible.
+- **One log file per launch** (`installed-app-<n>.log`). The second launch no
+  longer truncates the first launch's evidence with a second `openSync(…,
+'w')`.
+- **A failure now decides a row.** `assessLogCompleteness` turns the
+  aggregate count into the row `the-run-log-recorded-everything`: `pass` only
+  when no write failed in any launch, and `fail` otherwise — so a run whose
+  evidence could not be written is never green.
+
+### (2) The interrupted-navigation row proved ordinary navigation
+
+The row awaited the Chat view to settle before issuing the Dev request, so it
+exercased a sequential navigation, not an interruption.
+
+- The two requests are now dispatched in **one evaluation**, so the second is
+  issued before the first can settle. `assessInterruptedNavigation` requires
+  that overlap: without it the row is **pending**, never a pass.
+- The row's claim is narrowed to what is observable — _two overlapping
+  requests settle on the view the second request named_ — and the broad claim
+  ("an interruption leaves no half-open intermediate view in the client's own
+  state") is a **separate, pending row**, because the rendered view cannot
+  show whether an intermediate request left state behind.
+
+### (3) The folder-pick row accepted any command containing "folder" or "pick"
+
+The row now requires the **exact** command identity the shell registers,
+`desktop_folder_pick`. A surface that exposes `desktop_folder_pick_extra`,
+`pick_folder`, `folder` or `pickDesktopFolder` does **not** prove the row —
+those are failures, not passes. A surface that exposes no command list at all
+is pending (calling the pick would open the native panel, which needs a UI
+grant this run does not have), and a surface with no invoke at all fails.
+
+### The focused negative tests
+
+`scripts/installed-app-acceptance.test.ts` grew from 37 cases to **49
+(130 assertions)**, all pure and synthetic:
+
+- a write after the descriptor closed is counted in the run's ledger;
+- the failures of two launches are counted **together**;
+- the first launch's failure is not discarded when a second launch follows,
+  and the second launch has its own log file;
+- any failure makes the logging row a failure and the run red;
+- overlapping requests that settle on the second destination pass, requests
+  that were **not** overlapping cannot pass, overlapping requests that settle
+  on the wrong view fail, and destinations that render the same content
+  cannot be told apart;
+- the exact folder-pick command proves the row; a command that merely
+  contains "folder" or "pick" does not; an unexposed list is pending; a
+  missing invoke surface fails.
+
+### Still deferred
+
+The lane's entry point and the installed-application run were **not** executed
+after this repair. The §14 safety decision stands: without a supported per-run
+native profile root, the lane does not launch, and the installed-application
+rows stay pending rather than asserted.
+
 ## 12. Publication
 
 The branch is `test/installed-desktop-ui-acceptance-20261020`, three commits

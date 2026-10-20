@@ -46,6 +46,96 @@ function row(input: Omit<UiRow, 'ok'> & { ok?: boolean }): UiRow {
 }
 
 /**
+ * The exact command the shell registers for the native folder picker.
+ *
+ * The identity is exact: a command that merely CONTAINS "folder" or "pick"
+ * is a different command, and the assessment below refuses to treat it as the
+ * folder-pick command.
+ */
+export const FOLDER_PICK_COMMAND = 'desktop_folder_pick'
+
+/**
+ * The verdict of the folder-pick command's presence on the command surface.
+ *
+ * The command is PROVED only when the surface exposes exactly
+ * `desktop_folder_pick`. A surface that exposes no command list at all
+ * cannot prove it, and the row stays pending; a surface that exposes a list
+ * WITHOUT the folder pick is a failure of the expectation, not a pending.
+ */
+export function assessFolderCommandExposure(input: {
+  /** Whether the bridge exposes an invoke surface at all. */
+  hasInvoke: boolean
+  /** The command names the surface exposes, when it exposes any. */
+  commands: readonly string[]
+}): { status: UiStatus; actual: string } {
+  if (!input.hasInvoke) {
+    return {
+      status: 'fail',
+      actual: 'the installed application exposed no invoke surface at all',
+    }
+  }
+  if (input.commands.includes(FOLDER_PICK_COMMAND)) {
+    return {
+      status: 'pass',
+      actual: `the command surface exposed ${FOLDER_PICK_COMMAND}`,
+    }
+  }
+  if (input.commands.length === 0) {
+    return {
+      status: 'pending',
+      actual:
+        'the command surface exposes no command list, so the folder-pick command could not be verified; calling it would open the native panel, which needs a UI grant this run does not have',
+    }
+  }
+  return {
+    status: 'fail',
+    actual: `the command surface exposed ${input.commands.length} command(s) and none of them is exactly ${FOLDER_PICK_COMMAND}`,
+  }
+}
+
+/**
+ * The verdict of the interrupted-navigation observation.
+ *
+ * `issuedOverlapping` says the two navigation requests were dispatched
+ * WITHOUT waiting for the first to settle. When they were not overlapping,
+ * the interruption was not exercised and the row is pending rather than a
+ * pass.
+ */
+export function assessInterruptedNavigation(input: {
+  issuedOverlapping: boolean
+  settledSignature: string
+  devSignature: string
+  chatSignature: string
+}): { status: UiStatus; actual: string } {
+  if (!input.issuedOverlapping) {
+    return {
+      status: 'pending',
+      actual:
+        'the two navigation requests were not dispatched concurrently, so no interruption was exercised',
+    }
+  }
+  if (input.devSignature === '' || input.devSignature === input.chatSignature) {
+    return {
+      status: 'pending',
+      actual:
+        'the Dev view and the Chat view render the same content, so the settled view could not be distinguished',
+    }
+  }
+  if (input.settledSignature === input.devSignature) {
+    return {
+      status: 'pass',
+      actual:
+        'two overlapping navigation requests settled on the view the second request named, and that view is the one the destination renders on its own',
+    }
+  }
+  return {
+    status: 'fail',
+    actual:
+      'two overlapping navigation requests did not settle on the view the second request named',
+  }
+}
+
+/**
  * The rows this module produces.
  *
  * The lane uses the list to record them as pending when the installed
@@ -61,6 +151,7 @@ export const INSTALLED_APP_UI_ROW_IDS = [
   'ui-back-and-forward-navigate',
   'ui-repeated-navigation-is-idempotent',
   'ui-interrupted-navigation-settles-on-the-last-request',
+  'ui-interrupted-navigation-leaves-no-half-open-view',
   'ui-reload-returns-to-the-workspace',
   'ui-the-installed-bridge-is-present-in-the-page',
   'ui-folder-flow-command-is-offered',
@@ -336,39 +427,54 @@ export async function runInstalledAppUiRows(
     // permanent Dev rail entry proves nothing about an interruption: it is
     // present before and after any navigation, so a row that only looks for
     // it is true by construction.
-    await clickControl(page, 'Chat view')
-    const interruptedFrom = await viewSignature(page)
-    await page.evaluate(() => {
-      const rail = Array.from(document.querySelectorAll('button')).find(
-        (element) => element.getAttribute('aria-label') === 'Dev view'
-      ) as HTMLElement | undefined
-      rail?.click()
+    // Both dispatches happen in ONE evaluation, so the second request is
+    // issued before the first can settle. The previous version waited for the
+    // Chat view to settle first, which proved ordinary navigation rather than
+    // an interruption.
+    const issuedOverlapping = await page.evaluate(() => {
+      const buttons = Array.from(document.querySelectorAll('button'))
+      const chat = buttons.find((element) => element.getAttribute('aria-label') === 'Chat view') as
+        | HTMLElement
+        | undefined
+      const dev = buttons.find((element) => element.getAttribute('aria-label') === 'Dev view') as
+        | HTMLElement
+        | undefined
+      if (!chat || !dev) return false
+      chat.click()
+      dev.click()
+      return true
     })
     await page.waitForTimeout(2_500)
     const settled = await viewSignature(page)
     const settledText = await visibleText(page)
-    const distinguishable = devSignature !== '' && devSignature !== chatSignature
+    const interruption = assessInterruptedNavigation({
+      issuedOverlapping,
+      settledSignature: settled,
+      devSignature,
+      chatSignature,
+    })
     add(
       row({
         id: 'ui-interrupted-navigation-settles-on-the-last-request',
         expected:
-          'a navigation interrupted by a second request settles on the second one, and the rendered view is the one that request opened',
-        actual: !distinguishable
-          ? 'the Dev view and the Chat view render the same content, so the settled view could not be distinguished'
-          : `the view settled on the Dev view's own rendering (${
-              settled === devSignature ? 'matching' : 'not matching'
-            }); it changed from the interrupted view: ${settled !== interruptedFrom}; it rendered "${settledText.slice(
-              0,
-              120
-            )}"`,
-        status:
-          distinguishable && settled === devSignature && settled !== interruptedFrom
-            ? 'pass'
-            : distinguishable
-              ? 'fail'
-              : 'pending',
+          'two navigation requests dispatched without waiting for the first to settle leave the rendered view on the destination the second request named',
+        actual: `${interruption.actual}; it rendered "${settledText.slice(0, 120)}"`,
+        status: interruption.status,
         evidence: 'installed-app-origin',
         screenshot: await shoot('interrupted-navigation'),
+      })
+    )
+
+    add(
+      row({
+        id: 'ui-interrupted-navigation-leaves-no-half-open-view',
+        expected:
+          "an interrupted navigation leaves no half-open intermediate view behind in the client's own state",
+        actual:
+          'the rendered view cannot show whether an intermediate request left state behind; that needs an instrumented client, so the broad interruption claim is not proved here',
+        status: 'pending',
+        evidence: 'installed-app-origin',
+        screenshot: await shoot('interrupted-navigation-state'),
       })
     )
 
@@ -432,32 +538,20 @@ export async function runInstalledAppUiRows(
           }
         }
       ).__adeaDesktop
-      if (typeof desktop?.invoke !== 'function') return { state: 'no-invoke' as const, list: [] }
+      if (typeof desktop?.invoke !== 'function') return { hasInvoke: false, list: [] }
       const list = Array.isArray(desktop.commands) ? desktop.commands : []
-      return { state: 'invoked' as const, list }
+      return { hasInvoke: true, list }
     })
-    const folderCommandNames = folderCommand.list.filter((name) => /folder|pick/i.test(name))
+    const folder = assessFolderCommandExposure({
+      hasInvoke: folderCommand.hasInvoke,
+      commands: folderCommand.list,
+    })
     add(
       row({
         id: 'ui-folder-flow-command-is-offered',
-        expected:
-          "the installed application exposes the folder-pick command on its own command surface, so the flow's command is proved rather than assumed",
-        actual:
-          folderCommand.state === 'no-invoke'
-            ? 'the installed application exposed no invoke surface at all'
-            : folderCommandNames.length === 0
-              ? `the command surface exposed ${folderCommand.list.length} command(s) and none of them is the folder pick; the command list is ${
-                  folderCommand.list.length === 0
-                    ? 'not exposed'
-                    : 'exposed without the folder pick'
-                }`
-              : `the command surface exposed ${folderCommandNames.join(', ')}`,
-        status:
-          folderCommand.state === 'no-invoke'
-            ? 'fail'
-            : folderCommandNames.length > 0
-              ? 'pass'
-              : 'pending',
+        expected: `the installed application exposes exactly ${FOLDER_PICK_COMMAND} on its own command surface, so the flow's command is proved rather than assumed`,
+        actual: folder.actual,
+        status: folder.status,
         evidence: 'installed-app-origin',
       })
     )
