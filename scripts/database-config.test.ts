@@ -66,4 +66,42 @@ describe('inspectDatabaseConfiguration', () => {
       })
     ).toThrow('must never be client-exposed')
   })
+
+  test('requires every connection to reach one PostgreSQL host', () => {
+    // One managed database serves the runtime and migration roles. A configuration that
+    // points the two connections at different hosts is two databases, and the provider this
+    // deployment has left offered exactly that split with a pooled runtime endpoint and a
+    // direct migration endpoint. The check names neither provider.
+    expect(() =>
+      inspectDatabaseConfiguration({
+        ...localEnvironment,
+        DATABASE_MIGRATION_URL:
+          'postgresql://agent_hq_local_migration:local-password@127.0.0.1:55433/agent_hq?sslmode=disable',
+      })
+    ).toThrow('must reach the same PostgreSQL host')
+    expect(() =>
+      inspectDatabaseConfiguration({
+        ...localEnvironment,
+        DATABASE_URL_UNPOOLED:
+          'postgresql://agent_hq_local_app:local-password@localhost:55432/agent_hq?sslmode=disable',
+      })
+    ).toThrow('must reach the same PostgreSQL host as DATABASE_URL')
+  })
+
+  test('accepts one hosted host with separate runtime and migration roles', () => {
+    const result = inspectDatabaseConfiguration({
+      DATABASE_URL:
+        'postgresql://agent_hq_prod_app:secret@db.example.com:5432/agent_hq?sslmode=require',
+      DATABASE_URL_UNPOOLED:
+        'postgresql://agent_hq_prod_app:secret@db.example.com:5432/agent_hq?sslmode=require',
+      DATABASE_MIGRATION_URL:
+        'postgresql://agent_hq_prod_migration:secret@db.example.com:5432/agent_hq?sslmode=require',
+    })
+    expect(result).toEqual({
+      database: 'agent_hq',
+      hosted: true,
+      migrationRole: 'agent_hq_prod_migration',
+      runtimeRole: 'agent_hq_prod_app',
+    })
+  })
 })

@@ -52,12 +52,9 @@ function readConnection(environment, name) {
     database: url.pathname.slice(1),
     hosted,
     hostname: url.hostname,
+    port: url.port || '5432',
     role: decodeURIComponent(url.username),
   }
-}
-
-function normalizedNeonHost(hostname) {
-  return hostname.replace('-pooler.', '.')
 }
 
 export function inspectDatabaseConfiguration(environment = process.env) {
@@ -85,21 +82,19 @@ export function inspectDatabaseConfiguration(environment = process.env) {
   if (runtime.hosted !== migration.hosted) {
     throw new Error('Runtime and migration connections must target the same environment type')
   }
+  // One managed database serves every role, so every connection reaches one host and one
+  // port. The provider this deployment has left offered a pooled runtime endpoint and a
+  // direct migration endpoint on two different hosts; that split is what this check
+  // refuses, and it refuses it without naming the provider.
+  if (migration.hostname !== runtime.hostname || migration.port !== runtime.port) {
+    throw new Error('Runtime and migration connections must reach the same PostgreSQL host')
+  }
   if (unpooled) {
     if (unpooled.role !== runtime.role || unpooled.database !== runtime.database) {
       throw new Error('DATABASE_URL_UNPOOLED must use the runtime role and database')
     }
-    if (normalizedNeonHost(unpooled.hostname) !== normalizedNeonHost(runtime.hostname)) {
-      throw new Error('Pooled and unpooled connections must target the same environment')
-    }
-  }
-
-  if (runtime.hostname.endsWith('.neon.tech')) {
-    if (!runtime.hostname.includes('-pooler.')) {
-      throw new Error('Hosted Neon DATABASE_URL must use the pooled endpoint')
-    }
-    if (migration.hostname.includes('-pooler.')) {
-      throw new Error('Hosted Neon DATABASE_MIGRATION_URL must use the unpooled endpoint')
+    if (unpooled.hostname !== runtime.hostname || unpooled.port !== runtime.port) {
+      throw new Error('DATABASE_URL_UNPOOLED must reach the same PostgreSQL host as DATABASE_URL')
     }
   }
 

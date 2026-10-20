@@ -1,15 +1,20 @@
 # Database environments and operations
 
-Adea uses standard PostgreSQL as its application contract. Neon supplies hosted PostgreSQL, but application and migration code must not depend on Neon management APIs.
+Adea uses standard PostgreSQL as its application contract. Railway supplies hosted PostgreSQL, and application and migration code must not depend on any provider's management API.
+
+Provider-specific references further down this page describe the pull-request CI
+lane and the historical record of the provider this deployment has left. They
+are not the runtime or deployment configuration of this application, and they
+carry no active dependency from it.
 
 ## Environment topology
 
-| Target          | Neon branch                       | Runtime role                                       | Migration role                 |
+| Target          | Hosted database                   | Runtime role                                       | Migration role                 |
 | --------------- | --------------------------------- | -------------------------------------------------- | ------------------------------ |
-| Production      | production                        | Dedicated role ending in `_app` (confirm its name) | `adea_prod_migration`          |
-| Preview/staging | `staging`                         | `agent_hq_staging_app`                             | `agent_hq_staging_migration`   |
-| Development     | `development`                     | `adea_dev_app`                                     | `adea_dev_migration`           |
-| Pull request CI | `preview/pr-*` from `development` | inherited `adea_dev_app`                           | inherited `adea_dev_migration` |
+| Production      | Railway PostgreSQL                | Dedicated role ending in `_app` (confirm its name) | `adea_prod_migration`          |
+| Preview/staging | Railway PostgreSQL                | `agent_hq_staging_app`                             | `agent_hq_staging_migration`   |
+| Development     | local PostgreSQL                  | `adea_dev_app`                                     | `adea_dev_migration`           |
+| Pull request CI | disposable container or CI branch | inherited `adea_dev_app`                           | inherited `adea_dev_migration` |
 
 The intended runtime-role contract is a role name ending in `_app`, without
 schema or database `CREATE` privileges or elevated role attributes.
@@ -18,8 +23,10 @@ tests; its configuration helper checks the `_app` suffix, and its database
 queries check grants and role attributes. Application startup only parses the
 database URL and does not enforce the suffix or privilege checks. Older
 deployment notes identify `neondb_owner` as the production Hyperdrive
-principal and say a dedicated `agent_hq_prod_app` role was removed. The
-`neondb_owner` name does not follow the `_app` convention, but repository files
+principal and say a dedicated `agent_hq_prod_app` role was removed. That is a
+historical record of the provider this deployment has left, not a description of
+the current configuration: the `neondb_owner` name does not follow the `_app`
+convention, and repository files
 do not establish its current use or privileges. Confirm production
 configuration through the approved operations process before claiming it
 passes the intended contract; this guide does not verify live credentials.
@@ -33,18 +40,20 @@ its value. Production and Preview values are sensitive. Environment selection
 belongs to deployment configuration; request data must never select a branch,
 connection string, or role.
 
-By contract, `DATABASE_URL` uses the pooled Neon endpoint and the runtime
-`_app` role. `DATABASE_URL_UNPOOLED` uses the same role for operations that
-cannot use transaction pooling. `DATABASE_MIGRATION_URL` is unpooled and uses
-the migration role. Keep administrative owner credentials out of Worker
-application secrets.
+By contract, `DATABASE_URL` and `DATABASE_URL_UNPOOLED` reach the same
+PostgreSQL host as `DATABASE_MIGRATION_URL`, with the runtime `_app` role for
+the first two and the migration role for the third. One managed database serves
+every role, so a configuration whose connections name different hosts is
+refused. `DATABASE_URL_UNPOOLED` carries the runtime role for operations that
+cannot use transaction pooling. Keep administrative owner credentials out of
+Worker application secrets.
 
 The intended application-role privileges allow data access granted by
 migrations but not schema or database object creation. Migration roles own the
 `app` schema and can create database objects, but are not superusers and cannot
 create roles, create databases, replicate, or bypass row-level security.
 
-Neon's management API cannot return a password for a role created directly in PostgreSQL. Pull-request CI therefore stores only the rotated development role passwords in the `NEON_CI_APP_PASSWORD` and `NEON_CI_MIGRATION_PASSWORD` GitHub secrets, obtains the isolated branch hostnames from the Neon action, and constructs the URLs inside the masked job environment. It never uses the action's owner URL for database commands.
+That provider's management API cannot return a password for a role created directly in PostgreSQL. The pull-request CI lane therefore stores only the rotated development role passwords in the `NEON_CI_APP_PASSWORD` and `NEON_CI_MIGRATION_PASSWORD` GitHub secrets, obtains the isolated branch hostnames from its branch action, and constructs the URLs inside the masked job environment. It never uses the action's owner URL for database commands.
 
 The previous operations record reported that the Neon plan lacked protected
 branches and IP allowlisting. That account-specific status has not been checked
@@ -73,8 +82,8 @@ The service binds only to `127.0.0.1:55432`. Override the host port with `ADEA_P
 `bun run test:integration` uses this local service automatically when no
 `DATABASE_URL` is exported. It starts PostgreSQL when necessary, verifies the
 runtime and migration role boundary, applies the migration history twice, and
-runs every integration case. To run against Neon instead, export the three
-canonical URLs for an isolated development/preview branch; never point the
+runs every integration case. To run against a hosted database instead, export the three
+canonical URLs for an isolated development/preview target; never point the
 write-heavy suite at a production or owner connection.
 
 `ADEA_INTEGRATION_SHARD=<index>/<total>` (for example `1/2`) runs one explicit half of the package suites. Shard 1 also runs the route-flow suite, so it is never run twice. `bun scripts/test-integration.mjs --plan` prints the selection without touching a database or Docker.
@@ -83,12 +92,14 @@ write-heavy suite at a production or owner connection.
 
 Pull-request CI carries two database proofs, and they are independent.
 
-The **hosted proof** is unchanged. It creates an isolated Neon branch from
-`development`, builds the three canonical URLs from the branch hostnames, proves
-the isolated Neon Auth JWKS endpoint is reachable, and verifies the role and
-migration checks against the hosted branch. It needs `NEON_API_KEY`,
-`NEON_CI_APP_PASSWORD`, `NEON_CI_MIGRATION_PASSWORD` and `NEON_PROJECT_ID`, and
-it reports the `Migrate Neon Branch` check.
+The **hosted proof** belongs to the pull-request CI lane and is unchanged by this
+deployment's move to Railway. It creates an isolated hosted branch, builds the
+three canonical URLs from the branch hostnames, proves the isolated key-discovery
+endpoint is reachable, and verifies the role and migration checks against the
+hosted branch. It needs `NEON_API_KEY`, `NEON_CI_APP_PASSWORD`,
+`NEON_CI_MIGRATION_PASSWORD` and `NEON_PROJECT_ID`, and it reports the
+`Migrate Neon Branch` check. Removing that proof is a separate, owner-scoped
+change to the CI lane.
 
 The **disposable proof** is additive. It starts a digest-pinned PostgreSQL
 container, publishes it on `127.0.0.1` only, proves the database boundary
@@ -135,10 +146,10 @@ not own. A cleanup failure fails the lane, and the primary failure is preserved
 alongside the teardown failure. An unavailable container runtime or a missing
 OpenSSL fails the lane rather than producing a green skipped test.
 
-This proof is database-only. It does not replace the hosted auth proof: the
-Neon Auth JWKS assertion in the hosted lane remains the only proof that an
-isolated environment publishes a reachable key-discovery document, and no
-self-hosted equivalent exists yet.
+This proof is database-only. It does not replace the hosted key-discovery proof in
+the CI lane: that assertion remains the only proof that an isolated environment
+publishes a reachable key-discovery document, and no self-hosted equivalent
+exists yet.
 
 ## Health and configuration validation
 
@@ -148,7 +159,7 @@ Run the health probe from an environment that has `psql` and the three canonical
 node scripts/database-health.mjs
 ```
 
-It fails when credentials are client-prefixed, hosted TLS is disabled, environments differ, runtime and migration roles are shared, Neon pooling is misconfigured, or the connected roles exceed their expected DDL boundary. It never prints connection strings, hosts, or passwords.
+It fails when credentials are client-prefixed, hosted TLS is disabled, environments differ, runtime and migration roles are shared, the connections do not reach one PostgreSQL host, or the connected roles exceed their expected DDL boundary. It never prints connection strings, hosts, or passwords.
 
 ## Migrations
 

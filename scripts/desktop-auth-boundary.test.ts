@@ -501,7 +501,7 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(form).toContain('controlId="email"')
     expect(form).toContain('controlId="password"')
     expect(form).toContain('aria-live="polite"')
-    expect(form).toContain('createNeonClientAdapter')
+    expect(form).toContain('createAuthClientAdapter')
     expect(completionPage).toContain('class="auth-shell"')
     expect(completionClient).toContain('You can close this tab')
     expect(completionClient).toContain('parseDesktopCallbackFragment')

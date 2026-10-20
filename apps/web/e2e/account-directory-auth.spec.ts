@@ -47,7 +47,7 @@ import {
 // cookie jar, the HTTP surface (status lines, cache headers, JSON bodies), the
 // server-side session round trip, and offline/reconnect behaviour as a real
 // browser experiences them. What it deliberately does NOT cover: the
-// email-and-password provider sign-in form — that flow needs the hosted Neon
+// email-and-password provider sign-in form — that flow needs the hosted auth
 // auth provider and stays in the hosted acceptance lane
 // (apps/web/start/acceptance-sign-in.mjs). The temporary-session class minted
 // here is the only account class the local lane can issue, and it exercises

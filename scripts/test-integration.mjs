@@ -167,7 +167,7 @@ try {
 
   run('node', ['scripts/database-health.mjs'], environment)
   run('bun', ['run', '--cwd', 'packages/db', 'db:verify'], environment)
-  // Remote Neon branches serve 50-150ms roundtrips (vs sub-millisecond local
+  // Remote hosted branches serve 50-150ms roundtrips (vs sub-millisecond local
   // Postgres) and the heavier integration cases issue hundreds of queries in
   // sequence. Measured: `read-state-search.test.ts` issues ~270 sequential
   // round-trips for a single test, so at the documented 50-150ms range that

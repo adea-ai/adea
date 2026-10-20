@@ -22,7 +22,7 @@ import {
   withheldFrame,
 } from '../src/server/workspace-event-stream'
 
-const environment = { NEON_AUTH_COOKIE_SECRET: 'a'.repeat(48) }
+const environment = { AUTH_SECRET: 'a'.repeat(48) }
 const workspaceId = 'aaaaaaaa-1111-4111-8111-111111111111'
 const otherWorkspaceId = 'bbbbbbbb-2222-4222-8222-222222222222'
 
@@ -63,7 +63,7 @@ describe('workspace event cursor', () => {
     const foreign = await encodeWorkspaceEventCursor(
       { sequence: 7, workspaceId },
       {
-        NEON_AUTH_COOKIE_SECRET: 'b'.repeat(48),
+        AUTH_SECRET: 'b'.repeat(48),
       }
     )
     expect(await decodeWorkspaceEventCursor(foreign!, workspaceId, environment)).toEqual({

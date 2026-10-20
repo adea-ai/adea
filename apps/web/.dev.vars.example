@@ -2,8 +2,9 @@
 # Copy to `.dev.vars` and fill in values. Never commit real secrets.
 # Production values live as Cloudflare Worker secrets/vars — see CLOUDFLARE.md.
 DATABASE_URL=postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable
-NEON_AUTH_BASE_URL=https://replace-with-development-branch.neonauth.example/neondb/auth
-NEON_AUTH_COOKIE_SECRET=replace-with-at-least-32-random-characters
+AUTH_BASE_URL=http://localhost:3000
+AUTH_SECRET=replace-with-at-least-32-random-characters
+AUTH_DATABASE_URL=postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable
 AUTH_TRUSTED_ORIGINS=http://localhost:3000
 CONTROL_PLANE_ORIGIN=https://control-plane.example
 # Per-request signed Control Plane credentials (ADR 0013,

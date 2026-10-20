@@ -38,6 +38,9 @@ describe('cloudflare.config.ts preview isolation', () => {
     const production = evaluate({ isPreview: false, mode: undefined }).worker.env
     expect(Object.keys(production).toSorted()).toEqual([
       'ASSETS',
+      'AUTH_BASE_URL',
+      'AUTH_DATABASE_URL',
+      'AUTH_SECRET',
       'AUTH_TRUSTED_ORIGINS',
       'CONTROL_PLANE_ORIGIN',
       'CONTROL_PLANE_SIGNING_ISSUER',
@@ -45,14 +48,36 @@ describe('cloudflare.config.ts preview isolation', () => {
       'CONTROL_PLANE_SIGNING_KEY_ID',
       'DATABASE_URL',
       'HYPERDRIVE',
-      'NEON_AUTH_BASE_URL',
-      'NEON_AUTH_COOKIE_SECRET',
     ])
     expect(production.HYPERDRIVE).toEqual({ type: 'hyperdrive', id: productionHyperdriveId })
     expect(production.DATABASE_URL).toMatchObject({
       type: 'secrets-store-secret',
-      secretName: 'AGENT_HQ_NEON_PRODUCTION_DATABASE_URL',
+      secretName: 'ADEA_RAILWAY_PRODUCTION_DATABASE_URL',
     })
+  })
+
+  test('a production build binds the self-hosted auth service under its own names', () => {
+    const production = evaluate({ isPreview: false, mode: undefined }).worker.env
+    // The auth service reads AUTH_BASE_URL, AUTH_SECRET and AUTH_DATABASE_URL. A Worker that
+    // binds anything else cannot construct it, and every account session lookup then fails
+    // closed.
+    expect(production.AUTH_BASE_URL).toMatchObject({
+      type: 'secrets-store-secret',
+      secretName: 'ADEA_RAILWAY_PRODUCTION_AUTH_BASE_URL',
+    })
+    expect(production.AUTH_SECRET).toMatchObject({
+      type: 'secrets-store-secret',
+      secretName: 'ADEA_RAILWAY_PRODUCTION_AUTH_SECRET',
+    })
+    expect(production.AUTH_DATABASE_URL).toMatchObject({
+      type: 'secrets-store-secret',
+      secretName: 'ADEA_RAILWAY_PRODUCTION_AUTH_DATABASE_URL',
+    })
+  })
+
+  test('no production binding names the retired provider', () => {
+    const production = JSON.stringify(evaluate({ isPreview: false, mode: undefined }).worker.env)
+    expect(production).not.toMatch(/neon/i)
   })
 
   test('a preview build with no isolated resources is blocked, not deployed as assets only', () => {
@@ -93,17 +118,24 @@ describe('cloudflare.config.ts preview isolation', () => {
     const env = previewEnv(selection) as unknown as Resolved['worker']['env']
     expect(Object.keys(env).toSorted()).toEqual([
       'ASSETS',
+      'AUTH_BASE_URL',
+      'AUTH_DATABASE_URL',
+      'AUTH_SECRET',
       'AUTH_TRUSTED_ORIGINS',
       'DATABASE_URL',
       'HYPERDRIVE',
-      'NEON_AUTH_BASE_URL',
-      'NEON_AUTH_COOKIE_SECRET',
     ])
     expect(env.HYPERDRIVE).toEqual({ type: 'hyperdrive', id: selection.ADEA_PREVIEW_HYPERDRIVE_ID })
     expect(env.DATABASE_URL).toEqual({
       type: 'secrets-store-secret',
       storeId: selection.ADEA_PREVIEW_SECRETS_STORE_ID,
       secretName: 'ADEA_PREVIEW_DATABASE_URL',
+    })
+    // The auth database is a dedicated preview record in the selected preview store.
+    expect(env.AUTH_DATABASE_URL).toEqual({
+      type: 'secrets-store-secret',
+      storeId: selection.ADEA_PREVIEW_SECRETS_STORE_ID,
+      secretName: 'ADEA_PREVIEW_AUTH_DATABASE_URL',
     })
     const text = JSON.stringify(env)
     expect(text).not.toContain(productionHyperdriveId)
@@ -132,8 +164,8 @@ describe('cloudflare.config.ts preview isolation', () => {
       'ADEA_PREVIEW_AUTH_TRUSTED_ORIGINS_SECRET',
     ]) {
       for (const name of [
-        'AGENT_HQ_NEON_PRODUCTION_DATABASE_URL',
-        'AGENT_HQ_WORKER_AUTH_COOKIE_SECRET',
+        'ADEA_RAILWAY_PRODUCTION_DATABASE_URL',
+        'ADEA_RAILWAY_PRODUCTION_AUTH_SECRET',
         'ADEA_CONTROL_PLANE_SIGNING_KEY',
         'SOME_OTHER_SECRET',
       ]) {
