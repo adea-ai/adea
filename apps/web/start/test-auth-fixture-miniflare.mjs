@@ -2,9 +2,10 @@
 // instead of `wrangler dev`. Two artifacts are accepted, and each run names one:
 //   - the fixture build (default): recording transport and loopback outbox, run as
 //     `--prepare` then `--fixture-exercise` with the required email verification;
-//   - the ordinary production build (`--production`): no fixture marker, no outbox, the
-//     normal configuration (verification required by default), run as `--prepare` then
-//     `--exercise`.
+//   - the ordinary production build (`--production`): no fixture marker, no outbox, run as
+//     `--prepare` then `--exercise` under a local-test-only lifecycle configuration with
+//     verification explicitly off. The application default (required, no transport) is
+//     not exercised and is not claimed as qualified.
 // The test file it drives (packages/auth/tests/integration/better-auth-worker-local.mjs)
 // is unchanged. The Worker is served on an HTTPS entry socket with the loopback
 // certificate, so there is no ProxyWorker hop. Neither artifact is production
@@ -25,6 +26,7 @@ import { Miniflare } from 'miniflare'
 import { disposeBounded, startBounded, withDeadline } from './miniflare-bounds.mjs'
 import { createLoopbackCertificate } from './loopback-tls.mjs'
 import { findFixtureMarkers } from './auth-fixture-markers.mjs'
+import { checkMarkers, selectArtifact, workerVariables } from './auth-artifact-selection.mjs'
 
 const start = fileURLToPath(new URL('.', import.meta.url))
 const web = resolve(start, '..')
@@ -40,12 +42,15 @@ assert.match(
 )
 const databaseUrl = (role) =>
   `postgresql://${role}:${role}@127.0.0.1:${postgresPort}/agent_hq?sslmode=disable`
-const fixtureDist = resolve(
-  process.env.ADEA_AUTH_FIXTURE_DIST ?? resolve(start, '.checks/auth-fixture/dist')
-)
-const production = process.argv.slice(2).includes('--production')
-const artifactKind = production ? 'production' : 'fixture'
-const artifactDir = production ? productionDist : fixtureDist
+const artifact = selectArtifact({
+  args: process.argv.slice(2),
+  env: process.env,
+  productionDir: productionDist,
+  defaultFixtureDir: resolve(start, '.checks/auth-fixture/dist'),
+})
+const production = artifact.production
+const artifactKind = artifact.kind
+const artifactDir = artifact.directory
 
 // Reads the built output before any process or socket exists. A missing or malformed
 // build is refused here. The fixture run needs fixture markers; the production run
@@ -68,11 +73,11 @@ async function loadArtifact(directory) {
     !Array.isArray(built.compatibility_flags)
   )
     throw new Error(`${artifactKind} output is malformed: server/wrangler.json under ${directory}`)
-  const markers = (await findFixtureMarkers(directory)).length
-  if (production && markers > 0)
-    throw new Error(`production output carries fixture markers under ${directory}; refusing it`)
-  if (!production && markers === 0)
-    throw new Error(`fixture output carries no fixture markers under ${directory}; refusing it`)
+  checkMarkers({
+    kind: artifactKind,
+    markerCount: (await findFixtureMarkers(directory)).length,
+    directory,
+  })
   return built
 }
 
@@ -373,18 +378,17 @@ async function acceptArtifact() {
   const fixtureServer = resolve(artifactDir, 'server')
   // The fixture Worker must reach the loopback outbox, so the fixture run uses the
   // built config's flags as they are and this harness never adds or removes one. The
-  // production run gets the normal configuration: verification follows its default
-  // (required), and neither an outbox nor a fixture variable reaches the Worker.
-  const vars = {
-    AUTH_BASE_URL: baseURL,
-    AUTH_DATABASE_URL: authDatabaseUrl,
-    AUTH_SECRET: authSecret,
-    AUTH_SECURE_COOKIES: 'true',
-    AUTH_TRUSTED_ORIGINS: baseURL,
-    ...(production
-      ? {}
-      : { AUTH_EMAIL_VERIFICATION_REQUIRED: 'true', ADEA_AUTH_FIXTURE_OUTBOX_URL: outboxUrl }),
-  }
+  // production run is a local-test-only lifecycle configuration: verification is set to
+  // false explicitly, because the lifecycle assertions need a session at signup. The
+  // application default (required, no transport) is not exercised here and is not
+  // claimed as qualified. Neither an outbox nor a fixture variable reaches its Worker.
+  const vars = workerVariables({
+    kind: artifactKind,
+    baseURL,
+    databaseUrl: authDatabaseUrl,
+    secret: authSecret,
+    outboxUrl,
+  })
 
   const authWorkerTest = 'packages/auth/tests/integration/better-auth-worker-local.mjs'
   const authTestEnvironment = {
