@@ -81,21 +81,18 @@ write-heavy suite at a production or owner connection.
 
 ## Disposable PostgreSQL proof (pull request CI)
 
-Pull-request CI carries two database proofs, and they are independent.
+Pull-request CI carries one database proof.
 
-The **hosted proof** is unchanged. It creates an isolated Neon branch from
-`development`, builds the three canonical URLs from the branch hostnames, proves
-the isolated Neon Auth JWKS endpoint is reachable, and verifies the role and
-migration checks against the hosted branch. It needs `NEON_API_KEY`,
-`NEON_CI_APP_PASSWORD`, `NEON_CI_MIGRATION_PASSWORD` and `NEON_PROJECT_ID`, and
-it reports the `Migrate Neon Branch` check.
+The **disposable proof** starts a digest-pinned PostgreSQL container, publishes
+it on `127.0.0.1` only, proves the database boundary against it, and removes the
+container it created. It reads no repository secret and reaches no hosted
+database, production resource or credential. It reports the
+`Prove Disposable PostgreSQL` check, which fails closed over it.
 
-The **disposable proof** is additive. It starts a digest-pinned PostgreSQL
-container, publishes it on `127.0.0.1` only, proves the database boundary
-against it, and removes the container it created. It reads no repository secret
-and reaches no hosted database, production resource or credential. It reports
-the `Prove Disposable PostgreSQL` check, which fails closed in the same shape as
-the hosted gate.
+There is no hosted branch in the pull-request lane. Railway is the sole
+production target, and production is proven by an operation a human authorizes
+at release time, never by a pull-request lane; see
+[the CI removal record](evidence/ci-neon-removal-2026-10-20.md).
 
 ```sh
 bun --no-env-file run scripts/disposable-postgres-cli.ts
@@ -110,9 +107,9 @@ The disposable proof:
   from `packages/db/tests/fixtures/canonical-boundary.ts`, proves the migration
   role owns the schemas, proves the runtime role may write through the
   application tables, and proves the runtime role may not create objects;
-- runs the hosted lane's ordered migration checks — the role probe, the
-  Drizzle journal check, the migration verifier, the `DATABASE_URL` presence
-  check and the migration integration test — against the disposable instance;
+- runs the lane's ordered migration checks — the role probe, the Drizzle
+  journal check, the migration verifier, the `DATABASE_URL` presence check and
+  the migration integration test — against the disposable instance;
 - runs the merged auth schema initializer (`packages/auth/src/schema-init.ts`),
   proves it applies the four provider tables once and that a replay is a no-op,
   and connects with the pinned certificate so the initializer's own refusal of
@@ -167,7 +164,7 @@ It fails when credentials are client-prefixed, hosted TLS is disabled, environme
 - Never edit an applied migration. Add a forward fix.
 - Prefer expand/migrate/contract changes. Roll back application code independently while the expanded schema remains compatible.
 - Use point-in-time restore only for data-loss recovery, not as the normal schema rollback mechanism.
-- Pull-request CI applies the full migration history twice and compares the Drizzle journal on each of two isolated Neon branches, `preview/pr-<number>-<branch>-s1` and `-s2`. Each branch runs one half of the integration inventory, and the required `Migrate Neon Branch` check passes only when both shards pass. Closing the pull request deletes both shard branches and any legacy `preview/pr-<number>-<branch>` branch that exists.
+- Pull-request CI applies the full migration history twice and compares the Drizzle journal, against a disposable PostgreSQL instance published on the loopback interface. The `Prove Disposable PostgreSQL` check passes only when that proof succeeds, and it fails closed on a failed, cancelled or skipped proof.
 
 ### Control Plane scopes (`0033`, expand only)
 

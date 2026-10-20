@@ -56,7 +56,7 @@ function readConnection(environment, name) {
   }
 }
 
-function normalizedNeonHost(hostname) {
+function normalizedPoolerHost(hostname) {
   return hostname.replace('-pooler.', '.')
 }
 
@@ -89,17 +89,8 @@ export function inspectDatabaseConfiguration(environment = process.env) {
     if (unpooled.role !== runtime.role || unpooled.database !== runtime.database) {
       throw new Error('DATABASE_URL_UNPOOLED must use the runtime role and database')
     }
-    if (normalizedNeonHost(unpooled.hostname) !== normalizedNeonHost(runtime.hostname)) {
+    if (normalizedPoolerHost(unpooled.hostname) !== normalizedPoolerHost(runtime.hostname)) {
       throw new Error('Pooled and unpooled connections must target the same environment')
-    }
-  }
-
-  if (runtime.hostname.endsWith('.neon.tech')) {
-    if (!runtime.hostname.includes('-pooler.')) {
-      throw new Error('Hosted Neon DATABASE_URL must use the pooled endpoint')
-    }
-    if (migration.hostname.includes('-pooler.')) {
-      throw new Error('Hosted Neon DATABASE_MIGRATION_URL must use the unpooled endpoint')
     }
   }
 
