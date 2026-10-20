@@ -29,22 +29,32 @@ one commit this procedure names is the commit a proof receipt names, and
 nothing else qualifies:
 
 The artifact of record is not a name in this document. It is the artifact a
-proof receipt names, and every receipt carries the provenance of the checkout
-it ran in:
+proof receipt names, and a receipt only names one when it is a **passed, real
+database proof**:
 
 | Field     | Where it comes from                                                             |
 | --------- | ------------------------------------------------------------------------------- |
 | Artifact  | `checkout.sha` of the proof receipt, the exact commit the proof ran in          |
 | Source    | `checkout.source` of the proof receipt, the ref the proof was made from         |
 | Clean     | `checkout.dirty` of the proof receipt, which is `false` in a usable one         |
-| Evidence  | the `evidence` class of the proof receipt                                       |
+| Module    | `module.sha` of the proof receipt, the tree the proof code came from            |
+| Evidence  | the `evidence` class of the proof receipt, never `simulated`                    |
+| Kind      | the `proofKind` of the proof receipt, a database proof and nothing else         |
+| Observed  | the result fields the proof recorded, such as the migration count               |
 | Database  | PostgreSQL 18, the digest-pinned `postgres:18-alpine` the repository provisions |
 | Proved on | a disposable loopback instance of that image, in this repository                |
 
-A receipt that carries no provenance, or that was produced from a tree with
-uncommitted changes, names no artifact at all: the code refuses it. A commit
-that is written into a document instead of read from a receipt is not
-reproducible, because nobody can show what ran.
+A receipt is refused when it failed, when it is not a database proof, when its
+evidence is `simulated`, when it does not carry the result it claims to have
+observed, when it carries no provenance, when it was produced from a tree with
+uncommitted changes, or when the tree it exercised is not the tree the code
+came from. A commit that is written into a document instead of read from a
+receipt is not reproducible, because nobody can show what ran.
+
+The guarantees below are the ones the receipt's own kind of proof supports. A
+guarantee is never stamped on a run that did not produce it: the fresh-account
+acceptance lane does not claim the backup and restore proof, and the disposable
+proof does not claim the provider lifecycle.
 
 The instances this procedure was written against are recorded here as history,
 not as a standing artifact:
@@ -55,12 +65,22 @@ not as a standing artifact:
 - the pull request head that carries this procedure, proved locally on the same
   day with the same two lanes.
 
-What a proved artifact was shown to do:
+What the two kinds of proof showed:
+
+The **fresh-account acceptance lane** (`fresh-schema-acceptance`):
 
 - the auth schema applies to an empty schema, and a second inspection reports
   nothing pending, so the initialization is repeatable;
 - the application migration journal applies and replays against the same
   checkout, and the comparison holds;
+- the provider lifecycle and the desktop principal journey ran against the real
+  database, and the receipt carries the measured counts.
+
+The **disposable PostgreSQL proof** (`disposable-postgres-proof`):
+
+- the auth schema applies to an empty schema and replays as a no-op;
+- the application migration journal applies and replays against the same
+  checkout;
 - the canonical migration and runtime roles are separated, and the runtime
   role is refused object creation;
 - a schema backup restores with the same tables, columns and rows into an

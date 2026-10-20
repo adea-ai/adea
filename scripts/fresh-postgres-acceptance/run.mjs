@@ -7,19 +7,22 @@ import { classifyEvidence } from './evidence.mjs'
 import { readCheckoutProvenance } from './provenance.mjs'
 import { fixtureEnvironment, memoryEnvironment, resolveLocalDockerEndpoint } from './policy.mjs'
 
+// The checkout this code came from.
+const moduleRoot = fileURLToPath(new URL('../../', import.meta.url))
 const repositoryFlag = process.argv.indexOf('--repository')
-const root =
-  repositoryFlag === -1
-    ? fileURLToPath(new URL('../../', import.meta.url))
-    : resolve(process.argv[repositoryFlag + 1] ?? '.')
+const root = repositoryFlag === -1 ? moduleRoot : resolve(process.argv[repositoryFlag + 1] ?? '.')
 const repositoryFile = (path) => pathToFileURL(resolve(root, path))
-// The provenance of the checkout that runs this code. It is read from the
-// checkout and not from the target, so a receipt names the tree that produced
-// it even when the target is somewhere else.
-const checkout = readCheckoutProvenance(fileURLToPath(new URL('../../', import.meta.url)))
+// The provenance of every root this run exercises: the tree the code came
+// from and the tree the run tested. A receipt names both, so a result can
+// never be labelled with the commit of a checkout that did not produce it.
+const module = readCheckoutProvenance(moduleRoot)
+const checkout = readCheckoutProvenance(root)
 // Dedicated memory mode never imports provisioning or connects to PostgreSQL.
 if (process.argv.includes('--memory')) {
   const sourceRoot = resolve(process.env.FRESH_AUTH_SOURCE_ROOT ?? root)
+  // The reviewed source tree is a root of its own when it is not the tree the
+  // run tested, and its provenance is named with the rest.
+  const source = readCheckoutProvenance(sourceRoot)
   for (const path of ['packages/auth/src/better-auth-server.ts', 'packages/auth/src/delivery.ts']) {
     try {
       await access(resolve(sourceRoot, path))
@@ -71,7 +74,12 @@ if (process.argv.includes('--memory')) {
       // It proves the provider's request path and nothing about PostgreSQL, so
       // its receipt carries the weakest class and cannot be counted as more.
       evidence: classifyEvidence('memory-journey'),
+      // The kind of proof this receipt is. It is not a database proof, and the
+      // recovery procedure refuses it.
+      proofKind: 'memory-journey',
       checkout,
+      module,
+      source,
     })
   )
   process.exit(0)
@@ -202,9 +210,15 @@ try {
     // instance of the real provider and the real database. It is not a CI
     // result and not a live one, and it may not be recorded as either.
     evidence: classifyEvidence('local-disposable'),
-    // The receipt names the commit, the cleanliness and the source of the
-    // checkout that produced it, so the artifact can be reproduced.
+    // The kind of proof this receipt is, and the database it ran against. The
+    // recovery procedure reads both, and refuses a receipt of another kind.
+    proofKind: 'fresh-schema-acceptance',
+    postgres: 'disposable-instance',
+    // The receipt names the commit, the cleanliness and the source of the tree
+    // the run tested and of the tree the code came from, so the artifact can
+    // be reproduced and a result cannot be labelled with a foreign commit.
     checkout,
+    module,
     ...(receipt.desktopPrincipal ? { desktopPrincipal: receipt.desktopPrincipal } : {}),
   }
 } catch (error) {

@@ -15,16 +15,36 @@ import { resolve } from 'node:path'
 const root = resolve(import.meta.dir, '..')
 const policySuite = 'scripts/fresh-postgres-acceptance/policy.test.mjs'
 
-describe('the fresh-account policy suite', () => {
-  test('passes under the repository toolchain', () => {
-    const result = spawnSync('node', ['--test', policySuite], {
+/**
+ * Runs the policy suite under Node.
+ *
+ * A failure to start the process is not a result of the suite, so it is
+ * retried once. A suite that runs and fails is never retried: the result is
+ * the result.
+ */
+function runPolicySuite() {
+  let result = spawnSync('node', ['--test', policySuite], {
+    cwd: root,
+    encoding: 'utf8',
+    timeout: 180_000,
+    killSignal: 'SIGKILL',
+  })
+  if (result.error) {
+    result = spawnSync('node', ['--test', policySuite], {
       cwd: root,
       encoding: 'utf8',
       timeout: 180_000,
       killSignal: 'SIGKILL',
     })
+  }
+  return result
+}
+
+describe('the fresh-account policy suite', () => {
+  test('passes under the repository toolchain', () => {
+    const result = runPolicySuite()
     const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`
-    expect(result.error).toBeUndefined()
+    expect(result.error?.message ?? '').toBe('')
     expect(result.status, output).toBe(0)
     expect(output).toContain('the fresh-account rule catches every construct it claims to catch')
     expect(output).not.toMatch(/^fail \d+$/m)

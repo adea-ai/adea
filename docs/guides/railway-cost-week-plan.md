@@ -42,11 +42,11 @@ Workers requests, billed CPU time and subrequests continue afterwards, and the C
 side of the comparison does not go to zero. The comparison is therefore between two
 **totals**, not between two line items.
 
-| Total                      | Window                                      | Contains                                                                                                    | Read from                                                                      |
-| -------------------------- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| Continuing Worker charges  | each counted day, after the cutover         | All Workers requests, billed CPU time and subrequests for the whole app, including the `/api/auth/*` path   | Cloudflare account analytics                                                   |
-| Railway charges            | the same counted day, after the cutover     | Managed PostgreSQL storage, compute and connection time, and network egress for the auth database           | Railway project usage and billing console for the project that owns the target |
-| Legacy comparable baseline | a historical window from before the cutover | The same Worker charges for that window, plus the Neon charges for the auth database while it lived on Neon | Cloudflare account analytics, and the Neon billing record for that period      |
+| Total                      | Window                                      | Contains                                                                                                                     | Read from                                                                       |
+| -------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Continuing Worker charges  | each counted day, after the cutover         | All Workers requests, billed CPU time and subrequests for the whole app, including the `/api/auth/*` path                    | Cloudflare account analytics                                                    |
+| Railway charges            | the same counted day, after the cutover     | Managed PostgreSQL storage, compute and connection time, and network egress for the auth database                            | Railway project usage and billing console for the project that owns the target  |
+| Legacy comparable baseline | a historical window from before the cutover | The same Worker charges for that window, plus the provider charges for the auth database while it lived on the legacy target | Cloudflare account analytics, and the provider's billing record for that period |
 
 Cloudflare CPU and subrequests on one side against a Railway database charge on the
 other are not substitutes and must not be compared as if they were. The Railway figure
@@ -224,5 +224,6 @@ report then states:
   cited for any of those.
 
 A completed cost week is an input to a hosting decision. It is not the decision, and it
-does not retire the legacy environment, which is retained untouched as an accountability
-record and is not a recovery target.
+does not retire the legacy environment. That environment's history is kept in this
+repository as non-operational evidence: archived evidence is not a running environment,
+and nothing here requires one to exist, to run or to be reachable.

@@ -56,7 +56,9 @@ export const FRESH_ACCOUNT_FORBIDDEN = Object.freeze([
   }),
   Object.freeze({
     kind: 'row-copy',
-    pattern: /\bINSERT\s+INTO\b[^;]*\bSELECT\b/i,
+    // A SQL comment may sit between the two keywords, and a comment inside a
+    // string literal is part of the statement.
+    pattern: /\bINSERT(?:\s+|\/\*[\s\S]*?\*\/|--(?![A-Za-z0-9_$])[^\n]*)+INTO\b[^;]*\bSELECT\b/i,
     detail: 'a row copy out of another table',
   }),
   Object.freeze({
@@ -220,6 +222,9 @@ function scanCode(source, start, stopAtBrace = false) {
     if (stopAtBrace && character === '}' && depth === 0) break
     if (character === '/' && next === '/') {
       while (index < source.length && source[index] !== '\n') index += 1
+      // A comment becomes whitespace, so the code around it cannot be joined
+      // into a different token than it was.
+      copied += ' '
       continue
     }
     if (character === '/' && next === '*') {
@@ -228,6 +233,9 @@ function scanCode(source, start, stopAtBrace = false) {
         index += 1
       }
       index += 2
+      // A comment becomes whitespace, so `await/*note*/importLegacyIdentities`
+      // stays two tokens and the import is still read as an import.
+      copied += ' '
       continue
     }
     if (character === '"' || character === "'") {
@@ -278,7 +286,13 @@ export function freshAccountOnlyViolations(path, text) {
       })
     }
   }
-  const normalized = code.toLowerCase().replace(/[ _-]/g, '')
+  // A comment between the parts of a name is still a name, so the comments
+  // are removed before the text is compared without its separators.
+  const normalized = code
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--(?![A-Za-z0-9_$])[^\n]*/g, ' ')
+    .toLowerCase()
+    .replace(/[ _-]/g, '')
   for (const rule of FRESH_ACCOUNT_FORBIDDEN_NORMALIZED) {
     if (normalized.includes(rule.needle)) {
       violations.push({

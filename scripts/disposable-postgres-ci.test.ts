@@ -48,6 +48,11 @@ const options: DisposableProofOptions = {
     dirty: false,
     source: 'test/branch',
   },
+  module: {
+    sha: '0123456789abcdef0123456789abcdef01234567',
+    dirty: false,
+    source: 'test/branch',
+  },
 }
 
 type Fake = {
@@ -138,6 +143,9 @@ describe('the disposable PostgreSQL proof', () => {
     const receipt = await runDisposablePostgresProof(deps, options)
 
     expect(receipt.status).toBe('passed')
+    expect(receipt.proofKind).toBe('disposable-postgres-proof')
+    expect(receipt.checkout).toEqual(options.checkout)
+    expect(receipt.module).toEqual(options.module)
     expect(receipt.database).toBe(PROOF_DATABASE)
     expect(receipt.roles).toEqual({
       runtime: CANONICAL_RUNTIME_ROLE,

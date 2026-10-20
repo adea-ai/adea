@@ -48,6 +48,8 @@ const postgres: PostgresFactory =
 
 /** The repository root, the working directory of every proof command. */
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
+/** The provenance of the checkout the proof runs in. */
+const provenance = readCheckoutProvenance(repositoryRoot)
 
 /** The base URL the auth initializer validates. It is never contacted. */
 const AUTH_BASE_URL = 'https://adea-ci.example.test'
@@ -324,8 +326,11 @@ const options: DisposableProofOptions = {
   authSecret: AUTH_SECRET,
   authTrustedOrigin: AUTH_TRUSTED_ORIGIN,
   // The receipt names the commit, the cleanliness and the source of the
-  // checkout that produced it, so the artifact it proves is reproducible.
-  checkout: readCheckoutProvenance(repositoryRoot),
+  // checkout that produced it, so the artifact it proves is reproducible. The
+  // proof runs the code of that same checkout, so the tree the code came from
+  // is the same tree.
+  checkout: provenance,
+  module: provenance,
 }
 
 try {

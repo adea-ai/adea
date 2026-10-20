@@ -10,28 +10,56 @@
 // artifact is reproducible: the exact commit, a clean tree and the source it
 // came from. A receipt without that provenance is refused, and no commit is
 // written into this module as a constant that nobody can reproduce.
+//
+// A receipt only qualifies when it is a passed, real database proof. A failed
+// run, an incomplete run, a simulated run and a receipt of another kind name
+// no artifact, and the guarantees below are the ones the receipt's own kind
+// of proof supports, not a list stamped on every receipt.
 
+import { assertEvidenceClass } from './evidence.mjs'
 import { assertReproducibleProvenance } from './provenance.mjs'
 
 /** The recovery methods this procedure allows. */
 export const RECOVERY_METHODS = Object.freeze(['forward-fix', 'railway-backup-restore'])
 
 /**
- * What a proved artifact was shown to do.
+ * The database proofs a receipt may carry, and what each one observed.
  *
- * The list describes the proof, not the target. Every entry was observed on a
- * disposable loopback instance of the pinned PostgreSQL image.
+ * Each entry states the fields the receipt has to carry, and the guarantees
+ * that those fields support. A receipt that does not carry them names no
+ * artifact, so a guarantee is never stamped on a run that did not produce it.
  */
-export const PROVED_BY_THE_PROOF = Object.freeze([
-  'the auth schema applies to an empty schema and replays as a no-op',
-  'the application migration journal replays and compares against the current checkout',
-  'the canonical migration and runtime roles are separated, and the runtime role cannot create objects',
-  'a schema backup restores with the same tables, columns and rows into an empty database',
-  'the owned disposable instance is removed on success, on failure and on interruption',
-])
+const DATABASE_PROOFS = Object.freeze({
+  'fresh-schema-acceptance': Object.freeze({
+    observed: (receipt) =>
+      Number.isInteger(receipt.migrations) &&
+      receipt.migrations > 0 &&
+      receipt.verificationRequired === true &&
+      receipt.postgres === 'disposable-instance',
+    guarantees: Object.freeze([
+      'the auth schema applies to an empty schema and a second inspection reports nothing pending',
+      'the application migration journal applies and replays against the same checkout',
+      'the provider lifecycle and the desktop principal journey ran against the real database, and the receipt carries the measured counts',
+    ]),
+  }),
+  'disposable-postgres-proof': Object.freeze({
+    observed: (receipt) =>
+      Array.isArray(receipt.migrations?.checks) &&
+      receipt.migrations.checks.length > 0 &&
+      receipt.auth?.applied === true &&
+      receipt.auth?.replayApplied === false,
+    guarantees: Object.freeze([
+      'the auth schema applies to an empty schema and replays as a no-op',
+      'the application migration journal applies and replays against the same checkout',
+      'the canonical migration and runtime roles are separated, and the runtime role is refused object creation',
+      'a schema backup restores with the same tables, columns and rows into an empty database',
+      'the owned disposable instance is removed on success, on failure and on interruption',
+    ]),
+  }),
+})
 
 /**
- * What the proof did not show.
+ * What no proof showed.
  *
  * The hosted target was not read, so its state is unknown. A state that was
  * not observed is not an empty one.
@@ -58,17 +86,38 @@ export function assertRecoveryMethod(method) {
 /**
  * The artifact a recovery may name, taken from a proof receipt.
  *
- * The receipt is the only source of the commit. The provenance it carries is
- * required, so an artifact that nobody can reproduce is refused.
+ * The receipt is the only source of the commit. The receipt has to be a
+ * passed, real database proof, the provenance it carries has to be
+ * reproducible, and the tree it exercised has to be the tree the code came
+ * from.
  */
 export function recoveryArtifact(receipt) {
-  const checkout = assertReproducibleProvenance(receipt?.checkout)
+  if (receipt?.status !== 'passed') {
+    throw new Error('the receipt is not a passed proof')
+  }
+  const proof = DATABASE_PROOFS[receipt?.proofKind]
+  if (!proof) {
+    throw new Error('the receipt is not a database proof')
+  }
+  const evidence = assertEvidenceClass(receipt?.evidence)
+  if (evidence === 'simulated') {
+    throw new Error('a simulated result does not prove a database')
+  }
+  if (!proof.observed(receipt)) {
+    throw new Error('the receipt does not carry the result the proof observed')
+  }
+  const exercised = assertReproducibleProvenance(receipt?.checkout)
+  const module = assertReproducibleProvenance(receipt?.module)
+  if (exercised.sha !== module.sha) {
+    throw new Error('the receipt mixes two checkouts')
+  }
   return {
-    commit: checkout.sha,
-    source: checkout.source,
-    dirty: checkout.dirty,
-    evidence: receipt?.evidence,
-    proved: PROVED_BY_THE_PROOF,
+    commit: exercised.sha,
+    source: exercised.source,
+    dirty: exercised.dirty,
+    evidence,
+    proofKind: receipt.proofKind,
+    proved: proof.guarantees,
     notProved: NOT_PROVED_BY_THE_PROOF,
   }
 }

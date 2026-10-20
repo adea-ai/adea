@@ -20,7 +20,6 @@ import {
   receiptEvidence,
 } from './evidence.mjs'
 import {
-  PROVED_BY_THE_PROOF,
   RECOVERY_METHODS,
   assertRecoveryMethod,
   assertTestedRecoveryArtifact,
@@ -36,6 +35,8 @@ import {
 } from './fresh-account-only.mjs'
 
 const local = 'postgresql://postgres:synthetic@127.0.0.1:54399/postgres?sslmode=disable'
+// The checkout this policy suite runs in.
+const repositoryRoot = fileURLToPath(new URL('../../', import.meta.url))
 // The commands the acceptance runner issues, and the receipt each one prints.
 const FRESH_SCHEMA_COMMAND = 'scripts/fresh-postgres-acceptance/fixture.ts'
 const FOCUSED_JOURNEY_COMMAND =
@@ -193,7 +194,8 @@ test('complete preflight never imports provisioning or connects to a database', 
   }
 })
 
-function runSyntheticMemoryAcceptance(childOutput) {
+function runSyntheticMemoryAcceptance(childOutput, options = {}) {
+  const { sourceRoot } = options
   const root = mkdtempSync(join(tmpdir(), 'fresh-memory-gate-'))
   try {
     for (const path of [
@@ -226,7 +228,14 @@ function runSyntheticMemoryAcceptance(childOutput) {
         root,
         '--memory',
       ],
-      { encoding: 'utf8', env: { PATH: process.env.PATH }, timeout: 10_000 }
+      {
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          ...(sourceRoot ? { FRESH_AUTH_SOURCE_ROOT: sourceRoot } : {}),
+        },
+        timeout: 10_000,
+      }
     )
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -253,12 +262,74 @@ test('memory acceptance publishes a passed receipt only for both executed journe
   assert.equal(receipt.journeys, 2)
   assert.equal(receipt.postgres, 'not-run')
   assert.equal(receipt.evidence, 'simulated')
-  // The receipt names the checkout that produced it, so the artifact it
-  // proves can be reproduced.
-  assert.match(receipt.checkout.sha, /^[0-9a-f]{40}$/)
-  assert.equal(typeof receipt.checkout.dirty, 'boolean')
+  // The receipt names the kind of proof it is, so the recovery procedure can
+  // refuse it: it is not a database proof.
+  assert.equal(receipt.proofKind, 'memory-journey')
+  assert.equal(receipt.postgres, 'not-run')
+  // The receipt names the roots it exercised, so the artifact it proves can
+  // be reproduced.
+  // Every root the run touched is named, and the module checkout is a real
+  // one, so the receipt never leaves a root unsaid.
+  assert.equal(typeof receipt.checkout.sha, 'string')
+  assert.ok(
+    receipt.checkout.dirty === null || typeof receipt.checkout.dirty === 'boolean',
+    'the dirty flag is a boolean, or null when the tree could not be read'
+  )
   assert.ok(receipt.checkout.source.length > 0)
+  assert.match(receipt.module.sha, /^[0-9a-f]{40}$/)
+  assert.equal(typeof receipt.source.sha, 'string')
+  assert.ok(receipt.source.source.length > 0)
 })
+
+test('the memory receipt names the source tree it was pointed at', () => {
+  const { root: sourceRoot, git } = temporaryRepository()
+  try {
+    for (const path of [
+      'packages/auth/src/better-auth-server.ts',
+      'packages/auth/src/delivery.ts',
+    ]) {
+      const file = join(sourceRoot, path)
+      mkdirSync(join(file, '..'), { recursive: true })
+      writeFileSync(file, '// synthetic source prerequisite only\n')
+    }
+    const committed = commitRepository(sourceRoot)
+    const result = runSyntheticMemoryAcceptance('\n 2 pass\n 0 fail\n', { sourceRoot })
+    assert.equal(result.error, undefined)
+    assert.equal(result.status, 0, result.stderr)
+    const receipt = JSON.parse(result.stdout.trim())
+    // The receipt names the source tree it read, not the tree the runner code
+    // came from.
+    assert.equal(receipt.source.sha, committed.sha)
+    assert.equal(receipt.source.sha, git(['rev-parse', 'HEAD']))
+    assert.notEqual(receipt.module.sha, receipt.source.sha)
+  } finally {
+    rmSync(sourceRoot, { recursive: true, force: true })
+  }
+})
+
+/**
+ * Turns a directory into a repository with one commit, and returns its sha.
+ */
+function commitRepository(root) {
+  const git = (args) => {
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+    return result.stdout.trim()
+  }
+  git(['init', '-q'])
+  git(['add', '-A'])
+  git([
+    '-c',
+    'user.name=synthetic',
+    '-c',
+    'user.email=synthetic@example.invalid',
+    'commit',
+    '-q',
+    '-m',
+    'synthetic',
+  ])
+  return { sha: git(['rev-parse', 'HEAD']), source: git(['rev-parse', '--abbrev-ref', 'HEAD']) }
+}
 
 /**
  * Runs the acceptance runner against a synthetic child.
@@ -327,7 +398,10 @@ function runSyntheticPostgresAcceptance(options = {}) {
       };
       syncBuiltinESMExports();`
     )
-    return spawnSync(
+    // The tested tree is a repository of its own, so the receipt has to name
+    // it and not the checkout the runner code came from.
+    const tested = commitRepository(root)
+    const result = spawnSync(
       process.execPath,
       [
         '--import',
@@ -345,13 +419,14 @@ function runSyntheticPostgresAcceptance(options = {}) {
         timeout: 10_000,
       }
     )
+    return { result, tested }
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
 }
 
 test('failed owned cleanup exits nonzero without publishing a passed receipt', () => {
-  const result = runSyntheticPostgresAcceptance({ cleanupFails: true })
+  const { result } = runSyntheticPostgresAcceptance({ cleanupFails: true })
   assert.equal(result.error, undefined)
   assert.equal(result.status, 1, result.stderr)
   assert.match(result.stdout, /SYNTHETIC_CLEANUP/)
@@ -360,7 +435,7 @@ test('failed owned cleanup exits nonzero without publishing a passed receipt', (
 })
 
 test('passed PostgreSQL receipt is published only after successful owned cleanup', () => {
-  const result = runSyntheticPostgresAcceptance()
+  const { result } = runSyntheticPostgresAcceptance()
   assert.equal(result.error, undefined)
   assert.equal(result.status, 0, result.stderr)
   const lines = result.stdout.trim().split('\n')
@@ -370,14 +445,33 @@ test('passed PostgreSQL receipt is published only after successful owned cleanup
   assert.equal(receipt.migrations, 3)
   assert.equal(receipt.verificationRequired, true)
   assert.equal(receipt.evidence, 'local-disposable')
+  assert.equal(receipt.proofKind, 'fresh-schema-acceptance')
+  assert.equal(receipt.postgres, 'disposable-instance')
   assert.match(receipt.checkout.sha, /^[0-9a-f]{40}$/)
   assert.equal(typeof receipt.checkout.dirty, 'boolean')
   assert.ok(receipt.checkout.source.length > 0)
+  assert.match(receipt.module.sha, /^[0-9a-f]{40}$/)
   assert.equal(lines.length, 2)
 })
 
+test('the receipt names the repository it tested, not the one the code came from', () => {
+  const { result, tested } = runSyntheticPostgresAcceptance()
+  assert.equal(result.error, undefined)
+  assert.equal(result.status, 0, result.stderr)
+  const receipt = JSON.parse(result.stdout.trim().split('\n')[1])
+  // The tested tree is the synthetic repository, and the receipt names it.
+  assert.equal(receipt.checkout.sha, tested.sha)
+  assert.equal(receipt.checkout.source, tested.source)
+  // The tree the runner code came from is a different checkout, and the
+  // receipt names that too, so the two are never confused.
+  assert.notEqual(receipt.module.sha, receipt.checkout.sha)
+  assert.equal(receipt.module.sha, readCheckoutProvenance(repositoryRoot).sha)
+})
+
 test('the focused journey receipt is required, and a fresh-schema receipt never satisfies it', () => {
-  const result = runSyntheticPostgresAcceptance({ journeyOutput: SYNTHETIC_FRESH_SCHEMA_OUTPUT })
+  const { result } = runSyntheticPostgresAcceptance({
+    journeyOutput: SYNTHETIC_FRESH_SCHEMA_OUTPUT,
+  })
   assert.equal(result.error, undefined)
   assert.equal(result.status, 1, result.stderr)
   assert.doesNotMatch(result.stdout, /"status":"passed"/)
@@ -385,7 +479,7 @@ test('the focused journey receipt is required, and a fresh-schema receipt never 
 })
 
 test('a focused journey that skipped a test fails the lane closed', () => {
-  const result = runSyntheticPostgresAcceptance({
+  const { result } = runSyntheticPostgresAcceptance({
     journeyOutput: '1 pass\n0 fail\n1 skip\nDESKTOP_PRINCIPAL_JOURNEY {"status":"passed"}\n',
   })
   assert.equal(result.error, undefined)
@@ -395,7 +489,7 @@ test('a focused journey that skipped a test fails the lane closed', () => {
 })
 
 test('a focused journey that did not pass fails the lane closed', () => {
-  const result = runSyntheticPostgresAcceptance({
+  const { result } = runSyntheticPostgresAcceptance({
     journeyOutput: '0 pass\n1 fail\n0 skip\nDESKTOP_PRINCIPAL_JOURNEY {"status":"failed"}\n',
   })
   assert.equal(result.error, undefined)
@@ -405,7 +499,7 @@ test('a focused journey that did not pass fails the lane closed', () => {
 })
 
 test('a focused journey that failed to run fails the lane closed', () => {
-  const result = runSyntheticPostgresAcceptance({ journeyStatus: 1 })
+  const { result } = runSyntheticPostgresAcceptance({ journeyStatus: 1 })
   assert.equal(result.error, undefined)
   assert.equal(result.status, 1, result.stderr)
   assert.doesNotMatch(result.stdout, /"status":"passed"/)
@@ -413,7 +507,7 @@ test('a focused journey that failed to run fails the lane closed', () => {
 })
 
 test('a missing fresh-schema receipt fails the lane closed', () => {
-  const result = runSyntheticPostgresAcceptance({ freshSchemaOutput: '' })
+  const { result } = runSyntheticPostgresAcceptance({ freshSchemaOutput: '' })
   assert.equal(result.error, undefined)
   assert.equal(result.status, 1, result.stderr)
   assert.doesNotMatch(result.stdout, /"status":"passed"/)
@@ -426,7 +520,7 @@ test('an invalid fresh-schema receipt fails the lane closed', () => {
     'FRESH_SCHEMA_ACCEPTANCE {"status":"passed","migrations":"three"}\n',
     'FRESH_SCHEMA_ACCEPTANCE not json\n',
   ]) {
-    const result = runSyntheticPostgresAcceptance({ freshSchemaOutput: output })
+    const { result } = runSyntheticPostgresAcceptance({ freshSchemaOutput: output })
     assert.equal(result.error, undefined)
     assert.equal(result.status, 1, result.stderr)
     assert.doesNotMatch(result.stdout, /"status":"passed"/)
@@ -435,7 +529,7 @@ test('an invalid fresh-schema receipt fails the lane closed', () => {
 })
 
 test('a fresh-schema fixture that failed fails the lane closed', () => {
-  const result = runSyntheticPostgresAcceptance({ freshSchemaStatus: 1 })
+  const { result } = runSyntheticPostgresAcceptance({ freshSchemaStatus: 1 })
   assert.equal(result.error, undefined)
   assert.equal(result.status, 1, result.stderr)
   assert.doesNotMatch(result.stdout, /"status":"passed"/)
@@ -552,19 +646,56 @@ test('the checkout provenance is read from the tree it describes', () => {
   }
 })
 
+/** A passed fresh-account acceptance receipt, as the lane publishes it. */
+function passedAcceptanceReceipt(provenance) {
+  return {
+    status: 'passed',
+    migrations: 60,
+    verificationRequired: true,
+    postgres: 'disposable-instance',
+    evidence: 'local-disposable',
+    proofKind: 'fresh-schema-acceptance',
+    checkout: provenance,
+    module: provenance,
+  }
+}
+
+/** A passed disposable PostgreSQL proof receipt, as the proof publishes it. */
+function passedDisposableProofReceipt(provenance) {
+  return {
+    status: 'passed',
+    proofKind: 'disposable-postgres-proof',
+    evidence: 'local-disposable',
+    migrations: {
+      checks: [
+        { command: 'bun', args: ['--no-env-file', 'run', '--cwd', 'packages/db', 'db:check'] },
+      ],
+    },
+    auth: { applied: true, created: ['user'], replayApplied: false, schema: 'auth_ci' },
+    checkout: provenance,
+    module: provenance,
+  }
+}
+
 test('the recovery artifact is the one a proof receipt names, with its provenance', () => {
   const { root, git } = temporaryRepository()
   try {
-    const receipt = {
-      evidence: 'local-disposable',
-      checkout: readCheckoutProvenance(root),
-    }
+    const provenance = readCheckoutProvenance(root)
+    const receipt = passedAcceptanceReceipt(provenance)
     const artifact = assertTestedRecoveryArtifact(receipt)
     assert.equal(artifact.commit, git(['rev-parse', 'HEAD']))
     assert.equal(artifact.dirty, false)
-    assert.equal(artifact.source, receipt.checkout.source)
+    assert.equal(artifact.source, provenance.source)
     assert.equal(artifact.evidence, 'local-disposable')
-    assert.deepEqual(artifact.proved, PROVED_BY_THE_PROOF)
+    assert.equal(artifact.proofKind, 'fresh-schema-acceptance')
+    assert.ok(
+      artifact.proved.some((entry) => entry.includes('migration journal')),
+      'the guarantees of the acceptance lane are stated'
+    )
+    assert.ok(
+      !artifact.proved.some((entry) => entry.includes('backup restores')),
+      'a guarantee the acceptance lane did not observe is not stamped on it'
+    )
     assert.ok(
       artifact.notProved.some((entry) => entry.includes('UNKNOWN')),
       'the state that was not observed is recorded as unknown'
@@ -584,35 +715,114 @@ test('the recovery artifact is the one a proof receipt names, with its provenanc
   }
 })
 
+test('the disposable proof names its own guarantees, and the acceptance lane does not', () => {
+  const { root } = temporaryRepository()
+  try {
+    const provenance = readCheckoutProvenance(root)
+    const artifact = assertTestedRecoveryArtifact(passedDisposableProofReceipt(provenance))
+    assert.equal(artifact.proofKind, 'disposable-postgres-proof')
+    assert.ok(
+      artifact.proved.some((entry) => entry.includes('backup restores')),
+      'the backup and restore guarantee belongs to the disposable proof'
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a receipt that is not a passed database proof names no artifact', () => {
+  const { root } = temporaryRepository()
+  try {
+    const provenance = readCheckoutProvenance(root)
+    const base = passedAcceptanceReceipt(provenance)
+
+    // A failed run is not a proof.
+    assert.throws(
+      () => assertTestedRecoveryArtifact({ ...base, status: 'failed' }),
+      /not a passed proof/
+    )
+    // A receipt without a status is not a proof.
+    assert.throws(
+      () => assertTestedRecoveryArtifact({ ...base, status: undefined }),
+      /not a passed proof/
+    )
+    // A memory receipt is not a database proof, however clean its tree is.
+    assert.throws(
+      () =>
+        assertTestedRecoveryArtifact({
+          ...base,
+          proofKind: 'memory-journey',
+          postgres: 'not-run',
+        }),
+      /not a database proof/
+    )
+    // A simulated result does not prove a database.
+    assert.throws(
+      () => assertTestedRecoveryArtifact({ ...base, evidence: 'simulated' }),
+      /simulated result does not prove a database/
+    )
+    // A receipt without an evidence class is refused.
+    assert.throws(
+      () => assertTestedRecoveryArtifact({ ...base, evidence: undefined }),
+      /unknown acceptance evidence class/
+    )
+    // A receipt that does not carry the result it claims to have observed is
+    // refused, and it carries no guarantee in its place.
+    assert.throws(
+      () => assertTestedRecoveryArtifact({ ...base, migrations: undefined }),
+      /does not carry the result the proof observed/
+    )
+    assert.throws(
+      () => assertTestedRecoveryArtifact({ ...base, migrations: 0 }),
+      /does not carry the result the proof observed/
+    )
+    assert.throws(
+      () => assertTestedRecoveryArtifact({ ...base, verificationRequired: false }),
+      /does not carry the result the proof observed/
+    )
+    // A receipt from two different checkouts is refused.
+    assert.throws(
+      () =>
+        assertTestedRecoveryArtifact({
+          ...base,
+          module: { ...provenance, sha: 'f'.repeat(40) },
+        }),
+      /mixes two checkouts/
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('a receipt without reproducible provenance names no artifact', () => {
   const { root } = temporaryRepository()
   try {
     // A receipt with no checkout names no commit.
     assert.throws(
       () => assertTestedRecoveryArtifact({ evidence: 'local-disposable' }),
-      /does not name the exact commit/
+      /not a passed proof/
     )
     // A forged commit is refused.
     assert.throws(
       () =>
-        assertTestedRecoveryArtifact({
-          evidence: 'local-disposable',
-          checkout: { sha: 'not-a-sha', dirty: false, source: 'a-source' },
-        }),
+        assertTestedRecoveryArtifact(
+          passedAcceptanceReceipt({ sha: 'not-a-sha', dirty: false, source: 'a-source' })
+        ),
       /does not name the exact commit/
     )
     // A receipt produced from a dirty tree is refused, because the commit does
     // not contain what ran.
     writeFileSync(join(root, 'README.md'), 'changed\n')
     assert.throws(
-      () =>
-        assertTestedRecoveryArtifact({
-          evidence: 'local-disposable',
-          checkout: readCheckoutProvenance(root),
-        }),
+      () => assertTestedRecoveryArtifact(passedAcceptanceReceipt(readCheckoutProvenance(root))),
       /not clean/
     )
     assert.throws(() => assertReproducibleProvenance(undefined), /does not name the exact commit/)
+    // A receipt without a checkout names no commit.
+    assert.throws(
+      () => assertTestedRecoveryArtifact({ evidence: 'local-disposable' }),
+      /not a passed proof/
+    )
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -666,6 +876,12 @@ test('a comment marker inside a string does not hide the code around it', () => 
     ['const t = `/*`; await importLegacyIdentities(pool);', 'legacy-import'],
     ['const t = `x ${await importLegacyIdentities(pool)} y`;', 'legacy-import'],
     ['const s = "he said \\"hi\\""; await importLegacyIdentities(pool);', 'legacy-import'],
+    // A comment between two tokens is whitespace, so the tokens stay two.
+    ['await/*note*/importLegacyIdentities(pool)', 'legacy-import'],
+    ['await /*note*/ importLegacyIdentities(pool)', 'legacy-import'],
+    // A comment between the keywords of a statement is whitespace too.
+    ["await pool.query('INSERT/**/INTO app.users SELECT * FROM legacy.users')", 'row-copy'],
+    ["await pool.query('INSERT -- note\\n INTO app.users SELECT * FROM legacy.users')", 'row-copy'],
   ]
   for (const [source, kind] of cases) {
     const violations = freshAccountOnlyViolations('synthetic.ts', source)
@@ -684,6 +900,13 @@ test('a comment marker inside a string does not hide the code around it', () => 
     []
   )
   assert.deepEqual(freshAccountOnlyViolations('synthetic.ts', 'const a = total / count\n'), [])
+  assert.deepEqual(
+    freshAccountOnlyViolations(
+      'synthetic.ts',
+      "await pool.query('INSERT INTO app.users VALUES (1)')\n"
+    ),
+    []
+  )
 })
 
 test('the fresh-account rule catches every construct it claims to catch', () => {

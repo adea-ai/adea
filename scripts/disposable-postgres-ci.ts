@@ -179,12 +179,24 @@ export type DisposableProofReceipt = {
     readonly replayApplied: boolean
     readonly schema: string
   }
+  /** The kind of proof this receipt is. */
+  readonly proofKind: 'disposable-postgres-proof'
   /**
    * The provenance of the checkout that produced this receipt: the exact
    * commit, whether the tree was clean and the source it was made from. A
    * receipt without it cannot name a reproducible artifact.
    */
   readonly checkout: {
+    readonly sha: string
+    readonly dirty: boolean | null
+    readonly source: string
+  }
+  /**
+   * The provenance of the tree the proof code came from. The proof runs the
+   * code of the checkout it provisions, so this is the same tree, and the
+   * recovery procedure reads both.
+   */
+  readonly module: {
     readonly sha: string
     readonly dirty: boolean | null
     readonly source: string
@@ -204,10 +216,18 @@ export type DisposableProofOptions = {
   /** The trusted origin the auth initializer validates. */
   readonly authTrustedOrigin: string
   /**
-   * The provenance of the checkout that runs the proof. It is read by the
-   * caller from the checkout itself, and the receipt carries it.
+   * The provenance of the checkout the proof provisions and runs in. It is
+   * read by the caller from the checkout itself, and the receipt carries it.
    */
   readonly checkout: {
+    readonly sha: string
+    readonly dirty: boolean | null
+    readonly source: string
+  }
+  /**
+   * The provenance of the tree the proof code came from.
+   */
+  readonly module: {
     readonly sha: string
     readonly dirty: boolean | null
     readonly source: string
@@ -662,7 +682,9 @@ export async function runDisposablePostgresProof(
       roles: { runtime: CANONICAL_RUNTIME_ROLE, migration: CANONICAL_MIGRATION_ROLE },
       tls,
       migrations: { checks },
+      proofKind: 'disposable-postgres-proof',
       checkout: options.checkout,
+      module: options.module,
       auth: {
         applied: auth.applied,
         created: auth.created,
