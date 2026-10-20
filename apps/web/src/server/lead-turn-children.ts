@@ -45,6 +45,14 @@ export function projectLeadTurnChildrenPage(value: unknown, page: ApiLeadTurnChi
   const seen = new Set<string>()
   let previous = page.after
   for (const child of data.children) {
+    const terminal =
+      child.state === 'completed' || child.state === 'failed' || child.state === 'cancelled'
+    if (
+      child.awaitingInput !== (child.state === 'awaiting_input') ||
+      (terminal ? child.outcome?.state !== child.state : child.outcome !== undefined) ||
+      Date.parse(child.updatedAt) < Date.parse(child.acceptedAt)
+    )
+      invalidPage()
     if (seen.has(child.delegationId)) invalidPage()
     seen.add(child.delegationId)
     if (
