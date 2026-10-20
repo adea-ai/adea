@@ -78,14 +78,80 @@ async function waitForDelivery(
 
 // The local dev proxy answers a lost connection with its own error page. The captured
 // envelope is reproduced here exactly: the status is 500, the body is not JSON, its
-// first line is exactly that sentence, and the frame under it is the proxy's own fetch.
-const TRANSPORT_LOSS_ENVELOPE =
-  'Error: Network connection lost.\n' +
-  '    at async Object.fetch (file:///workspace/node_modules/.bun/miniflare@5.20261001.0-alpha+0c7a352d4ac2db91/node_modules/miniflare/dist/src/workers/core/entry.worker.js:5330:22)'
+// first line is exactly that sentence, and the frame under it is the proxy's own fetch
+// through the miniflare package.
+const proxyEnvelope = (frame: string) => `Error: Network connection lost.\n${frame}`
+
+const MINIFLARE_PROXY_FRAME =
+  'at async Object.fetch (file:///workspace/node_modules/.bun/miniflare@5.20261001.0-alpha+0c7a352d4ac2db91/node_modules/miniflare/dist/src/workers/core/entry.worker.js:5330:22)'
+
+const TRANSPORT_LOSS_ENVELOPE = proxyEnvelope(`    ${MINIFLARE_PROXY_FRAME}`)
 
 describe('built-Worker acceptance transport policy', () => {
   test('classifies only the captured ProxyWorker transport envelope', () => {
     expect(isTransportLoss({ status: 500, text: TRANSPORT_LOSS_ENVELOPE })).toBe(true)
+  })
+
+  test('accepts the proxy frame across the legitimate install and version variations', () => {
+    // The captured layout.
+    expect(isTransportLoss({ status: 500, text: TRANSPORT_LOSS_ENVELOPE })).toBe(true)
+    // A flat install: same package, same module path, another prefix.
+    expect(
+      isTransportLoss({
+        status: 500,
+        text: proxyEnvelope(
+          '    at async Object.fetch (file:///opt/app/node_modules/miniflare/dist/src/workers/core/entry.worker.js:1:1)'
+        ),
+      })
+    ).toBe(true)
+    // Another pinned version and another position in the file.
+    expect(
+      isTransportLoss({
+        status: 500,
+        text: proxyEnvelope(
+          '    at async Object.fetch (file:///cache/node_modules/.bun/miniflare@4.0.0/node_modules/miniflare/dist/src/workers/core/entry.worker.js:12:3)'
+        ),
+      })
+    ).toBe(true)
+  })
+
+  test('leaves a wrong frame and prose untouched, and sends the request exactly once', async () => {
+    // The same first line, but a frame that is not the proxy's own fetch.
+    const wrongFunction = proxyEnvelope(
+      '    at applicationFunction (file:///app/entry.worker.js:42:1)'
+    )
+    // The right file, but not the proxy's fetch frame.
+    const notAsync = proxyEnvelope(
+      '    at Object.fetch (file:///app/node_modules/miniflare/dist/src/workers/core/entry.worker.js:1:1)'
+    )
+    // The right package and frame, but another module.
+    const wrongModule = proxyEnvelope(
+      '    at async Object.fetch (file:///app/node_modules/miniflare/dist/src/workers/core/other.js:1:1)'
+    )
+    // Prose that merely names the file.
+    const prose = proxyEnvelope(
+      '    the proxy reports the failure from entry.worker.js, which is not a frame'
+    )
+    for (const body of [wrongFunction, notAsync, wrongModule, prose]) {
+      expect(isTransportLoss({ status: 500, text: body })).toBe(false)
+    }
+
+    for (const body of [wrongFunction, notAsync, wrongModule, prose]) {
+      let sends = 0
+      const outcome = await sendUnderPolicy(
+        async () => {
+          sends += 1
+          return { status: 500, text: body }
+        },
+        { operation: 'GET get-session', retry: 'safe' }
+      )
+      // The response is the route's answer to read, so it is not a transport loss: it is
+      // returned untouched and the request is not sent again.
+      expect(sends).toBe(1)
+      expect(outcome.inconclusive).toBeUndefined()
+      expect(applicationResponse(outcome).status).toBe(500)
+      expect(applicationResponse(outcome).text).toBe(body)
+    }
   })
 
   test('returns an application response untouched even when it mentions the phrase', () => {

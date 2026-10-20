@@ -182,14 +182,21 @@ async function exerciseRecordingDelivery() {
 // route response. The captured envelope of that page is:
 //
 //   Error: Network connection lost.
-//       at async Object.fetch (file:///.../miniflare/dist/src/workers/core/entry.worker.js:5330:22)
+//       at async Object.fetch (file:///.../node_modules/miniflare/dist/src/workers/core/entry.worker.js:5330:22)
 //
 // The signature is matched exactly, so an application response that merely mentions the
 // phrase — a JSON error body, or a route error with different words — is never mistaken
 // for a transport loss and is returned untouched.
 const TRANSPORT_LOSS_FIRST_LINE = 'Error: Network connection lost.'
-const TRANSPORT_LOSS_PROXY_FRAME = 'entry.worker.js'
 const TRANSPORT_LOSS_ATTEMPTS = 3
+
+// The proxy's own frame: the miniflare runtime's proxy entry worker, reached through
+// the package's own module path. The install prefix and the package version move with
+// the machine, so both are flexible; the function, the package, the module path and the
+// position in the file are not. A body that merely mentions the file name, or that
+// carries a different frame, is not the proxy's envelope.
+const TRANSPORT_LOSS_FRAME =
+  /at async Object\.fetch \(file:\/\/\/\S*\/node_modules\/miniflare\/dist\/src\/workers\/core\/entry\.worker\.js:\d+:\d+\)/
 
 /**
  * Is this response the local ProxyWorker reporting that its own hop to the Worker was
@@ -204,7 +211,7 @@ export function isTransportLoss(response) {
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) return false
   const [firstLine] = text.split('\n', 1)
   if (firstLine.replace(/\r$/, '') !== TRANSPORT_LOSS_FIRST_LINE) return false
-  return text.includes(TRANSPORT_LOSS_PROXY_FRAME)
+  return TRANSPORT_LOSS_FRAME.test(text)
 }
 
 /**
