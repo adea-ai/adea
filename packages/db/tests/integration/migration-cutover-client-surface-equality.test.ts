@@ -18,7 +18,7 @@
  * Test-only: no production code, no UI, no Pi runtime, no #1472 file, and no live data.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, asc, eq, sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
@@ -39,7 +39,11 @@ import {
 } from '../../src/migration-snapshot-legacy'
 import { listReadStateForUser } from '../../src/read-state'
 import { searchWorkspaceForUser } from '../../src/search'
-import { channelParticipants, workspaceMemberships } from '../../src/schema'
+import {
+  channelParticipants,
+  messages as schemaMessages,
+  workspaceMemberships,
+} from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import { migrationSnapshotFamilies } from '@adea-ai/types'
 import {
@@ -50,6 +54,14 @@ import {
   migrationsFolderBefore,
   type RehearsalResources,
 } from '../fixtures/cutover-rehearsal'
+import {
+  assertScratchDatabaseName,
+  assertServerIdentity,
+  canonicalTargetUrl,
+  parseLocalDisposableTarget,
+  type LocalDisposableTarget,
+} from '../fixtures/migration-cutover-target'
+import { assertAuthorizedMemberSearch } from '../fixtures/migration-cutover-surface-evidence'
 import {
   legacyBackfillProfile,
   quarantineLegacyAudience,
@@ -72,27 +84,36 @@ const SCRATCH_PREFIX = 'rehearsal_1222_surface_'
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
 const inCi = process.env.CI === 'true' || process.env.CI === '1'
 
-function requireProvisioningUrl(): string {
+/**
+ * The disposable target, validated before anything connects to it.
+ *
+ * The capture URL is inherited from the environment, so it is checked rather
+ * than trusted: a loopback host, no startup or identity option, and no
+ * duplicate or encoded parameter. An inherited URL that points anywhere else
+ * is refused instead of used.
+ */
+function requireLocalDisposableTarget(): LocalDisposableTarget {
   if (!provisioningUrl) {
     throw new Error(
       'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL is not set. In CI this means the Docker capture provisioning did not run, and this qualification refuses to skip silently.'
     )
   }
-  return provisioningUrl
+  return parseLocalDisposableTarget(provisioningUrl)
+}
+
+let disposableTarget: LocalDisposableTarget | undefined
+
+function target(): LocalDisposableTarget {
+  disposableTarget ??= requireLocalDisposableTarget()
+  return disposableTarget
 }
 
 function urlForDatabase(database: string): string {
-  const url = new URL(requireProvisioningUrl())
-  url.pathname = `/${database}`
-  return url.toString()
+  return canonicalTargetUrl(target(), database)
 }
 
 function assertScratch(database: string): void {
-  if (!database.startsWith(SCRATCH_PREFIX)) {
-    throw new Error(
-      `Refusing to create or drop "${database}": scratch names need ${SCRATCH_PREFIX}`
-    )
-  }
+  assertScratchDatabaseName(database, SCRATCH_PREFIX)
 }
 
 async function adminExecute(statement: string): Promise<void> {
@@ -110,6 +131,8 @@ type PrincipalName = 'member' | 'outsider' | 'collaborator' | 'removed'
 type Fixture = {
   workspaceId: string
   sharedChannelId: string
+  /** The exact messages the fixture seeded, so the search control can name them. */
+  messageIds: string[]
   member: Principal
   outsider: Principal
   collaborator: Principal
@@ -173,6 +196,13 @@ async function seedLegacySurfaceFixture(connection: DatabaseConnection): Promise
       workspaceId,
     })
   }
+  // The exact seeded messages, so the search positive control can name them
+  // instead of counting results.
+  const seeded = await connection.db
+    .select({ id: schemaMessages.id })
+    .from(schemaMessages)
+    .where(eq(schemaMessages.workspaceId, workspaceId))
+    .orderBy(asc(schemaMessages.sequence))
   // The member is one message behind, so the unread summary has a value to prove.
   await insertLegacyReadState(connection.db, {
     channelId: sharedId,
@@ -202,7 +232,15 @@ async function seedLegacySurfaceFixture(connection: DatabaseConnection): Promise
         eq(workspaceMemberships.workspaceId, workspaceId)
       )
     )
-  return { workspaceId, sharedChannelId: sharedId, member, outsider, collaborator, removed }
+  return {
+    workspaceId,
+    sharedChannelId: sharedId,
+    messageIds: seeded.map((row) => row.id),
+    member,
+    outsider,
+    collaborator,
+    removed,
+  }
 }
 
 /**
@@ -363,7 +401,7 @@ let captureConnection: DatabaseConnection | undefined
 let scenario: Promise<Scenario> | undefined
 
 async function executeScenario(): Promise<Scenario> {
-  requireProvisioningUrl()
+  const disposable = requireLocalDisposableTarget()
   const scratch = `${SCRATCH_PREFIX}${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
   assertScratch(scratch)
   resources.scratch = scratch
@@ -372,6 +410,13 @@ async function executeScenario(): Promise<Scenario> {
   resources.connection = connection
   captureConnection = connection
   resources.preFolder = migrationsFolderBefore(CUTOVER_TAG)
+  // The server's own identity is confirmed before anything is migrated: an
+  // instance that answers on another database or user is refused instead of
+  // written to. A failure here leaves the scratch database to the cleanup.
+  await assertServerIdentity(connection.db, {
+    database: scratch,
+    user: disposable.user,
+  })
 
   // The populated pre-0046 database: the legacy state a cutover starts from.
   await migrate(connection.db, { migrationsFolder: resources.preFolder })
@@ -437,24 +482,30 @@ describe.skipIf(!provisioningUrl && !inCi)(
 
     test('the authorized member sees the same surfaces before and after the ambiguity resolution', async () => {
       const { before, after, fixture } = await runScenario()
-      // A positive control first: an empty capture would make the equality below vacuous.
-      expect(before.member.searchMessages.length).toBeGreaterThan(0)
+      // A positive control first: an empty or denied capture would make the
+      // equality below vacuous. The control names the exact seeded messages and
+      // rejects the denial sentinel, which is a string and would otherwise
+      // count as six results.
+      assertAuthorizedMemberSearch(before.member, fixture.messageIds)
       expect(before.member.inbox).toContain(fixture.sharedChannelId)
-      expect(before.member.readState.map((entry) => entry.channelId)).toContain(
-        fixture.sharedChannelId
-      )
       expect(before.member.events).toBe('deliver')
+      // The read progress is narrowed here: a denied read is not an empty one.
+      const memberReadState = before.member.readState
+      if (memberReadState === 'denied') {
+        throw new Error('the member read state was denied; the positive control cannot hold')
+      }
+      expect(memberReadState.map((entry) => entry.channelId)).toContain(fixture.sharedChannelId)
       // The fixture leaves the member exactly one message behind, so the unread
       // count is a real one. An always-zero projection would pass an equality
       // check that proves nothing, so the expected count is pinned here.
       expect(before.member.unreadChannels).toBe(1)
       // The read cursor is part of the projection: the member is behind the
       // channel's latest top-level sequence.
-      expect(before.member.readState[0]?.lastReadSequence).toBeGreaterThan(0)
-      expect(before.member.readState[0]?.latestTopLevelSequence).toBe(
-        (before.member.readState[0]?.lastReadSequence ?? 0) + 1
+      expect(memberReadState[0]?.lastReadSequence).toBeGreaterThan(0)
+      expect(memberReadState[0]?.latestTopLevelSequence).toBe(
+        (memberReadState[0]?.lastReadSequence ?? 0) + 1
       )
-      expect(before.member.readState[0]?.topLevelUnreadCount).toBe(1)
+      expect(memberReadState[0]?.topLevelUnreadCount).toBe(1)
       expect(after.member).toEqual(before.member)
     }, 300_000)
 

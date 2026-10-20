@@ -34,33 +34,49 @@ import {
   type NativeSessionInventorySource,
 } from '../../src/native-session-inventory'
 import { DRIZZLE_DIR } from '../fixtures/cutover-rehearsal'
+import {
+  assertScratchDatabaseName,
+  assertServerIdentity,
+  canonicalTargetUrl,
+  parseLocalDisposableTarget,
+  type LocalDisposableTarget,
+} from '../fixtures/migration-cutover-target'
 
 const OBSERVED_AT = '2026-01-05T00:00:00.000Z'
 const SCRATCH_PREFIX = 'rehearsal_1222_native_'
 const provisioningUrl = process.env.MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL
 const inCi = process.env.CI === 'true' || process.env.CI === '1'
 
-function requireProvisioningUrl(): string {
+/**
+ * The disposable target, validated before anything connects to it.
+ *
+ * The capture URL is inherited from the environment, so it is checked rather
+ * than trusted: a loopback host, no startup or identity option, and no
+ * duplicate or encoded parameter. An inherited URL that points anywhere else
+ * is refused instead of used.
+ */
+function requireLocalDisposableTarget(): LocalDisposableTarget {
   if (!provisioningUrl) {
     throw new Error(
       'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL is not set. In CI this means the Docker capture provisioning did not run, and this qualification refuses to skip silently.'
     )
   }
-  return provisioningUrl
+  return parseLocalDisposableTarget(provisioningUrl)
+}
+
+let disposableTarget: LocalDisposableTarget | undefined
+
+function target(): LocalDisposableTarget {
+  disposableTarget ??= requireLocalDisposableTarget()
+  return disposableTarget
 }
 
 function urlForDatabase(database: string): string {
-  const url = new URL(requireProvisioningUrl())
-  url.pathname = `/${database}`
-  return url.toString()
+  return canonicalTargetUrl(target(), database)
 }
 
 function assertScratch(database: string): void {
-  if (!database.startsWith(SCRATCH_PREFIX)) {
-    throw new Error(
-      `Refusing to create or drop "${database}": scratch names need ${SCRATCH_PREFIX}`
-    )
-  }
+  assertScratchDatabaseName(database, SCRATCH_PREFIX)
 }
 
 async function adminExecute(statement: string): Promise<void> {
@@ -161,11 +177,19 @@ describe.skipIf(!provisioningUrl && !inCi)(
   'migration snapshot: a synthetic native-session inventory',
   () => {
     beforeAll(async () => {
-      requireProvisioningUrl()
+      const disposable = requireLocalDisposableTarget()
       scratch = `${SCRATCH_PREFIX}${crypto.randomUUID().replaceAll('-', '').slice(0, 16)}`
       assertScratch(scratch)
       await adminExecute(`create database "${scratch}"`)
       connection = createDatabase(urlForDatabase(scratch))
+      // The server's own identity is confirmed before anything is migrated: an
+      // instance that answers on another database or user is refused instead
+      // of written to. A failure here leaves the scratch database to the
+      // cleanup below.
+      await assertServerIdentity(connection.db, {
+        database: scratch,
+        user: disposable.user,
+      })
       // The capture validates the live journal overlay, so the disposable
       // database carries the current schema.
       await migrate(connection.db, { migrationsFolder: DRIZZLE_DIR })
