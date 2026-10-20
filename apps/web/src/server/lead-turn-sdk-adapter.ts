@@ -209,6 +209,18 @@ export function createLeadTurnSdkAdapter(
               Date.parse(value.expiresAt) <= Date.now()
             )
               throw new Error('RUNTIME_RESPONSE_INVALID')
+            const conclusion = value.conclusion
+            if (
+              conclusion !== undefined &&
+              (value.state !== 'completed' ||
+                typeof conclusion !== 'string' ||
+                conclusion.length < 1 ||
+                conclusion.length > 1024 ||
+                new TextEncoder().encode(conclusion).byteLength > 1024 ||
+                conclusion !== conclusion.trim() ||
+                /[\p{Cc}\p{Cf}]/u.test(conclusion))
+            )
+              throw new Error('RUNTIME_RESPONSE_INVALID')
             return {
               delegationId: value.delegationId as string,
               childExecutionId: value.childExecutionId as string,
@@ -216,6 +228,7 @@ export function createLeadTurnSdkAdapter(
               role: value.role as string,
               state: value.state as LeadChildTerminalEvidence['state'],
               ...(value.resultRef ? { resultRef: value.resultRef as string } : {}),
+              ...(conclusion ? { conclusion: conclusion as string } : {}),
               ...(value.failureCode ? { failureCode: value.failureCode as string } : {}),
               publication: 'published',
             }

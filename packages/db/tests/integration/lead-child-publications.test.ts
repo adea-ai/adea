@@ -213,6 +213,39 @@ describe.skipIf(!databaseUrl)('Adea child terminal publication receipt', () => {
     }
   })
 
+  test('attested bounded conclusion reaches the timeline once and stays bound to its attempt', async () => {
+    const f = await fixture()
+    const withConclusion = { ...completed, conclusion: 'The requested answer is 42.' }
+    const messageId = await f.publish(withConclusion)
+    expect(await f.publish(withConclusion)).toBe(messageId)
+    const [message] = await connection.db.select().from(messages).where(eq(messages.id, messageId))
+    expect(message?.bodyText).toBe('Child researcher completed: The requested answer is 42.')
+    await expect(f.publish({ ...withConclusion, conclusion: 'A changed answer.' })).rejects.toThrow(
+      'CHILD_PUBLICATION_CONFLICT'
+    )
+    expect(
+      (
+        await connection.db.select().from(messages).where(eq(messages.channelId, f.topic.id))
+      ).filter((row) => row.id === messageId)
+    ).toHaveLength(1)
+  })
+
+  test('unbounded, control-bearing and unsuccessful conclusions are withheld', async () => {
+    const f = await fixture()
+    for (const conclusion of ['x'.repeat(1025), 'hidden\u202evalue', ' padded ']) {
+      expect(() => f.publish({ ...completed, conclusion })).toThrow('CHILD_PUBLICATION_WITHHELD')
+    }
+    expect(() =>
+      f.publish({ ...completed, state: 'failed', resultRef: undefined, conclusion: 'leak' })
+    ).toThrow('CHILD_PUBLICATION_WITHHELD')
+    expect(
+      await connection.db
+        .select()
+        .from(leadChildPublications)
+        .where(eq(leadChildPublications.intentId, f.pin.intentId))
+    ).toHaveLength(0)
+  })
+
   test('a PostgreSQL failure after message creation rolls back message, event and receipt', async () => {
     const f = await fixture()
     const suffix = crypto.randomUUID().replaceAll('-', '')

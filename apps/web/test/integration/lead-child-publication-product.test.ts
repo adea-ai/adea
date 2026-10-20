@@ -31,6 +31,7 @@ const terminal = {
   role: 'researcher',
   state: 'completed' as const,
   resultRef: opaque('art', '3'),
+  conclusion: 'The requested answer is 42.',
   publication: 'published' as const,
 }
 
@@ -197,7 +198,7 @@ describe.skipIf(!url)('connected child terminal to canonical timeline', () => {
       .from(messages)
       .where(eq(messages.id, receipts[0]!.messageId))
     expect(emitted).toHaveLength(1)
-    expect(emitted[0]!.bodyText).toBe('Child researcher completed.')
+    expect(emitted[0]!.bodyText).toBe('Child researcher completed: The requested answer is 42.')
   })
 
   test('changed child outcome, revoked CP grant and removed audience append nothing', async () => {
@@ -303,9 +304,11 @@ describe.skipIf(!url)('connected child terminal to canonical timeline', () => {
         .from(leadChildPublications)
         .where(eq(leadChildPublications.intentId, f.pin.intentId))
       expect(receipts).toHaveLength(1)
-      expect(
-        await connection.db.select().from(messages).where(eq(messages.id, receipts[0]!.messageId))
-      ).toHaveLength(1)
+      const [message] = await connection.db
+        .select()
+        .from(messages)
+        .where(eq(messages.id, receipts[0]!.messageId))
+      expect(message?.bodyText).toBe('Child researcher completed: The requested answer is 42.')
     }
   )
 })

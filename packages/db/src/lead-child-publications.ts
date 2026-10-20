@@ -23,6 +23,7 @@ export type LeadChildTerminalEvidence = Readonly<{
   role: string
   state: 'completed' | 'failed' | 'cancelled'
   resultRef?: string
+  conclusion?: string
   failureCode?: string
   publication: 'published'
 }>
@@ -39,7 +40,14 @@ function validated(evidence: LeadChildTerminalEvidence): LeadChildTerminalEviden
       ? !evidence.resultRef ||
         !artifactId.test(evidence.resultRef) ||
         evidence.failureCode !== undefined
-      : evidence.resultRef !== undefined) ||
+      : evidence.resultRef !== undefined || evidence.conclusion !== undefined) ||
+    (evidence.conclusion !== undefined &&
+      (typeof evidence.conclusion !== 'string' ||
+        evidence.conclusion.length < 1 ||
+        evidence.conclusion.length > 1024 ||
+        new TextEncoder().encode(evidence.conclusion).byteLength > 1024 ||
+        evidence.conclusion !== evidence.conclusion.trim() ||
+        /[\p{Cc}\p{Cf}]/u.test(evidence.conclusion))) ||
     (evidence.failureCode !== undefined &&
       (evidence.state !== 'failed' || !role.test(evidence.failureCode)))
   )
@@ -48,7 +56,10 @@ function validated(evidence: LeadChildTerminalEvidence): LeadChildTerminalEviden
 }
 
 function summary(evidence: LeadChildTerminalEvidence): string {
-  if (evidence.state === 'completed') return `Child ${evidence.role} completed.`
+  if (evidence.state === 'completed')
+    return evidence.conclusion
+      ? `Child ${evidence.role} completed: ${evidence.conclusion}`
+      : `Child ${evidence.role} completed.`
   if (evidence.state === 'failed') return `Child ${evidence.role} failed.`
   return `Child ${evidence.role} was cancelled.`
 }

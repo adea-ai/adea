@@ -126,11 +126,13 @@ process reconnect replay the receipt; contradictory evidence is refused. The
 desktop child poll retries the explicit publication command on reconnect. Its
 ordinary child GET remains read only.
 
-The published message is a bounded terminal-state summary. A Control Plane
-`resultRef` is an opaque artifact reference, not readable result text or an
-artifact read grant. A separately authorized artifact-content reader and combined
-installed-SDK/desktop acceptance are still needed to display a successful child's
-actual result content. The installed SDK must export
+The published message includes a bounded plain-text conclusion only when the canonical
+Pi result producer attests one for the exact terminal child attempt. Otherwise it is a
+bounded terminal-state summary. Control-bearing, oversized or noncanonical result JSON
+is withheld. A Control Plane `resultRef` remains an opaque artifact reference, not
+readable result text or an artifact read grant. A separately authorized artifact-content
+reader and combined installed-SDK/desktop acceptance are still needed for substantial
+child artifacts. The installed SDK must export
 `getPiDurableChildPublication`; older releases leave this path unavailable.
 
 ## Reproducible local checks

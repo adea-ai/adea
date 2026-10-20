@@ -104,6 +104,7 @@ test('child terminal publisher accepts only the exact current parent and delegat
     role: 'researcher',
     state: 'completed',
     resultRef: `art_${'1'.repeat(26)}`,
+    conclusion: 'The requested answer is 42.',
     authorityRevision: 1,
     expiresAt: '2100-01-01T00:00:00Z',
   }
@@ -134,12 +135,17 @@ test('child terminal publisher accepts only the exact current parent and delegat
     delegationId,
     state: 'completed',
     publication: 'published',
+    conclusion: 'The requested answer is 42.',
   })
   for (const changed of [
     { attemptId: `att_${'2'.repeat(26)}` },
     { delegationId: `dlg_${'2'.repeat(26)}` },
     { canonicalActorPrincipalId: `user:${crypto.randomUUID()}` },
     { expiresAt: '2000-01-01T00:00:00Z' },
+    { conclusion: 'x'.repeat(1025) },
+    { conclusion: 'hidden\u202evalue' },
+    { conclusion: ' padded ' },
+    { state: 'failed' },
   ]) {
     response = { data: { publication: { ...publication, ...changed } } }
     await expect(
