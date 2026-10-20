@@ -16,6 +16,9 @@ const specs = [
   'apps/web/e2e/dev-view.spec.ts',
   'apps/web/e2e/dev-view-files-tree.spec.ts',
   'apps/web/e2e/dev-add-project.spec.ts',
+  // Fresh-install folder picker race (#1506): the Dev add surface and pickDesktopFolder while the
+  // shell bridge throws on its first call. In-page bridge, no database.
+  'apps/web/e2e/dev-add-project-bridge-fallback.spec.ts',
   'apps/web/e2e/appearance.spec.ts',
   // The lazy theme importer: not requested until a file is chosen, and a
   // superseded, cancelled or failed run stores nothing (#1375).
@@ -78,6 +81,9 @@ const specs = [
   'apps/web/e2e/lead-role-choices.spec.ts',
   // Lead payer journey (#1211): the same module-only fixture class.
   'apps/web/e2e/lead-payer-journey.spec.ts',
+  // Fresh-install Agent models section (#1506): the real LeadModelPane over an in-page fake of its
+  // model, credential and lead routes. No database.
+  'apps/web/e2e/lead-model-pane.spec.ts',
   // Addressed-turn client UI (#1179): qualified Agents, addressing mode, committed order, cancel,
   // lost-response retry and reconnect, mounted over an in-page stand-in for the routes (no host inputs).
   'apps/web/e2e/group-addressing.spec.ts',
