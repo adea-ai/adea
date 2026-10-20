@@ -27,6 +27,7 @@ import { disposeBounded, startBounded, withDeadline } from './miniflare-bounds.m
 import { createLoopbackCertificate } from './loopback-tls.mjs'
 import { findFixtureMarkers } from './auth-fixture-markers.mjs'
 import { checkMarkers, selectArtifact, workerVariables } from './auth-artifact-selection.mjs'
+import { refuseUnverifiedDefault } from './auth-probe.mjs'
 
 const start = fileURLToPath(new URL('.', import.meta.url))
 const web = resolve(start, '..')
@@ -272,78 +273,6 @@ function localHttps(url, ca) {
   })
 }
 
-// A JSON POST to the local Worker with the loopback origin, trusting only this run's
-// certificate. Used by the default-refusal scenario, which has no driver step.
-function postAuthJson(base, ca, path, body) {
-  assert.equal(new URL(base).hostname, '127.0.0.1')
-  const payload = JSON.stringify(body)
-  return new Promise((ok, fail) => {
-    const request = httpsRequest(
-      new URL(path, base),
-      {
-        method: 'POST',
-        ca,
-        headers: {
-          'content-type': 'application/json',
-          'content-length': Buffer.byteLength(payload),
-          origin: base,
-        },
-      },
-      (response) => {
-        let text = ''
-        response.setEncoding('utf8')
-        response.on('data', (chunk) => (text += chunk))
-        response.once('end', () =>
-          ok({ status: response.statusCode, headers: response.headers, text })
-        )
-      }
-    )
-    request.setTimeout(10_000, () => request.destroy(new Error('Local request timed out')))
-    request.once('error', fail)
-    request.end(payload)
-  })
-}
-
-// Session cookies carrying a non-empty token, joined; empty when none was issued.
-function sessionCookies(headers) {
-  return [headers['set-cookie'] ?? []]
-    .flat()
-    .filter((cookie) => /session_token=[^;]+/.test(cookie))
-    .join(';')
-}
-
-// The application default on the production output: verification required and no
-// transport. Signup must issue no session, and an unverified sign-in must be refused with
-// no session. Both requests carry the loopback origin, so the origin gate runs as well.
-async function defaultVerificationRefusal(base, ca) {
-  const email = `default-refusal-${randomUUID()}@example.test`
-  const password = `Local-D-${randomUUID()}!`
-  const signup = await postAuthJson(base, ca, '/api/auth/sign-up/email', {
-    name: 'Default Refusal',
-    email,
-    password,
-  })
-  assert.equal(signup.status, 200, `default signup: ${signup.text}`)
-  assert.equal(
-    sessionCookies(signup.headers),
-    '',
-    'a default-verification signup must not issue a session'
-  )
-  const refused = await postAuthJson(base, ca, '/api/auth/sign-in/email', { email, password })
-  assert.equal(refused.status, 403, `unverified sign-in must be refused: ${refused.text}`)
-  assert.equal(
-    sessionCookies(refused.headers),
-    '',
-    'a refused unverified sign-in must not issue a session'
-  )
-  return {
-    signupStatus: signup.status,
-    signupSession: 'none',
-    unverifiedSignInStatus: refused.status,
-    unverifiedSignInSession: 'none',
-  }
-}
-
 async function waitFor(probe, label, evidence) {
   const deadline = Date.now() + 90_000
   while (Date.now() < deadline) {
@@ -503,7 +432,11 @@ async function acceptArtifact() {
   // step: the driver's --exercise assumes verification is off, so it does not apply.
   const scenarioResult =
     artifact.scenario === 'default-refusal'
-      ? await defaultVerificationRefusal(baseURL, tls.certificate)
+      ? await refuseUnverifiedDefault({
+          base: baseURL,
+          ca: tls.certificate,
+          signal: controller.signal,
+        })
       : await run(
           'bun',
           [
