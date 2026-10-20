@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Pool } from 'pg'
@@ -9,15 +9,35 @@ import { Pool } from 'pg'
 // both in cleanup. Ownership and grants are not restored (--no-owner), so this
 // test proves table, column and row fidelity, not role or privilege fidelity.
 //
-// Every client in this file (pg, pg_dump, pg_restore, and the auth initializer's
-// own pool) is pointed at one target that is validated once: a loopback host, a
-// TLS mode and an optional certificate path as the only query parameters, so no
-// libpq routing override (host, hostaddr, service, passfile) can move a client.
-// Every derived URL also carries server-side statement and lock bounds, including
-// the admin and cleanup connections. The auth initializer opens its own pool, which
-// no client-side timeout of this test can reach, so it runs in a child process that
-// is killed at its deadline. Tool processes receive a fixed, minimal environment.
-// Every subprocess and database operation is bounded, and every live child is reaped
+// The proof covers the application schema as well as the auth schema. The
+// disposable lane migrates the application schema into the same instance before
+// this file runs, so one dump now carries both schemas and one restore lands
+// both. The application schema's tables, columns, per-table row counts, the
+// seeded data rows and the migration ledger are compared source against
+// restored, and a restored target whose ledger was altered is refused by the
+// database package's own migration-history preflight. The ledger is the target
+// identity the current schema exposes; no other identity is invented here.
+//
+// This is a DATA restoration proof. It says nothing about the runtime's
+// no-send behaviour, about a session generation, or about who may restore a
+// production database: the runtime owns the session and its monotonic
+// generation, the ledger only says which schema version a database carries, and
+// the restore authority for a hosted database is a separate decision. A green
+// proof here is not a no-send proof and not a generation-authority proof.
+//
+// Every client in this file (pg, pg_dump, pg_restore, the auth initializer's
+// own pool and the database package's migration verifier) is pointed at one
+// target that is validated once: a loopback host, a TLS mode and an optional
+// certificate path as the only query parameters, so no libpq routing override
+// (host, hostaddr, service, passfile) can move a client. Every derived URL also
+// carries server-side statement and lock bounds, including the admin and
+// cleanup connections. The auth initializer opens its own pool, which no
+// client-side timeout of this test can reach, so it runs in a child process that
+// is killed at its deadline. The application driver (postgres.js) encrypts
+// without verifying, exactly as the hosted lane does, so the verifier child
+// connects with sslmode=require while the libpq clients keep the pinned
+// certificate. Tool processes receive a fixed, minimal environment. Every
+// subprocess and database operation is bounded, and every live child is reaped
 // in cleanup.
 
 const databaseUrl = process.env.AUTH_POSTGRES_TEST_URL
@@ -37,14 +57,15 @@ const TOOL_ENVIRONMENT_NAMES = ['PATH', 'HOME', 'TMPDIR', 'LANG']
 // (scripts/disposable-postgres-cli.ts), which kills the whole run at that point, so
 // the budgets below must fit inside it with a margin. A real run takes seconds.
 const OUTER_COMMAND_CEILING_MS = 600_000
-const OUTER_MARGIN_MS = 60_000
+const OUTER_MARGIN_MS = 15_000
 const TOOL_TIMEOUT_MS = 30_000
 const DB_QUERY_TIMEOUT_MS = 5_000
 const CLEANUP_TIMEOUT_MS = 10_000
-const CLEANUP_STEPS = 4
-// Pg_dump, pg_restore and the two initializer runs, each a bounded child process.
-const BODY_TOOL_CALLS = 4
-const BODY_DB_QUERIES = 40
+const CLEANUP_STEPS = 5
+// Pg_dump, pg_restore, the two initializer runs and the migration verifier, each a
+// bounded child process.
+const BODY_TOOL_CALLS = 5
+const BODY_DB_QUERIES = 43
 const TEST_BUDGET_MS =
   BODY_TOOL_CALLS * TOOL_TIMEOUT_MS +
   BODY_DB_QUERIES * DB_QUERY_TIMEOUT_MS +
@@ -80,6 +101,22 @@ type InitializerResult = {
 const suffix = crypto.randomUUID().replaceAll('-', '')
 const schema = `auth_bkp_${suffix}`
 const restoredDatabase = `auth_bkp_restore_${suffix}`
+/**
+ * The application schema the disposable lane migrates into the same instance
+ * before this file runs. Its ledger (`app.__drizzle_migrations`) is the target
+ * identity the schema exposes: a database whose ledger is not the source's is a
+ * different target, and the database package's own migration-history preflight
+ * refuses it.
+ */
+const applicationSchema = 'app'
+const applicationLedger = `${applicationSchema}.__drizzle_migrations`
+/** The seeded rows this run owns, named from this run's own identifiers. */
+const seededUserId = crypto.randomUUID()
+const seededWorkspaceId = crypto.randomUUID()
+const seededIdempotencyKey = `restore-proof-${suffix}`
+/** The repository root, for the one child process that runs the database package. */
+const repositoryRoot = join(import.meta.dir, '../../../..')
+const migrationFolder = join(repositoryRoot, 'packages/db/drizzle')
 let target: URL | undefined
 let workDirectory: string | undefined
 let admin: Pool | undefined
@@ -295,6 +332,138 @@ async function tablesIn(schemaName: string): Promise<string[]> {
   return rows.rows.map((row) => row.table_name)
 }
 
+/**
+ * One URL for the application driver (postgres.js), which encrypts without
+ * verifying and therefore cannot use the pinned certificate: the disposable
+ * lane's own application URLs are `sslmode=require` for the same reason. The
+ * libpq clients in this file keep the certificate. No routing parameter is
+ * added, so the URL cannot point anywhere else.
+ */
+function urlForApplicationDriver(validated: URL, database: string): string {
+  const url = new URL(validated.toString())
+  url.pathname = `/${database}`
+  url.search = ''
+  url.searchParams.set('sslmode', 'require')
+  url.searchParams.set('connect_timeout', String(CONNECT_TIMEOUT_SECONDS))
+  return url.toString()
+}
+
+/**
+ * The database package's own migration verifier, run as a child process against
+ * one database. It is the mechanism that refuses a target whose ledger is not
+ * the migration chain's, so the proof uses the real one rather than a copy of
+ * its rules. It reads the migration files from the repository and never touches
+ * anything but the database it is given.
+ */
+async function runMigrationVerifier(database: string) {
+  if (!existsSync(migrationFolder)) {
+    throw new Error(`the migration folder ${migrationFolder} is missing`)
+  }
+  const result = await runBounded(
+    ['bun', '--no-env-file', 'run', '--cwd', join(repositoryRoot, 'packages/db'), 'db:verify'],
+    TOOL_TIMEOUT_MS,
+    {
+      ...toolEnvironment(),
+      DATABASE_MIGRATION_URL: urlForApplicationDriver(target!, database),
+    }
+  )
+  if (result.timedOut) {
+    throw new Error(`the migration verifier exceeded ${TOOL_TIMEOUT_MS} ms and was killed`)
+  }
+  return { code: result.code, stderr: result.stderr, stdout: result.stdout }
+}
+
+/**
+ * The application schema as one document: every table with its exact row count,
+ * every column, the seeded tables' rows and the migration ledger. One statement
+ * per side, so the comparison cannot be spread over a per-table loop that a
+ * restored schema could outgrow.
+ *
+ * The columns are compared in their physical order but without their ordinal
+ * numbers: PostgreSQL's `information_schema.columns.ordinal_position` is the
+ * column's attribute number, and an attribute number counts the columns a
+ * migration dropped. A restored schema has no dropped columns, so the numbers
+ * differ while the columns and their order do not. The order is the schema
+ * property; the number is an artefact of the table's history.
+ */
+const APPLICATION_DOCUMENT_SQL = `
+SELECT jsonb_build_object(
+  'tables', (
+    SELECT jsonb_agg(
+      jsonb_build_object(
+        'name', c.relname,
+        'rows', (xpath('/row/count/text()', query_to_xml(
+          format('SELECT count(*) AS count FROM %I.%I', n.nspname, c.relname), false, true, ''
+        )))[1]::text::bigint
+      ) ORDER BY c.relname
+    )
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = $1 AND c.relkind = 'r'
+  ),
+  'columns', (
+    SELECT jsonb_agg(jsonb_build_array(
+      c.table_name, c.column_name, c.data_type, c.is_nullable
+    ) ORDER BY c.table_name, c.ordinal_position)
+    FROM information_schema.columns c WHERE c.table_schema = $1
+  ),
+  'ledger', (
+    SELECT jsonb_agg(jsonb_build_array(j.id, j.hash, j.created_at) ORDER BY j.id)
+    FROM ${applicationLedger} j
+  ),
+  'users', (SELECT jsonb_agg(jsonb_build_array(u.id, u.display_name, u.is_temporary) ORDER BY u.id)
+    FROM ${applicationSchema}.users u),
+  'workspaces', (SELECT jsonb_agg(jsonb_build_array(w.id, w.name, w.owner_user_id, w.idempotency_key) ORDER BY w.id)
+    FROM ${applicationSchema}.workspaces w)
+) AS document`
+
+async function applicationDocument(url: string): Promise<unknown> {
+  const pool = poolFor(url)
+  try {
+    const result = await pool.query(APPLICATION_DOCUMENT_SQL, [applicationSchema])
+    return result.rows[0]?.document ?? null
+  } finally {
+    await pool.end()
+  }
+}
+
+/**
+ * The two synthetic rows this run owns in the application schema: a user and
+ * the workspace that names it. Both carry this run's own identifiers, so the
+ * cleanup removes exactly what this run created and nothing else.
+ */
+async function seedApplicationRows(): Promise<void> {
+  await admin!.query(
+    `INSERT INTO ${applicationSchema}.users (id, display_name) VALUES ($1::uuid, $2)`,
+    [seededUserId, `Restore Proof User ${suffix}`]
+  )
+  await admin!.query(
+    `INSERT INTO ${applicationSchema}.workspaces (id, name, owner_user_id, idempotency_key)
+     VALUES ($1::uuid, $2, $3::uuid, $4)`,
+    [seededWorkspaceId, `Restore Proof Workspace ${suffix}`, seededUserId, seededIdempotencyKey]
+  )
+}
+
+/**
+ * Removes the seeded rows and proves they are gone. The workspace goes first,
+ * because the user is its owner. The statement is idempotent, so a run whose
+ * seeding failed part way still removes exactly what it created.
+ */
+async function removeSeededApplicationRows(): Promise<void> {
+  await runOwnStatement(
+    `DELETE FROM ${applicationSchema}.workspaces WHERE id = '${seededWorkspaceId}'::uuid`
+  )
+  await runOwnStatement(`DELETE FROM ${applicationSchema}.users WHERE id = '${seededUserId}'::uuid`)
+  const remaining = await admin!.query(
+    `SELECT (SELECT count(*)::int FROM ${applicationSchema}.users WHERE id = $1::uuid) AS users,
+            (SELECT count(*)::int FROM ${applicationSchema}.workspaces WHERE id = $2::uuid) AS workspaces`,
+    [seededUserId, seededWorkspaceId]
+  )
+  const row = remaining.rows[0] as { users: number; workspaces: number } | undefined
+  if (!row || row.users !== 0 || row.workspaces !== 0) {
+    throw new Error('the seeded application rows were not removed')
+  }
+}
+
 // Everything a restore must reproduce: column definitions, row counts and every row.
 async function snapshotOf(url: string, schemaName: string) {
   const pool = poolFor(url)
@@ -465,6 +634,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
     admin = poolFor(adminUrl())
     await admin.query(`CREATE SCHEMA "${schema}"`)
     await admin.query(`CREATE DATABASE "${restoredDatabase}"`)
+    await seedApplicationRows()
   }, BEFORE_ALL_BUDGET_MS)
 
   afterAll(async () => {
@@ -475,6 +645,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         () => runOwnStatement(`DROP DATABASE IF EXISTS "${restoredDatabase}" WITH (FORCE)`),
       ],
       ['drop schema', () => runOwnStatement(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)],
+      ['remove seeded application rows', removeSeededApplicationRows],
     ]
     if (admin) {
       const pool = admin
@@ -532,11 +703,15 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       expect(source.counts).toEqual({ account: 1, session: 1, user: 2, verification: 1 })
 
       // 2. Dump only the schema in custom format, then restore it into an empty database.
+      // The application schema rides in the same dump: the disposable lane migrated it into
+      // this instance before this file ran, so one dump carries both schemas and one restore
+      // lands both in the same per-run target.
       const dumpFile = join(workDirectory!, 'schema.dump')
       const dumped = await runTool([
         'pg_dump',
         '--format=custom',
         `--schema=${schema}`,
+        `--schema=${applicationSchema}`,
         `--file=${dumpFile}`,
         `--dbname=${sourceConnection}`,
       ])
@@ -566,6 +741,62 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       const after = await snapshotOf(restoredConnection, schema)
       expect(after.counts).toEqual(source.counts)
       expect(await tablesIn(schema)).toEqual(expectedTables)
+    },
+    TEST_BUDGET_MS
+  )
+
+  test(
+    'the application schema is restored with its tables, columns, rows and migration ledger, and a wrong target is refused',
+    async () => {
+      const validated = target!
+      const sourceConnection = urlFor(validated, validated.pathname.slice(1))
+      const restoredConnection = urlFor(validated, restoredDatabase)
+
+      // 1. The source application schema, as one document: every table with its exact row
+      //    count, every column, the seeded rows and the migration ledger.
+      const source = (await applicationDocument(sourceConnection)) as {
+        columns?: unknown[]
+        ledger?: unknown[]
+        tables?: unknown[]
+        users?: unknown[]
+        workspaces?: unknown[]
+      } | null
+      expect(source).not.toBeNull()
+      expect(source!.tables?.length ?? 0).toBeGreaterThan(1)
+      expect(source!.columns?.length ?? 0).toBeGreaterThan(0)
+      // The ledger is the target identity the schema exposes, and it is not empty: a
+      // restored schema with no ledger would compare equal to an empty one.
+      expect(source!.ledger?.length ?? 0).toBeGreaterThan(0)
+      // The seeded rows are in the source, so the row comparison below is not vacuous.
+      expect(source!.users).toContainEqual([seededUserId, `Restore Proof User ${suffix}`, false])
+      expect(source!.workspaces).toContainEqual([
+        seededWorkspaceId,
+        `Restore Proof Workspace ${suffix}`,
+        seededUserId,
+        seededIdempotencyKey,
+      ])
+
+      // 2. The restored application schema is the same document: the same tables with the
+      //    same row counts, the same columns, the same seeded rows and the same ledger.
+      const restored = await applicationDocument(restoredConnection)
+      expect(restored).toEqual(source)
+
+      // 3. A target whose ledger was altered is refused by the database package's own
+      //    migration-history preflight. The ledger is the identity the current schema
+      //    exposes, so this is the existing rejection, not an invented contract.
+      const tamperPool = poolFor(restoredConnection)
+      try {
+        await tamperPool.query(
+          `UPDATE ${applicationLedger} SET hash = $1
+           WHERE id = (SELECT min(id) FROM ${applicationLedger})`,
+          ['tampered-target-identity']
+        )
+      } finally {
+        await tamperPool.end()
+      }
+      const refused = await runMigrationVerifier(restoredDatabase)
+      expect(refused.code).not.toBe(0)
+      expect(refused.stderr).toContain('Migration history preflight failed')
     },
     TEST_BUDGET_MS
   )
