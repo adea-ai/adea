@@ -14,6 +14,9 @@
  * takes a connection that the caller already opened.
  */
 
+/** The TLS modes a disposable target may ask for. */
+export type DisposableSslMode = 'disable' | 'prefer' | 'require'
+
 /** The validated identity of one local disposable PostgreSQL target. */
 export type LocalDisposableTarget = Readonly<{
   host: string
@@ -21,13 +24,19 @@ export type LocalDisposableTarget = Readonly<{
   user: string
   password: string
   adminDatabase: string
-  sslMode: 'disable' | 'prefer' | 'require'
+  /**
+   * The TLS mode the target asked for, kept exactly as it was requested. A
+   * target that asked for a stronger mode is never silently downgraded, and a
+   * target that asked for none keeps the driver's own default.
+   */
+  sslMode?: DisposableSslMode
 }>
 
 /** The only parameter that may survive onto a connection URL. */
-const ALLOWED_PARAMETERS: Readonly<Record<string, LocalDisposableTarget['sslMode']>> = {
-  sslmode: 'disable',
-}
+const ALLOWED_PARAMETERS: readonly string[] = ['sslmode']
+
+/** The TLS modes this target may request. */
+const SUPPORTED_SSL_MODES: readonly DisposableSslMode[] = ['disable', 'prefer', 'require']
 
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', '::1', 'localhost'])
 
@@ -67,6 +76,7 @@ export function parseLocalDisposableTarget(raw: string): LocalDisposableTarget {
     )
   }
   const seen = new Set<string>()
+  let requestedSslMode: DisposableSslMode | undefined
   for (const pair of url.search.replace(/^\?/, '').split('&')) {
     if (!pair) continue
     const rawKey = pair.split('=')[0] ?? ''
@@ -90,8 +100,24 @@ export function parseLocalDisposableTarget(raw: string): LocalDisposableTarget {
       )
     }
     seen.add(normalized)
-    if (!(normalized in ALLOWED_PARAMETERS)) {
+    if (!ALLOWED_PARAMETERS.includes(normalized)) {
       throw new Error(`the disposable database target must not carry the parameter "${normalized}"`)
+    }
+    if (normalized === 'sslmode') {
+      const rawValue = pair.slice(rawKey.length + 1)
+      let value = rawValue
+      try {
+        value = decodeURIComponent(rawValue)
+      } catch (error) {
+        throw new Error('the disposable database target has an unreadable parameter value', {
+          cause: error,
+        })
+      }
+      const mode = value.trim().toLowerCase()
+      if (!(SUPPORTED_SSL_MODES as readonly string[]).includes(mode)) {
+        throw new Error(`the disposable database target must not request the TLS mode "${value}"`)
+      }
+      requestedSslMode = mode as DisposableSslMode
     }
   }
   const port = url.port ? Number(url.port) : 5432
@@ -103,8 +129,16 @@ export function parseLocalDisposableTarget(raw: string): LocalDisposableTarget {
   if (!user) throw new Error('the disposable database target has no user')
   const adminDatabase = url.pathname.replace(/^\//, '')
   if (!adminDatabase) throw new Error('the disposable database target has no database')
-  const sslMode = ALLOWED_PARAMETERS['sslmode']
-  return Object.freeze({ host: url.hostname, port, user, password, adminDatabase, sslMode })
+  // The requested mode is kept as it was asked for. A target that named none
+  // keeps the driver's own default instead of being downgraded here.
+  return Object.freeze({
+    host: url.hostname,
+    port,
+    user,
+    password,
+    adminDatabase,
+    ...(requestedSslMode ? { sslMode: requestedSslMode } : {}),
+  })
 }
 
 /**
@@ -122,7 +156,7 @@ export function canonicalTargetUrl(target: LocalDisposableTarget, database: stri
     `postgresql://${encodeURIComponent(target.user)}:${encodeURIComponent(target.password)}@${target.host}:${target.port}/${encodeURIComponent(database)}`
   )
   url.search = ''
-  url.searchParams.set('sslmode', target.sslMode)
+  if (target.sslMode) url.searchParams.set('sslmode', target.sslMode)
   return url.toString()
 }
 

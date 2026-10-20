@@ -8,6 +8,7 @@ import { expect, test } from 'bun:test'
 
 import {
   assertScratchDatabaseName,
+  assertServerIdentity,
   canonicalTargetUrl,
   parseLocalDisposableTarget,
 } from '../fixtures/migration-cutover-target'
@@ -33,20 +34,24 @@ test('a non-loopback target is refused, so an inherited URL cannot be used', () 
 })
 
 test('a startup or identity option is refused', () => {
-  const refused = [
-    '?options=-c%20search_path%3Dpublic',
-    '?search_path=public',
-    '?host=db.example.com',
-    '?port=5433',
-    '?dbname=other',
-    '?user=postgres',
-    '?password=other',
-    '?application_name=other',
-    '?target_session_attrs=read-write',
-    '?service=other',
-  ]
-  for (const query of refused) {
-    expect(() => parseLocalDisposableTarget(`${CANONICAL}&${query}`)).toThrow()
+  // Real query keys: the parser reads the key that is actually sent, so the
+  // negatives name the parameter itself and not a '?'-prefixed spelling.
+  const refused: Readonly<Record<string, string>> = {
+    options: '-c%20search_path%3Dpublic',
+    search_path: 'public',
+    host: 'db.example.com',
+    port: '5433',
+    dbname: 'other',
+    database: 'other',
+    user: 'other',
+    password: 'other',
+    application_name: 'other',
+    target_session_attrs: 'read-write',
+    service: 'other',
+    sslrootcert: '/tmp/other.crt',
+  }
+  for (const [key, value] of Object.entries(refused)) {
+    expect(() => parseLocalDisposableTarget(`${CANONICAL}&${key}=${value}`)).toThrow()
   }
 })
 
@@ -62,6 +67,35 @@ test('a percent-encoded parameter name is refused', () => {
 test('a duplicate parameter is refused', () => {
   expect(() => parseLocalDisposableTarget(`${CANONICAL}&sslmode=disable`)).toThrow('repeat')
   expect(() => parseLocalDisposableTarget(`${CANONICAL}&sslmode=require`)).toThrow('repeat')
+})
+
+test('a requested TLS mode is preserved and an unsupported one is refused', () => {
+  const required = parseLocalDisposableTarget(
+    'postgresql://postgres:0123456789abcdef@127.0.0.1:54329/postgres?sslmode=require'
+  )
+  expect(required.sslMode).toBe('require')
+  // The mode is carried onto the connection, never quietly downgraded.
+  const requiredUrl = new URL(canonicalTargetUrl(required, 'rehearsal_1222_surface_abc'))
+  expect(requiredUrl.searchParams.get('sslmode')).toBe('require')
+  const preferred = parseLocalDisposableTarget(
+    'postgresql://postgres:0123456789abcdef@127.0.0.1:54329/postgres?sslmode=prefer'
+  )
+  expect(preferred.sslMode).toBe('prefer')
+  // A mode this target does not support is refused rather than substituted.
+  for (const mode of ['verify-full', 'verify-ca', 'allow', 'true']) {
+    expect(() =>
+      parseLocalDisposableTarget(
+        `postgresql://postgres:0123456789abcdef@127.0.0.1:54329/postgres?sslmode=${mode}`
+      )
+    ).toThrow('TLS mode')
+  }
+  // A target that named no mode keeps the driver's own default.
+  const unspecified = parseLocalDisposableTarget(
+    'postgresql://postgres:0123456789abcdef@127.0.0.1:54329/postgres'
+  )
+  expect(unspecified.sslMode).toBeUndefined()
+  const unspecifiedUrl = new URL(canonicalTargetUrl(unspecified, 'rehearsal_1222_surface_abc'))
+  expect(unspecifiedUrl.searchParams.has('sslmode')).toBe(false)
 })
 
 test('the canonical connection URL carries only the allowlisted parameter', () => {
@@ -93,6 +127,37 @@ test('a denied search cannot satisfy the positive control', () => {
   )
   // The sentinel is a string: a length check alone would have counted it.
   expect('denied'.length).toBeGreaterThan(0)
+})
+
+test('a server identity mismatch is refused before anything is migrated', async () => {
+  const matching = {
+    execute: async () => [{ database: 'rehearsal_1222_surface_abc', user: 'postgres' }],
+  }
+  await expect(
+    assertServerIdentity(matching, { database: 'rehearsal_1222_surface_abc', user: 'postgres' })
+  ).resolves.toBeUndefined()
+  const wrongDatabase = {
+    execute: async () => [{ database: 'postgres', user: 'postgres' }],
+  }
+  await expect(
+    assertServerIdentity(wrongDatabase, {
+      database: 'rehearsal_1222_surface_abc',
+      user: 'postgres',
+    })
+  ).rejects.toThrow('expected database and user identity')
+  const wrongUser = {
+    execute: async () => [{ database: 'rehearsal_1222_surface_abc', user: 'other' }],
+  }
+  await expect(
+    assertServerIdentity(wrongUser, {
+      database: 'rehearsal_1222_surface_abc',
+      user: 'postgres',
+    })
+  ).rejects.toThrow('expected database and user identity')
+  const empty = { execute: async () => [] }
+  await expect(
+    assertServerIdentity(empty, { database: 'rehearsal_1222_surface_abc', user: 'postgres' })
+  ).rejects.toThrow('expected database and user identity')
 })
 
 test('only the exact seeded message ids satisfy the positive control', () => {
