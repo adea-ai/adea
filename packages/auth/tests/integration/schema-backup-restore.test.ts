@@ -25,9 +25,21 @@ const at = '2026-10-01T00:00:00.000Z'
 const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]'])
 const ROUTING_ENVIRONMENT_NAMES = ['PGHOST', 'PGHOSTADDR', 'PGSERVICE', 'PGSERVICEFILE']
 const TOOL_ENVIRONMENT_NAMES = ['PATH', 'HOME', 'TMPDIR', 'LANG']
-const TOOL_TIMEOUT_MS = 120_000
+// Every operation has a bounded budget. The test's own deadline is the sum of
+// those budgets, so it can only fire after every bounded step has finished.
+const TOOL_TIMEOUT_MS = 60_000
+const DB_QUERY_TIMEOUT_MS = 10_000
 const CLEANUP_TIMEOUT_MS = 15_000
-const POOL_OPTIONS = { connectionTimeoutMillis: 10_000, max: 1, query_timeout: 30_000 }
+const CLEANUP_STEPS = 4
+const BODY_TOOL_CALLS = 2
+const BODY_DB_QUERIES = 60
+const TEST_BUDGET_MS =
+  BODY_TOOL_CALLS * TOOL_TIMEOUT_MS +
+  BODY_DB_QUERIES * DB_QUERY_TIMEOUT_MS +
+  CLEANUP_STEPS * CLEANUP_TIMEOUT_MS
+const BEFORE_ALL_BUDGET_MS = 2 * DB_QUERY_TIMEOUT_MS + 10_000
+const AFTER_ALL_BUDGET_MS = CLEANUP_STEPS * CLEANUP_TIMEOUT_MS + 5_000
+const POOL_OPTIONS = { connectionTimeoutMillis: 10_000, max: 1, query_timeout: DB_QUERY_TIMEOUT_MS }
 
 const suffix = crypto.randomUUID().replaceAll('-', '')
 const schema = `auth_bkp_${suffix}`
@@ -110,7 +122,9 @@ async function runBounded(command: string[], timeoutMs: number) {
     return { code, pid: child.pid, stderr, timedOut }
   } finally {
     clearTimeout(timer)
+    // Every exit path, including a failed stream read, kills a live child and waits for it to be reaped.
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+    await child.exited.catch(() => undefined)
   }
 }
 
@@ -285,7 +299,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
     admin = poolFor(target.toString())
     await admin.query(`CREATE SCHEMA "${schema}"`)
     await admin.query(`CREATE DATABASE "${restoredDatabase}"`)
-  }, 60_000)
+  }, BEFORE_ALL_BUDGET_MS)
 
   afterAll(async () => {
     const steps: Array<readonly [string, () => Promise<unknown>]> = []
@@ -311,81 +325,85 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
     admin = undefined
     workDirectory = undefined
     if (failures.length > 0) throw new Error(`cleanup did not finish: ${failures.join('; ')}`)
-  }, 60_000)
+  }, AFTER_ALL_BUDGET_MS)
 
-  test('a fresh schema is dumped and restored with the same tables, columns and rows, and nothing pending', async () => {
-    const validated = target!
-    const sourceConnection = urlFor(validated, validated.pathname.slice(1))
-    const sourceSearchPath = urlFor(validated, validated.pathname.slice(1), schema)
-    const restoredConnection = urlFor(validated, restoredDatabase)
+  test(
+    'a fresh schema is dumped and restored with the same tables, columns and rows, and nothing pending',
+    async () => {
+      const validated = target!
+      const sourceConnection = urlFor(validated, validated.pathname.slice(1))
+      const sourceSearchPath = urlFor(validated, validated.pathname.slice(1), schema)
+      const restoredConnection = urlFor(validated, restoredDatabase)
 
-    // 1. Create the schema with the explicit initializer, then fill it with synthetic rows.
-    const applied = await applyAuthSchema(environmentFor(sourceSearchPath))
-    expect(applied.applied).toBe(true)
-    expect(applied.after).toEqual({ add: [], create: [] })
+      // 1. Create the schema with the explicit initializer, then fill it with synthetic rows.
+      const applied = await applyAuthSchema(environmentFor(sourceSearchPath))
+      expect(applied.applied).toBe(true)
+      expect(applied.after).toEqual({ add: [], create: [] })
 
-    await admin!.query(
-      `INSERT INTO "${schema}"."user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
+      await admin!.query(
+        `INSERT INTO "${schema}"."user" (id, name, email, "emailVerified", "createdAt", "updatedAt")
        VALUES ('synthetic-user-1', 'Synthetic One', 'synthetic-1@example.test', true, $1, $1),
               ('synthetic-user-2', 'Synthetic Two', 'synthetic-2@example.test', false, $1, $1)`,
-      [at]
-    )
-    await admin!.query(
-      `INSERT INTO "${schema}".session (id, "expiresAt", token, "createdAt", "updatedAt", "userId")
+        [at]
+      )
+      await admin!.query(
+        `INSERT INTO "${schema}".session (id, "expiresAt", token, "createdAt", "updatedAt", "userId")
        VALUES ('synthetic-session-1', $1, 'synthetic-token-1', $1, $1, 'synthetic-user-1')`,
-      [at]
-    )
-    await admin!.query(
-      `INSERT INTO "${schema}".account (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
+        [at]
+      )
+      await admin!.query(
+        `INSERT INTO "${schema}".account (id, "accountId", "providerId", "userId", "createdAt", "updatedAt")
        VALUES ('synthetic-account-1', 'synthetic-subject-1', 'synthetic-provider', 'synthetic-user-1', $1, $1)`,
-      [at]
-    )
-    await admin!.query(
-      `INSERT INTO "${schema}".verification (id, identifier, value, "expiresAt", "createdAt", "updatedAt")
+        [at]
+      )
+      await admin!.query(
+        `INSERT INTO "${schema}".verification (id, identifier, value, "expiresAt", "createdAt", "updatedAt")
        VALUES ('synthetic-verification-1', 'synthetic-1@example.test', 'synthetic-value-1', $1, $1, $1)`,
-      [at]
-    )
-    const source = await snapshotOf(sourceConnection, schema)
-    expect(source.tables).toEqual(expectedTables)
-    expect(source.counts).toEqual({ account: 1, session: 1, user: 2, verification: 1 })
+        [at]
+      )
+      const source = await snapshotOf(sourceConnection, schema)
+      expect(source.tables).toEqual(expectedTables)
+      expect(source.counts).toEqual({ account: 1, session: 1, user: 2, verification: 1 })
 
-    // 2. Dump only the schema in custom format, then restore it into an empty database.
-    const dumpFile = join(workDirectory!, 'schema.dump')
-    const dumped = await runTool([
-      'pg_dump',
-      '--format=custom',
-      `--schema=${schema}`,
-      `--file=${dumpFile}`,
-      `--dbname=${sourceConnection}`,
-    ])
-    expect(dumped.code).toBe(0)
-    expect(dumped.stderr).toBe('')
+      // 2. Dump only the schema in custom format, then restore it into an empty database.
+      const dumpFile = join(workDirectory!, 'schema.dump')
+      const dumped = await runTool([
+        'pg_dump',
+        '--format=custom',
+        `--schema=${schema}`,
+        `--file=${dumpFile}`,
+        `--dbname=${sourceConnection}`,
+      ])
+      expect(dumped.code).toBe(0)
+      expect(dumped.stderr).toBe('')
 
-    const restored = await runTool([
-      'pg_restore',
-      '--no-owner',
-      '--no-privileges',
-      '--exit-on-error',
-      `--dbname=${restoredConnection}`,
-      dumpFile,
-    ])
-    expect(restored.code).toBe(0)
+      const restored = await runTool([
+        'pg_restore',
+        '--no-owner',
+        '--no-privileges',
+        '--exit-on-error',
+        `--dbname=${restoredConnection}`,
+        dumpFile,
+      ])
+      expect(restored.code).toBe(0)
 
-    // 3. The restored schema matches the source exactly: tables, columns, counts and rows.
-    const copy = await snapshotOf(restoredConnection, schema)
-    expect(copy.tables).toEqual(source.tables)
-    expect(copy.columns).toEqual(source.columns)
-    expect(copy.counts).toEqual(source.counts)
-    expect(copy.rows).toEqual(source.rows)
+      // 3. The restored schema matches the source exactly: tables, columns, counts and rows.
+      const copy = await snapshotOf(restoredConnection, schema)
+      expect(copy.tables).toEqual(source.tables)
+      expect(copy.columns).toEqual(source.columns)
+      expect(copy.counts).toEqual(source.counts)
+      expect(copy.rows).toEqual(source.rows)
 
-    // 4. The restored schema reports no pending work, and planning writes nothing.
-    const planned = await planAuthSchema(
-      environmentFor(urlFor(validated, restoredDatabase, schema))
-    )
-    expect(planned.applied).toBe(false)
-    expect(planned.before).toEqual({ add: [], create: [] })
-    const after = await snapshotOf(restoredConnection, schema)
-    expect(after.counts).toEqual(source.counts)
-    expect(await tablesIn(schema)).toEqual(expectedTables)
-  }, 120_000)
+      // 4. The restored schema reports no pending work, and planning writes nothing.
+      const planned = await planAuthSchema(
+        environmentFor(urlFor(validated, restoredDatabase, schema))
+      )
+      expect(planned.applied).toBe(false)
+      expect(planned.before).toEqual({ add: [], create: [] })
+      const after = await snapshotOf(restoredConnection, schema)
+      expect(after.counts).toEqual(source.counts)
+      expect(await tablesIn(schema)).toEqual(expectedTables)
+    },
+    TEST_BUDGET_MS
+  )
 })
