@@ -14,7 +14,8 @@ export type LeadChildIdentity = Readonly<{
 /** The mounted child read follows exact retained identity, not conversation object
  * identity. An incidental draft update cannot restart pagination or clear evidence. */
 export function createLeadChildSupply(
-  reader: () => Pick<AgentHqApiClient, 'getLeadTurnChildren'>,
+  reader: () => Pick<AgentHqApiClient, 'getLeadTurnChildren'> &
+    Partial<Pick<AgentHqApiClient, 'publishLeadTurnChildren'>>,
   identity: () => LeadChildIdentity | undefined,
   lifecycle: Readonly<{ current(): number; isCurrent(value: number): boolean }>
 ): () => HandoffChildObservations | undefined {
@@ -31,7 +32,8 @@ export function createLeadChildSupply(
   })
   const [supply, setSupply] = createSignal<{
     key: string
-    reader?: Pick<AgentHqApiClient, 'getLeadTurnChildren'>
+    reader?: Pick<AgentHqApiClient, 'getLeadTurnChildren'> &
+      Partial<Pick<AgentHqApiClient, 'publishLeadTurnChildren'>>
     observations?: HandoffChildObservations
   }>({ key: '' })
   let epoch = 0
@@ -56,7 +58,18 @@ export function createLeadChildSupply(
       value.workspaceId,
       value.intentId,
       value.dispatchId
-    ).then((observations) => {
+    ).then(async (observations) => {
+      // This is an explicit publication command. GET children remains a pure observation.
+      // A failed/old SDK path retries on reconnect or the next visible poll.
+      if (
+        observations.availability === 'available' &&
+        observations.children.some((child) => child.outcome?.publication === 'published') &&
+        currentReader.publishLeadTurnChildren
+      ) {
+        await currentReader
+          .publishLeadTurnChildren(value.workspaceId, value.intentId)
+          .catch(() => undefined)
+      }
       if (
         disposed ||
         !lifecycle.isCurrent(request) ||

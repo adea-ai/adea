@@ -511,6 +511,7 @@ export {
   type LeadTurnObservedState,
   type LeadTurnAuthorityPurpose,
 } from './lead-turn-runtime'
+export { publishLeadChildTerminal, type LeadChildTerminalEvidence } from './lead-child-publications'
 export {
   assertLeadTurnRollbackFenceRequest,
   classifyLeadTurnRollback,

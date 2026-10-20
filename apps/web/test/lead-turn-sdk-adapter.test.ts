@@ -82,6 +82,72 @@ test('candidate adapter rejects wrong workspace, substituted transport principal
   expect(calls).toBe(0)
 })
 
+test('child terminal publisher accepts only the exact current parent and delegation binding', async () => {
+  const binding = {
+    schemaVersion: 'pi-lead-dispatch/v1' as const,
+    intentId: authority.intentId,
+    dispatchId: `dispatch_${'a'.repeat(32)}`,
+    executionId: selection.executionId,
+    attemptId: selection.attemptId,
+    runtimeSessionId: `ses_${'0'.repeat(26)}`,
+  }
+  const delegationId = `dlg_${'1'.repeat(26)}`
+  const publication = {
+    ...binding,
+    schemaVersion: 'pi-child-publication/v1',
+    workspaceId: authority.controlPlaneWorkspaceId,
+    intentId: authority.intentId,
+    canonicalActorPrincipalId: authority.originalActorRef,
+    delegationId,
+    childExecutionId: `exe_${'1'.repeat(26)}`,
+    childAttemptId: `att_${'1'.repeat(26)}`,
+    role: 'researcher',
+    state: 'completed',
+    resultRef: `art_${'1'.repeat(26)}`,
+    authorityRevision: 1,
+    expiresAt: '2100-01-01T00:00:00Z',
+  }
+  let response: unknown = { data: { publication } }
+  const adapter = createLeadTurnSdkAdapter({
+    workspaceId: authority.controlPlaneWorkspaceId,
+    dispatch: async () => ({}),
+    status: async () => ({}),
+    progress: async () => ({}),
+    cancel: async () => ({}),
+    async childPublicationCurrent(dispatchId, preparationRef, childId) {
+      expect([dispatchId, preparationRef, childId]).toEqual([
+        binding.dispatchId,
+        selection.preparationRef,
+        delegationId,
+      ])
+      return response
+    },
+  })
+  expect(
+    await adapter.childPublicationCurrent!(
+      authority,
+      binding,
+      selection.preparationRef,
+      delegationId
+    )
+  ).toMatchObject({
+    delegationId,
+    state: 'completed',
+    publication: 'published',
+  })
+  for (const changed of [
+    { attemptId: `att_${'2'.repeat(26)}` },
+    { delegationId: `dlg_${'2'.repeat(26)}` },
+    { canonicalActorPrincipalId: `user:${crypto.randomUUID()}` },
+    { expiresAt: '2000-01-01T00:00:00Z' },
+  ]) {
+    response = { data: { publication: { ...publication, ...changed } } }
+    await expect(
+      adapter.childPublicationCurrent!(authority, binding, selection.preparationRef, delegationId)
+    ).rejects.toThrow('RUNTIME_RESPONSE_INVALID')
+  }
+})
+
 test('prepare decodes actual SDK response data and retains only bound references and expiry', async () => {
   const data = {
     schemaVersion: 'pi-lead-preparation/v1',

@@ -115,10 +115,23 @@ prepare, replay funding, infer a new session ID or restart model work, including
 preparation expiry. Missing lookup composition keeps recovery unavailable. Its source
 contract and fixture tests are not an immutable packaged or live integration claim.
 
-Child outcome delivery additionally needs the exact admitted parent/child mapping and
-retained J1 inbox artifact. A later Adea consumer must recheck audience and atomically append
-the timeline record with an independent publication receipt. A retained outcome or sender
-receipt is not public delivery. No child outcome consumer or UI is enabled here.
+Child outcome delivery needs the exact admitted parent/child mapping and retained J1
+inbox artifact. The opt-in child reconciler calls the versioned Control Plane child
+publication operation for each retained terminal child, verifies the exact parent
+and child attempts, then rechecks that operation while holding the current Adea
+reader, original actor, runtime-binding and rollback locks. PostgreSQL migration
+0060 commits one canonical channel message and an independent
+`lead_child_publications` receipt in the same transaction. Duplicate delivery and
+process reconnect replay the receipt; contradictory evidence is refused. The
+desktop child poll retries the explicit publication command on reconnect. Its
+ordinary child GET remains read only.
+
+The published message is a bounded terminal-state summary. A Control Plane
+`resultRef` is an opaque artifact reference, not readable result text or an
+artifact read grant. A separately authorized artifact-content reader and combined
+installed-SDK/desktop acceptance are still needed to display a successful child's
+actual result content. The installed SDK must export
+`getPiDurableChildPublication`; older releases leave this path unavailable.
 
 ## Reproducible local checks
 

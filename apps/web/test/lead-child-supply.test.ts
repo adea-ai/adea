@@ -102,6 +102,50 @@ test('mounted child supply ignores draft object changes and refreshes on exact i
   })
 })
 
+test('published CP outcome retries the explicit Adea timeline receipt on reconnect', async () => {
+  const priorWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const events = new EventTarget()
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: events })
+  const published: string[] = []
+  const port = {
+    getLeadTurnChildren: async () =>
+      ({
+        ...reply(),
+        childObservations: {
+          ...reply().childObservations,
+          children: [
+            {
+              ...reply().childObservations.children[0],
+              outcome: { state: 'completed', publication: { status: 'published' } },
+            },
+          ],
+        },
+      }) as never,
+    publishLeadTurnChildren: async (_workspace: string, intent: string) => {
+      published.push(intent)
+      return { published: 1 }
+    },
+  }
+  try {
+    await createRoot(async (dispose) => {
+      createLeadChildSupply(
+        () => port,
+        () => identity(),
+        lifecycle
+      )
+      await tick()
+      expect(published).toEqual([intentId])
+      events.dispatchEvent(new Event('online'))
+      await tick()
+      expect(published).toEqual([intentId, intentId])
+      dispose()
+    })
+  } finally {
+    if (priorWindow) Object.defineProperty(globalThis, 'window', priorWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
 test('terminal lead child supply re-reads on online reconnect', async () => {
   const priorWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
   const events = new EventTarget()

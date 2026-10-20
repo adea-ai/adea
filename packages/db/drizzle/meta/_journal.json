@@ -421,6 +421,13 @@
       "when": 1792441205256,
       "tag": "0059_sim_launch_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1792508924517,
+      "tag": "0060_tricky_spectrum",
+      "breakpoints": true
     }
   ]
 }
