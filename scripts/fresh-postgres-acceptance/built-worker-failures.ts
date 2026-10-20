@@ -280,6 +280,58 @@ export function topLevelStringValue(body: string, field: string): string | null 
 }
 
 /**
+ * The decoded form of a JSON body, or undefined when it does not parse.
+ *
+ * A body can hide a value behind an escaped key or an escaped character, and
+ * the decoded form is the only place those are visible.
+ */
+export function decodeJsonBody(body: string): unknown {
+  try {
+    return JSON.parse(body)
+  } catch {
+    return undefined
+  }
+}
+
+/** Every string a decoded body carries, at any depth. */
+export function decodedStringValues(value: unknown): string[] {
+  if (typeof value === 'string') return [value]
+  if (Array.isArray(value)) return value.flatMap((entry) => decodedStringValues(entry))
+  if (value && typeof value === 'object') {
+    return Object.values(value).flatMap((entry) => decodedStringValues(entry))
+  }
+  return []
+}
+
+/**
+ * Every credential-shaped value a body carries, however it is written.
+ *
+ * The raw text is read as well as the decoded body: a duplicate member whose
+ * first value is empty and whose second one is not survives only in the raw
+ * text, and a member behind an escaped key survives only in the decoded body.
+ */
+export function rawCredentialValues(body: string): string[] {
+  const values: string[] = []
+  for (const match of body.matchAll(/"credential"\s*:\s*"((?:[^"\\]|\\.)*)"/gu)) {
+    const raw = match[1] ?? ''
+    let value = raw
+    try {
+      value = JSON.parse(`"${raw}"`) as string
+    } catch {
+      // A value that is not a JSON string is kept as it was written.
+    }
+    if (value) values.push(value)
+  }
+  const decoded = decodeJsonBody(body)
+  if (decoded !== undefined) {
+    for (const [key, entry] of Object.entries(decoded as Record<string, unknown>)) {
+      if (key === 'credential' && typeof entry === 'string' && entry) values.push(entry)
+    }
+  }
+  return values
+}
+
+/**
  * Sanitizes every string of a value, however deeply it is nested.
  *
  * A receipt is a tree of strings, and a secret can sit in any of them: in a

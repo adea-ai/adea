@@ -11,6 +11,7 @@ import {
   mayPublishReceipt,
   mayRemoveRuntimeMaterial,
   readBuildProvenance,
+  removeOwnedMaterial,
   startBuiltWorker,
   tearDownAfterWorker,
   verifyBuildProvenance,
@@ -599,6 +600,49 @@ describe('the built-Worker runtime material', () => {
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
+  })
+})
+
+describe('the built-Worker owned material', () => {
+  test('the material is removed only when the process group is gone', () => {
+    let removed = 0
+    let askedToStop = 0
+    const worker = {
+      groupAlive: () => true,
+      requestStop: () => {
+        askedToStop += 1
+      },
+    }
+    const kept = removeOwnedMaterial({
+      worker,
+      remove: () => {
+        removed += 1
+      },
+    })
+    expect(kept.removed).toBe(false)
+    expect(removed).toBe(0)
+    expect(askedToStop).toBe(1)
+
+    const gone = removeOwnedMaterial({
+      worker: { groupAlive: () => false, requestStop: () => undefined },
+      remove: () => {
+        removed += 1
+      },
+    })
+    expect(gone.removed).toBe(true)
+    expect(removed).toBe(1)
+  })
+
+  test('a run without a Worker still removes its material', () => {
+    let removed = 0
+    const outcome = removeOwnedMaterial({
+      worker: undefined,
+      remove: () => {
+        removed += 1
+      },
+    })
+    expect(outcome.removed).toBe(true)
+    expect(removed).toBe(1)
   })
 })
 

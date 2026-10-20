@@ -124,8 +124,11 @@ The **built-Worker desktop authorization qualification**
   material and the container are removed, and the material is kept when the
   group is still alive — including when a signal arrives during the startup;
 - the receipt is published only after that teardown succeeded, and the Worker
-  and the disposable instance are removed on success, on failure and on
-  interruption.
+  and the disposable instance are removed on success and on failure. An
+  interruption is a bounded best-effort: the Worker is asked to stop, the
+  container is removed, and the runtime material is retained while the process
+  group is alive. An interrupted run publishes no receipt, so its acceptance
+  stays pending.
 
 What a proved artifact was **not** shown to do, and what a live acceptance
 still has to establish:

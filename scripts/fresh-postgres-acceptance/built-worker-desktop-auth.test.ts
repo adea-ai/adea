@@ -40,6 +40,9 @@ function response(
   return { status, headers, body }
 }
 
+/** The caller's own secret, used by the credential accounting regressions. */
+const CALLER_AUTH_SECRET = 'built-worker-auth-secret-for-the-test-only-123456'
+
 /** The session the product answers with. */
 function validSession(credential: string): string {
   return `{"credential":"${credential}","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}`
@@ -796,6 +799,91 @@ describe('the built-Worker desktop denial credential accounting', () => {
       expect(failed.length).toBeGreaterThan(0)
       const names = failed.map((assertion) => assertion.name)
       expect(names.some((name) => name.includes('exchange-route-refuses'))).toBe(true)
+    })
+  }
+})
+
+describe('the built-Worker desktop credential material', () => {
+  test('a session whose credential is the auth secret fails the leak invariant', async () => {
+    const correct = correctWorker()
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        // The credential is the caller's own secret, so it is never a legitimate
+        // issuance.
+        return {
+          ...answered,
+          body: `{"credential":"${AUTH_SECRET}","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}`,
+        }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth({
+      ...baseInput(transport),
+      secrets: [CALLER_AUTH_SECRET],
+    })
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+  })
+
+  const denials: readonly { readonly name: string; readonly request: number }[] = [
+    { name: 'a nested credential object', request: 2 },
+    { name: 'a duplicate member with an empty first value', request: 2 },
+    { name: 'a member behind an escaped key', request: 2 },
+    { name: 'a credential in a header', request: 2 },
+    { name: 'a known secret behind an escaped character', request: 2 },
+  ]
+
+  for (const denial of denials) {
+    test(`a refused answer with ${denial.name} fails closed`, async () => {
+      const correct = correctWorker()
+      const fresh = `${'C'.repeat(40)}${denial.request}`
+      let exchanges = 0
+      const transport: BuiltWorkerTransport = async (request) => {
+        const answered = await correct.transport(request)
+        if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+          exchanges += 1
+          if (exchanges === denial.request && answered.status !== 200) {
+            switch (denial.name) {
+              case 'a nested credential object':
+                return {
+                  ...answered,
+                  body: `{"error":"Desktop authorization exchange failed","data":{"credential":"${fresh}"}}`,
+                }
+              case 'a duplicate member with an empty first value':
+                return {
+                  ...answered,
+                  body: `{"credential":"","credential":"${fresh}","error":"Desktop authorization exchange failed"}`,
+                }
+              case 'a member behind an escaped key':
+                return {
+                  ...answered,
+                  body: `{"\u0063redential":"${fresh}","error":"Desktop authorization exchange failed"}`,
+                }
+              case 'a credential in a header':
+                return {
+                  ...answered,
+                  headers: { ...answered.headers, authorization: `Desktop ${fresh}` },
+                }
+              default:
+                return {
+                  ...answered,
+                  body: `{"error":"Desktop authorization exchange failed","echo":"\u0062uilt-worker-auth-secret-for-the-test-only-123456"}`,
+                }
+            }
+          }
+        }
+        return answered
+      }
+      const receipt = await runBuiltWorkerDesktopAuth({
+        ...baseInput(transport),
+        secrets: [CALLER_AUTH_SECRET],
+      })
+      expect(receipt.status).toBe('failed')
+      const failed = receipt.assertions.filter((assertion) => !assertion.passed)
+      expect(failed.length).toBeGreaterThan(0)
     })
   }
 })

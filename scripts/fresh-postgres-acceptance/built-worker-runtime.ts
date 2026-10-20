@@ -819,6 +819,30 @@ export function mayRemoveRuntimeMaterial(input: {
 }
 
 /**
+ * Removes the material a run owns.
+ *
+ * The material is removed only when the Worker's process group is gone: a
+ * Worker that is still serving from those files must not lose them. When the
+ * group is alive the Worker is asked to stop and the material is retained, and
+ * the caller is told that it was kept. The removal is idempotent.
+ */
+export function removeOwnedMaterial(input: {
+  readonly worker?: Pick<RunningBuiltWorker, 'groupAlive' | 'requestStop'> | undefined
+  readonly remove: () => void
+  readonly onRetained?: (message: string) => void
+}): { readonly removed: boolean } {
+  input.worker?.requestStop()
+  if (!mayRemoveRuntimeMaterial({ worker: input.worker })) {
+    input.onRetained?.(
+      'the built-Worker runtime material was kept: the Worker process group is still alive'
+    )
+    return { removed: false }
+  }
+  input.remove()
+  return { removed: true }
+}
+
+/**
  * True when the receipt may be published.
  *
  * A receipt that claims a pass must not be published while the Worker is still

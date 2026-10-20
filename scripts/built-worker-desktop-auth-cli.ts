@@ -70,7 +70,7 @@ import {
   buildLocalWorkerConfig,
   builtWorkerArtifact,
   mayPublishReceipt,
-  mayRemoveRuntimeMaterial,
+  removeOwnedMaterial,
   startBuiltWorker,
   tearDownAfterWorker,
   waitForWorkerReady,
@@ -332,9 +332,16 @@ async function main(): Promise<void> {
   const containerName = `adea-built-worker-desktop-${randomBytes(6).toString('hex')}`
   const password = randomBytes(24).toString('hex')
   const directory = mkdtempSync(join(tmpdir(), 'adea-built-worker-desktop-'))
-  const certificate = createCertificate(directory)
-  // The runtime material is removed only after the Worker process is gone.
-  let runtimeMaterialRemovable = true
+  let worker: RunningBuiltWorker | undefined
+  // The Worker runtime may only read files under the Worker's own directory,
+  // so the instance's certificate is copied into the build output the Worker
+  // runs from. The copy is removed with the run.
+  const workerCertificate = join(
+    repositoryRoot,
+    'apps/web/dist/server/built-worker-desktop-auth-ca.crt'
+  )
+  // The owned cleanup is installed before the certificate is minted and before
+  // it is copied, so a failure in either leaves no material behind.
   attachOwnedContainerCleanup({
     name: containerName,
     remove: removeContainer,
@@ -344,29 +351,22 @@ async function main(): Promise<void> {
       // material is only removed once the process group is gone: an
       // interruption that arrives during the startup is no different from one
       // that arrives later.
-      worker?.requestStop()
-      if (!mayRemoveRuntimeMaterial({ worker }) || !runtimeMaterialRemovable) {
-        runtimeMaterialRemovable = false
-        console.error(
-          'the built-Worker runtime material was kept: the Worker process group is still alive'
-        )
-        return
-      }
-      rmSync(workerCertificate, { force: true })
-      rmSync(directory, { recursive: true, force: true })
+      removeOwnedMaterial({
+        worker,
+        remove: () => {
+          rmSync(workerCertificate, { force: true })
+          rmSync(directory, { recursive: true, force: true })
+        },
+        onRetained: (message) => {
+          console.error(message)
+        },
+      })
     },
     reportFailure: (message) => {
       console.error(`the built-Worker qualification cleanup failed: ${message}`)
     },
   })
-  let worker: RunningBuiltWorker | undefined
-  // The Worker runtime may only read files under the Worker's own directory,
-  // so the instance's certificate is copied into the build output the Worker
-  // runs from. The copy is removed with the run.
-  const workerCertificate = join(
-    repositoryRoot,
-    'apps/web/dist/server/built-worker-desktop-auth-ca.crt'
-  )
+  const certificate = createCertificate(directory)
   mkdirSync(join(repositoryRoot, 'apps/web/dist/server'), { recursive: true })
   copyFileSync(certificate.certificatePath, workerCertificate)
   let bodyError: unknown
@@ -589,7 +589,6 @@ async function main(): Promise<void> {
         rmSync(directory, { recursive: true, force: true })
       },
       onFailure: (message) => {
-        runtimeMaterialRemovable = false
         console.error(message)
       },
     })

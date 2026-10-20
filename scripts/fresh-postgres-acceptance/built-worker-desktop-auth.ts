@@ -32,6 +32,9 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import {
   BuiltWorkerFailure,
+  decodeJsonBody,
+  decodedStringValues,
+  rawCredentialValues,
   sanitizeReceipt,
   topLevelStringValue,
   withoutTopLevelValue,
@@ -604,6 +607,31 @@ export function responseCarriesRawCredential(body: string): boolean {
   return credential !== null && credential.length > 0
 }
 
+/** A header that carries a credential when it is not empty. */
+const CREDENTIAL_HEADER = /authorization|credential|desktop-session/iu
+
+/**
+ * True when a refused answer carries credential material anywhere.
+ *
+ * A refused answer may carry a credential as a top-level member, as a nested
+ * member, as a duplicate member, behind an escaped key, or in a header. Every
+ * one of those is a credential the Worker issued, so every one of them refuses
+ * the denial.
+ */
+export function responseCarriesCredentialMaterial(
+  response: BuiltWorkerResponse,
+  secrets: readonly string[] = []
+): boolean {
+  if (rawCredentialValues(response.body).length > 0) return true
+  const decoded = decodeJsonBody(response.body)
+  if (decoded !== undefined) {
+    if (decodedStringValues(decoded).some((value) => secrets.includes(value))) return true
+  }
+  return Object.entries(response.headers).some(
+    ([name, value]) => CREDENTIAL_HEADER.test(name) && value.length > 0
+  )
+}
+
 /**
  * Runs the qualification against the built Worker and returns the receipt.
  *
@@ -625,7 +653,8 @@ export async function runBuiltWorkerDesktopAuth(
 
   const attempts = Math.max(1, input.attempts ?? DEFAULT_ATTEMPTS)
   const desktopOrigin = input.desktopOrigin ?? DESKTOP_TRUSTED_ORIGIN
-  const observedSecrets: string[] = [...(input.secrets ?? [])]
+  const callerSecrets: string[] = [...(input.secrets ?? [])]
+  const observedSecrets: string[] = [...callerSecrets]
   const responses: BuiltWorkerResponse[] = []
   let sessionCookie = ''
 
@@ -680,6 +709,10 @@ export async function runBuiltWorkerDesktopAuth(
   ): void => {
     if (!value) return
     observedSecrets.push(value)
+    // A value the caller named is never an issued value: the auth secret and
+    // the instance password must not be exemptable, or a response that carries
+    // one of them would look like a legitimate issuance.
+    if (callerSecrets.includes(value)) return
     const occurrences = issuedIn.get(value) ?? []
     occurrences.push({ index, ...exemption })
     issuedIn.set(value, occurrences)
@@ -708,7 +741,12 @@ export async function runBuiltWorkerDesktopAuth(
     const body = exemptions
       .filter((exemption) => exemption.bodyField)
       .reduce((text, exemption) => withoutTopLevelValue(text, exemption.bodyField!), response.body)
-    return `${headers}\n${body}`.includes(secret)
+    if (`${headers}\n${body}`.includes(secret)) return true
+    // A value can hide behind an escaped character, so the decoded body is read
+    // as well.
+    const decoded = decodeJsonBody(body)
+    if (decoded === undefined) return false
+    return decodedStringValues(decoded).some((value) => value.includes(secret))
   }
 
   /**
@@ -1031,7 +1069,7 @@ export async function runBuiltWorkerDesktopAuth(
           outcome: 'assertion-failed',
         }
       }
-      if (responseCarriesRawCredential(response.body)) {
+      if (responseCarriesCredentialMaterial(response, observedSecrets)) {
         return {
           passed: false,
           detail: 'the exchange route issued a credential for a wrong verifier',
@@ -1073,7 +1111,7 @@ export async function runBuiltWorkerDesktopAuth(
           outcome: 'assertion-failed',
         }
       }
-      if (responseCarriesRawCredential(response.body)) {
+      if (responseCarriesCredentialMaterial(response, observedSecrets)) {
         return {
           passed: false,
           detail: 'the exchange route issued a credential for an untrusted origin',
@@ -1125,7 +1163,7 @@ export async function runBuiltWorkerDesktopAuth(
           outcome: 'assertion-failed',
         }
       }
-      if (responseCarriesRawCredential(response.body)) {
+      if (responseCarriesCredentialMaterial(response, observedSecrets)) {
         return {
           passed: false,
           detail: 'the exchange route issued a second credential for one code',
