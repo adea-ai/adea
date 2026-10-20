@@ -1,5 +1,6 @@
 import { fileURLToPath } from 'node:url'
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { defineConfig, type Plugin } from 'vite'
 import { cloudflare } from '@cloudflare/vite-plugin'
 import { tanstackStart } from '@tanstack/solid-start/plugin/vite'
@@ -116,14 +117,20 @@ const entryFoundationGroups = [
 ] as const
 
 function protectClientGraph(): Plugin {
+  // Evidence follows the configured output directory, so a build with another
+  // outDir (the auth fixture build) never rewrites the production dist/.checks.
+  let checksDirectory = ''
   return {
     name: 'adea-start-client-boundary',
     apply: 'build',
+    // The top-level outDir, not an environment's (dist/client), so the evidence
+    // stays where the production artifact check reads it.
+    config(userConfig) {
+      checksDirectory = resolve(root, userConfig.build?.outDir ?? 'dist', '.checks')
+    },
     configResolved() {
-      rmSync(new URL('./dist/.checks/client-modules.json', import.meta.url), { force: true })
-      rmSync(new URL('./dist/.checks/client-rendered-modules.json', import.meta.url), {
-        force: true,
-      })
+      rmSync(join(checksDirectory, 'client-modules.json'), { force: true })
+      rmSync(join(checksDirectory, 'client-rendered-modules.json'), { force: true })
     },
     generateBundle(_options, bundle) {
       if (this.environment.name !== 'client') return
@@ -144,13 +151,13 @@ function protectClientGraph(): Plugin {
           if (module.renderedLength > 0) renderedModules.add(portableId)
         }
       }
-      mkdirSync(new URL('./dist/.checks/', import.meta.url), { recursive: true })
+      mkdirSync(checksDirectory, { recursive: true })
       writeFileSync(
-        new URL('./dist/.checks/client-modules.json', import.meta.url),
+        join(checksDirectory, 'client-modules.json'),
         JSON.stringify([...modules].toSorted())
       )
       writeFileSync(
-        new URL('./dist/.checks/client-rendered-modules.json', import.meta.url),
+        join(checksDirectory, 'client-rendered-modules.json'),
         JSON.stringify([...renderedModules].toSorted())
       )
     },

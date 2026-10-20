@@ -31,6 +31,11 @@ export type AuthServiceConsumer = Readonly<{
    * owns `close()`.
    */
   registerCleanup?: (close: () => Promise<void>) => void
+  /**
+   * The verification and password-reset transport for this request. Omitted, the
+   * service uses the fail-closed default, which rejects every message.
+   */
+  delivery?: AuthDelivery
 }>
 
 /**
@@ -67,7 +72,7 @@ export function createNeonServerAdapter(
   environment: AuthEnvironment = process.env,
   consumer: AuthServiceConsumer = {}
 ): AuthAdapter {
-  const service = createBetterAuthService(environment)
+  const service = createBetterAuthService(environment, consumer.delivery)
   consumer.registerCleanup?.(service.close)
   return createBetterAuthContextAdapter(service.auth, context)
 }
@@ -79,9 +84,10 @@ export async function handleNeonAuthRequest(
   method: RouteMethod,
   request: Request,
   _path?: string,
-  environment: AuthEnvironment = process.env
+  environment: AuthEnvironment = process.env,
+  consumer: AuthServiceConsumer = {}
 ): Promise<Response> {
-  const service = createBetterAuthService(environment)
+  const service = createBetterAuthService(environment, consumer.delivery)
   try {
     return await handleBetterAuthRequest(service.auth, method, request, service.config)
   } finally {
@@ -139,3 +145,11 @@ export {
   parseDesktopExchangeRequest,
   parseDesktopSessionRequest,
 } from './desktop-http-server'
+export {
+  AuthDeliveryFailedError,
+  AuthDeliveryRejectedError,
+  createServerAuthDelivery,
+  type AuthMessageKind,
+  type AuthMessageTransport,
+  type ServerAuthDeliveryOptions,
+} from './delivery-server'

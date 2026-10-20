@@ -37,6 +37,12 @@ const environment = Object.fromEntries(
 )
 Object.assign(environment, { WRANGLER_SEND_METRICS: 'false' })
 let databaseStarted = false
+// Optional: a disposable loopback PostgreSQL 18 cluster that already has the
+// agent_hq database and roles. When set, Docker Compose is not used at all.
+const externalDatabasePort = process.env.ADEA_AUTH_WORKER_POSTGRES_PORT
+if (externalDatabasePort !== undefined && !/^\d{2,5}$/.test(externalDatabasePort)) {
+  throw new Error('ADEA_AUTH_WORKER_POSTGRES_PORT must be a port number')
+}
 const ports = new Set()
 async function availablePort() {
   while (true) {
@@ -164,9 +170,11 @@ function stopWorker(child) {
     if (error.code !== 'ESRCH') throw error
   }
 }
-const [databasePort, hostPort, inspector] = await Promise.all(
+const [allocatedDatabasePort, hostPort, inspector] = await Promise.all(
   Array.from({ length: 3 }, availablePort)
 )
+const databasePort =
+  externalDatabasePort === undefined ? allocatedDatabasePort : Number(externalDatabasePort)
 const baseURL = `https://127.0.0.1:${hostPort}`
 const generatedPath = resolve(web, 'dist/server/wrangler.json')
 const built = JSON.parse(await readFile(generatedPath, 'utf8'))
@@ -228,8 +236,10 @@ const authTestEnvironment = {
   AUTH_WORKER_APPLICATION_NAME: authWorkerApplicationName,
 }
 try {
-  databaseStarted = true
-  await composeUpPostgres()
+  if (externalDatabasePort === undefined) {
+    databaseStarted = true
+    await composeUpPostgres()
+  }
   await run('bun', ['run', '--cwd', 'packages/db', 'db:verify'], root, databaseEnvironment)
   // Build an isolated Better Auth schema and exercise the synthetic recording
   // delivery before the production-built Worker receives any auth request.
