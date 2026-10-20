@@ -16,7 +16,6 @@ import type {
   FirstRunFacts,
   HandoffLeadAgent,
   HandoffLeadTurn,
-  HandoffChildObservations,
 } from '@adea-ai/dev-view/chat'
 import {
   applyLeadTurnCancelReceipt,
@@ -26,7 +25,7 @@ import {
   resolveLeadHandoffSupply,
 } from '../lib/lead-handoff-supply'
 import { createLeadStatusPoll } from '../lib/lead-handoff-poll'
-import { readLeadChildObservations } from '../lib/lead-child-observations'
+import { createLeadChildSupply } from '../lib/lead-child-supply'
 import type {
   DevProjectNames,
   DevRuntimeService,
@@ -346,48 +345,22 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
   // The child may finish after its lead. Keep its retained observation separate
   // from the lead status and from canonical timeline publication, and re-read it
   // on reconnect even when the lead itself is terminal.
-  const childKey = createMemo(() => {
-    const active = conversation()
-    const turn = leadSupply().turn
-    return active && turn
-      ? JSON.stringify([
-          active.scope.workspaceId,
-          active.runtimeSessionId,
-          turn.intentId,
-          turn.dispatchId ?? null,
-        ])
-      : ''
-  })
-  const [childSupply, setChildSupply] = createSignal<{
-    key: string
-    observations?: HandoffChildObservations
-  }>({ key: '' })
-  const childScope = createOrderedScope()
-  createEffect(() => {
-    const key = childKey()
-    childScope.begin()
-    setChildSupply({ key })
-  })
-  const readChildren = (): void => {
-    const active = conversation()
-    const turn = leadSupply().turn
-    const key = childKey()
-    if (!active || !turn || !key) return
-    const epoch = childScope.begin()
-    const request = lifecycle.current()
-    void readLeadChildObservations(
-      props.client,
-      active.scope.workspaceId,
-      turn.intentId,
-      turn.dispatchId
-    ).then((observations) => {
-      if (!lifecycle.isCurrent(request) || !childScope.isCurrent(epoch) || childKey() !== key)
-        return
-      setChildSupply({ key, observations })
-    })
-  }
-  createLeadStatusPoll(readChildren, () => childKey() !== '')
-  onCleanup(() => childScope.begin())
+  const childObservations = createLeadChildSupply(
+    props.client,
+    () => {
+      const active = conversation()
+      const turn = leadSupply().turn
+      return active && turn
+        ? {
+            workspaceId: active.scope.workspaceId,
+            runtimeSessionId: active.runtimeSessionId,
+            intentId: turn.intentId,
+            dispatchId: turn.dispatchId,
+          }
+        : undefined
+    },
+    lifecycle
+  )
 
   // Explicit handoff request (#1177): first the session authority gate
   // (existence, scope, task binding, liveness, ACTUAL current generation,
@@ -698,10 +671,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                           leadTurn: leadSupply().turn,
                           leadAgent: leadSupply().agent,
                           leadChannelId: leadSupply().channelId,
-                          childObservations:
-                            childSupply().key === childKey()
-                              ? childSupply().observations
-                              : undefined,
+                          childObservations: childObservations(),
                         }}
                         onLeadStop={leadSupply().turn ? cancelWorkspaceLead : undefined}
                         onRequestHandoff={requestWorkspaceHandoff}
