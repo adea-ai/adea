@@ -181,14 +181,48 @@ export async function runOwnedSmoke({
       .filter((mount) => mount?.Type === 'volume' && typeof mount?.Name === 'string' && mount.Name)
       .map((mount) => mount.Name)
   }
-  // A volume Docker reports as absent is gone. Only that answer proves absence.
-  const volumeExists = (volume) => {
+  // What a volume inspection answered: the volume is there, Docker confirmed it
+  // is gone, or the answer could not be trusted. Only the second is an absence.
+  const inspectVolume = (volume) => {
     const result = docker(['volume', 'inspect', volume], bounds.dockerCommandMs)
-    if (result.error)
-      throw new Error(`inspecting the volume ${volume} failed: ${result.error.message}`)
-    if (result.status === 0) return true
-    if (/no such volume/iu.test(result.stderr)) return false
-    throw new Error(`inspecting the volume ${volume} failed: ${failureText(result)}`)
+    if (result.error) return { state: 'unreadable', reason: result.error.message }
+    if (result.status === 0) return { state: 'present' }
+    if (/no such volume/iu.test(result.stderr)) return { state: 'absent' }
+    return { state: 'unreadable', reason: failureText(result) }
+  }
+  // Whether every tracked volume is confirmed gone. An inspection that could not
+  // be trusted fails the run: an unknown volume is never an absent one.
+  const volumesConfirmedGone = (volumes) => {
+    const failures = []
+    let gone = true
+    for (const volume of volumes) {
+      const inspection = inspectVolume(volume)
+      if (inspection.state === 'absent') continue
+      if (inspection.state === 'present') {
+        gone = false
+        continue
+      }
+      failures.push(new Error(`inspecting the volume ${volume} failed: ${inspection.reason}`))
+    }
+    if (failures.length > 0) throw failures[0]
+    return gone
+  }
+  // Whether every tracked volume is confirmed still there. An inspection that
+  // could not be trusted fails the run, the same way.
+  const volumesConfirmedPresent = (volumes) => {
+    const failures = []
+    let present = true
+    for (const volume of volumes) {
+      const inspection = inspectVolume(volume)
+      if (inspection.state === 'present') continue
+      if (inspection.state === 'absent') {
+        present = false
+        continue
+      }
+      failures.push(new Error(`inspecting the volume ${volume} failed: ${inspection.reason}`))
+    }
+    if (failures.length > 0) throw failures[0]
+    return present
   }
   // Removes one volume this lifecycle owns, by its exact name. A volume Docker already removed is gone.
   const removeVolume = (volume) => {
@@ -251,8 +285,8 @@ export async function runOwnedSmoke({
     observed.signal = child.signalCode
     observed.removed = !exists(ownedName)
     // The helper took its own container's anonymous volume with it, and left the sentinel's volume alone.
-    observed.ownedVolumeRemoved = observed.ownedVolumes.every((volume) => !volumeExists(volume))
-    observed.sentinelVolumeKept = observed.sentinelVolumes.every((volume) => volumeExists(volume))
+    observed.ownedVolumeRemoved = volumesConfirmedGone(observed.ownedVolumes)
+    observed.sentinelVolumeKept = volumesConfirmedPresent(observed.sentinelVolumes)
     observed.sentinelRunning = isRunning(sentinel)
   } catch (error) {
     failure = error

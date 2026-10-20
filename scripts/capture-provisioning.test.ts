@@ -108,6 +108,15 @@ case "$1" in
   rm)
     if [ "$SHIM_RM" = "missing" ]; then echo "Error response from daemon: No such container: $3" >&2; exit 1; fi
     if [ "$SHIM_RM" = "fail" ]; then echo "permission denied" >&2; exit 1; fi
+    if [ "$SHIM_RM" = "fail-once" ]; then
+      # The first removal fails and the next one succeeds, the way a daemon that
+      # refuses once and then answers does.
+      count=0
+      if [ -n "$SHIM_RM_COUNTER" ] && [ -f "$SHIM_RM_COUNTER" ]; then count=$(cat "$SHIM_RM_COUNTER"); fi
+      count=$((count + 1))
+      if [ -n "$SHIM_RM_COUNTER" ]; then printf '%s' "$count" > "$SHIM_RM_COUNTER"; fi
+      if [ "$count" -le 1 ]; then echo "permission denied" >&2; exit 1; fi
+    fi
     if [ "$SHIM_RM" = "hang" ]; then exec sleep 600; fi
     exit 0 ;;
   *) exit 1 ;;
@@ -246,6 +255,7 @@ function environmentFor(mode: string, extra: Record<string, string> = {}) {
       SHIM_LOG: log,
       SHIM_STATE: join(workdir, `state-${Math.random().toString(16).slice(2)}`),
       SHIM_COUNTER: join(workdir, `counter-${Math.random().toString(16).slice(2)}`),
+      SHIM_RM_COUNTER: join(workdir, `rm-counter-${Math.random().toString(16).slice(2)}`),
       SHIM_RM: ['missing', 'fail', 'hang'].includes(mode) ? mode : 'ok',
       ...extra,
     } as Record<string, string>,
@@ -664,6 +674,7 @@ async function withInstrumentedCapture(
       SHIM_LOG: log,
       SHIM_STATE: join(directory, 'state'),
       SHIM_COUNTER: join(directory, 'counter'),
+      SHIM_RM_COUNTER: join(directory, 'rm-counter'),
       ...settings,
     }
     await run(log, (event) =>
@@ -782,6 +793,77 @@ describe('instrumented capture ownership and cleanup with stub Docker', () => {
       },
       dockerShim.replace('port) echo "127.0.0.1:54329"; exit 0 ;;', 'port) echo ""; exit 0 ;;')
     )
+  })
+
+  test('a container removal that fails is tried again by a repeated stop', async () => {
+    await withInstrumentedCapture(
+      {
+        SHIM_RM: 'fail-once',
+        SHIM_MOUNTS: JSON.stringify([
+          { Type: 'volume', Name: 'volume-anonymous-1', Destination: '/var/lib/postgresql' },
+        ]),
+        SHIM_ANONYMOUS: 'volume-anonymous-1',
+      },
+      (log) => {
+        const handle = startCaptureProvisioning(undefined, {
+          removalTimeoutMs: 2000,
+          inspectionTimeoutMs: 200,
+          backoffMs: [],
+        })
+        if (!handle) throw new Error('Stub daemon unavailable')
+        let failure = ''
+        try {
+          handle.stop()
+        } catch (error) {
+          failure = error instanceof Error ? error.message : String(error)
+        }
+        expect(failure).toContain(
+          `removing the throwaway capture provisioning container ${handle.containerName} failed`
+        )
+        const first = readFileSync(log, 'utf8').trim().split('\n')
+        expect(first.filter((line) => line === `rm -f ${handle.containerName}`)).toHaveLength(1)
+        // The removal was not verified, so a repeated stop tries it again.
+        handle.stop()
+        const second = readFileSync(log, 'utf8').trim().split('\n')
+        expect(second.filter((line) => line === `rm -f ${handle.containerName}`)).toHaveLength(2)
+      }
+    )
+  })
+
+  test('an unresolved discovery keeps a repeated stop failing, with no known volume to remove', async () => {
+    await withInstrumentedCapture({ SHIM_INSPECT: 'status' }, (log) => {
+      const handle = startCaptureProvisioning(undefined, {
+        removalTimeoutMs: 2000,
+        inspectionTimeoutMs: 200,
+        backoffMs: [],
+      })
+      if (!handle) throw new Error('Stub daemon unavailable')
+      let failure = ''
+      try {
+        handle.stop()
+      } catch (error) {
+        failure = error instanceof Error ? error.message : String(error)
+      }
+      expect(failure).toContain(
+        `the throwaway capture provisioning container ${handle.containerName} could not be inspected: the inspection was refused`
+      )
+      const commands = readFileSync(log, 'utf8').trim().split('\n')
+      // No volume was discovered, so none is removed, and none is invented.
+      expect(commands.some((line) => line.startsWith('volume rm '))).toBe(false)
+      // The container is verified gone, and the volumes it owned are still
+      // unknown, so a repeated stop keeps failing.
+      expect(commands).toContain(`rm -f ${handle.containerName}`)
+      let repeated = ''
+      try {
+        handle.stop()
+      } catch (error) {
+        repeated = error instanceof Error ? error.message : String(error)
+      }
+      expect(repeated).toContain(
+        `the anonymous volumes of the throwaway capture provisioning container ${handle.containerName} are still unknown`
+      )
+      expect(repeated).toContain('the container could not be inspected')
+    })
   })
 
   test('a container inspection that is refused is a failure, not an empty volume list', async () => {

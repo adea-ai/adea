@@ -677,9 +677,14 @@ test('real lifecycle helpers preserve test failure when both resource teardowns 
   expect(result.events.filter(({ event }) => event === 'compose-stop')).toHaveLength(1)
   const captures = result.events.filter(({ event }) => event === 'capture-run')
   expect(captures).toHaveLength(1)
-  expect(
-    result.events.filter(({ event }) => event === 'capture-rm').map(({ detail }) => detail)
-  ).toEqual(captures.map(({ detail }) => detail))
+  // The capture removal that was not verified is tried again, so the same
+  // container is named twice, and both attempts are the container that started.
+  const captureRemovals = result.events.filter(({ event }) => event === 'capture-rm')
+  expect(captureRemovals).toHaveLength(2)
+  expect(captureRemovals.map(({ detail }) => detail)).toEqual([
+    ...captures.map(({ detail }) => detail),
+    ...captures.map(({ detail }) => detail),
+  ])
   expect(result.resources).toEqual([])
 }, 15000)
 

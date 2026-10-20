@@ -35,6 +35,8 @@ function fakeDocker(
     throttleAll?: boolean
     // Fails the inspection of one volume, the way a daemon that refuses answers.
     volumeInspectFails?: (volume: string) => boolean
+    // Times the inspection of one volume out, the way a client that never answers does.
+    volumeInspectTimesOut?: (volume: string) => boolean
     // Fails the removal of one volume, the way a volume that is still in use answers.
     volumeRmFails?: (volume: string) => boolean
   } = {}
@@ -97,6 +99,9 @@ function fakeDocker(
       if (!present.has(name)) return { status: 1, stderr: `No such object: ${name}`, stdout: '' }
       const format = args[args.indexOf('--format') + 1]
       if (format === '{{json .Mounts}}') {
+        // Every container of the pinned image carries the anonymous data volume,
+        // including one the test put there itself.
+        if (!volumes.has(`volume-${name}`)) volumes.set(`volume-${name}`, name)
         const mounts = [...volumes.entries()]
           .filter(([, owner]) => owner === name)
           .map(([volume]) => ({
@@ -111,6 +116,13 @@ function fakeDocker(
     if (args[0] === 'volume') {
       const name = args.at(-1)!
       if (args[1] === 'inspect') {
+        if (plan.volumeInspectTimesOut?.(name))
+          return {
+            error: new Error('spawnSync docker ETIMEDOUT'),
+            status: null,
+            stderr: '',
+            stdout: '',
+          }
         if (plan.volumeInspectFails?.(name))
           return { status: 1, stderr: 'permission denied', stdout: '' }
         if (!volumes.has(name)) return { status: 1, stderr: `no such volume: ${name}`, stdout: '' }
@@ -486,6 +498,40 @@ describe('capture provisioning smoke lifecycle, fault paths', () => {
     expect(messagesOf(error).join('\n')).toContain(`removing the volume volume-${sentinel} failed`)
     // A named volume is never removed, and nothing outside the tracked ones is touched.
     expect(volumeRemovals.every((name) => name?.startsWith('volume-'))).toBe(true)
+  })
+
+  test('a volume inspection that times out is not an absence', async () => {
+    const fake = fakeDocker({ volumeInspectTimesOut: () => true })
+    const child = fakeChild([`OWNED ${owned}`, `READY ${owned} 1`], {
+      onTerm: () => fake.present.delete(owned),
+    })
+    const error = await failureOf({
+      docker: fake.docker,
+      spawnChild: () => {
+        fake.present.add(owned)
+        return child
+      },
+    })
+    // The volume could not be inspected, so it is never reported as gone.
+    expect(messagesOf(error).join('\n')).toContain('inspecting the volume')
+    expect(messagesOf(error).join('\n')).toContain('ETIMEDOUT')
+  })
+
+  test('a volume inspection that is refused is not an absence', async () => {
+    const fake = fakeDocker({ volumeInspectFails: () => true })
+    const child = fakeChild([`OWNED ${owned}`, `READY ${owned} 1`], {
+      onTerm: () => fake.present.delete(owned),
+    })
+    const error = await failureOf({
+      docker: fake.docker,
+      spawnChild: () => {
+        fake.present.add(owned)
+        return child
+      },
+    })
+    expect(messagesOf(error).join('\n')).toContain(
+      `inspecting the volume volume-${owned} failed: permission denied`
+    )
   })
 
   test('an inspect failure other than the absent-container answer is an error, not proof of removal', async () => {
