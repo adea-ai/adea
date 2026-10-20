@@ -5,44 +5,34 @@
 // bundled layout, recording retained artifacts under git-ignored
 // artifacts/packaged/. Exits nonzero when the build or any packaged proof
 // fails.
-import { readdirSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 import { writeLaneSummary } from './dev-runtime-lane-report.mjs'
+import {
+  packagedLaneExitCode,
+  selectDevAppBundle,
+} from '../apps/desktop/shell/scripts/packaged-bundle-selection.ts'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const startedAt = new Date()
 const command = 'bun run test:packaged'
 const shellScripts = path.join(root, 'apps/desktop/shell/scripts')
 
-// Electrobun stages the .app bundle under the shell build directory.
-function findAppBundle(dir, depth = 0) {
-  if (depth > 6) return null
-  // The packaged lane targets the DEV channel build. A stable-channel
-  // Adea.app (auto-update artefact) may also live under build/ — it lacks
-  // the bundled dev-runtime sidecar, so it must never be picked by accident.
-  const preferred = path.join(dir, 'dev-macos-arm64', 'Adea-dev.app')
-  if (require('node:fs').existsSync(preferred)) return preferred
-  let entries
+// The filesystem seams the bundle selection runs over: the names of the
+// DIRECTORIES in a directory, and whether a path exists. An unreadable or
+// absent directory simply lists as empty, which the selection treats as
+// "no candidate" rather than as an error.
+function listDirectories(dir) {
   try {
-    entries = readdirSync(dir, { withFileTypes: true })
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
   } catch {
-    return null
+    return []
   }
-  for (const entry of entries) {
-    if (entry.isDirectory() && entry.name.endsWith('.app')) {
-      return path.join(dir, entry.name)
-    }
-  }
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      const found = findAppBundle(path.join(dir, entry.name), depth + 1)
-      if (found) return found
-    }
-  }
-  return null
 }
 
 // The single-UI client must exist before the shell bundles it; the shell
@@ -52,20 +42,34 @@ const build = spawnSync('bun', ['run', '--cwd', 'apps/desktop', 'shell:build'], 
   stdio: 'inherit',
   env: process.env,
 })
-const bundle =
-  build.status === 0 ? findAppBundle(path.join(root, 'apps/desktop/shell/build')) : null
+// The lane drives the one bundle the repository pins as the development
+// target. A stable-only, wrong-architecture, wrong-layout or ambiguous build
+// root is REJECTED: the packaged proofs would then run against a bundle the
+// lane does not mean to prove.
+const buildRoot = path.join(root, 'apps/desktop/shell/build')
+const selection =
+  build.status === 0
+    ? selectDevAppBundle({ buildRoot, exists: existsSync, listDirectory: listDirectories })
+    : { bundle: null, reason: 'build-failed' }
+const bundle = selection.bundle
 if (build.status !== 0 || !bundle) {
+  // A build that SUCCEEDED but produced no usable bundle is a lane failure,
+  // so the exit code is nonzero even though the build's own status was 0.
+  const exitCode = packagedLaneExitCode({ buildStatus: build.status, bundle })
   await writeLaneSummary('packaged', {
     command,
     status: 'failed',
     startedAt,
     details: {
-      exitCode: build.status ?? 1,
+      exitCode,
       bundle: bundle ? path.relative(root, bundle) : null,
-      error: 'the Electrobun build did not produce an app bundle',
+      error:
+        build.status !== 0
+          ? 'the Electrobun build failed'
+          : `the Electrobun build did not produce a usable dev app bundle (${selection.reason})`,
     },
   })
-  process.exit(build.status ?? 1)
+  process.exit(exitCode)
 }
 
 // Packaged proofs against the REAL bundled layout. `required` proofs fail

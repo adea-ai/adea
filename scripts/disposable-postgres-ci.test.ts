@@ -4,6 +4,9 @@ import { resolve } from 'node:path'
 
 import { inspectDatabaseConfiguration } from './database-config.mjs'
 import {
+  BACKUP_RESTORE_TEST,
+  backupRestoreEnvironment,
+  backupRestoreUrl,
   containerRemovalCommand,
   ownedAnonymousVolume,
   CANONICAL_MIGRATION_ROLE,
@@ -93,7 +96,9 @@ function fake(overrides: Partial<DisposableProofDependencies> = {}): Fake {
     },
     command: (command, args) => {
       state.commands.push({ command, args })
-      return { status: 0, stdout: '', stderr: '' }
+      // The backup and restore test reports its summary on stderr, as bun does.
+      const summary = args.includes(BACKUP_RESTORE_TEST) ? '\n 1 pass\n 0 fail\n' : ''
+      return { status: 0, stdout: '', stderr: summary }
     },
     query: async (url, statement) => {
       state.queries.push({ url, statement })
@@ -154,6 +159,7 @@ describe('the disposable PostgreSQL proof', () => {
       '--no-env-file run --cwd packages/db db:check',
       '--no-env-file run --cwd packages/db db:verify',
       '--no-env-file --conditions=react-server test packages/db/tests/integration/migrations.test.ts',
+      `--no-env-file test ${BACKUP_RESTORE_TEST}`,
     ])
     // The hosted lane asserts the URL is present between the verifier and the
     // integration test; the same step keeps its place.
@@ -233,6 +239,42 @@ describe('the disposable PostgreSQL proof', () => {
     expect(receipt.auth.created).toEqual(['account', 'session', 'user', 'verification'])
     expect(receipt.auth.replayApplied).toBe(false)
     expect(receipt.auth.schema).toBe(PROOF_AUTH_SCHEMA)
+  })
+
+  test('runs the backup and restore test through bun, with the lane’s own URL', async () => {
+    const { deps, state } = fake()
+    await runDisposablePostgresProof(deps, options)
+    const backup = state.commands.find((entry) => entry.args.includes(BACKUP_RESTORE_TEST))
+    expect(backup?.command).toBe('bun')
+    expect(backup?.args).toEqual(['--no-env-file', 'test', BACKUP_RESTORE_TEST])
+  })
+
+  test('fails the lane when the backup and restore test fails', async () => {
+    const { deps } = fake({
+      command: (command, args) => ({
+        status: args.includes(BACKUP_RESTORE_TEST) ? 1 : 0,
+        stdout: '',
+        stderr: args.includes(BACKUP_RESTORE_TEST) ? ' 0 pass\n 1 fail\n' : '',
+      }),
+    })
+    await expect(runDisposablePostgresProof(deps, options)).rejects.toThrow(
+      /backup and restore test failed with exit code 1/
+    )
+  })
+
+  test('fails the lane when the backup and restore test passes nothing', async () => {
+    for (const stderr of ['\n 0 pass\n 0 fail\n', '\n 1 pass\n 1 skip\n']) {
+      const { deps } = fake({
+        command: (command, args) => ({
+          status: 0,
+          stdout: '',
+          stderr: args.includes(BACKUP_RESTORE_TEST) ? stderr : '',
+        }),
+      })
+      await expect(runDisposablePostgresProof(deps, options)).rejects.toThrow(
+        /did not run to completion; a skipped run is not a proof/
+      )
+    }
   })
 
   test('refuses to run without a container runtime', async () => {
@@ -511,6 +553,40 @@ describe('the disposable proof helpers', () => {
     expect(parsed.searchParams.get('sslrootcert')).toBe('/tmp/cert/server.crt')
     expect(parsed.searchParams.get('options')).toBe(`-c search_path=${PROOF_AUTH_SCHEMA}`)
     expect(parsed.searchParams.getAll('sslmode')).toHaveLength(1)
+  })
+
+  test('the backup and restore URL is verified against the pinned certificate, on the proof database only', () => {
+    const url = backupRestoreUrl(
+      `postgresql://postgres:${'a'.repeat(32)}@${LOOPBACK_HOST}:54321/postgres?sslmode=require&connect_timeout=10`,
+      '/tmp/cert/server.crt'
+    )
+    const parsed = new URL(url)
+    expect(parsed.pathname).toBe(`/${PROOF_DATABASE}`)
+    expect(parsed.searchParams.get('sslmode')).toBe('verify-full')
+    expect(parsed.searchParams.getAll('sslmode')).toHaveLength(1)
+    expect(parsed.searchParams.get('sslrootcert')).toBe('/tmp/cert/server.crt')
+    expect(parsed.searchParams.has('options')).toBe(false)
+    expect(() => assertLoopbackTlsUrl(url, 'AUTH_POSTGRES_TEST_URL', 'verify-full')).not.toThrow()
+  })
+
+  test('the backup and restore environment carries its one URL and only the routing-neutral variables', () => {
+    const testUrl = 'postgresql://postgres:secret@127.0.0.1:54321/adea_ci_proof?sslmode=verify-full'
+    expect(
+      backupRestoreEnvironment(testUrl, {
+        PATH: '/usr/bin',
+        TMPDIR: '/tmp',
+        LANG: 'C.UTF-8',
+        HOME: '/root',
+        PGHOST: 'example.test',
+        PGSERVICE: 'production',
+        DATABASE_URL: 'postgresql://someone:secret@example.test/production',
+      })
+    ).toEqual({
+      PATH: '/usr/bin',
+      TMPDIR: '/tmp',
+      LANG: 'C.UTF-8',
+      AUTH_POSTGRES_TEST_URL: testUrl,
+    })
   })
 
   test('the plaintext URL turns the transport off', () => {

@@ -165,6 +165,11 @@ export function AppLibraryPage(props: {
   onSetEnabled(id: WorkspaceAppId, enabled: boolean): void
   onOpen(id: WorkspaceAppId): void
   onReset(): void
+  /** The shell owns the search text and filter when it passes them; the page keeps its own otherwise. */
+  search?: string
+  onSearchChange?(value: string): void
+  enabledOnly?: boolean
+  onEnabledOnlyChange?(value: boolean): void
 }) {
   let searchInput: HTMLInputElement | undefined
   createEffect(() => {
@@ -174,8 +179,18 @@ export function AppLibraryPage(props: {
       props.onFocusSearchRequestHandled(request)
     }
   })
-  const [enabledOnly, setEnabledOnly] = createSignal(false)
-  const [search, setSearch] = createSignal('')
+  const [localEnabledOnly, setLocalEnabledOnly] = createSignal(false)
+  const [localSearch, setLocalSearch] = createSignal('')
+  const enabledOnly = () => props.enabledOnly ?? localEnabledOnly()
+  const setEnabledOnly = (next: boolean) => {
+    setLocalEnabledOnly(next)
+    props.onEnabledOnlyChange?.(next)
+  }
+  const search = () => props.search ?? localSearch()
+  const setSearch = (next: string) => {
+    setLocalSearch(next)
+    props.onSearchChange?.(next)
+  }
   const [draggingId, setDraggingId] = createSignal<WorkspaceAppId>()
   const [dropTargetId, setDropTargetId] = createSignal<WorkspaceAppId>()
   const [dropPosition, setDropPosition] = createSignal<RailDropPosition>()

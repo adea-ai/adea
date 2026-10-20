@@ -635,6 +635,7 @@ export async function runDisposablePostgresProof(
         options.authSchema
       ),
     })
+    await proveBackupRestore(dependencies, { adminUrl, certificatePath })
 
     receipt = {
       status: 'passed',
@@ -847,6 +848,65 @@ async function proveRuntimeDml(
     `DELETE FROM ${PROOF_APP_SCHEMA}.users WHERE id = $1::uuid`,
     [uuid]
   )
+}
+
+/** The backup and restore test, run against the lane's own disposable database. */
+export const BACKUP_RESTORE_TEST = 'packages/auth/tests/integration/schema-backup-restore.test.ts'
+
+/**
+ * The URL the backup and restore test connects with: the instance's own
+ * superuser, on the proof database the lane created, verified against the pinned
+ * certificate. The test creates and drops its own schema and restore database
+ * there, and touches no other database.
+ */
+export function backupRestoreUrl(adminUrl: string, certificatePath: string): string {
+  const url = new URL(adminUrl)
+  url.pathname = `/${PROOF_DATABASE}`
+  url.search = ''
+  url.searchParams.set('sslmode', 'verify-full')
+  url.searchParams.set('sslrootcert', certificatePath)
+  return url.toString()
+}
+
+/** The minimal environment for the backup and restore test: its one URL, nothing else that routes. */
+export function backupRestoreEnvironment(
+  testUrl: string,
+  inherited: Record<string, string | undefined> = process.env
+): Record<string, string | undefined> {
+  const environment: Record<string, string | undefined> = {}
+  for (const name of ['PATH', 'TMPDIR', 'LANG']) {
+    if (inherited[name]) environment[name] = inherited[name]
+  }
+  environment.AUTH_POSTGRES_TEST_URL = testUrl
+  return environment
+}
+
+/**
+ * Runs the backup and restore test on the disposable instance. A failed run fails
+ * the proof, and so does a run that passed nothing: a skipped test is not a proof.
+ */
+async function proveBackupRestore(
+  dependencies: DisposableProofDependencies,
+  input: { readonly adminUrl: string; readonly certificatePath: string }
+): Promise<void> {
+  const testUrl = backupRestoreUrl(input.adminUrl, input.certificatePath)
+  assertLoopbackTlsUrl(testUrl, 'AUTH_POSTGRES_TEST_URL', 'verify-full')
+  const result = dependencies.command(
+    'bun',
+    ['--no-env-file', 'test', BACKUP_RESTORE_TEST],
+    backupRestoreEnvironment(testUrl)
+  )
+  const output = `${result.stdout}\n${result.stderr}`
+  if (result.status !== 0) {
+    throw new Error(
+      `the backup and restore test failed with exit code ${result.status}: ${output.trim().slice(0, 500)}`
+    )
+  }
+  if (!/\b[1-9]\d* pass\b/.test(output) || /\b[1-9]\d* skip\b/.test(output)) {
+    throw new Error(
+      'the backup and restore test did not run to completion; a skipped run is not a proof'
+    )
+  }
 }
 
 /**

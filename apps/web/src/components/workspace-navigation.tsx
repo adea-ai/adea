@@ -692,6 +692,11 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // the unread value.
   const [librarySearchRequest, setLibrarySearchRequest] = createSignal(0)
   const [librarySearchRequestHandled, setLibrarySearchRequestHandled] = createSignal(0)
+  // The App Library's search text and enabled-only filter live with the shell, not the page, so they
+  // survive leaving and returning within this session. They are not in the URL (no history entries)
+  // and reset on reload.
+  const [librarySearch, setLibrarySearch] = createSignal('')
+  const [libraryEnabledOnly, setLibraryEnabledOnly] = createSignal(false)
   const [railPreferences, setRailPreferences] = createSignal<RailPreferencesV1>(
     defaultRailPreferences,
     { equals: false }
@@ -1723,6 +1728,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
                       setLibrarySearchRequestHandled((handled) => Math.max(handled, request))
                     }
                     preferences={railPreferences()}
+                    search={librarySearch()}
+                    onSearchChange={setLibrarySearch}
+                    enabledOnly={libraryEnabledOnly()}
+                    onEnabledOnlyChange={setLibraryEnabledOnly}
                     onReorder={(id, targetId, position) => {
                       const previous = railPreferences()
                       const next = reorderWorkspaceAppsRelativeTo(previous, id, targetId, position)
