@@ -104,13 +104,19 @@ describe('a marker inside a word never stops the scan', () => {
   const modulePath = join(import.meta.dir, 'fresh-postgres-acceptance', 'fresh-account-only.mjs')
 
   function scanInChild(source: string) {
-    const probe = `import { freshAccountOnlyViolations } from ${JSON.stringify(modulePath)}
-const kinds = freshAccountOnlyViolations('probe.ts', ${JSON.stringify(source)}).map(
+    // The source is given to the child on its standard input. A long source
+    // does not fit on a command line, and the point of the child is to be
+    // given the same text the scan would have been given.
+    const probe = `import { readFileSync } from 'node:fs'
+import { freshAccountOnlyViolations } from ${JSON.stringify(modulePath)}
+const source = readFileSync(0, 'utf8')
+const kinds = freshAccountOnlyViolations('probe.ts', source).map(
   (violation) => violation.kind
 )
 console.log(JSON.stringify(kinds))`
     return spawnSync(process.execPath, ['-e', probe], {
       encoding: 'utf8',
+      input: source,
       timeout: MAX_SCAN_MILLISECONDS,
       killSignal: 'SIGKILL',
     })
