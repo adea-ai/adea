@@ -134,6 +134,7 @@ test('createSimHost refuses to start without a valid configuration or a frame sc
     frameScript: '// bootstrap',
     exchange: async () => ({ body: { status: 'unavailable' } }) as never,
     session: async () => null,
+    entitlement: async () => 'not_entitled' as const,
     readAsset: async () => null,
   }
   expect(() => createSimHost({ ...dependencies, ...valid, parentOrigins: [] })).toThrow(
@@ -151,7 +152,10 @@ test('createSimHost refuses to start without a valid configuration or a frame sc
 test('a configured prefix and renamed entries are the only paths served privately, with the surface still bound', async () => {
   const now = 1_000
   const sessions = new Map([
-    ['s'.repeat(40), { surface: 'room-designer', expiresAt: now + 60_000 }],
+    [
+      's'.repeat(40),
+      { workspaceId: 'workspace-one', surface: 'room-designer', expiresAt: now + 60_000 },
+    ],
   ] as const)
   const served: string[] = []
   const host = createSimHost({
@@ -162,6 +166,8 @@ test('a configured prefix and renamed entries are the only paths served privatel
     frameScript: '// bootstrap',
     exchange: async () => ({ body: { status: 'unavailable' } }) as never,
     session: async (value) => (sessions.get(value) as never) ?? null,
+    entitlement: async (context) =>
+      context.workspaceId === 'workspace-one' ? 'entitled' : 'not_entitled',
     now: () => now,
     readAsset: async (path) => {
       served.push(path)
@@ -196,7 +202,10 @@ test('a configured prefix and renamed entries are the only paths served privatel
 test('an unrenamed entry keeps its own surface binding and is not treated as retired', async () => {
   const now = 1_000
   const sessions = new Map([
-    ['t'.repeat(40), { surface: 'room-designer', expiresAt: now + 60_000 }],
+    [
+      't'.repeat(40),
+      { workspaceId: 'workspace-one', surface: 'room-designer', expiresAt: now + 60_000 },
+    ],
   ] as const)
   const host = createSimHost({
     origin,
@@ -206,6 +215,8 @@ test('an unrenamed entry keeps its own surface binding and is not treated as ret
     frameScript: '// bootstrap',
     exchange: async () => ({ body: { status: 'unavailable' } }) as never,
     session: async (value) => (sessions.get(value) as never) ?? null,
+    entitlement: async (context) =>
+      context.workspaceId === 'workspace-one' ? 'entitled' : 'not_entitled',
     now: () => now,
     readAsset: async (path) => ({ body: `asset:${path}`, contentType: 'text/javascript' }),
   })

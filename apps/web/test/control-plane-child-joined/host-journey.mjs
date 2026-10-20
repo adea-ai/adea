@@ -109,6 +109,14 @@ const sent = { lead: [], child: [] }
 let behavior = { childFails: false }
 
 const hooks = governed.createGovernedDispatchHooks()
+// Test-local scheduling of CP's periodic recovery pass (a supported composition option). The default
+// interval is one no test reaches, so a scan happens only when a test asks for it. The automatic-recovery
+// test sets PI_FACTORY_PERIODIC_RECOVERY_MS to observe the periodic pass on its own. Production timers are
+// not touched: the composition default is 30 s and this file only passes the option through.
+const MANUAL_ONLY_RECOVERY_MS = 2_147_483_647
+const periodicRecoveryIntervalMs = process.env.PI_FACTORY_PERIODIC_RECOVERY_MS
+  ? Number(process.env.PI_FACTORY_PERIODIC_RECOVERY_MS)
+  : MANUAL_ONLY_RECOVERY_MS
 const host = await factory.createProductionFactoryFixture({
   childAllowanceSource: config.childAllowanceSource,
   workspaceId: config.workspaceId,
@@ -120,7 +128,10 @@ const host = await factory.createProductionFactoryFixture({
     credentials: { getExistingCredential: async () => config.assertion },
     fetch: (_endpoint, options) => originalFetch(config.readerUrl, options),
   },
-  childrenFactory: governed.governedDispatchChildren(hooks),
+  childrenFactory: async (args) => {
+    const children = await governed.governedDispatchChildren(hooks)(args)
+    return { ...children, runtime: { ...children.runtime, periodicRecoveryIntervalMs } }
+  },
   physicalResponder: async ({ body }) => {
     const input = body.input
     const isChild =
@@ -343,8 +354,14 @@ async function handle(request) {
     }
     case 'evidence':
       return evidence()
-    case 'scan':
-      return hooks.scanner.scan(host.composition.adapter)
+    case 'scan': {
+      // The child scan, then the child settlement the production composition exposes. The periodic pass also
+      // settles the lead's terminal accounting, which this composition does not expose: that stays with the
+      // periodic pass, so accounted() must observe it through the automatic-recovery path if it is needed.
+      const result = await hooks.scanner.scan(host.composition.adapter)
+      await host.composition.settleChildTerminalAccounting?.()
+      return result
+    }
     case 'reopen': {
       await host.reopenComposition()
       wrapExecutor()

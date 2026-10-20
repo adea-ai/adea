@@ -258,10 +258,10 @@ describe('development bundle selection', () => {
       target: serializeDesktopTarget(desktopBuildTarget({ release: true })),
     })
     const stableBundle = join(root, 'stable-macos-arm64', 'Adea.app')
-    // The shared helper is loose: it prefers the dev bundle, then returns ANY
-    // `.app` it finds, so it hands back the stable bundle here. That is the
-    // behaviour this selection must not inherit.
-    expect(findAppBundle(root)).toBe(stableBundle)
+    // The shared helper is fail-closed: it selects only the development target
+    // it pins, so a stable-only checkout selects NOTHING rather than handing
+    // back the stable bundle.
+    expect(findAppBundle(root)).toBeNull()
     // The stable bundle is not the development bundle, so it is never handed
     // to the development-bundle assertions.
     expect(findDevelopmentBundle(root)).toBeNull()

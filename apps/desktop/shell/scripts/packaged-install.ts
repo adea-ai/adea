@@ -28,6 +28,7 @@ import {
   type ComponentSpec,
 } from '../src/supervision/component-manifest'
 import type { ComponentCommand } from '../src/supervision/process-adapter'
+import { selectDevAppBundle } from './packaged-bundle-selection'
 import {
   MANAGED_PI_PINNED_ARCHIVE_SHA256,
   MANAGED_PI_PINNED_VERSION,
@@ -185,30 +186,28 @@ export function resolveManagedPiInstall(dataDir: string): DataDirInstallResoluti
 }
 
 /** Finds the Electrobun-built .app under the shell build directory, or null
- *  when the packaged lane has not built yet (same search the lane wrapper
- *  uses for its summary). */
-export function findAppBundle(buildRoot: string, depth = 0): string | null {
-  if (depth > 6) return null
-  // The packaged lane targets the DEV channel build; a stable-channel
-  // Adea.app must never be picked by accident.
-  const preferred = join(buildRoot, 'dev-macos-arm64', 'Adea-dev.app')
-  if (existsSync(preferred)) return preferred
-  let entries
-  try {
-    entries = readdirSync(buildRoot, { withFileTypes: true })
-  } catch {
-    return null
-  }
-  for (const entry of entries) {
-    if (entry.isDirectory() && entry.name.endsWith('.app')) return join(buildRoot, entry.name)
-  }
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      const found = findAppBundle(join(buildRoot, entry.name), depth + 1)
-      if (found) return found
-    }
-  }
-  return null
+ *  when the packaged lane has not built yet.
+ *
+ *  The selection is FAIL-CLOSED and shared with the packaged lane wrapper
+ *  (the `packaged-bundle-selection.ts` module beside this one): only the
+ *  development target the repository pins — `dev-macos-arm64/Adea-dev.app` — qualifies. A
+ *  stable-only build root, a bundle built for another architecture, a bundle
+ *  with another name, or an ambiguous build root selects NOTHING, so a packaged
+ *  proof can never be run against a bundle the lane does not mean to prove. */
+export function findAppBundle(buildRoot: string): string | null {
+  return selectDevAppBundle({
+    buildRoot,
+    exists: existsSync,
+    listDirectory: (dir: string) => {
+      try {
+        return readdirSync(dir, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => entry.name)
+      } catch {
+        return []
+      }
+    },
+  }).bundle
 }
 
 export type PackagedIdentity = {
