@@ -500,6 +500,42 @@ describe('capture provisioning smoke lifecycle, fault paths', () => {
     expect(volumeRemovals.every((name) => name?.startsWith('volume-'))).toBe(true)
   })
 
+  test('a child that never becomes ready still takes the owned volume with it', async () => {
+    const fake = fakeDocker()
+    const error = await failureOf({
+      docker: fake.docker,
+      spawnChild: () => {
+        // The helper's own instance, with the anonymous volume Docker gives it.
+        fake.present.add(owned)
+        return fakeChild([`OWNED ${owned}`], { closeStdout: true })
+      },
+    })
+    expect(messagesOf(error).join('\n')).toContain('the helper child ended before READY')
+    const volumeRemovals = fake.calls
+      .filter((args) => args[0] === 'volume' && args[1] === 'rm')
+      .map((args) => args.at(-1))
+    // The owned volume's identity is recovered before the child is stopped, so
+    // the volume is removed even though the child never became ready.
+    expect(volumeRemovals).toContain(`volume-${owned}`)
+    expect(fake.volumes.size).toBe(0)
+    expect(fake.present.size).toBe(0)
+  })
+
+  test('a partial sentinel start still takes the sentinel volume with it', async () => {
+    const fake = fakeDocker({ run: 'partial' })
+    const error = await failureOf({ docker: fake.docker, spawnChild: () => fakeChild([]) })
+    expect(messagesOf(error).join('\n')).toContain('starting the sentinel container failed')
+    const sentinel = sentinelOf(fake.calls)
+    const volumeRemovals = fake.calls
+      .filter((args) => args[0] === 'volume' && args[1] === 'rm')
+      .map((args) => args.at(-1))
+    // A start that fails after the container was created leaves it and its
+    // volume behind, and the cleanup takes both.
+    expect(volumeRemovals).toContain(`volume-${sentinel}`)
+    expect(fake.volumes.size).toBe(0)
+    expect(fake.present.size).toBe(0)
+  })
+
   test('a volume inspection that times out is not an absence', async () => {
     const fake = fakeDocker({ volumeInspectTimesOut: () => true })
     const child = fakeChild([`OWNED ${owned}`, `READY ${owned} 1`], {

@@ -207,6 +207,19 @@ export async function runOwnedSmoke({
     if (failures.length > 0) throw failures[0]
     return gone
   }
+  // Recovers the volumes of one container before anything removes it.
+  //
+  // A container that is not there contributes nothing, and a known identity is
+  // never replaced by an empty list. An inspection that cannot be trusted is a
+  // failure: an unknown volume is never an absent one.
+  const recoverVolumes = (name, known) => {
+    try {
+      const volumes = containerVolumes(name)
+      if (volumes.length > 0) known.push(...volumes.filter((volume) => !known.includes(volume)))
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
+  }
   // Whether every tracked volume is confirmed still there. An inspection that
   // could not be trusted fails the run, the same way.
   const volumesConfirmedPresent = (volumes) => {
@@ -252,6 +265,9 @@ export async function runOwnedSmoke({
     if (result.error)
       throw new Error(`starting the sentinel container failed: ${result.error.message}`)
     if (result.status !== 0) {
+      // A start that fails after the container was created leaves that container and its
+      // volume behind, so the provenance is recovered before the cleanup removes it.
+      recoverVolumes(sentinel, observed.sentinelVolumes)
       throw new Error(`starting the sentinel container failed: ${failureText(result)}`)
     }
     // The sentinel's own volumes are captured the moment it exists, so an early failure in the child
@@ -291,6 +307,11 @@ export async function runOwnedSmoke({
   } catch (error) {
     failure = error
   } finally {
+    // The owned container's volumes are recovered before the child is stopped, because the
+    // child removes its own instance on SIGTERM and the identity would be lost with it.
+    if (ownedName !== undefined) recoverVolumes(ownedName, observed.ownedVolumes)
+    // The sentinel's volumes are recovered before the sentinel is removed, the same way.
+    recoverVolumes(sentinel, observed.sentinelVolumes)
     // The child goes first, so the helper can remove its own instance on SIGTERM. Then both removals run, even
     // when an earlier step failed, and each failure is kept.
     if (child !== undefined && !childStopAttempted) {
@@ -301,15 +322,8 @@ export async function runOwnedSmoke({
       }
     }
     if (ownedName !== undefined) {
-      // The owned container's volumes are captured before it is removed, so an early failure in the
-      // child still leaves the cleanup with the identity it has to remove. A container that is already
-      // gone contributes nothing, and never replaces an identity that was read while it existed.
-      try {
-        const volumes = containerVolumes(ownedName)
-        if (volumes.length > 0) observed.ownedVolumes = volumes
-      } catch (error) {
-        cleanupErrors.push(error)
-      }
+      // The owned container's volumes were recovered before the child was stopped, so the
+      // identity it owned is known here even when the child removed it.
       try {
         removeNamed(ownedName)
       } catch (error) {
