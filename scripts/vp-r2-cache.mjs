@@ -517,8 +517,12 @@ async function stagedWrite(
   scope,
   key,
   bytes,
-  { limits = LIMITS, operation, equivalent, verify }
+  { limits = LIMITS, operation, equivalent, verify, maxBytes }
 ) {
+  // The read bound is the bound of **this** object: the envelope is bounded by the envelope bound and the archive by
+  // the archive bound. Reading an archive with the envelope bound would refuse a large archive that is perfectly
+  // valid, and a duplicate publication of it would fail.
+  const bound = maxBytes ?? limits.maxEnvelopeBytes
   const staging = stagingObjectKey(scope)
   const staged = store.put(staging, bytes, { signal: operation.signal })
   try {
@@ -539,12 +543,7 @@ async function stagedWrite(
       throw new TransportRefused(CATEGORY.integrity, 'the staged object has another size')
     if (head.sha256 && head.sha256 !== sha256(bytes))
       throw new TransportRefused(CATEGORY.integrity, 'the staged object has another digest')
-    const readBack = await storeGet(
-      store,
-      staging,
-      limits.maxEnvelopeBytes + limits.maxBlobBytes,
-      operation
-    )
+    const readBack = await storeGet(store, staging, bound, operation)
     if (readBack === null)
       throw new TransportRefused(CATEGORY.storeWrite, 'the staged object cannot be read back')
     if (sha256(readBack) !== sha256(bytes))
@@ -569,10 +568,10 @@ async function stagedWrite(
     const created = outcome?.created ?? null
     if (created === false) {
       // The object was already there: it is not overwritten, and it is **validated** before the publication is a
-      // success. What is there is read back and checked: the content-addressed archive against its own digest and
-      // size, and the envelope by parsing it and comparing the entry it names. An object that is corrupt, or that is
-      // another entry, is an integrity failure rather than a duplicate.
-      const stored = await storeGet(store, key, limits.maxEnvelopeBytes, operation)
+      // success. What is there is read back - with the bound of this object - and checked: the content-addressed
+      // archive against its own digest and size, and the envelope by parsing it and comparing the entry it names. An
+      // object that is corrupt, or that is another entry, is an integrity failure rather than a duplicate.
+      const stored = await storeGet(store, key, bound, operation)
       if (stored === null)
         throw new TransportRefused(CATEGORY.storeWrite, 'the published object is not there')
       if (typeof verify === 'function' && !verify(stored))
@@ -582,6 +581,7 @@ async function stagedWrite(
         )
       if (typeof equivalent === 'function' && !stored.equals(bytes) && !equivalent(stored))
         throw new TransportRefused(CATEGORY.integrity, 'another entry is published under that key')
+      return { key, sha256: sha256(bytes), size: bytes.length, staged: staging, created }
     }
 
     if (operation.expired()) {
@@ -596,21 +596,6 @@ async function stagedWrite(
     const head2 = await bounded(store.head(key, { signal: operation.signal }), operation)
     if (head2 === null || head2 === undefined)
       throw new TransportRefused(CATEGORY.storeWrite, 'the promoted object is not there')
-    if (created === false) {
-      // The object that is there is the one that was published before this one: it must name the same entry, and it
-      // may carry another creation time, so it is compared as an entry and not byte for byte.
-      if (typeof equivalent === 'function') {
-        const stored = await storeGet(store, key, limits.maxEnvelopeBytes, operation)
-        if (stored === null)
-          throw new TransportRefused(CATEGORY.storeWrite, 'the published object is not there')
-        if (!stored.equals(bytes) && !equivalent(stored))
-          throw new TransportRefused(
-            CATEGORY.integrity,
-            'another entry is published under that key'
-          )
-      }
-      return { key, sha256: sha256(bytes), size: bytes.length, staged: staging, created }
-    }
     if (typeof head2.size === 'number' && head2.size !== bytes.length)
       throw new TransportRefused(CATEGORY.integrity, 'the promoted object has another size')
     if (head2.sha256 && head2.sha256 !== sha256(bytes))
@@ -675,12 +660,15 @@ export async function publishEntry(
     const blobWrite = await stagedWrite(store, scope, blobKey, blob, {
       limits,
       operation,
+      // The archive is bounded by the archive bound, not by the envelope bound.
+      maxBytes: limits.maxBlobBytes,
       // The archive is content addressed: the one that is already there must be exactly this archive.
       verify: (stored) => stored.length === blob.length && sha256(stored) === envelope.blob_id,
     })
     const entryWrite = await stagedWrite(store, scope, entryKey, bytes, {
       limits,
       operation,
+      maxBytes: limits.maxEnvelopeBytes,
       // The same entry published again is an idempotent duplicate: the object that is already there names the same
       // entry, whatever creation time it recorded. It is **parsed and validated** first - an envelope of another
       // version, of another kind or of another domain is not an entry of this kind, whatever its bytes say.
