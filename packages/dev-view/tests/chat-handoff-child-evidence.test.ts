@@ -131,7 +131,10 @@ describe('child evidence', () => {
     })
     if (evidence.kind !== 'complete') throw new Error('expected complete')
     expect(evidence.rows[0]?.qualifiers).toEqual(['stop requested, not confirmed'])
-    expect(evidence.rows[1]?.qualifiers).toEqual(['outcome not yet published', 'failure code E_X'])
+    expect(evidence.rows[1]?.qualifiers).toEqual([
+      'control plane outcome publication pending',
+      'failure code E_X',
+    ])
     expect(evidence.rows[2]?.stateText).toBe('manual intervention')
     expect(evidence.rows[2]?.qualifiers).toEqual(['awaiting input'])
     expect(evidence.summary).toBe('3 children reported.')

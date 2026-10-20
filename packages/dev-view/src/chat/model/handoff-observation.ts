@@ -367,7 +367,9 @@ function qualifiersOf(child: HandoffObservedChild): readonly string[] {
   if (child.stopRequested) qualifiers.push('stop requested, not confirmed')
   if (child.outcome !== undefined) {
     qualifiers.push(
-      child.outcome.publication === 'pending' ? 'outcome not yet published' : 'outcome published'
+      child.outcome.publication === 'pending'
+        ? 'control plane outcome publication pending'
+        : 'control plane outcome published'
     )
     if (child.outcome.failureCode !== undefined)
       qualifiers.push(`failure code ${child.outcome.failureCode}`)
