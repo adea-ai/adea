@@ -609,6 +609,68 @@ Until such a contract exists and is registered in
 launch, and the installed-application rows stay pending. The §15 log,
 navigation and exact-command repairs are unchanged.
 
+## 17. The logging-order repair — the verdict is taken after the evidence is closed
+
+Root's complete review at `1097e41fa` found one remaining concrete defect:
+`ledger.count()` and `assessLogCompleteness` ran **before**
+`running.stop()` closed the final descriptor and **before** the child's
+stdout/stderr drained, so a final close failure and the trailing bytes the
+process wrote could be omitted from a pass that the artifact then recorded.
+
+### The repair
+
+- **`stop()` is awaitable.** It now: signals the process, awaits the
+  application's exit (bounded), awaits the drain of its stdout and stderr
+  (bounded), and only then closes the log descriptor. The call resolves only
+  when the descriptor is closed and the trailing output has been accounted
+  for.
+- **Every launch is kept and every launch is finalized.** The run collects
+  each launch it starts; `finalizeAndAssessLaunches` awaits **every**
+  launch's `stop()`, records a stop that _throws_ as a failure of the run's
+  evidence, and **only then** snapshots the ledger and assesses the verdict.
+  The artifact's `logWriteFailures` is that post-finalization snapshot, so a
+  failure during the last close or the last trailing write can no longer be
+  reported as a pass.
+- The relaunch path awaits the first launch's stop before it starts the
+  second one.
+
+### The orchestration-level tests
+
+The cases grew from 55 to **59 (168 assertions)**. They are not pure-helper
+checks: they coordinate several launches through the same finalization the
+run uses, with the **real** log machinery, and inject the failure at the
+moment root described:
+
+- a first launch whose stop emits trailing output, closes its descriptor, and
+  then takes one more byte **after** the close — the failure is counted, the
+  finalization reports `fail`, and the composed run verdict is red;
+- a failure injected **after an await** inside the stop — a verdict taken
+  before the stop resolved would have missed it;
+- a stop that **throws** — recorded as a failure of the evidence;
+- a clean finalization of two launches — a pass, and the row names both
+  launches.
+
+Every launch is asserted to have been finalized, in order, before the ledger
+is read.
+
+### Preserved
+
+`c445` (no launch into the real user profile), `1097` (log aggregation across
+launches, overlapping navigation, the exact folder-pick identity) and `674`
+(the fail-closed validated isolation registry and the side-effect-free
+preflight) are unchanged. The lane's entry point, the native launch path and
+every real-profile operation remain unexecuted.
+
+### The remaining native-isolation blocker
+
+Unchanged and still the reason the installed-application rows are pending: no
+**supported, validated** per-run native profile root exists. The Electrobun
+native core resolves the CEF profile root from the real user's home, and the
+devkit exposes no per-run Application Support root, so
+`SUPPORTED_ISOLATION_CONTRACTS` is empty and the assessor fails closed. The
+preflight therefore refuses to install, register or launch, and every row that
+needs the running application stays pending.
+
 ## 12. Publication
 
 The branch is `test/installed-desktop-ui-acceptance-20261020`, three commits

@@ -53,7 +53,7 @@
 // `--profile-parent` names the PARENT directory the run creates its unique
 // directory in. The parent is never removed, and the run never writes into it
 // outside the unique directory it creates.
-import { spawn, spawnSync } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import {
   closeSync,
   existsSync,
@@ -867,15 +867,23 @@ function deregisterFromLaunchServices(installedApp: string): void {
   spawnSync(LSREGISTER, ['-u', installedApp], { stdio: 'ignore' })
 }
 
-type RunningApp = {
+export type RunningApp = {
   /** The installed application's launcher process. */
   pid: number
   /** The installed application's log, as the launcher wrote it. */
   logPath: string
   /** The number of log writes that failed. */
   logWriteFailures: () => number
-  /** Stops the installed application and closes its log descriptor. */
-  stop(): void
+  /**
+   * Stops the installed application, lets its output drain, and closes its
+   * log descriptor.
+   *
+   * The call is AWAITABLE and resolves only when the process has gone, its
+   * trailing output has been accounted for, and the descriptor is closed. A
+   * verdict that is taken before it resolves can miss the final close failure
+   * and the last bytes the process wrote.
+   */
+  stop(): Promise<void>
 }
 
 /** Launches the installed application with the disposable profile. */
@@ -909,7 +917,7 @@ function launchInstalledApp(
     pid: child.pid ?? -1,
     logPath,
     logWriteFailures: () => ledger.count(),
-    stop() {
+    async stop() {
       if (stopped) return
       stopped = true
       try {
@@ -917,9 +925,88 @@ function launchInstalledApp(
       } catch {
         /* the process may already be gone */
       }
+      await waitForProcessExit(child)
+      await drainOutput(child)
       log.close()
     },
   }
+}
+
+/**
+ * Waits for the application process to go, bounded.
+ *
+ * The bound keeps a stuck process from hanging the run; the log descriptor is
+ * closed either way, and the verdict is taken after the finalization.
+ */
+async function waitForProcessExit(child: ChildProcess, timeoutMs = 10_000): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  await new Promise<void>((resolve_) => {
+    const timer = setTimeout(() => {
+      child.off('exit', onExit)
+      resolve_()
+    }, timeoutMs)
+    const onExit = () => {
+      clearTimeout(timer)
+      resolve_()
+    }
+    child.once('exit', onExit)
+  })
+}
+
+/**
+ * Waits for one output stream to end, bounded.
+ *
+ * The trailing bytes a process writes as it goes down are part of the
+ * evidence, so the drain is awaited before the descriptor is closed.
+ */
+async function drainOutput(child: ChildProcess, timeoutMs = 5_000): Promise<void> {
+  const streams = [child.stdout, child.stderr]
+  await Promise.all(
+    streams.map(
+      (stream) =>
+        new Promise<void>((resolve_) => {
+          if (!stream || typeof stream.on !== 'function') {
+            resolve_()
+            return
+          }
+          const finish = () => {
+            clearTimeout(timer)
+            resolve_()
+          }
+          const timer = setTimeout(finish, timeoutMs)
+          stream.once('end', finish)
+          stream.once('close', finish)
+        })
+    )
+  )
+}
+
+/**
+ * Finalizes EVERY launch and only then decides the verdict.
+ *
+ * Each launch is stopped, drained and closed — and the ledger is snapshotted
+ * AFTER every one of them is finished. A verdict taken earlier could miss the
+ * final close failure and the trailing output of the last launch.
+ */
+export async function finalizeAndAssessLaunches(
+  launches: readonly RunningApp[],
+  ledger: LogFailureLedger
+): Promise<{
+  failures: number
+  completeness: { status: AcceptanceStatus; actual: string }
+}> {
+  for (const launch of launches) {
+    try {
+      await launch.stop()
+    } catch {
+      // A stop that fails means the launch's output may never have been
+      // written in full: that is a failure of the run's evidence, and it is
+      // counted before the verdict is taken.
+      ledger.record()
+    }
+  }
+  const failures = ledger.count()
+  return { failures, completeness: assessLogCompleteness(failures, launches.length) }
 }
 
 /**
@@ -1145,6 +1232,9 @@ export async function runInstalledAppAcceptance(dependencies: {
 
   // 3. The installed application starts and serves its own bundled client.
   let running = launch(profile, ledger, ++launches)
+  // Every launch is kept, so that EVERY one of them can be finalized — and
+  // the ledger snapshotted — before the verdict is taken.
+  const allLaunches: RunningApp[] = [running]
   let logPath = running.logPath
   const served = await waitFor(installedAppAnswers, 60_000, 'the installed application to serve')
   add(
@@ -1306,9 +1396,10 @@ export async function runInstalledAppAcceptance(dependencies: {
   // 5. The application's own state survives a relaunch.
   const stateDirectory = join(profile.data, 'dev-runtime')
   const modeBefore = directoryMode(stateDirectory)
-  running.stop()
+  await running.stop()
   await sleep(2_000)
   running = launch(profile, ledger, ++launches)
+  allLaunches.push(running)
   const relaunched = await waitFor(
     installedAppAnswers,
     60_000,
@@ -1361,11 +1452,14 @@ export async function runInstalledAppAcceptance(dependencies: {
     )
   }
 
-  // Every launch's log failures, including writes that arrived after a
-  // descriptor closed, and the row makes them count: a run whose evidence
-  // could not be written is not a pass.
-  const logWriteFailures = ledger.count()
-  const completeness = assessLogCompleteness(logWriteFailures, launches)
+  // EVERY launch is finalized — stopped, drained, and its log descriptor
+  // closed — BEFORE the ledger is snapshotted and the verdict is taken. A
+  // verdict taken earlier could miss the final close failure and the trailing
+  // output of the last launch, and would record a pass the evidence does not
+  // support.
+  const finalized = await finalizeAndAssessLaunches(allLaunches, ledger)
+  const logWriteFailures = finalized.failures
+  const completeness = finalized.completeness
   add(
     acceptanceRow({
       id: 'the-run-log-recorded-everything',
@@ -1376,7 +1470,6 @@ export async function runInstalledAppAcceptance(dependencies: {
       evidence: 'installed-app',
     })
   )
-  running.stop()
   stopInstalledProcesses(profile.installedApp)
   const summary = summarizeAcceptance(checks)
   return {

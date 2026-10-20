@@ -32,6 +32,7 @@ import {
   createDisposableRoot,
   createLogFailureLedger,
   defaultArtifactPath,
+  finalizeAndAssessLaunches,
   inspectProviderEnvironment,
   launchDependentRows,
   openAcceptanceLog,
@@ -40,6 +41,7 @@ import {
   removeOwnedRoot,
   resolveAcceptanceProfile,
   runInstalledAppAcceptance,
+  type RunningApp,
   runInstalledAppPreflight,
   summarizeAcceptance,
   type AcceptanceCheck,
@@ -674,5 +676,136 @@ describe('the preflight has no side effects', () => {
     expect(preflight.artifact.launched).toBe(false)
     const isolation = preflight.artifact.isolation as { isolated: boolean }
     expect(isolation.isolated).toBe(false)
+  })
+})
+
+describe('every launch is finalized before the verdict is taken', () => {
+  test('a failure injected during stop and trailing output reaches the verdict', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-acceptance-log-'))
+    const ledger = createLogFailureLedger()
+    const first = openAcceptanceLog(join(directory, 'first.log'), ledger)
+    const second = openAcceptanceLog(join(directory, 'second.log'), ledger)
+    const stops: string[] = []
+    const launches: RunningApp[] = [
+      {
+        pid: 1,
+        logPath: first.path,
+        logWriteFailures: () => ledger.count(),
+        stop: async () => {
+          stops.push('first')
+          // The process's trailing output arrives as it goes down.
+          first.write(Buffer.from('trailing output\n'))
+          first.close()
+          // And one more byte arrives after the descriptor closed.
+          first.write(Buffer.from('after close\n'))
+        },
+      },
+      {
+        pid: 2,
+        logPath: second.path,
+        logWriteFailures: () => ledger.count(),
+        stop: async () => {
+          stops.push('second')
+          second.close()
+        },
+      },
+    ]
+    const result = await finalizeAndAssessLaunches(launches, ledger)
+    // Every launch was finalized, in order.
+    expect(stops).toEqual(['first', 'second'])
+    // The trailing failure of the FIRST launch is counted, not discarded.
+    expect(result.failures).toBe(1)
+    expect(result.completeness.status).toBe('fail')
+    expect(result.completeness.actual).toContain('1 log write failure')
+    // And the run's verdict is red.
+    const summary = summarizeAcceptance([
+      check(),
+      acceptanceRow({
+        id: 'the-run-log-recorded-everything',
+        expected: 'every launch wrote its output',
+        actual: result.completeness.actual,
+        status: result.completeness.status,
+        evidence: 'installed-app',
+      }),
+    ])
+    expect(summary.ok).toBe(false)
+    rmSync(directory, { force: true, recursive: true })
+  })
+
+  test('the ledger is snapshotted only after every stop has resolved', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-acceptance-log-'))
+    const ledger = createLogFailureLedger()
+    const log = openAcceptanceLog(join(directory, 'app.log'), ledger)
+    let settled = false
+    const launches: RunningApp[] = [
+      {
+        pid: 1,
+        logPath: log.path,
+        logWriteFailures: () => ledger.count(),
+        stop: async () => {
+          // The failure is injected AFTER an await: a verdict taken before the
+          // stop resolved would miss it.
+          await Promise.resolve()
+          log.close()
+          log.write(Buffer.from('late\n'))
+          settled = true
+        },
+      },
+    ]
+    const result = await finalizeAndAssessLaunches(launches, ledger)
+    expect(settled).toBe(true)
+    expect(result.failures).toBe(1)
+    expect(result.completeness.status).toBe('fail')
+    rmSync(directory, { force: true, recursive: true })
+  })
+
+  test('a stop that throws is recorded as a failure of the evidence', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-acceptance-log-'))
+    const ledger = createLogFailureLedger()
+    const launches: RunningApp[] = [
+      {
+        pid: 1,
+        logPath: join(directory, 'app.log'),
+        logWriteFailures: () => ledger.count(),
+        stop: async () => {
+          throw new Error('the launch could not be stopped cleanly')
+        },
+      },
+    ]
+    const result = await finalizeAndAssessLaunches(launches, ledger)
+    expect(result.failures).toBe(1)
+    expect(result.completeness.status).toBe('fail')
+    rmSync(directory, { force: true, recursive: true })
+  })
+
+  test('a clean finalization of every launch is a pass', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-acceptance-log-'))
+    const ledger = createLogFailureLedger()
+    const first = openAcceptanceLog(join(directory, 'first.log'), ledger)
+    const second = openAcceptanceLog(join(directory, 'second.log'), ledger)
+    const launches: RunningApp[] = [
+      {
+        pid: 1,
+        logPath: first.path,
+        logWriteFailures: () => ledger.count(),
+        stop: async () => {
+          first.write(Buffer.from('output\n'))
+          first.close()
+        },
+      },
+      {
+        pid: 2,
+        logPath: second.path,
+        logWriteFailures: () => ledger.count(),
+        stop: async () => {
+          second.close()
+        },
+      },
+    ]
+    const result = await finalizeAndAssessLaunches(launches, ledger)
+    expect(result.failures).toBe(0)
+    expect(result.completeness.status).toBe('pass')
+    expect(result.completeness.actual).toContain('2 launch(es)')
+    rmSync(directory, { force: true, recursive: true })
   })
 })
