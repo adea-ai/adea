@@ -211,6 +211,30 @@ The gate's own program is run with Node, the runtime the job uses, and not
 only with the test runner's own binary: the CLI tests spawn `node`, so the
 program the job runs is the program the qualification exercises.
 
+## The pull-request run
+
+The lane ran in the pull-request lane on the head
+`84244db5ba00be1422cc552c0708562820015add` (run `39492441868`, the "Fresh
+account acceptance proof" check), and the receipt the job published was
+downloaded and read:
+
+| Field                         | Value                                                                                           |
+| ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| `status`                      | `passed`                                                                                        |
+| `migrations`                  | 60                                                                                              |
+| `proofKind` / `postgres`      | `fresh-schema-acceptance` / `disposable-instance`                                               |
+| `evidence` / `laneEvidence`   | `ci` / `local-disposable`                                                                       |
+| `checkout.sha` / `module.sha` | `84244db5ba00be1422cc552c0708562820015add` (both), `dirty: false`                               |
+| `desktopPrincipal`            | 3 accounts, 3 mapped users, 0 orphan users, 1 exchange, 3 refused cases, provider `better-auth` |
+| `ciRun`                       | the head, the run, the workflow, the repository                                                 |
+
+The published artifact carries no credential, and the acceptance lane's own
+checks accept it: `assertDatabaseProof` grants it the `ci` class, and
+`recoveryArtifact` names the commit it was produced from with the guarantees
+the proof carries and the ones it does not. The gate is proved against the
+receipt the lane's own builder produces, and the published artifact is proved
+to be a receipt the recovery procedure can consume.
+
 ## Evidence
 
 | Command                                                           | Result                                                                                                                                    |

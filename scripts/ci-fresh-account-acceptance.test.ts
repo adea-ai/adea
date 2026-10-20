@@ -11,6 +11,8 @@ import {
   main,
   parseAcceptanceReceipt,
 } from './ci-fresh-account-acceptance.mjs'
+import { buildAcceptanceReceipt } from './fresh-postgres-acceptance/acceptance-receipt.mjs'
+import { assertDatabaseProof, recoveryArtifact } from './fresh-postgres-acceptance/recovery.mjs'
 
 const scriptPath = resolve(import.meta.dir, 'ci-fresh-account-acceptance.mjs')
 const head = 'a'.repeat(40)
@@ -320,5 +322,56 @@ describe('the program the job runs', () => {
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }
+  })
+})
+
+/**
+ * The receipt the acceptance lane publishes, built by the acceptance lane's
+ * own builder, so the gate is proved against what the producer produces and
+ * not against a copy of it.
+ */
+const produced = () =>
+  buildAcceptanceReceipt({
+    migrations: 60,
+    evidence: 'local-disposable',
+    checkout: { sha: head, dirty: false, source: 'HEAD' },
+    module: { sha: head, dirty: false, source: 'HEAD' },
+    desktopPrincipal: {
+      accounts: 3,
+      exchanges: 1,
+      mappedUsers: 3,
+      orphanUsers: 0,
+      provider: 'better-auth',
+      refused: { origin: 1, pkce: 1, replay: 1 },
+    },
+  })
+
+describe('the receipt the producer publishes', () => {
+  test('the gate accepts the receipt the acceptance lane builds', () => {
+    const proven = assertFreshAccountReceipt(produced(), { expectedSha: head })
+    expect(proven.checkout.sha).toBe(head)
+    expect(proven.journey.accounts).toBe(3)
+    expect(proven.journey.orphanUsers).toBe(0)
+  })
+
+  test('the artifact the job publishes is a receipt the recovery procedure can consume', () => {
+    const artifact = buildFreshAccountArtifact(produced(), {
+      environment: { GITHUB_ACTIONS: 'true' },
+      head,
+      runId: '42',
+      workflow: 'Database Proof',
+      repository: 'adea-ai/adea',
+    })
+    // The lane's own checks accept the published artifact: the class the
+    // workflow relabels it to is one the lane's evidence model grants, and the
+    // recovery procedure can name the commit the run happened in.
+    expect(assertDatabaseProof(artifact)).toEqual({
+      proofKind: 'fresh-schema-acceptance',
+      evidence: 'ci',
+    })
+    const named = recoveryArtifact(artifact)
+    expect(named.commit).toBe(head)
+    expect(named.dirty).toBe(false)
+    expect(named.proofKind).toBe('fresh-schema-acceptance')
   })
 })
