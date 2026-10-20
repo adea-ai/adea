@@ -48,6 +48,7 @@ import { Route as ApiWorkspacesWorkspaceIdDeleteRouteImport } from './routes/api
 import { Route as ApiWorkspacesWorkspaceIdModelConnectionsRouteImport } from './routes/api/workspaces/$workspaceId/model-connections'
 import { Route as ApiWorkspacesWorkspaceIdReopenRouteImport } from './routes/api/workspaces/$workspaceId/reopen'
 import { Route as ApiWorkspacesWorkspaceIdSkillsRouteImport } from './routes/api/workspaces/$workspaceId/skills'
+import { Route as ApiInternalPiDurableChildReceiptReconcileRouteImport } from './routes/api/internal/pi-durable/child-receipt/reconcile'
 import { Route as ApiInternalPiDurableLeadProductCurrentRouteImport } from './routes/api/internal/pi-durable/lead-product/current'
 import { Route as ApiV1AccountAgentsAgentIdRouteImport } from './routes/api/v1/account/agents/$agentId'
 import { Route as ApiV1AccountConversationsConversationIdRouteImport } from './routes/api/v1/account/conversations/$conversationId'
@@ -339,6 +340,12 @@ const ApiWorkspacesWorkspaceIdSkillsRoute =
     id: '/skills',
     path: '/skills',
     getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
+  } as any)
+const ApiInternalPiDurableChildReceiptReconcileRoute =
+  ApiInternalPiDurableChildReceiptReconcileRouteImport.update({
+    id: '/api/internal/pi-durable/child-receipt/reconcile',
+    path: '/api/internal/pi-durable/child-receipt/reconcile',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const ApiInternalPiDurableLeadProductCurrentRoute =
   ApiInternalPiDurableLeadProductCurrentRouteImport.update({
@@ -887,6 +894,7 @@ export interface FileRoutesByFullPath {
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
+  '/api/internal/pi-durable/child-receipt/reconcile': typeof ApiInternalPiDurableChildReceiptReconcileRoute
   '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
   '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
@@ -1009,6 +1017,7 @@ export interface FileRoutesByTo {
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
+  '/api/internal/pi-durable/child-receipt/reconcile': typeof ApiInternalPiDurableChildReceiptReconcileRoute
   '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
   '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
@@ -1132,6 +1141,7 @@ export interface FileRoutesById {
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
+  '/api/internal/pi-durable/child-receipt/reconcile': typeof ApiInternalPiDurableChildReceiptReconcileRoute
   '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
   '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
@@ -1256,6 +1266,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
+    | '/api/internal/pi-durable/child-receipt/reconcile'
     | '/api/internal/pi-durable/lead-product/current'
     | '/api/v1/account/agents/$agentId'
     | '/api/v1/account/conversations/$conversationId'
@@ -1378,6 +1389,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
+    | '/api/internal/pi-durable/child-receipt/reconcile'
     | '/api/internal/pi-durable/lead-product/current'
     | '/api/v1/account/agents/$agentId'
     | '/api/v1/account/conversations/$conversationId'
@@ -1500,6 +1512,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
+    | '/api/internal/pi-durable/child-receipt/reconcile'
     | '/api/internal/pi-durable/lead-product/current'
     | '/api/v1/account/agents/$agentId'
     | '/api/v1/account/conversations/$conversationId'
@@ -1612,6 +1625,7 @@ export interface RootRouteChildren {
   ApiV1AccountAgentsRoute: typeof ApiV1AccountAgentsRouteWithChildren
   ApiV1AccountConversationsRoute: typeof ApiV1AccountConversationsRouteWithChildren
   ApiV1AccountSummaryRoute: typeof ApiV1AccountSummaryRoute
+  ApiInternalPiDurableChildReceiptReconcileRoute: typeof ApiInternalPiDurableChildReceiptReconcileRoute
   ApiInternalPiDurableLeadProductCurrentRoute: typeof ApiInternalPiDurableLeadProductCurrentRoute
   ApiV1WorkspacesWorkspaceIdAgentsRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren
@@ -1915,6 +1929,13 @@ declare module '@tanstack/solid-router' {
       fullPath: '/api/workspaces/$workspaceId/skills'
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdSkillsRouteImport
       parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
+    }
+    '/api/internal/pi-durable/child-receipt/reconcile': {
+      id: '/api/internal/pi-durable/child-receipt/reconcile'
+      path: '/api/internal/pi-durable/child-receipt/reconcile'
+      fullPath: '/api/internal/pi-durable/child-receipt/reconcile'
+      preLoaderRoute: typeof ApiInternalPiDurableChildReceiptReconcileRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/internal/pi-durable/lead-product/current': {
       id: '/api/internal/pi-durable/lead-product/current'
@@ -2997,6 +3018,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiV1AccountAgentsRoute: ApiV1AccountAgentsRouteWithChildren,
   ApiV1AccountConversationsRoute: ApiV1AccountConversationsRouteWithChildren,
   ApiV1AccountSummaryRoute: ApiV1AccountSummaryRoute,
+  ApiInternalPiDurableChildReceiptReconcileRoute:
+    ApiInternalPiDurableChildReceiptReconcileRoute,
   ApiInternalPiDurableLeadProductCurrentRoute:
     ApiInternalPiDurableLeadProductCurrentRoute,
   ApiV1WorkspacesWorkspaceIdAgentsRoute:

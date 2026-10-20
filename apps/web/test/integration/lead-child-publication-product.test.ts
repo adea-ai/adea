@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   createDatabase,
   createDirectAgentTopic,
@@ -17,6 +19,7 @@ import {
   type DatabaseConnection,
 } from '@adea-ai/db'
 import { createLeadTurnProduct } from '../../src/server/lead-turn-product'
+import { createLeadChildReconcileHandler } from '../../src/server/lead-child-reconcile'
 import type { LeadRuntimeAdapter } from '../../src/server/lead-turn-runtime'
 
 const url = process.env.DATABASE_URL
@@ -222,4 +225,87 @@ describe.skipIf(!url)('connected child terminal to canonical timeline', () => {
         .where(eq(leadChildPublications.intentId, other.pin.intentId))
     ).toHaveLength(0)
   })
+
+  test('a retained CP wake publishes after browser absence and retries across a new handler', async () => {
+    const f = await fixture()
+    const makeHandler = () =>
+      createLeadChildReconcileHandler({
+        verify: async () => true,
+        current: async (workspaceId, intentId) =>
+          workspaceId === f.pin.workspaceId && intentId === f.pin.intentId ? f.scope : undefined,
+        publish: async (scope) => {
+          await f.product.publishChildren(scope)
+        },
+      })
+    const wake = () =>
+      new Request('https://adea.example/api/internal/pi-durable/child-receipt/reconcile', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          workspaceId: f.pin.workspaceId,
+          intentId: f.pin.intentId,
+          principalId: 'svc_product-reader',
+        }),
+      })
+    expect((await makeHandler()(wake())).status).toBe(204)
+    expect((await makeHandler()(wake())).status).toBe(204)
+    const receipts = await connection.db
+      .select()
+      .from(leadChildPublications)
+      .where(eq(leadChildPublications.intentId, f.pin.intentId))
+    expect(receipts).toHaveLength(1)
+    expect(
+      await connection.db.select().from(messages).where(eq(messages.id, receipts[0]!.messageId))
+    ).toHaveLength(1)
+  })
+
+  test.skipIf(!process.env.PI_CP_SOURCE_ROOT)(
+    'paired local CP notifier and Adea handler deliver one PG message through HTTP wire semantics',
+    async () => {
+      const source = pathToFileURL(
+        join(
+          process.env.PI_CP_SOURCE_ROOT!,
+          'apps/control-api/src/pi-durable/child-timeline-delivery.ts'
+        )
+      ).href
+      const { createPiChildTimelineHttpNotify } = await import(source)
+      const f = await fixture()
+      const handler = createLeadChildReconcileHandler({
+        verify: async (request, workspaceId, principalId) =>
+          request.headers.get('authorization') === 'Bearer aaa.bbb.ccc' &&
+          workspaceId === f.pin.workspaceId &&
+          principalId === 'svc_product-reader',
+        current: async (workspaceId, intentId) =>
+          workspaceId === f.pin.workspaceId && intentId === f.pin.intentId ? f.scope : undefined,
+        publish: async (scope) => {
+          const fresh = createDatabase(url!)
+          try {
+            await createLeadTurnProduct(fresh.db, { adapter: f.adapter }).publishChildren(scope)
+          } finally {
+            await fresh.close()
+          }
+        },
+      })
+      const notify = createPiChildTimelineHttpNotify({
+        endpoint: 'https://adea.example/api/internal/pi-durable/child-receipt/reconcile',
+        credentials: { getExistingCredential: async () => 'aaa.bbb.ccc' },
+        fetch: async (requestUrl: URL, init: RequestInit) => handler(new Request(requestUrl, init)),
+      })
+      const wake = {
+        workspaceId: f.pin.workspaceId,
+        intentId: f.pin.intentId,
+        principalId: 'svc_product-reader',
+      }
+      await notify(wake)
+      await notify(wake)
+      const receipts = await connection.db
+        .select()
+        .from(leadChildPublications)
+        .where(eq(leadChildPublications.intentId, f.pin.intentId))
+      expect(receipts).toHaveLength(1)
+      expect(
+        await connection.db.select().from(messages).where(eq(messages.id, receipts[0]!.messageId))
+      ).toHaveLength(1)
+    }
+  )
 })
