@@ -172,6 +172,103 @@ describe.skipIf(!databaseUrl)('Adea child terminal publication receipt', () => {
     ).toHaveLength(2)
   })
 
+  test('two first deliveries on separate connections commit one logical outcome', async () => {
+    const f = await fixture()
+    const concurrent = createDatabase(databaseUrl!)
+    try {
+      const ids = await Promise.all([
+        f.publish(),
+        publishLeadChildTerminal(
+          concurrent.db,
+          f.workspace.id,
+          f.pin.intentId,
+          f.owner.principal,
+          f.binding,
+          completed,
+          async () => {}
+        ),
+      ])
+      expect(ids[0]).toBe(ids[1])
+      const receipts = await connection.db
+        .select()
+        .from(leadChildPublications)
+        .where(eq(leadChildPublications.intentId, f.pin.intentId))
+      expect(receipts).toHaveLength(1)
+      expect(receipts[0]!.messageId).toBe(ids[0])
+      expect(
+        (
+          await connection.db.select().from(messages).where(eq(messages.channelId, f.topic.id))
+        ).filter((message) => message.id === ids[0])
+      ).toHaveLength(1)
+      expect(
+        (
+          await connection.db
+            .select()
+            .from(workspaceEvents)
+            .where(eq(workspaceEvents.workspaceId, f.workspace.id))
+        ).filter((event) => event.eventType === 'message.created' && event.aggregateId === ids[0])
+      ).toHaveLength(1)
+    } finally {
+      await concurrent.close()
+    }
+  })
+
+  test('a PostgreSQL failure after message creation rolls back message, event and receipt', async () => {
+    const f = await fixture()
+    const suffix = crypto.randomUUID().replaceAll('-', '')
+    const functionName = `pi_child_receipt_fail_${suffix}`
+    const triggerName = `pi_child_receipt_fail_${suffix}`
+    if (!/^[0-9a-f-]{36}$/.test(f.pin.intentId)) throw new Error('invalid fixture intent')
+    await connection.db.$client.unsafe(`
+      CREATE FUNCTION app.${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN RAISE EXCEPTION 'PI_CHILD_TEST_RECEIPT_FAILURE'; END $$
+    `)
+    try {
+      await connection.db.$client.unsafe(`
+        CREATE TRIGGER ${triggerName} BEFORE INSERT ON app.lead_child_publications
+        FOR EACH ROW WHEN (NEW.intent_id = '${f.pin.intentId}')
+        EXECUTE FUNCTION app.${functionName}()
+      `)
+      try {
+        const failure = await f.publish().then(
+          () => undefined,
+          (error: unknown) => error
+        )
+        expect(String((failure as { cause?: unknown } | undefined)?.cause)).toContain(
+          'PI_CHILD_TEST_RECEIPT_FAILURE'
+        )
+        expect(
+          await connection.db
+            .select()
+            .from(leadChildPublications)
+            .where(eq(leadChildPublications.intentId, f.pin.intentId))
+        ).toHaveLength(0)
+        const timeline = await connection.db
+          .select()
+          .from(messages)
+          .where(eq(messages.channelId, f.topic.id))
+        expect(timeline).toHaveLength(1)
+        expect(timeline[0]!.bodyText).toBe('Start one child')
+        expect(
+          (
+            await connection.db
+              .select()
+              .from(workspaceEvents)
+              .where(eq(workspaceEvents.workspaceId, f.workspace.id))
+          ).filter((event) => event.eventType === 'message.created')
+        ).toHaveLength(1)
+      } finally {
+        await connection.db.$client.unsafe(
+          `DROP TRIGGER ${triggerName} ON app.lead_child_publications`
+        )
+      }
+    } finally {
+      await connection.db.$client.unsafe(`DROP FUNCTION app.${functionName}()`)
+    }
+    const recovered = await f.publish()
+    expect(recovered).toBe(await f.publish())
+  })
+
   test('grant failure, replay conflict, wrong binding and audience loss never append', async () => {
     const f = await fixture()
     await expect(

@@ -160,6 +160,7 @@ describe.skipIf(!url)('connected child terminal to canonical timeline', () => {
       workspace,
       pin,
       binding,
+      adapter,
       product,
       scope,
       checks: () => checks,
@@ -175,7 +176,13 @@ describe.skipIf(!url)('connected child terminal to canonical timeline', () => {
   test('published CP child event becomes one canonical message across retries and a fresh product instance', async () => {
     const f = await fixture()
     expect(await f.product.publishChildren(f.scope)).toEqual({ published: 1 })
-    expect(await f.product.publishChildren(f.scope)).toEqual({ published: 1 })
+    const reopened = createDatabase(url!)
+    try {
+      const freshProduct = createLeadTurnProduct(reopened.db, { adapter: f.adapter })
+      expect(await freshProduct.publishChildren(f.scope)).toEqual({ published: 1 })
+    } finally {
+      await reopened.close()
+    }
     expect(f.checks()).toBe(4)
     const receipts = await connection.db
       .select()
