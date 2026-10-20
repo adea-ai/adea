@@ -148,6 +148,21 @@ Both routes agree with the disposable copy's result, and the copy is what the
 test asserts, so the proof does not depend on the other lane's branch being
 present in a checkout.
 
+The same read-only comparison was run again against that lane's in-progress
+local head `89e020b32631ecba72bf390bb34b623082cc1be2` (unpushed at the time),
+and the result is the same: the whole surface with that file substituted in
+leaves only the two documented refusals.
+
+### A pull-request description mix-up, found and repaired
+
+Two lanes wrote their pull-request description to the same shared temporary
+file and then edited their pull request from it, so each lane's description
+briefly held the other lane's text. This lane's description is back to its own
+text, and the other lane's description was restored to the text that lane had
+written, with a note on that pull request so its owner can re-apply a newer
+version if there is one. No commit, branch or file of any other lane was
+touched, and the repair is a description, not a change to any work.
+
 ## #1509 — the failing Unit/Validation result, verified
 
 ### The failure
