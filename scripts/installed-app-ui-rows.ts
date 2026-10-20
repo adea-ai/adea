@@ -45,6 +45,28 @@ function row(input: Omit<UiRow, 'ok'> & { ok?: boolean }): UiRow {
   return { ...input, status, ok: status === 'pass' }
 }
 
+/**
+ * The rows this module produces.
+ *
+ * The lane uses the list to record them as pending when the installed
+ * application was not launched, so a row is never silently dropped.
+ */
+export const INSTALLED_APP_UI_ROW_IDS = [
+  'ui-first-run-opens-a-guest-workspace',
+  'ui-chat-view-opens',
+  'ui-dev-view-opens',
+  'ui-app-library-opens',
+  'ui-default-destinations-are-chat-and-dev',
+  'ui-optional-destinations-are-offered',
+  'ui-back-and-forward-navigate',
+  'ui-repeated-navigation-is-idempotent',
+  'ui-interrupted-navigation-settles-on-the-last-request',
+  'ui-reload-returns-to-the-workspace',
+  'ui-the-installed-bridge-is-present-in-the-page',
+  'ui-folder-flow-command-is-offered',
+  'ui-no-uncaught-client-error',
+] as const
+
 /** The visible text of the rendered view, as the user reads it. */
 async function visibleText(page: Page): Promise<string> {
   return page.evaluate(() => (document.body?.innerText ?? '').replace(/\s+/g, ' ').trim())

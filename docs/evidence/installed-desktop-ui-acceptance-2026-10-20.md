@@ -391,6 +391,76 @@ with the expectation that the run creates a uniquely named child, writes the
 artifact outside it, removes only that child, and leaves every other path on
 the machine untouched.
 
+## 14. The second safety repair — the real user profile is never written
+
+Root reviewed the §13 repair and found a remaining hazard: the Application
+Support path `dev.adea.desktop/<channel>` is **shared**. Its absence before a
+run does not prove exclusive ownership — a real installation can create or
+use it concurrently — and, more seriously, **launching the application writes
+into the real user's profile even when nothing is deleted**. The §13 cleanup
+fixed the deletion; it did not stop the write.
+
+### What was measured about the native profile
+
+- The Electrobun native core resolves the CEF profile root from the **real
+  user home**: a disposable `HOME` does not move it (the earlier run's own log
+  recorded `Using path: /Users/amf/Library/Application Support/dev.adea.desktop/dev/CEF`
+  while `HOME` pointed at the disposable profile).
+- The devkit exposes **no** per-run profile root: the only environment
+  overrides are `ELECTROBUN_INSTALL_ROOT_NAME`, `ELECTROBUN_LAUNCHER_PID` and
+  the Linux `XDG_*` variables. There is no supported route that moves the
+  native profile out of the real user's Application Support directory.
+
+**So supported isolation cannot be proved here.** The lane therefore does not
+launch, and every row that needs the running application is `pending` with the
+exact contract that is missing.
+
+### The repair
+
+| Concern                                                                        | Repair                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A launch writes into the real user's Application Support directory             | `assessNativeProfileIsolation` decides, before anything is launched, whether the native profile root is provably **outside** the real user's Application Support directory. It is not, so `runInstalledAppAcceptance` returns **without launching** and records every launch-dependent row as `pending` with the missing contract named. The lane writes, marks and removes **nothing** under the real user's Application Support directory — not the profile, not a marker, not a deletion. The `applicationSupport` block of the artifact states `touchedByThisRun: false` |
+| The shared path could be deleted on the strength of its absence before the run | the deletion path is **gone**. The lane removes exactly one thing: the unique directory it created and owns. `planApplicationSupportCleanup` survives as a pure, tested decision, but nothing acts on it, because acting on it was the hazard                                                                                                                                                                                                                                                                                                                                |
+| An empty or failed socket discovery counted as a pass                          | `assessSocketObservation` returns `pending` when no peer was seen ("the traffic was not observed"), `fail` when a peer is off the loopback interface, and `pass` only when peers were observed and all are loopback                                                                                                                                                                                                                                                                                                                                                          |
+| The no-provider proof only matched Neon by variable NAME                       | `inspectProviderEnvironment` makes **two independent observations**: the names of variables that mention a Neon identifier, and the names of variables whose **value** names a Neon host — a `DATABASE_URL` pointing at `*.neon.tech` is caught by the second check even though its name says nothing. Only names are reported; a value may carry a credential and the artifact is published                                                                                                                                                                                 |
+
+### The new tests (37 cases, 101 assertions)
+
+- a native profile inside the real root is **not** isolated, and the missing
+  contract is named;
+- a native profile outside it **is** isolated;
+- the absence of the path before a run is shown not to be a licence to write
+  there;
+- a profile that appears **concurrently** (a real installation creating it
+  while the lane runs) is never removed;
+- the lane **does not launch** without a proved isolation route — the case
+  injects a launcher that throws if called, and the lane never calls it;
+- every launch-dependent and every UI row is `pending` in that case, and none
+  of them is a pass;
+- an empty socket discovery is `pending`; loopback peers are a pass; an
+  off-loopback peer is a failure; a pending observation keeps the run red;
+- the provider proof detects a Neon identifier and a Neon host **independently**,
+  detects a Neon host in a `DATABASE_URL`, and never reports a secret value.
+
+### What this means for the record
+
+The installed-application run of §4 is the run of the **pre-repair** code, and
+its row verdicts are that run's. After this repair the lane does not launch
+without a proved isolation route, so the installed-application rows are
+`pending` until one exists. **The exact missing contract is:**
+
+> a supported per-run native profile root — an environment override or a
+> supported per-run bundle identity that the Electrobun native core honours for
+> its Application Support, CEF cache and log roots — so that launching the
+> installed application writes nothing into the operator's own profile.
+
+Until that contract exists, this lane asserts **no** installed-application
+acceptance: it reports the static rows it can prove, and marks the rest
+pending rather than claiming them. The bounded next test, once the contract
+exists, is the same command as in §13 with `--profile-parent`, and the
+expectation is that the run launches, writes only under the isolated root, and
+removes only the unique directory it created.
+
 ## 12. Publication
 
 The branch is `test/installed-desktop-ui-acceptance-20261020`, three commits

@@ -70,7 +70,7 @@ import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 
-import { runInstalledAppUiRows } from './installed-app-ui-rows'
+import { INSTALLED_APP_UI_ROW_IDS, runInstalledAppUiRows } from './installed-app-ui-rows'
 
 /** The loopback origin the packaged desktop shell serves its client on. */
 export const INSTALLED_APP_ORIGIN = 'http://127.0.0.1:4789'
@@ -359,6 +359,151 @@ export function openAcceptanceLog(path: string): AcceptanceLog {
   }
 }
 
+/**
+ * What the lane knows about where the native renderer will write.
+ *
+ * `isolated` is true only when the native profile root is OUTSIDE the real
+ * user's Application Support directory. Anything else is a write into the
+ * operator's own profile, and the lane must not perform it.
+ */
+export type NativeProfileIsolation = Readonly<{
+  /** Whether the run's native profile root is isolated from the real user's profile. */
+  isolated: boolean
+  /** The exact contract that would be needed to isolate it, when it is not. */
+  missing: string | null
+  /** Where the native profile would be written. */
+  profilePath: string
+}>
+
+/**
+ * The isolation route the lane was able to establish.
+ *
+ * `none` is the honest default: the lane has no supported way to move the
+ * native renderer's profile out of the real user's Application Support
+ * directory.
+ */
+export type IsolationRoute = 'none' | 'per-run-native-root' | 'unique-identity'
+
+/**
+ * Decides whether the lane may launch the installed application at all.
+ *
+ * The native renderer resolves its profile root from the real user's home —
+ * the disposable `HOME` the lane sets does not move it, and the Electrobun
+ * devkit exposes no per-run Application Support root. Launching therefore
+ * WRITES into the operator's own profile, and the absence of the path before
+ * the run proves nothing: a real installation can create or use it at the
+ * same time.
+ *
+ * So the lane launches only when the profile root is provably outside the
+ * real user's Application Support directory, and otherwise reports the exact
+ * contract that is missing.
+ */
+export function assessNativeProfileIsolation(input: {
+  profilePath: string
+  realRoot: string
+  isolationRoute?: IsolationRoute
+}): NativeProfileIsolation {
+  const profilePath = resolve(input.profilePath)
+  const realRoot = resolve(input.realRoot)
+  const insideRealRoot = profilePath === realRoot || profilePath.startsWith(resolve(realRoot) + '/')
+  const route = input.isolationRoute ?? 'none'
+  if (insideRealRoot && route === 'none') {
+    return {
+      isolated: false,
+      missing:
+        "the native renderer resolves its profile root from the real user home, so launching writes into the operator's own Application Support directory; a supported per-run native profile root (or a per-run bundle identity the native side honours) is required before the installed application may be launched",
+      profilePath,
+    }
+  }
+  return { isolated: true, missing: null, profilePath }
+}
+
+/**
+ * The verdict of a socket observation.
+ *
+ * An empty observation is NOT a pass: no peer was seen, so the traffic was
+ * not observed at all, and the row stays unproved.
+ */
+export function assessSocketObservation(peers: readonly string[]): {
+  status: AcceptanceStatus
+  actual: string
+} {
+  if (peers.length === 0) {
+    return {
+      status: 'pending',
+      actual:
+        'the socket discovery returned no peer, so the traffic was not observed and the row stays unproved',
+    }
+  }
+  const offLoopback = peers.filter(
+    (peer) => !peer.startsWith('127.') && !peer.startsWith('[::1]') && !peer.startsWith('::1')
+  )
+  if (offLoopback.length > 0) {
+    return {
+      status: 'fail',
+      actual: `${offLoopback.length} of ${peers.length} peer(s) were off the loopback interface`,
+    }
+  }
+  return {
+    status: 'pass',
+    actual: `the installed application talked to ${peers.length} peer(s), all on the loopback interface`,
+  }
+}
+
+/**
+ * What the acceptance environment says about a hosted provider.
+ *
+ * Two INDEPENDENT observations: the NAMES of variables that mention a Neon
+ * identifier, and the NAMES of variables whose VALUE names a Neon host — a
+ * `DATABASE_URL` that points at a Neon host is caught by the second check
+ * even though its name says nothing about Neon. Only names are reported: a
+ * value may carry a credential, and the artifact is published.
+ */
+export type ProviderEnvironmentFinding = Readonly<{
+  /** The names of variables that mention a Neon identifier. */
+  neonIdentifiers: readonly string[]
+  /** The names of variables whose value names a Neon host. */
+  neonHostVariables: readonly string[]
+  /** Whether the environment names no Neon endpoint at all. */
+  clean: boolean
+}>
+
+/** A host name that belongs to a hosted Neon endpoint. */
+const NEON_HOST = /(^|[^a-z0-9-])([a-z0-9-]+\.)*neon\.(tech|build|dev|sh|aws|windows)\b/i
+
+/** Inspects an environment for hosted Neon endpoints, by name and by value. */
+export function inspectProviderEnvironment(
+  environment: Record<string, string | undefined> = process.env
+): ProviderEnvironmentFinding {
+  const neonIdentifiers: string[] = []
+  const neonHostVariables: string[] = []
+  for (const [name, value] of Object.entries(environment)) {
+    if (typeof value !== 'string') continue
+    if (/neon/i.test(name)) neonIdentifiers.push(name)
+    if (NEON_HOST.test(value)) neonHostVariables.push(name)
+  }
+  neonIdentifiers.sort()
+  neonHostVariables.sort()
+  return {
+    neonIdentifiers,
+    neonHostVariables,
+    clean: neonIdentifiers.length === 0 && neonHostVariables.length === 0,
+  }
+}
+
+/** The rows that need the installed application to be running. */
+export const LAUNCH_DEPENDENT_ROW_IDS = [
+  'installed-application-serves-its-own-client',
+  'the-served-client-is-the-installed-build',
+  'the-installed-bridge-is-served',
+  'the-installed-cloud-proxy-answers',
+  'the-operating-system-hands-the-callback-to-the-installed-app',
+  'the-installed-application-traffic-stayed-on-the-loopback-interface',
+  'the-installed-application-relaunches-with-its-own-state',
+  'the-installed-application-survives-an-unreachable-cloud',
+  'the-installed-application-recovers-when-the-cloud-returns',
+] as const
+
 function argValue(name: string): string | undefined {
   const index = process.argv.indexOf(name)
   return index >= 0 ? process.argv[index + 1] : undefined
@@ -599,6 +744,55 @@ async function installedAppAnswers(): Promise<boolean> {
   return response.ok
 }
 
+/**
+ * The rows that need the installed application to be running, as pending rows.
+ *
+ * Each keeps its own expectation, so the record says what was NOT proved and
+ * why, instead of silently dropping the row.
+ */
+export function launchDependentRows(missing: string): AcceptanceCheck[] {
+  const expectations: Record<string, string> = {
+    'installed-application-serves-its-own-client':
+      'the installed application answers on its own loopback origin with the client it was packaged with',
+    'the-served-client-is-the-installed-build':
+      'the served document is the packaged client with the desktop bridge injected',
+    'the-installed-bridge-is-served':
+      "the installed application's bridge script is served by the installed application",
+    'the-installed-cloud-proxy-answers':
+      "the installed application's own same-origin proxy forwards to the cloud it recorded",
+    'the-operating-system-hands-the-callback-to-the-installed-app':
+      'the operating system routes an adea:// callback into the installed application, which answers it with a typed decision',
+    'the-installed-application-traffic-stayed-on-the-loopback-interface':
+      'every TCP peer of the installed application is on the loopback interface',
+    'the-installed-application-relaunches-with-its-own-state':
+      'the installed application starts again and keeps its state directory, owner-only',
+    'the-installed-application-survives-an-unreachable-cloud':
+      'the installed application keeps serving and reports the cloud as unreachable instead of failing',
+    'the-installed-application-recovers-when-the-cloud-returns':
+      'the installed application reaches the cloud again without a restart',
+  }
+  return [
+    ...LAUNCH_DEPENDENT_ROW_IDS.map((id) =>
+      acceptanceRow({
+        id,
+        expected: expectations[id] ?? 'the installed application does the thing',
+        actual: `not launched: ${missing}`,
+        status: 'pending',
+        evidence: 'installed-app',
+      })
+    ),
+    ...INSTALLED_APP_UI_ROW_IDS.map((id) =>
+      acceptanceRow({
+        id,
+        expected: 'the client the installed application serves renders this flow',
+        actual: `not launched: ${missing}`,
+        status: 'pending',
+        evidence: 'installed-app-origin',
+      })
+    ),
+  ]
+}
+
 export type AcceptanceRun = {
   checks: AcceptanceCheck[]
   artifact: Record<string, unknown>
@@ -614,6 +808,8 @@ export type AcceptanceRun = {
 export async function runInstalledAppAcceptance(dependencies: {
   bundle: string
   profile: AcceptanceProfile
+  /** What the lane proved about where the native profile would be written. */
+  isolation?: NativeProfileIsolation
   /** Starts the installed application; returns the running application. */
   launch?: (profile: AcceptanceProfile) => RunningApp
   /** Fetches a path from the installed application's origin. */
@@ -661,7 +857,49 @@ export async function runInstalledAppAcceptance(dependencies: {
     })
   )
 
-  // 2. The installed application starts and serves its own bundled client.
+  // 2. The launch gate.
+  //
+  // Launching the installed application makes the native renderer write its
+  // profile into the REAL user's Application Support directory: the
+  // disposable HOME the lane sets does not move that path, and the devkit
+  // exposes no per-run root. A path that did not exist before the run proves
+  // nothing — a real installation can create or use it concurrently — so the
+  // lane does not launch on that basis. Without a proved isolation route the
+  // lane records every row that needs the running application as PENDING, with
+  // the exact contract that is missing, and touches nothing.
+  const isolation =
+    dependencies.isolation ??
+    assessNativeProfileIsolation({
+      profilePath: resolveOwnedApplicationSupportPath({
+        identifier: INSTALLED_APP_IDENTIFIER,
+        channel: readBundleChannel(profile.installedApp),
+      }),
+      realRoot: join(homedir(), 'Library', 'Application Support', INSTALLED_APP_IDENTIFIER),
+    })
+  if (!isolation.isolated) {
+    const pending = launchDependentRows(isolation.missing ?? 'the isolation contract is unknown')
+    for (const row of pending) add(row)
+    const summary = summarizeAcceptance(checks)
+    return {
+      checks,
+      artifact: {
+        summary,
+        origin: INSTALLED_APP_ORIGIN,
+        bundle: redactRecordedText(dependencies.bundle),
+        profileRoot: redactRecordedText(profile.root),
+        competingCopies,
+        isolation: {
+          isolated: isolation.isolated,
+          missing: isolation.missing,
+          profilePath: redactRecordedText(isolation.profilePath),
+        },
+        launched: false,
+        checks,
+      },
+    }
+  }
+
+  // 3. The installed application starts and serves its own bundled client.
   let running = launch(profile)
   let logPath = running.logPath
   const served = await waitFor(installedAppAnswers, 60_000, 'the installed application to serve')
@@ -781,39 +1019,35 @@ export async function runInstalledAppAcceptance(dependencies: {
     await sleep(500)
     const peers = installedApplicationPeers(profile.installedApp)
     await inFlight
-    const offLoopback = peers.filter(
-      (peer) => !peer.startsWith('127.') && !peer.startsWith('[::1]') && !peer.startsWith('::1')
-    )
+    const observation = assessSocketObservation(peers)
     add(
       acceptanceRow({
         id: 'the-installed-application-traffic-stayed-on-the-loopback-interface',
         expected:
           'every TCP peer of the installed application is on the loopback interface, so no hosted provider was reached',
-        actual:
-          peers.length === 0
-            ? 'the installed application held no connected TCP socket while it talked to its cloud'
-            : `the installed application talked to ${peers.length} peer(s) while it reached its cloud; ${offLoopback.length} of them off the loopback interface`,
-        status: offLoopback.length === 0 ? 'pass' : 'fail',
+        actual: observation.actual,
+        status: observation.status,
         evidence: 'installed-app',
       })
     )
 
     // 4b. The environment the installed application runs with names no Neon
     //     endpoint, so the application cannot reach one even by accident.
-    const neonVariables = Object.entries(process.env).filter(
-      ([name, value]) =>
-        /neon/i.test(name) && typeof value === 'string' && /neon\.(tech|build|dev)/i.test(value)
-    )
+    const provider = inspectProviderEnvironment(process.env)
     add(
       acceptanceRow({
         id: 'the-acceptance-environment-names-no-neon-endpoint',
         expected:
-          'no environment variable of the acceptance run names a Neon endpoint, so the installed application cannot fall back to one',
-        actual:
-          neonVariables.length === 0
-            ? 'no Neon endpoint is configured in the acceptance environment'
-            : `${neonVariables.length} Neon endpoint variable(s) are configured`,
-        status: neonVariables.length === 0 ? 'pass' : 'fail',
+          'no environment variable of the acceptance run names a Neon identifier, and no environment value names a Neon host, so the installed application cannot fall back to one',
+        actual: provider.clean
+          ? 'no Neon identifier and no Neon host are configured in the acceptance environment'
+          : `the environment names ${provider.neonIdentifiers.length} Neon identifier(s) and ${provider.neonHostVariables.length} variable(s) whose value names a Neon host (${[
+              ...provider.neonIdentifiers,
+              ...provider.neonHostVariables,
+            ]
+              .filter((name, index, all) => all.indexOf(name) === index)
+              .join(', ')})`,
+        status: provider.clean ? 'pass' : 'fail',
         evidence: 'host',
       })
     )
@@ -937,16 +1171,25 @@ async function main(): Promise<void> {
   const destination = artifactPath ?? defaultArtifactPath(root)
   mkdirSync(dirname(destination), { recursive: true })
 
-  // The ONE application-support path this installation writes outside the
-  // disposable directory. Its existence is recorded BEFORE the application
-  // starts, and only this exact path is ever a removal candidate.
+  // Where the native renderer WOULD write, and whether that path is isolated
+  // from the real user's Application Support directory. The lane launches
+  // only when it is; it never writes, marks or removes anything under the
+  // real user's directory, whatever the path looked like before the run.
   const supportParent = join(homedir(), 'Library', 'Application Support', INSTALLED_APP_IDENTIFIER)
   const channel = readBundleChannel(resolve(bundle))
   const supportPath = resolveOwnedApplicationSupportPath({
     identifier: INSTALLED_APP_IDENTIFIER,
     channel,
   })
-  const supportExistedBefore = existsSync(supportPath)
+  const isolation = assessNativeProfileIsolation({
+    profilePath: supportPath,
+    realRoot: supportParent,
+  })
+  if (!isolation.isolated) {
+    console.error(
+      `installed-app acceptance: the native profile root is not isolated from the real user's Application Support directory (${isolation.missing}); the installed application is NOT launched and every row that needs it stays pending`
+    )
+  }
 
   installBundle(resolve(bundle), profile)
   const registered = registerWithLaunchServices(profile.installedApp)
@@ -962,6 +1205,7 @@ async function main(): Promise<void> {
     run = await runInstalledAppAcceptance({
       bundle: resolve(bundle),
       profile,
+      isolation,
       runUiRows: (origin) => runInstalledAppUiRows(origin, dirname(destination)),
       ...(stopCloudCommand
         ? {
@@ -985,22 +1229,10 @@ async function main(): Promise<void> {
     deregisterFromLaunchServices(profile.installedApp)
   }
 
-  // The application-support decision is made for exactly ONE path, from the
-  // fact that the path did not exist before the run. No other entry under the
-  // application identity is ever touched, and no before/after listing is used
-  // to infer ownership.
-  const cleanup = planApplicationSupportCleanup({
-    path: supportPath,
-    existedBefore: supportExistedBefore,
-    expectedParent: supportParent,
-  })
-  if (cleanup.remove) {
-    try {
-      rmSync(supportPath, { force: true, recursive: true })
-    } catch {
-      cleanup.reason = 'the path this run created could not be removed'
-    }
-  }
+  // Nothing under the real user's Application Support directory is written,
+  // marked or removed by this lane — not before the run, not after it, and
+  // not on the basis of what the directory looked like at any point. The only
+  // directory the lane removes is the unique one it created and owns.
   run.artifact.launchServices = {
     identifier: INSTALLED_APP_IDENTIFIER,
     installedCopy: redactRecordedText(profile.installedApp),
@@ -1009,11 +1241,10 @@ async function main(): Promise<void> {
   delete run.artifact.competingCopies
   run.artifact.applicationSupport = {
     root: redactRecordedText(supportParent),
-    ownedPath: redactRecordedText(supportPath),
-    existedBefore: supportExistedBefore,
-    removedByThisRun: cleanup.remove,
-    decision: cleanup.reason,
-    otherEntriesTouched: false,
+    nativeProfilePath: redactRecordedText(supportPath),
+    touchedByThisRun: false,
+    decision:
+      'the lane writes, marks and removes nothing under the real user Application Support directory; the only directory it removes is the unique one it created and owns',
   }
 
   writeFileSync(destination, `${JSON.stringify(run.artifact, null, 2)}\n`)
