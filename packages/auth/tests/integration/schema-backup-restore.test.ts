@@ -4,8 +4,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Pool } from 'pg'
 
-import { applyAuthSchema, planAuthSchema } from '../../src/schema-init'
-
 // Runs against a disposable loopback PostgreSQL only. It creates one schema and
 // one restore database, fills them with synthetic fresh-account rows, and drops
 // both in cleanup. Ownership and grants are not restored (--no-owner), so this
@@ -15,9 +13,12 @@ import { applyAuthSchema, planAuthSchema } from '../../src/schema-init'
 // own pool) is pointed at one target that is validated once: a loopback host, a
 // TLS mode and an optional certificate path as the only query parameters, so no
 // libpq routing override (host, hostaddr, service, passfile) can move a client.
-// Every derived URL also carries server-side statement and lock bounds. Tool
-// processes receive a fixed, minimal environment. Every subprocess and database
-// operation is bounded, and every live child is reaped in cleanup.
+// Every derived URL also carries server-side statement and lock bounds, including
+// the admin and cleanup connections. The auth initializer opens its own pool, which
+// no client-side timeout of this test can reach, so it runs in a child process that
+// is killed at its deadline. Tool processes receive a fixed, minimal environment.
+// Every subprocess and database operation is bounded, and every live child is reaped
+// in cleanup.
 
 const databaseUrl = process.env.AUTH_POSTGRES_TEST_URL
 const origin = 'http://127.0.0.1:8787'
@@ -31,29 +32,50 @@ const ROUTING_ENVIRONMENT_NAMES = ['PGHOST', 'PGHOSTADDR', 'PGSERVICE', 'PGSERVI
 const TOOL_ENVIRONMENT_NAMES = ['PATH', 'HOME', 'TMPDIR', 'LANG']
 
 // Every operation has a bounded budget. The test's own deadline is the sum of
-// those budgets, so it can only fire after every bounded step has finished.
-const TOOL_TIMEOUT_MS = 60_000
-const DB_QUERY_TIMEOUT_MS = 10_000
-const CLEANUP_TIMEOUT_MS = 15_000
+// those budgets, so it can only fire after every bounded step has finished. The
+// disposable proof runs this file under a 600000 ms spawnSync ceiling
+// (scripts/disposable-postgres-cli.ts), which kills the whole run at that point, so
+// the budgets below must fit inside it with a margin. A real run takes seconds.
+const OUTER_COMMAND_CEILING_MS = 600_000
+const OUTER_MARGIN_MS = 60_000
+const TOOL_TIMEOUT_MS = 30_000
+const DB_QUERY_TIMEOUT_MS = 5_000
+const CLEANUP_TIMEOUT_MS = 10_000
 const CLEANUP_STEPS = 4
-const BODY_TOOL_CALLS = 2
-const BODY_DB_QUERIES = 60
+// Pg_dump, pg_restore and the two initializer runs, each a bounded child process.
+const BODY_TOOL_CALLS = 4
+const BODY_DB_QUERIES = 40
 const TEST_BUDGET_MS =
   BODY_TOOL_CALLS * TOOL_TIMEOUT_MS +
   BODY_DB_QUERIES * DB_QUERY_TIMEOUT_MS +
   CLEANUP_STEPS * CLEANUP_TIMEOUT_MS
 const BEFORE_ALL_BUDGET_MS = 2 * DB_QUERY_TIMEOUT_MS + 10_000
 const AFTER_ALL_BUDGET_MS = CLEANUP_STEPS * CLEANUP_TIMEOUT_MS + 5_000
+// The blocked-lock test: an admin DDL, the holder's lock, and one cleanup statement.
+const BLOCKED_TEST_BUDGET_MS = 60_000
+// The loopback guard and the stalled-child tests, all of which finish in seconds.
+const UNCONDITIONAL_BUDGET_MS = 30_000
+const RUNNER = join(import.meta.dir, 'schema-init-runner.ts')
 
 // Server-side bounds on every connection this test derives, including the ones the
 // auth initializer opens for itself, so a stalled server cannot hold a client.
+// The server bounds end a statement before the client's own query deadline does, so
+// the server cancels the work and the connection is not left mid-statement. The
+// guard test below asserts that ordering.
+const SERVER_STATEMENT_TIMEOUT_MS = DB_QUERY_TIMEOUT_MS - 1_000
+const SERVER_LOCK_TIMEOUT_MS = 2_000
 const SERVER_BOUNDS = [
-  `-c statement_timeout=${DB_QUERY_TIMEOUT_MS}`,
-  '-c lock_timeout=5000',
+  `-c statement_timeout=${SERVER_STATEMENT_TIMEOUT_MS}`,
+  `-c lock_timeout=${SERVER_LOCK_TIMEOUT_MS}`,
   '-c idle_in_transaction_session_timeout=30000',
 ].join(' ')
 const CONNECT_TIMEOUT_SECONDS = 10
 const POOL_OPTIONS = { connectionTimeoutMillis: 10_000, max: 1, query_timeout: DB_QUERY_TIMEOUT_MS }
+type InitializerResult = {
+  applied: boolean
+  before: { add: string[]; create: string[] }
+  after?: { add: string[]; create: string[] }
+}
 
 const suffix = crypto.randomUUID().replaceAll('-', '')
 const schema = `auth_bkp_${suffix}`
@@ -131,6 +153,11 @@ function poolFor(url: string): Pool {
   return new Pool({ connectionString: url, ...POOL_OPTIONS })
 }
 
+/** The admin connection, derived from the validated target like every other one. */
+function adminUrl(): string {
+  return urlFor(target!, target!.pathname.slice(1))
+}
+
 /** A fixed environment for child tools, so no inherited PG* variable can route them. */
 function toolEnvironment(): Record<string, string> {
   const environment: Record<string, string> = {}
@@ -145,8 +172,12 @@ function toolEnvironment(): Record<string, string> {
  * Runs a child process under a deadline. A live child is killed on every exit
  * path, and its exit is awaited before this returns, so nothing outlives the call.
  */
-async function runBounded(command: string[], timeoutMs: number) {
-  const child = Bun.spawn(command, { env: toolEnvironment(), stderr: 'pipe', stdout: 'pipe' })
+async function runBounded(
+  command: string[],
+  timeoutMs: number,
+  environment: Record<string, string> = toolEnvironment()
+) {
+  const child = Bun.spawn(command, { env: environment, stderr: 'pipe', stdout: 'pipe' })
   liveChildren.add(child)
   let timedOut = false
   const timer = setTimeout(() => {
@@ -154,12 +185,12 @@ async function runBounded(command: string[], timeoutMs: number) {
     child.kill('SIGKILL')
   }, timeoutMs)
   try {
-    const [stderr] = await Promise.all([
+    const [stderr, stdout] = await Promise.all([
       new Response(child.stderr).text(),
       new Response(child.stdout).text(),
     ])
     const code = await child.exited
-    return { code, pid: child.pid, stderr, timedOut }
+    return { code, pid: child.pid, stderr, stdout, timedOut }
   } finally {
     clearTimeout(timer)
     if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
@@ -211,12 +242,38 @@ export async function runCleanups(
  * ends any stalled statement before the step's own deadline.
  */
 async function runOwnStatement(sql: string): Promise<void> {
-  const pool = poolFor(target!.toString())
+  const pool = poolFor(adminUrl())
   try {
     await pool.query(sql)
   } finally {
     await pool.end().catch(() => undefined)
   }
+}
+
+/**
+ * Runs the auth initializer in its own child process, under a deadline. Its pool is
+ * created inside that process, so a stalled server ends with the process kill.
+ */
+async function runInitializer(
+  action: 'apply' | 'plan',
+  migrationUrl: string
+): Promise<InitializerResult> {
+  const result = await runBounded([process.execPath, '--no-env-file', RUNNER], TOOL_TIMEOUT_MS, {
+    ...toolEnvironment(),
+    ...environmentFor(migrationUrl),
+    AUTH_RUNNER_ACTION: action,
+  })
+  if (result.timedOut) {
+    throw new Error(
+      `the auth initializer (${action}) exceeded ${TOOL_TIMEOUT_MS} ms and was killed`
+    )
+  }
+  if (result.code !== 0) {
+    throw new Error(
+      `the auth initializer (${action}) failed with exit code ${result.code}: ${result.stderr.trim().slice(0, 500)}`
+    )
+  }
+  return JSON.parse(result.stdout) as InitializerResult
 }
 
 /** Kills and reaps every child this file still owns. Used by cleanup as a backstop. */
@@ -305,7 +362,7 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
     expect(derived.pathname).toBe('/restored')
     expect(derived.search).not.toContain('+')
     const options = decodeURIComponent(derived.search.split('options=')[1] ?? '')
-    expect(options).toContain(`-c statement_timeout=${DB_QUERY_TIMEOUT_MS}`)
+    expect(options).toContain(`-c statement_timeout=${SERVER_STATEMENT_TIMEOUT_MS}`)
     expect(options).toContain('-c search_path=auth_schema')
     expect(derived.searchParams.get('sslmode')).toBe(validated.searchParams.get('sslmode'))
   })
@@ -335,6 +392,42 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
     ])
     expect(ran).toEqual(['second'])
     expect(failures).toEqual(['first: boom'])
+  })
+
+  test('the auth initializer is killed at its deadline when the server never answers', async () => {
+    // A listener that accepts and never speaks: the initializer's own pool would wait
+    // forever, so only the deadline on its process can end it.
+    const silent = Bun.listen({ hostname: '127.0.0.1', port: 0, socket: { data() {}, open() {} } })
+    try {
+      const url = urlFor(loopbackTargetOf(`postgresql://u:p@127.0.0.1:${silent.port}/db`), 'db')
+      const result = await runBounded([process.execPath, '--no-env-file', RUNNER], 1_500, {
+        ...toolEnvironment(),
+        ...environmentFor(url),
+        AUTH_RUNNER_ACTION: 'plan',
+      })
+      expect(result.timedOut).toBe(true)
+      expect(() => process.kill(result.pid, 0)).toThrow()
+      expect(liveChildren.size).toBe(0)
+    } finally {
+      silent.stop(true)
+    }
+  }, 15_000)
+
+  test('the bounded budgets fit inside the outer command ceiling, with a margin', () => {
+    // The disposable CLI kills the whole run at its ceiling, before cleanup can finish,
+    // so every budget that can run in one file must fit under it.
+    const worstCase =
+      BEFORE_ALL_BUDGET_MS +
+      TEST_BUDGET_MS +
+      BLOCKED_TEST_BUDGET_MS +
+      AFTER_ALL_BUDGET_MS +
+      UNCONDITIONAL_BUDGET_MS
+    expect(worstCase).toBeLessThanOrEqual(OUTER_COMMAND_CEILING_MS - OUTER_MARGIN_MS)
+  })
+
+  test('the server bounds end a statement before the client deadline does', () => {
+    expect(SERVER_LOCK_TIMEOUT_MS).toBeLessThan(SERVER_STATEMENT_TIMEOUT_MS)
+    expect(SERVER_STATEMENT_TIMEOUT_MS).toBeLessThan(DB_QUERY_TIMEOUT_MS)
   })
 
   test('a stalled cleanup step is abandoned at its deadline and the next one still runs', async () => {
@@ -369,7 +462,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       if (!Bun.which(tool)) throw new Error(`${tool} must be on PATH for this test`)
     }
     workDirectory = mkdtempSync(join(tmpdir(), 'auth-backup-restore-'))
-    admin = poolFor(target.toString())
+    admin = poolFor(adminUrl())
     await admin.query(`CREATE SCHEMA "${schema}"`)
     await admin.query(`CREATE DATABASE "${restoredDatabase}"`)
   }, BEFORE_ALL_BUDGET_MS)
@@ -409,7 +502,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       const restoredConnection = urlFor(validated, restoredDatabase)
 
       // 1. Create the schema with the explicit initializer, then fill it with synthetic rows.
-      const applied = await applyAuthSchema(environmentFor(sourceSearchPath))
+      const applied = await runInitializer('apply', sourceSearchPath)
       expect(applied.applied).toBe(true)
       expect(applied.after).toEqual({ add: [], create: [] })
 
@@ -467,9 +560,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       expect(copy.rows).toEqual(source.rows)
 
       // 4. The restored schema reports no pending work, and planning writes nothing.
-      const planned = await planAuthSchema(
-        environmentFor(urlFor(validated, restoredDatabase, schema))
-      )
+      const planned = await runInitializer('plan', urlFor(validated, restoredDatabase, schema))
       expect(planned.applied).toBe(false)
       expect(planned.before).toEqual({ add: [], create: [] })
       const after = await snapshotOf(restoredConnection, schema)
@@ -477,5 +568,43 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       expect(await tablesIn(schema)).toEqual(expectedTables)
     },
     TEST_BUDGET_MS
+  )
+
+  test(
+    'a cleanup statement blocked by a held lock ends at its bound, and cleanup still finishes',
+    async () => {
+      const probe = `cleanup_probe_${suffix}`
+      await admin!.query(`CREATE TABLE "${schema}"."${probe}" (id int)`)
+
+      // Another session holds an exclusive lock on the probe table inside a transaction.
+      const holder = poolFor(adminUrl())
+      const held = await holder.connect()
+      try {
+        await held.query('BEGIN')
+        await held.query(`LOCK TABLE "${schema}"."${probe}" IN ACCESS EXCLUSIVE MODE`)
+
+        // The cleanup statement waits on that lock, and the lock_timeout bound ends it.
+        const started = Date.now()
+        const blocked = await runOwnStatement(`DROP TABLE "${schema}"."${probe}"`).then(
+          () => 'dropped',
+          (error: unknown) => (error instanceof Error ? error.message : 'unexpected')
+        )
+        expect(blocked).toContain('lock timeout')
+        expect(Date.now() - started).toBeLessThan(DB_QUERY_TIMEOUT_MS * 3)
+
+        // Once the holder releases, the same step succeeds, and the admin connection is still usable.
+        await held.query('ROLLBACK')
+      } finally {
+        held.release()
+        await holder.end()
+      }
+      await runOwnStatement(`DROP TABLE "${schema}"."${probe}"`)
+      const remaining = await admin!.query(
+        `SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2`,
+        [schema, probe]
+      )
+      expect(remaining.rows).toHaveLength(0)
+    },
+    BLOCKED_TEST_BUDGET_MS
   )
 })
