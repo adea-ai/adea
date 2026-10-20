@@ -13,6 +13,12 @@ until the cutover is verified.
 
 ## The gate
 
+This gate belongs to the measurement, not to the migration. The seven-day cost
+week is **not** a gate on the cutover, on the recovery procedure or on the
+completion of the Railway-only migration: nothing in the migration waits for
+it, and the migration is complete without it. The user owns the follow-up and
+runs it the week after the cutover, with the plan below as its procedure.
+
 The cost week starts only after a **verified cutover**. Before that receipt exists:
 
 - no day of the week is counted, and a partial week is not a week;
@@ -218,5 +224,5 @@ report then states:
   cited for any of those.
 
 A completed cost week is an input to a hosting decision. It is not the decision, and it
-does not retire Neon, which stays recoverable until a separate approved change says
-otherwise.
+does not retire the legacy environment, which is retained untouched as an accountability
+record and is not a recovery target.
