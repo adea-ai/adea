@@ -148,10 +148,11 @@ export function startCaptureProvisioning(register) {
       ? "throw new Error('the disposable instance could not start')"
       : `mkdirSync(instance, { recursive: true })
   writeFileSync(resolve(instance, 'marker'), 'the owned instance')
-  writeFileSync(resolve(root, 'provisioned.txt'), handle.containerName)
   register(handle)
   // The provisioner owns the instance for the life of the process: a normal
-  // exit and an interrupt both remove it, and the removal is idempotent.
+  // exit and an interrupt both remove it, and the removal is idempotent. The
+  // handlers are attached before the run is told that it is ready, because a
+  // parent may signal the run the moment it is ready.
   process.on('exit', () => {
     try {
       handle.stop()
@@ -174,6 +175,7 @@ export function startCaptureProvisioning(register) {
     signalListeners.push([signal, listener])
   }
   for (const [signal, listener] of signalListeners) process.on(signal, listener)
+  writeFileSync(resolve(root, 'handlers-attached.txt'), handle.containerName)
   return handle`
   }
 }
@@ -183,11 +185,20 @@ export function startCaptureProvisioning(register) {
   // The fixture: it applies the schema and prints the receipt the lane reads.
   // It records that it finished, so the qualification can wait for the run's
   // own child before it removes the repository.
-  const fixturePrelude = `import { writeFileSync } from 'node:fs'
+  const fixturePrelude = `import { existsSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+// The readiness barrier. The run publishes readiness only after its cleanup
+// handlers are attached, and the fixture refuses to start before that, so a
+// parent that signals the moment readiness appears always reaches a run that
+// can clean up after itself.
+if (!existsSync(resolve(root, 'handlers-attached.txt'))) {
+  console.error('the run was ready before its cleanup handlers were attached')
+  process.exit(1)
+}
+writeFileSync(resolve(root, 'ready.txt'), 'ready')
 process.on('exit', () => writeFileSync(resolve(root, 'fixture-finished.txt'), 'finished'))
 `
   const fixtureBody =
@@ -279,7 +290,7 @@ type LaneRun = {
 async function runLane(
   root: string,
   options: {
-    killWhenProvisioned?: boolean
+    killWhenReady?: boolean
     signal?: NodeJS.Signals
     environment?: Record<string, string>
     override?: Record<string, string>
@@ -320,11 +331,12 @@ async function runLane(
       child.on('close', (code, signal) => resolveExit({ code, signal }))
     }
   )
-  if (options.killWhenProvisioned) {
-    // The signal reaches a run that owns an instance, so the qualification
-    // sees the cleanup of an instance that really existed.
-    const provisioned = join(root, 'provisioned.txt')
-    for (let attempt = 0; attempt < 200 && !existsSync(provisioned); attempt += 1) {
+  if (options.killWhenReady) {
+    // The signal reaches a run that is ready: its cleanup handlers are
+    // attached and its instance exists, so the qualification sees the cleanup
+    // of an instance that really existed.
+    const ready = join(root, 'ready.txt')
+    for (let attempt = 0; attempt < 200 && !existsSync(ready); attempt += 1) {
       await new Promise((settled) => setTimeout(settled, 50))
     }
     child.kill(options.signal ?? 'SIGTERM')
@@ -340,9 +352,9 @@ async function runLane(
  * must not be removed while that child is still writing into it.
  */
 async function settleChildren(root: string, timeoutMs = 20_000): Promise<boolean> {
-  // The fixture only runs when the instance was provisioned, so a run that
-  // never provisioned one has no child to wait for.
-  if (!existsSync(join(root, 'provisioned.txt'))) return true
+  // The fixture only runs when the run reached its readiness barrier, so a
+  // run that never got there has no child to wait for.
+  if (!existsSync(join(root, 'ready.txt'))) return true
   const deadline = Date.now() + timeoutMs
   for (;;) {
     if (existsSync(join(root, 'fixture-finished.txt'))) return true
@@ -475,7 +487,7 @@ describe('the acceptance lane fails closed', () => {
 
   test('an interrupted run publishes no receipt and settles its own instance', async () => {
     await withFakeRepository({ fixture: 'hangs' }, async (fake) => {
-      const run = await runLane(fake.root, { killWhenProvisioned: true, signal: 'SIGTERM' })
+      const run = await runLane(fake.root, { killWhenReady: true, signal: 'SIGTERM' })
       // The interrupt does not let the run succeed, whichever way the process
       // ends: the run reports the failure and exits with it.
       expect(run.code).not.toBe(0)
@@ -493,7 +505,7 @@ describe('the acceptance lane fails closed', () => {
 
   test('a run the runner destroyed publishes no receipt and settles nothing', async () => {
     await withFakeRepository({ fixture: 'hangs' }, async (fake) => {
-      const run = await runLane(fake.root, { killWhenProvisioned: true, signal: 'SIGKILL' })
+      const run = await runLane(fake.root, { killWhenReady: true, signal: 'SIGKILL' })
       expect(run.signal).toBe('SIGKILL')
       expect(printedReceipt(run)).toBeNull()
       expect(run.stdout).not.toContain('"status":"passed"')
@@ -506,6 +518,21 @@ describe('the acceptance lane fails closed', () => {
       // The run's own child still finished, and the qualification waited for
       // it before the repository was removed.
       expect(await settleChildren(fake.root)).toBe(true)
+    })
+  }, 40_000)
+
+  test('the run publishes readiness only after its cleanup handlers are attached', async () => {
+    await withFakeRepository({ fixture: 'hangs' }, async (fake) => {
+      const run = await runLane(fake.root, { killWhenReady: true, signal: 'SIGTERM' })
+      // The fixture refuses to start before the handlers are attached, so the
+      // readiness it publishes can only exist after them. A parent that
+      // signals the moment readiness appears therefore always reaches a run
+      // that can clean up after itself.
+      expect(existsSync(join(fake.root, 'handlers-attached.txt'))).toBe(true)
+      expect(existsSync(join(fake.root, 'ready.txt'))).toBe(true)
+      expect(run.code).not.toBe(0)
+      expect(printedReceipt(run)).toBeNull()
+      expectOwnedInstanceRemoved(fake)
     })
   }, 40_000)
 

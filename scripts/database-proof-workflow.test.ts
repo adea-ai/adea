@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
 // The pull-request database proof lane. It proves one disposable PostgreSQL
 // instance on the loopback interface and nothing else: there is no hosted
@@ -280,12 +282,6 @@ describe('the fresh-account acceptance job wires the acceptance lane into CI', (
     expect(upload.with?.path).toContain('fresh-account-acceptance-receipt.json')
   })
 
-  test('it fails when the lane left its own instance behind', () => {
-    const step = stepNamed(job, 'Require the owned instance to be gone')
-    expect(step.run).toContain('left its own instance running')
-    expect(step.run).toContain('exit 1')
-  })
-
   test('it reads no secret and reaches no hosted database', () => {
     const body = JSON.stringify(job)
     expect(body).not.toContain('secrets.')
@@ -326,34 +322,102 @@ describe('the fresh-account acceptance job wires the acceptance lane into CI', (
   test('a hung lane is cancelled by the job timeout, and a cancelled job publishes nothing', () => {
     expect(job['timeout-minutes']).toBe(30)
     // The cleanup check runs even when the lane failed and even when the job
-    // was cancelled, so a leaked instance is reported next to the primary
+    // was cancelled, so a leaked resource is reported next to the primary
     // failure instead of being hidden by it. The publish step and the gate
     // have no condition of their own, so a cancelled run publishes nothing.
-    const cleanup = stepNamed(job, 'Require the owned instance to be gone')
+    const cleanup = stepNamed(job, 'Require no newly observed container to remain')
     expect(cleanup.if).toBe('always()')
   })
 
-  test('the cleanup check looks only at the instance this run created', () => {
+  test('the cleanup check reports newly observed resources and removes nothing', () => {
     const names = job.steps.map((step: { name?: string }) => step.name)
-    const before = names.indexOf('Record the containers the runner is running')
+    const before = names.indexOf('Record the containers the runner has')
     const lane = names.indexOf('Run the fresh-account acceptance lane')
-    const cleanup = names.indexOf('Require the owned instance to be gone')
+    const cleanup = names.indexOf('Require no newly observed container to remain')
     expect(before).toBeGreaterThanOrEqual(0)
     expect(before).toBeLessThan(lane)
     expect(lane).toBeLessThan(cleanup)
 
-    const step = stepNamed(job, 'Require the owned instance to be gone')
-    // The instance this run created is the name that appeared while it ran: a
-    // difference of two snapshots, not a prefix sweep.
+    const step = stepNamed(job, 'Require no newly observed container to remain')
+    // The difference between the two snapshots is a difference of two
+    // snapshots, not a prefix sweep, and it is reported as newly observed
+    // resources: it is never proof of ownership.
     expect(step.run).toContain('containers-before.txt')
     expect(step.run).toContain('containers-after.txt')
     expect(step.run).toContain('comm -13')
     expect(step.run).not.toContain('--filter')
-    // The leak is reported by name, and nothing is ever removed here.
-    expect(step.run).toContain('left its own instance running')
+    expect(step.run).toContain('newly observed container resources')
+    // Nothing is removed here, and the difference never authorises a removal.
     expect(step.run).not.toContain('docker rm')
     expect(step.run).not.toContain('prune')
     expect(step.run).not.toContain('docker system')
+    expect(step.run).not.toContain('docker kill')
+    expect(step.run).not.toContain('docker stop')
+  })
+
+  test('the snapshots name every container, in every state, by its identifier', () => {
+    // A container that was stopped and left behind is still a resource the
+    // runner holds, so the listing covers every state, and it names the
+    // immutable identifier rather than the mutable name.
+    for (const name of [
+      'Record the containers the runner has',
+      'Require no newly observed container to remain',
+    ]) {
+      const step = stepNamed(job, name)
+      expect(step.run).toContain('docker ps -a')
+      expect(step.run).toContain("'{{.ID}}'")
+      expect(step.run).not.toContain("'{{.Names}}'")
+    }
+  })
+
+  test('a stopped container that is newly observed fails the check', () => {
+    // The check runs its own script, so the regression is about what the job
+    // does: a container that was stopped and left behind is visible in the
+    // listing, it fails the check, and nothing is removed.
+    const step = stepNamed(job, 'Require no newly observed container to remain')
+    const directory = mkdtempSync(join(tmpdir(), 'adea-container-check-'))
+    try {
+      const bin = join(directory, 'bin')
+      mkdirSync(bin, { recursive: true })
+      const calls = join(directory, 'docker-calls.txt')
+      // A Docker that answers like the real one: it lists every state, and it
+      // holds a container that was stopped and left behind.
+      writeFileSync(
+        join(bin, 'docker'),
+        [
+          '#!/bin/sh',
+          `echo "$@" >> ${JSON.stringify(calls)}`,
+          'case "$*" in',
+          '  *-a*) echo "deadbeefcafe0123456789abcdef0123456789abcdef0123456789abcdef01234567" ;;',
+          'esac',
+          'exit 0',
+          '',
+        ].join('\n')
+      )
+      chmodSync(join(bin, 'docker'), 0o755)
+      const script = join(directory, 'check.sh')
+      writeFileSync(script, step.run ?? '')
+      const result = spawnSync('bash', [script], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          RUNNER_TEMP: directory,
+        },
+      })
+      // The stopped container is newly observed, so the check fails and names
+      // it.
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('deadbeefcafe')
+      // The difference never authorises a removal: the check asked Docker to
+      // list and nothing else.
+      const asked = readFileSync(calls, 'utf8')
+      for (const command of asked.split('\n').filter((line) => line.length > 0)) {
+        expect(command.split(' ')[0]).toBe('ps')
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   test('the job runs the lane and the gate on the repository Node runtime', () => {

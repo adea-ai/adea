@@ -61,14 +61,17 @@ The job, in order:
    the clean tree the run happened in. The lane provisions its own disposable
    instance and removes it on success, on failure and on interruption, and
    fails the run when it cannot.
-5. **No instance is left behind.** The names that were running before the lane
-   starts are recorded, and the names that are running afterwards are compared
-   with them: the containers that appeared while the run executed are the ones
-   the run created, and the check looks only at those. It is not a prefix
-   sweep, and it never removes anything. A container that is still running is
-   reported by name and the job fails, so the cleanup failure is recorded next
-   to the primary failure instead of being hidden by it. The check runs even
-   when the lane failed and even when the job was cancelled.
+5. **No resource is left behind.** Every container the runner holds is
+   recorded before the lane starts — in every state, by its immutable
+   identifier, so a container that was stopped and left behind is still
+   visible — and the listing is compared with the one taken afterwards. The
+   difference is what appeared while the run executed, and it is reported as
+   **newly observed resources**: it is never proof of ownership, and it never
+   authorises a removal. The check has no removal step and no permission to
+   remove anything. A resource that is still there fails the job, so the
+   cleanup failure is recorded next to the primary failure instead of being
+   hidden by it. The check runs even when the lane failed and even when the
+   job was cancelled.
 6. **The receipt is gated before anything is published.**
    `scripts/ci-fresh-account-acceptance.mjs` refuses a receipt that is not the
    acceptance lane's own proof kind, that is not the lane's own passed
@@ -167,6 +170,12 @@ Four properties hold on every one of those paths:
   than when the process ends, because a child the run left behind still holds
   the output open. A parent that exits proves nothing about either, and the
   qualification no longer takes the parent's word for it.
+- **Readiness is published only when the run can clean up.** The provisioner
+  attaches its exit and interrupt handlers before it publishes anything, and
+  the fixture refuses to start before they are attached. The parent therefore
+  cannot signal a run that is not ready for the signal, and a signal sent the
+  moment readiness appears always reaches a run that can settle its own
+  instance.
 - **The evidence is sanitized.** The failure evidence names the failure and
   nothing else: the child's raw output, which may carry the URL and its
   parameters, is never relayed, and the published receipt carries the commit,
@@ -195,10 +204,10 @@ program the job runs is the program the qualification exercises.
 | Command                                                           | Result                                                                                                                                    |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `bun test scripts/ci-fresh-account-acceptance.test.ts`            | 23 pass, 0 fail                                                                                                                           |
-| `bun test scripts/ci-fresh-account-acceptance-failure.test.ts`    | 18 pass, 0 fail                                                                                                                           |
-| `bun test scripts/database-proof-workflow.test.ts`                | 29 pass, 0 fail                                                                                                                           |
+| `bun test scripts/ci-fresh-account-acceptance-failure.test.ts`    | 19 pass, 0 fail                                                                                                                           |
+| `bun test scripts/database-proof-workflow.test.ts`                | 30 pass, 0 fail                                                                                                                           |
 | `bun test scripts/desktop-principal-acceptance-boundary.test.ts`  | 14 pass, 0 fail                                                                                                                           |
-| `bun run test:coverage` (the full unit coverage lane)             | 2147 pass, 0 fail across 159 files                                                                                                        |
+| `bun run test:coverage` (the full unit coverage lane)             | 2149 pass, 0 fail across 159 files                                                                                                        |
 | `bun test scripts/ci-fresh-account-acceptance.test.ts --coverage` | `scripts/ci-fresh-account-acceptance.mjs` at 100.00% functions and 99.21% lines (the one uncovered line is the program's own entry guard) |
 | `oxfmt --check` on the changed sources                            | all files use the correct format                                                                                                          |
 | `oxlint --deny-warnings` on the changed sources                   | no findings                                                                                                                               |
@@ -208,7 +217,10 @@ refusal, the exact-head refusal, the dirty-tree refusal, the foreign-tree
 refusal, the zero-pass refusal for each measured count, the no-refusal
 refusal for each refused case, the simulated and failed results, a run that
 printed no receipt, the usage error, and the program's exit codes in both
-directions. The failure qualification covers the nine paths in the table
+directions. The workflow's own regression runs the cleanup check's script
+against a Docker that answers like the real one and holds a container that was
+stopped and left behind: the check must fail, name it, and ask Docker to
+list and nothing else. The failure qualification covers the nine paths in the table
 above, the removal of the owned instance on each of them, the gate's refusal
 of a failed run and of a receipt from another tree, and the sanitized
 evidence. The workflow's structural test covers the job's identity, the draft
