@@ -150,6 +150,7 @@ describe('the built-Worker request settlement', () => {
 class FakeChild extends EventEmitter implements WorkerChild {
   pid = 4242
   exitCode: number | null = null
+  signalCode: NodeJS.Signals | null = null
   readonly signals: NodeJS.Signals[] = []
 
   once(
@@ -162,6 +163,13 @@ class FakeChild extends EventEmitter implements WorkerChild {
   exit(code = 0): void {
     this.exitCode = code
     this.emit('exit', code, null)
+  }
+
+  /** The launcher was killed by a signal rather than exiting on its own. */
+  killed(signal: NodeJS.Signals = 'SIGTERM'): void {
+    this.signalCode = signal
+    this.exitCode = null
+    this.emit('exit', null, signal)
   }
 }
 
@@ -330,6 +338,87 @@ describe('the built-Worker group settlement', () => {
       // stop while a descendant of the group is still alive.
       expect(child.exitCode).not.toBeNull()
       await expect(worker.stop()).rejects.toThrow(/worker-stop-failed/u)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('an already-exited launcher with a gone group settles the stop', async () => {
+    const child = new FakeChild()
+    // The launcher exited before the stop was called, and nothing of its group
+    // is left.
+    child.exit(0)
+    const directory = mkdtempSync(join(tmpdir(), 'adea-worker-runtime-'))
+    try {
+      const worker = await startBuiltWorker(
+        {
+          root: directory,
+          artifact: {
+            directory,
+            configPath: join(directory, 'wrangler.json'),
+            digest: 'digest',
+            files: 1,
+          },
+          config: {},
+          configPath: join(directory, 'worker.json'),
+          port: 8797,
+          certificatePath: certificateFile(),
+          keyPath: join(directory, 'server.key'),
+          persistDirectory: join(directory, 'state'),
+        },
+        {
+          spawn: () => child,
+          signal: () => undefined,
+          groupAlive: () => false,
+          request: async () => ({ status: 200, headers: {}, body: '' }),
+          now: (() => {
+            let clock = 0
+            return () => (clock += 1_000)
+          })(),
+          sleep: async () => undefined,
+        }
+      )
+      // The stop must settle: the exit already happened and the group is gone.
+      await worker.stop()
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('a launcher killed by a signal with a gone group settles the stop', async () => {
+    const child = new FakeChild()
+    child.killed('SIGTERM')
+    const directory = mkdtempSync(join(tmpdir(), 'adea-worker-runtime-'))
+    try {
+      const worker = await startBuiltWorker(
+        {
+          root: directory,
+          artifact: {
+            directory,
+            configPath: join(directory, 'wrangler.json'),
+            digest: 'digest',
+            files: 1,
+          },
+          config: {},
+          configPath: join(directory, 'worker.json'),
+          port: 8798,
+          certificatePath: certificateFile(),
+          keyPath: join(directory, 'server.key'),
+          persistDirectory: join(directory, 'state'),
+        },
+        {
+          spawn: () => child,
+          signal: () => undefined,
+          groupAlive: () => false,
+          request: async () => ({ status: 200, headers: {}, body: '' }),
+          now: (() => {
+            let clock = 0
+            return () => (clock += 1_000)
+          })(),
+          sleep: async () => undefined,
+        }
+      )
+      await worker.stop()
     } finally {
       rmSync(directory, { recursive: true, force: true })
     }

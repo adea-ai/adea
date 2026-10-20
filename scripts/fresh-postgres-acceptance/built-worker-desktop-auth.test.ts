@@ -43,12 +43,18 @@ function response(
 /** The origin the built Worker serves on. */
 const WORKER_ORIGIN = 'https://127.0.0.1:8790'
 
+/**
+ * The location the product route sends.
+ *
+ * The route answers with a relative location, the way the product sends it,
+ * and the qualification must accept exactly that.
+ */
 function callbackLocation(code: string, nonce: string, state: string): string {
   const callback = new URL(DESKTOP_CALLBACK_URI)
   callback.searchParams.set('code', code)
   callback.searchParams.set('nonce', nonce)
   callback.searchParams.set('state', state)
-  return `${WORKER_ORIGIN}/auth/desktop/complete#callback=${encodeURIComponent(callback.toString())}`
+  return `/auth/desktop/complete#callback=${encodeURIComponent(callback.toString())}`
 }
 
 /** A transport that answers like a correct built Worker does. */
@@ -446,6 +452,16 @@ function validCallback(url: URL, overrides: { nonce?: string; state?: string } =
 }
 
 describe('the built-Worker desktop authorization validation', () => {
+  test('a relative completion location is the valid one', async () => {
+    const correct = correctWorker()
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(correct.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(true)
+    expect(receipt.status).toBe('passed')
+  })
+
   test('an authorize that answers another destination issues nothing', async () => {
     const worker = workerWithAuthorize((url) => `/auth/elsewhere#callback=${validCallback(url)}`)
     const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
@@ -474,10 +490,7 @@ describe('the built-Worker desktop authorization validation', () => {
 
   test('an authorize whose callback carries another nonce issues nothing', async () => {
     const worker = workerWithAuthorize(
-      (url) =>
-        `${WORKER_ORIGIN}/auth/desktop/complete#callback=${validCallback(url, {
-          nonce: 'another-nonce',
-        })}`
+      (url) => `/auth/desktop/complete#callback=${validCallback(url, { nonce: 'another-nonce' })}`
     )
     const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
     const issued = receipt.assertions.find(
@@ -489,10 +502,7 @@ describe('the built-Worker desktop authorization validation', () => {
 
   test('an authorize whose callback carries another state issues nothing', async () => {
     const worker = workerWithAuthorize(
-      (url) =>
-        `${WORKER_ORIGIN}/auth/desktop/complete#callback=${validCallback(url, {
-          state: 'another-state',
-        })}`
+      (url) => `/auth/desktop/complete#callback=${validCallback(url, { state: 'another-state' })}`
     )
     const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
     const issued = receipt.assertions.find(
@@ -507,9 +517,7 @@ describe('the built-Worker desktop authorization validation', () => {
       const callback = new URL('adea://auth/callback')
       callback.searchParams.set('code', 'abcdefghijklmnop')
       callback.searchParams.set('state', url.searchParams.get('state') ?? '')
-      return `${WORKER_ORIGIN}/auth/desktop/complete#callback=${encodeURIComponent(
-        callback.toString()
-      )}`
+      return `/auth/desktop/complete#callback=${encodeURIComponent(callback.toString())}`
     })
     const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
     const issued = receipt.assertions.find(
@@ -587,7 +595,7 @@ describe('the built-Worker desktop authorization validation', () => {
 
   test('an authorize that does not answer 303 issues nothing', async () => {
     const worker = workerWithAuthorize(
-      (url) => `${WORKER_ORIGIN}/auth/desktop/complete#callback=${validCallback(url)}`,
+      (url) => `/auth/desktop/complete#callback=${validCallback(url)}`,
       200
     )
     const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))

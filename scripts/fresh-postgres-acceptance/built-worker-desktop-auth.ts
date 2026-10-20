@@ -347,7 +347,10 @@ export function validateIssuedAuthorization(input: {
   }
   let destination: URL
   try {
-    destination = new URL(input.location, 'https://desktop.invalid')
+    // The route answers with a relative location, the way the product sends it.
+    // It is resolved against the origin the Worker serves, so a relative
+    // redirect is the valid one and a location on another origin is not.
+    destination = new URL(input.location, `${input.expectedOrigin}/`)
   } catch {
     return { ok: false, reason: 'the authorize route answered with an unusable location' }
   }

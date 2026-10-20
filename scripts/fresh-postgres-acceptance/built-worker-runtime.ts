@@ -336,6 +336,7 @@ export function buildLocalWorkerConfig(input: LocalWorkerConfigInput): Record<st
 export type WorkerChild = {
   readonly pid?: number
   readonly exitCode: number | null
+  readonly signalCode?: NodeJS.Signals | null
   readonly stdout?: { on(event: 'data', listener: (chunk: Buffer) => void): void }
   readonly stderr?: { on(event: 'data', listener: (chunk: Buffer) => void): void }
   once(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): void
@@ -486,7 +487,13 @@ export async function startBuiltWorker(
 
   let stopping: Promise<void> | undefined
   let stopRequested = false
-  let childExited = false
+  // The exit is observed from the spawn, not from the stop: a launcher that
+  // exited before the stop was called must not leave the stop waiting for an
+  // exit that already happened.
+  let childExited = child.exitCode !== null || (child.signalCode ?? null) !== null
+  child.once('exit', () => {
+    childExited = true
+  })
   /**
    * Asks the Worker to stop. The signal is sent once; the shutdown is
    * confirmed by {@link stop}.
@@ -513,9 +520,6 @@ export async function startBuiltWorker(
     if (stopping) return stopping
     stopping = (async () => {
       if (!child.pid) return
-      child.once('exit', () => {
-        childExited = true
-      })
       /**
        * True once the process group is gone.
        *
