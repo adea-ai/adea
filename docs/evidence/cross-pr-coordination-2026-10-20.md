@@ -24,6 +24,98 @@ head each one is at, what its logs say, and where it stands.
 Auto-merge is off on every one of them: the pull-request records report no
 auto-merge request.
 
+## The self-hosted auth lifecycle qualification
+
+The pull-request lanes prove a **self-hosted** auth lifecycle against a real
+database, and a skipped run is never read as a proof of it.
+
+`packages/auth/tests/integration/better-auth-postgres.test.ts` is the suite. It
+creates an isolated schema, applies the provider migrations, signs a user up,
+reads the session back from the persisted row, revokes the session, and proves
+the persisted session is gone. It skips itself when `AUTH_POSTGRES_TEST_URL` is
+absent — and in CI, until this change, it always skipped: the integration
+runner never supplied the variable, so the lane's green result said nothing
+about the lifecycle.
+
+### What the qualification does
+
+`scripts/self-hosted-auth-lifecycle.ts` runs the suite with the variable
+supplied and refuses a run that proved nothing:
+
+| Condition                                                       | Outcome                                                          |
+| --------------------------------------------------------------- | ---------------------------------------------------------------- |
+| the suite fails                                                 | the lane fails, with the failing lines and no credential in them |
+| the suite reports a skipped case                                | the lane fails: a skipped run is not a proof                     |
+| the suite reports no passing case                               | the lane fails: a skipped run is not a proof                     |
+| the URL is not a loopback PostgreSQL with a role and a password | the lane fails before the suite runs                             |
+
+The suite runs in a minimal environment — its one URL plus `PATH`, `TMPDIR` and
+`LANG` — so a value in the caller's environment cannot change what the
+lifecycle proves.
+
+### Where it runs
+
+The integration runner owns the instance it starts, so it hands the
+qualification that instance's loopback administrative URL
+(`scripts/test-integration.mjs`). The lane's log records that the lifecycle was
+proven. A run against an explicitly supplied target owns no loopback instance,
+so the lane says the lifecycle was **not** proven there rather than claiming
+it.
+
+The variable is deliberately not part of the sweep's environment. That was
+measured, not assumed: with the variable supplied to the whole sweep, the
+backup-and-restore suite — which shares the variable — runs against the
+Compose instance and refuses it, because that suite needs a
+certificate-verified TLS connection with the instance's own pinned certificate
+and a Compose instance has no TLS. The lifecycle suite needs no TLS; the sweep
+must not be handed a URL another suite would refuse.
+
+### Evidence
+
+On a local disposable loopback PostgreSQL 18, macOS arm64, Bun 1.4.3, Node
+24.21.0, 2026-10-20:
+
+| Run                                                                                                                                                    | Result                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun --no-env-file test --conditions=react-server packages/auth/tests/integration/better-auth-postgres.test.ts` with `AUTH_POSTGRES_TEST_URL` supplied | **1 pass, 0 fail, 7 assertions**                                                                                                                     |
+| the same suite with the variable absent                                                                                                                | 0 pass, 3 skip — the skip the qualification refuses                                                                                                  |
+| `bun scripts/test-integration.mjs` (the local instance, port 55499)                                                                                    | the migration verification passed (60 applied migrations) and the lane logged `the self-hosted auth lifecycle was proven against the local instance` |
+
+The two neighbouring suites that share the variable were measured too, so the
+handoff below is based on what they need rather than on a guess:
+`request-path-delivery.test.ts` passes (7 pass) and `schema-init-postgres.test.ts`
+passes (14 pass) against the same loopback administrative URL, and
+`schema-backup-restore.test.ts` fails it with `the target sslmode is not
+accepted`.
+
+### The handoff to the lane that owns the disposable proof
+
+The qualification is a module with no dependency on any runner, so the lane
+that owns the disposable PostgreSQL proof can call it from its own proof and
+gain the same fail-closed lifecycle against its certificate-verified instance.
+This lane did not edit that lane's files: the module is offered, and the call
+site is theirs to make.
+
+## Coordination with the efficiency lane's pull request (#1515)
+
+`#1515` (`chore(neon): remove the provider coupling from the runtime and the
+deployment`) and this lane both touch the same paths. The overlaps, and what
+happens to each:
+
+| Path                           | `#1515`                                                                                                                | This lane                                                                | Resolution                                                                                                                                                                                                       |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/database-config.mjs`  | removes the provider-specific host rule and replaces it with a stronger, provider-neutral "one host and one port" rule | had edited the same file                                                 | **this lane reverted its edit.** The path belongs to `#1515`; its rule is strictly stronger and names no provider. This lane carries no diff for the file, so there is no conflict and no second claim.          |
+| `README.md`                    | rewrites the CI paragraph, keeping the two-shard, isolated-branch, `Migrate Neon Branch` wording                       | rewrites the same paragraph to describe the disposable proof             | **this lane's wording is the accurate one** after the workflow change, and `#1515`'s text describes a lane that no longer exists. The two overlap in one hunk; whoever rebases last takes the accurate sentence. |
+| `docs/database-operations.md`  | rewrites the topology table and the production-role history                                                            | rewrites the pull-request CI section and adds the auth lifecycle section | Different hunks: no conflict.                                                                                                                                                                                    |
+| `apps/web/CLOUDFLARE.md`       | rewrites the preview and Hyperdrive sections                                                                           | corrects the preview-branch bullet                                       | Different hunks: no conflict.                                                                                                                                                                                    |
+| `scripts/test-integration.mjs` | one comment line                                                                                                       | the auth lifecycle wiring                                                | One line of overlap: the comment. Trivial.                                                                                                                                                                       |
+
+The one provider identifier this lane no longer owns is
+`scripts/database-config.mjs`'s `.neon.tech` rule, and `#1515` removes it. The
+no-Neon proof records that ownership explicitly rather than editing the file:
+`scripts/no-neon-ci.test.ts` asserts the path is **not** in this lane's scanned
+set, that it still carries the identifier, and which pull request removes it.
+
 ## #1509 — the failing Unit/Validation result, verified
 
 ### The failure

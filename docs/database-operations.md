@@ -132,10 +132,35 @@ not own. A cleanup failure fails the lane, and the primary failure is preserved
 alongside the teardown failure. An unavailable container runtime or a missing
 OpenSSL fails the lane rather than producing a green skipped test.
 
-This proof is database-only. It does not replace the hosted auth proof: the
-Neon Auth JWKS assertion in the hosted lane remains the only proof that an
-isolated environment publishes a reachable key-discovery document, and no
-self-hosted equivalent exists yet.
+## Self-hosted auth lifecycle (integration CI)
+
+The pull-request integration lane proves the **self-hosted** auth lifecycle
+against a real local PostgreSQL, and it refuses to count a skipped run as a
+proof.
+
+`packages/auth/tests/integration/better-auth-postgres.test.ts` is the suite: it
+creates an isolated schema, applies the provider migrations, signs a user up,
+reads the session back from the persisted row, revokes the session, and proves
+the persisted session is gone. The suite skips itself when
+`AUTH_POSTGRES_TEST_URL` is absent, and a skipped suite proves nothing.
+
+The integration runner therefore hands the qualification a loopback
+administrative URL for the instance it owns
+(`scripts/self-hosted-auth-lifecycle.ts`), and the qualification refuses a run
+that skipped, that reported no passing case, or that failed. The lane's log
+records that the lifecycle was proven; an explicitly supplied target owns no
+loopback instance, so the lane says the lifecycle was not proven there rather
+than claiming it.
+
+The variable is deliberately not part of the sweep's environment. The
+administrative URL is a plain loopback connection, and the backup-and-restore
+suite that shares the variable requires a certificate-verified TLS connection
+with the instance's own pinned certificate, which a Compose instance does not
+have.
+
+```sh
+bun scripts/test-integration.mjs
+```
 
 ## Health and configuration validation
 

@@ -73,6 +73,13 @@ function exercise(options: {
         return { status: 0, stdout: '' }
       } }),
       './test-target-guard.mjs': stub({ assertLocalTestTargets() {} }),
+      './self-hosted-auth-lifecycle.ts': stub({
+        // The qualification is exercised by its own test; here the runner only
+        // has to call it, so the stub records the URL it was handed.
+        proveSelfHostedAuthLifecycle(command, input) {
+          calls.push(['auth-lifecycle', input.databaseUrl])
+        },
+      }),
       './integration-inventory.mjs': stub({
         parseIntegrationShard() {}, discoverIntegrationInventory() { return {} },
         planIntegrationRun() { return { packageFiles: [], routeFiles: [] } },
@@ -239,6 +246,14 @@ async function exerciseBun(signal?: 'SIGINT' | 'SIGTERM', failMigration = false)
     'export function assertLocalTestTargets() {}'
   )
   writeFileSync(
+    join(scripts, 'self-hosted-auth-lifecycle.ts'),
+    `${fixtureLog}
+    export function proveSelfHostedAuthLifecycle(command, input) {
+      log('auth-lifecycle ' + new URL(input.databaseUrl).hostname);
+    }
+  `
+  )
+  writeFileSync(
     join(scripts, 'integration-inventory.mjs'),
     `
     export function parseIntegrationShard() {}
@@ -359,6 +374,11 @@ test('actual Bun runner cleans both fixtures after a successful run', async () =
   expect(result.code, result.stderr).toBe(0)
   expect(result.calls.filter((call) => call === 'docker compose stop postgres')).toHaveLength(1)
   expect(result.calls.filter((call) => call === 'capture-stop')).toHaveLength(1)
+  // The self-hosted auth lifecycle is proven on the way through, against the
+  // loopback instance this lane owns.
+  expect(result.calls.filter((call) => call.startsWith('auth-lifecycle '))).toEqual([
+    'auth-lifecycle 127.0.0.1',
+  ])
 })
 
 // Keep the production lifecycle modules byte-for-byte intact. Only the external
@@ -393,6 +413,10 @@ async function exerciseRealLifecycle(
   writeFileSync(
     join(scripts, 'test-target-guard.mjs'),
     'export function assertLocalTestTargets() {}'
+  )
+  writeFileSync(
+    join(scripts, 'self-hosted-auth-lifecycle.ts'),
+    'export function proveSelfHostedAuthLifecycle() {}'
   )
   writeFileSync(
     join(scripts, 'integration-inventory.mjs'),

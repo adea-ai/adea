@@ -11,6 +11,10 @@
 // nothing else, so no CI lane supplies a remote database host: there is no
 // ephemeral branch, no provider API and no CI-provided host allowlist.
 //
+// A developer may still name one exact host in ADEA_ALLOW_REMOTE_TEST_TARGET,
+// exactly as before this change, and that host is then accepted. A production
+// host is never accepted, however it is named.
+//
 // Errors name the variable and the host, never the credentials in the URL.
 
 /** Variables that carry a Postgres connection string into test lanes. */

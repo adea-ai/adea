@@ -60,9 +60,16 @@ check stopped reporting.
 The test-target guard lost the CI-ephemeral classification with it. A database
 target is now `local` (loopback or a unix socket), `production` (a host this
 repository knows serves production) or `remote` (everything else). Nothing
-writes a host allowlist any more, so no environment variable, no role name and
-no `GITHUB_ACTIONS` value can make a remote database reachable from a test.
-That is a tightening: the guard refuses more than it did, not less.
+writes a CI-provided host allowlist any more, and no role name and no
+`GITHUB_ACTIONS` value vouches for a host.
+
+A remote target is still reachable in exactly one way, and it was reachable
+before this change too: a developer names its exact host in
+`ADEA_ALLOW_REMOTE_TEST_TARGET`, and the guard accepts that one host. That is
+an explicit, per-run choice by a person, not something a CI lane or a stray
+environment variable can do. A production host is never accepted, however it
+is named. So the change removes the CI-wide, machine-driven path to a remote
+database and leaves the deliberate, per-run one exactly as it was.
 
 The database configuration probe lost its provider-specific host rule. It still
 refuses a client-exposed credential, a missing role convention, a pooled and an
@@ -77,16 +84,17 @@ scripts for a provider **identifier** — an environment variable name, a host, 
 action — and fails when one appears. Identifiers, not prose: a refusal may name
 a legacy value and a comment may explain why.
 
-| Case                                                        | What it proves                                                                                      |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| no workflow names a provider identifier                     | every workflow file is clean                                                                        |
-| no workflow requests a provider secret or variable          | no workflow asks the repository for a provider credential                                           |
-| the CI and release configuration name no provider           | `.github/code-foundry.yml`, `release-please-config.json`, the manifest and `package.json` are clean |
-| the database CI scripts name no provider                    | apart from one documented refusal (below)                                                           |
-| the refusal is still a refusal, and nothing supplies it     | the guard lists the legacy variable and refuses a hosted endpoint for it; no workflow sets it       |
-| the pull-request database proof is the only database lane   | the provider workflow is gone and the remaining lane is local                                       |
-| no CI lane supplies a remote database host to the guard     | the guard has no CI-provided allowlist and no `ci-ephemeral` classification                         |
-| the database configuration script has no provider host rule | the provider-specific pooled/unpooled rule is gone                                                  |
+| Case                                                      | What it proves                                                                                       |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| no workflow names a provider identifier                   | every workflow file is clean                                                                         |
+| no workflow requests a provider secret or variable        | no workflow asks the repository for a provider credential                                            |
+| the CI and release configuration name no provider         | `.github/code-foundry.yml`, `release-please-config.json`, the manifest and `package.json` are clean  |
+| the database CI scripts name no provider                  | apart from one documented refusal (below)                                                            |
+| the refusal is still a refusal, and nothing supplies it   | the guard lists the legacy variable and refuses a hosted endpoint for it; no workflow sets it        |
+| the pull-request database proof is the only database lane | the provider workflow is gone and the remaining lane is local                                        |
+| no CI lane supplies a remote database host to the guard   | the guard has no CI-provided allowlist and no `ci-ephemeral` classification                          |
+| a developer may still name one exact remote host          | `ADEA_ALLOW_REMOTE_TEST_TARGET` still accepts that one host, and a production host is never accepted |
+| the one provider path this lane does not own is recorded  | the efficiency lane's pull request owns `scripts/database-config.mjs` and removes its provider rule  |
 
 `scripts/database-proof-workflow.test.ts` pins the surviving lane: its two
 jobs, their check names, the fail-closed gate, the trigger set, the pinned
@@ -120,12 +128,13 @@ it.
 These identifiers remain outside this lane's scope. They are recorded so the
 owner of each path can schedule them; this change does not touch them.
 
-| Path                                                                                          | Identifier                                                                          | Owner                                                                                          |
-| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `packages/auth/src/config.ts`, `packages/auth/src/server.ts`, `apps/web/cloudflare.config.ts` | `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `AGENT_HQ_NEON_PRODUCTION_*`       | the auth/deployment lane                                                                       |
-| `packages/auth/src/neon-driver.ts`, `packages/auth/tests/integration/neon-driver.test.ts`     | the legacy Neon Auth driver                                                         | the auth lane                                                                                  |
-| `packages/db/src/config.ts`                                                                   | `isTransactionPooledHost`, `NEON_HOST_SUFFIX`                                       | the database lane                                                                              |
-| `apps/web/src/**`, `apps/web/test/**`                                                         | `NEON_AUTH_*` bindings and the client denylist                                      | the web lane                                                                                   |
-| `scripts/preview-availability.test.ts`                                                        | `AGENT_HQ_NEON_PRODUCTION_DATABASE_URL` as a refused production-secret name         | the web/deployment lane                                                                        |
-| `scripts/disposable-postgres-ci.ts`                                                           | the header comment naming the hosted Neon branch and the `Migrate Neon Branch` gate | the lane that owns the disposable proof script                                                 |
-| `docs/evidence/toolchain-cache-campaign-2026-10-17.json`                                      | a recorded path to the removed workflow                                             | a historical record; the path is not corrected, because correcting it would rewrite the record |
+| Path                                                                                          | Identifier                                                                          | Owner                                                                                                                     |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `packages/auth/src/config.ts`, `packages/auth/src/server.ts`, `apps/web/cloudflare.config.ts` | `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `AGENT_HQ_NEON_PRODUCTION_*`       | the auth/deployment lane                                                                                                  |
+| `packages/auth/src/neon-driver.ts`, `packages/auth/tests/integration/neon-driver.test.ts`     | the legacy Neon Auth driver                                                         | the auth lane                                                                                                             |
+| `packages/db/src/config.ts`                                                                   | `isTransactionPooledHost`, `NEON_HOST_SUFFIX`                                       | the database lane                                                                                                         |
+| `apps/web/src/**`, `apps/web/test/**`                                                         | `NEON_AUTH_*` bindings and the client denylist                                      | the web lane                                                                                                              |
+| `scripts/preview-availability.test.ts`                                                        | `AGENT_HQ_NEON_PRODUCTION_DATABASE_URL` as a refused production-secret name         | the web/deployment lane                                                                                                   |
+| `scripts/database-config.mjs`                                                                 | the `.neon.tech` pooled/unpooled host rule                                          | the efficiency lane's pull request #1515, which owns the path and replaces the rule with a stronger, provider-neutral one |
+| `scripts/disposable-postgres-ci.ts`                                                           | the header comment naming the hosted Neon branch and the `Migrate Neon Branch` gate | the lane that owns the disposable proof script                                                                            |
+| `docs/evidence/toolchain-cache-campaign-2026-10-17.json`                                      | a recorded path to the removed workflow                                             | a historical record; the path is not corrected, because correcting it would rewrite the record                            |

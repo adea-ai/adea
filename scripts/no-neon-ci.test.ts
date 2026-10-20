@@ -70,14 +70,29 @@ function workflowFiles(): { path: string; text: string }[] {
  * Two files are deliberately outside the list: this scanner and the pull-
  * request proof's own test both name the provider in order to assert its
  * absence, so they are the absence assertions, not a dependency.
+ *
+ * `scripts/database-config.mjs` is outside the list too, and it is the one
+ * file that still names a provider identifier: the path belongs to the
+ * efficiency lane, whose pull request removes the provider-specific host rule
+ * and replaces it with a stronger, provider-neutral one. This lane does not
+ * edit that file and does not claim it; the ownership is asserted below.
  */
 const DATABASE_CI_SCRIPTS = [
-  'scripts/database-config.mjs',
   'scripts/database-health.mjs',
+  'scripts/self-hosted-auth-lifecycle.ts',
   'scripts/test-integration.mjs',
   'scripts/test-suite-boundary.test.ts',
   'scripts/test-target-guard.mjs',
   'scripts/test-target-guard.test.ts',
+]
+
+/**
+ * The provider identifier one owned path still carries, and the pull request
+ * that removes it. A path this lane does not own is not scanned, and the
+ * dependency is recorded rather than hidden.
+ */
+const OWNED_ELSEWHERE: { file: string; pullRequest: string }[] = [
+  { file: 'scripts/database-config.mjs', pullRequest: '#1515' },
 ]
 
 /** The CI and release configuration files. */
@@ -190,11 +205,38 @@ describe('the CI surface has no database-vendor dependency', () => {
     }
   })
 
-  test('the database configuration script has no provider-specific host rule', () => {
-    const config = read('scripts/database-config.mjs')
-    expect(config).not.toContain('neon.tech')
-    // The pooled and unpooled pair still has to name one environment.
-    expect(config).toContain('normalizedPoolerHost')
-    expect(config).toContain('Pooled and unpooled connections must target the same environment')
+  test('a developer may still name one exact remote host, and a production host never', () => {
+    // The allowance is explicit, per run and chosen by a person. It was there
+    // before this change and it is still there: what is gone is the CI-wide,
+    // machine-driven path to a remote database.
+    const guard = read('scripts/test-target-guard.mjs')
+    expect(guard).toContain('ADEA_ALLOW_REMOTE_TEST_TARGET')
+    expect(guard).toContain('production hosts are never accepted')
+  })
+
+  test('the one provider path this lane does not own is recorded, not edited', () => {
+    // The efficiency lane owns the database configuration script. This lane
+    // does not edit it, so the provider identifier it still carries is a
+    // dependency of that pull request, not of this one.
+    for (const { file, pullRequest } of OWNED_ELSEWHERE) {
+      expect(pullRequest).toMatch(/^#\d+$/)
+      expect(DATABASE_CI_SCRIPTS).not.toContain(file)
+      expect(read(file)).toContain('neon.tech')
+    }
+  })
+
+  test('the integration runner supplies the auth database and proves the lifecycle', () => {
+    // The self-hosted auth suite skips itself when the variable is absent, so
+    // the runner hands the qualification a loopback URL and the qualification
+    // sets the variable. A skipped run is refused, so the green line is never
+    // the missing-variable skip.
+    const runner = read('scripts/test-integration.mjs')
+    expect(runner).toContain('proveSelfHostedAuthLifecycle')
+    expect(runner).toContain('localAuthDatabaseUrl')
+    expect(runner).toContain('the self-hosted auth lifecycle was not proven')
+    expect(runner).toContain('the self-hosted auth lifecycle was proven')
+    // The variable reaches the suite, and only the suite.
+    const qualification = read('scripts/self-hosted-auth-lifecycle.ts')
+    expect(qualification).toContain('AUTH_POSTGRES_TEST_URL')
   })
 })
