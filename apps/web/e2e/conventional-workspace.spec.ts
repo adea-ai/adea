@@ -1248,14 +1248,21 @@ test('the active workspace accent themes the app and a workspace without one kee
     .toBe('')
 })
 
-test('the project menu opens the lazy Share dialog from the accordion', async ({ page }) => {
+test('project settings opens the lazy Share dialog from the accordion', async ({ page }) => {
   await mockConnectedWorkspace(page)
   await page.goto('/')
   const project = projectTree(page).locator('[data-project-id="project-product"]')
   await project.hover()
-  await page.getByRole('button', { name: 'Project options for Product', exact: true }).click()
-  await expect(page.getByRole('menuitem')).toHaveText(['Share', 'Archive', 'Delete'])
-  await page.getByRole('menuitem', { name: 'Share', exact: true }).click()
+  // The row carries one settings button and no menu of its own.
+  await expect(
+    page.getByRole('button', { name: 'Project options for Product', exact: true })
+  ).toHaveCount(0)
+  await page.getByRole('button', { name: 'Project settings for Product' }).click()
+  const settings = page.getByRole('dialog', { name: 'Product settings' })
+  const actions = settings.getByRole('region', { name: 'Project actions' })
+  await expect(actions.getByRole('button')).toHaveText(['Share', 'Archive', 'Delete'])
+  await actions.getByRole('button', { name: 'Share', exact: true }).click()
+  await expect(settings).toHaveCount(0)
   const share = page.getByRole('dialog', { name: 'Share Product' })
   await expect(share).toBeVisible()
   // The member search composes the published ComboboxControl, so the field
@@ -3427,7 +3434,7 @@ test.describe('touch workspace sidebar actions', () => {
     await openNavigation.tap()
 
     const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
-    const projectOptions = sidebar.getByRole('button', { name: 'Project options for Product' })
+    const projectOptions = sidebar.getByRole('button', { name: 'Project settings for Product' })
     const conversationOptions = sidebar.getByRole('button', {
       name: 'Conversation options for Research Agent',
     })
@@ -3449,8 +3456,9 @@ test.describe('touch workspace sidebar actions', () => {
       .toBe('1')
 
     await projectOptions.tap()
-    // The row menu portals to the document body, outside the navigation aside.
-    await expect(page.getByRole('menuitem', { name: 'Share' })).toBeVisible()
+    await expect(
+      page.getByRole('dialog', { name: 'Product settings' }).getByRole('button', { name: 'Share' })
+    ).toBeVisible()
   })
 
   test('keeps a navigation opened during boot open when the sidebar mounts', async ({ page }) => {
@@ -3614,7 +3622,9 @@ test.describe('touch workspace sidebar actions', () => {
     await navigationToggle.tap()
     await expect(sidebar).toBeVisible()
     await expect(projectConversation(sidebar, 'Product')).toBeVisible()
-    await expect(sidebar.getByRole('button', { name: 'Project options for Product' })).toBeVisible()
+    await expect(
+      sidebar.getByRole('button', { name: 'Project settings for Product' })
+    ).toBeVisible()
     await expect
       .poll(() => sidebar.evaluate((element) => element.getBoundingClientRect().left))
       .toBeGreaterThanOrEqual(0)

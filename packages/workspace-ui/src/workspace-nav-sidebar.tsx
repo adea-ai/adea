@@ -547,6 +547,11 @@ export function WorkspaceNavSidebar(props: Props) {
       .catch(() => setActionError('Conversation could not be deleted.'))
   }
 
+  const navProject = (id: string): NavProject | undefined =>
+    source()
+      .tree.workspaces.flatMap((workspace) => workspace.projects ?? [])
+      .find((candidate) => candidate.id === id)
+
   const projectAction = (id: NavMenuItemId, project: NavProject) => {
     const summary = source().projects.get(project.id)
     if (!summary) return
@@ -643,7 +648,6 @@ export function WorkspaceNavSidebar(props: Props) {
           setActionError(null)
           setEditingProject(summary)
         }}
-        onProjectMenuAction={projectAction}
         onLeafMenuAction={leafAction}
         collapsedProjectIds={collapsedProjects()}
         onProjectExpandedChange={(projectId, expanded) => {
@@ -784,6 +788,13 @@ export function WorkspaceNavSidebar(props: Props) {
                 accent: project().accent,
                 iconKey: project().iconKey,
                 name: project().name,
+              }}
+              actions={
+                navProject(project().id) ? adapter().projectMenu(navProject(project().id)!) : []
+              }
+              onAction={(id) => {
+                const target = navProject(project().id)
+                if (target) projectAction(id, target)
               }}
               onClose={() => setEditingProject(null)}
               onSave={(input) => props.onUpdateProject(project().id, input)}

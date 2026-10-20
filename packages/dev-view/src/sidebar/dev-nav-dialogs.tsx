@@ -28,7 +28,11 @@ import { Tabs, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 import { For, Show, Suspense, createSignal, createUniqueId, lazy, onMount } from 'solid-js'
 
-import { ProjectIdentityFields } from '@adea-ai/workspace-nav/project-identity-fields'
+import type { NavMenuItem, NavMenuItemId } from '@adea-ai/workspace-nav/adapters'
+import {
+  ProjectActionsSection,
+  ProjectIdentityFields,
+} from '@adea-ai/workspace-nav/project-identity-fields'
 
 import type { DevProjectNames } from '../platform'
 import { AddProjectForm } from './add-project-form'
@@ -391,7 +395,7 @@ export type DevProjectIdentity = Readonly<{
  * started after it is saved; a session already running keeps what it started
  * with. Harness and model default to Inherit: no project record, so the
  * workspace and device defaults resolve as before. The local repositories bound
- * to the project stay manageable below.
+ * to the project stay manageable below, followed by Share, Archive and Delete.
  */
 export function DevProjectSettingsDialog(
   props: Partial<DevRepositoryFlowProps> & {
@@ -403,6 +407,9 @@ export function DevProjectSettingsDialog(
     remote?: boolean
     bound: boolean
     projectNames?: DevProjectNames
+    /** Share, Archive and Delete for this project, as the host offers them. */
+    actions?: readonly NavMenuItem[]
+    onAction?: (id: NavMenuItemId) => void
     /** Save the cloud identity; absent when the member cannot change it. */
     onSaveIdentity?: (identity: DevProjectIdentity) => Outcome
     /**
@@ -651,6 +658,13 @@ export function DevProjectSettingsDialog(
             </Suspense>
           </section>
         </Show>
+        <ProjectActionsSection
+          items={props.actions ?? []}
+          onSelect={(id) => {
+            props.onClose()
+            props.onAction?.(id)
+          }}
+        />
       </form>
     </ModalDialog>
   )

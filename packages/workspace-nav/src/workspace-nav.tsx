@@ -62,7 +62,6 @@ export type WorkspaceNavProps = {
   /** Opens a project's settings; each project row shows the button only when present. */
   onOpenProjectSettings?: (project: NavProject) => void
   onCreateLeaf?: (project: NavProject) => void
-  onProjectMenuAction?: (id: NavMenuItemId, project: NavProject) => void
   onLeafMenuAction?: (id: NavMenuItemId, leaf: NavLeaf, project: NavProject) => void
   /** Hover or focus on a leaf, for prefetching what selecting it shows. */
   onLeafIntent?: (leaf: NavLeaf) => void
@@ -219,7 +218,6 @@ export function WorkspaceNav(props: WorkspaceNavProps) {
             onSelectLeaf={props.onSelectLeaf}
             onCreateLeaf={props.onCreateLeaf}
             onOpenProjectSettings={props.onOpenProjectSettings}
-            onProjectMenuAction={props.onProjectMenuAction}
             onLeafMenuAction={props.onLeafMenuAction}
             onLeafIntent={props.onLeafIntent}
             collapsedProjectIds={props.collapsedProjectIds}

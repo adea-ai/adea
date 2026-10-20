@@ -139,11 +139,12 @@ test('row menus come from the adapter and the checkout has no delete', async ({ 
   await expect(page.getByRole('menuitem', { name: 'Delete' })).toHaveCount(0)
   await page.keyboard.press('Escape')
 
-  // Renaming and every other setting live in project settings; the menu keeps
-  // only what changes who sees the project or whether it exists.
+  // A project row has no menu of its own: Share, Archive and Delete live in
+  // its settings dialog beside every other setting.
   await page.locator('[data-project-id="adea"]').hover()
-  await page.getByRole('button', { name: 'Project options for adea', exact: true }).click()
-  await expect(page.getByRole('menuitem')).toHaveText(['Share', 'Archive', 'Delete'])
+  await expect(
+    page.getByRole('button', { name: 'Project options for adea', exact: true })
+  ).toHaveCount(0)
 })
 
 test('the tree supports keyboard navigation, disclosure and selection', async ({ page }) => {

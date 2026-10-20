@@ -4,8 +4,10 @@ import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Text } from '@adea-ai/ui/components/ui/typography'
+import type { NavMenuItem, NavMenuItemId } from '@adea-ai/workspace-nav/adapters'
 import {
   DEFAULT_PROJECT_ICON_KEY,
+  ProjectActionsSection,
   ProjectIdentityFields,
 } from '@adea-ai/workspace-nav/project-identity-fields'
 import {
@@ -185,11 +187,15 @@ export function CreateWorkspaceDialog(props: {
  * A project's settings in the cloud: its name, icon and icon colour, shared by
  * every member. The directory a project works in and its default harness and
  * model belong to the device that runs it, so they are set from the desktop
- * app; nothing here changes how a session runs.
+ * app; nothing here changes how a session runs. Share, Archive and Delete sit
+ * at the foot; each closes this dialog and opens the flow the host owns.
  */
 export function ProjectSettingsDialog(props: {
   busy: boolean
   initial: ProjectIdentityInput
+  /** Share, Archive and Delete for this project, as the host offers them. */
+  actions?: readonly NavMenuItem[]
+  onAction?: (id: NavMenuItemId) => void
   onClose: () => void
   onSave: (input: ProjectIdentityInput) => Promise<void>
   open: boolean
@@ -212,6 +218,13 @@ export function ProjectSettingsDialog(props: {
         note="The project's directory and its default harness and model are device settings; change them in the desktop app. Saving here never changes how a session runs."
         onSubmit={props.onSave}
         onDone={props.onClose}
+      />
+      <ProjectActionsSection
+        items={props.actions ?? []}
+        onSelect={(id) => {
+          props.onClose()
+          props.onAction?.(id)
+        }}
       />
     </ModalDialog>
   )

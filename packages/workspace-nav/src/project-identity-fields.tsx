@@ -1,9 +1,11 @@
 import { AccentPicker } from '@adea-ai/ui/components/composites/accent-picker'
 import { IconPicker } from '@adea-ai/ui/components/composites/icon-picker'
+import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
 import { Text } from '@adea-ai/ui/components/ui/typography'
-import { createUniqueId } from 'solid-js'
+import { createUniqueId, For, Show } from 'solid-js'
+import type { NavMenuItem, NavMenuItemId } from './adapters'
 
 /** The key a project without a chosen icon wears: the folder every project starts with. */
 export const DEFAULT_PROJECT_ICON_KEY = 'folder'
@@ -68,5 +70,46 @@ export function ProjectIdentityFields(props: {
         />
       </div>
     </div>
+  )
+}
+
+/**
+ * ProjectActionsSection.
+ *
+ * The project-level actions that used to sit in a ⋯ menu on the sidebar row
+ * (Share, Archive, Delete), now at the foot of the settings dialog. Each button
+ * hands its id to the host, which closes the dialog and opens the confirmation
+ * or sharing flow it already owns; nothing here confirms or performs the
+ * action. Renders nothing when the host offers none.
+ */
+export function ProjectActionsSection(props: {
+  items: readonly NavMenuItem[]
+  onSelect: (id: NavMenuItemId) => void
+}) {
+  return (
+    <Show when={props.items.length > 0}>
+      <section
+        class="flex flex-col gap-3 border-t border-border pt-4"
+        aria-label="Project actions"
+        data-slot="project-actions"
+      >
+        <Text as="span" variant="label">
+          Project actions
+        </Text>
+        <div class="flex flex-wrap gap-2">
+          <For each={props.items}>
+            {(item) => (
+              <Button
+                type="button"
+                variant={item.destructive ? 'destructive' : 'outline'}
+                onClick={() => props.onSelect(item.id)}
+              >
+                {item.label}
+              </Button>
+            )}
+          </For>
+        </div>
+      </section>
+    </Show>
   )
 }

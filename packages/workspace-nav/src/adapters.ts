@@ -62,9 +62,9 @@ export type ViewAdapter = Readonly<{
 }>
 
 /**
- * A project's ⋯ menu. Renaming and every other setting live in the project's
- * settings dialog, opened from its own row button, so the menu keeps only the
- * actions that change who can see the project or whether it exists.
+ * A project's management actions. The row carries one settings button; these
+ * sit at the foot of that settings dialog, since they change who can see the
+ * project or whether it exists.
  */
 function projectMenu(): readonly NavMenuItem[] {
   return [

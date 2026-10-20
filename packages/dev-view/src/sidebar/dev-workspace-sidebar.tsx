@@ -666,7 +666,6 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                 createDisabled={!production()}
                 onOpenProjectSettings={openProjectSettings}
                 onCreateLeaf={createLeaf}
-                onProjectMenuAction={projectAction}
                 onLeafMenuAction={leafAction}
                 collapsedProjectIds={collapsed()}
                 onProjectExpandedChange={(projectId, expanded) => {
@@ -826,6 +825,9 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
               )?.worktree
               const cloud = entry?.cloud
               const update = props.host?.onUpdateProject
+              const navProject = source()
+                .tree.workspaces.flatMap((workspace) => workspace.projects ?? [])
+                .find((candidate) => candidate.id === state.projectId)
               return (
                 <DevProjectSettingsDialog
                   {...(production() ? repositoryFlow() : {})}
@@ -839,6 +841,8 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                   remote={entry?.binding?.source === 'remote_only'}
                   bound={Boolean(entry?.binding)}
                   projectNames={props.projectNames}
+                  actions={navProject ? projectMenu(navProject) : []}
+                  onAction={(id) => navProject && projectAction(id, navProject)}
                   onSaveIdentity={
                     update && cloud
                       ? async (identity) => {

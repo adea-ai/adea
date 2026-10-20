@@ -48,7 +48,6 @@ render(
           onCreateProject={() => log('add-project')}
           onOpenProjectSettings={(project) => log(`project-settings:${project.id}`)}
           onCreateLeaf={(project) => log(`create-leaf:${project.id}`)}
-          onProjectMenuAction={(id, project) => log(`project-menu:${id}:${project.id}`)}
           onLeafMenuAction={(id, leaf) => log(`leaf-menu:${id}:${leaf.id}`)}
           collapsedProjectIds={collapsed()}
           onProjectExpandedChange={(projectId, expanded) => {

@@ -30,7 +30,6 @@ export type NavLeafTreeProps = {
   onCreateLeaf?: (project: NavProject) => void
   /** Opens the project's settings dialog; the row shows the button only when present. */
   onOpenProjectSettings?: (project: NavProject) => void
-  onProjectMenuAction?: (id: NavMenuItemId, project: NavProject) => void
   onLeafMenuAction?: (id: NavMenuItemId, leaf: NavLeaf, project: NavProject) => void
   /** Hover or focus on a leaf: the host may prefetch what selecting it shows. */
   onLeafIntent?: (leaf: NavLeaf) => void
@@ -325,18 +324,6 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                           >
                             <Settings2 aria-hidden="true" />
                           </ActionButton>
-                        </Show>
-                        <Show when={props.adapter.projectMenu(group.project).length > 0}>
-                          <NavRowMenu
-                            // Named for the noun: in Chat and Virtual the default
-                            // leaf carries the project's name, so its own
-                            // "Options for …" menu must not share this name.
-                            label={`${props.adapter.nouns.project} options for ${projectLabel().text}`}
-                            items={props.adapter.projectMenu(group.project)}
-                            portalMount={props.portalMount}
-                            tooltips={props.tooltips}
-                            onSelect={(id) => props.onProjectMenuAction?.(id, group.project)}
-                          />
                         </Show>
                       </span>
                     </>
