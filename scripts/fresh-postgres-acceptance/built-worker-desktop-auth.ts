@@ -30,12 +30,7 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
-import {
-  BuiltWorkerFailure,
-  sanitizeReceipt,
-  topLevelStringValue,
-  withoutTopLevelValue,
-} from './built-worker-failures'
+import { BuiltWorkerFailure, sanitizeReceipt, withoutTopLevelValue } from './built-worker-failures'
 
 /** The route the built Worker serves for a desktop authorization request. */
 export const DESKTOP_AUTHORIZE_PATH = '/api/auth/desktop/authorize'
@@ -531,12 +526,73 @@ export function serverFailure(response: BuiltWorkerResponse, what: string): Step
 }
 
 /** True when the response body names a desktop session credential. */
+/**
+ * The credential shape the real desktop client requires.
+ *
+ * The client's own patterns, mirrored here: the same base64url alphabet and
+ * the same session id shape.
+ */
+const CLIENT_BASE64_URL = /^[A-Za-z0-9_-]+$/u
+const CLIENT_SESSION_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu
+
+/** The session the real desktop client reads out of an exchange response. */
+export type ValidatedDesktopSession = {
+  readonly credential: string
+  readonly expiresAt: string
+  readonly sessionId: string
+}
+
+/**
+ * The session the real desktop client reads out of an exchange response.
+ *
+ * The client parses the complete JSON and requires a base64url credential of
+ * 32 to 512 characters, a valid session id and a parseable expiry. A
+ * truncated, a malformed or an incomplete answer is not a session, and the
+ * qualification must not read one as the session the Worker issued.
+ *
+ * This is the client's contract, mirrored: the client's own parser is
+ * private to the package, and the qualification has to judge the response the
+ * same way the client will.
+ */
+export function readDesktopSession(body: string): ValidatedDesktopSession | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null
+  const candidate = parsed as Partial<ValidatedDesktopSession>
+  const expiresAt = candidate.expiresAt ? new Date(candidate.expiresAt) : undefined
+  if (
+    typeof candidate.credential !== 'string' ||
+    candidate.credential.length < 32 ||
+    candidate.credential.length > 512 ||
+    !CLIENT_BASE64_URL.test(candidate.credential) ||
+    typeof candidate.sessionId !== 'string' ||
+    !CLIENT_SESSION_ID.test(candidate.sessionId) ||
+    !expiresAt ||
+    Number.isNaN(expiresAt.valueOf())
+  ) {
+    return null
+  }
+  return {
+    credential: candidate.credential,
+    expiresAt: expiresAt.toISOString(),
+    sessionId: candidate.sessionId,
+  }
+}
+
+/**
+ * True when the response carries a session the real client would read.
+ *
+ * The credential must be a top-level scalar the client accepts. A credential
+ * that carries another credential is not a credential, and a pattern that looks
+ * into nested members would read one as the session the Worker issued.
+ */
 export function responseCarriesCredential(body: string): boolean {
-  // The credential must be a top-level scalar. A credential that carries
-  // another credential is not a credential, and a pattern that looks into
-  // nested members would read one as the session the Worker issued.
-  const credential = topLevelStringValue(body, 'credential')
-  return credential !== null && credential.length >= 8
+  return readDesktopSession(body) !== null
 }
 
 /**
@@ -911,10 +967,11 @@ export async function runBuiltWorkerDesktopAuth(
           outcome: 'assertion-failed',
         }
       }
-      if (!responseCarriesCredential(response.body)) {
+      const session = readDesktopSession(response.body)
+      if (!session) {
         return {
           passed: false,
-          detail: 'the exchange route issued no desktop session credential',
+          detail: 'the exchange route issued no desktop session the client can read',
           outcome: 'assertion-failed',
         }
       }
@@ -925,8 +982,7 @@ export async function runBuiltWorkerDesktopAuth(
           outcome: 'assertion-failed',
         }
       }
-      const credential = topLevelStringValue(response.body, 'credential') ?? ''
-      observeIssued(credential, index, { bodyField: 'credential' })
+      observeIssued(session.credential, index, { bodyField: 'credential' })
       exchangedCode = issued.code
       exchangedNonce = issued.nonce
       exchangedVerifier = issued.verifier

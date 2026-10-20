@@ -40,8 +40,21 @@ function response(
   return { status, headers, body }
 }
 
+/** The session the product answers with. */
+function validSession(credential: string): string {
+  return `{"credential":"${credential}","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}`
+}
+
 /** The origin the built Worker serves on. */
 const WORKER_ORIGIN = 'https://127.0.0.1:8790'
+
+/**
+ * A credential the real desktop client accepts: base64url, 32 to 512
+ * characters, and unique per response.
+ */
+function desktopCredential(counter: number): string {
+  return `${'A'.repeat(40)}${counter}`
+}
 
 /**
  * The location the product route sends.
@@ -125,7 +138,7 @@ function correctWorker(): {
         return response(
           200,
           { 'access-control-allow-origin': request.headers?.origin ?? '' },
-          `{"credential":"desktop-credential-value-${counter++}","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}`
+          `{"credential":"${desktopCredential(counter++)}","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}`
         )
       }
       return response(400, {}, '{"error":"Desktop authorization exchange failed"}')
@@ -168,7 +181,7 @@ const acceptsEverything: BuiltWorkerTransport = async (request) => {
   return response(
     200,
     { 'access-control-allow-origin': request.headers?.origin ?? '' },
-    '{"credential":"desktop-credential-value","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}'
+    `{"credential":"${desktopCredential(0)}","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}`
   )
 }
 
@@ -275,7 +288,7 @@ describe('the built-Worker desktop authorization qualification', () => {
     const printed = JSON.stringify(receipt)
     expect(printed).not.toContain(AUTH_SECRET)
     expect(printed).not.toContain('session-value')
-    expect(printed).not.toContain('desktop-credential-value')
+    expect(printed).not.toContain('A'.repeat(40))
   })
 })
 
@@ -710,7 +723,7 @@ describe('the built-Worker desktop secret checks', () => {
     for (const assertion of receipt.assertions) {
       expect(assertion.detail).not.toContain('the-known-secret-value')
       expect(assertion.detail).not.toContain('session-value')
-      expect(assertion.detail).not.toContain('desktop-credential-value')
+      expect(assertion.detail).not.toContain('A'.repeat(40))
     }
   })
 })
@@ -742,6 +755,51 @@ describe('the built-Worker desktop failure classification', () => {
     expect(refusal?.attempts).toBe(1)
     expect(refusal?.outcomes).toEqual(['application-failure'])
   })
+})
+
+describe('the built-Worker desktop session contract', () => {
+  const cases: readonly { readonly name: string; readonly body: string }[] = [
+    { name: 'truncated JSON', body: validSession('A'.repeat(40)).slice(0, -1) },
+    { name: 'malformed JSON', body: 'not json at all' },
+    { name: 'a body that is not an object', body: '"a string"' },
+    { name: 'a credential that is too short', body: validSession('short') },
+    { name: 'a credential that is not base64url', body: validSession('+'.repeat(40)) },
+    {
+      name: 'a missing session id',
+      body: `{"credential":"${'A'.repeat(40)}","expiresAt":"2027-01-01T00:00:00.000Z"}`,
+    },
+    {
+      name: 'an invalid session id',
+      body: `{"credential":"${'A'.repeat(40)}","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"not-a-session"}`,
+    },
+    {
+      name: 'an unparseable expiry',
+      body: `{"credential":"${'A'.repeat(40)}","expiresAt":"never","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}`,
+    },
+    {
+      name: 'a missing expiry',
+      body: `{"credential":"${'A'.repeat(40)}","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}`,
+    },
+  ]
+
+  for (const testCase of cases) {
+    test(`an exchange that answers with ${testCase.name} fails closed`, async () => {
+      const correct = correctWorker()
+      const transport: BuiltWorkerTransport = async (request) => {
+        const answered = await correct.transport(request)
+        if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+          return { ...answered, body: testCase.body }
+        }
+        return answered
+      }
+      const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+      const exchange = receipt.assertions.find(
+        (assertion) => assertion.name === 'the-desktop-exchange-route-issues-a-session'
+      )
+      expect(exchange?.passed).toBe(false)
+      expect(receipt.status).toBe('failed')
+    })
+  }
 })
 
 describe('the built-Worker desktop occurrence accounting', () => {
@@ -821,9 +879,11 @@ describe('the built-Worker desktop occurrence accounting', () => {
       if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
         const credential = /"credential"\s*:\s*"([^"]+)"/u.exec(answered.body)?.[1] ?? ''
         if (credential) {
+          // The response is otherwise the one the product sends, and it carries
+          // a nested copy of the credential on top.
           return {
             ...answered,
-            body: `{"credential":"${credential}","data":{"credential":"${credential}"}}`,
+            body: `{"credential":"${credential}","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000","data":{"credential":"${credential}"}}`,
           }
         }
       }
@@ -843,9 +903,11 @@ describe('the built-Worker desktop occurrence accounting', () => {
       if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
         const credential = /"credential"\s*:\s*"([^"]+)"/u.exec(answered.body)?.[1] ?? ''
         if (credential) {
+          // The response is otherwise the one the product sends, and it carries
+          // the credential twice.
           return {
             ...answered,
-            body: `{"credential":"${credential}","credential":"${credential}"}`,
+            body: `{"credential":"${credential}","credential":"${credential}","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}`,
           }
         }
       }
