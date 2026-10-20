@@ -7,6 +7,7 @@ import {
   DESKTOP_CALLBACK_URI,
   DESKTOP_EXCHANGE_PATH,
   HOSTILE_ORIGIN,
+  isInfrastructureErrorEnvelope,
   readIssuedAuthorizationCode,
   runBuiltWorkerDesktopAuth,
   sessionCookieFrom,
@@ -397,6 +398,263 @@ describe('the built-Worker desktop authorization retries', () => {
       expect(assertion.outcomes.length).toBe(assertion.attempts)
       expect(['passed', 'refused']).toContain(assertion.outcomes.at(-1) ?? '')
     }
+  })
+})
+
+/**
+ * A Worker whose authorize route answers with the given location.
+ *
+ * The location is built from the request, so a test can vary one part of the
+ * redirect while the rest of it stays exactly what the route would send.
+ */
+function workerWithAuthorize(
+  location: (request: URL) => string,
+  status = 303
+): {
+  readonly transport: BuiltWorkerTransport
+  readonly exchanges: () => number
+} {
+  const correct = correctWorker()
+  let exchanges = 0
+  const transport: BuiltWorkerTransport = async (request) => {
+    if (request.method === 'GET' && request.path.startsWith('/api/auth/desktop/authorize')) {
+      const url = new URL(request.path, 'https://desktop.invalid')
+      if (url.searchParams.has('access_token') || !request.headers?.cookie) {
+        return correct.transport(request)
+      }
+      return response(status, { location: location(url) }, '')
+    }
+    if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+      exchanges += 1
+    }
+    return correct.transport(request)
+  }
+  return { transport, exchanges: () => exchanges }
+}
+
+/** The callback the authorize route would send, with the client's own values. */
+function validCallback(url: URL, overrides: { nonce?: string; state?: string } = {}): string {
+  const callback = new URL('adea://auth/callback')
+  callback.searchParams.set('code', 'abcdefghijklmnop')
+  callback.searchParams.set('nonce', overrides.nonce ?? url.searchParams.get('nonce') ?? '')
+  callback.searchParams.set('state', overrides.state ?? url.searchParams.get('state') ?? '')
+  return encodeURIComponent(callback.toString())
+}
+
+describe('the built-Worker desktop authorization validation', () => {
+  test('an authorize that answers another destination issues nothing', async () => {
+    const worker = workerWithAuthorize((url) => `/auth/elsewhere#callback=${validCallback(url)}`)
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(false)
+    // No exchange may be sent without a validated authorization.
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('an authorize that answers another callback destination issues nothing', async () => {
+    const worker = workerWithAuthorize(
+      () =>
+        `/auth/desktop/complete#callback=${encodeURIComponent(
+          'adea://evil/callback?code=abcdefghijklmnop&nonce=n&state=s'
+        )}`
+    )
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('an authorize whose callback carries another nonce issues nothing', async () => {
+    const worker = workerWithAuthorize(
+      (url) => `/auth/desktop/complete#callback=${validCallback(url, { nonce: 'another-nonce' })}`
+    )
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('an authorize whose callback carries another state issues nothing', async () => {
+    const worker = workerWithAuthorize(
+      (url) => `/auth/desktop/complete#callback=${validCallback(url, { state: 'another-state' })}`
+    )
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('an authorize whose callback carries no nonce issues nothing', async () => {
+    const worker = workerWithAuthorize((url) => {
+      const callback = new URL('adea://auth/callback')
+      callback.searchParams.set('code', 'abcdefghijklmnop')
+      callback.searchParams.set('state', url.searchParams.get('state') ?? '')
+      return `/auth/desktop/complete#callback=${encodeURIComponent(callback.toString())}`
+    })
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('an authorize that does not answer 303 issues nothing', async () => {
+    const worker = workerWithAuthorize(
+      (url) => `/auth/desktop/complete#callback=${validCallback(url)}`,
+      200
+    )
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('the wrong-verifier exchange needs a validated authorization', async () => {
+    const worker = workerWithAuthorize((url) => `/auth/elsewhere#callback=${validCallback(url)}`)
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const denial = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-exchange-route-refuses-a-wrong-pkce-verifier'
+    )
+    expect(denial?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('the hostile-origin exchange needs a validated authorization', async () => {
+    const worker = workerWithAuthorize((url) => `/auth/elsewhere#callback=${validCallback(url)}`)
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const denial = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-exchange-route-refuses-an-untrusted-origin'
+    )
+    expect(denial?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+})
+
+describe('the built-Worker desktop secret checks', () => {
+  test('a code that is duplicated into the same response is a leak', async () => {
+    const correct = correctWorker()
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (
+        request.method === 'GET' &&
+        request.path.startsWith('/api/auth/desktop/authorize') &&
+        request.headers?.cookie
+      ) {
+        const location = answered.headers.location ?? ''
+        const code = new URLSearchParams(location.split('#')[1] ?? '').get('callback') ?? ''
+        const issued = /code=([^&]+)/u.exec(decodeURIComponent(code))?.[1] ?? ''
+        return {
+          ...answered,
+          body: `{"code":"${issued}"}`,
+        }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+  })
+
+  test('a cookie value that appears in another response is a leak', async () => {
+    const correct = correctWorker()
+    let cookieValue = ''
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === '/api/auth/sign-up/email') {
+        const cookie = answered.headers['set-cookie'] ?? ''
+        cookieValue = cookie.split(';')[0]?.split('=')[1] ?? ''
+        return answered
+      }
+      if (request.method === 'GET' && request.path.startsWith('/api/auth/desktop/authorize')) {
+        if (cookieValue) {
+          return { ...answered, body: `{"echo":"${cookieValue}"}` }
+        }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+  })
+
+  test('the sign-up token that appears in another response is a leak', async () => {
+    const correct = correctWorker()
+    let token = ''
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === '/api/auth/sign-up/email') {
+        token = /"token"\s*:\s*"([^"]+)"/u.exec(answered.body)?.[1] ?? ''
+        return answered
+      }
+      if (request.method === 'GET' && request.path.startsWith('/api/auth/desktop/authorize')) {
+        if (token) {
+          return { ...answered, body: `{"echo":"${token}"}` }
+        }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+  })
+
+  test('no assertion detail carries a secret', async () => {
+    const { transport } = correctWorker()
+    const receipt = await runBuiltWorkerDesktopAuth({
+      ...baseInput(transport),
+      secrets: ['the-known-secret-value'],
+    })
+    for (const assertion of receipt.assertions) {
+      expect(assertion.detail).not.toContain('the-known-secret-value')
+      expect(assertion.detail).not.toContain('session-value')
+      expect(assertion.detail).not.toContain('desktop-credential-value')
+    }
+  })
+})
+
+describe('the built-Worker desktop failure classification', () => {
+  test('an application error that starts with "Error: " is not a transport envelope', () => {
+    expect(isInfrastructureErrorEnvelope('Error: the application refused the request')).toBe(false)
+    expect(isInfrastructureErrorEnvelope('Error: Network connection lost.')).toBe(true)
+  })
+
+  test('an application error that starts with "Error: " is not retried', async () => {
+    const correct = correctWorker()
+    let authorizeRequests = 0
+    const transport: BuiltWorkerTransport = async (request) => {
+      if (request.method === 'GET' && request.path.startsWith('/api/auth/desktop/authorize')) {
+        authorizeRequests += 1
+        if (authorizeRequests === 1) {
+          return response(500, {}, 'Error: the application refused the request')
+        }
+      }
+      return correct.transport(request)
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const refusal = receipt.assertions.find(
+      (assertion) =>
+        assertion.name === 'the-desktop-authorize-route-refuses-a-request-without-a-session'
+    )
+    expect(refusal?.passed).toBe(false)
+    expect(refusal?.attempts).toBe(1)
+    expect(refusal?.outcomes).toEqual(['application-failure'])
   })
 })
 

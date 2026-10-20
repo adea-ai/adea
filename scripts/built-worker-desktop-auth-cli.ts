@@ -69,8 +69,10 @@ import {
   buildBuiltWorker,
   buildLocalWorkerConfig,
   builtWorkerArtifact,
+  mayPublishReceipt,
   startBuiltWorker,
   tearDownAfterWorker,
+  waitForWorkerReady,
   verifyBuildProvenance,
   workerTransport,
   writeBuildProvenance,
@@ -535,6 +537,12 @@ async function main(): Promise<void> {
       keyPath: certificate.keyPath,
       persistDirectory: join(directory, 'worker-state'),
     })
+    // The readiness is waited for separately: a run that fails here still owns
+    // a running Worker, and the teardown has to be able to stop it.
+    await waitForWorkerReady({
+      worker,
+      certificatePath: certificate.certificatePath,
+    })
 
     receipt = await runBuiltWorkerDesktopAuth({
       transport: workerTransport({
@@ -563,6 +571,7 @@ async function main(): Promise<void> {
   // while the process that reads it is still alive.
   let stopError: unknown
   let cleanupError: unknown
+  let verdict = { workerStopped: false, containerRemoved: false, materialRemoved: false }
   try {
     const teardown = await tearDownAfterWorker({
       worker,
@@ -576,6 +585,11 @@ async function main(): Promise<void> {
         console.error(message)
       },
     })
+    verdict = {
+      workerStopped: teardown.workerStopped,
+      containerRemoved: teardown.containerRemoved,
+      materialRemoved: teardown.materialRemoved,
+    }
     if (!teardown.workerStopped) stopError = teardown.stopError
   } catch (error) {
     cleanupError = error
@@ -584,8 +598,12 @@ async function main(): Promise<void> {
   // A failed qualification still publishes the assertions it made, how many
   // attempts each made and how every attempt ended. The receipt is the
   // evidence; the exit status is the verdict.
-  if (receipt) {
-    console.log(`BUILT_WORKER_DESKTOP_AUTH ${JSON.stringify(receipt)}`)
+  //
+  // The receipt is published only after the Worker was stopped and the
+  // material was removed: a receipt that claims a pass must not be published
+  // while the Worker is still running or its material is still there.
+  if (receipt && mayPublishReceipt({ verdict, cleanupFailed: cleanupError !== undefined })) {
+    console.log(`BUILT_WORKER_DESKTOP_AUTH ${JSON.stringify({ ...receipt, cleanup: verdict })}`)
   }
 
   const failures = [bodyError, stopError, cleanupError].filter(

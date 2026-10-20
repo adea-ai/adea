@@ -5,12 +5,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  artifactFingerprint,
   buildProvenancePath,
   builtWorkerArtifact,
+  mayPublishReceipt,
   readBuildProvenance,
   startBuiltWorker,
   tearDownAfterWorker,
   verifyBuildProvenance,
+  waitForWorkerReady,
   workerRequest,
   writeBuildProvenance,
   type RequestFactory,
@@ -172,6 +175,7 @@ describe('the built-Worker shutdown', () => {
             directory,
             configPath: join(directory, 'wrangler.json'),
             digest: 'digest',
+            files: 1,
           },
           config: {},
           configPath: join(directory, 'worker.json'),
@@ -185,6 +189,7 @@ describe('the built-Worker shutdown', () => {
           signal: (_pid, signal) => {
             signals.push(signal)
           },
+          groupAlive: () => false,
           request: async () => ({ status: 200, headers: {}, body: '' }),
           now: () => Date.now(),
           sleep: (milliseconds) =>
@@ -221,6 +226,7 @@ describe('the built-Worker shutdown', () => {
             directory,
             configPath: join(directory, 'wrangler.json'),
             digest: 'digest',
+            files: 1,
           },
           config: {},
           configPath: join(directory, 'worker.json'),
@@ -232,8 +238,13 @@ describe('the built-Worker shutdown', () => {
         {
           spawn: () => child,
           signal: () => undefined,
+          groupAlive: () => false,
           request: async () => ({ status: 200, headers: {}, body: '' }),
-          now: () => Date.now(),
+          // The clock jumps, so the settlement bound is reached at once.
+          now: (() => {
+            let clock = 0
+            return () => (clock += 1_000)
+          })(),
           sleep: async () => undefined,
         }
       )
@@ -273,6 +284,156 @@ describe('the built-Worker shutdown', () => {
     })
     expect(teardown.workerStopped).toBe(false)
     expect(order).toEqual(['container removed', 'asked to stop'])
+  })
+})
+
+describe('the built-Worker group settlement', () => {
+  test('a child that exits while its group lives does not settle the stop', async () => {
+    const child = new FakeChild()
+    const directory = mkdtempSync(join(tmpdir(), 'adea-worker-runtime-'))
+    try {
+      const worker = await startBuiltWorker(
+        {
+          root: directory,
+          artifact: {
+            directory,
+            configPath: join(directory, 'wrangler.json'),
+            digest: 'digest',
+            files: 1,
+          },
+          config: {},
+          configPath: join(directory, 'worker.json'),
+          port: 8793,
+          certificatePath: certificateFile(),
+          keyPath: join(directory, 'server.key'),
+          persistDirectory: join(directory, 'state'),
+        },
+        {
+          spawn: () => child,
+          signal: () => undefined,
+          // The parent is gone, but a process of its group is still alive.
+          groupAlive: () => true,
+          request: async () => ({ status: 200, headers: {}, body: '' }),
+          now: (() => {
+            let clock = 0
+            return () => (clock += 1_000)
+          })(),
+          sleep: async () => undefined,
+        }
+      )
+      queueMicrotask(() => child.exit(0))
+      await expect(worker.stop()).rejects.toThrow(/worker-stop-failed/u)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('a run that fails to start still owns a Worker it can stop', async () => {
+    const child = new FakeChild()
+    const directory = mkdtempSync(join(tmpdir(), 'adea-worker-runtime-'))
+    try {
+      const worker = await startBuiltWorker(
+        {
+          root: directory,
+          artifact: {
+            directory,
+            configPath: join(directory, 'wrangler.json'),
+            digest: 'digest',
+            files: 1,
+          },
+          config: {},
+          configPath: join(directory, 'worker.json'),
+          port: 8794,
+          certificatePath: certificateFile(),
+          keyPath: join(directory, 'server.key'),
+          persistDirectory: join(directory, 'state'),
+        },
+        {
+          spawn: () => child,
+          signal: () => undefined,
+          groupAlive: () => false,
+          request: async () => {
+            throw new Error('the Worker is not listening')
+          },
+          now: (() => {
+            let clock = 0
+            return () => (clock += 1_000)
+          })(),
+          sleep: async () => undefined,
+        }
+      )
+      // The readiness fails, and the caller still holds the Worker.
+      await expect(
+        waitForWorkerReady(
+          { worker, certificatePath: certificateFile() },
+          {
+            spawn: () => child,
+            signal: () => undefined,
+            groupAlive: () => false,
+            request: async () => {
+              throw new Error('the Worker is not listening')
+            },
+            now: (() => {
+              let clock = 0
+              return () => (clock += 1_000)
+            })(),
+            sleep: async () => undefined,
+          }
+        )
+      ).rejects.toThrow(/worker-start-failed/u)
+      // The Worker exits, and the teardown the caller still owns stops it.
+      child.exit(0)
+      const teardown = await tearDownAfterWorker({
+        worker,
+        removeContainer: () => undefined,
+        removeMaterial: () => undefined,
+      })
+      expect(teardown.workerStopped).toBe(true)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('the built-Worker response bound', () => {
+  test('a response larger than the bound destroys the request and settles', async () => {
+    const request = new FakeRequest()
+    const response = new FakeResponse()
+    const factory: RequestFactory = (_url, _options, onResponse) => {
+      queueMicrotask(() => {
+        onResponse(response)
+        response.emit('data', Buffer.alloc(1024 * 1024))
+        response.emit('data', Buffer.alloc(1024 * 1024))
+      })
+      return request
+    }
+    await expect(workerRequest(REQUEST, { requester: factory, timeoutMs: 5_000 })).rejects.toThrow(
+      /too large/u
+    )
+    expect(request.destroyed?.message).toBe('the response was too large')
+  })
+})
+
+describe('the built-Worker receipt publication', () => {
+  test('a receipt is published only after the Worker is gone and the material is removed', () => {
+    expect(
+      mayPublishReceipt({
+        verdict: { workerStopped: true, containerRemoved: true, materialRemoved: true },
+        cleanupFailed: false,
+      })
+    ).toBe(true)
+    expect(
+      mayPublishReceipt({
+        verdict: { workerStopped: false, containerRemoved: true, materialRemoved: false },
+        cleanupFailed: false,
+      })
+    ).toBe(false)
+    expect(
+      mayPublishReceipt({
+        verdict: { workerStopped: true, containerRemoved: true, materialRemoved: true },
+        cleanupFailed: true,
+      })
+    ).toBe(false)
   })
 })
 
@@ -319,6 +480,72 @@ describe('the built-Worker artifact provenance', () => {
       writeBuildProvenance({ root, artifact, source })
       const changed = { ...source, dirty: true }
       expect(verifyBuildProvenance({ root, artifact, source: changed })).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a build of a dirty tree is refused even with a matching stamp', () => {
+    const { root, source } = buildFixture()
+    try {
+      const artifact = builtWorkerArtifact(root)!
+      writeBuildProvenance({ root, artifact, source })
+      // The stamp says the tree was clean, but the tree is not clean now.
+      const dirty = { ...source, dirty: true }
+      expect(verifyBuildProvenance({ root, artifact, source: dirty })).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a changed chunk makes the artifact a different one', () => {
+    const { root, source } = buildFixture()
+    try {
+      mkdirSync(join(root, 'apps/web/dist/server/start-assets'), { recursive: true })
+      writeFileSync(join(root, 'apps/web/dist/server/start-assets/chunk.js'), 'export const a = 1')
+      const artifact = builtWorkerArtifact(root)!
+      writeBuildProvenance({ root, artifact, source })
+      expect(verifyBuildProvenance({ root, artifact, source })).toBe(true)
+      // The chunk the Worker imports changed; the entry point did not.
+      writeFileSync(join(root, 'apps/web/dist/server/start-assets/chunk.js'), 'export const a = 2')
+      const rebuilt = builtWorkerArtifact(root)!
+      expect(rebuilt.digest).not.toBe(artifact.digest)
+      expect(verifyBuildProvenance({ root, artifact: rebuilt, source })).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a changed configuration makes the artifact a different one', () => {
+    const { root, source } = buildFixture()
+    try {
+      const artifact = builtWorkerArtifact(root)!
+      writeBuildProvenance({ root, artifact, source })
+      writeFileSync(
+        join(root, 'apps/web/dist/server/wrangler.json'),
+        JSON.stringify({ main: 'index.js', assets: { directory: '../client' }, vars: { A: '1' } })
+      )
+      const rebuilt = builtWorkerArtifact(root)!
+      expect(rebuilt.digest).not.toBe(artifact.digest)
+      expect(verifyBuildProvenance({ root, artifact: rebuilt, source })).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('the fingerprint covers the entry, the chunks and the configuration', () => {
+    const { root } = buildFixture()
+    try {
+      mkdirSync(join(root, 'apps/web/dist/server/start-assets'), { recursive: true })
+      writeFileSync(join(root, 'apps/web/dist/server/start-assets/chunk.js'), 'export const a = 1')
+      const artifact = builtWorkerArtifact(root)!
+      expect(artifact.files).toBe(3)
+      const fingerprint = artifactFingerprint({
+        directory: artifact.directory,
+        configPath: artifact.configPath,
+      })
+      expect(fingerprint.digest).toBe(artifact.digest)
+      expect(fingerprint.files).toBe(3)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

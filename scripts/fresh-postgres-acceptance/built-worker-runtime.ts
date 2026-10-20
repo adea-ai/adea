@@ -18,7 +18,7 @@
 
 import { spawn, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { request as httpsRequest } from 'node:https'
 import { resolve } from 'node:path'
 
@@ -52,6 +52,12 @@ export const SHUTDOWN_GRACE_MS = 10_000
 /** How long the Worker may take to exit after it was killed. */
 export const SHUTDOWN_KILL_MS = 5_000
 
+/** The largest response the qualification reads. */
+export const MAX_RESPONSE_BYTES = 1_048_576
+
+/** How long the group settlement is given before it is escalated. */
+export const GROUP_SETTLE_MS = 10_000
+
 /**
  * The built Worker this qualification runs against.
  *
@@ -63,8 +69,16 @@ export type BuiltWorkerArtifact = {
   readonly directory: string
   /** The path of the built Worker configuration. */
   readonly configPath: string
-  /** The digest of the built entry point. */
+  /**
+   * The fingerprint of the built artifact.
+   *
+   * It covers the entry point, the chunks it imports and the configuration it
+   * was built with, not the entry point alone: a build whose chunks changed
+   * is a different artifact.
+   */
   readonly digest: string
+  /** How many files the fingerprint covers. */
+  readonly files: number
 }
 
 /** The checkout the build came from. */
@@ -82,6 +96,46 @@ export type BuildProvenance = {
   readonly builtAt: string
 }
 
+/**
+ * The fingerprint of a built artifact.
+ *
+ * The entry point alone does not name the build: the Worker imports the
+ * chunks beside it and runs with the configuration the build wrote. The
+ * fingerprint therefore covers every file of the built directory and the
+ * configuration itself, so a changed chunk or a changed configuration makes
+ * it a different artifact.
+ */
+export function artifactFingerprint(input: {
+  readonly directory: string
+  readonly configPath: string
+}): { readonly digest: string; readonly files: number } {
+  const files = listFiles(input.directory).toSorted()
+  const hash = createHash('sha256')
+  hash.update('config\n')
+  hash.update(readFileSync(input.configPath))
+  for (const file of files) {
+    hash.update('\nfile\n')
+    hash.update(file)
+    hash.update('\n')
+    hash.update(readFileSync(resolve(input.directory, file)))
+  }
+  return { digest: hash.digest('hex'), files: files.length }
+}
+
+/** Every file of a directory, relative to it. */
+function listFiles(directory: string, prefix = ''): string[] {
+  const found: string[] = []
+  for (const entry of readdirSync(resolve(directory, prefix), { withFileTypes: true })) {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isDirectory()) {
+      found.push(...listFiles(directory, relative))
+      continue
+    }
+    found.push(relative)
+  }
+  return found
+}
+
 /** The built Worker of a checkout, or null when it has not been built. */
 export function builtWorkerArtifact(root: string): BuiltWorkerArtifact | null {
   const configPath = resolve(root, BUILT_WORKER_CONFIG)
@@ -95,10 +149,17 @@ export function builtWorkerArtifact(root: string): BuiltWorkerArtifact | null {
   }
   const entry = resolve(directory, built.main)
   if (!existsSync(entry)) return null
+  let fingerprint: { readonly digest: string; readonly files: number }
+  try {
+    fingerprint = artifactFingerprint({ directory, configPath })
+  } catch {
+    return null
+  }
   return {
     directory,
     configPath,
-    digest: createHash('sha256').update(readFileSync(entry)).digest('hex'),
+    digest: fingerprint.digest,
+    files: fingerprint.files,
   }
 }
 
@@ -140,8 +201,11 @@ export function verifyBuildProvenance(input: {
 }): boolean {
   const stamp = readBuildProvenance(input.root)
   if (!stamp) return false
+  // A tree that is not clean cannot be placed: the build that produced the
+  // artifact may have come from a different version of the sources.
+  if (input.source.dirty !== false) return false
+  if (stamp.dirty !== false) return false
   if (stamp.sha !== input.source.sha) return false
-  if (stamp.dirty !== input.source.dirty) return false
   if (stamp.digest !== input.artifact.digest) return false
   return true
 }
@@ -286,6 +350,13 @@ export type WorkerStartDependencies = {
   readonly signal: WorkerSignaller
   /** Sends one request to the Worker. */
   readonly request: (input: WorkerRequestInput) => Promise<BuiltWorkerResponse>
+  /**
+   * True while a process of the Worker's process group is still alive.
+   *
+   * The group's settlement is what matters: the local runtime leaves its own
+   * children behind, and the parent's exit does not prove they are gone.
+   */
+  readonly groupAlive: (pid: number) => boolean
   /** The current time in milliseconds. */
   readonly now: () => number
   /** Waits for the given number of milliseconds. */
@@ -305,6 +376,15 @@ export const REAL_WORKER_DEPENDENCIES: WorkerStartDependencies = {
     process.kill(-pid, signal)
   },
   request: (input) => workerRequest(input),
+  groupAlive: (pid) => {
+    try {
+      process.kill(-pid, 0)
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+      throw error
+    }
+  },
   now: () => Date.now(),
   sleep: (milliseconds) => new Promise((done) => setTimeout(done, milliseconds)),
 }
@@ -368,6 +448,7 @@ export async function startBuiltWorker(
 
   let stopping: Promise<void> | undefined
   let stopRequested = false
+  let childExited = false
   /**
    * Asks the Worker to stop. The signal is sent once; the shutdown is
    * confirmed by {@link stop}.
@@ -395,9 +476,24 @@ export async function startBuiltWorker(
     stopping = (async () => {
       if (child.exitCode !== null) return
       if (!child.pid) return
-      const exited = new Promise<void>((finished) => {
-        child.once('exit', () => finished())
+      child.once('exit', () => {
+        childExited = true
       })
+      /**
+       * True once the process group is gone.
+       *
+       * The parent's exit is not the group's settlement: the local runtime
+       * leaves its own children behind, and the material they read must not be
+       * removed while they are alive.
+       */
+      const groupSettled = async (): Promise<boolean> => {
+        const deadline = dependencies.now() + GROUP_SETTLE_MS
+        for (;;) {
+          if (childExited && !dependencies.groupAlive(child.pid!)) return true
+          if (dependencies.now() >= deadline) return false
+          await dependencies.sleep(250)
+        }
+      }
       const signal = (value: NodeJS.Signals): void => {
         try {
           dependencies.signal(child.pid!, value)
@@ -407,52 +503,69 @@ export async function startBuiltWorker(
       }
       requestStop()
       signal('SIGTERM')
-      const stopped = await Promise.race([
-        exited.then(() => true),
-        dependencies.sleep(SHUTDOWN_GRACE_MS).then(() => false),
-      ])
-      if (stopped) return
+      if (await groupSettled()) return
       signal('SIGKILL')
-      const killed = await Promise.race([
-        exited.then(() => true),
-        dependencies.sleep(SHUTDOWN_KILL_MS).then(() => false),
-      ])
-      if (!killed) {
-        throw new BuiltWorkerFailure(
-          'worker-stop-failed',
-          'the built Worker did not exit after it was stopped'
-        )
-      }
-    })()
+      if (await groupSettled()) return
+      throw new BuiltWorkerFailure(
+        'worker-stop-failed',
+        'the built Worker did not exit after it was stopped'
+      )
+    })().catch((error: unknown) => {
+      // A stop that failed is not cached: a later stop tries again, because
+      // the Worker may have exited in the meantime.
+      stopping = undefined
+      throw error
+    })
     return stopping
   }
 
+  return { baseUrl, stop, requestStop, logs }
+}
+
+/**
+ * Waits until the built Worker answers a request.
+ *
+ * The Worker handle is the caller's already: a run that fails here still owns
+ * a running Worker, and the teardown must be able to stop it and to keep its
+ * material.
+ */
+export async function waitForWorkerReady(
+  input: {
+    readonly worker: RunningBuiltWorker
+    readonly certificatePath: string
+  },
+  dependencies: WorkerStartDependencies = REAL_WORKER_DEPENDENCIES
+): Promise<void> {
   const deadline = dependencies.now() + READINESS_TIMEOUT_MS
   for (;;) {
-    if (child.exitCode !== null) {
-      await stop()
-      throw new BuiltWorkerFailure(
-        'worker-start-failed',
-        'the built Worker stopped before it answered a request'
-      )
-    }
     try {
       const response = await dependencies.request({
-        baseUrl,
+        baseUrl: input.worker.baseUrl,
         certificatePath: input.certificatePath,
         request: { method: 'GET', path: '/api/web-entry' },
       })
-      if (response.status > 0) break
+      if (response.status > 0) return
     } catch {
       // The Worker is not listening yet.
     }
     if (dependencies.now() >= deadline) {
-      await stop()
-      throw new BuiltWorkerFailure('worker-start-failed', 'the built Worker did not answer in time')
+      // The Worker is stopped, but a stop that fails does not replace the
+      // reason the readiness failed: the run failed because the Worker did not
+      // answer, and the stop failure is its cause.
+      let stopFailure: unknown
+      try {
+        await input.worker.stop()
+      } catch (error) {
+        stopFailure = error
+      }
+      throw new BuiltWorkerFailure(
+        'worker-start-failed',
+        'the built Worker did not answer in time',
+        { cause: stopFailure }
+      )
     }
     await dependencies.sleep(500)
   }
-  return { baseUrl, stop, requestStop, logs }
 }
 
 /** One request against the running Worker. */
@@ -532,7 +645,23 @@ export function workerRequest(
       (response) => {
         const chunks: Buffer[] = []
         let ended = false
-        response.on('data', (chunk: Buffer) => chunks.push(chunk))
+        let received = 0
+        response.on('data', (chunk: Buffer) => {
+          received += chunk.length
+          if (received > MAX_RESPONSE_BYTES) {
+            // The response is larger than the qualification reads. The request
+            // is destroyed and the promise settles: an unbounded body would
+            // grow the evidence without bound.
+            try {
+              handle.destroy(new Error('the response was too large'))
+            } catch {
+              // The request is already gone.
+            }
+            settle(() => fail(new Error('the response was too large')))
+            return
+          }
+          chunks.push(chunk)
+        })
         response.on('end', () => {
           ended = true
           settle(() => {
@@ -591,7 +720,12 @@ export async function tearDownAfterWorker(input: {
   readonly removeContainer: () => void
   readonly removeMaterial: () => void
   readonly onFailure?: (message: string) => void
-}): Promise<{ readonly workerStopped: boolean; readonly stopError?: unknown }> {
+}): Promise<{
+  readonly workerStopped: boolean
+  readonly containerRemoved: boolean
+  readonly materialRemoved: boolean
+  readonly stopError?: unknown
+}> {
   let workerStopped = true
   let stopError: unknown
   if (input.worker) {
@@ -603,13 +737,41 @@ export async function tearDownAfterWorker(input: {
       input.onFailure?.('the built Worker did not exit; its runtime material was kept')
     }
   }
-  input.removeContainer()
+  let containerRemoved = false
+  let containerError: unknown
+  try {
+    input.removeContainer()
+    containerRemoved = true
+  } catch (error) {
+    containerError = error
+  }
   if (workerStopped) {
     input.removeMaterial()
-  } else {
-    input.worker?.requestStop()
+    if (containerError !== undefined) throw containerError
+    return { workerStopped, containerRemoved, materialRemoved: true, stopError }
   }
-  return { workerStopped, stopError }
+  input.worker?.requestStop()
+  if (containerError !== undefined) throw containerError
+  return { workerStopped, containerRemoved, materialRemoved: false, stopError }
+}
+
+/**
+ * True when the receipt may be published.
+ *
+ * A receipt that claims a pass must not be published while the Worker is still
+ * running or while the material it served from is still there. The verdict is
+ * the teardown's own report of what it removed.
+ */
+export function mayPublishReceipt(input: {
+  readonly verdict: {
+    readonly workerStopped: boolean
+    readonly containerRemoved: boolean
+    readonly materialRemoved: boolean
+  }
+  readonly cleanupFailed: boolean
+}): boolean {
+  if (input.cleanupFailed) return false
+  return input.verdict.workerStopped && input.verdict.materialRemoved
 }
 
 /**

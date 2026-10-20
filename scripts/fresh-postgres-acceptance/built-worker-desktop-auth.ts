@@ -41,6 +41,23 @@ export const DESKTOP_EXCHANGE_PATH = '/api/auth/desktop/exchange'
 /** The redirect the desktop contract names, and the only one the routes accept. */
 export const DESKTOP_CALLBACK_URI = 'adea://auth/callback'
 
+/** The path the authorize route sends a completed request to. */
+export const DESKTOP_COMPLETION_PATH = '/auth/desktop/complete'
+
+/**
+ * The transport envelopes the local runtime answers with.
+ *
+ * The list is closed and narrow on purpose. A body that merely starts with
+ * "Error: " is not an envelope: an application may answer with a text body of
+ * its own, and treating that as an infrastructure failure would let an
+ * application failure be retried into a pass.
+ */
+export const TRANSPORT_ENVELOPE_BODIES: readonly string[] = [
+  'Error: Network connection lost.',
+  'Error: The socket was closed unexpectedly.',
+  'Error: The server closed the connection without sending a response.',
+]
+
 /** The origin the desktop shell sends, and one the routes trust. */
 export const DESKTOP_TRUSTED_ORIGIN = 'http://127.0.0.1:4789'
 
@@ -127,6 +144,18 @@ export type BuiltWorkerDesktopAuthReceipt = {
   readonly failed: number
   /** The full auth lifecycle assertions, preserved and not reduced to a status. */
   readonly authLifecycle: AuthLifecycleEvidence
+  /**
+   * The verdict of the teardown that ran after the qualification.
+   *
+   * The runner fills it in: a receipt is published only after the Worker was
+   * stopped, the container was removed and the runtime material was removed,
+   * and the receipt says which of those happened.
+   */
+  readonly cleanup?: {
+    readonly workerStopped: boolean
+    readonly containerRemoved: boolean
+    readonly materialRemoved: boolean
+  }
   readonly checkout: {
     readonly sha: string
     readonly dirty: boolean | null
@@ -285,6 +314,78 @@ export function readIssuedAuthorizationCode(location: string): {
   }
 }
 
+/** What a validated authorization carries. */
+export type ValidatedAuthorization = {
+  readonly code: string
+  readonly nonce: string
+  readonly state: string
+}
+
+/** The result of reading an authorization out of a redirect. */
+export type AuthorizationValidation =
+  | { readonly ok: true; readonly authorization: ValidatedAuthorization }
+  | { readonly ok: false; readonly reason: string }
+
+/**
+ * Reads the authorization out of the redirect the authorize route answered.
+ *
+ * The redirect is validated, not merely parsed: the route must have answered
+ * `303`, the destination must be exactly the desktop completion page, and the
+ * callback must be exactly the desktop callback with exactly the code, nonce
+ * and state the client sent. A redirect that carries anything else is not an
+ * authorization, and the caller must not exchange anything with it.
+ */
+export function validateIssuedAuthorization(input: {
+  readonly status: number
+  readonly location: string
+  readonly expectedState: string
+  readonly expectedNonce: string
+}): AuthorizationValidation {
+  if (input.status !== 303) {
+    return { ok: false, reason: 'the authorize route did not complete the request' }
+  }
+  let destination: URL
+  try {
+    destination = new URL(input.location, 'https://desktop.invalid')
+  } catch {
+    return { ok: false, reason: 'the authorize route answered with an unusable location' }
+  }
+  if (destination.pathname !== DESKTOP_COMPLETION_PATH) {
+    return {
+      ok: false,
+      reason: 'the authorize route did not send the caller to the completion page',
+    }
+  }
+  const fragment = input.location.split('#')[1] ?? ''
+  const callback = new URLSearchParams(fragment).get('callback') ?? ''
+  let parsed: URL
+  try {
+    parsed = new URL(callback)
+  } catch {
+    return { ok: false, reason: 'the authorize route answered without a desktop callback' }
+  }
+  if (`${parsed.protocol}//${parsed.host}${parsed.pathname}` !== DESKTOP_CALLBACK_URI) {
+    return { ok: false, reason: 'the authorize route answered with another callback destination' }
+  }
+  const names = [...parsed.searchParams.keys()].toSorted()
+  if (names.join(',') !== 'code,nonce,state') {
+    return { ok: false, reason: 'the desktop callback carried unexpected parameters' }
+  }
+  const code = parsed.searchParams.get('code') ?? ''
+  const nonce = parsed.searchParams.get('nonce') ?? ''
+  const state = parsed.searchParams.get('state') ?? ''
+  if (code.length < 8 || code.length > 512) {
+    return { ok: false, reason: 'the desktop callback carried no usable authorization code' }
+  }
+  if (nonce !== input.expectedNonce) {
+    return { ok: false, reason: 'the desktop callback carried another nonce' }
+  }
+  if (state !== input.expectedState) {
+    return { ok: false, reason: 'the desktop callback carried another state' }
+  }
+  return { ok: true, authorization: { code, nonce, state } }
+}
+
 /** The sign-up request that creates the fresh account. */
 export function freshAccountSignUpRequest(input: {
   readonly baseUrl: string
@@ -304,6 +405,29 @@ export function freshAccountSignUpRequest(input: {
       password: input.password,
     }),
   }
+}
+
+/**
+ * The raw values of the cookies the sign-up response issued.
+ *
+ * Every cookie is tracked separately: a value that leaves the Worker anywhere
+ * else is a leak, and a leak of one cookie is a leak even when another cookie
+ * travels in the same header.
+ */
+export function sessionCookieValues(response: BuiltWorkerResponse): string[] {
+  const header = response.headers['set-cookie']
+  if (!header) return []
+  return header
+    .split(/,(?=[^;,]+=)/u)
+    .map((value) => value.split(';')[0]?.trim() ?? '')
+    .filter((value) => value.includes('='))
+    .map((value) => value.slice(value.indexOf('=') + 1))
+    .filter((value) => value.length > 0)
+}
+
+/** The session token the sign-up response carried in its body, if it carried one. */
+export function signupTokenFrom(response: BuiltWorkerResponse): string {
+  return /"token"\s*:\s*"([^"]+)"/u.exec(response.body)?.[1] ?? ''
 }
 
 /** The session cookie the sign-up response issued, if it issued one. */
@@ -351,8 +475,7 @@ export function desktopExchangeRequest(input: {
 export function isInfrastructureErrorEnvelope(body: string): boolean {
   const text = String(body ?? '').trim()
   if (!text) return false
-  if (text.startsWith('Error: ')) return true
-  return text.includes('Error inside ProxyWorker')
+  return TRANSPORT_ENVELOPE_BODIES.includes(text)
 }
 
 /** The outcome a response that did not satisfy an assertion carries. */
@@ -413,12 +536,21 @@ export async function runBuiltWorkerDesktopAuth(
   let sessionCookie = ''
 
   /**
-   * The response that issued a value the Worker had to hand out itself. The
-   * session cookie, the authorization code and the desktop credential each
-   * travel in exactly one response, and the leakage check excludes that one
-   * response and no other.
+   * Where a value was legitimately issued.
+   *
+   * A value the Worker had to hand out travels in one field of one response:
+   * a cookie in the `set-cookie` header, the sign-up token in the `token` field,
+   * the authorization code in the `location` header, the desktop credential in
+   * the `credential` field. The leakage check exempts that field and no
+   * other: the rest of the issuing response is checked like any other, so a
+   * value that is duplicated into the same response is a leak.
    */
-  const issuedIn = new Map<string, number>()
+  type Exemption = {
+    readonly index: number
+    readonly header?: string
+    readonly bodyField?: string
+  }
+  const issuedIn = new Map<string, Exemption>()
 
   const send = async (request: BuiltWorkerRequest): Promise<number> => {
     const response = await input.transport(request)
@@ -426,11 +558,34 @@ export async function runBuiltWorkerDesktopAuth(
     return responses.length - 1
   }
 
-  /** Records a value the Worker had to hand out, and the response that did. */
-  const observeIssued = (value: string, index: number): void => {
+  /** Records a value the Worker had to hand out, and the field it came from. */
+  const observeIssued = (
+    value: string,
+    index: number,
+    exemption: { readonly header?: string; readonly bodyField?: string }
+  ): void => {
     if (!value) return
     observedSecrets.push(value)
-    issuedIn.set(value, index)
+    issuedIn.set(value, { index, ...exemption })
+  }
+
+  /**
+   * True when the response carries the secret outside the one field that is
+   * allowed to carry it.
+   */
+  const carriesSecret = (
+    response: BuiltWorkerResponse,
+    secret: string,
+    exemption: { readonly header?: string; readonly bodyField?: string } | undefined
+  ): boolean => {
+    const headers = Object.entries(response.headers)
+      .filter(([name]) => name !== exemption?.header)
+      .map(([, value]) => value)
+      .join(' ')
+    const body = exemption?.bodyField
+      ? response.body.replace(new RegExp(`"${exemption.bodyField}"\\s*:\\s*"[^"]*"`, 'gu'), '')
+      : response.body
+    return `${headers}\n${body}`.includes(secret)
   }
 
   /**
@@ -506,7 +661,7 @@ export async function runBuiltWorkerDesktopAuth(
       )
       const response = responses[index]!
       if (response.status >= 500) {
-        return serverFailure(response, 'the sign-up returned ${response.status}')
+        return serverFailure(response, 'the sign-up returned ')
       }
       const cookie = sessionCookieFrom(response)
       if (response.status !== 200 || !cookie) {
@@ -517,7 +672,11 @@ export async function runBuiltWorkerDesktopAuth(
         }
       }
       sessionCookie = cookie
-      observeIssued(cookie, index)
+      for (const value of sessionCookieValues(response)) {
+        observeIssued(value, index, { header: 'set-cookie' })
+      }
+      const token = signupTokenFrom(response)
+      if (token) observeIssued(token, index, { bodyField: 'token' })
       return {
         passed: true,
         detail: 'the built Worker issued a session for a fresh account',
@@ -527,11 +686,11 @@ export async function runBuiltWorkerDesktopAuth(
   })
 
   const authorizeWithSession = async (): Promise<{
+    readonly ok: boolean
+    readonly reason: string
     readonly code: string
     readonly nonce: string
     readonly verifier: string
-    readonly status: number
-    readonly location: string
   }> => {
     const pkce = desktopPkcePair()
     const { nonce, state } = desktopNonceAndState()
@@ -546,14 +705,26 @@ export async function runBuiltWorkerDesktopAuth(
     })
     const response = responses[index]!
     const location = response.headers.location ?? ''
+    // The code is tracked whether or not the redirect turns out to be valid: a
+    // code that came from an unexpected place is still a value that must not
+    // travel anywhere else.
     const issued = readIssuedAuthorizationCode(location)
-    observeIssued(issued.code, index)
-    return {
-      code: issued.code,
-      nonce: issued.nonce || nonce,
-      verifier: pkce.verifier,
+    if (issued.code) observeIssued(issued.code, index, { header: 'location' })
+    const validation = validateIssuedAuthorization({
       status: response.status,
-      location: location.split('#')[0] ?? '',
+      location,
+      expectedState: state,
+      expectedNonce: nonce,
+    })
+    if (!validation.ok) {
+      return { ok: false, reason: validation.reason, code: '', nonce: '', verifier: pkce.verifier }
+    }
+    return {
+      ok: true,
+      reason: '',
+      code: validation.authorization.code,
+      nonce: validation.authorization.nonce,
+      verifier: pkce.verifier,
     }
   }
 
@@ -569,7 +740,7 @@ export async function runBuiltWorkerDesktopAuth(
       })
       const response = responses[index]!
       if (response.status >= 500) {
-        return serverFailure(response, 'the authorize route returned ${response.status}')
+        return serverFailure(response, 'the authorize route returned ')
       }
       const location = response.headers.location ?? ''
       if (response.status !== 303) {
@@ -611,7 +782,7 @@ export async function runBuiltWorkerDesktopAuth(
       })
       const response = responses[index]!
       if (response.status >= 500) {
-        return serverFailure(response, 'the authorize route returned ${response.status}')
+        return serverFailure(response, 'the authorize route returned ')
       }
       if (response.status !== 400) {
         return {
@@ -633,14 +804,11 @@ export async function runBuiltWorkerDesktopAuth(
     mutating: true,
     run: async () => {
       const issued = await authorizeWithSession()
-      if (!issued.code) {
+      if (!issued.ok) {
         return {
           passed: false,
-          detail: `the authorize route answered ${issued.status} at ${issued.location} without an authorization code`,
-          outcome:
-            issued.status >= 500
-              ? failureOutcome(responses[responses.length - 1]!)
-              : 'assertion-failed',
+          detail: issued.reason,
+          outcome: 'assertion-failed',
         }
       }
       return {
@@ -660,6 +828,9 @@ export async function runBuiltWorkerDesktopAuth(
     mutating: true,
     run: async () => {
       const issued = await authorizeWithSession()
+      if (!issued.ok) {
+        return { passed: false, detail: issued.reason, outcome: 'assertion-failed' }
+      }
       const index = await send(
         desktopExchangeRequest({
           code: issued.code,
@@ -670,7 +841,7 @@ export async function runBuiltWorkerDesktopAuth(
       )
       const response = responses[index]!
       if (response.status >= 500) {
-        return serverFailure(response, 'the exchange route returned ${response.status}')
+        return serverFailure(response, 'the exchange route returned ')
       }
       if (response.status !== 200) {
         return {
@@ -694,7 +865,7 @@ export async function runBuiltWorkerDesktopAuth(
         }
       }
       const credential = response.body.match(/"credential"\s*:\s*"([^"]+)"/u)?.[1] ?? ''
-      observeIssued(credential, index)
+      observeIssued(credential, index, { bodyField: 'credential' })
       exchangedCode = issued.code
       exchangedNonce = issued.nonce
       exchangedVerifier = issued.verifier
@@ -711,6 +882,9 @@ export async function runBuiltWorkerDesktopAuth(
     mutating: true,
     run: async () => {
       const issued = await authorizeWithSession()
+      if (!issued.ok) {
+        return { passed: false, detail: issued.reason, outcome: 'assertion-failed' }
+      }
       const wrong = base64url(randomBytes(48))
       const index = await send(
         desktopExchangeRequest({
@@ -722,7 +896,7 @@ export async function runBuiltWorkerDesktopAuth(
       )
       const response = responses[index]!
       if (response.status >= 500) {
-        return serverFailure(response, 'the exchange route returned ${response.status}')
+        return serverFailure(response, 'the exchange route returned ')
       }
       if (response.status !== 400) {
         return {
@@ -751,6 +925,9 @@ export async function runBuiltWorkerDesktopAuth(
     mutating: true,
     run: async () => {
       const issued = await authorizeWithSession()
+      if (!issued.ok) {
+        return { passed: false, detail: issued.reason, outcome: 'assertion-failed' }
+      }
       const index = await send(
         desktopExchangeRequest({
           code: issued.code,
@@ -761,7 +938,7 @@ export async function runBuiltWorkerDesktopAuth(
       )
       const response = responses[index]!
       if (response.status >= 500) {
-        return serverFailure(response, 'the exchange route returned ${response.status}')
+        return serverFailure(response, 'the exchange route returned ')
       }
       if (response.status !== 400) {
         return {
@@ -813,7 +990,7 @@ export async function runBuiltWorkerDesktopAuth(
       )
       const response = responses[index]!
       if (response.status >= 500) {
-        return serverFailure(response, 'the exchange route returned ${response.status}')
+        return serverFailure(response, 'the exchange route returned ')
       }
       if (response.status !== 400) {
         return {
@@ -848,7 +1025,7 @@ export async function runBuiltWorkerDesktopAuth(
       })
       const response = responses[index]!
       if (response.status >= 500) {
-        return serverFailure(response, 'the exchange preflight returned ${response.status}')
+        return serverFailure(response, 'the exchange preflight returned ')
       }
       if (response.status !== 403) {
         return {
@@ -882,11 +1059,11 @@ export async function runBuiltWorkerDesktopAuth(
   // and not the desktop credential.
   const leaked = observedSecrets.filter((secret) => {
     if (!secret) return false
-    const allowed = issuedIn.get(secret)
+    const issued = issuedIn.get(secret)
     return responses.some((response, index) => {
-      if (index === allowed) return false
-      if (response.body.includes(secret)) return true
-      return Object.values(response.headers).some((value) => value.includes(secret))
+      if (!issued) return carriesSecret(response, secret, undefined)
+      if (index !== issued.index) return carriesSecret(response, secret, undefined)
+      return carriesSecret(response, secret, issued)
     })
   })
   const assertions: DesktopEndpointAssertion[] = [

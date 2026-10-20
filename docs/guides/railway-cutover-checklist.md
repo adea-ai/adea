@@ -183,10 +183,11 @@ that no Railway service exists outside this repository.
       response carries the auth secret, the session cookie, the authorization code or
       the desktop credential. The receipt carries every assertion by name, how many
       attempts each assertion made, how every attempt ended, the identity of the built
-      artifact it proved, and the full auth lifecycle assertions. A run whose failure
-      was published as a receipt is a failed run: an application failure is never retried
-      into a pass, and a request whose outcome is unknown is never replayed. It must not
-      become a green skipped run.
+      artifact it proved, the verdict of the teardown, and the full auth lifecycle
+      assertions. A run whose failure was published as a receipt is a failed run: an
+      application failure is never retried into a pass, and a request whose outcome is
+      unknown is never replayed. A receipt is published only after the Worker was
+      stopped and its material removed. It must not become a green skipped run.
 - [ ] The invalid, expired, revoked and wrong-origin cases, plus refresh, logout and
       delivery, passed. `docs/authentication.md` step 5 requires them before switching
       traffic.
