@@ -66,6 +66,7 @@ import {
   type AuthLifecycleEvidence,
 } from './fresh-postgres-acceptance/built-worker-desktop-auth'
 import {
+  assertLocalRuntimePrerequisites,
   buildBuiltWorker,
   buildLocalWorkerConfig,
   builtWorkerArtifact,
@@ -154,6 +155,21 @@ function command(
 }
 
 /** True when the host can generate the disposable server's TLS material. */
+/**
+ * True when the local runtime that serves the built Worker is on the path.
+ *
+ * The local runtime is a Node program, so a host without it cannot serve the
+ * Worker at all. The qualification learns that before it creates anything.
+ */
+function localRuntimeAvailable(): boolean {
+  const result = spawnSync('node', ['--version'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: 30_000,
+  })
+  return !result.error && result.status === 0
+}
+
 function opensslAvailable(): boolean {
   const result = spawnSync('openssl', ['version'], {
     encoding: 'utf8',
@@ -254,16 +270,13 @@ async function availablePort(): Promise<number> {
 }
 
 async function main(): Promise<void> {
-  if (!dockerDaemonAvailable()) {
-    throw new Error(
-      'Docker is unavailable; the built-Worker qualification did not run and must not be reported as a pass'
-    )
-  }
-  if (!opensslAvailable()) {
-    throw new Error(
-      'OpenSSL is unavailable; the qualification cannot mint its loopback certificate'
-    )
-  }
+  // The host capabilities are checked before any resource is created, through
+  // the same contract the offline tests pin.
+  assertLocalRuntimePrerequisites({
+    hasContainerRuntime: dockerDaemonAvailable(),
+    hasCertificateTool: opensslAvailable(),
+    hasLocalRuntime: localRuntimeAvailable(),
+  })
 
   // The Worker this qualification proves. A build that cannot be placed in
   // this checkout is not reused: the qualification builds the Worker itself and

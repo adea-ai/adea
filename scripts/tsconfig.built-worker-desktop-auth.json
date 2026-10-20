@@ -7,6 +7,7 @@
     "checkJs": false
   },
   "include": [
+    "fresh-postgres-acceptance/built-worker-ci-contract.test.ts",
     "fresh-postgres-acceptance/built-worker-desktop-auth.ts",
     "fresh-postgres-acceptance/built-worker-desktop-auth.test.ts",
     "fresh-postgres-acceptance/built-worker-failures.ts",

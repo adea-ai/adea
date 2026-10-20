@@ -882,6 +882,46 @@ export async function runOwnedSetup<T>(input: {
 }
 
 /**
+ * The host capabilities the qualification needs.
+ *
+ * The container runtime holds the disposable instance, the certificate tool mints
+ * the loopback certificate, and the local runtime serves the built Worker.
+ */
+export type LocalRuntimePrerequisites = {
+  readonly hasContainerRuntime: boolean
+  readonly hasCertificateTool: boolean
+  readonly hasLocalRuntime: boolean
+}
+
+/**
+ * Fails closed when the host cannot run the qualification.
+ *
+ * Every capability is checked before any resource is created, so a host that
+ * cannot serve the built Worker learns that before a container exists rather
+ * than after a container has been started and torn down again.
+ */
+export function assertLocalRuntimePrerequisites(input: LocalRuntimePrerequisites): void {
+  if (!input.hasContainerRuntime) {
+    throw new BuiltWorkerFailure(
+      'container-unavailable',
+      'the container runtime is unavailable; the qualification cannot run'
+    )
+  }
+  if (!input.hasCertificateTool) {
+    throw new BuiltWorkerFailure(
+      'instance-unavailable',
+      'the certificate tool is unavailable; the qualification cannot mint its certificate'
+    )
+  }
+  if (!input.hasLocalRuntime) {
+    throw new BuiltWorkerFailure(
+      'worker-start-failed',
+      'the local runtime is unavailable; the qualification cannot serve the built Worker'
+    )
+  }
+}
+
+/**
  * Removes the material a run owns.
  *
  * The material is removed only when the Worker's process group is gone: a
