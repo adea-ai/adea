@@ -38,6 +38,9 @@ import {
   ensureCanonicalRoles,
 } from '../packages/db/tests/fixtures/canonical-boundary'
 import { applyAuthSchema } from '../packages/auth/src/schema-init'
+import { classifyDisposableProofEvidence } from './fresh-postgres-acceptance/evidence.mjs'
+import { assertDatabaseProof } from './fresh-postgres-acceptance/recovery.mjs'
+import { readCheckoutProvenance } from './fresh-postgres-acceptance/provenance.mjs'
 
 const dbRequire = createRequire(new URL('../packages/db/package.json', import.meta.url))
 type PostgresFactory = typeof import('postgres').default
@@ -47,6 +50,8 @@ const postgres: PostgresFactory =
 
 /** The repository root, the working directory of every proof command. */
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
+/** The provenance of the checkout the proof runs in. */
+const provenance = readCheckoutProvenance(repositoryRoot)
 
 /** The base URL the auth initializer validates. It is never contacted. */
 const AUTH_BASE_URL = 'https://adea-ci.example.test'
@@ -322,10 +327,24 @@ const options: DisposableProofOptions = {
   authBaseUrl: AUTH_BASE_URL,
   authSecret: AUTH_SECRET,
   authTrustedOrigin: AUTH_TRUSTED_ORIGIN,
+  // The receipt names the commit, the cleanliness and the source of the
+  // checkout that produced it, so the artifact it proves is reproducible. The
+  // proof runs the code of that same checkout, so the tree the code came from
+  // is the same tree.
+  checkout: provenance,
+  module: provenance,
+  // This run provisions a real disposable instance and proves against a real
+  // database, so it is real evidence: `ci` in CI and `local-disposable`
+  // everywhere else. It is never `simulated`.
+  evidence: classifyDisposableProofEvidence(process.env),
 }
 
 try {
   const receipt = await runDisposablePostgresProof(dependencies, options)
+  // The proof publishes a receipt the recovery procedure can consume. A
+  // receipt it cannot consume is not a receipt, and the proof fails rather
+  // than publishing one.
+  assertDatabaseProof(receipt)
   console.log(`DISPOSABLE_POSTGRES_PROOF ${JSON.stringify(receipt)}`)
 } catch (error) {
   console.error(error instanceof Error ? error.message : 'the disposable PostgreSQL proof failed')

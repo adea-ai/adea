@@ -1,0 +1,92 @@
+# Database proof for pull requests.
+#
+# The only database this lane proves is a disposable PostgreSQL 18 instance on
+# the loopback interface. It creates no branch anywhere, reads no secret and
+# reaches no hosted database: the Railway-managed PostgreSQL is the only
+# production target, and production is proven by an operation a human
+# authorizes at release time, never by a pull-request lane.
+#
+# The gate reports on every ready pull request, so the check never blocks an
+# unrelated pull request, and a draft pull request runs no job at all.
+
+name: Database Proof
+
+on:
+  pull_request:
+    # opened and reopened are deliberately absent: Draft Guard converts ready pull requests to draft
+    # on those events, and heavy validation starts only after an explicit ready_for_review.
+    types:
+      - synchronize
+      - ready_for_review
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  # A superseded push must not keep a runner. Every event this workflow takes
+  # creates a throwaway container, so the newest head owns the group.
+  cancel-in-progress: true
+
+jobs:
+  disposable_postgres_proof:
+    name: Disposable PostgreSQL Proof
+    # A draft pull request runs no job, so a draft update allocates no runner.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install the PostgreSQL 18 client tools
+        # The backup and restore test runs the PostgreSQL 18 pg_dump and pg_restore
+        # against the disposable instance; the runner's own client is older.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error --location \
+            --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+
+      - name: Check the PostgreSQL 18 client tools
+        run: |
+          /usr/lib/postgresql/18/bin/pg_dump --version
+          /usr/lib/postgresql/18/bin/pg_restore --version
+
+      - name: Prove the disposable PostgreSQL boundary
+        run: bun --no-env-file run scripts/disposable-postgres-cli.ts
+
+  disposable_postgres_gate:
+    # The same fail-closed shape as before: it passes only when the disposable
+    # proof succeeds, and a failed, cancelled, skipped or missing result fails
+    # it. Draft pull requests skip it.
+    name: Prove Disposable PostgreSQL
+    needs: [disposable_postgres_proof]
+    if: >-
+      always() && github.event.pull_request.draft == false &&
+      (github.event.action == 'synchronize' || github.event.action == 'ready_for_review')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require the disposable proof to succeed
+        env:
+          PROOF_RESULT: ${{ needs.disposable_postgres_proof.result }}
+        run: |
+          echo "proof=$PROOF_RESULT"
+          test "$PROOF_RESULT" = success

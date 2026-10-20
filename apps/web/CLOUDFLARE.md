@@ -254,10 +254,10 @@ subscribes to the router history in `src/start/router.tsx`.
   Worker bundle for production requests.
 - No `next/image` usage existed; the workspace uses plain `<img>` elements, so
   no Cloudflare Images loader configuration is needed.
-- The pull-request CI branch (`.github/workflows/neon_workflow.yml`) still
-  provisions an isolated hosted database branch and still gates PRs. Removing it
-  is a separate, owner-scoped change; this repository's application code and
-  deployment configuration no longer reference that provider.
+- Pull-request CI no longer creates a preview Neon branch. The database proof
+  (`.github/workflows/database-proof.yml`) proves a disposable PostgreSQL
+  instance on the loopback interface and gates PRs behind the
+  `Prove Disposable PostgreSQL` check.
 
 ## Request work and local efficiency qualification
 

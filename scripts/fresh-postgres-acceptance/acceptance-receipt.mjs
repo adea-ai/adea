@@ -50,3 +50,37 @@ export function assertFocusedJourneyPassed(output) {
   }
   return receipt
 }
+
+/**
+ * Builds the receipt of the fresh-account acceptance lane.
+ *
+ * The builder is exported so the receipt the lane publishes and the receipt
+ * the recovery procedure consumes are built by the same code, and a test can
+ * check that one satisfies the other.
+ *
+ * The evidence class is stated by the caller, because the caller knows what
+ * it ran. The provenance names the tree the run tested and the tree the code
+ * came from.
+ */
+export function buildAcceptanceReceipt(input) {
+  return {
+    status: 'passed',
+    migrations: input.migrations,
+    verificationRequired: true,
+    // The class of this run's own evidence. A run that proves against a
+    // disposable instance and the real provider is `local-disposable`; it is
+    // not a CI result and not a live one, and it may not be recorded as
+    // either.
+    evidence: input.evidence,
+    // The kind of proof this receipt is, and the database it ran against. The
+    // recovery procedure reads both, and refuses a receipt of another kind.
+    proofKind: 'fresh-schema-acceptance',
+    postgres: 'disposable-instance',
+    // The receipt names the commit, the cleanliness and the source of the tree
+    // the run tested and of the tree the code came from, so the artifact can
+    // be reproduced and a result cannot be labelled with a foreign commit.
+    checkout: input.checkout,
+    module: input.module,
+    ...(input.desktopPrincipal ? { desktopPrincipal: input.desktopPrincipal } : {}),
+  }
+}

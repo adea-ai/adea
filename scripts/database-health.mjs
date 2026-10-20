@@ -77,7 +77,7 @@ export function queryPrivileges(rawUrl, { spawn = spawnSync, inherited = process
 }
 
 function main() {
-  // A probe reaches only local or CI-created targets (see test-target-guard.mjs).
+  // A probe reaches only a local target (see test-target-guard.mjs).
   assertLocalTestTargets()
   try {
     const configuration = inspectDatabaseConfiguration(process.env)

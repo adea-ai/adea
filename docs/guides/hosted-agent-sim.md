@@ -36,6 +36,33 @@ launch state. A failed Sim launch does not revoke their workspace identity.
   Existing private exports register the same mount API; no engine source or binary
   is copied into this repository.
 
+## The approved service composition
+
+The source now provides the two compositions an approved service is built from, written against
+ports so that neither names an entitlement source, a storage engine or an origin.
+
+- `apps/web/src/server/sim-launch-service.ts` composes the launch. The authenticated principal, the
+  workspace read authorization and an explicit entitlement policy decide it, in that order. Only
+  the policy may answer `entitled`; membership alone never entitles. The code store is bound to
+  the workspace the entitlement verified, so a code cannot be issued against a workspace the
+  account may not use.
+- `apps/web/src/server/sim-host-service.ts` composes the separately hosted service. It redeems one
+  single-use code per launch, mints the sim-only cookie, looks the session up in durable storage
+  and asks the entitlement policy about the workspace and surface the stored row names. The
+  workspace and surface never come from the request.
+- `apps/web/src/server/sim-private-assets.ts` reads the engine export from one named private
+  location. The location is a plain identifier, not a URL or an alias, the request path cannot
+  select a key outside it, and the reader returns the object rather than an address. Whether the
+  storage location itself is private — its access control list, and any public alias the storage
+  provider may expose for the same objects — is a deployment prerequisite of the approved service,
+  not something this source decides.
+- `packages/db/src/sim-launch-ports.ts` adapts the durable tables to those ports: one code store
+  per verified workspace for the issuer, a redeeming-only store for the hosted service, and the
+  session lookup behind the private asset gate.
+
+The [approved service composition](../plans/hosted-sim-approved-service-composition.md) records the
+interfaces and the decisions root still owns. Nothing here is wired into a production route.
+
 ## Local acceptance
 
 Use the repository's pinned Bun and frozen dependencies, build workspace
@@ -43,7 +70,9 @@ prerequisites with `bun run build:web-deps`, then run:
 
 ```sh
 bun test apps/web/test/sim-host-config.test.ts apps/web/test/sim-http.test.ts apps/web/test/sim-frame.test.ts
+bun test apps/web/test/sim-launch-service.test.ts apps/web/test/sim-host-service.test.ts apps/web/test/sim-private-assets.test.ts
 bun test apps/web/test/sim-offload-browser/acceptance.test.ts
+bun test apps/web/test/sim-offload-browser/composition-acceptance.test.ts
 bun scripts/check-hosted-sim-desktop-client.ts
 ADEA_SIM_TEST_EXPORT=/path/to/existing/private/export \
   bun scripts/check-hosted-sim-desktop-save.ts
@@ -57,6 +86,14 @@ uses an explicit test entitlement and in-memory reference stores, and mounts the
 actual app entry, host component, frame bootstrap, and exchange/asset boundaries.
 The optional private export stays on the local machine. Local screenshots stay
 under the temporary evidence directory and are not uploaded or committed.
+
+The composition acceptance lane runs the approved composition on both sides of the
+launch against disposable in-memory stores: an entitled workspace reaches the
+optional view and its private entry, a workspace the principal may read but the
+entitlement policy does not entitle reaches the independent entitlement gate and
+receives no launch code, no session and no private read, a workspace the
+principal may not read is refused before the policy is asked, and the rest of the
+app stays usable when the optional view is refused.
 
 The HTTP lane covers denial before private storage reads, single-use code replay,
 session expiry, surface binding, missing authority, foreign origins, and bounded
@@ -117,11 +154,13 @@ The production route deliberately has no entitlement authority installed. Existi
 Adea code admitted the legacy engine by official origin/packed manifest; it has
 no account entitlement source to reuse. Choosing an account policy or treating
 all authenticated workspace members as entitled would create an access grant,
-so this patch does neither. An approved service must compose `createSimLaunchIssuer`
-with the existing authenticated principal/workspace checks, an authoritative
-`SimEntitlementChecker`, and durable, atomically single-use code storage. The
-separate host must compose `createSimSessionExchange`, durable session lookup,
-and authorized private storage with no alternate public route.
+so this patch does neither. The source now provides the compositions an approved
+service is built from — `createSimLaunchService`, `createSimHostService` and the
+named private asset reader — but nothing selects a policy, an origin, a storage
+target or a hosting destination. An approved service must install an authoritative
+entitlement policy, the durable storage access and the hosting target; the
+[approved service composition](../plans/hosted-sim-approved-service-composition.md)
+lists each of those as a decision root owns.
 
 Deployment, hostname/DNS, bindings, credentials, access changes, and any live
 rollout require separate explicit authorization. The local reference stores and
