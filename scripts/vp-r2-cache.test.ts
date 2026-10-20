@@ -859,6 +859,30 @@ describe('the publication fence', () => {
     expect(found.ok).toBe(true)
   })
 
+  test('a large archive that is already there is published again', async () => {
+    // The archive is larger than the envelope bound and within the archive bound. It is a valid payload, and a
+    // duplicate publication of it must succeed: the envelope bound does not apply to it.
+    const limits = { ...LIMITS, maxEnvelopeBytes: 64 * 1024 }
+    const store = createMemoryStore()
+    const blob = Buffer.alloc(128 * 1024, 0x61)
+    const entry = { ...syntheticEntry('large-archive'), blob }
+    const first = await publishEntry(store, entry, { scope, limits })
+    expect(first.ok).toBe(true)
+    const second = await publishEntry(store, entry, { scope, limits })
+    expect(second.ok).toBe(true)
+    expect(second.duplicate).toBe(true)
+    // The archive that is there is still the one that was published.
+    const found = await lookupEntry(
+      store,
+      { key: entry.key, secondaryKey: entry.secondaryKey },
+      { scope, limits }
+    )
+    expect(found.ok).toBe(true)
+    const stored = await readBlob(store, found.envelope!.blob_id, { scope, limits })
+    expect(stored.ok).toBe(true)
+    expect(Buffer.from((stored as { bytes: Buffer }).bytes).equals(blob)).toBe(true)
+  })
+
   test('a corrupt archive that is already there is not republished as a success', async () => {
     const store = createMemoryStore()
     const entry = syntheticEntry('corrupt-archive')
