@@ -1,5 +1,5 @@
-// Regression tests for which built auth output an acceptance run may accept. They use
-// temporary directories and no build, so they run in the normal web test lane.
+// Regression tests for which built auth output and scenario an acceptance run may use.
+// They use temporary directories and no build, so they run in the normal web test lane.
 import { describe, expect, test } from 'bun:test'
 import { mkdirSync, mkdtempSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -20,23 +20,43 @@ function select(args, env = {}, productionDir = PRODUCTION) {
 
 describe('selectArtifact', () => {
   test('the default run accepts the fixture output', () => {
-    expect(select([])).toEqual({ kind: 'fixture', directory: FIXTURE, production: false })
+    expect(select([])).toEqual({
+      kind: 'fixture',
+      scenario: 'fixture',
+      directory: FIXTURE,
+      production: false,
+    })
   })
 
   test('the fixture run may point at another fixture output', () => {
     expect(select([], { ADEA_AUTH_FIXTURE_DIST: '/elsewhere/fixture' })).toEqual({
       kind: 'fixture',
+      scenario: 'fixture',
       directory: '/elsewhere/fixture',
       production: false,
     })
   })
 
-  test('--production accepts only the production output', () => {
+  test('--production selects the lifecycle scenario on the production output', () => {
     expect(select(['--production'])).toEqual({
       kind: 'production',
+      scenario: 'lifecycle',
       directory: PRODUCTION,
       production: true,
     })
+  })
+
+  test('--production --default-refusal selects the default-refusal scenario', () => {
+    expect(select(['--production', '--default-refusal'])).toEqual({
+      kind: 'production',
+      scenario: 'default-refusal',
+      directory: PRODUCTION,
+      production: true,
+    })
+  })
+
+  test('--default-refusal without --production is refused', () => {
+    expect(() => select(['--default-refusal'])).toThrow('runs only against the production output')
   })
 
   test('--production refuses a fixture directory override', () => {
@@ -85,23 +105,40 @@ const WORKER_INPUT = {
 }
 
 describe('workerVariables', () => {
-  test('the production Worker runs with verification explicitly off and no fixture variable', () => {
-    const vars = workerVariables({ kind: 'production', ...WORKER_INPUT })
+  test('the lifecycle Worker runs with verification explicitly off and no fixture variable', () => {
+    const vars = workerVariables({ kind: 'production', scenario: 'lifecycle', ...WORKER_INPUT })
     expect(vars.AUTH_EMAIL_VERIFICATION_REQUIRED).toBe('false')
     expect(vars).not.toHaveProperty('ADEA_AUTH_FIXTURE_OUTBOX_URL')
     expect(vars.AUTH_SECURE_COOKIES).toBe('true')
   })
 
+  test('the default-refusal Worker sets no verification variable, so the application default applies', () => {
+    const vars = workerVariables({
+      kind: 'production',
+      scenario: 'default-refusal',
+      ...WORKER_INPUT,
+    })
+    expect(vars).not.toHaveProperty('AUTH_EMAIL_VERIFICATION_REQUIRED')
+    expect(vars).not.toHaveProperty('ADEA_AUTH_FIXTURE_OUTBOX_URL')
+    expect(vars.AUTH_SECURE_COOKIES).toBe('true')
+  })
+
   test('the fixture Worker requires verification and owns the outbox', () => {
-    const vars = workerVariables({ kind: 'fixture', ...WORKER_INPUT })
+    const vars = workerVariables({ kind: 'fixture', scenario: 'fixture', ...WORKER_INPUT })
     expect(vars.AUTH_EMAIL_VERIFICATION_REQUIRED).toBe('true')
     expect(vars.ADEA_AUTH_FIXTURE_OUTBOX_URL).toBe(WORKER_INPUT.outboxUrl)
   })
 
-  test('the Worker never takes verification from an unknown artifact kind', () => {
-    expect(() => workerVariables({ kind: 'staging', ...WORKER_INPUT })).toThrow(
-      'unknown artifact kind'
-    )
+  test('a fixture scenario cannot be paired with the production output', () => {
+    expect(() =>
+      workerVariables({ kind: 'production', scenario: 'fixture', ...WORKER_INPUT })
+    ).toThrow('unknown artifact kind and scenario')
+  })
+
+  test('an unknown artifact kind is refused', () => {
+    expect(() =>
+      workerVariables({ kind: 'staging', scenario: 'lifecycle', ...WORKER_INPUT })
+    ).toThrow('unknown artifact kind and scenario')
   })
 })
 

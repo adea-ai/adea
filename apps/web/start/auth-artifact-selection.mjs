@@ -1,7 +1,8 @@
-// Chooses the one built auth output an acceptance run may accept. The fixture output and
-// the production output never stand in for each other: a fixture run refuses the
-// production output by its real path, and a production run takes only its own output and
-// refuses any fixture marker in it. Pure functions, so the rules are tested without a build.
+// Chooses the one built auth output, and the one scenario, an acceptance run may use. The
+// fixture output and the production output never stand in for each other: a fixture run
+// refuses the production output by its real path, and a production run takes only its own
+// output and refuses any fixture marker in it. Pure functions, so the rules are tested
+// without a build.
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -15,28 +16,41 @@ function canonical(directory) {
   }
 }
 
+// Scenarios: `fixture` is the recording-transport run; `lifecycle` is the production
+// output with verification explicitly false; `default-refusal` is the production output
+// with the application default (verification required, no transport).
 export function selectArtifact({ args, env, productionDir, defaultFixtureDir }) {
-  const unknown = args.find((arg) => arg !== '--production')
+  const known = new Set(['--production', '--default-refusal'])
+  const unknown = args.find((arg) => !known.has(arg))
   if (unknown !== undefined) throw new Error(`unknown argument: ${unknown}`)
-  if (args.includes('--production')) {
+  const production = args.includes('--production')
+  const refusal = args.includes('--default-refusal')
+  if (refusal && !production)
+    throw new Error('--default-refusal runs only against the production output; pass --production')
+  if (production) {
     if (env.ADEA_AUTH_FIXTURE_DIST !== undefined)
       throw new Error(
         '--production accepts only the production output; unset ADEA_AUTH_FIXTURE_DIST'
       )
-    return { kind: 'production', directory: resolve(productionDir), production: true }
+    return {
+      kind: 'production',
+      scenario: refusal ? 'default-refusal' : 'lifecycle',
+      directory: resolve(productionDir),
+      production: true,
+    }
   }
   if (env.ADEA_AUTH_FIXTURE_DIST === '') throw new Error('ADEA_AUTH_FIXTURE_DIST is set but empty')
   const directory = resolve(env.ADEA_AUTH_FIXTURE_DIST ?? defaultFixtureDir)
   if (canonical(directory) === canonical(productionDir))
     throw new Error('refusing to run the fixture acceptance against the production output')
-  return { kind: 'fixture', directory, production: false }
+  return { kind: 'fixture', scenario: 'fixture', directory, production: false }
 }
 
 // The Worker's own variables for one run. The fixture run requires verification and owns
-// the loopback outbox. The production run is a local test-only lifecycle configuration:
-// verification is explicitly false, and it carries no outbox or fixture variable. The
-// application default (required, no transport) is not claimed by either run.
-export function workerVariables({ kind, baseURL, databaseUrl, secret, outboxUrl }) {
+// the loopback outbox. The lifecycle run sets verification explicitly false and carries no
+// outbox. The default-refusal run sets no verification variable at all, so the application
+// default (required, no transport) is what it exercises.
+export function workerVariables({ kind, scenario, baseURL, databaseUrl, secret, outboxUrl }) {
   const shared = {
     AUTH_BASE_URL: baseURL,
     AUTH_DATABASE_URL: databaseUrl,
@@ -44,14 +58,16 @@ export function workerVariables({ kind, baseURL, databaseUrl, secret, outboxUrl 
     AUTH_SECURE_COOKIES: 'true',
     AUTH_TRUSTED_ORIGINS: baseURL,
   }
-  if (kind === 'production') return { ...shared, AUTH_EMAIL_VERIFICATION_REQUIRED: 'false' }
-  if (kind === 'fixture')
+  if (kind === 'production' && scenario === 'lifecycle')
+    return { ...shared, AUTH_EMAIL_VERIFICATION_REQUIRED: 'false' }
+  if (kind === 'production' && scenario === 'default-refusal') return { ...shared }
+  if (kind === 'fixture' && scenario === 'fixture')
     return {
       ...shared,
       AUTH_EMAIL_VERIFICATION_REQUIRED: 'true',
       ADEA_AUTH_FIXTURE_OUTBOX_URL: outboxUrl,
     }
-  throw new Error(`unknown artifact kind: ${kind}`)
+  throw new Error(`unknown artifact kind and scenario: ${kind}/${scenario}`)
 }
 
 export function checkMarkers({ kind, markerCount, directory }) {
