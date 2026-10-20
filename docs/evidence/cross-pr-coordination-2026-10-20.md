@@ -128,12 +128,38 @@ proof. The contract is now the one that is true in both states:
   names — the record names it, so a new identifier there still fails;
 - nothing requires the recorded identifier to still be present.
 
-The combined state is proved over a **disposable copy** of the CI surface: the
-copy carries this lane's files with the provider-specific host rule removed
-from the owned path, and the scan over that copy finds only the two documented
-refusals. A second case scans the same copy **without** the removal and
-requires the identifier to be found, so the combined-state proof is not
-vacuous.
+### The two surfaces, and the negative control
+
+The proof has to hold in two states: the one where the provider marker is
+present, and the one where it is gone. The owning lane's approved change takes
+the repository from the first to the second, so a proof that reads the marker
+out of that lane's file fails the moment the removal lands.
+
+Neither surface is read out of the owning lane's file any more:
+
+| Surface                | How it is built                                                                           | What the scan must find             |
+| ---------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------- |
+| **pre-removal**        | a **controlled fixture** that injects the provider marker into a copy of the current file | the marker, in the owned path       |
+| **post-removal**       | a copy of the current file with the marker taken out                                      | only the two documented refusals    |
+| **the actual surface** | the repository as it is                                                                   | no identifier that no record allows |
+
+The pre-removal surface is a fixture rather than a copy of the current file, so
+the negative control does not depend on the marker still being there. That is
+the whole point of the control: it proves the scan is sensitive, and it keeps
+proving that after the removal lands.
+
+The control was checked three ways on 2026-10-20:
+
+| Check                                                                                                                     | Result                                                        |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------- |
+| the qualification in the repository as it is                                                                              | **14 passed, 0 failed**, 187 assertions                       |
+| the qualification in the post-removal surface, with the other lane's **pushed** file `7fa24f2ee` substituted in           | **14 passed, 0 failed**, 186 assertions                       |
+| the qualification in the post-removal surface, with the other lane's **in-progress local** file `89e020b3` substituted in | **14 passed, 0 failed**, 186 assertions                       |
+| a mutation check: a scan that detects nothing at all                                                                      | all three lifecycle cases fail, so the control is not vacuous |
+
+The other lane's file was not edited, no provider was restored, and detection
+was not weakened: the marker is still found wherever it appears, and a marker
+the records do not name still fails.
 
 The disposable copy is not the only witness. The other lane's **actual pushed
 bytes** were compared read-only on 2026-10-20, at

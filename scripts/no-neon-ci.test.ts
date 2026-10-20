@@ -188,18 +188,48 @@ function unexpectedIdentifiers(files: readonly SurfaceFile[]): {
 }
 
 /**
- * The provider-specific host rule, removed the way the owning lane's change
- * removes it: the block that names the provider host suffix goes, and every
- * other rule stays. The scan reads text, so the copy models the combined state
- * exactly; the owning lane's own change is what makes its file compile.
+ * The provider marker, and the two surfaces it makes.
+ *
+ * The pre-removal surface is the one where the marker is present, and the
+ * post-removal surface is the one where it is gone. The owning lane's change
+ * takes the repository from the first to the second, so a proof that needs the
+ * marker to be present fails the moment that change lands.
+ *
+ * Neither surface is therefore read out of the owning lane's file. The
+ * pre-removal surface is a controlled fixture that injects the marker into a
+ * copy of the current file, and the post-removal surface takes the marker out
+ * of it. Both are built from the current file, so both are exercised whether
+ * or not the marker is in it today.
  */
-function withoutProviderRule(source: string): string {
-  const identifier = OWNED_ELSEWHERE.identifiers[0]!
+const PROVIDER_MARKER = OWNED_ELSEWHERE.identifiers[0]!
+
+/**
+ * The marker, injected into a copy of the current file: the pre-removal
+ * surface, built without depending on the owning lane's file still carrying
+ * the marker.
+ */
+function withProviderMarker(source: string): string {
+  return [
+    source,
+    '',
+    '// The provider-specific host rule, as the file carried it before the',
+    `// owning lane's change. The suffix it names is ${PROVIDER_MARKER}.`,
+    `const providerHostSuffix = '${PROVIDER_MARKER}'`,
+    '',
+  ].join('\n')
+}
+
+/**
+ * The marker, taken out of a copy of the current file: the post-removal
+ * surface. The block that names it goes, and every other rule stays. The scan
+ * reads text, so the copy models the surface exactly.
+ */
+function withoutProviderMarker(source: string): string {
   const kept: string[] = []
   let depth = 0
   let removing = false
   for (const line of source.split('\n')) {
-    if (!removing && line.includes(identifier)) {
+    if (!removing && line.includes(PROVIDER_MARKER)) {
       removing = true
       depth = 0
     }
@@ -218,18 +248,21 @@ function withoutProviderRule(source: string): string {
 
 /**
  * A disposable copy of the CI surface. The copy never touches the other
- * lane's file: it is a copy, and the only difference between the two copies
- * is whether the owned path still carries the provider-specific rule.
+ * lane's file: it is a copy, and the owned path is the only thing that
+ * differs between the surfaces.
  */
-function disposableSurface(options: { resolveOwnedPath: boolean }): string {
+function disposableSurface(options: {
+  ownedPath: 'current' | 'preRemoval' | 'postRemoval'
+}): string {
   const directory = mkdtempSync(join(tmpdir(), 'adea-no-neon-surface-'))
   for (const file of surfaceFiles(root)) {
     const target = join(directory, file.path)
     mkdirSync(dirname(target), { recursive: true })
-    const text =
-      options.resolveOwnedPath && file.path === OWNED_ELSEWHERE.file
-        ? withoutProviderRule(file.text)
-        : file.text
+    let text = file.text
+    if (file.path === OWNED_ELSEWHERE.file) {
+      if (options.ownedPath === 'preRemoval') text = withProviderMarker(text)
+      if (options.ownedPath === 'postRemoval') text = withoutProviderMarker(text)
+    }
     writeFileSync(target, text)
   }
   return directory
@@ -348,11 +381,12 @@ describe('the CI surface has no database-vendor dependency', () => {
     expect(DATABASE_CI_SCRIPTS).not.toContain(OWNED_ELSEWHERE.file)
   })
 
-  test('the combined state, with the owned path resolved, names no provider but the refusals', () => {
+  test('the post-removal surface names no provider but the refusals', () => {
     // The state this repository reaches when the owning lane's pull request
     // merges. A disposable copy of the surface proves it without touching the
-    // other lane's file.
-    const copy = disposableSurface({ resolveOwnedPath: true })
+    // other lane's file, and the copy is built by taking the marker out of the
+    // current file — so the case holds whether or not the marker is in it today.
+    const copy = disposableSurface({ ownedPath: 'postRemoval' })
     const findings = providerFindings(surfaceFiles(copy))
     expect(findings.map((finding) => finding.path).toSorted()).toEqual([
       'scripts/test-target-guard.mjs',
@@ -361,15 +395,29 @@ describe('the CI surface has no database-vendor dependency', () => {
     expect(unexpectedIdentifiers(surfaceFiles(copy))).toEqual([])
   })
 
-  test('the scan is sensitive: the same copy without the removal is flagged', () => {
-    // The combined-state proof is worth nothing if the scan cannot see the
-    // identifier. This is the unremoved copy, and it is flagged.
-    const copy = disposableSurface({ resolveOwnedPath: false })
+  test('the scan is sensitive: a controlled fixture that injects the marker is flagged', () => {
+    // The negative control. It must not depend on the file another lane owns
+    // still carrying the marker: that lane's approved change removes it, and a
+    // control that fails when the removal lands proves the wrong thing. The
+    // fixture injects the marker itself, so the control holds in both states.
+    const copy = disposableSurface({ ownedPath: 'preRemoval' })
     const findings = providerFindings(surfaceFiles(copy))
     expect(findings.find((finding) => finding.path === OWNED_ELSEWHERE.file)).toEqual({
       path: OWNED_ELSEWHERE.file,
       identifiers: OWNED_ELSEWHERE.identifiers.toSorted(),
     })
+  })
+
+  test('the actual surface is clean of any identifier no record allows', () => {
+    // The repository as it is, whatever state the owning lane's change has
+    // reached: only the recorded identifier may appear in the owned path, and
+    // it may be absent.
+    const findings = providerFindings(surfaceFiles(root))
+    const owned = findings.find((finding) => finding.path === OWNED_ELSEWHERE.file)
+    if (owned) {
+      expect(owned.identifiers.toSorted()).toEqual(OWNED_ELSEWHERE.identifiers.toSorted())
+    }
+    expect(unexpectedIdentifiers(surfaceFiles(root))).toEqual([])
   })
 
   test('the integration runner supplies the auth database and proves the lifecycle', () => {
