@@ -219,7 +219,10 @@ function scanValue(body: string, start: number): number {
  * Only the top level counts: a member nested inside an object or an array is
  * not a top-level member, and neither is a value that only looks like one.
  */
-function topLevelMemberValue(body: string, field: string): { start: number; end: number } | null {
+function topLevelMemberValue(
+  body: string,
+  field: string
+): { keyStart: number; valueStart: number; valueEnd: number } | null {
   let depth = 0
   let index = 0
   while (index < body.length) {
@@ -232,7 +235,7 @@ function topLevelMemberValue(body: string, field: string): { start: number; end:
         if (body[cursor] === ':' && readString(body, index, end) === field) {
           let value = cursor + 1
           while (value < body.length && body[value]!.trim() === '') value += 1
-          return { start: index, end: scanValue(body, value) }
+          return { keyStart: index, valueStart: value, valueEnd: scanValue(body, value) }
         }
       }
       index = end
@@ -246,27 +249,34 @@ function topLevelMemberValue(body: string, field: string): { start: number; end:
 }
 
 /**
- * The body with the first top-level occurrence of a field removed.
+ * The body with the first top-level occurrence of a value removed.
  *
  * A body is a structure, and the same credential may sit in it more than once.
- * Only the one top-level member that is allowed to carry the value is removed:
- * a nested copy and a duplicate key stay in the text, so the caller still sees
- * them and can refuse them.
+ * Only the value of the one top-level member that is allowed to carry it is
+ * removed: a nested copy and a duplicate member stay in the text, so the caller
+ * still sees them and can refuse them.
  */
-export function withoutTopLevelField(body: string, field: string): string {
+export function withoutTopLevelValue(body: string, field: string): string {
   const span = topLevelMemberValue(body, field)
   if (!span) return body
-  // The member goes with its separator, so what is left is still a body.
-  let start = span.start
-  let end = span.end
-  if (body[end] === ',') {
-    end += 1
-  } else {
-    let before = start - 1
-    while (before >= 0 && body[before]!.trim() === '') before -= 1
-    if (before >= 0 && body[before] === ',') start = before
-  }
-  return `${body.slice(0, start)}${body.slice(end)}`
+  return `${body.slice(0, span.valueStart)}${body.slice(span.valueEnd)}`
+}
+
+/**
+ * The value of the first top-level member with the given name, when it is a
+ * string.
+ *
+ * A member whose value is an object is not a scalar value: a credential that
+ * carries another credential is not a credential. The nested member is not
+ * reported, and the caller's own reading of the body is the only reading that
+ * counts.
+ */
+export function topLevelStringValue(body: string, field: string): string | null {
+  const span = topLevelMemberValue(body, field)
+  if (!span) return null
+  const raw = body.slice(span.valueStart, span.valueEnd).trim()
+  if (!raw.startsWith('"')) return null
+  return readString(raw, 0, scanString(raw, 0))
 }
 
 /**

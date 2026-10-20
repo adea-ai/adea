@@ -8,7 +8,8 @@ import {
   sanitizeText,
   sanitizeValue,
   sanitizeWorkerLogs,
-  withoutTopLevelField,
+  topLevelStringValue,
+  withoutTopLevelValue,
 } from './built-worker-failures'
 
 const SECRET = 'adea-auth-secret-0123456789abcdef'
@@ -112,29 +113,44 @@ describe('the built-Worker receipt sanitization', () => {
 })
 
 describe('the built-Worker top-level field removal', () => {
-  test('the first top-level occurrence is removed', () => {
+  test('the first top-level value is removed', () => {
     const body = '{"credential":"first","other":"kept"}'
-    expect(withoutTopLevelField(body, 'credential')).toBe('{"other":"kept"}')
+    expect(withoutTopLevelValue(body, 'credential')).toBe('{"credential":,"other":"kept"}')
   })
 
   test('a duplicate occurrence stays in the text', () => {
     const body = '{"credential":"first","credential":"second"}'
-    expect(withoutTopLevelField(body, 'credential')).toContain('second')
+    expect(withoutTopLevelValue(body, 'credential')).toContain('second')
   })
 
   test('a nested occurrence stays in the text', () => {
     const body = '{"data":{"credential":"nested"},"credential":"top"}'
-    expect(withoutTopLevelField(body, 'credential')).toContain('nested')
+    expect(withoutTopLevelValue(body, 'credential')).toContain('nested')
   })
 
   test('a field that is not there leaves the text alone', () => {
     const body = '{"other":"kept"}'
-    expect(withoutTopLevelField(body, 'credential')).toBe(body)
+    expect(withoutTopLevelValue(body, 'credential')).toBe(body)
   })
 
   test('a body that is not JSON leaves the text alone', () => {
     const body = 'not json at all'
-    expect(withoutTopLevelField(body, 'credential')).toBe(body)
+    expect(withoutTopLevelValue(body, 'credential')).toBe(body)
+  })
+
+  test('a member whose value is an object has no scalar value', () => {
+    const body = '{"credential":{"credential":"nested"}}'
+    expect(topLevelStringValue(body, 'credential')).toBeNull()
+  })
+
+  test('a top-level scalar value is read', () => {
+    const body = '{"credential":"the-credential-value"}'
+    expect(topLevelStringValue(body, 'credential')).toBe('the-credential-value')
+  })
+
+  test('a nested member is not a top-level value', () => {
+    const body = '{"data":{"credential":"nested"}}'
+    expect(topLevelStringValue(body, 'credential')).toBeNull()
   })
 })
 

@@ -792,6 +792,28 @@ describe('the built-Worker desktop occurrence accounting', () => {
     expect(leakage?.passed).toBe(false)
   })
 
+  test('a successful exchange that returns a nested credential fails closed', async () => {
+    const correct = correctWorker()
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        const credential = /"credential"\s*:\s*"([^"]+)"/u.exec(answered.body)?.[1] ?? ''
+        if (credential) {
+          // The credential is an object that carries another credential: there
+          // is no top-level scalar credential, so the Worker issued no session.
+          return { ...answered, body: `{"credential":{"credential":"${credential}"}}` }
+        }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const exchange = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-exchange-route-issues-a-session'
+    )
+    expect(exchange?.passed).toBe(false)
+    expect(receipt.status).toBe('failed')
+  })
+
   test('a nested copy of an issued credential is a leak', async () => {
     const correct = correctWorker()
     const transport: BuiltWorkerTransport = async (request) => {

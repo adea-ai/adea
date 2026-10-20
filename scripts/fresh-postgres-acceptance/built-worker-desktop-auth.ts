@@ -30,7 +30,12 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
-import { BuiltWorkerFailure, sanitizeReceipt, withoutTopLevelField } from './built-worker-failures'
+import {
+  BuiltWorkerFailure,
+  sanitizeReceipt,
+  topLevelStringValue,
+  withoutTopLevelValue,
+} from './built-worker-failures'
 
 /** The route the built Worker serves for a desktop authorization request. */
 export const DESKTOP_AUTHORIZE_PATH = '/api/auth/desktop/authorize'
@@ -527,7 +532,11 @@ export function serverFailure(response: BuiltWorkerResponse, what: string): Step
 
 /** True when the response body names a desktop session credential. */
 export function responseCarriesCredential(body: string): boolean {
-  return /"credential"\s*:\s*"[^"]{8,}"/u.test(body)
+  // The credential must be a top-level scalar. A credential that carries
+  // another credential is not a credential, and a pattern that looks into
+  // nested members would read one as the session the Worker issued.
+  const credential = topLevelStringValue(body, 'credential')
+  return credential !== null && credential.length >= 8
 }
 
 /**
@@ -633,7 +642,7 @@ export async function runBuiltWorkerDesktopAuth(
       .join(' ')
     const body = exemptions
       .filter((exemption) => exemption.bodyField)
-      .reduce((text, exemption) => withoutTopLevelField(text, exemption.bodyField!), response.body)
+      .reduce((text, exemption) => withoutTopLevelValue(text, exemption.bodyField!), response.body)
     return `${headers}\n${body}`.includes(secret)
   }
 
@@ -916,7 +925,7 @@ export async function runBuiltWorkerDesktopAuth(
           outcome: 'assertion-failed',
         }
       }
-      const credential = response.body.match(/"credential"\s*:\s*"([^"]+)"/u)?.[1] ?? ''
+      const credential = topLevelStringValue(response.body, 'credential') ?? ''
       observeIssued(credential, index, { bodyField: 'credential' })
       exchangedCode = issued.code
       exchangedNonce = issued.nonce
