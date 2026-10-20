@@ -92,13 +92,170 @@ const ROUTING_QUERY_NAMES = ['host', 'hostaddr']
 /**
  * Removes comments, so a comment that names the rule is not a violation.
  *
- * A string literal keeps its text, because a copy statement or a legacy
- * environment name is written as one.
+ * The scan tracks strings, template literals and regular expressions, so a
+ * comment marker inside a string literal does not hide the code around it. A
+ * line that opens a block comment inside one string, calls a legacy import,
+ * and closes the comment inside another string is code, and the code is
+ * scanned. A string literal keeps its text, because a copy statement or a
+ * legacy environment name is written as one.
  */
 export function stripComments(text) {
-  return String(text ?? '')
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/(^|[^:])\/\/[^\n]*/g, '$1')
+  return scanCode(String(text ?? ''), 0)[0]
+}
+
+/** Copies one quoted string, honoring the escapes inside it. */
+function scanQuoted(source, start, quote) {
+  let literal = quote
+  let index = start + 1
+  while (index < source.length) {
+    const character = source[index]
+    if (character === '\\') {
+      literal += source.slice(index, index + 2)
+      index += 2
+      continue
+    }
+    literal += character
+    index += 1
+    if (character === quote) break
+  }
+  return [literal, index]
+}
+
+/** Copies one template literal, including the code in its interpolations. */
+function scanTemplate(source, start) {
+  let literal = '`'
+  let index = start + 1
+  while (index < source.length) {
+    const character = source[index]
+    if (character === '\\') {
+      literal += source.slice(index, index + 2)
+      index += 2
+      continue
+    }
+    if (character === '$' && source[index + 1] === '{') {
+      const [expression, end] = scanCode(source, index + 2, true)
+      literal += '${' + expression + '}'
+      index = end
+      continue
+    }
+    literal += character
+    index += 1
+    if (character === '`') break
+  }
+  return [literal, index]
+}
+
+/** Copies one regular expression, or reports that the slash is a division. */
+function scanRegularExpression(source, start) {
+  let literal = '/'
+  let index = start + 1
+  let inCharacterClass = false
+  while (index < source.length) {
+    const character = source[index]
+    if (character === '\\') {
+      literal += source.slice(index, index + 2)
+      index += 2
+      continue
+    }
+    if (character === '[') inCharacterClass = true
+    if (character === ']') inCharacterClass = false
+    if (character === '/' && !inCharacterClass) {
+      literal += character
+      index += 1
+      // The flags of the expression are part of it.
+      while (index < source.length && /[a-z]/.test(source[index])) {
+        literal += source[index]
+        index += 1
+      }
+      return [literal, index]
+    }
+    if (character === '\n') return [null, start]
+    literal += character
+    index += 1
+  }
+  return [null, start]
+}
+
+/** True when a slash at this point starts a regular expression and not a division. */
+function regularExpressionAllowed(copied) {
+  const trimmed = copied.replace(/\s+$/, '')
+  if (trimmed.length === 0) return true
+  const last = trimmed[trimmed.length - 1]
+  if (last === ')' || last === ']' || last === '}') return false
+  if (/[A-Za-z0-9_$]/.test(last)) {
+    const identifier = /([A-Za-z0-9_$]+)$/.exec(trimmed)
+    const word = identifier ? identifier[1] : ''
+    return [
+      'return',
+      'typeof',
+      'instanceof',
+      'in',
+      'of',
+      'new',
+      'delete',
+      'void',
+      'case',
+      'do',
+      'else',
+      'yield',
+      'await',
+    ].includes(word)
+  }
+  return true
+}
+
+/**
+ * Copies source text, dropping the comments and keeping everything else.
+ *
+ * When `stopAtBrace` is set, the scan ends at the matching closing brace, so
+ * a template interpolation is copied with its own code.
+ */
+function scanCode(source, start, stopAtBrace = false) {
+  let copied = ''
+  let index = start
+  let depth = 0
+  while (index < source.length) {
+    const character = source[index]
+    const next = source[index + 1]
+    if (stopAtBrace && character === '}' && depth === 0) break
+    if (character === '/' && next === '/') {
+      while (index < source.length && source[index] !== '\n') index += 1
+      continue
+    }
+    if (character === '/' && next === '*') {
+      index += 2
+      while (index < source.length && !(source[index] === '*' && source[index + 1] === '/')) {
+        index += 1
+      }
+      index += 2
+      continue
+    }
+    if (character === '"' || character === "'") {
+      const [literal, end] = scanQuoted(source, index, character)
+      copied += literal
+      index = end
+      continue
+    }
+    if (character === '`') {
+      const [literal, end] = scanTemplate(source, index)
+      copied += literal
+      index = end
+      continue
+    }
+    if (character === '/' && regularExpressionAllowed(copied)) {
+      const [literal, end] = scanRegularExpression(source, index)
+      if (literal !== null) {
+        copied += literal
+        index = end
+        continue
+      }
+    }
+    if (character === '{') depth += 1
+    if (character === '}') depth -= 1
+    copied += character
+    index += 1
+  }
+  return [copied, index]
 }
 
 /**

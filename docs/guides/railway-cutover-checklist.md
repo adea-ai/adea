@@ -6,10 +6,10 @@ records what must be true before that cutover may be attempted and what must be 
 afterwards.
 
 It authorizes nothing. It does not provision, deploy, cut over, change a credential,
-delete anything in Neon, or mutate production. It does not replace the acceptance plan
+delete anything, or mutate production. It does not replace the acceptance plan
 in [Fresh PostgreSQL acceptance](fresh-postgres-acceptance.md); that plan's gates must
-pass first, and a passing local receipt there does not switch traffic, retire Neon or
-start the cost week.
+pass first, and a passing local receipt there does not switch traffic, retire the legacy
+environment or start the cost measurement.
 
 The cost measurement that follows a verified cutover is planned in
 [Railway cost week](railway-cost-week-plan.md).
@@ -219,21 +219,16 @@ recovery that named one would be a procedure that no artifact satisfies.
 - [ ] The recovery method is recorded: `forward-fix` or `railway-backup-restore`.
       No other method is used.
 - [ ] The exact artifact the recovery works from is recorded, and it is the
-      exact tested artifact named in
-      [Railway PostgreSQL recovery](railway-postgres-recovery.md). "The previous
-      deployment" is not a name, and a commit that was not proved is not an
-      artifact.
+      artifact a proof receipt names, with the receipt's commit, source and
+      clean-tree flag, as
+      [Railway PostgreSQL recovery](railway-postgres-recovery.md) describes.
+      "The previous deployment" is not a name, and a commit that was not proved
+      is not an artifact.
 - [ ] A forward-fix is proved on a disposable instance of the same PostgreSQL
       major version before it is applied to the target, and the plan output of
       the schema initializer was read before the apply.
 - [ ] A backup/restore has a restored copy that was compared against the
       backup before the target was pointed at it.
-- [ ] The legacy `NEON_AUTH_BASE_URL` and `NEON_AUTH_COOKIE_SECRET` Secret Store
-      records are still present and unmodified. The cutover adds the new set;
-      it does not remove the old one.
-- [ ] The legacy environment was never deleted, and its provider tables were
-      never migrated, altered or dropped by the cutover. It is retained as an
-      accountability record, and it is not a recovery target.
 - [ ] The scope of any session invalidation is recorded: which cookie and
       provider sessions are affected, which desktop grants are not, and which
       scoped revocation is planned instead. Rotating the auth cookie secret
@@ -276,32 +271,32 @@ recovery artifact. The compatibility check recorded with the proposal stays on
 the record, and the decision owner and the triggers it left unset were never
 set.
 
-## Legacy environment preservation without a recovery path
+## Legacy environment: evidence without an operating dependency
 
-The legacy environment is retained. It is not a recovery target, and it is not
-kept because a rollback to it is available. It is kept because nothing in this
-work deletes it, and because the history of the migration has to stay readable.
+The legacy environment is not a target of this work and not a recovery path.
+Nothing here requires one to exist, to stay running, or to be reachable, and
+nothing here reads one. The repository keeps its historical records of that
+environment as non-operational evidence, so the history of the migration stays
+readable, and those records carry no dependency.
 
-| Invariant                                                                                     | Source                                     |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| The legacy hosted Auth environment is left in place; nothing deletes, alters or cuts it over. | `docs/authentication.md`                   |
-| The legacy provider configuration is kept separate, so the two environments do not merge.     | `packages/auth/src/config.ts`              |
-| Existing data in the legacy environment stays readable throughout this work.                  | `docs/guides/fresh-postgres-acceptance.md` |
+| Record                                     | What it is                                                          |
+| ------------------------------------------ | ------------------------------------------------------------------- |
+| `docs/authentication.md`                   | the documentation of the legacy provider configuration              |
+| `packages/auth/src/config.ts`              | the separate legacy configuration reader, with no production caller |
+| `docs/guides/fresh-postgres-acceptance.md` | the acceptance plan's description of the legacy boundary            |
 
-- [ ] No branch, database, role or table of the legacy environment is deleted,
-      dropped, truncated or migrated as part of the cutover.
 - [ ] No provider table is copied into an Adea migration, and no provider subject
       is reinterpreted as a domain user ID.
 - [ ] No dual write is introduced and no old record is reconciled or imported. The
       two environments may hold different accounts; the cutover does not merge
       them.
-- [ ] The legacy environment's accessibility is re-checked after the cutover, and
-      the check is recorded. Retained is not the same as reachable.
 - [ ] The application migration journal is unchanged by the cutover. The provider
       schema is owned by the provider's own tooling.
 - [ ] No legacy artifact, fallback provider or compatibility path is kept, required
       or named. Recovery is a forward-fix or a Railway backup/restore, and it is
       described in [Railway PostgreSQL recovery](railway-postgres-recovery.md).
+- [ ] No gate in this checklist requires the legacy environment, its secrets or
+      its endpoint to be present, reachable or unmodified.
 
 ## Evidence and the compatibility scope
 

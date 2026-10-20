@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
 import { assertFocusedJourneyPassed } from './acceptance-receipt.mjs'
 import { classifyEvidence } from './evidence.mjs'
+import { readCheckoutProvenance } from './provenance.mjs'
 import { fixtureEnvironment, memoryEnvironment, resolveLocalDockerEndpoint } from './policy.mjs'
 
 const repositoryFlag = process.argv.indexOf('--repository')
@@ -12,6 +13,10 @@ const root =
     ? fileURLToPath(new URL('../../', import.meta.url))
     : resolve(process.argv[repositoryFlag + 1] ?? '.')
 const repositoryFile = (path) => pathToFileURL(resolve(root, path))
+// The provenance of the checkout that runs this code. It is read from the
+// checkout and not from the target, so a receipt names the tree that produced
+// it even when the target is somewhere else.
+const checkout = readCheckoutProvenance(fileURLToPath(new URL('../../', import.meta.url)))
 // Dedicated memory mode never imports provisioning or connects to PostgreSQL.
 if (process.argv.includes('--memory')) {
   const sourceRoot = resolve(process.env.FRESH_AUTH_SOURCE_ROOT ?? root)
@@ -66,6 +71,7 @@ if (process.argv.includes('--memory')) {
       // It proves the provider's request path and nothing about PostgreSQL, so
       // its receipt carries the weakest class and cannot be counted as more.
       evidence: classifyEvidence('memory-journey'),
+      checkout,
     })
   )
   process.exit(0)
@@ -196,6 +202,9 @@ try {
     // instance of the real provider and the real database. It is not a CI
     // result and not a live one, and it may not be recorded as either.
     evidence: classifyEvidence('local-disposable'),
+    // The receipt names the commit, the cleanliness and the source of the
+    // checkout that produced it, so the artifact can be reproduced.
+    checkout,
     ...(receipt.desktopPrincipal ? { desktopPrincipal: receipt.desktopPrincipal } : {}),
   }
 } catch (error) {

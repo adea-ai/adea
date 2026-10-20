@@ -43,6 +43,11 @@ const options: DisposableProofOptions = {
   authBaseUrl: 'https://adea-ci.example.test',
   authSecret: 'adea-ci-disposable-auth-secret-0123456789abcdef',
   authTrustedOrigin: 'https://adea-ci.example.test',
+  checkout: {
+    sha: '0123456789abcdef0123456789abcdef01234567',
+    dirty: false,
+    source: 'test/branch',
+  },
 }
 
 type Fake = {
@@ -317,6 +322,35 @@ describe('the disposable PostgreSQL proof', () => {
     expect(evidence).not.toContain('a passing test')
     expect(evidence).not.toContain('hunter2')
     expect(evidence).toContain('[redacted]')
+  })
+
+  test('a secret that crosses the evidence boundary never leaves a fragment behind', async () => {
+    const { deps, state } = fake({
+      command: (command, args) => {
+        if (args.includes(BACKUP_RESTORE_TEST)) {
+          return { status: 0, stdout: '', stderr: '\n 1 pass\n 0 fail\n' }
+        }
+        const password = state.created[0]?.password ?? ''
+        // The failing line is long enough that the secret starts before the
+        // 2000 character boundary of the evidence and ends after it, so a
+        // truncation that ran before the redaction would keep a prefix of it.
+        const filler = 'x'.repeat(1930)
+        return {
+          status: 1,
+          stdout: '',
+          stderr: `(fail) the migration check failed: ${filler} ${password} tail\n`,
+        }
+      },
+    })
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
+    )
+    const password = state.created[0]?.password ?? ''
+    expect(password).not.toBe('')
+    expect(failure).toContain('the migration check failed')
+    expect(failure).not.toContain(password)
+    expect(failure).not.toContain(password.slice(0, 12))
+    expect(failure).toContain('[redacted]')
   })
 
   test('fails the lane when the backup and restore test passes nothing', async () => {

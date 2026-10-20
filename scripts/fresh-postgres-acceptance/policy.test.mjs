@@ -20,12 +20,13 @@ import {
   receiptEvidence,
 } from './evidence.mjs'
 import {
+  PROVED_BY_THE_PROOF,
   RECOVERY_METHODS,
-  TESTED_RECOVERY_ARTIFACT,
   assertRecoveryMethod,
   assertTestedRecoveryArtifact,
   recoveryPlan,
 } from './recovery.mjs'
+import { assertReproducibleProvenance, readCheckoutProvenance } from './provenance.mjs'
 import { CP_COMPATIBILITY_SCOPE, assertCpScope, cpOpenItems } from './cp-compatibility.mjs'
 import {
   assertFreshAccountOnly,
@@ -208,8 +209,9 @@ function runSyntheticMemoryAcceptance(childOutput) {
       shim,
       `import childProcess from 'node:child_process';
       import { syncBuiltinESMExports } from 'node:module';
-      childProcess.spawnSync = (command) => {
-        if (command !== 'bun') throw new Error('unexpected synthetic command');
+      const realSpawnSync = childProcess.spawnSync;
+      childProcess.spawnSync = (command, args, options) => {
+        if (command !== 'bun') return realSpawnSync(command, args, options);
         return { status: 0, stdout: ${JSON.stringify(childOutput)}, stderr: '' };
       };
       syncBuiltinESMExports();`
@@ -245,13 +247,17 @@ test('memory acceptance publishes a passed receipt only for both executed journe
   const result = runSyntheticMemoryAcceptance('\n 2 pass\n 0 fail\n')
   assert.equal(result.error, undefined)
   assert.equal(result.status, 0, result.stderr)
-  assert.deepEqual(JSON.parse(result.stdout.trim()), {
-    status: 'passed',
-    mode: 'memory',
-    journeys: 2,
-    postgres: 'not-run',
-    evidence: 'simulated',
-  })
+  const receipt = JSON.parse(result.stdout.trim())
+  assert.equal(receipt.status, 'passed')
+  assert.equal(receipt.mode, 'memory')
+  assert.equal(receipt.journeys, 2)
+  assert.equal(receipt.postgres, 'not-run')
+  assert.equal(receipt.evidence, 'simulated')
+  // The receipt names the checkout that produced it, so the artifact it
+  // proves can be reproduced.
+  assert.match(receipt.checkout.sha, /^[0-9a-f]{40}$/)
+  assert.equal(typeof receipt.checkout.dirty, 'boolean')
+  assert.ok(receipt.checkout.source.length > 0)
 })
 
 /**
@@ -306,9 +312,10 @@ function runSyntheticPostgresAcceptance(options = {}) {
       shim,
       `import childProcess from 'node:child_process';
       import { syncBuiltinESMExports } from 'node:module';
-      childProcess.spawnSync = (command, args) => {
+      const realSpawnSync = childProcess.spawnSync;
+      childProcess.spawnSync = (command, args, options) => {
         if (command === 'docker') return { status: 0, stdout: JSON.stringify('unix:///synthetic/docker.sock') };
-        if (command !== 'bun') throw new Error('unexpected synthetic command');
+        if (command !== 'bun') return realSpawnSync(command, args, options);
         const list = Array.isArray(args) ? args : [];
         if (list.includes(${JSON.stringify(FRESH_SCHEMA_COMMAND)})) {
           return { status: ${freshSchemaStatus}, stdout: ${JSON.stringify(freshSchemaOutput)}, stderr: '' };
@@ -329,7 +336,14 @@ function runSyntheticPostgresAcceptance(options = {}) {
         '--repository',
         root,
       ],
-      { encoding: 'utf8', env: { DOCKER_HOST: 'unix:///synthetic/docker.sock' }, timeout: 10_000 }
+      {
+        encoding: 'utf8',
+        // The runner reads the provenance of the checkout it runs in, so the
+        // path is available to it. The child it starts gets the isolated
+        // environment the policy module builds, which is asserted elsewhere.
+        env: { PATH: process.env.PATH, DOCKER_HOST: 'unix:///synthetic/docker.sock' },
+        timeout: 10_000,
+      }
     )
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -351,12 +365,14 @@ test('passed PostgreSQL receipt is published only after successful owned cleanup
   assert.equal(result.status, 0, result.stderr)
   const lines = result.stdout.trim().split('\n')
   assert.equal(lines[0], 'SYNTHETIC_CLEANUP')
-  assert.deepEqual(JSON.parse(lines[1]), {
-    status: 'passed',
-    migrations: 3,
-    verificationRequired: true,
-    evidence: 'local-disposable',
-  })
+  const receipt = JSON.parse(lines[1])
+  assert.equal(receipt.status, 'passed')
+  assert.equal(receipt.migrations, 3)
+  assert.equal(receipt.verificationRequired, true)
+  assert.equal(receipt.evidence, 'local-disposable')
+  assert.match(receipt.checkout.sha, /^[0-9a-f]{40}$/)
+  assert.equal(typeof receipt.checkout.dirty, 'boolean')
+  assert.ok(receipt.checkout.source.length > 0)
   assert.equal(lines.length, 2)
 })
 
@@ -495,25 +511,110 @@ test('recovery is a forward-fix or a Railway backup/restore, and nothing else', 
   }
 })
 
-test('only the exact tested artifact may be named by a recovery', () => {
-  const artifact = assertTestedRecoveryArtifact(TESTED_RECOVERY_ARTIFACT.commit)
-  assert.equal(artifact.commit, TESTED_RECOVERY_ARTIFACT.commit)
-  assert.match(artifact.commit, /^[0-9a-f]{40}$/)
-  for (const commit of ['5747673e5d31ff2da2dcc8dbdaa908ca94f8ace8', 'previous-deployment', '']) {
-    assert.throws(
-      () => assertTestedRecoveryArtifact(commit),
-      /not the tested artifact; a different commit needs its own proof/
-    )
+/**
+ * A real checkout with one commit, so the provenance is read from a tree
+ * instead of being asserted against a constant.
+ */
+function temporaryRepository() {
+  const root = mkdtempSync(join(tmpdir(), 'fresh-recovery-repo-'))
+  const git = (args) => {
+    const result = spawnSync('git', args, { cwd: root, encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+    return result.stdout.trim()
   }
-  const plan = recoveryPlan()
-  assert.equal(plan.artifact.commit, TESTED_RECOVERY_ARTIFACT.commit)
-  assert.deepEqual(
-    plan.methods.map((entry) => entry.method),
-    ['forward-fix', 'railway-backup-restore']
-  )
-  for (const entry of plan.methods) {
-    assert.ok(entry.steps.length > 0, 'every method names its steps')
-    assert.match(entry.liveAction, /root-owned live operation/)
+  git(['init', '-q'])
+  writeFileSync(join(root, 'README.md'), 'synthetic\n')
+  git(['add', '-A'])
+  git([
+    '-c',
+    'user.name=synthetic',
+    '-c',
+    'user.email=synthetic@example.invalid',
+    'commit',
+    '-q',
+    '-m',
+    'synthetic',
+  ])
+  return { root, git }
+}
+
+test('the checkout provenance is read from the tree it describes', () => {
+  const { root, git } = temporaryRepository()
+  try {
+    const provenance = readCheckoutProvenance(root)
+    assert.equal(provenance.sha, git(['rev-parse', 'HEAD']))
+    assert.equal(provenance.dirty, false)
+    assert.equal(provenance.source, git(['rev-parse', '--abbrev-ref', 'HEAD']))
+    writeFileSync(join(root, 'README.md'), 'changed\n')
+    assert.equal(readCheckoutProvenance(root).dirty, true)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the recovery artifact is the one a proof receipt names, with its provenance', () => {
+  const { root, git } = temporaryRepository()
+  try {
+    const receipt = {
+      evidence: 'local-disposable',
+      checkout: readCheckoutProvenance(root),
+    }
+    const artifact = assertTestedRecoveryArtifact(receipt)
+    assert.equal(artifact.commit, git(['rev-parse', 'HEAD']))
+    assert.equal(artifact.dirty, false)
+    assert.equal(artifact.source, receipt.checkout.source)
+    assert.equal(artifact.evidence, 'local-disposable')
+    assert.deepEqual(artifact.proved, PROVED_BY_THE_PROOF)
+    assert.ok(
+      artifact.notProved.some((entry) => entry.includes('UNKNOWN')),
+      'the state that was not observed is recorded as unknown'
+    )
+    const plan = recoveryPlan(receipt)
+    assert.equal(plan.artifact.commit, artifact.commit)
+    assert.deepEqual(
+      plan.methods.map((entry) => entry.method),
+      ['forward-fix', 'railway-backup-restore']
+    )
+    for (const entry of plan.methods) {
+      assert.ok(entry.steps.length > 0, 'every method names its steps')
+      assert.match(entry.liveAction, /root-owned live operation/)
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a receipt without reproducible provenance names no artifact', () => {
+  const { root } = temporaryRepository()
+  try {
+    // A receipt with no checkout names no commit.
+    assert.throws(
+      () => assertTestedRecoveryArtifact({ evidence: 'local-disposable' }),
+      /does not name the exact commit/
+    )
+    // A forged commit is refused.
+    assert.throws(
+      () =>
+        assertTestedRecoveryArtifact({
+          evidence: 'local-disposable',
+          checkout: { sha: 'not-a-sha', dirty: false, source: 'a-source' },
+        }),
+      /does not name the exact commit/
+    )
+    // A receipt produced from a dirty tree is refused, because the commit does
+    // not contain what ran.
+    writeFileSync(join(root, 'README.md'), 'changed\n')
+    assert.throws(
+      () =>
+        assertTestedRecoveryArtifact({
+          evidence: 'local-disposable',
+          checkout: readCheckoutProvenance(root),
+        }),
+      /not clean/
+    )
+    assert.throws(() => assertReproducibleProvenance(undefined), /does not name the exact commit/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -556,6 +657,33 @@ test('the fresh-account scope carries no legacy import, dual write or remote tar
   assert.ok(files.length > 0, 'the scope is not empty')
   assert.deepEqual(scanFreshAccountScope(root), [])
   assert.equal(assertFreshAccountOnly(root), true)
+})
+
+test('a comment marker inside a string does not hide the code around it', () => {
+  const cases = [
+    ['const marker="/*"; await importLegacyIdentities(pool); const end="*/";', 'legacy-import'],
+    ['const url = "http://x"; await importLegacyIdentities(pool);', 'legacy-import'],
+    ['const t = `/*`; await importLegacyIdentities(pool);', 'legacy-import'],
+    ['const t = `x ${await importLegacyIdentities(pool)} y`;', 'legacy-import'],
+    ['const s = "he said \\"hi\\""; await importLegacyIdentities(pool);', 'legacy-import'],
+  ]
+  for (const [source, kind] of cases) {
+    const violations = freshAccountOnlyViolations('synthetic.ts', source)
+    assert.ok(
+      violations.some((violation) => violation.kind === kind),
+      'expected ' + kind + ' for ' + source
+    )
+  }
+  // A real comment is still a comment, and a division is still a division.
+  assert.deepEqual(
+    freshAccountOnlyViolations('synthetic.ts', '// importLegacyIdentities(pool)\nconst a = 1\n'),
+    []
+  )
+  assert.deepEqual(
+    freshAccountOnlyViolations('synthetic.ts', '/* importLegacyIdentities(pool) */\nconst a = 1\n'),
+    []
+  )
+  assert.deepEqual(freshAccountOnlyViolations('synthetic.ts', 'const a = total / count\n'), [])
 })
 
 test('the fresh-account rule catches every construct it claims to catch', () => {

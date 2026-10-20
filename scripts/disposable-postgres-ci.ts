@@ -179,6 +179,16 @@ export type DisposableProofReceipt = {
     readonly replayApplied: boolean
     readonly schema: string
   }
+  /**
+   * The provenance of the checkout that produced this receipt: the exact
+   * commit, whether the tree was clean and the source it was made from. A
+   * receipt without it cannot name a reproducible artifact.
+   */
+  readonly checkout: {
+    readonly sha: string
+    readonly dirty: boolean | null
+    readonly source: string
+  }
 }
 
 /** The options the proof runs with. */
@@ -193,6 +203,15 @@ export type DisposableProofOptions = {
   readonly authSecret: string
   /** The trusted origin the auth initializer validates. */
   readonly authTrustedOrigin: string
+  /**
+   * The provenance of the checkout that runs the proof. It is read by the
+   * caller from the checkout itself, and the receipt carries it.
+   */
+  readonly checkout: {
+    readonly sha: string
+    readonly dirty: boolean | null
+    readonly source: string
+  }
 }
 
 /** How long the instance may take to accept connections. */
@@ -626,7 +645,7 @@ export async function runDisposablePostgresProof(
     const environment = proofEnvironment(provisioned)
     const tls = await proveServerSideTls(dependencies, provisioned)
     await proveRoleBoundary(dependencies, provisioned, options)
-    const checks = await runOrderedMigrationChecks(dependencies, environment)
+    const checks = await runOrderedMigrationChecks(dependencies, environment, secrets)
     await proveRuntimeDml(dependencies, provisioned)
     const auth = await proveAuthSchemaInitialization(dependencies, provisioned, options, {
       authMigrationUrl: authMigrationUrl(
@@ -643,6 +662,7 @@ export async function runDisposablePostgresProof(
       roles: { runtime: CANONICAL_RUNTIME_ROLE, migration: CANONICAL_MIGRATION_ROLE },
       tls,
       migrations: { checks },
+      checkout: options.checkout,
       auth: {
         applied: auth.applied,
         created: auth.created,
@@ -790,7 +810,8 @@ async function expectRefused(
  */
 async function runOrderedMigrationChecks(
   dependencies: DisposableProofDependencies,
-  environment: Record<string, string | undefined>
+  environment: Record<string, string | undefined>,
+  secrets: readonly string[] = []
 ): Promise<ProofCommandRecord[]> {
   const records: ProofCommandRecord[] = []
   for (const step of PROOF_MIGRATION_STEPS) {
@@ -803,8 +824,10 @@ async function runOrderedMigrationChecks(
     const result = dependencies.command(step.command, step.args, environment)
     if (result.status !== 0) {
       // The failing lines are carried so the failure says what went wrong. The
-      // caller redacts every secret before the message leaves the proof.
-      const detail = failureEvidence(`${result.stdout}\n${result.stderr}`)
+      // secrets are redacted inside the evidence, before it is truncated, so a
+      // secret that crosses the truncation boundary cannot leave a fragment
+      // behind that the caller's own redaction would not match.
+      const detail = failureEvidence(`${result.stdout}\n${result.stderr}`, secrets)
       throw new Error(
         `${step.command} ${step.args.join(' ')} failed with exit code ${result.status}${detail ? `: ${detail}` : ''}`
       )
@@ -885,8 +908,11 @@ export function backupRestoreEnvironment(
  * The failure evidence of a command that did not pass.
  *
  * The first lines of a test run are its header and its passing tests, so
- * keeping them hides the failure. The failing lines are kept instead, and
- * every secret is redacted before the evidence leaves the proof.
+ * keeping them hides the failure. The failing lines are kept instead.
+ *
+ * Every secret is redacted **before** the evidence is truncated. A truncation
+ * that cuts a secret leaves a fragment of it, and a fragment is not the secret
+ * the caller's own redaction looks for, so the order matters.
  */
 export function failureEvidence(output: string, secrets: readonly string[] = []): string {
   const lines = String(output ?? '')

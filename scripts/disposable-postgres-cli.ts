@@ -38,6 +38,7 @@ import {
   ensureCanonicalRoles,
 } from '../packages/db/tests/fixtures/canonical-boundary'
 import { applyAuthSchema } from '../packages/auth/src/schema-init'
+import { readCheckoutProvenance } from './fresh-postgres-acceptance/provenance.mjs'
 
 const dbRequire = createRequire(new URL('../packages/db/package.json', import.meta.url))
 type PostgresFactory = typeof import('postgres').default
@@ -322,6 +323,9 @@ const options: DisposableProofOptions = {
   authBaseUrl: AUTH_BASE_URL,
   authSecret: AUTH_SECRET,
   authTrustedOrigin: AUTH_TRUSTED_ORIGIN,
+  // The receipt names the commit, the cleanliness and the source of the
+  // checkout that produced it, so the artifact it proves is reproducible.
+  checkout: readCheckoutProvenance(repositoryRoot),
 }
 
 try {

@@ -5,38 +5,42 @@
 // earlier artifact is not a recovery method here, so no such artifact is
 // named, required or kept.
 //
-// The one artifact a recovery may name is the exact commit this lane tested.
-// A procedure that names an untested commit is not a procedure, so the tested
-// artifact is recorded here and every other commit is refused.
+// The one artifact a recovery may name is the artifact a proof receipt names.
+// The receipt carries the provenance of the checkout it ran in, so the
+// artifact is reproducible: the exact commit, a clean tree and the source it
+// came from. A receipt without that provenance is refused, and no commit is
+// written into this module as a constant that nobody can reproduce.
+
+import { assertReproducibleProvenance } from './provenance.mjs'
 
 /** The recovery methods this procedure allows. */
 export const RECOVERY_METHODS = Object.freeze(['forward-fix', 'railway-backup-restore'])
 
 /**
- * The exact artifact this lane tested against PostgreSQL 18.
+ * What a proved artifact was shown to do.
  *
- * The record states what was proved and where. It does not claim the hosted
- * target was read: the proof ran on a disposable loopback instance of the same
- * PostgreSQL major version, and the hosted target's own version, TLS mode and
- * privileges still need their own evidence.
+ * The list describes the proof, not the target. Every entry was observed on a
+ * disposable loopback instance of the pinned PostgreSQL image.
  */
-export const TESTED_RECOVERY_ARTIFACT = Object.freeze({
-  commit: '333b948d4c5fba1f88d98d764c075b790be6ee22',
-  source: 'origin/main',
-  evidence: 'local-disposable',
-  postgres: 'PostgreSQL 18 (digest-pinned postgres:18-alpine)',
-  proved: Object.freeze([
-    'the auth schema applies to an empty schema and replays as a no-op',
-    'the application migration journal replays and compares against the current checkout',
-    'the canonical migration and runtime roles are separated, and the runtime role cannot create objects',
-    'a schema backup restores with the same tables, columns and rows into an empty database',
-    'the owned disposable instance is removed on success, on failure and on interruption',
-  ]),
-  notProved: Object.freeze([
-    'the hosted Railway instance was not read, and its version, TLS mode and pooling are unverified here',
-    'the hosted target carries no data yet, so no data-loss estimate is available',
-  ]),
-})
+export const PROVED_BY_THE_PROOF = Object.freeze([
+  'the auth schema applies to an empty schema and replays as a no-op',
+  'the application migration journal replays and compares against the current checkout',
+  'the canonical migration and runtime roles are separated, and the runtime role cannot create objects',
+  'a schema backup restores with the same tables, columns and rows into an empty database',
+  'the owned disposable instance is removed on success, on failure and on interruption',
+])
+
+/**
+ * What the proof did not show.
+ *
+ * The hosted target was not read, so its state is unknown. A state that was
+ * not observed is not an empty one.
+ */
+export const NOT_PROVED_BY_THE_PROOF = Object.freeze([
+  'the hosted Railway instance was not read: its PostgreSQL version, its TLS mode, its pooling behaviour and its plan are unverified here',
+  "the hosted target's data state is UNKNOWN; the live target was not read, so no data-loss estimate is available and no assumption of an empty database is made",
+  'no traffic was moved and no session was issued against the hosted target',
+])
 
 /**
  * The recovery methods, refused and allowed.
@@ -52,18 +56,31 @@ export function assertRecoveryMethod(method) {
 }
 
 /**
+ * The artifact a recovery may name, taken from a proof receipt.
+ *
+ * The receipt is the only source of the commit. The provenance it carries is
+ * required, so an artifact that nobody can reproduce is refused.
+ */
+export function recoveryArtifact(receipt) {
+  const checkout = assertReproducibleProvenance(receipt?.checkout)
+  return {
+    commit: checkout.sha,
+    source: checkout.source,
+    dirty: checkout.dirty,
+    evidence: receipt?.evidence,
+    proved: PROVED_BY_THE_PROOF,
+    notProved: NOT_PROVED_BY_THE_PROOF,
+  }
+}
+
+/**
  * The artifact a recovery may name.
  *
- * Only the exact tested commit qualifies. Any other commit is refused until
- * it carries its own proof.
+ * Only an artifact a proof receipt names qualifies. Every other commit is
+ * refused until it carries its own proof.
  */
-export function assertTestedRecoveryArtifact(commit) {
-  if (typeof commit !== 'string' || commit.trim() !== TESTED_RECOVERY_ARTIFACT.commit) {
-    throw new Error(
-      'recovery artifact is not the tested artifact; a different commit needs its own proof'
-    )
-  }
-  return TESTED_RECOVERY_ARTIFACT
+export function assertTestedRecoveryArtifact(receipt) {
+  return recoveryArtifact(receipt)
 }
 
 /**
@@ -73,9 +90,9 @@ export function assertTestedRecoveryArtifact(commit) {
  * live action that needs root's approval. The plan is a procedure, not an
  * authorization: it starts nothing and changes nothing.
  */
-export function recoveryPlan() {
+export function recoveryPlan(receipt) {
   return {
-    artifact: TESTED_RECOVERY_ARTIFACT,
+    artifact: recoveryArtifact(receipt),
     methods: [
       {
         method: 'forward-fix',

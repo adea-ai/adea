@@ -17,24 +17,45 @@ Recovery is one of two things, and nothing else:
 
 There is no third method. An earlier artifact is not a recovery method here,
 so no legacy artifact, no fallback provider and no compatibility path is
-named, required or kept. The legacy environment is retained untouched as an
-accountability record, and it is not a recovery target: see
-[Railway cutover checklist](railway-cutover-checklist.md).
+named, required or kept. The repository's historical records of the legacy
+environment are kept as non-operational evidence; nothing here reads,
+restores or depends on a running legacy environment, and it is not a recovery
+target: see [Railway cutover checklist](railway-cutover-checklist.md).
 
-## The tested artifact
+## The proved artifact
 
 A recovery procedure that names an untested commit is not a procedure. The
-one commit this procedure names is the commit this lane proved, and nothing
-else qualifies:
+one commit this procedure names is the commit a proof receipt names, and
+nothing else qualifies:
 
-| Field     | Value                                                                           |
+The artifact of record is not a name in this document. It is the artifact a
+proof receipt names, and every receipt carries the provenance of the checkout
+it ran in:
+
+| Field     | Where it comes from                                                             |
 | --------- | ------------------------------------------------------------------------------- |
-| Artifact  | `333b948d4c5fba1f88d98d764c075b790be6ee22` (`origin/main`)                      |
-| Evidence  | `local-disposable`                                                              |
+| Artifact  | `checkout.sha` of the proof receipt, the exact commit the proof ran in          |
+| Source    | `checkout.source` of the proof receipt, the ref the proof was made from         |
+| Clean     | `checkout.dirty` of the proof receipt, which is `false` in a usable one         |
+| Evidence  | the `evidence` class of the proof receipt                                       |
 | Database  | PostgreSQL 18, the digest-pinned `postgres:18-alpine` the repository provisions |
 | Proved on | a disposable loopback instance of that image, in this repository                |
 
-What that artifact was proved to do:
+A receipt that carries no provenance, or that was produced from a tree with
+uncommitted changes, names no artifact at all: the code refuses it. A commit
+that is written into a document instead of read from a receipt is not
+reproducible, because nobody can show what ran.
+
+The instances this procedure was written against are recorded here as history,
+not as a standing artifact:
+
+- `333b948d4c5fba1f88d98d764c075b790be6ee22` (`origin/main`), proved locally on
+  2026-10-20 with the disposable CI proof and the fresh-account acceptance
+  lane;
+- the pull request head that carries this procedure, proved locally on the same
+  day with the same two lanes.
+
+What a proved artifact was shown to do:
 
 - the auth schema applies to an empty schema, and a second inspection reports
   nothing pending, so the initialization is repeatable;
@@ -47,16 +68,18 @@ What that artifact was proved to do:
 - the owned disposable instance is removed on success, on failure and on
   interruption.
 
-What that artifact was **not** proved to do, and what a live acceptance still
-has to establish:
+What a proved artifact was **not** shown to do, and what a live acceptance
+still has to establish:
 
 - the hosted Railway instance was not read. Its PostgreSQL version, its TLS
   mode, its pooling behaviour and its plan are unverified here;
-- the hosted target carries no data yet, so no data-loss estimate exists;
+- the hosted target's data state is **UNKNOWN**. The live target was not read,
+  so no data-loss estimate is available, and an unobserved state is not an
+  empty one;
 - no traffic was moved and no session was issued against the hosted target.
 
-A different commit is not qualified by this record. It needs its own proof
-against the same image, and the proof must name the commit it ran against.
+A different commit is not qualified by any of this. It needs its own proof
+against the same image, and that proof must carry its own provenance.
 
 ## Evidence classes
 
@@ -154,7 +177,8 @@ caught.
   credential.
 - It does not name, require or keep a legacy artifact, a fallback provider or
   a compatibility path.
-- It does not delete, drop, truncate or migrate any retained environment or
-  any of its tables.
+- It does not require a legacy environment to exist or to stay running. The
+  repository's historical records of the legacy environment are kept as
+  evidence, and nothing here reads, restores or depends on a running one.
 - It does not complete the wider database migration, and it does not start the
   cost measurement. The user owns the next-week follow-up.
