@@ -84,17 +84,19 @@ scripts for a provider **identifier** — an environment variable name, a host, 
 action — and fails when one appears. Identifiers, not prose: a refusal may name
 a legacy value and a comment may explain why.
 
-| Case                                                      | What it proves                                                                                       |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| no workflow names a provider identifier                   | every workflow file is clean                                                                         |
-| no workflow requests a provider secret or variable        | no workflow asks the repository for a provider credential                                            |
-| the CI and release configuration name no provider         | `.github/code-foundry.yml`, `release-please-config.json`, the manifest and `package.json` are clean  |
-| the database CI scripts name no provider                  | apart from one documented refusal (below)                                                            |
-| the refusal is still a refusal, and nothing supplies it   | the guard lists the legacy variable and refuses a hosted endpoint for it; no workflow sets it        |
-| the pull-request database proof is the only database lane | the provider workflow is gone and the remaining lane is local                                        |
-| no CI lane supplies a remote database host to the guard   | the guard has no CI-provided allowlist and no `ci-ephemeral` classification                          |
-| a developer may still name one exact remote host          | `ADEA_ALLOW_REMOTE_TEST_TARGET` still accepts that one host, and a production host is never accepted |
-| the one provider path this lane does not own is recorded  | the efficiency lane's pull request owns `scripts/database-config.mjs` and removes its provider rule  |
+| Case                                                      | What it proves                                                                                              |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| no workflow names a provider identifier                   | every workflow file is clean                                                                                |
+| no workflow requests a provider secret or variable        | no workflow asks the repository for a provider credential                                                   |
+| the CI and release configuration name no provider         | `.github/code-foundry.yml`, `release-please-config.json`, the manifest and `package.json` are clean         |
+| the database CI scripts name no provider                  | apart from one documented refusal (below)                                                                   |
+| the refusal is still a refusal, and nothing supplies it   | the guard lists the legacy variable and refuses a hosted endpoint for it; no workflow sets it               |
+| the pull-request database proof is the only database lane | the provider workflow is gone and the remaining lane is local                                               |
+| no CI lane supplies a remote database host to the guard   | the guard has no CI-provided allowlist and no `ci-ephemeral` classification                                 |
+| a developer may still name one exact remote host          | `ADEA_ALLOW_REMOTE_TEST_TARGET` still accepts that one host, and a production host is never accepted        |
+| the one provider path this lane does not own is recorded  | the efficiency lane's pull request owns `scripts/database-config.mjs` and removes its provider rule         |
+| no provider identifier appears that no record allows      | a new identifier fails in a path this lane owns and in a path another lane owns alike                       |
+| the combined state names no provider but the refusals     | over a disposable copy of the surface, the state the repository reaches when the owning pull request merges |
 
 `scripts/database-proof-workflow.test.ts` pins the surviving lane: its two
 jobs, their check names, the fail-closed gate, the trigger set, the pinned

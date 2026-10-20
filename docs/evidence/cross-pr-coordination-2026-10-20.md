@@ -114,7 +114,39 @@ The one provider identifier this lane no longer owns is
 `scripts/database-config.mjs`'s `.neon.tech` rule, and `#1515` removes it. The
 no-Neon proof records that ownership explicitly rather than editing the file:
 `scripts/no-neon-ci.test.ts` asserts the path is **not** in this lane's scanned
-set, that it still carries the identifier, and which pull request removes it.
+set, and names the identifier and the pull request that removes it.
+
+### The proof's lifecycle, and the combined state
+
+The proof used to require that identifier to still be there. That was the
+wrong contract twice over: it made this lane's test fail when the other lane
+did its work, and it made a provider identifier a _requirement_ of a no-provider
+proof. The contract is now the one that is true in both states:
+
+- a path this lane owns may not name a provider identifier;
+- a path another lane owns may name **exactly** the identifier its record
+  names — the record names it, so a new identifier there still fails;
+- nothing requires the recorded identifier to still be present.
+
+The combined state is proved over a **disposable copy** of the CI surface: the
+copy carries this lane's files with the provider-specific host rule removed
+from the owned path, and the scan over that copy finds only the two documented
+refusals. A second case scans the same copy **without** the removal and
+requires the identifier to be found, so the combined-state proof is not
+vacuous.
+
+The disposable copy is not the only witness. The other lane's **actual pushed
+bytes** were compared read-only on 2026-10-20, at
+`origin/codex/20261020-efficiency-audit-w8` = `7fa24f2ee991d672cb6ed1373b63f125a6e206e1`:
+
+| Check                                                             | Result                                                                                                                                   |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| provider identifiers in that lane's `scripts/database-config.mjs` | **none**                                                                                                                                 |
+| the whole CI surface with that file substituted in                | the only provider identifiers left are the two documented refusals, `NEON_AUTH_BASE_URL` in `scripts/test-target-guard.mjs` and its test |
+
+Both routes agree with the disposable copy's result, and the copy is what the
+test asserts, so the proof does not depend on the other lane's branch being
+present in a checkout.
 
 ## #1509 — the failing Unit/Validation result, verified
 
