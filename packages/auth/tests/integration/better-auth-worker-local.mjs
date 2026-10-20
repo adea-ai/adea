@@ -12,10 +12,6 @@ import { createRecordingAuthDelivery } from '../../src/delivery.ts'
 import { describeResponse } from './response-evidence.mjs'
 
 const mode = process.argv.at(-1)
-assert.ok(
-  ['--prepare', '--exercise', '--fixture-exercise'].includes(mode),
-  'choose --prepare, --exercise or --fixture-exercise'
-)
 
 const baseUrl = process.env.AUTH_BASE_URL
 const databaseUrl = process.env.AUTH_POSTGRES_TEST_URL
@@ -27,32 +23,19 @@ const caPath = process.env.ADEA_AUTH_WORKER_CA
 const secret = process.env.AUTH_SECRET
 const trustedOrigins = process.env.AUTH_TRUSTED_ORIGINS
 
-for (const [label, value] of Object.entries({
-  AUTH_BASE_URL: baseUrl,
-  AUTH_POSTGRES_TEST_URL: databaseUrl,
-  AUTH_DATABASE_URL: workerDatabaseUrl,
-  AUTH_TEST_SCHEMA: schema,
-  AUTH_WORKER_APPLICATION_NAME: workerApplicationName,
-  AUTH_SECRET: secret,
-  AUTH_TRUSTED_ORIGINS: trustedOrigins,
-})) {
-  assert.ok(value, `${label} is required`)
-}
+// This module is also imported by the transport-loss regression test, which needs the
+// request classifier but no Worker, schema or database. The script's own environment
+// checks and its run modes therefore live in main(), so importing this file has no
+// effect and the classifier can be exercised on its own.
+let localDatabaseUrl
+let workerDatabase
+let controlPool
 
 function assertLoopbackUrl(raw, label) {
   const url = new URL(raw)
   assert.ok(['127.0.0.1', 'localhost', '::1'].includes(url.hostname), `${label} must be loopback`)
   return url
 }
-
-const localDatabaseUrl = assertLoopbackUrl(databaseUrl, 'AUTH_POSTGRES_TEST_URL')
-assert.equal(localDatabaseUrl.protocol, 'postgresql:')
-const workerDatabase = assertLoopbackUrl(workerDatabaseUrl, 'AUTH_DATABASE_URL')
-assert.equal(workerDatabase.username, 'agent_hq_local_app')
-assert.match(schema, /^auth_worker_[a-f0-9]{32}$/)
-assert.match(workerApplicationName, /^adea_auth_worker_[a-f0-9]{12}$/)
-assert.equal(trustedOrigins, baseUrl)
-assert.equal(new URL(baseUrl).protocol, 'https:')
 
 function databaseUrlWithApplicationName(applicationName) {
   const url = new URL(workerDatabaseUrl)
@@ -63,12 +46,6 @@ function databaseUrlWithApplicationName(applicationName) {
   url.searchParams.set('application_name', applicationName)
   return url.toString()
 }
-
-const controlPool = new Pool({
-  connectionString: databaseUrl,
-  max: 1,
-  application_name: `${workerApplicationName}_control`,
-})
 
 async function assertNoWorkerBackends() {
   const result = await controlPool.query(
@@ -201,10 +178,28 @@ async function exerciseRecordingDelivery() {
   }
 }
 
-// Every request opens its own connection. Reusing a keep-alive socket through the local dev proxy
-// failed intermittently with "Network connection lost" on the next POST (6 of 12 reused runs,
-// 0 of 6 fresh runs), so the transport is kept out of the auth assertions.
-function requestWorker(path, { method = 'GET', cookie, body, origin = baseUrl } = {}) {
+// The local dev proxy answers a lost connection with a 500 whose body is a transport
+// error rather than an application response. Every request below opens its own
+// connection: reusing a keep-alive socket through the local dev proxy failed
+// intermittently with "Network connection lost" on the next POST (6 of 12 reused runs).
+// A fresh connection removed the reuse, but the same signature still arrived on 3 of 14
+// runs, so the cause is the proxy's own hop to the Worker and not the socket this
+// harness opens. The signature is therefore classified and retried, a bounded number of
+// times: every other outcome, including a 500 from the route itself, is returned
+// untouched.
+const TRANSPORT_LOSS_BODY = 'Network connection lost'
+const TRANSPORT_LOSS_ATTEMPTS = 3
+
+/**
+ * Is this response the local proxy reporting a lost connection rather than the route
+ * answering? The body is the proxy's own transport error; it is matched here and never
+ * reaches an assertion message.
+ */
+export function isTransportLoss(response) {
+  return response.status === 500 && response.text.includes(TRANSPORT_LOSS_BODY)
+}
+
+function requestWorkerOnce(path, { method = 'GET', cookie, body, origin = baseUrl } = {}) {
   const url = new URL(path.startsWith('/') ? path : `/api/auth/${path}`, workerUrl)
   assert.ok(['127.0.0.1', 'localhost', '::1'].includes(url.hostname))
   assert.equal(url.protocol, 'https:')
@@ -251,6 +246,20 @@ function requestWorker(path, { method = 'GET', cookie, body, origin = baseUrl } 
     if (serialized !== undefined) request.write(serialized)
     request.end()
   })
+}
+
+// A lost connection is retried, a bounded number of times, and only for that one
+// signature. The retry re-sends the same request; it never changes what is asserted.
+async function requestWorker(path, options) {
+  let response = await requestWorkerOnce(path, options)
+  for (
+    let attempt = 1;
+    attempt < TRANSPORT_LOSS_ATTEMPTS && isTransportLoss(response);
+    attempt += 1
+  ) {
+    response = await requestWorkerOnce(path, options)
+  }
+  return response
 }
 
 function responseCookies(response) {
@@ -649,6 +658,38 @@ async function fixtureExercise() {
   }
 }
 
-if (mode === '--prepare') await prepare()
-else if (mode === '--fixture-exercise') await fixtureExercise()
-else await exercise()
+async function main() {
+  assert.ok(
+    ['--prepare', '--exercise', '--fixture-exercise'].includes(mode),
+    'choose --prepare, --exercise or --fixture-exercise'
+  )
+  for (const [label, value] of Object.entries({
+    AUTH_BASE_URL: baseUrl,
+    AUTH_POSTGRES_TEST_URL: databaseUrl,
+    AUTH_DATABASE_URL: workerDatabaseUrl,
+    AUTH_TEST_SCHEMA: schema,
+    AUTH_WORKER_APPLICATION_NAME: workerApplicationName,
+    AUTH_SECRET: secret,
+    AUTH_TRUSTED_ORIGINS: trustedOrigins,
+  })) {
+    assert.ok(value, `${label} is required`)
+  }
+  localDatabaseUrl = assertLoopbackUrl(databaseUrl, 'AUTH_POSTGRES_TEST_URL')
+  assert.equal(localDatabaseUrl.protocol, 'postgresql:')
+  workerDatabase = assertLoopbackUrl(workerDatabaseUrl, 'AUTH_DATABASE_URL')
+  assert.equal(workerDatabase.username, 'agent_hq_local_app')
+  assert.match(schema, /^auth_worker_[a-f0-9]{32}$/)
+  assert.match(workerApplicationName, /^adea_auth_worker_[a-f0-9]{12}$/)
+  assert.equal(trustedOrigins, baseUrl)
+  assert.equal(new URL(baseUrl).protocol, 'https:')
+  controlPool = new Pool({
+    connectionString: databaseUrl,
+    max: 1,
+    application_name: `${workerApplicationName}_control`,
+  })
+  if (mode === '--prepare') await prepare()
+  else if (mode === '--fixture-exercise') await fixtureExercise()
+  else await exercise()
+}
+
+if (import.meta.main) await main()

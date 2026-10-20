@@ -8,6 +8,7 @@ import {
   handleNeonAuthRequest,
 } from '../../src/server'
 import { createRecordingAuthDelivery, type RecordedAuthDelivery } from '../../src/delivery'
+import { isTransportLoss } from './better-auth-worker-local.mjs'
 
 // Exercises the composition functions the web route calls, against a disposable
 // loopback PostgreSQL 18 schema. The recording transport is a local fixture; no
@@ -69,6 +70,26 @@ async function waitForDelivery(
   }
   throw new Error(`no ${kind} message was delivered`)
 }
+
+// The local dev proxy can answer with a lost connection instead of an application
+// response. The built-Worker acceptance classifies that one signature and retries it,
+// so a transport event cannot fail an application assertion. Only that signature is
+// classified: a 500 from the route, a success, a 404 and an empty body are all left
+// alone, and nothing but the status and the body is inspected.
+describe('built-Worker acceptance transport loss', () => {
+  test('classifies only the local proxy transport signature', () => {
+    expect(
+      isTransportLoss({
+        status: 500,
+        text: 'Error: Network connection lost.\n    at async Object.fetch',
+      })
+    ).toBe(true)
+    expect(isTransportLoss({ status: 500, text: 'Internal Server Error' })).toBe(false)
+    expect(isTransportLoss({ status: 200, text: 'Network connection lost' })).toBe(false)
+    expect(isTransportLoss({ status: 404, text: 'Network connection lost' })).toBe(false)
+    expect(isTransportLoss({ status: 500, text: '' })).toBe(false)
+  })
+})
 
 describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)', () => {
   beforeAll(async () => {
