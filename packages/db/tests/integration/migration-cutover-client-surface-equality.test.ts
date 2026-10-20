@@ -18,7 +18,7 @@
  * Test-only: no production code, no UI, no Pi runtime, no #1472 file, and no live data.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
 
@@ -205,11 +205,34 @@ async function seedLegacySurfaceFixture(connection: DatabaseConnection): Promise
   return { workspaceId, sharedChannelId: sharedId, member, outsider, collaborator, removed }
 }
 
+/**
+ * The canonical read progress of one channel, as the public read-state contract
+ * returns it: the read cursor, the latest top-level sequence, the unread
+ * counts and the per-thread cursors. Projecting only the channel id would let
+ * a drifted cursor pass as equality.
+ */
+type ReadStateProjection = {
+  channelId: string
+  lastReadSequence: number
+  latestTopLevelSequence: number
+  topLevelUnreadCount: number
+  threadUnreadCount: number
+  manuallyUnread: boolean
+  unread: boolean
+  threads: readonly {
+    threadRootMessageId: string
+    lastReadSequence: number
+    latestSequence: number
+    unreadCount: number
+    manuallyUnread: boolean
+  }[]
+}
+
 type SurfaceRead = {
   searchChannels: string[] | 'denied'
   searchMessages: string[] | 'denied'
   inbox: string[] | 'denied'
-  readState: string[] | 'denied'
+  readState: ReadStateProjection[] | 'denied'
   unreadChannels: number | 'denied'
   events: string | 'denied'
 }
@@ -268,7 +291,36 @@ async function captureSurfaces(
             .toSorted(),
     inbox: inbox === 'denied' ? 'denied' : inbox.conversations.map((entry) => entry.id).toSorted(),
     readState:
-      readState === 'denied' ? 'denied' : readState.map((entry) => entry.channelId).toSorted(),
+      readState === 'denied'
+        ? 'denied'
+        : readState
+            .map((entry) => ({
+              channelId: entry.channelId,
+              lastReadSequence: entry.lastReadSequence,
+              latestTopLevelSequence: entry.latestTopLevelSequence,
+              topLevelUnreadCount: entry.topLevelUnreadCount,
+              threadUnreadCount: entry.threadUnreadCount,
+              manuallyUnread: entry.manuallyUnread,
+              unread: entry.unread,
+              threads: entry.threads
+                .map((thread) => ({
+                  threadRootMessageId: thread.threadRootMessageId,
+                  lastReadSequence: thread.lastReadSequence,
+                  latestSequence: thread.latestSequence,
+                  unreadCount: thread.unreadCount,
+                  manuallyUnread: thread.manuallyUnread,
+                }))
+                .toSorted((left, right) =>
+                  left.threadRootMessageId < right.threadRootMessageId
+                    ? -1
+                    : left.threadRootMessageId > right.threadRootMessageId
+                      ? 1
+                      : 0
+                ),
+            }))
+            .toSorted((left, right) =>
+              left.channelId < right.channelId ? -1 : left.channelId > right.channelId ? 1 : 0
+            ),
     unreadChannels:
       summaries === 'denied'
         ? 'denied'
@@ -307,6 +359,7 @@ type Scenario = {
 }
 
 const resources: RehearsalResources = {}
+let captureConnection: DatabaseConnection | undefined
 let scenario: Promise<Scenario> | undefined
 
 async function executeScenario(): Promise<Scenario> {
@@ -317,6 +370,7 @@ async function executeScenario(): Promise<Scenario> {
   await adminExecute(`create database "${scratch}"`)
   const connection = createDatabase(urlForDatabase(scratch))
   resources.connection = connection
+  captureConnection = connection
   resources.preFolder = migrationsFolderBefore(CUTOVER_TAG)
 
   // The populated pre-0046 database: the legacy state a cutover starts from.
@@ -386,8 +440,21 @@ describe.skipIf(!provisioningUrl && !inCi)(
       // A positive control first: an empty capture would make the equality below vacuous.
       expect(before.member.searchMessages.length).toBeGreaterThan(0)
       expect(before.member.inbox).toContain(fixture.sharedChannelId)
-      expect(before.member.readState).toContain(fixture.sharedChannelId)
+      expect(before.member.readState.map((entry) => entry.channelId)).toContain(
+        fixture.sharedChannelId
+      )
       expect(before.member.events).toBe('deliver')
+      // The fixture leaves the member exactly one message behind, so the unread
+      // count is a real one. An always-zero projection would pass an equality
+      // check that proves nothing, so the expected count is pinned here.
+      expect(before.member.unreadChannels).toBe(1)
+      // The read cursor is part of the projection: the member is behind the
+      // channel's latest top-level sequence.
+      expect(before.member.readState[0]?.lastReadSequence).toBeGreaterThan(0)
+      expect(before.member.readState[0]?.latestTopLevelSequence).toBe(
+        (before.member.readState[0]?.lastReadSequence ?? 0) + 1
+      )
+      expect(before.member.readState[0]?.topLevelUnreadCount).toBe(1)
       expect(after.member).toEqual(before.member)
     }, 300_000)
 
@@ -418,6 +485,43 @@ describe.skipIf(!provisioningUrl && !inCi)(
       expect(before.removed.readState).toEqual('denied')
       expect(before.removed.events).toBe('none')
       expect(after.removed).toEqual(before.removed)
+    }, 300_000)
+
+    test('a drifted read cursor is detected instead of passing as equality', async () => {
+      const { fixture } = await runScenario()
+      const connection = captureConnection
+      if (!connection) throw new Error('the disposable capture database is not open')
+      const before = await captureSurfaces(connection, fixture, fixture.member)
+      if (before.readState === 'denied') throw new Error('the member read state was denied')
+      const cursor = before.readState[0]?.lastReadSequence ?? 0
+      // Advance the member's read cursor by one message. The canonical read
+      // progress drifts, so the projection must show the drift instead of the
+      // equality check passing on an unchanged cursor.
+      const advanced = await connection.db.execute(sql`
+        UPDATE app.channel_read_states
+        SET last_read_sequence = last_read_sequence + 1
+        WHERE workspace_id = ${fixture.workspaceId}::uuid
+          AND user_id = ${fixture.member.userId}::uuid
+          AND channel_id = ${fixture.sharedChannelId}::uuid
+        RETURNING last_read_sequence
+      `)
+      expect(advanced.length).toBe(1)
+      const after = await captureSurfaces(connection, fixture, fixture.member)
+      if (after.readState === 'denied') throw new Error('the member read state was denied')
+      expect(after.readState).not.toEqual(before.readState)
+      expect(after.readState[0]?.lastReadSequence).toBe(cursor + 1)
+      // Restore the fixture's read progress so the disposable database is left
+      // exactly as the scenario found it.
+      await connection.db.execute(sql`
+        UPDATE app.channel_read_states
+        SET last_read_sequence = ${cursor}
+        WHERE workspace_id = ${fixture.workspaceId}::uuid
+          AND user_id = ${fixture.member.userId}::uuid
+          AND channel_id = ${fixture.sharedChannelId}::uuid
+      `)
+      const restored = await captureSurfaces(connection, fixture, fixture.member)
+      if (restored.readState === 'denied') throw new Error('the member read state was denied')
+      expect(restored.readState).toEqual(before.readState)
     }, 300_000)
 
     test('the compared snapshot families do not move across the cutover or the ambiguity resolution', async () => {
