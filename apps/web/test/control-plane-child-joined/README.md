@@ -385,14 +385,16 @@ exercise it with real process restarts.
 
 ### Not proved (acceptance stays open on #1173)
 
-- **Child cancel and approval have no public interface.** CP's public lead contract has a read-only
-  children operation (`pi-durable.lead.children`, CP #1160, in the pinned SDK 1.20.0), which returns
-  child status, input state and outcome. It has no child cancel or approval operation, so Adea
-  cannot cancel a child or surface a child approval. This journey does not exercise the read: the
-  child result was checked from CP's own records only. The product route (`lead-turn-children`) and
-  its tests cover the read separately. The child-state view is not drawn in this journey's proof.
-  The `design-consolidation/changed-views-1173-lead-child-states.md` note this section once cited is
-  not in the repository.
+- **Child cancel and approval response have no public interface.** CP's public lead contract has a
+  read-only children operation (`pi-durable.lead.children`, CP #1160, in the pinned SDK 1.20.0),
+  which returns child status, input state and outcome. A child's approval can therefore be surfaced
+  through `awaitingInput`, which is observation only. A child approval cannot be granted or
+  responded to: there is no child cancel or approval-response operation, so Adea cannot cancel a
+  child or respond to a child approval. This journey does not exercise the read: the child result
+  was checked from CP's own records only. The product route (`lead-turn-children`) and its tests
+  cover the read separately. The child-state view is not drawn in this journey's proof. The
+  `design-consolidation/changed-views-1173-lead-child-states.md` note this section once cited is not
+  in the repository.
 - **CP process restart.** CP is reopened in-process only.
 - **Revocation inside the publication transaction.** The audience fault revokes before Adea's next
   audience check, so Adea refuses before the transaction; the in-transaction recheck is covered by
