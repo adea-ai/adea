@@ -8,6 +8,7 @@ import {
   sanitizeText,
   sanitizeValue,
   sanitizeWorkerLogs,
+  withoutTopLevelField,
 } from './built-worker-failures'
 
 const SECRET = 'adea-auth-secret-0123456789abcdef'
@@ -107,6 +108,33 @@ describe('the built-Worker receipt sanitization', () => {
     expect(JSON.stringify(published)).not.toContain('SYNTHETIC_SECRET')
     expect(published.cleanup.workerStopped).toBe(true)
     expect(published.cleanup.materialRemoved).toBe(true)
+  })
+})
+
+describe('the built-Worker top-level field removal', () => {
+  test('the first top-level occurrence is removed', () => {
+    const body = '{"credential":"first","other":"kept"}'
+    expect(withoutTopLevelField(body, 'credential')).toBe('{"other":"kept"}')
+  })
+
+  test('a duplicate occurrence stays in the text', () => {
+    const body = '{"credential":"first","credential":"second"}'
+    expect(withoutTopLevelField(body, 'credential')).toContain('second')
+  })
+
+  test('a nested occurrence stays in the text', () => {
+    const body = '{"data":{"credential":"nested"},"credential":"top"}'
+    expect(withoutTopLevelField(body, 'credential')).toContain('nested')
+  })
+
+  test('a field that is not there leaves the text alone', () => {
+    const body = '{"other":"kept"}'
+    expect(withoutTopLevelField(body, 'credential')).toBe(body)
+  })
+
+  test('a body that is not JSON leaves the text alone', () => {
+    const body = 'not json at all'
+    expect(withoutTopLevelField(body, 'credential')).toBe(body)
   })
 })
 

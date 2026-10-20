@@ -162,6 +162,114 @@ export function sanitizeText(value: string, secrets: readonly string[] = []): st
 }
 
 /**
+ * The end of the string that starts at `start`, quotes included.
+ *
+ * The scan is linear and bounded: it walks the text once and it never
+ * backtracks.
+ */
+function scanString(body: string, start: number): number {
+  let index = start + 1
+  while (index < body.length) {
+    const character = body[index]!
+    if (character === '\\') {
+      index += 2
+      continue
+    }
+    if (character === '"') return index + 1
+    index += 1
+  }
+  return body.length
+}
+
+/** The content of the string between `start` and `end`. */
+function readString(body: string, start: number, end: number): string {
+  return body.slice(start + 1, Math.max(start + 1, end - 1))
+}
+
+/** The end of the value that starts at `start`. */
+function scanValue(body: string, start: number): number {
+  const character = body[start]
+  if (character === '"') return scanString(body, start)
+  if (character === '{' || character === '[') {
+    let depth = 0
+    let index = start
+    while (index < body.length) {
+      const current = body[index]!
+      if (current === '"') {
+        index = scanString(body, index)
+        continue
+      }
+      if (current === '{' || current === '[') depth += 1
+      else if (current === '}' || current === ']') {
+        depth -= 1
+        if (depth === 0) return index + 1
+      }
+      index += 1
+    }
+    return body.length
+  }
+  let index = start
+  while (index < body.length && !',}]'.includes(body[index]!)) index += 1
+  return index
+}
+
+/**
+ * The span of the first top-level member with the given name.
+ *
+ * Only the top level counts: a member nested inside an object or an array is
+ * not a top-level member, and neither is a value that only looks like one.
+ */
+function topLevelMemberValue(body: string, field: string): { start: number; end: number } | null {
+  let depth = 0
+  let index = 0
+  while (index < body.length) {
+    const character = body[index]!
+    if (character === '"') {
+      const end = scanString(body, index)
+      if (depth === 1) {
+        let cursor = end
+        while (cursor < body.length && body[cursor]!.trim() === '') cursor += 1
+        if (body[cursor] === ':' && readString(body, index, end) === field) {
+          let value = cursor + 1
+          while (value < body.length && body[value]!.trim() === '') value += 1
+          return { start: index, end: scanValue(body, value) }
+        }
+      }
+      index = end
+      continue
+    }
+    if (character === '{' || character === '[') depth += 1
+    else if (character === '}' || character === ']') depth -= 1
+    index += 1
+  }
+  return null
+}
+
+/**
+ * The body with the first top-level occurrence of a field removed.
+ *
+ * A body is a structure, and the same credential may sit in it more than once.
+ * Only the one top-level member that is allowed to carry the value is removed:
+ * a nested copy and a duplicate key stay in the text, so the caller still sees
+ * them and can refuse them.
+ */
+export function withoutTopLevelField(body: string, field: string): string {
+  const span = topLevelMemberValue(body, field)
+  if (!span) return body
+  // The member goes with its separator, so what is left is still a body.
+  let start = span.start
+  let end = span.end
+  if (body[end] === ',') {
+    end += 1
+  } else {
+    let before = start - 1
+    while (before >= 0 && body[before]!.trim() === '') before -= 1
+    if (before >= 0 && body[before] === ',') start = before
+  }
+  return `${body.slice(0, start)}${body.slice(end)}`
+}
+
+/**
  * Sanitizes every string of a value, however deeply it is nested.
  *
  * A receipt is a tree of strings, and a secret can sit in any of them: in a

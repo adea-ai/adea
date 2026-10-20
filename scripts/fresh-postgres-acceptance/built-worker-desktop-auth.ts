@@ -30,7 +30,7 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
-import { BuiltWorkerFailure, sanitizeReceipt } from './built-worker-failures'
+import { BuiltWorkerFailure, sanitizeReceipt, withoutTopLevelField } from './built-worker-failures'
 
 /** The route the built Worker serves for a desktop authorization request. */
 export const DESKTOP_AUTHORIZE_PATH = '/api/auth/desktop/authorize'
@@ -565,9 +565,19 @@ export async function runBuiltWorkerDesktopAuth(
   type Exemption = {
     readonly index: number
     readonly header?: string
+    /**
+     * Only this part of the header may carry the value. The authorization
+     * code is allowed in the fragment of the location, not in its query.
+     */
+    readonly headerPart?: 'fragment'
+    /**
+     * Only the first top-level occurrence of this body field may carry the
+     * value. A nested copy and a duplicate key are not the authorized
+     * occurrence.
+     */
     readonly bodyField?: string
   }
-  const issuedIn = new Map<string, Exemption>()
+  const issuedIn = new Map<string, Exemption[]>()
 
   const send = async (request: BuiltWorkerRequest): Promise<number> => {
     const response = await input.transport(request)
@@ -575,15 +585,27 @@ export async function runBuiltWorkerDesktopAuth(
     return responses.length - 1
   }
 
-  /** Records a value the Worker had to hand out, and the field it came from. */
+  /**
+   * Records a value the Worker had to hand out, and the field it came from.
+   *
+   * Every occurrence is recorded: the same value may be authorized in two
+   * fields of the same response, and a second occurrence must not overwrite
+   * the first one.
+   */
   const observeIssued = (
     value: string,
     index: number,
-    exemption: { readonly header?: string; readonly bodyField?: string }
+    exemption: {
+      readonly header?: string
+      readonly headerPart?: 'fragment'
+      readonly bodyField?: string
+    }
   ): void => {
     if (!value) return
     observedSecrets.push(value)
-    issuedIn.set(value, { index, ...exemption })
+    const occurrences = issuedIn.get(value) ?? []
+    occurrences.push({ index, ...exemption })
+    issuedIn.set(value, occurrences)
   }
 
   /**
@@ -593,15 +615,22 @@ export async function runBuiltWorkerDesktopAuth(
   const carriesSecret = (
     response: BuiltWorkerResponse,
     secret: string,
-    exemption: { readonly header?: string; readonly bodyField?: string } | undefined
+    exemptions: readonly Exemption[]
   ): boolean => {
     const headers = Object.entries(response.headers)
-      .filter(([name]) => name !== exemption?.header)
-      .map(([, value]) => value)
+      .flatMap(([name, value]) => {
+        const exemption = exemptions.find((entry) => entry.header === name)
+        if (!exemption) return [value]
+        if (exemption.headerPart === 'fragment') {
+          const hash = value.indexOf('#')
+          return hash < 0 ? [] : [value.slice(0, hash)]
+        }
+        return []
+      })
       .join(' ')
-    const body = exemption?.bodyField
-      ? response.body.replace(new RegExp(`"${exemption.bodyField}"\\s*:\\s*"[^"]*"`, 'gu'), '')
-      : response.body
+    const body = exemptions
+      .filter((exemption) => exemption.bodyField)
+      .reduce((text, exemption) => withoutTopLevelField(text, exemption.bodyField!), response.body)
     return `${headers}\n${body}`.includes(secret)
   }
 
@@ -726,7 +755,9 @@ export async function runBuiltWorkerDesktopAuth(
     // code that came from an unexpected place is still a value that must not
     // travel anywhere else.
     const issued = readIssuedAuthorizationCode(location)
-    if (issued.code) observeIssued(issued.code, index, { header: 'location' })
+    if (issued.code) {
+      observeIssued(issued.code, index, { header: 'location', headerPart: 'fragment' })
+    }
     const validation = validateIssuedAuthorization({
       status: response.status,
       location,
@@ -1077,11 +1108,10 @@ export async function runBuiltWorkerDesktopAuth(
   // and not the desktop credential.
   const leaked = observedSecrets.filter((secret) => {
     if (!secret) return false
-    const issued = issuedIn.get(secret)
+    const occurrences = issuedIn.get(secret) ?? []
     return responses.some((response, index) => {
-      if (!issued) return carriesSecret(response, secret, undefined)
-      if (index !== issued.index) return carriesSecret(response, secret, undefined)
-      return carriesSecret(response, secret, issued)
+      const allowed = occurrences.filter((occurrence) => occurrence.index === index)
+      return carriesSecret(response, secret, allowed)
     })
   })
   const assertions: DesktopEndpointAssertion[] = [

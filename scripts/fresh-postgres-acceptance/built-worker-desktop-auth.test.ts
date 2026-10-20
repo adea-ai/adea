@@ -736,6 +736,99 @@ describe('the built-Worker desktop failure classification', () => {
   })
 })
 
+describe('the built-Worker desktop occurrence accounting', () => {
+  test('the same value in two authorized fields is not a leak', async () => {
+    const correct = correctWorker()
+    const shared = 'SHARED_ISSUED_VALUE'
+    const transport: BuiltWorkerTransport = async (request) => {
+      if (request.method === 'POST' && request.path === '/api/auth/sign-up/email') {
+        // The same value is issued in the cookie header and in the body.
+        return response(
+          200,
+          { 'set-cookie': `__Secure-better-auth.session_token=${shared}; Path=/; HttpOnly` },
+          `{"token":"${shared}","user":{"id":"user-1"}}`
+        )
+      }
+      return correct.transport(request)
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(true)
+  })
+
+  test('a code in the outer query of the location is a leak', async () => {
+    const correct = correctWorker()
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (
+        request.method === 'GET' &&
+        request.path.startsWith('/api/auth/desktop/authorize') &&
+        request.headers?.cookie
+      ) {
+        const location = answered.headers.location ?? ''
+        const code =
+          /code=([^&]+)/u.exec(decodeURIComponent(location.split('#')[1] ?? ''))?.[1] ?? ''
+        // The code is copied into the query of the outer location, before the
+        // fragment that legitimately carries it.
+        const leaked = location.replace('#', `?code=${code}#`)
+        return { ...answered, headers: { ...answered.headers, location: leaked } }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+  })
+
+  test('a nested copy of an issued credential is a leak', async () => {
+    const correct = correctWorker()
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        const credential = /"credential"\s*:\s*"([^"]+)"/u.exec(answered.body)?.[1] ?? ''
+        if (credential) {
+          return {
+            ...answered,
+            body: `{"credential":"${credential}","data":{"credential":"${credential}"}}`,
+          }
+        }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+  })
+
+  test('a duplicate of an issued credential is a leak', async () => {
+    const correct = correctWorker()
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        const credential = /"credential"\s*:\s*"([^"]+)"/u.exec(answered.body)?.[1] ?? ''
+        if (credential) {
+          return {
+            ...answered,
+            body: `{"credential":"${credential}","credential":"${credential}"}`,
+          }
+        }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+  })
+})
+
 describe('the built-Worker desktop receipt sanitization', () => {
   test('a failed location that names a token never reaches the receipt', async () => {
     const worker = workerWithAuthorize(() => '/error?token=SYNTHETIC_SECRET')
