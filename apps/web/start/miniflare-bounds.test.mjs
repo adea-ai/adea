@@ -1,6 +1,7 @@
 // Regression tests for the bounded Miniflare waits used by test-auth-fixture-miniflare.mjs.
 // They use stand-in instances, so no Miniflare, workerd or PostgreSQL is started.
 import { describe, expect, test } from 'bun:test'
+import { setTimeout as delay } from 'node:timers/promises'
 import { BoundedError, disposeBounded, startBounded, withDeadline } from './miniflare-bounds.mjs'
 
 const never = () => new Promise(() => {})
@@ -46,6 +47,57 @@ describe('startBounded', () => {
     await expect(startBounded({ ready: Promise.reject(failure) }, { ms: 1000 })).rejects.toBe(
       failure
     )
+  })
+})
+
+// A readiness rejection that lands after the harness has already moved on to cleanup
+// must be observed, not reported as unhandled.
+function collectUnhandled() {
+  const seen = []
+  const listener = (reason) => seen.push(reason)
+  process.on('unhandledRejection', listener)
+  return { seen, stop: () => process.off('unhandledRejection', listener) }
+}
+
+describe('lifecycle regressions', () => {
+  test('a pre-aborted signal with a rejecting readiness promise is observed', async () => {
+    const unhandled = collectUnhandled()
+    try {
+      const controller = new AbortController()
+      controller.abort(new Error('interrupted by SIGINT'))
+      const failure = new Error('workerd refused the config')
+      const error = await startBounded(
+        { ready: Promise.reject(failure) },
+        {
+          ms: 60_000,
+          signal: controller.signal,
+        }
+      ).catch((e) => e)
+      await delay(20)
+      expect(error.message).toBe('interrupted by SIGINT')
+      expect(unhandled.seen).toEqual([])
+    } finally {
+      unhandled.stop()
+    }
+  })
+
+  test('a readiness rejection after an abort is observed, not unhandled', async () => {
+    const unhandled = collectUnhandled()
+    try {
+      const controller = new AbortController()
+      let reject
+      const ready = new Promise((_, fail) => {
+        reject = fail
+      })
+      const pending = startBounded({ ready }, { ms: 60_000, signal: controller.signal })
+      controller.abort(new Error('interrupted by SIGTERM'))
+      expect((await pending.catch((e) => e)).message).toBe('interrupted by SIGTERM')
+      reject(new Error('late workerd failure'))
+      await delay(20)
+      expect(unhandled.seen).toEqual([])
+    } finally {
+      unhandled.stop()
+    }
   })
 })
 

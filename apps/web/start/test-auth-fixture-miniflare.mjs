@@ -294,11 +294,25 @@ async function releaseResources() {
 // Records what this run ran, so an evidence directory names its own inputs: the harness
 // file, the fixture artifact it served, the Miniflare version, the head and the Node
 // version. Written before any process starts, so a failed run still has it.
-async function writeDiagnostics(directory, built) {
-  const artifact = createHash('sha256')
-    .update(await readFile(resolve(fixtureDist, 'server/wrangler.json')))
-    .update(await readFile(resolve(fixtureDist, 'server', built.main)))
-    .digest('hex')
+async function writeDiagnostics(directory) {
+  // Every file under the fixture dist, sorted by path, so the digest covers each module,
+  // asset and config byte the harness can serve, not only the entry.
+  const tree = createHash('sha256')
+  const files = (await readdir(fixtureDist, { recursive: true, withFileTypes: true }))
+    .filter((entry) => entry.isFile())
+    .map((entry) => resolve(entry.parentPath, entry.name))
+    .map((absolute) =>
+      absolute
+        .slice(fixtureDist.length + 1)
+        .split('\\')
+        .join('/')
+    )
+    .toSorted()
+  for (const relative of files) {
+    tree.update(relative).update('\0')
+    tree.update(await readFile(resolve(fixtureDist, relative)))
+    tree.update('\0')
+  }
   const harness = createHash('sha256')
     .update(await readFile(fileURLToPath(import.meta.url)))
     .digest('hex')
@@ -313,7 +327,8 @@ async function writeDiagnostics(directory, built) {
       {
         head,
         harnessSha256: harness,
-        fixtureArtifactSha256: artifact,
+        fixtureTreeSha256: tree.digest('hex'),
+        fixtureTreeScope: `${files.length} files under the fixture dist, sorted by path, each as path, NUL, bytes, NUL`,
         fixtureBuild: fixtureDist,
         miniflare: createRequire(import.meta.url)('miniflare/package.json').version,
         node: process.version,
@@ -328,7 +343,7 @@ async function acceptFixture() {
   const built = await loadFixtureOutput(fixtureDist)
   await mkdir(resolve(start, '.checks'), { recursive: true })
   const evidence = await mkdtemp(resolve(start, '.checks/fixture-miniflare-'))
-  await writeDiagnostics(evidence, built)
+  await writeDiagnostics(evidence)
   const tls = createLoopbackCertificate(evidence)
   const authSchema = `auth_worker_${randomUUID().replaceAll('-', '')}`
   const workerApplicationName = `adea_auth_worker_${randomUUID().replaceAll('-', '').slice(0, 12)}`

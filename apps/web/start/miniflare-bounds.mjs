@@ -10,26 +10,31 @@ export class BoundedError extends Error {
 }
 
 // Settles with the promise's outcome, or rejects when the bound passes or the signal
-// aborts first. The timer and listener are always released.
+// aborts first. The input promise is always observed, even when the signal is already
+// aborted, so a later rejection is handled rather than left unhandled during cleanup.
+// The timer and listener are always released.
 export function withDeadline(promise, ms, label, signal) {
   return new Promise((ok, fail) => {
     let timer
+    let settled = false
     const finish = (settle, value) => {
+      if (settled) return
+      settled = true
       clearTimeout(timer)
       signal?.removeEventListener('abort', onAbort)
       settle(value)
     }
     const onAbort = () => finish(fail, signal.reason ?? new BoundedError(`${label} was aborted`))
+    promise.then(
+      (value) => finish(ok, value),
+      (error) => finish(fail, error)
+    )
     if (signal?.aborted) return onAbort()
     timer = setTimeout(
       () => finish(fail, new BoundedError(`${label} did not finish within ${ms} ms`)),
       ms
     )
     signal?.addEventListener('abort', onAbort, { once: true })
-    promise.then(
-      (value) => finish(ok, value),
-      (error) => finish(fail, error)
-    )
   })
 }
 

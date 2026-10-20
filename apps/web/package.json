@@ -29,7 +29,7 @@
     "start:test:disconnect": "node start/test-stream-disconnect.mjs",
     "start:test:local": "node start/test-local.mjs && bun run start:test:disconnect",
     "start:verify": "bun run start:test && bun run build && bun run typecheck && bun run start:check-bundle",
-    "test": "bun run test:source-contracts:setup && bun test --conditions=browser --preload ../../scripts/test-solid-transform.ts test/*.test.ts start/ui-tailwind-sources.test.ts",
+    "test": "bun run test:source-contracts:setup && bun test --conditions=browser --preload ../../scripts/test-solid-transform.ts test/*.test.ts start/ui-tailwind-sources.test.ts start/miniflare-bounds.test.mjs",
     "test:source-contracts:setup": "bun ../../scripts/setup-source-contract-tests.mjs",
     "typecheck": "bun run cf-typegen && bun check -p tsconfig.json",
     "upload": "cf previews deploy"
