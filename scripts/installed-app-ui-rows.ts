@@ -9,16 +9,23 @@
 // bundle renders through the native (WKWebView) renderer, which exposes no
 // programmatic channel, and driving a native window needs an accessibility
 // grant this environment does not have. Every row therefore records which
-// surface answered it, and the report states the difference.
+// surface answered it.
 //
 // The rows are deliberately about OBSERVABLE STATE: a view that changed, a
 // panel that opened, a reload that came back, a repeated request that did not
 // change anything. They assert what the user can see, not the shape of the
 // code that produced it.
+//
+// A row that cannot be VERIFIED with the authority this run has is `pending`,
+// and a pending row is never a pass: the run's verdict stays red until the
+// row is either proved or explicitly owned elsewhere.
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { chromium, type Page } from '@playwright/test'
+
+/** The outcome of one UI row. `pending` is never a pass. */
+export type UiStatus = 'pass' | 'fail' | 'pending'
 
 /** One row of the UI matrix. */
 export type UiRow = Readonly<{
@@ -26,13 +33,17 @@ export type UiRow = Readonly<{
   expected: string
   actual: string
   ok: boolean
+  status: UiStatus
   evidence: 'installed-app-origin'
   /** The screenshot file name, relative to the artifact directory. */
   screenshot?: string
 }>
 
-/** The rail entries the desktop client offers, by their accessible name. */
-const RAIL_ENTRIES = ['Chat view', 'Dev view', 'App Library', 'Plugins', 'User settings'] as const
+/** Builds a row, deriving `ok` from the status. */
+function row(input: Omit<UiRow, 'ok'> & { ok?: boolean }): UiRow {
+  const status = input.status ?? (input.ok === false ? 'fail' : 'pass')
+  return { ...input, status, ok: status === 'pass' }
+}
 
 /** The visible text of the rendered view, as the user reads it. */
 async function visibleText(page: Page): Promise<string> {
@@ -72,7 +83,14 @@ async function clickControl(page: Page, name: string): Promise<boolean> {
   return clicked
 }
 
-/** A stable signature of the rendered view, for "did this change?" questions. */
+/**
+ * A stable signature of the rendered view, for "did this change?" questions.
+ *
+ * It carries the view's headings AND the controls that are marked as current
+ * or selected — the rendered content, not the rail. The rail offers every
+ * destination at all times, so a rail-only signature would make every
+ * navigation question trivially true.
+ */
 async function viewSignature(page: Page): Promise<string> {
   return page.evaluate(() => {
     const headings = Array.from(document.querySelectorAll('h1,h2,h3,[role="heading"]'))
@@ -85,7 +103,10 @@ async function viewSignature(page: Page): Promise<string> {
       .map((element) => (element.textContent ?? '').trim().slice(0, 40))
       .filter(Boolean)
       .slice(0, 8)
-    return JSON.stringify({ headings, selected })
+    const landmarks = Array.from(document.querySelectorAll('main,[role="main"]'))
+      .map((element) => (element.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 120))
+      .slice(0, 4)
+    return JSON.stringify({ headings, selected, landmarks })
   })
 }
 
@@ -118,9 +139,14 @@ export async function runInstalledAppUiRows(
       return undefined
     }
   }
-  const add = (row: UiRow) => {
-    rows.push(row)
+  const add = (entry: UiRow) => {
+    rows.push(entry)
   }
+
+  /** The rendered signature of each destination, as it was actually observed. */
+  let homeSignature = ''
+  let chatSignature = ''
+  let devSignature = ''
 
   try {
     await page.goto(origin, { waitUntil: 'domcontentloaded', timeout: 60_000 })
@@ -133,90 +159,103 @@ export async function runInstalledAppUiRows(
       .catch(() => undefined)
     const firstRunText = await visibleText(page)
     const railPresent = await hasControl(page, 'Chat view')
-    add({
-      id: 'ui-first-run-opens-a-guest-workspace',
-      expected:
-        'the installed application opens into a guest workspace with its rail (Chat, Dev, App Library) available',
-      actual: railPresent
-        ? 'the guest workspace rendered with its rail entries'
-        : `the rail never appeared; the rendered view was "${firstRunText.slice(0, 120)}"`,
-      ok: railPresent,
-      evidence: 'installed-app-origin',
-      screenshot: await shoot('first-run'),
-    })
+    add(
+      row({
+        id: 'ui-first-run-opens-a-guest-workspace',
+        expected:
+          'the installed application opens into a guest workspace with its rail (Chat, Dev, App Library) available',
+        actual: railPresent
+          ? 'the guest workspace rendered with its rail entries'
+          : `the rail never appeared; the rendered view was "${firstRunText.slice(0, 120)}"`,
+        status: railPresent ? 'pass' : 'fail',
+        evidence: 'installed-app-origin',
+        screenshot: await shoot('first-run'),
+      })
+    )
 
-    const homeSignature = await viewSignature(page)
+    homeSignature = await viewSignature(page)
 
     // 2. The Chat view opens.
     const chatClicked = await clickControl(page, 'Chat view')
-    const chatSignature = await viewSignature(page)
+    chatSignature = await viewSignature(page)
     const chatText = await visibleText(page)
-    add({
-      id: 'ui-chat-view-opens',
-      expected: 'the Chat view opens and the rendered view changes',
-      actual: chatClicked
-        ? `the Chat view rendered "${chatText.slice(0, 120)}"`
-        : 'the Chat view control was not present',
-      ok: chatClicked && chatSignature !== homeSignature,
-      evidence: 'installed-app-origin',
-      screenshot: await shoot('chat-view'),
-    })
+    add(
+      row({
+        id: 'ui-chat-view-opens',
+        expected: 'the Chat view opens and the rendered view changes',
+        actual: chatClicked
+          ? `the Chat view rendered "${chatText.slice(0, 120)}"`
+          : 'the Chat view control was not present',
+        status: chatClicked && chatSignature !== homeSignature ? 'pass' : 'fail',
+        evidence: 'installed-app-origin',
+        screenshot: await shoot('chat-view'),
+      })
+    )
 
     // 3. The Dev view opens.
     const devClicked = await clickControl(page, 'Dev view')
-    const devSignature = await viewSignature(page)
+    devSignature = await viewSignature(page)
     const devText = await visibleText(page)
-    add({
-      id: 'ui-dev-view-opens',
-      expected: 'the Dev view opens and the rendered view changes',
-      actual: devClicked
-        ? `the Dev view rendered "${devText.slice(0, 120)}"`
-        : 'the Dev view control was not present',
-      ok: devClicked && devSignature !== chatSignature,
-      evidence: 'installed-app-origin',
-      screenshot: await shoot('dev-view'),
-    })
+    add(
+      row({
+        id: 'ui-dev-view-opens',
+        expected: 'the Dev view opens and the rendered view changes',
+        actual: devClicked
+          ? `the Dev view rendered "${devText.slice(0, 120)}"`
+          : 'the Dev view control was not present',
+        status: devClicked && devSignature !== chatSignature ? 'pass' : 'fail',
+        evidence: 'installed-app-origin',
+        screenshot: await shoot('dev-view'),
+      })
+    )
 
     // 4. The App Library opens, and the optional entries are reachable.
     const libraryClicked = await clickControl(page, 'App Library')
     const libraryText = await visibleText(page)
+    const librarySignature = await viewSignature(page)
     // The library names its optional destinations as the product names them:
     // Virtual, Kanban and Source control.
     const optionalEntries = ['Virtual', 'Kanban', 'Source control'].map((name) => ({
       name,
       present: libraryText.includes(name),
     }))
-    add({
-      id: 'ui-app-library-opens',
-      expected: 'the App Library opens and lists the optional destinations it offers',
-      actual: libraryClicked
-        ? `the App Library rendered "${libraryText.slice(0, 120)}"`
-        : 'the App Library control was not present',
-      ok: libraryClicked,
-      evidence: 'installed-app-origin',
-      screenshot: await shoot('app-library'),
-    })
-    add({
-      id: 'ui-default-destinations-are-chat-and-dev',
-      expected: 'the App Library offers Chat and Dev as the destinations that are on by default',
-      actual: libraryText.includes('Chat and Dev are on by default')
-        ? 'the library states that Chat and Dev are on by default'
-        : 'the library did not state its default destinations',
-      ok: libraryText.includes('Chat and Dev are on by default'),
-      evidence: 'installed-app-origin',
-      screenshot: await shoot('app-library-defaults'),
-    })
-    add({
-      id: 'ui-optional-destinations-are-offered',
-      expected:
-        'the optional destinations (Virtual, Kanban, SourceTree) are offered by the App Library, whether or not they are enabled',
-      actual: `the App Library offered ${optionalEntries
-        .map((entry) => `${entry.name}: ${entry.present ? 'present' : 'absent'}`)
-        .join(', ')}; it rendered "${libraryText.slice(0, 400)}"`,
-      ok: optionalEntries.every((entry) => entry.present),
-      evidence: 'installed-app-origin',
-      screenshot: await shoot('app-library-optional'),
-    })
+    add(
+      row({
+        id: 'ui-app-library-opens',
+        expected: 'the App Library opens and lists the optional destinations it offers',
+        actual: libraryClicked
+          ? `the App Library rendered "${libraryText.slice(0, 120)}"`
+          : 'the App Library control was not present',
+        status: libraryClicked && librarySignature !== devSignature ? 'pass' : 'fail',
+        evidence: 'installed-app-origin',
+        screenshot: await shoot('app-library'),
+      })
+    )
+    add(
+      row({
+        id: 'ui-default-destinations-are-chat-and-dev',
+        expected: 'the App Library offers Chat and Dev as the destinations that are on by default',
+        actual: libraryText.includes('Chat and Dev are on by default')
+          ? 'the library states that Chat and Dev are on by default'
+          : 'the library did not state its default destinations',
+        status: libraryText.includes('Chat and Dev are on by default') ? 'pass' : 'fail',
+        evidence: 'installed-app-origin',
+        screenshot: await shoot('app-library-defaults'),
+      })
+    )
+    add(
+      row({
+        id: 'ui-optional-destinations-are-offered',
+        expected:
+          'the optional destinations (Virtual, Kanban, Source control) are offered by the App Library, whether or not they are enabled',
+        actual: `the App Library offered ${optionalEntries
+          .map((entry) => `${entry.name}: ${entry.present ? 'present' : 'absent'}`)
+          .join(', ')}`,
+        status: optionalEntries.every((entry) => entry.present) ? 'pass' : 'fail',
+        evidence: 'installed-app-origin',
+        screenshot: await shoot('app-library-optional'),
+      })
+    )
 
     // 5. Back and forward.
     await clickControl(page, 'Chat view')
@@ -225,17 +264,24 @@ export async function runInstalledAppUiRows(
     const afterBack = await viewSignature(page)
     const forwardClicked = await clickControl(page, 'Forward')
     const afterForward = await viewSignature(page)
-    add({
-      id: 'ui-back-and-forward-navigate',
-      expected: 'Back returns to the previous view and Forward returns to the later one',
-      actual:
-        backClicked && forwardClicked
-          ? `back changed the view: ${afterBack !== afterChat}; forward restored it: ${afterForward === afterChat}`
-          : 'the Back or Forward control was not present',
-      ok: backClicked && forwardClicked && afterBack !== afterChat && afterForward === afterChat,
-      evidence: 'installed-app-origin',
-      screenshot: await shoot('back-forward'),
-    })
+    add(
+      row({
+        id: 'ui-back-and-forward-navigate',
+        expected: 'Back returns to the previous view and Forward returns to the later one',
+        actual:
+          backClicked && forwardClicked
+            ? `back changed the view: ${afterBack !== afterChat}; forward restored it: ${
+                afterForward === afterChat
+              }`
+            : 'the Back or Forward control was not present',
+        status:
+          backClicked && forwardClicked && afterBack !== afterChat && afterForward === afterChat
+            ? 'pass'
+            : 'fail',
+        evidence: 'installed-app-origin',
+        screenshot: await shoot('back-forward'),
+      })
+    )
 
     // 6. A repeated request is idempotent.
     await clickControl(page, 'Chat view')
@@ -248,38 +294,61 @@ export async function runInstalledAppUiRows(
     await clickControl(page, 'Chat view')
     await page.waitForTimeout(2_500)
     const repeatedAfter = await viewSignature(page)
-    add({
-      id: 'ui-repeated-navigation-is-idempotent',
-      expected: 'repeating the same navigation request leaves the view exactly as it was',
-      actual: `three requests to the same destination left the view ${
-        repeatedBefore === repeatedAfter ? 'unchanged' : 'changed'
-      }`,
-      ok: repeatedBefore === repeatedAfter,
-      evidence: 'installed-app-origin',
-      screenshot: await shoot('repeated-navigation'),
-    })
+    add(
+      row({
+        id: 'ui-repeated-navigation-is-idempotent',
+        expected: 'repeating the same navigation request leaves the view exactly as it was',
+        actual: `three requests to the same destination left the view ${
+          repeatedBefore === repeatedAfter ? 'unchanged' : 'changed'
+        }`,
+        status: repeatedBefore === repeatedAfter ? 'pass' : 'fail',
+        evidence: 'installed-app-origin',
+        screenshot: await shoot('repeated-navigation'),
+      })
+    )
 
     // 7. An interrupted navigation settles on the last request.
+    //
+    // The observation is the RENDERED view, and it is compared with the
+    // signature the Dev view produced when it was opened on its own. The
+    // permanent Dev rail entry proves nothing about an interruption: it is
+    // present before and after any navigation, so a row that only looks for
+    // it is true by construction.
+    await clickControl(page, 'Chat view')
+    const interruptedFrom = await viewSignature(page)
     await page.evaluate(() => {
       const rail = Array.from(document.querySelectorAll('button')).find(
-        (element) => element.getAttribute('aria-label') === 'Chat view'
+        (element) => element.getAttribute('aria-label') === 'Dev view'
       ) as HTMLElement | undefined
       rail?.click()
     })
-    await clickControl(page, 'Dev view')
+    await page.waitForTimeout(2_500)
+    const settled = await viewSignature(page)
     const settledText = await visibleText(page)
-    const settledDev = await hasControl(page, 'Dev view')
-    add({
-      id: 'ui-interrupted-navigation-settles-on-the-last-request',
-      expected:
-        'a navigation interrupted by a second request settles on the second one, with no half-open view left behind',
-      actual: settledDev
-        ? `the view settled on the Dev view ("${settledText.slice(0, 120)}")`
-        : `the view settled on "${settledText.slice(0, 120)}"`,
-      ok: settledDev,
-      evidence: 'installed-app-origin',
-      screenshot: await shoot('interrupted-navigation'),
-    })
+    const distinguishable = devSignature !== '' && devSignature !== chatSignature
+    add(
+      row({
+        id: 'ui-interrupted-navigation-settles-on-the-last-request',
+        expected:
+          'a navigation interrupted by a second request settles on the second one, and the rendered view is the one that request opened',
+        actual: !distinguishable
+          ? 'the Dev view and the Chat view render the same content, so the settled view could not be distinguished'
+          : `the view settled on the Dev view's own rendering (${
+              settled === devSignature ? 'matching' : 'not matching'
+            }); it changed from the interrupted view: ${settled !== interruptedFrom}; it rendered "${settledText.slice(
+              0,
+              120
+            )}"`,
+        status:
+          distinguishable && settled === devSignature && settled !== interruptedFrom
+            ? 'pass'
+            : distinguishable
+              ? 'fail'
+              : 'pending',
+        evidence: 'installed-app-origin',
+        screenshot: await shoot('interrupted-navigation'),
+      })
+    )
 
     // 8. A reload brings the application back into its workspace.
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 60_000 })
@@ -289,16 +358,19 @@ export async function runInstalledAppUiRows(
       })
       .then(() => true)
       .catch(() => false)
-    add({
-      id: 'ui-reload-returns-to-the-workspace',
-      expected: 'reloading the application returns to the workspace, with the client state intact',
-      actual: reloaded
-        ? 'the application returned to the workspace after the reload'
-        : 'the application did not return to the workspace',
-      ok: reloaded,
-      evidence: 'installed-app-origin',
-      screenshot: await shoot('reload'),
-    })
+    add(
+      row({
+        id: 'ui-reload-returns-to-the-workspace',
+        expected:
+          'reloading the application returns to the workspace, with the client state intact',
+        actual: reloaded
+          ? 'the application returned to the workspace after the reload'
+          : 'the application did not return to the workspace',
+        status: reloaded ? 'pass' : 'fail',
+        evidence: 'installed-app-origin',
+        screenshot: await shoot('reload'),
+      })
+    )
 
     // 9. The bridge the installed application injects is present in the page.
     const bridge = await page.evaluate(() => {
@@ -310,64 +382,90 @@ export async function runInstalledAppUiRows(
           typeof desktop === 'object' && desktop !== null ? Object.keys(desktop).slice(0, 20) : [],
       }
     })
-    add({
-      id: 'ui-the-installed-bridge-is-present-in-the-page',
-      expected: 'the page carries the desktop bridge the installed application injects',
-      actual: bridge.present
-        ? `the bridge exposed ${bridge.keys.length} entries`
-        : 'the page carried no desktop bridge',
-      ok: bridge.present,
-      evidence: 'installed-app-origin',
-    })
+    add(
+      row({
+        id: 'ui-the-installed-bridge-is-present-in-the-page',
+        expected: 'the page carries the desktop bridge the installed application injects',
+        actual: bridge.present
+          ? `the bridge exposed ${bridge.keys.length} entries`
+          : 'the page carried no desktop bridge',
+        status: bridge.present ? 'pass' : 'fail',
+        evidence: 'installed-app-origin',
+      })
+    )
 
-    // 10. The folder flow's command is offered by the installed application's
-    //     own command surface. The native panel is deliberately NOT opened:
-    //     a native panel is a modal on the operator's screen, and cancelling
-    //     it needs an accessibility grant this environment does not have.
-    const folderCommand = await page.evaluate(async () => {
+    // 10. The folder flow's command.
+    //
+    // The command is only PROVED when the installed application's own command
+    // surface exposes it. When the list is not exposed, the row is pending:
+    // invoking the folder pick would open the native panel, a modal on the
+    // operator's screen that needs an accessibility grant this run does not
+    // have, so the row cannot be proved by calling it either.
+    const folderCommand = await page.evaluate(() => {
       const desktop = (
         window as unknown as {
-          __adeaDesktop?: { invoke?: (command: string, payload?: unknown) => Promise<unknown> }
+          __adeaDesktop?: {
+            invoke?: (command: string, payload?: unknown) => Promise<unknown>
+            commands?: string[]
+          }
         }
       ).__adeaDesktop
-      if (typeof desktop?.invoke !== 'function') return 'no invoke surface'
-      const commands = (desktop as unknown as { commands?: string[] }).commands
-      return Array.isArray(commands) ? commands.join(',') : 'the command list is not exposed'
+      if (typeof desktop?.invoke !== 'function') return { state: 'no-invoke' as const, list: [] }
+      const list = Array.isArray(desktop.commands) ? desktop.commands : []
+      return { state: 'invoked' as const, list }
     })
-    add({
-      id: 'ui-folder-flow-command-is-offered',
-      expected:
-        'the installed application offers the folder-pick command on its own command surface (the native panel itself is not opened)',
-      actual: `the command surface answered "${folderCommand}"`,
-      ok: folderCommand !== 'no invoke surface',
-      evidence: 'installed-app-origin',
-    })
+    const folderCommandNames = folderCommand.list.filter((name) => /folder|pick/i.test(name))
+    add(
+      row({
+        id: 'ui-folder-flow-command-is-offered',
+        expected:
+          "the installed application exposes the folder-pick command on its own command surface, so the flow's command is proved rather than assumed",
+        actual:
+          folderCommand.state === 'no-invoke'
+            ? 'the installed application exposed no invoke surface at all'
+            : folderCommandNames.length === 0
+              ? `the command surface exposed ${folderCommand.list.length} command(s) and none of them is the folder pick; the command list is ${
+                  folderCommand.list.length === 0
+                    ? 'not exposed'
+                    : 'exposed without the folder pick'
+                }`
+              : `the command surface exposed ${folderCommandNames.join(', ')}`,
+        status:
+          folderCommand.state === 'no-invoke'
+            ? 'fail'
+            : folderCommandNames.length > 0
+              ? 'pass'
+              : 'pending',
+        evidence: 'installed-app-origin',
+      })
+    )
 
     // 11. The client never raised an uncaught error during the whole run.
-    add({
-      id: 'ui-no-uncaught-client-error',
-      expected: 'the client raised no uncaught error while the rows ran',
-      actual:
-        pageErrors.length === 0
-          ? 'the client raised no uncaught error'
-          : `the client raised ${pageErrors.length} uncaught errors: ${pageErrors[0] ?? ''}`,
-      ok: pageErrors.length === 0,
-      evidence: 'installed-app-origin',
-    })
+    add(
+      row({
+        id: 'ui-no-uncaught-client-error',
+        expected: 'the client raised no uncaught error while the rows ran',
+        actual:
+          pageErrors.length === 0
+            ? 'the client raised no uncaught error'
+            : `the client raised ${pageErrors.length} uncaught errors: ${pageErrors[0] ?? ''}`,
+        status: pageErrors.length === 0 ? 'pass' : 'fail',
+        evidence: 'installed-app-origin',
+      })
+    )
   } catch (error) {
-    add({
-      id: 'ui-rows-completed',
-      expected: 'the UI rows ran against the installed application origin',
-      actual: `the UI run stopped early: ${error instanceof Error ? error.message : String(error)}`,
-      ok: false,
-      evidence: 'installed-app-origin',
-    })
+    add(
+      row({
+        id: 'ui-rows-completed',
+        expected: 'the UI rows ran against the installed application origin',
+        actual: `the UI run stopped early: ${error instanceof Error ? error.message : String(error)}`,
+        status: 'fail',
+        evidence: 'installed-app-origin',
+      })
+    )
   } finally {
     await browser.close()
   }
 
   return rows
 }
-
-/** The rail entries the desktop client offers, for the report. */
-export const INSTALLED_APP_RAIL_ENTRIES: readonly string[] = RAIL_ENTRIES

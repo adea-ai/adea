@@ -275,19 +275,19 @@ installed application reports that state instead of pretending to work.
 
 ## 8. Commands and results
 
-| Command                                                                           | Result                                                                             |
-| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `bun install --frozen-lockfile`                                                   | 823 packages, exit 0 (both the lane tree and the integration tree)                 |
-| `bun run --cwd apps/desktop shell:client:build`                                   | client built (local target, `http://localhost:3000`)                               |
-| `bunx --bun electrobun build` (apps/desktop/shell)                                | `dev-macos-arm64/Adea-dev.app` built — Electrobun 2.0.4, CEF and Bun 1.4.0 bundled |
-| `bun run --cwd packages/db db:migrate`                                            | 60 migrations applied and verified                                                 |
-| `bun run --cwd apps/web dev` (no provider endpoint configured)                    | local cloud on `http://localhost:3000`; server log contains no `neon`              |
-| `bun scripts/installed-app-acceptance.ts --app-bundle … --artifact … --profile …` | **21 passed, 1 failed, 22 rows** (row 6, §6.2)                                     |
-| `bun test tests/boot-credential-store.test.ts` (apps/desktop)                     | 7 pass, 0 fail, 15 assertions                                                      |
-| `bun test scripts/installed-app-acceptance.test.ts`                               | 11 pass, 0 fail, 22 assertions                                                     |
-| `bun check -p shell/tsconfig.json` (apps/desktop)                                 | no type errors in 229 files                                                        |
-| pre-commit hook (`vp run orch:typecheck`)                                         | 33/33 successful, no type errors in 324 files                                      |
-| `bunx oxlint --deny-warnings` on the changed files                                | exit 0                                                                             |
+| Command                                                                                  | Result                                                                                                                                          |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun install --frozen-lockfile`                                                          | 823 packages, exit 0 (both the lane tree and the integration tree)                                                                              |
+| `bun run --cwd apps/desktop shell:client:build`                                          | client built (local target, `http://localhost:3000`)                                                                                            |
+| `bunx --bun electrobun build` (apps/desktop/shell)                                       | `dev-macos-arm64/Adea-dev.app` built — Electrobun 2.0.4, CEF and Bun 1.4.0 bundled                                                              |
+| `bun run --cwd packages/db db:migrate`                                                   | 60 migrations applied and verified                                                                                                              |
+| `bun run --cwd apps/web dev` (no provider endpoint configured)                           | local cloud on `http://localhost:3000`; server log contains no `neon`                                                                           |
+| `bun scripts/installed-app-acceptance.ts --app-bundle … --artifact … --profile-parent …` | **21 passed, 1 failed, 22 rows** (row 6, §6.2) — the run predates the safety repair of §13, and the entry point was not executed again after it |
+| `bun test tests/boot-credential-store.test.ts` (apps/desktop)                            | 7 pass, 0 fail, 15 assertions                                                                                                                   |
+| `bun test scripts/installed-app-acceptance.test.ts`                                      | 11 pass, 0 fail, 22 assertions                                                                                                                  |
+| `bun check -p shell/tsconfig.json` (apps/desktop)                                        | no type errors in 229 files                                                                                                                     |
+| pre-commit hook (`vp run orch:typecheck`)                                                | 33/33 successful, no type errors in 324 files                                                                                                   |
+| `bunx oxlint --deny-warnings` on the changed files                                       | exit 0                                                                                                                                          |
 
 ## 9. What the run left behind
 
@@ -322,6 +322,74 @@ lane (`scripts/installed-app-acceptance*.ts`), and this record. The held
 Railway guide/MATRIX scope, the #1497 recovery scope, the packaged-lane
 scope (PR #1509), and the auth, Sim, Pi and task-cache lanes are untouched,
 and their work was neither taken over nor duplicated.
+
+## 13. The safety repair (root-verified defects at `7ba2fba`)
+
+Root personally verified concrete defects in the reviewed lane and asked for a
+source repair. This section records what changed, what it is proven by, and
+what is deliberately **not** yet proven.
+
+### The defects and the repair
+
+| Defect                                                                                                                                                               | Repair                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| The lane recursively removed an arbitrary caller-selected `--profile` root before creating it, and removed it again after writing the default artifact **inside** it | the run now creates a **uniquely named** directory (`mkdtemp`) inside a caller-named **parent** (`--profile-parent`). The parent is never removed and never written into outside the unique child. The unique child carries an ownership marker (`.adea-acceptance-owner`, a per-run token). The teardown removes it **only** when that marker still matches the run's token, and refuses a directory with no marker, with a foreign marker, or that is the parent itself. The default artifact path is now **outside** the directory the teardown removes, so a run's evidence outlives the run |
+| Application-support cleanup inferred ownership from before/after entry names, so any directory that merely appeared during the run would be deleted                  | ownership is no longer inferred. Exactly **one** path is ever a candidate — the renderer's own profile directory for this application's identity **and** the channel the installed bundle was built for — and only when that exact path did not exist before the run. A path that existed before is never touched, a path outside the identity directory is never touched, and no other entry is ever read for cleanup. The artifact records the decision and states that no other entry was touched                                                                                             |
+| `launchInstalledApp` passed `writeFileSync`'s `void` result to `writeSync`, and swallowed the log failure                                                            | the log now has an **explicit descriptor lifecycle**: `openSync` opens it, the tee writes to that descriptor, `close` closes it once, and a failed write is **counted** and reported in the artifact as `logWriteFailures` instead of being swallowed                                                                                                                                                                                                                                                                                                                                            |
+| The "interrupted navigation" row could pass by observing the permanent Dev rail entry, which is present before and after any navigation                              | the row now compares the **rendered** view's signature with the signature the Dev view produced when it was opened on its own, and requires the settled view to match it and to differ from the interrupted view. The rail is no longer part of the observation. When the Dev and Chat renderings are indistinguishable, the row is `pending`, never a pass                                                                                                                                                                                                                                      |
+| The "folder command" row passed when the command list was unavailable                                                                                                | the row passes only when the installed application's own command surface **exposes** the folder-pick command. When the list is not exposed, the row is `pending` with the reason recorded — invoking the pick would open the native panel, which needs a UI grant this run does not have, so it cannot be proved by calling it either                                                                                                                                                                                                                                                            |
+
+A row that cannot be verified is now a first-class outcome: every row carries
+a `status` of `pass`, `fail` or `pending`; `pending` is **never** a pass, and a
+run with any pending or failed row is not green.
+
+### The negative tests
+
+`scripts/installed-app-acceptance.test.ts` grew from 11 cases to 23. The new
+cases prove the properties root asked for, without touching the lane's
+destructive path:
+
+- a caller-named path that already holds data is left exactly as it was, and
+  survives the teardown;
+- two runs never share a directory;
+- an unrelated directory with **no** ownership marker survives the teardown;
+- a directory carrying another run's marker survives the teardown;
+- the parent directory itself is never removed;
+- the artifact of a run is outside the directory the teardown removes, and is
+  still there afterwards;
+- an application-support path that existed before the run is not removable,
+  and a path outside the identity directory is not removable;
+- the log's descriptor lifecycle writes the bytes, closes, and **counts** a
+  write that arrives after the close;
+- a `pending` row is never counted as a pass.
+
+### What is proven, and what is deferred
+
+**Proven on this head (safe, pure or local checks only):**
+`bun test scripts/installed-app-acceptance.test.ts` → 23 pass, 0 fail, 55
+assertions; `bun test apps/desktop/tests/boot-credential-store.test.ts` → 7
+pass, 0 fail, 15 assertions; `bun check -p apps/desktop/shell/tsconfig.json` →
+no type errors in 229 files; oxlint and oxfmt clean on all three changed
+files.
+
+**Deferred on purpose:** the lane's **entry point** and any check that
+invokes its launch path were **not** executed after this repair, until root
+reviews it. That means the repaired teardown, the repaired application-support
+decision, the repaired log lifecycle and the two repaired UI rows are proven
+by unit and static evidence only; the installed-application run of §4 remains
+the run of the **pre-repair** code, and its row verdicts are those of that
+run. The dynamic re-run is a bounded, reproducible next step:
+
+```sh
+bun scripts/installed-app-acceptance.ts \
+  --app-bundle apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app \
+  --artifact <artifact>/installed-app-acceptance.json \
+  --profile-parent <a directory this run may create children in>
+```
+
+with the expectation that the run creates a uniquely named child, writes the
+artifact outside it, removes only that child, and leaves every other path on
+the machine untouched.
 
 ## 12. Publication
 

@@ -25,10 +25,19 @@
 // installed application's own origin, through the installed application's own
 // bridge and gateway, and each row records which of the two it is.
 //
-// SAFETY RULES THIS LANE KEEPS:
-//   - it never deletes real user data. It removes only the disposable profile
-//     root it created, and the one application-support subtree that did not
-//     exist before the run;
+// SAFETY RULES THIS LANE KEEPS, and how each one is enforced:
+//   - it never deletes a path it did not create. The run's directory is a
+//     UNIQUELY created child of a caller-named PARENT, and it carries an
+//     ownership marker; the teardown removes it only when that marker still
+//     matches this run. A caller-named path is never a removal target, and
+//     two runs never share a directory;
+//   - the artifact is written OUTSIDE the directory the teardown removes, so
+//     the evidence of a run always outlives the run;
+//   - it never deletes unrelated application-support data. Exactly ONE path is
+//     even a candidate for removal: the renderer's own profile directory for
+//     this application's identity AND channel, and only when that exact path
+//     did not exist before the run. Nothing is inferred from a before/after
+//     listing, and no other entry is ever touched;
 //   - it never installs into the user's /Applications: the installed copy
 //     lives in the disposable install root and is registered with
 //     LaunchServices explicitly, and deregistered at teardown;
@@ -38,21 +47,28 @@
 //     candidate bundle records.
 //
 // Usage:
-//   bun apps/desktop/shell/scripts/installed-app-acceptance.ts \
-//     --app-bundle <path to Adea-dev.app> [--artifact <path>] [--profile <dir>]
+//   bun scripts/installed-app-acceptance.ts --app-bundle <path to Adea-dev.app> \
+//     [--artifact <path>] [--profile-parent <dir>]
+//
+// `--profile-parent` names the PARENT directory the run creates its unique
+// directory in. The parent is never removed, and the run never writes into it
+// outside the unique directory it creates.
 import { spawn, spawnSync } from 'node:child_process'
 import {
+  closeSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
+  openSync,
   readFileSync,
-  readdirSync,
   rmSync,
   statSync,
   writeFileSync,
   writeSync,
 } from 'node:fs'
-import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { basename, dirname, join, resolve } from 'node:path'
+import { randomUUID } from 'node:crypto'
 
 import { runInstalledAppUiRows } from './installed-app-ui-rows'
 
@@ -62,9 +78,20 @@ export const INSTALLED_APP_ORIGIN = 'http://127.0.0.1:4789'
 export const INSTALLED_APP_IDENTIFIER = 'dev.adea.desktop'
 /** The URL scheme the desktop application registers with the operating system. */
 export const INSTALLED_APP_SCHEME = 'adea'
+/** The ownership marker file every directory this lane creates carries. */
+export const ACCEPTANCE_OWNER_MARKER = '.adea-acceptance-owner'
 /** LaunchServices' registration tool, used the way an installer uses it. */
 const LSREGISTER =
   '/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister'
+
+/**
+ * The outcome of one matrix row.
+ *
+ * `pending` is NOT a pass: it means the row could not be verified with the
+ * authority this run has, and it keeps the run's verdict red. A hidden
+ * unfinished flow is exactly what this lane exists to prevent.
+ */
+export type AcceptanceStatus = 'pass' | 'fail' | 'pending'
 
 /** One row of the acceptance matrix. */
 export type AcceptanceCheck = Readonly<{
@@ -73,7 +100,10 @@ export type AcceptanceCheck = Readonly<{
   expected: string
   /** What was observed. */
   actual: string
+  /** Whether the row held. */
   ok: boolean
+  /** The row's outcome; `pending` is never a pass. */
+  status: AcceptanceStatus
   /**
    * How the answer was obtained. `installed-app` means the installed process
    * or the operating system answered; `installed-app-origin` means the
@@ -83,9 +113,17 @@ export type AcceptanceCheck = Readonly<{
   evidence: 'installed-app' | 'installed-app-origin' | 'host'
 }>
 
+/** Builds a row, deriving `ok` from the status. */
+export function acceptanceRow(
+  row: Omit<AcceptanceCheck, 'ok'> & { ok?: boolean }
+): AcceptanceCheck {
+  const status = row.status ?? (row.ok === false ? 'fail' : 'pass')
+  return { ...row, status, ok: status === 'pass' }
+}
+
 /** The disposable profile layout one acceptance run uses. */
 export type AcceptanceProfile = Readonly<{
-  /** The root this run owns. Everything under it is removed at teardown. */
+  /** The unique directory this run owns. Everything under it is removed at teardown. */
   root: string
   /** The disposable HOME the installed application is launched with. */
   home: string
@@ -97,7 +135,7 @@ export type AcceptanceProfile = Readonly<{
   installedApp: string
 }>
 
-/** Resolves the disposable profile layout for one run. */
+/** Resolves the disposable profile layout for one run's own directory. */
 export function resolveAcceptanceProfile(
   root: string,
   appName = 'Adea-dev.app'
@@ -113,21 +151,144 @@ export function resolveAcceptanceProfile(
 }
 
 /**
+ * A directory this run created, and the token that proves it owns it.
+ *
+ * The directory is created UNIQUE (the operating system guarantees the name
+ * is not in use), so two runs never share it and a caller-named path is never
+ * a removal target. The token is written into the directory as an ownership
+ * marker; the teardown refuses to remove a directory whose marker does not
+ * match.
+ */
+export type DisposableRoot = Readonly<{
+  /** The unique directory this run created. */
+  path: string
+  /** The token that proves this run owns the directory. */
+  token: string
+  /** The marker file inside the directory. */
+  markerPath: string
+  /** The parent the unique directory was created in. */
+  parent: string
+}>
+
+/**
+ * Creates the unique directory one run owns.
+ *
+ * The caller names a PARENT. The parent is only used as the place the unique
+ * child is created in; it is never created, never written into and never
+ * removed. The unique child carries the ownership marker.
+ */
+export function createDisposableRoot(
+  options: {
+    parent?: string
+    prefix?: string
+    token?: string
+  } = {}
+): DisposableRoot {
+  const parent = resolve(options.parent ?? tmpdir())
+  mkdirSync(parent, { recursive: true })
+  const path = mkdtempSync(join(parent, options.prefix ?? 'adea-acceptance-'))
+  const token = options.token ?? randomUUID()
+  const markerPath = join(path, ACCEPTANCE_OWNER_MARKER)
+  writeFileSync(markerPath, `${token}\n`, { mode: 0o600 })
+  return { path, token, markerPath, parent }
+}
+
+/** The outcome of a teardown attempt. */
+export type RootRemoval = Readonly<{ removed: boolean; reason: string }>
+
+/**
+ * Removes a directory this run created, and nothing else.
+ *
+ * The directory is removed only when its ownership marker still carries this
+ * run's token. A directory without a marker, with a different marker, or one
+ * that is not inside the parent it was created in, is left exactly as it is.
+ */
+export function removeOwnedRoot(root: DisposableRoot): RootRemoval {
+  let marker: string
+  try {
+    marker = readFileSync(root.markerPath, 'utf8').trim()
+  } catch {
+    return { removed: false, reason: 'the directory carries no ownership marker' }
+  }
+  if (marker !== root.token) {
+    return { removed: false, reason: 'the directory carries another run’s ownership marker' }
+  }
+  if (resolve(root.path) === resolve(root.parent)) {
+    return { removed: false, reason: 'the directory is the parent itself' }
+  }
+  if (!resolve(root.path).startsWith(resolve(root.parent) + '/')) {
+    return { removed: false, reason: 'the directory is outside the parent it was created in' }
+  }
+  try {
+    rmSync(root.path, { force: true, recursive: true })
+  } catch {
+    return { removed: false, reason: 'the directory could not be removed' }
+  }
+  return { removed: true, reason: 'the directory this run created was removed' }
+}
+
+/**
+ * The renderer's own profile directory for this application's identity and
+ * channel — the ONE path outside the disposable directory that the installed
+ * application writes to.
+ */
+export function resolveOwnedApplicationSupportPath(options: {
+  identifier?: string
+  channel?: string
+  home?: string
+}): string {
+  const identifier = options.identifier ?? INSTALLED_APP_IDENTIFIER
+  const channel = options.channel ?? 'dev'
+  return join(options.home ?? homedir(), 'Library', 'Application Support', identifier, channel)
+}
+
+/** The outcome of the application-support cleanup decision. */
+export type ApplicationSupportCleanup = Readonly<{ remove: boolean; reason: string }>
+
+/**
+ * Decides whether ONE application-support path may be removed.
+ *
+ * The decision never infers ownership from a before/after listing. A path is
+ * removable only when it is the exact expected path for this application's
+ * identity and channel, and that exact path did not exist before the run. A
+ * path that existed before belongs to the operator and is never touched.
+ */
+export function planApplicationSupportCleanup(input: {
+  path: string
+  existedBefore: boolean
+  expectedParent: string
+}): ApplicationSupportCleanup {
+  if (input.existedBefore) {
+    return { remove: false, reason: 'the path existed before this run and is not this run’s' }
+  }
+  if (!resolve(input.path).startsWith(resolve(input.expectedParent) + '/')) {
+    return { remove: false, reason: 'the path is outside the application identity directory' }
+  }
+  return {
+    remove: true,
+    reason: 'the exact path this run’s installation writes did not exist before the run',
+  }
+}
+
+/**
  * The verdict of one run: every row, and the counts.
  *
- * A run is a pass only when every row passed. A row that could not be run is
- * a FAIL, not a skip: a hidden unfinished flow is exactly what this lane
- * exists to prevent.
+ * A run is a pass only when every row is `pass`. A row that failed and a row
+ * that could not be verified are both counted as not-passed: a hidden
+ * unfinished flow is exactly what this lane exists to prevent.
  */
 export function summarizeAcceptance(checks: readonly AcceptanceCheck[]): {
   passed: number
   failed: number
+  pending: number
   total: number
   ok: boolean
 } {
-  const passed = checks.filter((check) => check.ok).length
+  const passed = checks.filter((check) => check.status === 'pass').length
+  const pending = checks.filter((check) => check.status === 'pending').length
+  const failed = checks.filter((check) => check.status === 'fail').length
   const total = checks.length
-  return { passed, failed: total - passed, total, ok: total > 0 && passed === total }
+  return { passed, failed, pending, total, ok: total > 0 && passed === total }
 }
 
 /**
@@ -145,6 +306,57 @@ export function redactRecordedText(text: string, home = homedir()): string {
   )
   output = output.replace(/\/(?:private\/)?tmp\/[^\s"']+/g, '/tmp/<redacted>')
   return output
+}
+
+/**
+ * The run's log file, with an EXPLICIT file-descriptor lifecycle.
+ *
+ * The descriptor is opened when the application starts and closed when the
+ * application stops. A write that fails is COUNTED and reported in the
+ * artifact; it is never swallowed, because a silent log is a silent gap in
+ * the evidence.
+ */
+export type AcceptanceLog = Readonly<{
+  path: string
+  /** The number of writes that failed. */
+  failures: () => number
+  /** Writes a chunk; returns false when the write failed. */
+  write: (chunk: Buffer) => boolean
+  /** Closes the descriptor. Safe to call more than once. */
+  close: () => void
+}>
+
+/** Opens the run's log file with an explicit descriptor lifecycle. */
+export function openAcceptanceLog(path: string): AcceptanceLog {
+  const descriptor = openSync(path, 'w')
+  let failures = 0
+  let closed = false
+  return {
+    path,
+    failures: () => failures,
+    write(chunk: Buffer) {
+      if (closed) {
+        failures += 1
+        return false
+      }
+      try {
+        writeSync(descriptor, chunk)
+        return true
+      } catch {
+        failures += 1
+        return false
+      }
+    },
+    close() {
+      if (closed) return
+      closed = true
+      try {
+        closeSync(descriptor)
+      } catch {
+        failures += 1
+      }
+    },
+  }
 }
 
 function argValue(name: string): string | undefined {
@@ -183,11 +395,6 @@ function directoryMode(path: string): string | null {
   }
 }
 
-/** The user's real application-support directory for this application's identity. */
-function realApplicationSupportRoot(): string {
-  return join(homedir(), 'Library', 'Application Support', INSTALLED_APP_IDENTIFIER)
-}
-
 /** The bundle's own recorded build target (the cloud origin it was built for). */
 function readBuildTarget(installedApp: string): { mode?: string; cloudOrigin?: string } | null {
   try {
@@ -198,6 +405,18 @@ function readBuildTarget(installedApp: string): { mode?: string; cloudOrigin?: s
     return JSON.parse(text) as { mode?: string; cloudOrigin?: string }
   } catch {
     return null
+  }
+}
+
+/** The channel the installed bundle was built for. */
+function readBundleChannel(installedApp: string): string {
+  try {
+    const identity = JSON.parse(
+      readFileSync(join(installedApp, 'Contents', 'Resources', 'version.json'), 'utf8')
+    ) as { channel?: unknown }
+    return typeof identity.channel === 'string' ? identity.channel : 'dev'
+  } catch {
+    return 'dev'
   }
 }
 
@@ -219,9 +438,11 @@ function bundleDeclaresScheme(installedApp: string): boolean {
  * bundle's code signature still matches its contents. A plain copy breaks the
  * sealed resources, and the operating system then refuses to route a URL to
  * the copy. The bundle is never re-signed.
+ *
+ * The install root is inside the run's own directory, which the run created
+ * and owns; nothing outside it is removed.
  */
 function installBundle(sourceBundle: string, profile: AcceptanceProfile): void {
-  rmSync(profile.installRoot, { force: true, recursive: true })
   mkdirSync(profile.installRoot, { recursive: true })
   const copied = spawnSync('/usr/bin/ditto', [sourceBundle, profile.installedApp], {
     stdio: 'inherit',
@@ -267,7 +488,7 @@ function registerWithLaunchServices(installedApp: string): boolean {
 
 /** Removes the installed copy from LaunchServices. */
 function deregisterFromLaunchServices(installedApp: string): void {
-  spawnSync(LSREGISTER, ['-u', installedApp], { encoding: 'utf8' })
+  spawnSync(LSREGISTER, ['-u', installedApp], { stdio: 'ignore' })
 }
 
 type RunningApp = {
@@ -275,7 +496,9 @@ type RunningApp = {
   pid: number
   /** The installed application's log, as the launcher wrote it. */
   logPath: string
-  /** Stops the installed application, including its bundled runtime. */
+  /** The number of log writes that failed. */
+  logWriteFailures: () => number
+  /** Stops the installed application and closes its log descriptor. */
   stop(): void
 }
 
@@ -283,6 +506,7 @@ type RunningApp = {
 function launchInstalledApp(profile: AcceptanceProfile): RunningApp {
   const logPath = join(profile.root, 'installed-app.log')
   const launcher = join(profile.installedApp, 'Contents', 'MacOS', 'launcher')
+  const log = openAcceptanceLog(logPath)
   const child = spawn(launcher, [], {
     cwd: profile.root,
     env: {
@@ -293,25 +517,25 @@ function launchInstalledApp(profile: AcceptanceProfile): RunningApp {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   })
-  const log = writeFileSync(logPath, '')
   const tee = (chunk: Buffer) => {
-    try {
-      writeSync(log, chunk)
-    } catch {
-      /* the log is evidence, never a reason to fail the lane */
-    }
+    log.write(chunk)
   }
   child.stdout?.on('data', tee)
   child.stderr?.on('data', tee)
+  let stopped = false
   return {
     pid: child.pid ?? -1,
     logPath,
+    logWriteFailures: () => log.failures(),
     stop() {
+      if (stopped) return
+      stopped = true
       try {
         child.kill('SIGTERM')
       } catch {
         /* the process may already be gone */
       }
+      log.close()
     },
   }
 }
@@ -323,8 +547,7 @@ function launchInstalledApp(profile: AcceptanceProfile): RunningApp {
  * application. When several copies are registered — a stale build output of
  * another lane, for instance — the delivery is ambiguous, and a callback
  * aimed at this lane's installation can land in another copy. The lane
- * therefore knows what else is registered, so it can say so in the artifact
- * and narrow the routing for the moment the delivery happens.
+ * therefore knows what else is registered, so it can say so in the artifact.
  */
 function registeredCopiesOf(identifier: string): string[] {
   const dump = spawnSync(LSREGISTER, ['-dump'], {
@@ -399,21 +622,18 @@ export async function runInstalledAppAcceptance(dependencies: {
   openUrl?: (url: string) => void
   /** Runs the UI rows against the installed application's origin. */
   runUiRows?: (origin: string) => Promise<AcceptanceCheck[]>
-  /** The cloud origin the candidate bundle records, for the failure-recovery row. */
-  cloudOrigin?: string
-  /** Whether the local cloud is under this lane's control (for the recovery row). */
-  setCloudAvailable?: (available: boolean) => Promise<void>
   /** Stops the local cloud and reports whether it stopped. */
   stopCloud?: () => Promise<boolean>
   /** Starts the local cloud again. */
   startCloud?: () => Promise<boolean>
 }): Promise<AcceptanceRun> {
   const checks: AcceptanceCheck[] = []
-  /** The competing registrations the delivery suspended, for the artifact. */
+  /** The competing registrations the delivery recorded, for the artifact. */
   let competingCopies: string[] = []
   const add = (check: AcceptanceCheck) => {
     checks.push(check)
-    console.log(`${check.ok ? 'ok  ' : 'FAIL'} ${check.id}: ${check.actual}`)
+    const label = check.status === 'pass' ? 'ok  ' : check.status === 'pending' ? 'PEND ' : 'FAIL'
+    console.log(`${label} ${check.id}: ${check.actual}`)
   }
   const profile = dependencies.profile
   const launch = dependencies.launch ?? launchInstalledApp
@@ -429,63 +649,75 @@ export async function runInstalledAppAcceptance(dependencies: {
 
   // 1. The installed bundle's own identity.
   const target = readBuildTarget(profile.installedApp)
-  add({
-    id: 'installed-bundle-identity',
-    expected: `the installed bundle declares the ${INSTALLED_APP_SCHEME} URL scheme and carries its build target record`,
-    actual: bundleDeclaresScheme(profile.installedApp)
-      ? `the scheme is declared; the recorded target is ${target?.mode ?? 'missing'} (${target?.cloudOrigin ?? 'no origin'})`
-      : 'the installed bundle does not declare the URL scheme',
-    ok: bundleDeclaresScheme(profile.installedApp) && target !== null,
-    evidence: 'host',
-  })
+  add(
+    acceptanceRow({
+      id: 'installed-bundle-identity',
+      expected: `the installed bundle declares the ${INSTALLED_APP_SCHEME} URL scheme and carries its build target record`,
+      actual: bundleDeclaresScheme(profile.installedApp)
+        ? `the scheme is declared; the recorded target is ${target?.mode ?? 'missing'} (${target?.cloudOrigin ?? 'no origin'})`
+        : 'the installed bundle does not declare the URL scheme',
+      status: bundleDeclaresScheme(profile.installedApp) && target !== null ? 'pass' : 'fail',
+      evidence: 'host',
+    })
+  )
 
   // 2. The installed application starts and serves its own bundled client.
   let running = launch(profile)
   let logPath = running.logPath
   const served = await waitFor(installedAppAnswers, 60_000, 'the installed application to serve')
-  add({
-    id: 'installed-application-serves-its-own-client',
-    expected:
-      'the installed application answers on its own loopback origin with the client it was packaged with',
-    actual: served
-      ? 'the installed application answered on its own loopback origin'
-      : 'the installed application never answered on its own loopback origin',
-    ok: served,
-    evidence: 'installed-app',
-  })
+  add(
+    acceptanceRow({
+      id: 'installed-application-serves-its-own-client',
+      expected:
+        'the installed application answers on its own loopback origin with the client it was packaged with',
+      actual: served
+        ? 'the installed application answered on its own loopback origin'
+        : 'the installed application never answered on its own loopback origin',
+      status: served ? 'pass' : 'fail',
+      evidence: 'installed-app',
+    })
+  )
 
   if (served) {
     const document = await fetchFromApp('/')
-    add({
-      id: 'the-served-client-is-the-installed-build',
-      expected: 'the served document is the packaged client with the desktop bridge injected',
-      actual: document.body.includes('/__adea/bridge.js')
-        ? 'the served document carries the desktop bridge script'
-        : 'the served document does not carry the desktop bridge script',
-      ok: document.status === 200 && document.body.includes('/__adea/bridge.js'),
-      evidence: 'installed-app',
-    })
+    add(
+      acceptanceRow({
+        id: 'the-served-client-is-the-installed-build',
+        expected: 'the served document is the packaged client with the desktop bridge injected',
+        actual: document.body.includes('/__adea/bridge.js')
+          ? 'the served document carries the desktop bridge script'
+          : 'the served document does not carry the desktop bridge script',
+        status:
+          document.status === 200 && document.body.includes('/__adea/bridge.js') ? 'pass' : 'fail',
+        evidence: 'installed-app',
+      })
+    )
 
     const bridge = await fetchFromApp('/__adea/bridge.js')
-    add({
-      id: 'the-installed-bridge-is-served',
-      expected: "the installed application's bridge script is served by the installed application",
-      actual: `the bridge script answered ${bridge.status}`,
-      ok: bridge.status === 200 && bridge.body.length > 0,
-      evidence: 'installed-app',
-    })
+    add(
+      acceptanceRow({
+        id: 'the-installed-bridge-is-served',
+        expected:
+          "the installed application's bridge script is served by the installed application",
+        actual: `the bridge script answered ${bridge.status}`,
+        status: bridge.status === 200 && bridge.body.length > 0 ? 'pass' : 'fail',
+        evidence: 'installed-app',
+      })
+    )
 
     const proxied = await fetchFromApp('/api/workspaces')
-    add({
-      id: 'the-installed-cloud-proxy-answers',
-      expected:
-        "the installed application's own same-origin proxy forwards the cloud traffic it recorded at build time",
-      actual: `the proxied request answered ${proxied.status}`,
-      // A 401 is the cloud's own answer for an unauthenticated request; a 502
-      // is the installed application's own "the cloud is unreachable".
-      ok: proxied.status !== 502 && proxied.status !== 500,
-      evidence: 'installed-app',
-    })
+    add(
+      acceptanceRow({
+        id: 'the-installed-cloud-proxy-answers',
+        expected:
+          "the installed application's own same-origin proxy forwards the cloud traffic it recorded at build time",
+        actual: `the proxied request answered ${proxied.status}`,
+        // A 401 is the cloud's own answer for an unauthenticated request; a 502
+        // is the installed application's own "the cloud is unreachable".
+        status: proxied.status !== 502 && proxied.status !== 500 ? 'pass' : 'fail',
+        evidence: 'installed-app',
+      })
+    )
 
     // 3. The operating system's own `adea://` handoff into the installed app.
     const marker = `acceptanceMarker${Date.now()}`
@@ -521,18 +753,20 @@ export async function runInstalledAppAcceptance(dependencies: {
     competingCopies = competing.map((path) => redactRecordedText(path))
     const queued = log.includes('queued the adea://auth/callback handoff')
     const refused = /refused an adea:\/\/auth\/callback \(([^)]*)\)/.exec(log)?.[1] ?? null
-    add({
-      id: 'the-operating-system-hands-the-callback-to-the-installed-app',
-      expected:
-        'the operating system routes an adea:// callback into the installed application, which answers it with a typed decision',
-      actual: answered
-        ? queued
-          ? 'the installed application queued the handoff the operating system delivered'
-          : `the installed application refused the delivered callback with a typed reason (${refused ?? 'unknown'})`
-        : 'the installed application never answered the callback the operating system delivered',
-      ok: answered,
-      evidence: 'installed-app',
-    })
+    add(
+      acceptanceRow({
+        id: 'the-operating-system-hands-the-callback-to-the-installed-app',
+        expected:
+          'the operating system routes an adea:// callback into the installed application, which answers it with a typed decision',
+        actual: answered
+          ? queued
+            ? 'the installed application queued the handoff the operating system delivered'
+            : `the installed application refused the delivered callback with a typed reason (${refused ?? 'unknown'})`
+          : 'the installed application never answered the callback the operating system delivered',
+        status: answered ? 'pass' : 'fail',
+        evidence: 'installed-app',
+      })
+    )
 
     // 4a. The installed application's traffic never left the loopback
     //     interface. This is the no-provider proof for this lane: the
@@ -550,17 +784,19 @@ export async function runInstalledAppAcceptance(dependencies: {
     const offLoopback = peers.filter(
       (peer) => !peer.startsWith('127.') && !peer.startsWith('[::1]') && !peer.startsWith('::1')
     )
-    add({
-      id: 'the-installed-application-traffic-stayed-on-the-loopback-interface',
-      expected:
-        'every TCP peer of the installed application is on the loopback interface, so no hosted provider was reached',
-      actual:
-        peers.length === 0
-          ? 'the installed application held no connected TCP socket while it talked to its cloud'
-          : `the installed application talked to ${peers.length} peer(s) while it reached its cloud; ${offLoopback.length} of them off the loopback interface`,
-      ok: offLoopback.length === 0,
-      evidence: 'installed-app',
-    })
+    add(
+      acceptanceRow({
+        id: 'the-installed-application-traffic-stayed-on-the-loopback-interface',
+        expected:
+          'every TCP peer of the installed application is on the loopback interface, so no hosted provider was reached',
+        actual:
+          peers.length === 0
+            ? 'the installed application held no connected TCP socket while it talked to its cloud'
+            : `the installed application talked to ${peers.length} peer(s) while it reached its cloud; ${offLoopback.length} of them off the loopback interface`,
+        status: offLoopback.length === 0 ? 'pass' : 'fail',
+        evidence: 'installed-app',
+      })
+    )
 
     // 4b. The environment the installed application runs with names no Neon
     //     endpoint, so the application cannot reach one even by accident.
@@ -568,17 +804,19 @@ export async function runInstalledAppAcceptance(dependencies: {
       ([name, value]) =>
         /neon/i.test(name) && typeof value === 'string' && /neon\.(tech|build|dev)/i.test(value)
     )
-    add({
-      id: 'the-acceptance-environment-names-no-neon-endpoint',
-      expected:
-        'no environment variable of the acceptance run names a Neon endpoint, so the installed application cannot fall back to one',
-      actual:
-        neonVariables.length === 0
-          ? 'no Neon endpoint is configured in the acceptance environment'
-          : `${neonVariables.length} Neon endpoint variable(s) are configured`,
-      ok: neonVariables.length === 0,
-      evidence: 'host',
-    })
+    add(
+      acceptanceRow({
+        id: 'the-acceptance-environment-names-no-neon-endpoint',
+        expected:
+          'no environment variable of the acceptance run names a Neon endpoint, so the installed application cannot fall back to one',
+        actual:
+          neonVariables.length === 0
+            ? 'no Neon endpoint is configured in the acceptance environment'
+            : `${neonVariables.length} Neon endpoint variable(s) are configured`,
+        status: neonVariables.length === 0 ? 'pass' : 'fail',
+        evidence: 'host',
+      })
+    )
 
     // 4c. The UI rows, over the installed application's own origin.
     if (dependencies.runUiRows) {
@@ -598,47 +836,54 @@ export async function runInstalledAppAcceptance(dependencies: {
     60_000,
     'the installed application to relaunch'
   )
-  add({
-    id: 'the-installed-application-relaunches-with-its-own-state',
-    expected:
-      'the installed application starts again and keeps the state directory it wrote, with owner-only permissions',
-    actual: relaunched
-      ? `the installed application answered again; its state directory is ${modeBefore ?? 'absent'}`
-      : 'the installed application did not answer after the relaunch',
-    ok: relaunched && modeBefore !== null && modeBefore === '700',
-    evidence: 'installed-app',
-  })
+  add(
+    acceptanceRow({
+      id: 'the-installed-application-relaunches-with-its-own-state',
+      expected:
+        'the installed application starts again and keeps the state directory it wrote, with owner-only permissions',
+      actual: relaunched
+        ? `the installed application answered again; its state directory is ${modeBefore ?? 'absent'}`
+        : 'the installed application did not answer after the relaunch',
+      status: relaunched && modeBefore === '700' ? 'pass' : 'fail',
+      evidence: 'installed-app',
+    })
+  )
 
   // 6. Recovery: the application survives a cloud it cannot reach, and
   //    recovers when the cloud comes back.
   if (dependencies.stopCloud && dependencies.startCloud) {
     await dependencies.stopCloud()
     const unreachable = await fetchFromApp('/api/workspaces')
-    add({
-      id: 'the-installed-application-survives-an-unreachable-cloud',
-      expected:
-        'the installed application keeps serving and reports the cloud as unreachable instead of failing',
-      actual: `the proxied request answered ${unreachable.status} while the cloud was down`,
-      ok: unreachable.status === 502,
-      evidence: 'installed-app',
-    })
+    add(
+      acceptanceRow({
+        id: 'the-installed-application-survives-an-unreachable-cloud',
+        expected:
+          'the installed application keeps serving and reports the cloud as unreachable instead of failing',
+        actual: `the proxied request answered ${unreachable.status} while the cloud was down`,
+        status: unreachable.status === 502 ? 'pass' : 'fail',
+        evidence: 'installed-app',
+      })
+    )
     await dependencies.startCloud()
     const recovered = await waitFor(
       async () => (await fetchFromApp('/api/workspaces')).status !== 502,
       60_000,
       'the installed application to reach the cloud again'
     )
-    add({
-      id: 'the-installed-application-recovers-when-the-cloud-returns',
-      expected: 'the installed application reaches the cloud again without a restart',
-      actual: recovered
-        ? 'the installed application reached the cloud again'
-        : 'the installed application never reached the cloud again',
-      ok: recovered,
-      evidence: 'installed-app',
-    })
+    add(
+      acceptanceRow({
+        id: 'the-installed-application-recovers-when-the-cloud-returns',
+        expected: 'the installed application reaches the cloud again without a restart',
+        actual: recovered
+          ? 'the installed application reached the cloud again'
+          : 'the installed application never reached the cloud again',
+        status: recovered ? 'pass' : 'fail',
+        evidence: 'installed-app',
+      })
+    )
   }
 
+  const logWriteFailures = running.logWriteFailures()
   running.stop()
   stopInstalledProcesses(profile.installedApp)
   const summary = summarizeAcceptance(checks)
@@ -651,32 +896,57 @@ export async function runInstalledAppAcceptance(dependencies: {
       bundle: redactRecordedText(dependencies.bundle),
       profileRoot: redactRecordedText(profile.root),
       competingCopies,
+      logWriteFailures,
       checks,
     },
   }
+}
+
+/**
+ * The artifact path a run uses when the caller names none.
+ *
+ * It is OUTSIDE the run's own directory, so the teardown that removes the
+ * directory never removes the evidence the run produced.
+ */
+export function defaultArtifactPath(root: DisposableRoot): string {
+  return join(root.parent, `${basename(root.path)}-installed-app-acceptance.json`)
 }
 
 /** The lane's entry point. */
 async function main(): Promise<void> {
   const bundle = argValue('--app-bundle')
   const artifactPath = argValue('--artifact')
-  const profileRoot = argValue('--profile') ?? join(process.cwd(), '.installed-app-acceptance')
+  const profileParent = argValue('--profile-parent') ?? tmpdir()
   if (!bundle) {
-    console.error('usage: installed-app-acceptance.ts --app-bundle <path> [--artifact <path>]')
+    console.error(
+      'usage: installed-app-acceptance.ts --app-bundle <path> [--artifact <path>] [--profile-parent <dir>]'
+    )
     process.exit(2)
   }
-  const profile = resolveAcceptanceProfile(profileRoot)
-  rmSync(profile.root, { force: true, recursive: true })
+
+  // The run creates its OWN unique directory inside the caller-named parent.
+  // The parent is never removed, and the run never writes into it outside the
+  // directory it created.
+  const root = createDisposableRoot({ parent: profileParent })
+  const profile = resolveAcceptanceProfile(root.path)
   mkdirSync(profile.home, { recursive: true })
   mkdirSync(profile.data, { recursive: true })
 
-  const artifactDirectory = dirname(
-    artifactPath ?? join(profile.root, 'installed-app-acceptance.json')
-  )
-  mkdirSync(artifactDirectory, { recursive: true })
+  // The artifact lives OUTSIDE the directory the teardown removes, so the
+  // evidence of a run always outlives the run.
+  const destination = artifactPath ?? defaultArtifactPath(root)
+  mkdirSync(dirname(destination), { recursive: true })
 
-  const supportRoot = realApplicationSupportRoot()
-  const supportBefore = existsSync(supportRoot) ? readdirSafe(supportRoot) : null
+  // The ONE application-support path this installation writes outside the
+  // disposable directory. Its existence is recorded BEFORE the application
+  // starts, and only this exact path is ever a removal candidate.
+  const supportParent = join(homedir(), 'Library', 'Application Support', INSTALLED_APP_IDENTIFIER)
+  const channel = readBundleChannel(resolve(bundle))
+  const supportPath = resolveOwnedApplicationSupportPath({
+    identifier: INSTALLED_APP_IDENTIFIER,
+    channel,
+  })
+  const supportExistedBefore = existsSync(supportPath)
 
   installBundle(resolve(bundle), profile)
   const registered = registerWithLaunchServices(profile.installedApp)
@@ -692,7 +962,7 @@ async function main(): Promise<void> {
     run = await runInstalledAppAcceptance({
       bundle: resolve(bundle),
       profile,
-      runUiRows: (origin) => runInstalledAppUiRows(origin, artifactDirectory),
+      runUiRows: (origin) => runInstalledAppUiRows(origin, dirname(destination)),
       ...(stopCloudCommand
         ? {
             stopCloud: async () => {
@@ -715,17 +985,21 @@ async function main(): Promise<void> {
     deregisterFromLaunchServices(profile.installedApp)
   }
 
-  const supportAfter = existsSync(supportRoot) ? readdirSafe(supportRoot) : null
-  // The renderer profile the native window writes lives under the real
-  // application-support directory (the native side resolves it from the
-  // operating system, not from the disposable HOME). Only the entries this
-  // run created are removed; anything that existed before is left alone.
-  const created =
-    (supportBefore ?? []).length === 0
-      ? (supportAfter ?? [])
-      : (supportAfter ?? []).filter((entry) => !(supportBefore ?? []).includes(entry))
-  for (const entry of created) {
-    rmSync(join(supportRoot, entry), { force: true, recursive: true })
+  // The application-support decision is made for exactly ONE path, from the
+  // fact that the path did not exist before the run. No other entry under the
+  // application identity is ever touched, and no before/after listing is used
+  // to infer ownership.
+  const cleanup = planApplicationSupportCleanup({
+    path: supportPath,
+    existedBefore: supportExistedBefore,
+    expectedParent: supportParent,
+  })
+  if (cleanup.remove) {
+    try {
+      rmSync(supportPath, { force: true, recursive: true })
+    } catch {
+      cleanup.reason = 'the path this run created could not be removed'
+    }
   }
   run.artifact.launchServices = {
     identifier: INSTALLED_APP_IDENTIFIER,
@@ -734,29 +1008,22 @@ async function main(): Promise<void> {
   }
   delete run.artifact.competingCopies
   run.artifact.applicationSupport = {
-    root: redactRecordedText(supportRoot),
-    before: supportBefore,
-    after: supportAfter,
-    removedByThisRun: created,
+    root: redactRecordedText(supportParent),
+    ownedPath: redactRecordedText(supportPath),
+    existedBefore: supportExistedBefore,
+    removedByThisRun: cleanup.remove,
+    decision: cleanup.reason,
+    otherEntriesTouched: false,
   }
 
-  const destination = artifactPath ?? join(profile.root, 'installed-app-acceptance.json')
-  mkdirSync(dirname(destination), { recursive: true })
   writeFileSync(destination, `${JSON.stringify(run.artifact, null, 2)}\n`)
   console.log(`installed-app acceptance: ${JSON.stringify(run.artifact.summary)} -> ${destination}`)
-  rmSync(profile.root, { force: true, recursive: true })
-  process.exit(run.checks.every((check) => check.ok) ? 0 : 1)
-}
 
-/** The entry names inside a directory, or null when it cannot be read. */
-function readdirSafe(path: string): string[] | null {
-  try {
-    return readdirSync(path, { withFileTypes: true })
-      .map((entry) => entry.name)
-      .toSorted()
-  } catch {
-    return null
-  }
+  // The teardown removes exactly the directory this run created, and only
+  // when its ownership marker still matches.
+  const removal = removeOwnedRoot(root)
+  console.log(`installed-app acceptance: ${removal.reason}`)
+  process.exit(run.checks.every((check) => check.status === 'pass') ? 0 : 1)
 }
 
 if (import.meta.main) {
