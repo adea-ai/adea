@@ -6,9 +6,10 @@
 // no ProxyWorker hop. It never runs against production output or configuration, and
 // every process and socket it creates is reaped before it exits.
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
-import { spawn } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
+import { execFile, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, readFile, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { createServer as createHttpServer } from 'node:http'
 import { request as httpsRequest } from 'node:https'
 import { createServer } from 'node:net'
@@ -16,6 +17,7 @@ import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { Miniflare } from 'miniflare'
+import { disposeBounded, startBounded, withDeadline } from './miniflare-bounds.mjs'
 import { createLoopbackCertificate } from './loopback-tls.mjs'
 import { findFixtureMarkers } from './auth-fixture-markers.mjs'
 
@@ -221,7 +223,7 @@ async function startMiniflare({ built, fixtureServer, port, inspector, tls, vars
     ],
   })
   miniflares.push(mf)
-  await mf.ready
+  await startBounded(mf, { ms: 60_000, signal: controller.signal })
   return mf
 }
 
@@ -274,14 +276,14 @@ async function releaseResources() {
   for (const result of results) if (result.status === 'rejected') failures.push(result.reason)
   for (const mf of miniflares) {
     try {
-      await mf.dispose()
+      await disposeBounded(mf, { ms: 15_000 })
     } catch (error) {
       failures.push(error)
     }
   }
   if (outbox) {
     try {
-      await closeOutbox(outbox)
+      await withDeadline(closeOutbox(outbox), 10_000, 'outbox close')
     } catch (error) {
       failures.push(error)
     }
@@ -289,10 +291,44 @@ async function releaseResources() {
   if (failures.length > 0) throw new AggregateError(failures, 'fixture harness cleanup failed')
 }
 
+// Records what this run ran, so an evidence directory names its own inputs: the harness
+// file, the fixture artifact it served, the Miniflare version, the head and the Node
+// version. Written before any process starts, so a failed run still has it.
+async function writeDiagnostics(directory, built) {
+  const artifact = createHash('sha256')
+    .update(await readFile(resolve(fixtureDist, 'server/wrangler.json')))
+    .update(await readFile(resolve(fixtureDist, 'server', built.main)))
+    .digest('hex')
+  const harness = createHash('sha256')
+    .update(await readFile(fileURLToPath(import.meta.url)))
+    .digest('hex')
+  const head = await new Promise((ok) =>
+    execFile('git', ['rev-parse', 'HEAD'], { cwd: root, timeout: 5_000 }, (error, stdout) =>
+      ok(error ? 'unknown' : stdout.trim())
+    )
+  )
+  await writeFile(
+    resolve(directory, 'diagnostics.json'),
+    JSON.stringify(
+      {
+        head,
+        harnessSha256: harness,
+        fixtureArtifactSha256: artifact,
+        fixtureBuild: fixtureDist,
+        miniflare: createRequire(import.meta.url)('miniflare/package.json').version,
+        node: process.version,
+      },
+      null,
+      2
+    )
+  )
+}
+
 async function acceptFixture() {
   const built = await loadFixtureOutput(fixtureDist)
   await mkdir(resolve(start, '.checks'), { recursive: true })
   const evidence = await mkdtemp(resolve(start, '.checks/fixture-miniflare-'))
+  await writeDiagnostics(evidence, built)
   const tls = createLoopbackCertificate(evidence)
   const authSchema = `auth_worker_${randomUUID().replaceAll('-', '')}`
   const workerApplicationName = `adea_auth_worker_${randomUUID().replaceAll('-', '').slice(0, 12)}`
