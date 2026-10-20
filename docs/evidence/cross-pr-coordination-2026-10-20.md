@@ -157,6 +157,11 @@ The control was checked three ways on 2026-10-20:
 | the qualification in the post-removal surface, with the other lane's **in-progress local** file `89e020b3` substituted in | **14 passed, 0 failed**, 186 assertions                       |
 | a mutation check: a scan that detects nothing at all                                                                      | all three lifecycle cases fail, so the control is not vacuous |
 
+The same run was made against that lane's **current working file**, the state
+that will land next: **14 passed, 0 failed**, 186 assertions, and no provider
+identifier in it. That state is transient, so the rows above name the commits
+and this one names the working file.
+
 The other lane's file was not edited, no provider was restored, and detection
 was not weakened: the marker is still found wherever it appears, and a marker
 the records do not name still fails.
