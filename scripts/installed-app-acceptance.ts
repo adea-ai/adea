@@ -53,7 +53,7 @@
 // `--profile-parent` names the PARENT directory the run creates its unique
 // directory in. The parent is never removed, and the run never writes into it
 // outside the unique directory it creates.
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import {
   closeSync,
   existsSync,
@@ -874,6 +874,8 @@ export type RunningApp = {
   logPath: string
   /** The number of log writes that failed. */
   logWriteFailures: () => number
+  /** The problems the finalization recorded: a teardown that did not complete. */
+  teardownProblems?: () => readonly string[]
   /**
    * Stops the installed application, lets its output drain, and closes its
    * log descriptor.
@@ -912,73 +914,211 @@ function launchInstalledApp(
   }
   child.stdout?.on('data', tee)
   child.stderr?.on('data', tee)
-  let stopped = false
-  return {
-    pid: child.pid ?? -1,
-    logPath,
-    logWriteFailures: () => ledger.count(),
-    async stop() {
-      if (stopped) return
-      stopped = true
+  const stopper = createFinalizingStop({
+    signal: () => {
       try {
         child.kill('SIGTERM')
       } catch {
         /* the process may already be gone */
       }
-      await waitForProcessExit(child)
-      await drainOutput(child)
-      log.close()
     },
+    exit: child,
+    streams: [child.stdout, child.stderr],
+    close: () => log.close(),
+    ledger,
+  })
+  return {
+    pid: child.pid ?? -1,
+    logPath,
+    logWriteFailures: () => ledger.count(),
+    teardownProblems: () => stopper.problems(),
+    stop: () => stopper.stop(),
   }
 }
 
 /**
+ * The probe that reports whether the application process has gone.
+ *
+ * It is a structural type, so a test can inject a process that never exits.
+ */
+export type ProcessExitProbe = {
+  readonly exitCode: number | null
+  readonly signalCode: NodeJS.Signals | null
+  once(event: string, listener: () => void): unknown
+  off(event: string, listener: () => void): unknown
+}
+
+/**
+ * The probe for one output stream of the application.
+ *
+ * It is a structural type, so a test can inject a stream that never ends.
+ */
+export type OutputStreamProbe = {
+  once(event: string, listener: () => void): unknown
+  removeListener?(event: string, listener: () => void): unknown
+  readonly destroyed?: boolean
+  readonly readableEnded?: boolean
+}
+
+/**
+ * What one teardown step achieved, and what it could not achieve.
+ *
+ * A timeout is a FAILURE of the teardown, never a successful wait: a process
+ * that did not exit, or a stream that did not end, may still produce output
+ * after the log descriptor is closed.
+ */
+export type TeardownOutcome = Readonly<{
+  /** Whether the step completed. */
+  completed: boolean
+  /** The fixed reasons the step did not complete. */
+  problems: readonly string[]
+}>
+
+/**
  * Waits for the application process to go, bounded.
  *
- * The bound keeps a stuck process from hanging the run; the log descriptor is
- * closed either way, and the verdict is taken after the finalization.
+ * The bound keeps a stuck process from hanging the run — and the bound is a
+ * FAILURE, not a success: the outcome says the process was not observed to
+ * exit, so the caller can record it before the verdict is taken.
  */
-async function waitForProcessExit(child: ChildProcess, timeoutMs = 10_000): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null) return
-  await new Promise<void>((resolve_) => {
-    const timer = setTimeout(() => {
-      child.off('exit', onExit)
-      resolve_()
-    }, timeoutMs)
-    const onExit = () => {
+export async function waitForProcessExit(
+  probe: ProcessExitProbe,
+  timeoutMs = 10_000
+): Promise<TeardownOutcome> {
+  if (probe.exitCode !== null || probe.signalCode !== null) {
+    return { completed: true, problems: [] }
+  }
+  return new Promise<TeardownOutcome>((resolve_) => {
+    const finish = (completed: boolean, problem?: string) => {
       clearTimeout(timer)
-      resolve_()
+      probe.off('exit', onExit)
+      resolve_({
+        completed,
+        problems: problem === undefined ? [] : [problem],
+      })
     }
-    child.once('exit', onExit)
+    const onExit = () => finish(true)
+    const timer = setTimeout(
+      () => finish(false, `the application process did not exit within ${timeoutMs}ms`),
+      timeoutMs
+    )
+    probe.once('exit', onExit)
   })
 }
 
 /**
- * Waits for one output stream to end, bounded.
+ * Waits for the application's output streams to end, bounded.
  *
  * The trailing bytes a process writes as it goes down are part of the
- * evidence, so the drain is awaited before the descriptor is closed.
+ * evidence, so the drain is awaited before the descriptor is closed — and a
+ * stream that did not end within the bound is a FAILURE of the teardown, not
+ * a successful drain.
  */
-async function drainOutput(child: ChildProcess, timeoutMs = 5_000): Promise<void> {
-  const streams = [child.stdout, child.stderr]
+export async function drainOutputStreams(
+  streams: readonly (OutputStreamProbe | null | undefined)[],
+  timeoutMs = 5_000
+): Promise<TeardownOutcome> {
+  const problems: string[] = []
   await Promise.all(
     streams.map(
-      (stream) =>
+      (stream, index) =>
         new Promise<void>((resolve_) => {
-          if (!stream || typeof stream.on !== 'function') {
+          if (!stream) {
             resolve_()
             return
           }
-          const finish = () => {
+          if (stream.readableEnded === true || stream.destroyed === true) {
+            resolve_()
+            return
+          }
+          const finish = (completed: boolean) => {
             clearTimeout(timer)
+            stream.removeListener?.('end', onEnd)
+            stream.removeListener?.('close', onClose)
+            if (!completed) {
+              problems.push(
+                `the application's output stream ${index} did not end within ${timeoutMs}ms`
+              )
+            }
             resolve_()
           }
-          const timer = setTimeout(finish, timeoutMs)
-          stream.once('end', finish)
-          stream.once('close', finish)
+          const onEnd = () => finish(true)
+          const onClose = () => finish(true)
+          const timer = setTimeout(() => finish(false), timeoutMs)
+          stream.once('end', onEnd)
+          stream.once('close', onClose)
         })
     )
   )
+  return { completed: problems.length === 0, problems: problems.toSorted() }
+}
+
+/**
+ * The dependencies of one launch's finalization.
+ *
+ * Everything is injected, so the teardown's behaviour — including its
+ * timeouts — can be exercised without an application.
+ */
+export type FinalizingStopDependencies = {
+  /** Signals the application to stop. */
+  signal: () => void
+  /** The probe that reports whether the application exited. */
+  exit: ProcessExitProbe
+  /** The application's output streams. */
+  streams: readonly (OutputStreamProbe | null | undefined)[]
+  /** Closes the application's log descriptor. */
+  close: () => void
+  /** The ledger the teardown failures are recorded in. */
+  ledger: LogFailureLedger
+  /** The bounds of the two waits, in milliseconds. */
+  bounds?: { exit?: number; drain?: number }
+}
+
+/**
+ * One launch's finalization.
+ *
+ * `stop()` is idempotent AND shared: repeated and concurrent callers await
+ * the SAME in-flight finalization, so the descriptor is closed once and the
+ * teardown's failures are recorded once.
+ */
+export type FinalizingStop = {
+  /** Stops the launch; repeated and concurrent callers await the same work. */
+  stop: () => Promise<void>
+  /** The problems the finalization recorded. */
+  problems: () => readonly string[]
+}
+
+/**
+ * Creates one launch's finalization.
+ *
+ * The order is fixed: signal, wait for the exit, drain the output, close the
+ * descriptor, and record whatever did not complete. A teardown that did not
+ * complete is a failure of the run's evidence — output may still arrive after
+ * the descriptor is closed — and it is recorded before the verdict is taken.
+ */
+export function createFinalizingStop(dependencies: FinalizingStopDependencies): FinalizingStop {
+  const problems: string[] = []
+  let inFlight: Promise<void> | undefined
+  return {
+    stop() {
+      inFlight ??= (async () => {
+        try {
+          dependencies.signal()
+        } catch {
+          /* the process may already be gone */
+        }
+        const exit = await waitForProcessExit(dependencies.exit, dependencies.bounds?.exit)
+        const drain = await drainOutputStreams(dependencies.streams, dependencies.bounds?.drain)
+        dependencies.close()
+        for (const problem of [...exit.problems, ...drain.problems]) {
+          problems.push(problem)
+          dependencies.ledger.record()
+        }
+      })()
+      return inFlight
+    },
+    problems: () => problems,
+  }
 }
 
 /**
@@ -995,9 +1135,9 @@ export async function finalizeAndAssessLaunches(
   failures: number
   completeness: { status: AcceptanceStatus; actual: string }
 }> {
-  for (const launch of launches) {
+  for (const app of launches) {
     try {
-      await launch.stop()
+      await app.stop()
     } catch {
       // A stop that fails means the launch's output may never have been
       // written in full: that is a failure of the run's evidence, and it is
@@ -1460,6 +1600,7 @@ export async function runInstalledAppAcceptance(dependencies: {
   const finalized = await finalizeAndAssessLaunches(allLaunches, ledger)
   const logWriteFailures = finalized.failures
   const completeness = finalized.completeness
+  const teardownProblems = allLaunches.flatMap((app) => app.teardownProblems?.() ?? [])
   add(
     acceptanceRow({
       id: 'the-run-log-recorded-everything',
@@ -1482,6 +1623,7 @@ export async function runInstalledAppAcceptance(dependencies: {
       profileRoot: redactRecordedText(profile.root),
       competingCopies,
       logWriteFailures,
+      teardownProblems,
       checks,
     },
   }

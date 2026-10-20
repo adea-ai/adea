@@ -671,6 +671,61 @@ devkit exposes no per-run Application Support root, so
 preflight therefore refuses to install, register or launch, and every row that
 needs the running application stays pending.
 
+## 18. The teardown-timeout repair — a timeout is a failed teardown
+
+Root found one more concrete defect in the §17 finalization: `waitForProcessExit`
+resolved after ten seconds **without confirming the exit**, and `drainOutput`
+resolved after five seconds **without confirming the stream end**. Neither
+recorded a failure, so a stuck process or an open stream could yield a clean
+logging verdict while output was still possible after the descriptor closed.
+
+### The repair
+
+- **The waits report outcomes, not just completion.**
+  `waitForProcessExit` and `drainOutputStreams` now return a `TeardownOutcome`
+  with the fixed reasons the step did not complete. A timeout is a **failed**
+  wait and a **failed** drain — never a successful one.
+- **The helpers are injectable**, so their timeout behaviour is exercised with
+  bounded probes: a process that never exits, a process that exits, a stream
+  that never ends, a stream that ends.
+- **The teardown is one shared, idempotent finalization.** `createFinalizingStop`
+  owns the order — signal, wait for the exit, drain the output, close the
+  descriptor, record whatever did not complete — and returns **one in-flight
+  promise**: repeated and concurrent `stop()` callers await the SAME
+  finalization, so the descriptor is closed once and the teardown's failures
+  are recorded once.
+- **A failed teardown reaches the verdict.** The recorded problems go into the
+  run's log-failure ledger, so the ledger snapshot — taken after every launch
+  has been finalized — counts them, `the-run-log-recorded-everything` fails,
+  and the run is not green. The artifact also records the teardown problems
+  themselves.
+
+### The tests
+
+The cases grew from 59 to **67 (190 assertions)**, and they exercise the
+helpers themselves with bounded injected probes, not only a stubbed `stop()`:
+
+- a process that does not exit within the bound is a failed wait, with the
+  bound named;
+- a process that exits — and one that already exited — are completed waits;
+- a stream that does not end within the bound is a failed drain, one problem
+  per stream;
+- streams that end are a completed drain;
+- a stuck process **and** a stuck stream are recorded before the verdict, and
+  the composed run verdict is red;
+- repeated and concurrent `stop()` callers await the same finalization: the
+  same promise, one descriptor close, and the teardown problems recorded once
+  rather than once per caller;
+- a clean teardown records nothing.
+
+### Preserved
+
+The default no-launch gate, the fail-closed validated isolation registry and
+the side-effect-free preflight (`c445`, `674`), and the `1097` evidence fixes
+are unchanged. The lane's entry point, the native launch path and every
+real-profile operation remain unexecuted, and the installed-application rows
+stay pending while no supported per-run native profile contract exists.
+
 ## 12. Publication
 
 The branch is `test/installed-desktop-ui-acceptance-20261020`, three commits

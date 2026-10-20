@@ -30,8 +30,10 @@ import {
   assessSocketObservation,
   SUPPORTED_ISOLATION_CONTRACTS,
   createDisposableRoot,
+  createFinalizingStop,
   createLogFailureLedger,
   defaultArtifactPath,
+  drainOutputStreams,
   finalizeAndAssessLaunches,
   inspectProviderEnvironment,
   launchDependentRows,
@@ -41,7 +43,10 @@ import {
   removeOwnedRoot,
   resolveAcceptanceProfile,
   runInstalledAppAcceptance,
+  type OutputStreamProbe,
+  type ProcessExitProbe,
   type RunningApp,
+  waitForProcessExit,
   runInstalledAppPreflight,
   summarizeAcceptance,
   type AcceptanceCheck,
@@ -52,6 +57,46 @@ import {
   FOLDER_PICK_COMMAND,
   INSTALLED_APP_UI_ROW_IDS,
 } from './installed-app-ui-rows'
+
+/** A process that never exits. */
+function stuckProcess(): ProcessExitProbe {
+  return {
+    exitCode: null,
+    signalCode: null,
+    once: () => undefined,
+    off: () => undefined,
+  }
+}
+
+/** A process that exits shortly after it is waited for. */
+function exitingProcess(): ProcessExitProbe {
+  return {
+    exitCode: null,
+    signalCode: null,
+    once: (event, listener) => {
+      if (event === 'exit') setTimeout(listener, 1)
+    },
+    off: () => undefined,
+  }
+}
+
+/** An output stream that never ends. */
+function stuckStream(): OutputStreamProbe {
+  return {
+    once: () => undefined,
+    removeListener: () => undefined,
+  }
+}
+
+/** An output stream that ends shortly after it is waited for. */
+function endingStream(): OutputStreamProbe {
+  return {
+    once: (event, listener) => {
+      if (event === 'end') setTimeout(listener, 1)
+    },
+    removeListener: () => undefined,
+  }
+}
 
 function check(overrides: Partial<AcceptanceCheck> = {}): AcceptanceCheck {
   return acceptanceRow({
@@ -807,5 +852,110 @@ describe('every launch is finalized before the verdict is taken', () => {
     expect(result.completeness.status).toBe('pass')
     expect(result.completeness.actual).toContain('2 launch(es)')
     rmSync(directory, { force: true, recursive: true })
+  })
+})
+
+describe('the teardown helpers report a timeout as a failure', () => {
+  test('a process that does not exit within the bound is a failed wait', async () => {
+    const outcome = await waitForProcessExit(stuckProcess(), 25)
+    expect(outcome.completed).toBe(false)
+    expect(outcome.problems).toHaveLength(1)
+    expect(outcome.problems[0]).toContain('did not exit within 25ms')
+  })
+
+  test('a process that exits is a completed wait', async () => {
+    const outcome = await waitForProcessExit(exitingProcess(), 1_000)
+    expect(outcome.completed).toBe(true)
+    expect(outcome.problems).toEqual([])
+  })
+
+  test('a process that already exited is a completed wait', async () => {
+    const outcome = await waitForProcessExit(
+      { exitCode: 0, signalCode: null, once: () => undefined, off: () => undefined },
+      25
+    )
+    expect(outcome.completed).toBe(true)
+  })
+
+  test('a stream that does not end within the bound is a failed drain', async () => {
+    const outcome = await drainOutputStreams([stuckStream(), stuckStream()], 25)
+    expect(outcome.completed).toBe(false)
+    expect(outcome.problems).toHaveLength(2)
+    expect(outcome.problems[0]).toContain('did not end within 25ms')
+  })
+
+  test('streams that end are a completed drain', async () => {
+    const outcome = await drainOutputStreams([endingStream(), null], 1_000)
+    expect(outcome.completed).toBe(true)
+    expect(outcome.problems).toEqual([])
+  })
+
+  test('a stuck process and a stuck stream are recorded before the verdict', async () => {
+    const ledger = createLogFailureLedger()
+    const stopper = createFinalizingStop({
+      signal: () => {},
+      exit: stuckProcess(),
+      streams: [stuckStream()],
+      close: () => {},
+      ledger,
+      bounds: { exit: 25, drain: 25 },
+    })
+    await stopper.stop()
+    expect(stopper.problems()).toHaveLength(2)
+    expect(ledger.count()).toBe(2)
+    const result = await finalizeAndAssessLaunches(
+      [
+        {
+          pid: 1,
+          logPath: '/nonexistent/app.log',
+          logWriteFailures: () => ledger.count(),
+          stop: () => stopper.stop(),
+        },
+      ],
+      ledger
+    )
+    expect(result.failures).toBe(2)
+    expect(result.completeness.status).toBe('fail')
+    expect(result.completeness.actual).toContain('2 log write failure')
+  })
+
+  test('repeated and concurrent stop callers await the same finalization', async () => {
+    const ledger = createLogFailureLedger()
+    let closed = 0
+    const stopper = createFinalizingStop({
+      signal: () => {},
+      exit: stuckProcess(),
+      streams: [stuckStream()],
+      close: () => {
+        closed += 1
+      },
+      ledger,
+      bounds: { exit: 25, drain: 25 },
+    })
+    const first = stopper.stop()
+    const second = stopper.stop()
+    // The same in-flight promise: one finalization, one descriptor close.
+    expect(first).toBe(second)
+    await Promise.all([first, second])
+    await stopper.stop()
+    expect(closed).toBe(1)
+    // The teardown problems were recorded once, not once per caller.
+    expect(stopper.problems()).toHaveLength(2)
+    expect(ledger.count()).toBe(2)
+  })
+
+  test('a clean teardown of a process that exited and streams that ended records nothing', async () => {
+    const ledger = createLogFailureLedger()
+    const stopper = createFinalizingStop({
+      signal: () => {},
+      exit: exitingProcess(),
+      streams: [endingStream()],
+      close: () => {},
+      ledger,
+      bounds: { exit: 1_000, drain: 1_000 },
+    })
+    await stopper.stop()
+    expect(stopper.problems()).toEqual([])
+    expect(ledger.count()).toBe(0)
   })
 })
