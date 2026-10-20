@@ -757,6 +757,49 @@ describe('the built-Worker desktop failure classification', () => {
   })
 })
 
+describe('the built-Worker desktop denial credential accounting', () => {
+  /**
+   * The exchange requests arrive in a fixed order: the successful one, the
+   * wrong-verifier one, the hostile-origin one and the replay one. A denial
+   * that answers with a fresh credential is refused by the denial that carries
+   * it.
+   */
+  const denials: readonly { readonly name: string; readonly request: number }[] = [
+    { name: 'the wrong-PKCE denial', request: 2 },
+    { name: 'the hostile-origin denial', request: 3 },
+    { name: 'the replay denial', request: 4 },
+  ]
+
+  for (const denial of denials) {
+    test(`${denial.name} that answers with a fresh credential fails closed`, async () => {
+      const correct = correctWorker()
+      const fresh = `${'B'.repeat(40)}${denial.request}`
+      let exchanges = 0
+      const transport: BuiltWorkerTransport = async (request) => {
+        const answered = await correct.transport(request)
+        if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+          exchanges += 1
+          if (exchanges === denial.request && answered.status !== 200) {
+            // The refused answer carries a credential that has not appeared
+            // before, and it is not a session the client could read.
+            return {
+              ...answered,
+              body: `{"credential":"${fresh}","error":"Desktop authorization exchange failed"}`,
+            }
+          }
+        }
+        return answered
+      }
+      const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+      expect(receipt.status).toBe('failed')
+      const failed = receipt.assertions.filter((assertion) => !assertion.passed)
+      expect(failed.length).toBeGreaterThan(0)
+      const names = failed.map((assertion) => assertion.name)
+      expect(names.some((name) => name.includes('exchange-route-refuses'))).toBe(true)
+    })
+  }
+})
+
 describe('the built-Worker desktop session contract', () => {
   const cases: readonly { readonly name: string; readonly body: string }[] = [
     { name: 'truncated JSON', body: validSession('A'.repeat(40)).slice(0, -1) },

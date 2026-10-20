@@ -30,7 +30,12 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
-import { BuiltWorkerFailure, sanitizeReceipt, withoutTopLevelValue } from './built-worker-failures'
+import {
+  BuiltWorkerFailure,
+  sanitizeReceipt,
+  topLevelStringValue,
+  withoutTopLevelValue,
+} from './built-worker-failures'
 
 /** The route the built Worker serves for a desktop authorization request. */
 export const DESKTOP_AUTHORIZE_PATH = '/api/auth/desktop/authorize'
@@ -585,14 +590,18 @@ export function readDesktopSession(body: string): ValidatedDesktopSession | null
 }
 
 /**
- * True when the response carries a session the real client would read.
+ * True when the response carries a credential at all.
  *
- * The credential must be a top-level scalar the client accepts. A credential
- * that carries another credential is not a credential, and a pattern that looks
- * into nested members would read one as the session the Worker issued.
+ * This is the raw question a denial has to answer: a refused answer that
+ * carries a credential issued one, whether or not the rest of the session came
+ * with it. It is deliberately separate from the client's contract, which is a
+ * question about a *successful* issuance: the credential that a denial must
+ * refuse is any credential, and the credential that a success must carry is a
+ * complete session the client can read.
  */
-export function responseCarriesCredential(body: string): boolean {
-  return readDesktopSession(body) !== null
+export function responseCarriesRawCredential(body: string): boolean {
+  const credential = topLevelStringValue(body, 'credential')
+  return credential !== null && credential.length > 0
 }
 
 /**
@@ -1022,7 +1031,7 @@ export async function runBuiltWorkerDesktopAuth(
           outcome: 'assertion-failed',
         }
       }
-      if (responseCarriesCredential(response.body)) {
+      if (responseCarriesRawCredential(response.body)) {
         return {
           passed: false,
           detail: 'the exchange route issued a credential for a wrong verifier',
@@ -1064,7 +1073,7 @@ export async function runBuiltWorkerDesktopAuth(
           outcome: 'assertion-failed',
         }
       }
-      if (responseCarriesCredential(response.body)) {
+      if (responseCarriesRawCredential(response.body)) {
         return {
           passed: false,
           detail: 'the exchange route issued a credential for an untrusted origin',
@@ -1116,7 +1125,7 @@ export async function runBuiltWorkerDesktopAuth(
           outcome: 'assertion-failed',
         }
       }
-      if (responseCarriesCredential(response.body)) {
+      if (responseCarriesRawCredential(response.body)) {
         return {
           passed: false,
           detail: 'the exchange route issued a second credential for one code',
