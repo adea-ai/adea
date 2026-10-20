@@ -76,14 +76,15 @@ test('mounted child supply ignores draft object changes and refreshes on exact i
     request: draftRequest,
     onConversationChange: setConversation as never,
   })
+  const port = {
+    getLeadTurnChildren: async (_workspaceId: string, intent: string) => {
+      requested.push(intent)
+      return reply(intent) as never
+    },
+  }
   await createRoot(async (dispose) => {
     const supply = createLeadChildSupply(
-      {
-        getLeadTurnChildren: async (_workspaceId, intent) => {
-          requested.push(intent)
-          return reply(intent) as never
-        },
-      },
+      () => port,
       () => conversation(),
       lifecycle
     )
@@ -107,14 +108,15 @@ test('terminal lead child supply re-reads on online reconnect', async () => {
   Object.defineProperty(globalThis, 'window', { configurable: true, value: events })
   try {
     let reads = 0
+    const port = {
+      getLeadTurnChildren: async () => {
+        reads += 1
+        return reply() as never
+      },
+    }
     await createRoot(async (dispose) => {
       const supply = createLeadChildSupply(
-        {
-          getLeadTurnChildren: async () => {
-            reads += 1
-            return reply() as never
-          },
-        },
+        () => port,
         () => identity(),
         lifecycle
       )
@@ -132,23 +134,53 @@ test('terminal lead child supply re-reads on online reconnect', async () => {
   }
 })
 
+test('same-identity client replacement reads through the new client and fences the old response', async () => {
+  let completeOld!: (value: unknown) => void
+  let oldReads = 0
+  let newReads = 0
+  const oldPort = {
+    getLeadTurnChildren: async () => {
+      oldReads += 1
+      return new Promise((resolve) => (completeOld = resolve)) as never
+    },
+  }
+  const fresh = reply()
+  fresh.childObservations.children[0]!.delegationId = 'dlg_new_client'
+  const newPort = {
+    getLeadTurnChildren: async () => {
+      newReads += 1
+      return fresh as never
+    },
+  }
+  const [client, setClient] = createSignal(oldPort as typeof oldPort | typeof newPort)
+  await createRoot(async (dispose) => {
+    const supply = createLeadChildSupply(client, () => identity(), lifecycle)
+    await tick()
+    expect(oldReads).toBe(1)
+    setClient(newPort)
+    await tick()
+    expect(newReads).toBe(1)
+    expect(supply()).toMatchObject({ children: [{ delegationId: 'dlg_new_client' }] })
+    completeOld(reply())
+    await tick()
+    expect(supply()).toMatchObject({ children: [{ delegationId: 'dlg_new_client' }] })
+    dispose()
+  })
+})
+
 test('older child results and responses after unmount cannot replace current evidence', async () => {
   const [active, setActive] = createSignal(identity())
   let completeFirst!: (value: unknown) => void
   let reads = 0
+  const firstPort = {
+    getLeadTurnChildren: async (_workspaceId: string, intent: string) => {
+      reads += 1
+      if (intent === intentId) return new Promise((resolve) => (completeFirst = resolve)) as never
+      return reply(intent) as never
+    },
+  }
   await createRoot(async (dispose) => {
-    const supply = createLeadChildSupply(
-      {
-        getLeadTurnChildren: async (_workspaceId, intent) => {
-          reads += 1
-          if (intent === intentId)
-            return new Promise((resolve) => (completeFirst = resolve)) as never
-          return reply(intent) as never
-        },
-      },
-      active,
-      lifecycle
-    )
+    const supply = createLeadChildSupply(() => firstPort, active, lifecycle)
     await tick()
     expect(reads).toBe(1)
     setActive(identity(laterIntentId))
@@ -170,12 +202,13 @@ test('older child results and responses after unmount cannot replace current evi
   })
 
   let completeUnmounted!: (value: unknown) => void
+  const unmountedPort = {
+    getLeadTurnChildren: async () =>
+      new Promise((resolve) => (completeUnmounted = resolve)) as never,
+  }
   await createRoot(async (dispose) => {
     const supply = createLeadChildSupply(
-      {
-        getLeadTurnChildren: async () =>
-          new Promise((resolve) => (completeUnmounted = resolve)) as never,
-      },
+      () => unmountedPort,
       () => identity(),
       lifecycle
     )

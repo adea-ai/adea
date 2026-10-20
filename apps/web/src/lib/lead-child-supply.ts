@@ -14,7 +14,7 @@ export type LeadChildIdentity = Readonly<{
 /** The mounted child read follows exact retained identity, not conversation object
  * identity. An incidental draft update cannot restart pagination or clear evidence. */
 export function createLeadChildSupply(
-  reader: Pick<AgentHqApiClient, 'getLeadTurnChildren'>,
+  reader: () => Pick<AgentHqApiClient, 'getLeadTurnChildren'>,
   identity: () => LeadChildIdentity | undefined,
   lifecycle: Readonly<{ current(): number; isCurrent(value: number): boolean }>
 ): () => HandoffChildObservations | undefined {
@@ -31,25 +31,28 @@ export function createLeadChildSupply(
   })
   const [supply, setSupply] = createSignal<{
     key: string
+    reader?: Pick<AgentHqApiClient, 'getLeadTurnChildren'>
     observations?: HandoffChildObservations
   }>({ key: '' })
   let epoch = 0
   let disposed = false
   createEffect(() => {
     const currentKey = key()
+    const currentReader = reader()
     epoch += 1
-    setSupply({ key: currentKey })
+    setSupply({ key: currentKey, reader: currentReader })
   })
   const read = (): void => {
     // createLeadStatusPoll calls this inside a tracked effect. Only its explicit
     // key/eligibility read may track; the conversation object and its draft do not.
     const value = untrack(identity)
     const currentKey = key()
+    const currentReader = reader()
     if (!value || !currentKey) return
     const request = lifecycle.current()
     const requestEpoch = ++epoch
     void readLeadChildObservations(
-      reader,
+      currentReader,
       value.workspaceId,
       value.intentId,
       value.dispatchId
@@ -58,16 +61,21 @@ export function createLeadChildSupply(
         disposed ||
         !lifecycle.isCurrent(request) ||
         requestEpoch !== epoch ||
-        key() !== currentKey
+        key() !== currentKey ||
+        reader() !== currentReader
       )
         return
-      setSupply({ key: currentKey, observations })
+      setSupply({ key: currentKey, reader: currentReader, observations })
     })
   }
-  createLeadStatusPoll(read, () => key() !== '')
+  createLeadStatusPoll(read, () => {
+    reader()
+    return key() !== ''
+  })
   onCleanup(() => {
     disposed = true
     epoch += 1
   })
-  return () => (supply().key === key() ? supply().observations : undefined)
+  return () =>
+    supply().key === key() && supply().reader === reader() ? supply().observations : undefined
 }

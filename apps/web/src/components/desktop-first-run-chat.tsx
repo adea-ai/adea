@@ -346,7 +346,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
   // from the lead status and from canonical timeline publication, and re-read it
   // on reconnect even when the lead itself is terminal.
   const childObservations = createLeadChildSupply(
-    props.client,
+    () => props.client,
     () => {
       const active = conversation()
       const turn = leadSupply().turn
