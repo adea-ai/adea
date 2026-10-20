@@ -119,7 +119,6 @@
   "ignorePatterns": [
     "node_modules/**",
     ".wrangler/**",
-    ".turbo/**",
     ".vite/**",
     "**/routeTree.gen.ts",
     "dist/**",

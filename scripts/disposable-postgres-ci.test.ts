@@ -3,8 +3,11 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { inspectDatabaseConfiguration } from './database-config.mjs'
+import { assertDatabaseProof, recoveryArtifact } from './fresh-postgres-acceptance/recovery.mjs'
+import { classifyDisposableProofEvidence } from './fresh-postgres-acceptance/evidence.mjs'
 import {
   BACKUP_RESTORE_TEST,
+  buildDisposableProofReceipt,
   backupRestoreEnvironment,
   backupRestoreUrl,
   containerRemovalCommand,
@@ -19,6 +22,7 @@ import {
   attachOwnedContainerCleanup,
   authMigrationUrl,
   disposableStartScript,
+  failureEvidence,
   plaintextUrl,
   proofEnvironment,
   redactSecrets,
@@ -42,6 +46,19 @@ const options: DisposableProofOptions = {
   authBaseUrl: 'https://adea-ci.example.test',
   authSecret: 'adea-ci-disposable-auth-secret-0123456789abcdef',
   authTrustedOrigin: 'https://adea-ci.example.test',
+  checkout: {
+    sha: '0123456789abcdef0123456789abcdef01234567',
+    dirty: false,
+    source: 'test/branch',
+  },
+  module: {
+    sha: '0123456789abcdef0123456789abcdef01234567',
+    dirty: false,
+    source: 'test/branch',
+  },
+  // The harness stands in for the proof, so the receipt it produces says so.
+  // A mocked run is never recorded as a real database proof.
+  evidence: 'simulated',
 }
 
 type Fake = {
@@ -132,6 +149,10 @@ describe('the disposable PostgreSQL proof', () => {
     const receipt = await runDisposablePostgresProof(deps, options)
 
     expect(receipt.status).toBe('passed')
+    expect(receipt.proofKind).toBe('disposable-postgres-proof')
+    expect(receipt.evidence).toBe('simulated')
+    expect(receipt.checkout).toEqual(options.checkout)
+    expect(receipt.module).toEqual(options.module)
     expect(receipt.database).toBe(PROOF_DATABASE)
     expect(receipt.roles).toEqual({
       runtime: CANONICAL_RUNTIME_ROLE,
@@ -262,6 +283,91 @@ describe('the disposable PostgreSQL proof', () => {
     )
   })
 
+  test('a failed backup and restore run reports the failing line, not the header', async () => {
+    const { deps } = fake({
+      command: (command, args) => ({
+        status: args.includes(BACKUP_RESTORE_TEST) ? 1 : 0,
+        stdout: '',
+        stderr: args.includes(BACKUP_RESTORE_TEST)
+          ? [
+              'bun test v1.4.2',
+              '(pass) loopback target guard > refuses a remote host [0.23ms]',
+              '(fail) schema backup and restore > the restored rows differ',
+              'error: expect(received).toEqual(expected)',
+            ].join('\n')
+          : '',
+      }),
+    })
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
+    )
+    expect(failure).toContain('the restored rows differ')
+    expect(failure).not.toContain('refuses a remote host')
+  })
+
+  test('a failed backup and restore run never carries a secret out of the proof', async () => {
+    const { deps, state } = fake({
+      command: (command, args) => ({
+        status: args.includes(BACKUP_RESTORE_TEST) ? 1 : 0,
+        stdout: '',
+        stderr: args.includes(BACKUP_RESTORE_TEST)
+          ? `(fail) the dump failed for postgresql://postgres:${state.created[0]?.password ?? ''}@127.0.0.1/app`
+          : '',
+      }),
+    })
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
+    )
+    const password = state.created[0]?.password ?? ''
+    expect(password).not.toBe('')
+    expect(failure).toContain('the dump failed')
+    expect(failure).not.toContain(password)
+  })
+
+  test('the failure evidence keeps the failing lines and redacts every secret', () => {
+    const output = [
+      'bun test v1.4.2',
+      '(pass) a passing test [0.1ms]',
+      '(fail) the failing test',
+      'error: could not connect to postgresql://postgres:hunter2@127.0.0.1/app',
+    ].join('\n')
+    const evidence = failureEvidence(output, ['hunter2'])
+    expect(evidence).toContain('the failing test')
+    expect(evidence).toContain('could not connect')
+    expect(evidence).not.toContain('a passing test')
+    expect(evidence).not.toContain('hunter2')
+    expect(evidence).toContain('[redacted]')
+  })
+
+  test('a secret that crosses the evidence boundary never leaves a fragment behind', async () => {
+    const { deps, state } = fake({
+      command: (command, args) => {
+        if (args.includes(BACKUP_RESTORE_TEST)) {
+          return { status: 0, stdout: '', stderr: '\n 1 pass\n 0 fail\n' }
+        }
+        const password = state.created[0]?.password ?? ''
+        // The failing line is long enough that the secret starts before the
+        // 2000 character boundary of the evidence and ends after it, so a
+        // truncation that ran before the redaction would keep a prefix of it.
+        const filler = 'x'.repeat(1930)
+        return {
+          status: 1,
+          stdout: '',
+          stderr: `(fail) the migration check failed: ${filler} ${password} tail\n`,
+        }
+      },
+    })
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
+    )
+    const password = state.created[0]?.password ?? ''
+    expect(password).not.toBe('')
+    expect(failure).toContain('the migration check failed')
+    expect(failure).not.toContain(password)
+    expect(failure).not.toContain(password.slice(0, 12))
+    expect(failure).toContain('[redacted]')
+  })
+
   test('fails the lane when the backup and restore test passes nothing', async () => {
     for (const stderr of ['\n 0 pass\n 0 fail\n', '\n 1 pass\n 1 skip\n']) {
       const { deps } = fake({
@@ -275,6 +381,42 @@ describe('the disposable PostgreSQL proof', () => {
         /did not run to completion; a skipped run is not a proof/
       )
     }
+  })
+
+  test('the producer and the consumer agree on a real receipt', () => {
+    // The run here is mocked, so the receipt the harness produces says so and
+    // the recovery procedure refuses it. A real run is the one that states a
+    // real class, and the receipt it produces is the one the recovery
+    // procedure consumes.
+    const realOptions = { ...options, evidence: classifyDisposableProofEvidence({}) }
+    expect(realOptions.evidence).toBe('local-disposable')
+    expect(classifyDisposableProofEvidence({ GITHUB_ACTIONS: 'true' })).toBe('ci')
+
+    const receipt = buildDisposableProofReceipt({
+      tls: { serverSsl: 'on', sessionEncrypted: true, plaintextSessionEncrypted: false },
+      checks: [
+        { command: 'bun', args: ['--no-env-file', 'run', '--cwd', 'packages/db', 'db:check'] },
+      ],
+      auth: { applied: true, created: ['user'], replayApplied: false, schema: 'auth_ci' },
+      options: realOptions,
+    })
+    // The consumer accepts the receipt the producer builds.
+    expect(() => assertDatabaseProof(receipt)).not.toThrow()
+    const artifact = recoveryArtifact(receipt)
+    expect(artifact.commit).toBe(realOptions.checkout.sha)
+    expect(artifact.proofKind).toBe('disposable-postgres-proof')
+    expect(artifact.evidence).toBe('local-disposable')
+    expect(artifact.proved.some((entry) => entry.includes('backup restores'))).toBe(true)
+  })
+
+  test('a mocked proof receipt is refused by the recovery procedure', async () => {
+    const { deps } = fake()
+    const receipt = await runDisposablePostgresProof(deps, options)
+    // The receipt the harness produced says that it is simulated.
+    expect(receipt.evidence).toBe('simulated')
+    // The recovery procedure refuses it, so a mocked run is never counted as
+    // a real database proof.
+    expect(() => recoveryArtifact(receipt)).toThrow(/simulated result does not prove a database/)
   })
 
   test('refuses to run without a container runtime', async () => {
