@@ -519,7 +519,10 @@ describe('the disposable PostgreSQL proof', () => {
     // the recovery procedure refuses it. A real run is the one that states a
     // real class, and the receipt it produces is the one the recovery
     // procedure consumes.
-    const realOptions = { ...options, evidence: classifyDisposableProofEvidence({}) }
+    const realOptions: DisposableProofOptions = {
+      ...options,
+      evidence: classifyDisposableProofEvidence({}),
+    }
     expect(realOptions.evidence).toBe('local-disposable')
     expect(classifyDisposableProofEvidence({ GITHUB_ACTIONS: 'true' })).toBe('ci')
 
@@ -537,7 +540,7 @@ describe('the disposable PostgreSQL proof', () => {
     expect(artifact.commit).toBe(realOptions.checkout.sha)
     expect(artifact.proofKind).toBe('disposable-postgres-proof')
     expect(artifact.evidence).toBe('local-disposable')
-    expect(artifact.proved.some((entry) => entry.includes('backup restores'))).toBe(true)
+    expect(artifact.proved.some((entry: string) => entry.includes('backup restores'))).toBe(true)
   })
 
   test('a mocked proof receipt is refused by the recovery procedure', async () => {
@@ -566,8 +569,8 @@ describe('the disposable PostgreSQL proof', () => {
 
   test('fails the lane when a migration check fails, and still removes the container', async () => {
     const { deps, state } = fake({
-      command: (command, args) => {
-        state.commands.push({ command, args })
+      command: (command, args, environment) => {
+        state.commands.push({ command, args, environment })
         return { status: 1, stdout: '', stderr: '' }
       },
     })
@@ -603,11 +606,11 @@ describe('the disposable PostgreSQL proof', () => {
         return { status: 1, stdout: '', stderr: `failed with ${password}` }
       },
     })
-    const failure = await runDisposablePostgresProof(deps, options).catch(
-      (error: unknown) => error as Error
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
     )
-    expect(failure.message).not.toContain(state.created[0]?.password ?? 'unset')
-    expect(failure.message).toContain('[redacted]')
+    expect(failure).not.toContain(state.created[0]?.password ?? 'unset')
+    expect(failure).toContain('[redacted]')
   })
 
   test('refuses roles that are not the canonical ones', async () => {

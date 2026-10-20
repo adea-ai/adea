@@ -183,6 +183,16 @@ export type DisposableProofReceipt = {
     readonly replayApplied: boolean
     readonly schema: string
   }
+  /**
+   * The self-hosted auth lifecycle, proved against the same owned instance.
+   *
+   * The suite is named so the receipt says what ran, and a run that skipped
+   * or reported no passing case never reaches a receipt at all.
+   */
+  readonly authLifecycle: {
+    readonly proved: true
+    readonly suite: string
+  }
   /** The kind of proof this receipt is. */
   readonly proofKind: 'disposable-postgres-proof'
   /**
