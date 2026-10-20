@@ -4,8 +4,8 @@
  * workspace lists its cloud projects, each joined with its local repository
  * binding; a bound project lists its checkout and worktrees. Selecting a leaf
  * opens that worktree's most recent session (starting one when it has none).
- * Other workspaces are one row each with running, needs-you, mention and
- * unread chips; selecting one switches through the host.
+ * The sidebar lists only the selected workspace; the top bar's switcher
+ * changes which one that is.
  *
  * Runtime reads stay bounded: one scope-wide worktree list and harness-run
  * read per refresh (mount, projection change, window becoming visible, and a
@@ -25,20 +25,15 @@ import {
   type NavMenuItemId,
   type ViewAdapter,
 } from '@adea-ai/workspace-nav/adapters'
-import {
-  needsYouFallbackGroupMode,
-  nextWorkspaceNeedingYou,
-  stabilizeNavTree,
-  type NavLeaf,
-  type NavProject,
-} from '@adea-ai/workspace-nav/model'
+import { DEFAULT_PROJECT_ICON_KEY } from '@adea-ai/workspace-nav/project-identity-fields'
+import { stabilizeNavTree, type NavLeaf, type NavProject } from '@adea-ai/workspace-nav/model'
 import {
   createSidebarWidth,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_WIDTH_STEP,
 } from '@adea-ai/workspace-nav/sidebar-width'
-import { WorkspaceNav, type WorkspaceCreationContext } from '@adea-ai/workspace-nav/workspace-nav'
+import { WorkspaceNav } from '@adea-ai/workspace-nav/workspace-nav'
 import {
   Show,
   Suspense,
@@ -62,16 +57,14 @@ import {
   leafIdForSession,
   sessionForLeaf,
   visibleDiffWorktreeIds,
-  type DevNavAccountSummary,
   type DevNavBinding,
   type DevNavCloudProject,
-  type DevNavDevSummary,
   type DevNavRun,
   type DevNavWorkspaceInput,
   type DevNavWorktreeRecord,
 } from './dev-nav-model'
 import { listDevHarnessRuns, listDevWorktrees, readDevDiffSummaries } from './dev-nav-runtime'
-import type { TaskLifecycleState } from '@adea-ai/types'
+import type { TaskLifecycleState, WorkspaceAccentId } from '@adea-ai/types'
 
 const DevNameDialog = lazy(() =>
   import('./dev-nav-dialogs').then((module) => ({ default: module.DevNameDialog }))
@@ -96,9 +89,9 @@ const DIFF_INVALIDATION_DEBOUNCE_MS = 500
 
 /**
  * What the host that owns the cloud workspace hands the Dev sidebar: the
- * member's workspaces, the active workspace's project list, the counts the
- * collapsed rows show, and the cloud mutations. Every field is optional so a
- * direct integration (or a fixture) mounts the sidebar with runtime data only.
+ * active workspace, its project list and the cloud mutations. Every field is
+ * optional so a direct integration (or a fixture) mounts the sidebar with
+ * runtime data only.
  */
 /** Where the sidebar is rendering a global section. */
 export type DevGlobalNavContext = Readonly<{
@@ -112,7 +105,7 @@ export type DevGlobalNavContext = Readonly<{
 /**
  * The sections every view's sidebar carries regardless of the active
  * workspace's projects (ADR 0011): quick actions (Agents, Mark all read)
- * above the Workspaces accordion and Conversations below it. The host
+ * above the Projects accordion and the workspace's Conversations below it. The host
  * renders them from its cloud data; the archive shelf is the footer.
  */
 export type DevGlobalNavSlots = Readonly<{
@@ -125,22 +118,18 @@ export type DevWorkspaceNavHost = Readonly<{
   globalNav?: DevGlobalNavSlots
   activeWorkspaceId?: string
   activeWorkspaceName?: string
-  /** The signed-in owner for the inline creation draft; absent for guests and unknown identities. */
-  creationContext?: WorkspaceCreationContext
   workspaces?: readonly DevNavWorkspaceInput[]
   /** The active workspace's cloud projects; undefined until the list settles. */
   projects?: readonly DevNavCloudProject[]
   /** Linked cloud task lifecycles by task id (in review shows on the leaf). */
   taskStates?: ReadonlyMap<string, TaskLifecycleState>
-  accountSummary?: readonly DevNavAccountSummary[]
-  /** The desktop `dev.summary.workspaces` counts, polled by the host. */
-  devSummary?: readonly DevNavDevSummary[]
-  onSwitchWorkspace?: (workspaceId: string) => void
-  onCreateWorkspace?: (name: string) => Promise<void>
-  onOpenWorkspaceSettings?: () => void
   /** Create a cloud project and resolve its id; the repository step binds it. */
   onCreateProject?: (name: string) => Promise<string>
-  onRenameProject?: (projectId: string, name: string) => Promise<void>
+  /** Save a project's shared identity: its name, icon and icon colour. */
+  onUpdateProject?: (
+    projectId: string,
+    update: Readonly<{ name?: string; iconKey?: string; accent?: WorkspaceAccentId | null }>
+  ) => Promise<void>
   /** Record on the cloud project whether a repository backs it. */
   onSetProjectSource?: (projectId: string, sourceKind: 'none' | 'repository') => Promise<void>
   onArchiveProject?: (projectId: string) => Promise<void>
@@ -166,12 +155,6 @@ export type DevWorkspaceSidebarProps = Readonly<{
   restoreFocusRef?: () => HTMLElement | undefined
   /** The navigation landmark's name inside the sidebar. */
   navigationLabel?: string
-  /**
-   * Owner/placement facts for the inline draft's context line. Unknown labels
-   * render honestly. Forwarded to the shared nav; an explicit prop wins over
-   * the host's owner, which the web host feeds from the signed-in account.
-   */
-  creationContext?: WorkspaceCreationContext
   /** Dev-only status line above the tree (runtime unavailable). */
   status?: JSX.Element
   /** The archive shelf. */
@@ -197,7 +180,6 @@ export type DevWorkspaceSidebarProps = Readonly<{
 type DialogState =
   | Readonly<{ kind: 'new-worktree'; project: NavProject; repoId: string; baseRef: string }>
   | Readonly<{ kind: 'rename-worktree'; record: DevNavWorktreeRecord; label: string }>
-  | Readonly<{ kind: 'rename-project'; projectId: string; name: string }>
   | Readonly<{ kind: 'archive-worktree'; record: DevNavWorktreeRecord; label: string }>
   | Readonly<{
       kind: 'delete-worktree'
@@ -244,9 +226,6 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
   const [actionError, setActionError] = createSignal<string>()
   const [dialog, setDialog] = createSignal<DialogState>()
   const [pendingLeafId, setPendingLeafId] = createSignal<string>()
-  const [creatingWorkspace, setCreatingWorkspace] = createSignal(false)
-  const [workspaceDraftError, setWorkspaceDraftError] = createSignal<string>()
-  const [workspaceDraftPending, setWorkspaceDraftPending] = createSignal(false)
   const [diffTick, setDiffTick] = createSignal(0)
 
   const production = () => !props.fixture && Boolean(props.scope)
@@ -274,8 +253,6 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
       runs: effectiveRuns(),
       diffs: diffs(),
       taskStates: props.host?.taskStates,
-      accountSummary: props.host?.accountSummary,
-      devSummary: props.host?.devSummary,
     })
   )
   // Rebuilds that change nothing keep the rendered rows (and their focus).
@@ -423,18 +400,12 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
   const projectMenu = (project: NavProject): readonly NavMenuItem[] => {
     const entry = source().projects.get(project.id)
     const host = props.host
-    const items: NavMenuItem[] = []
-    for (const item of baseAdapter.projectMenu(project)) {
-      if (item.id === 'rename' && !(host?.onRenameProject && entry?.cloud)) continue
-      if (item.id === 'settings' && !production()) continue
-      if (item.id === 'share' && !host?.onShareProject) continue
-      if (item.id === 'archive' && !(host?.onArchiveProject && entry?.cloud)) continue
-      if (item.id === 'delete' && !(host?.onDeleteProject && entry?.cloud)) continue
-      items.push(item)
-      if (item.id === 'settings' && (!entry?.binding || entry.binding.source === 'none'))
-        items.push({ id: 'add-repository', label: 'Add repository…' })
-    }
-    return items
+    return baseAdapter.projectMenu(project).filter((item) => {
+      if (item.id === 'share') return Boolean(host?.onShareProject)
+      if (item.id === 'archive') return Boolean(host?.onArchiveProject && entry?.cloud)
+      if (item.id === 'delete') return Boolean(host?.onDeleteProject && entry?.cloud)
+      return true
+    })
   }
   // Leaf sharing ships separately; until then Share stays out of the menu.
   const leafMenu = (leaf: NavLeaf): readonly NavMenuItem[] =>
@@ -502,13 +473,7 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
 
   const projectAction = (id: NavMenuItemId, project: NavProject) => {
     setActionError(undefined)
-    if (id === 'rename')
-      setDialog({ kind: 'rename-project', projectId: project.id, name: project.name })
-    else if (id === 'settings')
-      setDialog({ kind: 'project-settings', projectId: project.id, name: project.name })
-    else if (id === 'add-repository')
-      setDialog({ kind: 'add-repository', projectId: project.id, name: project.name })
-    else if (id === 'share') props.host?.onShareProject?.(project.id)
+    if (id === 'share') props.host?.onShareProject?.(project.id)
     else if (id === 'archive' || id === 'delete')
       setDialog({
         kind: id === 'archive' ? 'archive-project' : 'delete-project',
@@ -547,28 +512,9 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
     setDialog({ kind: 'new-project' })
   }
 
-  const switchWorkspace = (workspaceId: string) => props.host?.onSwitchWorkspace?.(workspaceId)
-
-  // "Needs you" sums every workspace: activating it moves to the first other
-  // workspace that needs the user, else groups this one by status.
-  const openNeedsYou = () => {
-    const next = nextWorkspaceNeedingYou(source().tree.workspaces, activeWorkspaceId())
-    if (next && props.host?.onSwitchWorkspace) switchWorkspace(next.id)
-    else workspaceStore.getState().setSidebarGroupBy(activeWorkspaceId(), needsYouFallbackGroupMode)
-  }
-
-  const createWorkspace = (name: string) => {
-    const create = props.host?.onCreateWorkspace
-    if (!create) {
-      setCreatingWorkspace(false)
-      return
-    }
-    setWorkspaceDraftError(undefined)
-    setWorkspaceDraftPending(true)
-    create(name)
-      .then(() => setCreatingWorkspace(false))
-      .catch(() => setWorkspaceDraftError('Workspace could not be created. Try again.'))
-      .finally(() => setWorkspaceDraftPending(false))
+  const openProjectSettings = (project: NavProject) => {
+    setActionError(undefined)
+    setDialog({ kind: 'project-settings', projectId: project.id, name: project.name })
   }
 
   const selectLeaf = (leaf: NavLeaf, project: NavProject, closeSheet: () => void) => {
@@ -708,7 +654,6 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
             return (
               <WorkspaceNav
                 label={props.navigationLabel ?? 'Workspaces'}
-                creationContext={props.creationContext ?? props.host?.creationContext}
                 tree={source().tree}
                 adapter={adapter}
                 groupBy={groupBy()}
@@ -717,28 +662,9 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                 }
                 selectedLeafId={selectedLeafId()}
                 onSelectLeaf={(leaf, project) => selectLeaf(leaf, project, closeSheet)}
-                onSelectWorkspace={(workspaceId) => {
-                  switchWorkspace(workspaceId)
-                  closeSheet()
-                }}
-                onCreateWorkspace={createWorkspace}
-                creatingWorkspace={creatingWorkspace()}
-                onCreatingWorkspaceChange={(creating) => {
-                  setCreatingWorkspace(creating)
-                  if (!creating) setWorkspaceDraftError(undefined)
-                }}
-                workspaceDraftError={workspaceDraftError()}
-                workspaceDraftPending={workspaceDraftPending()}
                 onCreateProject={props.fixture ? undefined : () => openNewProject()}
                 createDisabled={!production()}
-                onOpenWorkspaceSettings={
-                  props.host?.onOpenWorkspaceSettings
-                    ? () => {
-                        props.host?.onOpenWorkspaceSettings?.()
-                        closeSheet()
-                      }
-                    : undefined
-                }
+                onOpenProjectSettings={openProjectSettings}
                 onCreateLeaf={createLeaf}
                 onProjectMenuAction={projectAction}
                 onLeafMenuAction={leafAction}
@@ -747,7 +673,6 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                   if (expanded === collapsed().has(projectId))
                     workspaceStore.getState().toggleProjectCollapsed(projectId)
                 }}
-                onNeedsYou={openNeedsYou}
                 portalMount={context.mobile ? context.portalMount() : undefined}
                 tooltips={!context.mobile}
                 quickActions={
@@ -827,25 +752,6 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                   onClose={close}
                 />
               )
-            if (state.kind === 'rename-project')
-              return (
-                <DevNameDialog
-                  title={`Rename ${state.name}`}
-                  description="The project's name is shared with everyone in this workspace."
-                  label="Project name"
-                  initialValue={state.name}
-                  confirmLabel="Rename"
-                  onSubmit={async (name) => {
-                    try {
-                      await props.host?.onRenameProject?.(state.projectId, name)
-                      return undefined
-                    } catch (error) {
-                      return message(error, 'The project could not be renamed.')
-                    }
-                  }}
-                  onClose={close}
-                />
-              )
             if (state.kind === 'archive-worktree')
               return (
                 <DevConfirmDialog
@@ -912,27 +818,40 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                 />
               )
             }
-            if (state.kind === 'project-settings')
+            if (state.kind === 'project-settings') {
+              const entry = source().projects.get(state.projectId)
+              const checkout = [...source().targets.values()].find(
+                (target) =>
+                  target.projectId === state.projectId && target.worktree?.kind === 'primary'
+              )?.worktree
+              const cloud = entry?.cloud
+              const update = props.host?.onUpdateProject
               return (
                 <DevProjectSettingsDialog
-                  {...repositoryFlow()}
+                  {...(production() ? repositoryFlow() : {})}
                   projectId={state.projectId}
-                  projectName={state.name}
-                  bound={Boolean(source().projects.get(state.projectId)?.binding)}
+                  identity={{
+                    name: cloud?.name ?? state.name,
+                    iconKey: cloud?.iconKey ?? DEFAULT_PROJECT_ICON_KEY,
+                    accent: cloud?.accent ?? null,
+                  }}
+                  directory={checkout?.canonicalRoot ?? entry?.binding?.repository}
+                  remote={entry?.binding?.source === 'remote_only'}
+                  bound={Boolean(entry?.binding)}
                   projectNames={props.projectNames}
-                  onRename={
-                    props.host?.onRenameProject && source().projects.get(state.projectId)?.cloud
-                      ? async (name) => {
+                  onSaveIdentity={
+                    update && cloud
+                      ? async (identity) => {
                           try {
-                            await props.host?.onRenameProject?.(state.projectId, name)
+                            await update(state.projectId, identity)
                             return undefined
                           } catch (error) {
-                            return message(error, 'The project could not be renamed.')
+                            return message(error, 'The project could not be saved.')
                           }
                         }
                       : undefined
                   }
-                  onAddRepository={() =>
+                  onChangeDirectory={() =>
                     setDialog({
                       kind: 'add-repository',
                       projectId: state.projectId,
@@ -942,6 +861,7 @@ export function DevWorkspaceSidebar(props: DevWorkspaceSidebarProps) {
                   onClose={close}
                 />
               )
+            }
             if (state.kind === 'add-repository')
               return (
                 <DevAddRepositoryDialog

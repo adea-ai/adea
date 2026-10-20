@@ -20,16 +20,12 @@ import { ConversationSurface } from './conversation-surface'
 import { TaskBoardSurface } from './task-board-surface'
 import type { DevProjectFlow } from './create-project-flow'
 import { useWorkspaceController } from './use-workspace-controller'
-import type { WorkspaceCreationContext } from '@adea-ai/workspace-nav/workspace-nav'
 import { WorkspaceNavSidebar, type WorkspaceNavHost } from './workspace-nav-sidebar'
 import { WorkspaceError, WorkspaceSkeleton } from './workspace-states'
 import type { SearchResult } from './workspace-utility-dialogs'
 import type { WorkspacePlatformServices } from './platform'
 import type { WorkspaceView } from './workspace-view-toggle'
-import {
-  workspaceSettingsHash,
-  workspaceSettingsSectionFromHash,
-} from './workspace-settings-section'
+import { isSettingsHash } from './workspace-settings-section'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Heading } from '@adea-ai/ui/components/ui/typography'
 
@@ -73,11 +69,6 @@ const WorkspaceSearchDialog = lazy(() =>
 const WorkspaceSettingsDialog = lazy(() =>
   import('./workspace-settings').then((module) => ({ default: module.WorkspaceSettingsDialog }))
 )
-const WorkspaceDetailsDialog = lazy(() =>
-  import('./workspace-details-dialog').then((module) => ({
-    default: module.WorkspaceDetailsDialog,
-  }))
-)
 
 type DialogId =
   | 'conversation-search'
@@ -86,7 +77,6 @@ type DialogId =
   | 'details'
   | 'search'
   | 'settings'
-  | 'workspace-settings'
   | null
 
 export type { WorkspaceNavHost } from './workspace-nav-sidebar'
@@ -100,8 +90,6 @@ export type WorkspaceDeepLink = Readonly<{
 }>
 
 export function ConventionalWorkspaceShell(props: {
-  /** The signed-in owner for the sidebar's creation draft; absent for guests and unknown identities. */
-  creationContext?: WorkspaceCreationContext
   /** Router-backed deep link state. Reactive, so links apply on SPA navigation. */
   deepLink?: () => WorkspaceDeepLink
   /** Shared archived-session affordance at the end of the common sidebar. */
@@ -211,9 +199,8 @@ export function ConventionalWorkspaceShell(props: {
 
   createEffect(() => {
     const panel = globalPanel()
-    if ((panel === 'settings' || panel === 'workspace-settings') && !(props.manageSettings ?? true))
-      return
-    if (panel !== 'search' && panel !== 'settings' && panel !== 'workspace-settings') return
+    if (panel === 'settings' && !(props.manageSettings ?? true)) return
+    if (panel !== 'search' && panel !== 'settings') return
     setDialog(panel)
     workspaceStore.getState().setGlobalPanel(null)
   })
@@ -223,10 +210,9 @@ export function ConventionalWorkspaceShell(props: {
     // Captures setDialog from the component scope.
     // oxlint-disable-next-line unicorn/consistent-function-scoping
     const openDeepLinkedSettings = () => {
-      // Workspace settings links (and the retired `#settings/workspace|memory|
-      // skills|connections` ones) open the workspace dialog, not app Settings.
-      if (workspaceSettingsSectionFromHash(window.location.hash)) setDialog('workspace-settings')
-      else if (window.location.hash.startsWith('#settings')) setDialog('settings')
+      // Settings holds the workspace sections too; the retired
+      // `#workspace-settings/<section>` links land on them.
+      if (isSettingsHash(window.location.hash)) setDialog('settings')
     }
     openDeepLinkedSettings()
     window.addEventListener('hashchange', openDeepLinkedSettings)
@@ -419,18 +405,7 @@ export function ConventionalWorkspaceShell(props: {
     setSurface('tasks')
   }
 
-  const workspaceHost = (): WorkspaceNavHost =>
-    props.workspaceHost ?? {
-      workspaces: settledData(controller.bootstrap)?.workspaces ?? [],
-      onSwitchWorkspace: (workspace) => controller.selectWorkspace(workspace.id),
-      onOpenWorkspaceSettings:
-        (props.manageSettings ?? true)
-          ? () => {
-              window.history.replaceState(null, '', workspaceSettingsHash('general'))
-              setDialog('workspace-settings')
-            }
-          : undefined,
-    }
+  const workspaceHost = (): WorkspaceNavHost => props.workspaceHost ?? {}
 
   const signOut = async () => {
     setAccountBusy(true)
@@ -471,7 +446,6 @@ export function ConventionalWorkspaceShell(props: {
               <WorkspaceNavSidebar
                 view="chat"
                 client={controller.client}
-                creationContext={props.creationContext}
                 activeWorkspace={controller.activeWorkspace}
                 host={workspaceHost()}
                 archiveAction={props.archiveAction}
@@ -485,7 +459,7 @@ export function ConventionalWorkspaceShell(props: {
                 taskBusy={controller.taskBusy}
                 onArchiveChannel={controller.channelActions.archive}
                 onArchiveTask={controller.taskActions.archive}
-                onCreateGroup={() => setDialog('create-group')}
+                onCreateConversation={() => setDialog('create-group')}
                 onCreateProject={() => setDialog('create-project')}
                 onRenameChannel={controller.channelActions.rename}
                 onRenameTask={(task, title) => controller.taskActions.update(task, { title })}
@@ -604,11 +578,6 @@ export function ConventionalWorkspaceShell(props: {
                           }
                         >
                           <AgentRoster
-                            accountDirectory={
-                              workspaceHost().globalNav?.agents
-                                ? (context) => workspaceHost().globalNav!.agents!(context)
-                                : undefined
-                            }
                             leadStatus={
                               <Suspense
                                 fallback={<p role="status">Checking the workspace lead…</p>}
@@ -781,6 +750,7 @@ export function ConventionalWorkspaceShell(props: {
                   busy={controller.createGroupBusy}
                   client={controller.client}
                   currentUserId={controller.groupScope.accountId}
+                  leadAgentId={controller.agents.find((agent) => agent.isWorkspaceLead)?.id}
                   onClose={() => setDialog(null)}
                   workspaceId={controller.groupScope.workspaceId ?? ''}
                   onCreate={controller.createGroup}
@@ -811,6 +781,9 @@ export function ConventionalWorkspaceShell(props: {
               <Show when={(props.manageSettings ?? true) && dialog() === 'settings'}>
                 <WorkspaceSettingsDialog
                   accountAuthenticated={accountAuthenticated()}
+                  accountPrincipalId={() =>
+                    accountAuthenticated() ? (services()?.account?.principalId?.() ?? null) : null
+                  }
                   accountLabel={accountLabel()}
                   agents={controller.agents}
                   busy={services()?.account?.busy ?? accountBusy()}
@@ -824,17 +797,9 @@ export function ConventionalWorkspaceShell(props: {
                   open
                   services={services()}
                   workspace={controller.activeWorkspace!}
-                />
-              </Show>
-              <Show when={(props.manageSettings ?? true) && dialog() === 'workspace-settings'}>
-                <WorkspaceDetailsDialog
-                  accountPrincipalId={() =>
-                    accountAuthenticated() ? (services()?.account?.principalId?.() ?? null) : null
-                  }
-                  onClose={() => setDialog(null)}
-                  open
-                  services={services()}
-                  workspace={controller.activeWorkspace!}
+                  workspaces={settledData(controller.bootstrap)?.workspaces}
+                  onSwitchWorkspace={(workspace) => controller.selectWorkspace(workspace.id)}
+                  client={controller.client}
                 />
               </Show>
               <Show when={dialog() === 'details'}>

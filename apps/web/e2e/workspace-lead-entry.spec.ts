@@ -305,10 +305,15 @@ async function mountShell(page: Page, options: MountOptions = {}): Promise<LeadS
 }
 
 const leadStatus = (page: Page) => page.getByRole('region', { name: 'Workspace lead' })
-const workspaceNav = (page: Page) => page.getByRole('navigation', { name: 'Workspaces' })
 
 async function openAgents(page: Page) {
   await page.getByRole('button', { name: 'Agents', exact: true }).first().click()
+}
+
+/** Opens the selected workspace's settings from the top bar's switcher. */
+async function openWorkspaceSettings(page: Page) {
+  await page.getByRole('button', { name: /^Switch workspace, current:/ }).click()
+  await page.getByRole('menuitem', { name: 'Workspace settings…' }).click()
 }
 
 test('the Agents entry provisions the structural lead once and keeps the roster usable', async ({
@@ -406,10 +411,9 @@ test('a workspace switch while the lead write is parked never applies it to the 
   // The provisioning write for Work is in flight, parked on the route.
   await expect.poll(() => state.posts).toBe(1)
 
-  await workspaceNav(page)
-    .getByRole('button', { name: /^Home( |$)/ })
-    .click()
-  await expect(page.getByRole('heading', { name: 'Home', level: 3 })).toBeVisible()
+  await page.getByRole('button', { name: /^Switch workspace, current:/ }).click()
+  await page.getByRole('menuitemradio', { name: /^Home( |$)/ }).click()
+  await expect(page.getByRole('button', { name: 'Switch workspace, current: Home' })).toBeVisible()
   await openAgents(page)
   await expect(leadStatus(page).getByTestId('lead-setup-state')).toHaveAttribute(
     'data-state',
@@ -441,8 +445,8 @@ test('a delayed defaults save that completes after settings close still updates 
   )
 
   const releaseSave = state.hold('defaultsSave')
-  await page.getByRole('button', { name: 'Workspace settings for Work' }).click()
-  const details = page.getByRole('dialog', { name: 'Work workspace settings' })
+  await openWorkspaceSettings(page)
+  const details = page.getByRole('dialog', { name: 'Settings', exact: true })
   await expect(details).toBeVisible()
   await details.getByRole('tab', { name: 'Connections', exact: true }).click()
   await expect(details.getByRole('heading', { name: 'Agent models' })).toBeVisible()
@@ -460,7 +464,7 @@ test('a delayed defaults save that completes after settings close still updates 
     { timeout: 30_000 }
   )
   // Reopening shows the persisted default, with no second save.
-  await page.getByRole('button', { name: 'Workspace settings for Work' }).click()
+  await openWorkspaceSettings(page)
   await expect(details).toBeVisible()
   await details.getByRole('tab', { name: 'Connections', exact: true }).click()
   await expect(details.getByText('Selected', { exact: true })).toBeVisible()
@@ -478,8 +482,8 @@ test('refreshing agent models in workspace settings reloads the Agents lead stat
     { timeout: 30_000 }
   )
 
-  await page.getByRole('button', { name: 'Workspace settings for Work' }).click()
-  const details = page.getByRole('dialog', { name: 'Work workspace settings' })
+  await openWorkspaceSettings(page)
+  const details = page.getByRole('dialog', { name: 'Settings', exact: true })
   await expect(details).toBeVisible()
   await details.getByRole('tab', { name: 'Connections', exact: true }).click()
   await expect(details.getByRole('heading', { name: 'Agent models' })).toBeVisible()

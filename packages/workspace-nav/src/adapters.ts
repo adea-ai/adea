@@ -28,8 +28,6 @@ export type NavMenuItem = Readonly<{
   separatorBefore?: boolean
 }>
 
-export type NavProjectIcon = 'git-folder' | 'folder' | 'cloud' | 'door' | 'hash'
-
 export type NavLabel = Readonly<{ text: string; mono: boolean }>
 
 /** A project row's name plus an optional muted hint (Virtual: the project behind a room). */
@@ -51,7 +49,6 @@ export type ViewAdapter = Readonly<{
   nouns: Readonly<{ project: string; leaf: string }>
   /** Whether the checkout is its own row under a "Worktrees" divider. */
   showCheckoutRow: boolean
-  projectIcon(project: NavProject): NavProjectIcon
   projectLabel(project: NavProject): NavProjectLabel
   leafLabel(leaf: NavLeaf, project?: NavProject): NavLabel
   leafSecondary(leaf: NavLeaf): string | undefined
@@ -64,16 +61,13 @@ export type ViewAdapter = Readonly<{
   leafMenu(leaf: NavLeaf): readonly NavMenuItem[]
 }>
 
-const sourceIcon: Readonly<Record<NavProject['source'], NavProjectIcon>> = {
-  local_repo: 'git-folder',
-  none: 'folder',
-  remote_only: 'cloud',
-}
-
-function projectMenu(settingsLabel: string): readonly NavMenuItem[] {
+/**
+ * A project's ⋯ menu. Renaming and every other setting live in the project's
+ * settings dialog, opened from its own row button, so the menu keeps only the
+ * actions that change who can see the project or whether it exists.
+ */
+function projectMenu(): readonly NavMenuItem[] {
   return [
-    { id: 'rename', label: 'Rename' },
-    { id: 'settings', label: settingsLabel },
     { id: 'share', label: 'Share' },
     { id: 'archive', label: 'Archive' },
     { id: 'delete', label: 'Delete', destructive: true, separatorBefore: true },
@@ -111,7 +105,6 @@ const devAdapter = (options: ViewAdapterOptions): ViewAdapter => ({
   view: 'dev',
   nouns: { project: 'Project', leaf: 'worktree' },
   showCheckoutRow: true,
-  projectIcon: (project) => sourceIcon[project.source],
   projectLabel: (project) => ({ text: project.name }),
   leafLabel: (leaf) =>
     leaf.branchRef
@@ -121,9 +114,9 @@ const devAdapter = (options: ViewAdapterOptions): ViewAdapter => ({
   // A cloud task with no worktree yet is still a task, not a worktree.
   leafNoun: (leaf) => (leaf.kind === 'task' ? 'Task' : 'Worktree'),
   leafMeta: 'changes',
-  createLeafLabel: (project) => (project.source === 'none' ? 'New session' : 'New worktree'),
-  createProjectLabel: 'New project',
-  projectMenu: () => projectMenu('Project settings'),
+  createLeafLabel: () => 'New session',
+  createProjectLabel: 'Add project',
+  projectMenu,
   leafMenu: (leaf) =>
     leaf.kind === 'checkout' ? checkoutMenu('dev', options) : worktreeMenu('dev'),
 })
@@ -134,7 +127,6 @@ function titledAdapter(view: 'chat' | 'virtual', options: ViewAdapterOptions): V
     view,
     nouns: { project: virtual ? 'Room' : 'Project', leaf: virtual ? 'desk' : 'task' },
     showCheckoutRow: false,
-    projectIcon: () => (virtual ? 'door' : 'hash'),
     // A Virtual room with its own name keeps the project's as a muted hint.
     projectLabel: (project) =>
       virtual && project.roomName && project.roomName !== project.name
@@ -153,9 +145,9 @@ function titledAdapter(view: 'chat' | 'virtual', options: ViewAdapterOptions): V
     leafSecondary: (leaf) => (leaf.title ? leaf.branchRef : undefined),
     leafNoun: () => (virtual ? 'Desk' : 'Task'),
     leafMeta: virtual ? 'agents' : 'activity',
-    createLeafLabel: () => (virtual ? 'New desk' : 'New task'),
-    createProjectLabel: virtual ? 'New room' : 'New project',
-    projectMenu: () => projectMenu(virtual ? 'Room settings' : 'Project settings'),
+    createLeafLabel: () => (virtual ? 'New desk' : 'New session'),
+    createProjectLabel: virtual ? 'Add room' : 'Add project',
+    projectMenu,
     leafMenu: (leaf) =>
       leaf.kind === 'checkout' ? checkoutMenu(view, options) : worktreeMenu(view),
   }

@@ -5,30 +5,28 @@ import {
   type NavLeaf,
   type NavProject,
   type NavTree,
-  type NavWorkspace,
 } from './model'
 
 /**
- * The top bar's Workspace › Project › Leaf path (ADR 0011), derived from the
- * same tree the sidebar renders. Pure data: the host decides how a crumb's
- * target opens.
+ * The top bar's Project › Session path, derived from the same tree the
+ * sidebar renders. The workspace is not a crumb: the workspace switcher beside
+ * the sidebar toggle already names it. Pure data: the host decides how a
+ * crumb's target opens.
  */
-export type NavCrumbKind = 'workspace' | 'project' | 'leaf'
+export type NavCrumbKind = 'project' | 'leaf'
 
 export type NavCrumb = Readonly<{
   kind: NavCrumbKind
   id: string
-  /** What the crumb is, in the view's words: Workspace, Project or Room, Task or Desk. */
+  /** What the crumb is, in the view's words: Project or Room, Task or Desk. */
   noun: string
   label: NavLabel
   /** The last crumb is the current page; it never links to itself. */
   current: boolean
-  /** The workspace crumb's identity mark. */
-  workspace?: Pick<NavWorkspace, 'logo' | 'accent'>
   /**
-   * The leaf an earlier crumb opens: the workspace's first project's default
-   * leaf, or the project's default leaf. Absent on the current crumb and when
-   * opening it would reopen the leaf already shown, so no crumb is a no-op.
+   * The leaf an earlier crumb opens: the project's default leaf. Absent on the
+   * current crumb and when opening it would reopen the leaf already shown, so
+   * no crumb is a no-op.
    */
   target?: Readonly<{ projectId: string; leafId: string }>
 }>
@@ -49,12 +47,6 @@ export function defaultLeaf(project: Pick<NavProject, 'leaves'>): NavLeaf | unde
   return sortProjectLeaves(project.leaves)[0]
 }
 
-function firstProject(projects: readonly NavProject[]): NavProject | undefined {
-  return projects.toSorted(
-    (left, right) => left.sortOrder - right.sortOrder || left.name.localeCompare(right.name)
-  )[0]
-}
-
 function targetFor(
   project: NavProject | undefined,
   selectedLeafId: string | undefined
@@ -67,9 +59,9 @@ function targetFor(
 /**
  * The breadcrumbs for the active workspace and the current selection.
  *
- * - The workspace crumb is always first (an empty path only when the tree has
- *   no active workspace).
- * - The project crumb follows when the selected leaf, or else the selected
+ * - Empty while nothing in the active workspace is selected; the top bar then
+ *   shows its plain title.
+ * - The project crumb leads when the selected leaf, or else the selected
  *   project, is in the active workspace.
  * - The leaf crumb is labelled by the view adapter (branch in mono for Dev,
  *   task title for Chat, desk for Virtual). A checkout the view does not show
@@ -101,19 +93,9 @@ export function breadcrumbsFor(
     project = projects.find(({ id }) => id === selection.projectId)
   if (leaf && leaf.kind === 'checkout' && !adapter.showCheckoutRow) leaf = undefined
 
-  const crumbs: NavCrumb[] = []
-  const workspaceCurrent = !project
-  crumbs.push({
-    kind: 'workspace',
-    id: workspace.id,
-    noun: 'Workspace',
-    label: { text: workspace.name, mono: false },
-    current: workspaceCurrent,
-    workspace: { logo: workspace.logo, accent: workspace.accent },
-    ...(workspaceCurrent ? {} : { target: targetFor(firstProject(projects), selectedLeafId) }),
-  })
-  if (!project) return crumbs
+  if (!project) return []
 
+  const crumbs: NavCrumb[] = []
   const projectCurrent = !leaf
   crumbs.push({
     kind: 'project',
