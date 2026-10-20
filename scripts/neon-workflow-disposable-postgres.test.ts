@@ -159,6 +159,20 @@ describe('the disposable PostgreSQL proof is additive', () => {
     expect(bun.uses).toBe('oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6')
     expect(bun.with?.['bun-version']).toBe('1.4.3')
     expect(stepNamed(proof, 'Install dependencies').run).toBe('bun install --frozen-lockfile')
+  })
+
+  test('it installs the PostgreSQL 18 client tools before the proof runs', () => {
+    const proof = jobs.disposable_postgres_proof!
+    const names = proof.steps.map((step: { name?: string }) => step.name)
+    const install = names.indexOf('Install the PostgreSQL 18 client tools')
+    const prove = names.indexOf('Prove the disposable PostgreSQL boundary')
+    expect(install).toBeGreaterThan(names.indexOf('Install dependencies'))
+    expect(install).toBeLessThan(prove)
+    const run = stepNamed(proof, 'Install the PostgreSQL 18 client tools').run
+    expect(run).toContain('postgresql-client-18')
+    expect(run).toContain('/usr/lib/postgresql/18/bin')
+    expect(run).toContain('$GITHUB_PATH')
+    expect(run).not.toContain('AUTH_POSTGRES_TEST_URL')
     expect(stepNamed(proof, 'Checkout pull request').uses).toBe(
       'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1'
     )
