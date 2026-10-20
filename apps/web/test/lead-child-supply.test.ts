@@ -36,6 +36,19 @@ const reply = (intent = intentId) => ({
     complete: true,
   },
 })
+const publishedReply = (intent = intentId) => {
+  const result = reply(intent)
+  return {
+    ...result,
+    childObservations: {
+      ...result.childObservations,
+      children: result.childObservations.children.map((child) => ({
+        ...child,
+        outcome: { state: 'completed', publication: { status: 'published' } },
+      })),
+    },
+  }
+}
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 const lifecycle = { current: () => 1, isCurrent: (value: number) => value === 1 }
 const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
@@ -182,10 +195,15 @@ test('same-identity client replacement reads through the new client and fences t
   let completeOld!: (value: unknown) => void
   let oldReads = 0
   let newReads = 0
+  const published: string[] = []
   const oldPort = {
     getLeadTurnChildren: async () => {
       oldReads += 1
       return new Promise((resolve) => (completeOld = resolve)) as never
+    },
+    publishLeadTurnChildren: async (_workspace: string, intent: string) => {
+      published.push(`old:${intent}`)
+      return { published: 1 }
     },
   }
   const fresh = reply()
@@ -194,6 +212,10 @@ test('same-identity client replacement reads through the new client and fences t
     getLeadTurnChildren: async () => {
       newReads += 1
       return fresh as never
+    },
+    publishLeadTurnChildren: async (_workspace: string, intent: string) => {
+      published.push(`new:${intent}`)
+      return { published: 1 }
     },
   }
   const [client, setClient] = createSignal(oldPort as typeof oldPort | typeof newPort)
@@ -205,9 +227,10 @@ test('same-identity client replacement reads through the new client and fences t
     await tick()
     expect(newReads).toBe(1)
     expect(supply()).toMatchObject({ children: [{ delegationId: 'dlg_new_client' }] })
-    completeOld(reply())
+    completeOld(publishedReply())
     await tick()
     expect(supply()).toMatchObject({ children: [{ delegationId: 'dlg_new_client' }] })
+    expect(published).toEqual([])
     dispose()
   })
 })
@@ -216,11 +239,16 @@ test('older child results and responses after unmount cannot replace current evi
   const [active, setActive] = createSignal(identity())
   let completeFirst!: (value: unknown) => void
   let reads = 0
+  const published: string[] = []
   const firstPort = {
     getLeadTurnChildren: async (_workspaceId: string, intent: string) => {
       reads += 1
       if (intent === intentId) return new Promise((resolve) => (completeFirst = resolve)) as never
       return reply(intent) as never
+    },
+    publishLeadTurnChildren: async (_workspace: string, intent: string) => {
+      published.push(intent)
+      return { published: 1 }
     },
   }
   await createRoot(async (dispose) => {
@@ -235,13 +263,14 @@ test('older child results and responses after unmount cannot replace current evi
       complete: true,
       children: [{ delegationId: 'dlg_second' }],
     })
-    completeFirst(reply())
+    completeFirst(publishedReply())
     await tick()
     expect(supply()).toMatchObject({
       availability: 'available',
       complete: true,
       children: [{ delegationId: 'dlg_second' }],
     })
+    expect(published).toEqual([])
     dispose()
   })
 
@@ -249,6 +278,10 @@ test('older child results and responses after unmount cannot replace current evi
   const unmountedPort = {
     getLeadTurnChildren: async () =>
       new Promise((resolve) => (completeUnmounted = resolve)) as never,
+    publishLeadTurnChildren: async (_workspace: string, intent: string) => {
+      published.push(intent)
+      return { published: 1 }
+    },
   }
   await createRoot(async (dispose) => {
     const supply = createLeadChildSupply(
@@ -258,8 +291,52 @@ test('older child results and responses after unmount cannot replace current evi
     )
     await tick()
     dispose()
-    completeUnmounted(reply())
+    completeUnmounted(publishedReply())
     await tick()
     expect(supply()).toBeUndefined()
+    expect(published).toEqual([])
   })
+})
+
+test('superseded child refresh cannot publish a delayed old outcome', async () => {
+  const priorWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const events = new EventTarget()
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: events })
+  let completeFirst!: (value: unknown) => void
+  let reads = 0
+  const published: string[] = []
+  const port = {
+    getLeadTurnChildren: async () => {
+      reads += 1
+      return reads === 1
+        ? (new Promise((resolve) => (completeFirst = resolve)) as never)
+        : (reply() as never)
+    },
+    publishLeadTurnChildren: async (_workspace: string, intent: string) => {
+      published.push(intent)
+      return { published: 1 }
+    },
+  }
+  try {
+    await createRoot(async (dispose) => {
+      const supply = createLeadChildSupply(
+        () => port,
+        () => identity(),
+        lifecycle
+      )
+      await tick()
+      expect(reads).toBe(1)
+      events.dispatchEvent(new Event('online'))
+      await tick()
+      expect(reads).toBe(2)
+      expect(supply()).toMatchObject({ availability: 'available' })
+      completeFirst(publishedReply())
+      await tick()
+      expect(published).toEqual([])
+      dispose()
+    })
+  } finally {
+    if (priorWindow) Object.defineProperty(globalThis, 'window', priorWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
 })

@@ -53,12 +53,19 @@ export function createLeadChildSupply(
     if (!value || !currentKey) return
     const request = lifecycle.current()
     const requestEpoch = ++epoch
+    const isCurrent = () =>
+      !disposed &&
+      lifecycle.isCurrent(request) &&
+      requestEpoch === epoch &&
+      key() === currentKey &&
+      reader() === currentReader
     void readLeadChildObservations(
       currentReader,
       value.workspaceId,
       value.intentId,
       value.dispatchId
     ).then(async (observations) => {
+      if (!isCurrent()) return
       // This is an explicit publication command. GET children remains a pure observation.
       // A failed/old SDK path retries on reconnect or the next visible poll.
       if (
@@ -70,14 +77,7 @@ export function createLeadChildSupply(
           .publishLeadTurnChildren(value.workspaceId, value.intentId)
           .catch(() => undefined)
       }
-      if (
-        disposed ||
-        !lifecycle.isCurrent(request) ||
-        requestEpoch !== epoch ||
-        key() !== currentKey ||
-        reader() !== currentReader
-      )
-        return
+      if (!isCurrent()) return
       setSupply({ key: currentKey, reader: currentReader, observations })
     })
   }
