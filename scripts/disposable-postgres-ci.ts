@@ -1,19 +1,18 @@
 // A bounded, database-only CI proof over a disposable PostgreSQL instance.
 //
-// This lane is additive. The hosted Neon branch, its Neon Auth JWKS proof, the
-// `Migrate Neon Branch` gate and every existing secret stay exactly as they are.
-// This module adds a second, database-only proof over a loopback-only,
-// digest-pinned PostgreSQL container that the lane creates, proves against and
-// removes.
+// This lane is additive. It provisions its own loopback-only, digest-pinned
+// PostgreSQL container, proves against it and removes it. Every other job,
+// gate, secret and target in the repository is outside this lane and is left
+// exactly as it is.
 //
-// The proof keeps the hosted lane's ordering for the checks the two share: the
-// role probe, the Drizzle journal check, the migration verifier, the
-// `DATABASE_URL` presence check and the migration integration test run in the
-// same sequence against the same three canonical URLs. It adds what a
-// disposable instance can prove that a hosted branch was never asked for: an
-// encrypted connection the server itself reports, the canonical
-// runtime/migration role boundary, and the merged auth schema initializer
-// applying once and replaying as a no-op.
+// The proof keeps the ordering the shared checks already have: the role probe,
+// the Drizzle journal check, the migration verifier, the `DATABASE_URL`
+// presence check and the migration integration test run in the same sequence
+// against the same three canonical URLs. It adds what a disposable instance
+// can prove that a hosted branch was never asked for: an encrypted connection
+// the server itself reports, the canonical runtime/migration role boundary,
+// and the merged auth schema initializer applying once and replaying as a
+// no-op.
 //
 // Every database step here is provider-neutral. The module holds no credential,
 // no hosted endpoint and no production target: it starts a container on the

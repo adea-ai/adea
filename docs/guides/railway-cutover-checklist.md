@@ -297,6 +297,11 @@ readable, and those records carry no dependency.
       described in [Railway PostgreSQL recovery](railway-postgres-recovery.md).
 - [ ] No gate in this checklist requires the legacy environment, its secrets or
       its endpoint to be present, reachable or unmodified.
+- [ ] The lane's own sources carry no legacy provider coupling, and the gate
+      that proves it is in the ordinary unit lane. It scans every source file
+      of this lane, the acceptance sources and the named lane files outside
+      them, and refuses a legacy provider environment variable, a legacy
+      provider host and a legacy provider package.
 
 ## Evidence and the compatibility scope
 

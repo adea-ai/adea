@@ -27,6 +27,29 @@ export const FRESH_ACCOUNT_SCAN_EXCLUSIONS = Object.freeze([
 /** The scoped directory the rule covers. */
 export const FRESH_ACCOUNT_SCOPE = 'scripts/fresh-postgres-acceptance'
 
+/**
+ * The source files of this lane that live outside the scoped directory.
+ *
+ * The Railway-only target is the only target, so the lane's own runtime,
+ * fixtures and proofs carry no legacy provider coupling either. The files are
+ * named here, so the scope is explicit: a new lane file outside the scoped
+ * directory is added to this list, and the gate fails on a file it cannot
+ * read.
+ *
+ * The fresh-account rule is stricter than the no-Neon rule and is applied to
+ * the acceptance sources only: these other files legitimately hold refusal
+ * cases and template-built loopback URLs.
+ */
+export const FRESH_ACCOUNT_SCOPED_FILES = Object.freeze([
+  'packages/auth/src/schema-init.ts',
+  'packages/auth/tests/integration/schema-backup-restore.test.ts',
+  'packages/auth/tests/integration/schema-init-runner.ts',
+  'packages/db/tests/fixtures/canonical-boundary.ts',
+  'scripts/capture-provisioning.mjs',
+  'scripts/disposable-postgres-ci.ts',
+  'scripts/disposable-postgres-cli.ts',
+])
+
 /** The constructs that would break the fresh-account-only rule. */
 export const FRESH_ACCOUNT_FORBIDDEN = Object.freeze([
   Object.freeze({
@@ -72,6 +95,111 @@ export const FRESH_ACCOUNT_FORBIDDEN = Object.freeze([
     detail: 'a server-side row copy',
   }),
 ])
+
+/**
+ * The legacy provider constructs that this lane may not carry.
+ *
+ * The Railway target is the only target, so a source file of this lane names
+ * no legacy provider environment variable, no legacy provider host and no
+ * legacy provider package. A comment that names the rule is not a violation,
+ * because the scan strips comments.
+ */
+export const NO_NEON_FORBIDDEN = Object.freeze([
+  Object.freeze({
+    kind: 'legacy-environment',
+    pattern: /\bNEON_[A-Z0-9_]+\b/,
+    detail: 'a legacy provider environment variable',
+  }),
+  Object.freeze({
+    kind: 'legacy-host',
+    pattern: /\bneon\.tech\b/i,
+    detail: 'a legacy provider host',
+  }),
+  Object.freeze({
+    kind: 'legacy-package',
+    pattern: /@neondatabase\//,
+    detail: 'a legacy provider package',
+  }),
+])
+
+/**
+ * The legacy provider coupling one source file carries.
+ *
+ * Every violation names the construct, so a failure says what would bring the
+ * legacy provider back.
+ */
+export function noNeonViolations(path, text) {
+  const code = stripComments(text)
+  const violations = []
+  for (const rule of NO_NEON_FORBIDDEN) {
+    const match = rule.pattern.exec(code)
+    if (match) {
+      violations.push({
+        path,
+        kind: rule.kind,
+        detail: rule.detail,
+        evidence: match[0].slice(0, 80),
+      })
+    }
+  }
+  return violations
+}
+
+/**
+ * The source files of this lane, wherever they live.
+ *
+ * The acceptance directory and the named lane files outside it. The lane
+ * files are named, so the scope is explicit and a new one has to be added.
+ */
+export function laneSourceFiles(root) {
+  const files = freshAccountScopeFiles(root)
+  for (const scoped of FRESH_ACCOUNT_SCOPED_FILES) {
+    if (!files.includes(scoped)) files.push(scoped)
+  }
+  return files.toSorted()
+}
+
+/**
+ * Scans every lane source file for legacy provider coupling.
+ *
+ * A file that cannot be read is a violation: a source the gate cannot read is
+ * a source the gate cannot clear.
+ */
+export function scanNoNeonScope(root) {
+  const violations = []
+  for (const relativePath of laneSourceFiles(root)) {
+    let text
+    try {
+      text = readFileSync(join(root, relativePath), 'utf8')
+    } catch (error) {
+      violations.push({
+        path: relativePath,
+        kind: 'unreadable-source',
+        detail: 'the source could not be read',
+        evidence: error instanceof Error ? error.message : 'unknown error',
+      })
+      continue
+    }
+    violations.push(...noNeonViolations(relativePath, text))
+  }
+  return violations
+}
+
+/**
+ * Fails when a lane source file carries legacy provider coupling.
+ *
+ * The failure names every violation, so the whole set is fixed in one pass.
+ */
+export function assertNoNeonInScope(root) {
+  const violations = scanNoNeonScope(root)
+  if (violations.length > 0) {
+    const detail = violations
+      .map((violation) => violation.path + ': ' + violation.kind + ' (' + violation.detail + ')')
+      .join('; ')
+    throw new Error('the lane scope still carries legacy provider coupling: ' + detail)
+  }
+  return true
+}
 
 /**
  * The constructs that are written in more than one spelling.

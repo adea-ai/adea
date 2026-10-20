@@ -29,9 +29,13 @@ import { assertReproducibleProvenance, readCheckoutProvenance } from './provenan
 import { CP_COMPATIBILITY_SCOPE, assertCpScope, cpOpenItems } from './cp-compatibility.mjs'
 import {
   assertFreshAccountOnly,
+  assertNoNeonInScope,
   freshAccountOnlyViolations,
   freshAccountScopeFiles,
+  laneSourceFiles,
+  noNeonViolations,
   scanFreshAccountScope,
+  scanNoNeonScope,
 } from './fresh-account-only.mjs'
 
 const local = 'postgresql://postgres:synthetic@127.0.0.1:54399/postgres?sslmode=disable'
@@ -867,6 +871,34 @@ test('the fresh-account scope carries no legacy import, dual write or remote tar
   assert.ok(files.length > 0, 'the scope is not empty')
   assert.deepEqual(scanFreshAccountScope(root), [])
   assert.equal(assertFreshAccountOnly(root), true)
+})
+
+test('no source of this lane carries legacy provider coupling', () => {
+  const root = fileURLToPath(new URL('../../', import.meta.url))
+  const files = laneSourceFiles(root)
+  assert.ok(files.length > freshAccountScopeFiles(root).length, 'the lane files are in the scope')
+  assert.deepEqual(scanNoNeonScope(root), [])
+  assert.equal(assertNoNeonInScope(root), true)
+  for (const [source, kind] of [
+    ['const url = process.env.NEON_AUTH_BASE_URL\n', 'legacy-environment'],
+    ['const url = process.env.NEON_API_KEY\n', 'legacy-environment'],
+    ["const host = 'db.neon.tech'\n", 'legacy-host'],
+    ["import { neon } from '@neondatabase/serverless'\n", 'legacy-package'],
+  ]) {
+    const violations = noNeonViolations('synthetic.ts', source)
+    assert.ok(
+      violations.some((violation) => violation.kind === kind),
+      'expected ' + kind + ' for ' + source
+    )
+  }
+  // A comment that names the legacy provider is not a coupling.
+  assert.deepEqual(
+    noNeonViolations(
+      'synthetic.ts',
+      '// the legacy provider names NEON_AUTH_BASE_URL\nconst a = 1\n'
+    ),
+    []
+  )
 })
 
 test('a comment marker inside a string does not hide the code around it', () => {
