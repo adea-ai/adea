@@ -11,7 +11,7 @@ import {
   memoryEnvironment,
   resolveLocalDockerEndpoint,
 } from './policy.mjs'
-import { parseJourneyReceipt } from './acceptance-receipt.mjs'
+import { buildAcceptanceReceipt, parseJourneyReceipt } from './acceptance-receipt.mjs'
 import {
   EVIDENCE_CLASSES,
   assertEvidenceClass,
@@ -21,8 +21,10 @@ import {
 } from './evidence.mjs'
 import {
   RECOVERY_METHODS,
+  assertDatabaseProof,
   assertRecoveryMethod,
   assertTestedRecoveryArtifact,
+  recoveryArtifact,
   recoveryPlan,
 } from './recovery.mjs'
 import { assertReproducibleProvenance, readCheckoutProvenance } from './provenance.mjs'
@@ -719,6 +721,36 @@ test('the recovery artifact is the one a proof receipt names, with its provenanc
   }
 })
 
+test('the acceptance lane receipt is consumable by the recovery procedure', () => {
+  const { root, git } = temporaryRepository()
+  try {
+    const provenance = readCheckoutProvenance(root)
+    // The receipt is built by the lane's own builder, so the receipt the lane
+    // publishes and the receipt the recovery procedure consumes are the same
+    // code path.
+    const receipt = buildAcceptanceReceipt({
+      migrations: 60,
+      evidence: 'local-disposable',
+      checkout: provenance,
+      module: provenance,
+      desktopPrincipal: { accounts: 3, mappedUsers: 3, orphanUsers: 0 },
+    })
+    assert.deepEqual(assertDatabaseProof(receipt), {
+      proofKind: 'fresh-schema-acceptance',
+      evidence: 'local-disposable',
+    })
+    const artifact = recoveryArtifact(receipt)
+    assert.equal(artifact.commit, git(['rev-parse', 'HEAD']))
+    assert.equal(artifact.proofKind, 'fresh-schema-acceptance')
+    assert.ok(
+      !artifact.proved.some((entry) => entry.includes('backup restores')),
+      'the acceptance lane does not claim the backup and restore proof'
+    )
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('the disposable proof names its own guarantees, and the acceptance lane does not', () => {
   const { root } = temporaryRepository()
   try {
@@ -910,6 +942,8 @@ test('a comment marker inside a string does not hide the code around it', () => 
     ['const s = "he said \\"hi\\""; await importLegacyIdentities(pool);', 'legacy-import'],
     // A comment between two tokens is whitespace, so the tokens stay two.
     ['await/*note*/importLegacyIdentities(pool)', 'legacy-import'],
+    // A comment marker inside a string must not remove the code around it.
+    ['const a = "/*"; dualWriteToBoth(pool); const b = "*/";', 'dual-write'],
     ['await /*note*/ importLegacyIdentities(pool)', 'legacy-import'],
     // A comment between the keywords of a statement is whitespace too.
     ["await pool.query('INSERT/**/INTO app.users SELECT * FROM legacy.users')", 'row-copy'],

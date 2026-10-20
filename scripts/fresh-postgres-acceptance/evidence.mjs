@@ -44,6 +44,18 @@ export function classifyEvidence(source, options = {}) {
   return mapped
 }
 
+/**
+ * The class a real disposable run may claim.
+ *
+ * A disposable proof that provisions a real container and proves against a
+ * real database is `local-disposable` here, and `ci` when the run happened in
+ * CI. The class is never `simulated`: a simulated run is not a run of this
+ * proof, and the mocked harness that stands in for it says so itself.
+ */
+export function classifyDisposableProofEvidence(environment = {}) {
+  return environment.GITHUB_ACTIONS === 'true' ? 'ci' : 'local-disposable'
+}
+
 /** The class a receipt carries, or a refusal when it carries none. */
 export function assertEvidenceClass(value) {
   if (typeof value !== 'string' || !EVIDENCE_CLASSES.includes(value)) {

@@ -181,6 +181,12 @@ export type DisposableProofReceipt = {
   /** The kind of proof this receipt is. */
   readonly proofKind: 'disposable-postgres-proof'
   /**
+   * The class of this run's evidence. It is stated by the caller, which knows
+   * whether it provisioned a real instance, and a mocked run states that it
+   * is simulated.
+   */
+  readonly evidence: 'local-disposable' | 'ci' | 'simulated'
+  /**
    * The provenance of the checkout that produced this receipt: the exact
    * commit, whether the tree was clean and the source it was made from. A
    * receipt without it cannot name a reproducible artifact.
@@ -203,6 +209,38 @@ export type DisposableProofReceipt = {
 }
 
 /** The options the proof runs with. */
+/**
+ * Builds the receipt of a disposable PostgreSQL proof.
+ *
+ * The builder is exported so the receipt the proof publishes and the receipt
+ * the recovery procedure consumes are built by the same code, and a test can
+ * check that one satisfies the other.
+ */
+export function buildDisposableProofReceipt(input: {
+  readonly tls: DisposableProofReceipt['tls']
+  readonly checks: readonly ProofCommandRecord[]
+  readonly auth: {
+    readonly applied: boolean
+    readonly created: readonly string[]
+    readonly replayApplied: boolean
+    readonly schema: string
+  }
+  readonly options: DisposableProofOptions
+}): DisposableProofReceipt {
+  return {
+    status: 'passed',
+    database: PROOF_DATABASE,
+    roles: { runtime: CANONICAL_RUNTIME_ROLE, migration: CANONICAL_MIGRATION_ROLE },
+    tls: input.tls,
+    migrations: { checks: input.checks },
+    proofKind: 'disposable-postgres-proof',
+    evidence: input.options.evidence,
+    checkout: input.options.checkout,
+    module: input.options.module,
+    auth: input.auth,
+  }
+}
+
 export type DisposableProofOptions = {
   /** The digest-pinned image the disposable instance runs. */
   readonly image: string
@@ -231,6 +269,13 @@ export type DisposableProofOptions = {
     readonly dirty: boolean | null
     readonly source: string
   }
+  /**
+   * The class of this run's evidence. The caller states it, because the
+   * caller knows whether it provisioned a real instance. The mocked harness
+   * states `simulated`, so a mocked run is never recorded as a real database
+   * proof.
+   */
+  readonly evidence: 'local-disposable' | 'ci' | 'simulated'
 }
 
 /** How long the instance may take to accept connections. */
@@ -675,22 +720,17 @@ export async function runDisposablePostgresProof(
     })
     await proveBackupRestore(dependencies, { adminUrl, certificatePath }, secrets)
 
-    receipt = {
-      status: 'passed',
-      database: PROOF_DATABASE,
-      roles: { runtime: CANONICAL_RUNTIME_ROLE, migration: CANONICAL_MIGRATION_ROLE },
+    receipt = buildDisposableProofReceipt({
       tls,
-      migrations: { checks },
-      proofKind: 'disposable-postgres-proof',
-      checkout: options.checkout,
-      module: options.module,
+      checks,
       auth: {
         applied: auth.applied,
         created: auth.created,
         replayApplied: auth.replayApplied,
         schema: options.authSchema,
       },
-    }
+      options,
+    })
   } catch (error) {
     bodyError = error
   }

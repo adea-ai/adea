@@ -38,6 +38,8 @@ import {
   ensureCanonicalRoles,
 } from '../packages/db/tests/fixtures/canonical-boundary'
 import { applyAuthSchema } from '../packages/auth/src/schema-init'
+import { classifyDisposableProofEvidence } from './fresh-postgres-acceptance/evidence.mjs'
+import { assertDatabaseProof } from './fresh-postgres-acceptance/recovery.mjs'
 import { readCheckoutProvenance } from './fresh-postgres-acceptance/provenance.mjs'
 
 const dbRequire = createRequire(new URL('../packages/db/package.json', import.meta.url))
@@ -331,10 +333,18 @@ const options: DisposableProofOptions = {
   // is the same tree.
   checkout: provenance,
   module: provenance,
+  // This run provisions a real disposable instance and proves against a real
+  // database, so it is real evidence: `ci` in CI and `local-disposable`
+  // everywhere else. It is never `simulated`.
+  evidence: classifyDisposableProofEvidence(process.env),
 }
 
 try {
   const receipt = await runDisposablePostgresProof(dependencies, options)
+  // The proof publishes a receipt the recovery procedure can consume. A
+  // receipt it cannot consume is not a receipt, and the proof fails rather
+  // than publishing one.
+  assertDatabaseProof(receipt)
   console.log(`DISPOSABLE_POSTGRES_PROOF ${JSON.stringify(receipt)}`)
 } catch (error) {
   console.error(error instanceof Error ? error.message : 'the disposable PostgreSQL proof failed')

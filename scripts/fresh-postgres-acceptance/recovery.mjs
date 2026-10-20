@@ -84,14 +84,14 @@ export function assertRecoveryMethod(method) {
 }
 
 /**
- * The artifact a recovery may name, taken from a proof receipt.
+ * Requires a receipt to be a passed, real database proof.
  *
- * The receipt is the only source of the commit. The receipt has to be a
- * passed, real database proof, the provenance it carries has to be
- * reproducible, and the tree it exercised has to be the tree the code came
- * from.
+ * This is the check a lane runs on its own receipt before it publishes it: a
+ * receipt that the recovery procedure cannot consume is not a receipt. The
+ * provenance is not part of it, because a receipt produced from a tree with
+ * uncommitted changes is still a receipt; it just does not name an artifact.
  */
-export function recoveryArtifact(receipt) {
+export function assertDatabaseProof(receipt) {
   if (receipt?.status !== 'passed') {
     throw new Error('the receipt is not a passed proof')
   }
@@ -106,6 +106,19 @@ export function recoveryArtifact(receipt) {
   if (!proof.observed(receipt)) {
     throw new Error('the receipt does not carry the result the proof observed')
   }
+  return { proofKind: receipt.proofKind, evidence }
+}
+
+/**
+ * The artifact a recovery may name, taken from a proof receipt.
+ *
+ * The receipt is the only source of the commit. The receipt has to be a
+ * passed, real database proof, the provenance it carries has to be
+ * reproducible, and the tree it exercised has to be the tree the code came
+ * from.
+ */
+export function recoveryArtifact(receipt) {
+  const { proofKind, evidence } = assertDatabaseProof(receipt)
   const exercised = assertReproducibleProvenance(receipt?.checkout)
   const module = assertReproducibleProvenance(receipt?.module)
   if (exercised.sha !== module.sha) {
@@ -116,8 +129,8 @@ export function recoveryArtifact(receipt) {
     source: exercised.source,
     dirty: exercised.dirty,
     evidence,
-    proofKind: receipt.proofKind,
-    proved: proof.guarantees,
+    proofKind,
+    proved: DATABASE_PROOFS[proofKind].guarantees,
     notProved: NOT_PROVED_BY_THE_PROOF,
   }
 }

@@ -2,9 +2,10 @@ import { spawnSync } from 'node:child_process'
 import { access, readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
-import { assertFocusedJourneyPassed } from './acceptance-receipt.mjs'
+import { assertFocusedJourneyPassed, buildAcceptanceReceipt } from './acceptance-receipt.mjs'
 import { classifyEvidence } from './evidence.mjs'
 import { readCheckoutProvenance } from './provenance.mjs'
+import { assertDatabaseProof } from './recovery.mjs'
 import { fixtureEnvironment, memoryEnvironment, resolveLocalDockerEndpoint } from './policy.mjs'
 
 // The checkout this code came from.
@@ -202,25 +203,20 @@ try {
   // must say it passed. A pass count alone cannot prove that, because the
   // offline regressions of the focused file always run.
   assertFocusedJourneyPassed(focusedOutput)
-  passedReceipt = {
-    status: 'passed',
+  passedReceipt = buildAcceptanceReceipt({
     migrations: receipt.migrations,
-    verificationRequired: true,
     // The receipt names the class of its own evidence: a disposable loopback
     // instance of the real provider and the real database. It is not a CI
     // result and not a live one, and it may not be recorded as either.
     evidence: classifyEvidence('local-disposable'),
-    // The kind of proof this receipt is, and the database it ran against. The
-    // recovery procedure reads both, and refuses a receipt of another kind.
-    proofKind: 'fresh-schema-acceptance',
-    postgres: 'disposable-instance',
-    // The receipt names the commit, the cleanliness and the source of the tree
-    // the run tested and of the tree the code came from, so the artifact can
-    // be reproduced and a result cannot be labelled with a foreign commit.
     checkout,
     module,
-    ...(receipt.desktopPrincipal ? { desktopPrincipal: receipt.desktopPrincipal } : {}),
-  }
+    desktopPrincipal: receipt.desktopPrincipal,
+  })
+  // The lane publishes a receipt the recovery procedure can consume. A
+  // receipt it cannot consume is not a receipt, and the run fails rather than
+  // publishing one.
+  assertDatabaseProof(passedReceipt)
 } catch (error) {
   failed = true
   console.error(error.message)

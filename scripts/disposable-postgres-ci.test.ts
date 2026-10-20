@@ -3,8 +3,11 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { inspectDatabaseConfiguration } from './database-config.mjs'
+import { assertDatabaseProof, recoveryArtifact } from './fresh-postgres-acceptance/recovery.mjs'
+import { classifyDisposableProofEvidence } from './fresh-postgres-acceptance/evidence.mjs'
 import {
   BACKUP_RESTORE_TEST,
+  buildDisposableProofReceipt,
   backupRestoreEnvironment,
   backupRestoreUrl,
   containerRemovalCommand,
@@ -53,6 +56,9 @@ const options: DisposableProofOptions = {
     dirty: false,
     source: 'test/branch',
   },
+  // The harness stands in for the proof, so the receipt it produces says so.
+  // A mocked run is never recorded as a real database proof.
+  evidence: 'simulated',
 }
 
 type Fake = {
@@ -144,6 +150,7 @@ describe('the disposable PostgreSQL proof', () => {
 
     expect(receipt.status).toBe('passed')
     expect(receipt.proofKind).toBe('disposable-postgres-proof')
+    expect(receipt.evidence).toBe('simulated')
     expect(receipt.checkout).toEqual(options.checkout)
     expect(receipt.module).toEqual(options.module)
     expect(receipt.database).toBe(PROOF_DATABASE)
@@ -374,6 +381,42 @@ describe('the disposable PostgreSQL proof', () => {
         /did not run to completion; a skipped run is not a proof/
       )
     }
+  })
+
+  test('the producer and the consumer agree on a real receipt', () => {
+    // The run here is mocked, so the receipt the harness produces says so and
+    // the recovery procedure refuses it. A real run is the one that states a
+    // real class, and the receipt it produces is the one the recovery
+    // procedure consumes.
+    const realOptions = { ...options, evidence: classifyDisposableProofEvidence({}) }
+    expect(realOptions.evidence).toBe('local-disposable')
+    expect(classifyDisposableProofEvidence({ GITHUB_ACTIONS: 'true' })).toBe('ci')
+
+    const receipt = buildDisposableProofReceipt({
+      tls: { serverSsl: 'on', sessionEncrypted: true, plaintextSessionEncrypted: false },
+      checks: [
+        { command: 'bun', args: ['--no-env-file', 'run', '--cwd', 'packages/db', 'db:check'] },
+      ],
+      auth: { applied: true, created: ['user'], replayApplied: false, schema: 'auth_ci' },
+      options: realOptions,
+    })
+    // The consumer accepts the receipt the producer builds.
+    expect(() => assertDatabaseProof(receipt)).not.toThrow()
+    const artifact = recoveryArtifact(receipt)
+    expect(artifact.commit).toBe(realOptions.checkout.sha)
+    expect(artifact.proofKind).toBe('disposable-postgres-proof')
+    expect(artifact.evidence).toBe('local-disposable')
+    expect(artifact.proved.some((entry) => entry.includes('backup restores'))).toBe(true)
+  })
+
+  test('a mocked proof receipt is refused by the recovery procedure', async () => {
+    const { deps } = fake()
+    const receipt = await runDisposablePostgresProof(deps, options)
+    // The receipt the harness produced says that it is simulated.
+    expect(receipt.evidence).toBe('simulated')
+    // The recovery procedure refuses it, so a mocked run is never counted as
+    // a real database proof.
+    expect(() => recoveryArtifact(receipt)).toThrow(/simulated result does not prove a database/)
   })
 
   test('refuses to run without a container runtime', async () => {

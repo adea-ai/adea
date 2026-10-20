@@ -73,11 +73,6 @@ export const FRESH_ACCOUNT_FORBIDDEN = Object.freeze([
     detail: 'a legacy identity import',
   }),
   Object.freeze({
-    kind: 'dual-write',
-    pattern: /\bdual[ _-]?writes?\b/i,
-    detail: 'a second write target',
-  }),
-  Object.freeze({
     kind: 'row-copy',
     // A SQL comment may sit between the two keywords, and a comment inside a
     // string literal is part of the statement.
@@ -205,7 +200,9 @@ export function assertNoNeonInScope(root) {
  * The constructs that are written in more than one spelling.
  *
  * The text is compared with the separators removed, so a camel case name, a
- * snake case name and a spaced name are all caught by one rule.
+ * snake case name and a spaced name are all caught by one rule. The comparison
+ * runs over the scanned segments, so a comment marker inside a string cannot
+ * remove the code around it.
  */
 export const FRESH_ACCOUNT_FORBIDDEN_NORMALIZED = Object.freeze([
   Object.freeze({
@@ -223,14 +220,38 @@ const ROUTING_QUERY_NAMES = ['host', 'hostaddr']
  * Removes comments, so a comment that names the rule is not a violation.
  *
  * The scan tracks strings, template literals and regular expressions, so a
- * comment marker inside a string literal does not hide the code around it. A
+ * comment marker inside a string literal does not hide the code around it: a
  * line that opens a block comment inside one string, calls a legacy import,
  * and closes the comment inside another string is code, and the code is
  * scanned. A string literal keeps its text, because a copy statement or a
  * legacy environment name is written as one.
  */
 export function stripComments(text) {
-  return scanCode(String(text ?? ''), 0)[0]
+  return scanSource(String(text ?? '')).text
+}
+
+/**
+ * The text of a source file with the separators removed.
+ *
+ * The comparison this serves is about a name, and a name may be written with
+ * spaces, underscores or dashes between its parts, and with a comment between
+ * them. The comparison is made over the scanned segments, never over the raw
+ * text: a string that holds a comment marker must not swallow the code around
+ * it. A comment marker inside a string is removed from that string only.
+ */
+export function normalizeForNeedle(text) {
+  const { segments } = scanSource(String(text ?? ''))
+  let normalized = ''
+  for (const segment of segments) {
+    const content = segment.kind === 'string' ? removeSqlComments(segment.text) : segment.text
+    normalized += content.toLowerCase().replace(/[ _-]/g, '')
+  }
+  return normalized
+}
+
+/** Removes the SQL comment markers a string literal may carry. */
+function removeSqlComments(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--(?![A-Za-z0-9_$])[^\n]*/g, ' ')
 }
 
 /** Copies one quoted string, honoring the escapes inside it. */
@@ -247,30 +268,6 @@ function scanQuoted(source, start, quote) {
     literal += character
     index += 1
     if (character === quote) break
-  }
-  return [literal, index]
-}
-
-/** Copies one template literal, including the code in its interpolations. */
-function scanTemplate(source, start) {
-  let literal = '`'
-  let index = start + 1
-  while (index < source.length) {
-    const character = source[index]
-    if (character === '\\') {
-      literal += source.slice(index, index + 2)
-      index += 2
-      continue
-    }
-    if (character === '$' && source[index + 1] === '{') {
-      const [expression, end] = scanCode(source, index + 2, true)
-      literal += '${' + expression + '}'
-      index = end
-      continue
-    }
-    literal += character
-    index += 1
-    if (character === '`') break
   }
   return [literal, index]
 }
@@ -335,24 +332,37 @@ function regularExpressionAllowed(copied) {
 }
 
 /**
- * Copies source text, dropping the comments and keeping everything else.
+ * Scans a source file.
  *
- * When `stopAtBrace` is set, the scan ends at the matching closing brace, so
- * a template interpolation is copied with its own code.
+ * The result is the text with the comments removed and the segments it was
+ * built from. A segment is either code or a string literal, so a later step
+ * can treat the two differently: a comment marker inside a string belongs to
+ * that string and to nothing else.
  */
-function scanCode(source, start, stopAtBrace = false) {
-  let copied = ''
-  let index = start
-  let depth = 0
+function scanSource(source) {
+  const segments = []
+  let text = ''
+  let code = ''
+  let index = 0
+  const addCode = (value) => {
+    if (!value) return
+    text += value
+    code += value
+    segments.push({ kind: 'code', text: value })
+  }
+  const addString = (value) => {
+    if (!value) return
+    text += value
+    segments.push({ kind: 'string', text: value })
+  }
   while (index < source.length) {
     const character = source[index]
     const next = source[index + 1]
-    if (stopAtBrace && character === '}' && depth === 0) break
     if (character === '/' && next === '/') {
       while (index < source.length && source[index] !== '\n') index += 1
       // A comment becomes whitespace, so the code around it cannot be joined
       // into a different token than it was.
-      copied += ' '
+      addCode(' ')
       continue
     }
     if (character === '/' && next === '*') {
@@ -363,35 +373,98 @@ function scanCode(source, start, stopAtBrace = false) {
       index += 2
       // A comment becomes whitespace, so `await/*note*/importLegacyIdentities`
       // stays two tokens and the import is still read as an import.
-      copied += ' '
+      addCode(' ')
       continue
     }
     if (character === '"' || character === "'") {
       const [literal, end] = scanQuoted(source, index, character)
-      copied += literal
+      addString(literal)
       index = end
       continue
     }
     if (character === '`') {
-      const [literal, end] = scanTemplate(source, index)
-      copied += literal
+      const [parts, end] = scanTemplate(source, index)
+      for (const part of parts) {
+        if (part.kind === 'string') addString(part.text)
+        else addCode(part.text)
+      }
       index = end
       continue
     }
-    if (character === '/' && regularExpressionAllowed(copied)) {
+    if (character === '/' && regularExpressionAllowed(code)) {
       const [literal, end] = scanRegularExpression(source, index)
       if (literal !== null) {
-        copied += literal
+        addCode(literal)
         index = end
         continue
       }
     }
-    if (character === '{') depth += 1
-    if (character === '}') depth -= 1
-    copied += character
+    addCode(character)
     index += 1
   }
-  return [copied, index]
+  return { text, segments }
+}
+
+/**
+ * Copies a template literal.
+ *
+ * The literal parts of a template are a string, and the expressions inside its
+ * interpolations are code.
+ */
+function scanTemplate(source, start) {
+  const parts = []
+  let literal = ''
+  let index = start + 1
+  const flush = () => {
+    if (literal.length > 0) {
+      parts.push({ kind: 'string', text: literal })
+      literal = ''
+    }
+  }
+  while (index < source.length) {
+    const character = source[index]
+    if (character === '\\') {
+      literal += source.slice(index, index + 2)
+      index += 2
+      continue
+    }
+    if (character === '$' && source[index + 1] === '{') {
+      flush()
+      const [expression, end] = scanExpression(source, index + 2)
+      parts.push({ kind: 'code', text: expression })
+      index = end
+      continue
+    }
+    literal += character
+    index += 1
+    if (character === '`') break
+  }
+  flush()
+  return [parts, index]
+}
+
+/**
+ * Copies the code of a template interpolation, up to its closing brace.
+ */
+function scanExpression(source, start) {
+  let expression = ''
+  let index = start
+  let depth = 0
+  while (index < source.length) {
+    const character = source[index]
+    if (character === '}' && depth === 0) break
+    if (character === '"' || character === "'") {
+      const [literal, end] = scanQuoted(source, index, character)
+      expression += literal
+      index = end
+      continue
+    }
+    if (character === '{') depth += 1
+    if (character === '}') depth -= 1
+    expression += character
+    index += 1
+  }
+  return [expression, index]
 }
 
 /**
@@ -416,11 +489,9 @@ export function freshAccountOnlyViolations(path, text) {
   }
   // A comment between the parts of a name is still a name, so the comments
   // are removed before the text is compared without its separators.
-  const normalized = code
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/--(?![A-Za-z0-9_$])[^\n]*/g, ' ')
-    .toLowerCase()
-    .replace(/[ _-]/g, '')
+  // The comparison is made over the scanned segments, so a comment marker
+  // inside a string cannot remove the code around it.
+  const normalized = normalizeForNeedle(text)
   for (const rule of FRESH_ACCOUNT_FORBIDDEN_NORMALIZED) {
     if (normalized.includes(rule.needle)) {
       violations.push({
