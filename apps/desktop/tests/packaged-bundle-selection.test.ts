@@ -264,9 +264,12 @@ describe('the packaged lane is bound to the fail-closed decisions', () => {
     expect(laneScript).not.toContain('findAppBundle')
     expect(laneScript).not.toContain(".endsWith('.app')")
     // The failure path exits with the computed code, not with the build's own
-    // status, which is 0 for a successful build that produced no bundle.
+    // status, which is 0 for a successful build that produced no bundle. The
+    // exit goes through the lane's injected seam, whose default IS the real
+    // process exit.
     expect(laneScript).not.toContain('process.exit(build.status ?? 1)')
-    expect(laneScript).toContain('process.exit(exitCode)')
+    expect(laneScript).toContain('exit = process.exit')
+    expect(laneScript).toContain('exit(exitCode)')
   })
 
   test('the install helper selects through the same shared helper', () => {

@@ -1,5 +1,55 @@
 # Changelog
 
+## [0.99.0](https://github.com/adea-ai/adea/compare/v0.98.0...v0.99.0) (2026-10-20)
+
+
+### Features
+
+* **auth:** inject server-only verification and reset delivery ([#1478](https://github.com/adea-ai/adea/issues/1478)) ([4c73a51](https://github.com/adea-ai/adea/commit/4c73a51445f480cc418a56e630bc4bc76d6c7a52))
+* **sim:** compose the approved hosted Sim launch and host services ([#1517](https://github.com/adea-ai/adea/issues/1517)) ([bf8a8df](https://github.com/adea-ai/adea/commit/bf8a8dfdf6a93f8270541132d79d51257e5285ba))
+* **sim:** redeem a launch code and save its session atomically ([#1494](https://github.com/adea-ai/adea/issues/1494)) ([432cf58](https://github.com/adea-ai/adea/commit/432cf58959cbb92c0ee14474ec2834ae7e431d3f))
+* **sim:** validate the hosted Sim host configuration before serving ([#1485](https://github.com/adea-ai/adea/issues/1485)) ([7979073](https://github.com/adea-ai/adea/commit/79790737d427a4b7902e733dcfdef3306786370b))
+
+
+### Bug Fixes
+
+* **desktop:** isolate the packaged containment lane from the OS credential store ([#1489](https://github.com/adea-ai/adea/issues/1489)) ([6f8bb68](https://github.com/adea-ai/adea/commit/6f8bb6863f7c7890febedcd544fe1b7ec272d19e))
+* **packaged:** select only the supported dev bundle and fail closed ([#1507](https://github.com/adea-ai/adea/issues/1507)) ([bd81769](https://github.com/adea-ai/adea/commit/bd817698cbecbae02e0d210752befb60589ab760))
+* **web:** fail the desktop folder picker closed when the shell cannot answer ([#1493](https://github.com/adea-ai/adea/issues/1493)) ([b968e5d](https://github.com/adea-ai/adea/commit/b968e5d6d22d10cbe19fad9e0f7776359851f903))
+
+
+### Documentation
+
+* **desktop:** stable-build and fresh-install qualification checklist ([#1504](https://github.com/adea-ai/adea/issues/1504)) ([33183fd](https://github.com/adea-ai/adea/commit/33183fdbfef56c88587396baf9292eef62ba5ef4))
+* **evidence:** refresh the toolchain-cache campaign with authoritative heads and receipts ([#1490](https://github.com/adea-ai/adea/issues/1490)) ([e190971](https://github.com/adea-ai/adea/commit/e1909712ee79e3565abfb299345f119800c15722))
+* **guides:** prepare the Railway cutover checklist and the cost week ([#1495](https://github.com/adea-ai/adea/issues/1495)) ([7792437](https://github.com/adea-ai/adea/commit/7792437d6f55a61563b0b5f1e09bbc32c2725977))
+* **pi-journey:** correct the stale child-operation claim in the 1173 README ([#1513](https://github.com/adea-ai/adea/issues/1513)) ([2ca042b](https://github.com/adea-ai/adea/commit/2ca042b9cf6ecc7e983331827f0721cf0ac1a2ee))
+* **pi-journey:** record the 27-test lane on main ([#1173](https://github.com/adea-ai/adea/issues/1173)) ([#1503](https://github.com/adea-ai/adea/issues/1503)) ([d5c5ea5](https://github.com/adea-ai/adea/commit/d5c5ea5237fdb9ff5542402c105c70c0e146f091))
+
+
+### Tests
+
+* **auth:** add desktop principal lifecycle acceptance phase ([#1492](https://github.com/adea-ai/adea/issues/1492)) ([90cea96](https://github.com/adea-ai/adea/commit/90cea96122170c15fded81c3ec405fd8d8839f48))
+* **build:** qualify the cross-machine transfer of the task cache ([#1499](https://github.com/adea-ai/adea/issues/1499)) ([39408e7](https://github.com/adea-ai/adea/commit/39408e7e9ba1b5640a805cb294f00cfe2fa06e77))
+* **ci:** add a disposable PostgreSQL proof beside Neon ([#1483](https://github.com/adea-ai/adea/issues/1483)) ([f188605](https://github.com/adea-ai/adea/commit/f18860544997c7f1ed88857e2203579ea26c7f31))
+* cover the Add repository folder picker in a mounted browser harness ([#1501](https://github.com/adea-ai/adea/issues/1501)) ([131c03b](https://github.com/adea-ai/adea/commit/131c03baa44534a1574f71fc8e4f7527afdd49a3))
+* **db:** cover the array parser registration lifecycle and the direct-write rows ([#1487](https://github.com/adea-ai/adea/issues/1487)) ([fda29dd](https://github.com/adea-ai/adea/commit/fda29dd50b09f984f08b5c2294618a7c70702674))
+* **desktop:** compose the folder picker and App Library selection rules ([#1496](https://github.com/adea-ai/adea/issues/1496)) ([29ee34d](https://github.com/adea-ai/adea/commit/29ee34d8d3e4747d85851d96a01ffb5d3affae37))
+* **desktop:** cover auth store callback integration ([#1491](https://github.com/adea-ai/adea/issues/1491)) ([3af8253](https://github.com/adea-ai/adea/commit/3af8253666ac5f28d30b98333b56228e62907532))
+* **desktop:** cover auth store service override ([#1502](https://github.com/adea-ai/adea/issues/1502)) ([f973a50](https://github.com/adea-ai/adea/commit/f973a50dc3cf2b42e7b0cdb7f9016271f4bbe0bc))
+* **desktop:** prepare a packaged native auth probe ([#1497](https://github.com/adea-ai/adea/issues/1497)) ([761de99](https://github.com/adea-ai/adea/commit/761de998247011cda3eb07421c73b5a9dc9442d3))
+* **desktop:** qualify the packaged bundle's scheme and build target ([#1486](https://github.com/adea-ai/adea/issues/1486)) ([4505c88](https://github.com/adea-ai/adea/commit/4505c88473e1d29b4df67497c6561974d05378df))
+* **fresh-install:** cover lead model pane and folder picker fallback ([#1506](https://github.com/adea-ai/adea/issues/1506)) ([4238a9c](https://github.com/adea-ai/adea/commit/4238a9c1fa7a4a0cdedc310df93c9941bf52b571))
+* **packaged:** cover the lane wrapper's fail-closed execution path ([#1509](https://github.com/adea-ai/adea/issues/1509)) ([0ddb551](https://github.com/adea-ai/adea/commit/0ddb551271ce858af27811579ad2eb90a745c707))
+* **pi-journey:** make the manual-scan stage deterministic ([#1500](https://github.com/adea-ai/adea/issues/1500)) ([52548ed](https://github.com/adea-ai/adea/commit/52548ed07a57de01257d5a98a094cd5ae326af8f))
+* **sim:** pin fail-closed hosted Sim entitlement and production default ([#1505](https://github.com/adea-ai/adea/issues/1505)) ([83c413d](https://github.com/adea-ai/adea/commit/83c413d0f710d97620ec03120665ac92de8b8225))
+* **sim:** pin per-request fan-out of hosted Sim asset reads ([#1508](https://github.com/adea-ai/adea/issues/1508)) ([e5693d5](https://github.com/adea-ai/adea/commit/e5693d5e33a77d2e1a8bb511a0994fba1a189321))
+
+
+### Maintenance
+
+* **build:** add the opt-in shared R2 task-cache transport contract ([#1488](https://github.com/adea-ai/adea/issues/1488)) ([5759c7a](https://github.com/adea-ai/adea/commit/5759c7adb55a88c800ffd96dca529ea6f0e155b6))
+
 ## [0.98.0](https://github.com/adea-ai/adea/compare/v0.97.0...v0.98.0) (2026-10-19)
 
 
