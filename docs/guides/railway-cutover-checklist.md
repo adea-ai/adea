@@ -240,6 +240,54 @@ does not select the former implementation; it leaves the artifact without
       sessions invalidated and the sessions deliberately left alone, and the observation
       window after the rollback.
 
+### Proposed rollback plan for root review
+
+This section is a proposal. It names no approved artifact, sets no thresholds, and
+authorizes no live step. Each step below is a separate action that needs Andrew's
+approval when it runs.
+
+**Candidate artifact (proposal only):** Adea main `5747673e5d31ff2da2dcc8dbdaa908ca94f8ace8`.
+This is the current source, which includes #1478, #1499 and #1511. It is not a rollback
+artifact for the legacy Neon Auth path. The section above explains why: this artifact
+constructs Better Auth unconditionally and cannot select the `NEON_AUTH_*` implementation.
+A rollback to legacy auth therefore needs a different, previously deployed artifact,
+reviewed and qualified with the legacy bindings present. Its identity is not in this
+repository, and root has to name it. Until it is named, the first checklist item above
+stays open.
+
+**Decision owner and triggers:** not decided here. Root sets the owner, and the
+thresholds for any trigger listed below.
+
+Candidate triggers for root to accept, reject or set:
+
+- Sign-in or session-refresh failures on the cutover host, above a threshold root sets.
+- Verification or reset delivery failures, above a threshold root sets.
+- A failure of the Railway target's connection or TLS check that the cutover cannot
+  resolve forward.
+
+**Revert steps, in order:**
+
+1. Stop further traffic changes. Record the decision, its owner and the time.
+2. Check that the legacy `NEON_AUTH_BASE_URL` and `NEON_AUTH_COOKIE_SECRET` records are
+   present and unmodified. Read presence only, and never print a value.
+3. Re-point the deployment at the named legacy-compatible artifact from the first
+   checklist item above, not at the candidate artifact.
+4. Restore the previous binding set. Bind the legacy `NEON_AUTH_*` records. Do not
+   delete the new `AUTH_*` records, because the cutover adds them and does not remove
+   the old set.
+5. If the cutover changed `AUTH_TRUSTED_ORIGINS`, restore its previous value exactly.
+6. Scope the session invalidation as the checklist above describes. Rotating the
+   `AUTH_SECRET` affects only the Better Auth cookie and provider sessions. Desktop
+   grants are a separate, scoped revocation, planned on its own.
+7. Leave the Railway target intact. Do not re-initialize its schema.
+8. Re-check the legacy environment's reachability after the rollback. Record the result.
+9. Write the rollback receipt. It records the artifact identity, the bindings changed,
+   the sessions invalidated, the sessions left alone, and the observation window.
+
+**Neon retention:** no Neon branch, database, role or table is deleted, dropped,
+truncated or altered at any step. The preserved branch stays a recoverable restore
+parent until the cutover is accepted, as the invariants below require.
+
 ## Neon-recoverable preservation
 
 These invariants hold for the whole cutover, and each one already has a source in this
