@@ -275,14 +275,22 @@ export async function qualifyTransfer({
         })
       : null
     const lateBlob = late()
+    // The final read of the stored envelope - the one the target would replay - happens before the report is derived,
+    // and its lateness counts: a result that arrived after the deadline is a timeout refusal and not a replay.
+    const handed = await readAsTarget(store, entryKey, to, {
+      maxBytes: limits?.maxEnvelopeBytes ?? LIMITS.maxEnvelopeBytes,
+      deadlineMs: remaining(),
+      signal: operation.signal,
+    })
+    const lateHanded = late()
     const keys = listedKeys(store)
     const staged = (keys ?? []).filter((name) => name.startsWith('staging/'))
     const publishedObjects = (keys ?? []).filter((name) => name.startsWith('entries/'))
+    // The budget is checked after every awaited operation - the lookup, the archive read and the final read of the
+    // stored envelope - and again immediately before the report.
+    const expired = lateLookup || lateBlob || lateHanded || late()
     // Every byte of the entry is compared against the target's snapshot: the entry key, the task fingerprint key, the
     // entry value and the archive.
-    // The budget is checked after every awaited operation and again immediately before the report: a result that
-    // arrived after the deadline is a timeout refusal and not a replay.
-    const expired = lateLookup || lateBlob || late()
     const entryIdentical =
       !expired &&
       target !== null &&
@@ -292,11 +300,6 @@ export async function qualifyTransfer({
       blob?.ok === true &&
       Buffer.from(blob.bytes).equals(entry.blob)
     const replayable = !expired && found.ok && entryIdentical
-    const handed = await readAsTarget(store, entryKey, to, {
-      maxBytes: limits?.maxEnvelopeBytes ?? LIMITS.maxEnvelopeBytes,
-      deadlineMs: remaining(),
-      signal: operation.signal,
-    })
     return {
       from: {
         namespace: from.namespace,
