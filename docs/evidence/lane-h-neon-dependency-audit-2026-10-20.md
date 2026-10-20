@@ -215,7 +215,31 @@ another lane's:
 - The edge pooler's origin connection limit (20) and its query-cache setting.
 - The Worker client's edge-connection ceiling (5) and its idle timeout (20s).
 
-## 8. Production operations needing root approval
+## 8. Local development proof
+
+This is the no-provider proof for a local shutdown. It covers what a developer
+machine and the local test lanes actually reach.
+
+| Local surface                           | What it reaches                                                                                                      | Provider reference                                                |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `compose.yml`                           | One pinned PostgreSQL container on `127.0.0.1:55432`.                                                                | None.                                                             |
+| `apps/web/.env.example`                 | The same loopback database, and the auth service's own `AUTH_BASE_URL`, `AUTH_SECRET` and `AUTH_DATABASE_URL`.       | None.                                                             |
+| `apps/web/.dev.vars.example`            | The same.                                                                                                            | None.                                                             |
+| `bun run dev`                           | The Vite dev server with the loopback database and the local auth service.                                           | None.                                                             |
+| `bun run test:integration`              | The loopback database, with `DATABASE_URL`, `DATABASE_URL_UNPOOLED` and `DATABASE_MIGRATION_URL` all pointing at it. | None.                                                             |
+| `bun run test:e2e`, `bun run test:unit` | The same loopback database.                                                                                          | None.                                                             |
+| `packages/db/src/config.ts`             | The connection rules.                                                                                                | None: the statement mode is not decided by a hostname.            |
+| `scripts/database-config.mjs`           | The deploy-time configuration check.                                                                                 | None: the refused shape is described without naming the provider. |
+
+The one provider-dependent path left in the repository is the pull-request CI
+workflow, which is not a local surface and is the CI lane's to remove.
+
+A developer machine therefore needs a PostgreSQL server, not that provider. The
+container image is digest-pinned and the registry fallback is already handled
+by `scripts/docker-pull-backoff.mjs`, so a rate-limited pull is retried rather
+than turned into a reason to reach for a hosted branch.
+
+## 9. Production operations needing root approval
 
 Root owns every live action. This lane performs none of them, and each step below is separate and
 needs its own approval. The order matters: the secrets must exist before the pull request merges,
@@ -239,7 +263,7 @@ record.
 provider fallback, no backward-compatibility path and no provider rollback. The proposed rollback
 plan in the cutover checklist stays on the record as history; it is not an active dependency.
 
-## 9. What this audit does not establish
+## 10. What this audit does not establish
 
 - It does not establish that the provider is gone from the live deployment. The live Worker still
   binds it, and the table above says what ends that.
