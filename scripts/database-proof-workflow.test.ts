@@ -2,8 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+// The pull-request database proof lane. It proves one disposable PostgreSQL
+// instance on the loopback interface and nothing else: there is no hosted
+// branch, no provider API and no secret in it, so the lane has no dependency on
+// a database vendor to run.
+
 const root = resolve(import.meta.dir, '..')
-const workflowPath = resolve(root, '.github/workflows/neon_workflow.yml')
+const workflowPath = resolve(root, '.github/workflows/database-proof.yml')
 const workflowText = readFileSync(workflowPath, 'utf8')
 
 type Step = {
@@ -36,119 +41,23 @@ const stepNamed = (job: Job, name: string) => {
   return step
 }
 
-describe('the hosted Neon proof is unchanged', () => {
-  test('the hosted proof keeps its four steps, in order', () => {
-    const proof = jobs.neon_proof!
-    expect(proof.steps.map((step) => step.name)).toEqual([
-      'Get branch expiration date',
-      'Create Neon branch',
-      'Checkout pull request',
-      'Install Bun',
-      'Build restricted database URLs',
-      'Install dependencies',
-      'Verify isolated Neon Auth endpoint',
-      'Verify Neon connections and migrations',
+describe('the database proof lane proves only a disposable local instance', () => {
+  test('it runs one disposable proof and its own fail-closed gate', () => {
+    expect(Object.keys(jobs).toSorted()).toEqual([
+      'disposable_postgres_gate',
+      'disposable_postgres_proof',
     ])
-  })
 
-  test('the hosted branch is still created and deleted by the pinned Neon actions', () => {
-    const create = stepNamed(jobs.neon_proof!, 'Create Neon branch')
-    expect(create.uses).toBe(
-      'neondatabase/create-branch-action@72ed4f69a12b6be9c16aebfad893f6a21e9aba8b'
-    )
-    expect(create.with?.project_id).toBe('${{ vars.NEON_PROJECT_ID }}')
-    expect(create.with?.api_key).toBe('${{ secrets.NEON_API_KEY }}')
-    expect(create.with?.get_auth_url).toBe(true)
-
-    const cleanup = jobs.delete_neon_branch!
-    const deletes = cleanup.steps.filter((step) =>
-      step.uses?.startsWith('neondatabase/delete-branch')
-    )
-    expect(deletes).toHaveLength(4)
-    for (const step of deletes) {
-      expect(step.uses).toBe(
-        'neondatabase/delete-branch-action@4468d825d5a88ef4012f1705a82f02ec3072f776'
-      )
-    }
-    expect(workflowText).toContain('https://console.neon.tech/api/v2/projects/')
-  })
-
-  test('the hosted auth assertion is still the Neon Auth JWKS proof', () => {
-    const auth = stepNamed(jobs.neon_proof!, 'Verify isolated Neon Auth endpoint')
-    expect(auth.env?.NEON_AUTH_BASE_URL).toBe('${{ steps.create_neon_branch.outputs.auth_url }}')
-    expect(auth.run).toContain('/.well-known/jwks.json')
-    expect(auth.run).toContain('AbortSignal.timeout(15_000)')
-    expect(auth.run).toContain('Neon Auth JWKS returned')
-    expect(auth.run).toContain('Array.isArray(body.keys)')
-    expect(auth.run).toContain('ADEA_CI_AUTH_HOSTS')
-  })
-
-  test('the hosted migration checks keep their order', () => {
-    const verify = stepNamed(jobs.neon_proof!, 'Verify Neon connections and migrations')
-    const health = verify.run!.indexOf('node scripts/database-health.mjs')
-    const check = verify.run!.indexOf('bun run --cwd packages/db db:check')
-    const verifier = verify.run!.indexOf('bun run --cwd packages/db db:verify')
-    const url = verify.run!.indexOf('test -n "$DATABASE_URL"')
-    const integration = verify.run!.indexOf(
-      'bun --conditions=react-server test packages/db/tests/integration/migrations.test.ts'
-    )
-    expect(health).toBeLessThan(check)
-    expect(check).toBeLessThan(verifier)
-    expect(verifier).toBeLessThan(url)
-    expect(url).toBeLessThan(integration)
-  })
-
-  test('the hosted role and TLS construction is unchanged', () => {
-    const urls = stepNamed(jobs.neon_proof!, 'Build restricted database URLs')
-    expect(urls.run).toContain('"adea_dev_app"')
-    expect(urls.run).toContain('"adea_dev_migration"')
-    expect(urls.run).toContain('"sslmode", "require"')
-    expect(urls.run).toContain('ADEA_CI_BRANCH_HOSTS')
-  })
-
-  test('the hosted gate keeps its name, its dependencies and its failure condition', () => {
-    const named = Object.entries(jobs).filter(([, job]) => job.name === 'Migrate Neon Branch')
-    expect(named.map(([id]) => id)).toEqual(['migrate_gate'])
-
-    const gate = jobs.migrate_gate!
-    expect([...(gate.needs as string[])].toSorted()).toEqual(['neon_proof', 'setup'])
-    expect(gate.if).toContain('always()')
-    expect(gate.if).toContain('github.event.pull_request.draft == false')
-    const check = stepNamed(gate, 'Require setup and provider proof to succeed')
-    expect(check.run).toContain('test "$SETUP_RESULT" = success')
-    expect(check.run).toContain('test "$PROOF_RESULT" = success')
-  })
-
-  test('the hosted secret set and the workflow permissions are unchanged', () => {
-    const secrets = [...workflowText.matchAll(/secrets\.([A-Z0-9_]+)/g)].map((match) => match[1])
-    expect([...new Set(secrets)].toSorted()).toEqual([
-      'NEON_API_KEY',
-      'NEON_CI_APP_PASSWORD',
-      'NEON_CI_MIGRATION_PASSWORD',
-    ])
-    expect(workflow.permissions).toEqual({})
-    expect(workflowText).toContain('${{ vars.NEON_PROJECT_ID }}')
-  })
-
-  test('the workflow triggers and its concurrency are unchanged', () => {
-    expect([...workflow.on.pull_request.types].toSorted()).toEqual([
-      'closed',
-      'ready_for_review',
-      'synchronize',
-    ])
-    expect(workflow.concurrency['cancel-in-progress']).toContain("github.event.action != 'closed'")
-  })
-})
-
-describe('the disposable PostgreSQL proof is additive', () => {
-  test('it runs as its own job beside the hosted proof', () => {
     const proof = jobs.disposable_postgres_proof!
     expect(proof.name).toBe('Disposable PostgreSQL Proof')
-    expect(proof.needs).toBe('setup')
-    expect(proof.if).toContain("github.event.action == 'synchronize'")
-    expect(proof.if).toContain("github.event.action == 'ready_for_review'")
     expect(proof['timeout-minutes']).toBe(15)
     expect(proof.permissions).toEqual({ contents: 'read' })
+    expect(proof.if).toContain('github.event.pull_request.draft == false')
+
+    const named = Object.entries(jobs).filter(
+      ([, job]) => job.name === 'Prove Disposable PostgreSQL'
+    )
+    expect(named.map(([id]) => id)).toEqual(['disposable_postgres_gate'])
   })
 
   test('it runs the disposable proof script and the pinned toolchain', () => {
@@ -178,35 +87,43 @@ describe('the disposable PostgreSQL proof is additive', () => {
     )
   })
 
-  test('it reads no secret and reaches no Neon management API', () => {
+  test('it reads no secret and reaches no hosted database API', () => {
     const proof = jobs.disposable_postgres_proof!
     const body = JSON.stringify(proof)
     expect(body).not.toContain('secrets.')
-    expect(body).not.toContain('neondatabase/')
     expect(body).not.toContain('console.neon.tech')
     expect(body).not.toContain('NEON_')
   })
 
-  test('it has its own fail-closed gate', () => {
-    const named = Object.entries(jobs).filter(
-      ([, job]) => job.name === 'Prove Disposable PostgreSQL'
-    )
-    expect(named.map(([id]) => id)).toEqual(['disposable_postgres_gate'])
+  test('the whole lane names no database vendor secret, variable or endpoint', () => {
+    expect(workflowText).not.toContain('secrets.')
+    expect(workflowText).not.toContain('vars.')
+    expect(workflowText).not.toContain('console.neon.tech')
+    expect(workflowText).not.toContain('neondatabase/')
+    expect(workflowText).not.toContain('NEON_')
+    expect(workflowText).not.toContain('neon')
+    // The whole workflow names no provider at all, in any case: the lane has
+    // no provider to name.
+    expect(workflowText.toLowerCase()).not.toContain('neon')
+  })
 
+  test('it has its own fail-closed gate', () => {
     const gate = jobs.disposable_postgres_gate!
-    expect([...(gate.needs as string[])].toSorted()).toEqual(['disposable_postgres_proof', 'setup'])
+    expect([...(gate.needs as string[])]).toEqual(['disposable_postgres_proof'])
     expect(gate.if).toContain('always()')
     expect(gate.if).toContain('github.event.pull_request.draft == false')
-    const check = stepNamed(gate, 'Require setup and the disposable proof to succeed')
-    expect(check.run).toContain('test "$SETUP_RESULT" = success')
+    const check = stepNamed(gate, 'Require the disposable proof to succeed')
     expect(check.run).toContain('test "$PROOF_RESULT" = success')
     expect(check.env?.PROOF_RESULT).toBe('${{ needs.disposable_postgres_proof.result }}')
   })
 
-  test('the hosted gate does not depend on the disposable lane', () => {
-    expect([...(jobs.migrate_gate!.needs as string[])]).not.toContain('disposable_postgres_proof')
-    // Cleanup stays independent of setup, as PR #1476 made it.
-    expect(jobs.delete_neon_branch!.needs).toBeUndefined()
+  test('it triggers only on the events that may run heavy validation', () => {
+    expect([...workflow.on.pull_request.types].toSorted()).toEqual([
+      'ready_for_review',
+      'synchronize',
+    ])
+    expect(workflow.concurrency['cancel-in-progress']).toBe(true)
+    expect(workflow.permissions).toEqual({})
   })
 
   test('the disposable proof binds to the loopback interface and pins its image', () => {
@@ -243,7 +160,7 @@ describe('the disposable PostgreSQL proof is additive', () => {
     expect(helper).toContain('replaying the auth schema initializer was not a no-op')
   })
 
-  test('the disposable proof keeps the hosted migration checks and their order', () => {
+  test('the disposable proof keeps the migration checks and their order', () => {
     const helper = readFileSync(resolve(root, 'scripts/disposable-postgres-ci.ts'), 'utf8')
     const health = helper.indexOf("args: ['scripts/database-health.mjs']")
     const check = helper.indexOf("'db:check'")

@@ -385,34 +385,39 @@ describe('test suite boundaries', () => {
     expect(codeFoundry).toContain('coverage_minimum: 80')
   })
 
-  test('keeps full PostgreSQL integration local and limits Neon to provider proof', () => {
-    const neonWorkflow = Bun.YAML.parse(
-      readFileSync(resolve(root, '.github/workflows/neon_workflow.yml'), 'utf8')
+  test('keeps full PostgreSQL integration local and the pull-request proof disposable', () => {
+    const databaseWorkflow = Bun.YAML.parse(
+      readFileSync(resolve(root, '.github/workflows/database-proof.yml'), 'utf8')
     ) as {
-      jobs: {
-        neon_proof: {
+      jobs: Record<
+        string,
+        {
+          name?: string
+          needs?: string | string[]
           'timeout-minutes': number
           strategy?: unknown
           steps: { name?: string; run?: string }[]
         }
-        migrate_gate: { needs: string[]; name: string }
-      }
+      >
     }
-    const proof = neonWorkflow.jobs.neon_proof
+    const proof = databaseWorkflow.jobs.disposable_postgres_proof!
     const commands = proof.steps.map((step) => step.run ?? '').join('\n')
-    const authProbe = proof.steps.find((step) => step.name === 'Verify isolated Neon Auth endpoint')
 
     expect(packageJson.scripts['test:integration']).toBe('bun scripts/test-integration.mjs')
     expect(proof.strategy).toBeUndefined()
-    expect(proof['timeout-minutes']).toBe(5)
+    expect(proof['timeout-minutes']).toBe(15)
     expect(commands).not.toContain('bun run test:integration')
     expect(commands).not.toContain('ADEA_INTEGRATION_SHARD')
-    expect(commands).toContain('node scripts/database-health.mjs')
-    expect(commands).toContain('bun run --cwd packages/db db:check')
-    expect(commands).toContain('bun run --cwd packages/db db:verify')
-    expect(authProbe?.run).toContain('AbortSignal.timeout(15_000)')
-    expect(neonWorkflow.jobs.migrate_gate.needs).toEqual(['setup', 'neon_proof'])
-    expect(neonWorkflow.jobs.migrate_gate.name).toBe('Migrate Neon Branch')
+    // The pull-request lane proves a disposable loopback instance and nothing
+    // else: no hosted branch, no provider API and no secret.
+    expect(Object.keys(databaseWorkflow.jobs).toSorted()).toEqual([
+      'disposable_postgres_gate',
+      'disposable_postgres_proof',
+    ])
+    expect(databaseWorkflow.jobs.disposable_postgres_gate!.name).toBe('Prove Disposable PostgreSQL')
+    expect(databaseWorkflow.jobs.disposable_postgres_gate!.needs).toEqual([
+      'disposable_postgres_proof',
+    ])
   })
 
   test('uses eight E2E shards in the required pull-request validation lane', () => {

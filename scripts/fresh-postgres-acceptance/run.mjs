@@ -2,18 +2,28 @@ import { spawnSync } from 'node:child_process'
 import { access, readFile } from 'node:fs/promises'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
-import { assertFocusedJourneyPassed } from './acceptance-receipt.mjs'
+import { assertFocusedJourneyPassed, buildAcceptanceReceipt } from './acceptance-receipt.mjs'
+import { classifyEvidence } from './evidence.mjs'
+import { readCheckoutProvenance } from './provenance.mjs'
+import { assertDatabaseProof } from './recovery.mjs'
 import { fixtureEnvironment, memoryEnvironment, resolveLocalDockerEndpoint } from './policy.mjs'
 
+// The checkout this code came from.
+const moduleRoot = fileURLToPath(new URL('../../', import.meta.url))
 const repositoryFlag = process.argv.indexOf('--repository')
-const root =
-  repositoryFlag === -1
-    ? fileURLToPath(new URL('../../', import.meta.url))
-    : resolve(process.argv[repositoryFlag + 1] ?? '.')
+const root = repositoryFlag === -1 ? moduleRoot : resolve(process.argv[repositoryFlag + 1] ?? '.')
 const repositoryFile = (path) => pathToFileURL(resolve(root, path))
+// The provenance of every root this run exercises: the tree the code came
+// from and the tree the run tested. A receipt names both, so a result can
+// never be labelled with the commit of a checkout that did not produce it.
+const module = readCheckoutProvenance(moduleRoot)
+const checkout = readCheckoutProvenance(root)
 // Dedicated memory mode never imports provisioning or connects to PostgreSQL.
 if (process.argv.includes('--memory')) {
   const sourceRoot = resolve(process.env.FRESH_AUTH_SOURCE_ROOT ?? root)
+  // The reviewed source tree is a root of its own when it is not the tree the
+  // run tested, and its provenance is named with the rest.
+  const source = readCheckoutProvenance(sourceRoot)
   for (const path of ['packages/auth/src/better-auth-server.ts', 'packages/auth/src/delivery.ts']) {
     try {
       await access(resolve(sourceRoot, path))
@@ -56,7 +66,22 @@ if (process.argv.includes('--memory')) {
     )
   }
   console.log(
-    JSON.stringify({ status: 'passed', mode: 'memory', journeys: 2, postgres: 'not-run' })
+    JSON.stringify({
+      status: 'passed',
+      mode: 'memory',
+      journeys: 2,
+      postgres: 'not-run',
+      // The memory lane runs synthetic journeys against an in-memory database.
+      // It proves the provider's request path and nothing about PostgreSQL, so
+      // its receipt carries the weakest class and cannot be counted as more.
+      evidence: classifyEvidence('memory-journey'),
+      // The kind of proof this receipt is. It is not a database proof, and the
+      // recovery procedure refuses it.
+      proofKind: 'memory-journey',
+      checkout,
+      module,
+      source,
+    })
   )
   process.exit(0)
 }
@@ -141,7 +166,14 @@ try {
     .split('\n')
     .findLast((value) => value.startsWith('FRESH_SCHEMA_ACCEPTANCE '))
   if (!line) throw new Error('fresh-schema receipt missing')
-  const receipt = JSON.parse(line.slice('FRESH_SCHEMA_ACCEPTANCE '.length))
+  let receipt
+  try {
+    receipt = JSON.parse(line.slice('FRESH_SCHEMA_ACCEPTANCE '.length))
+  } catch {
+    // A receipt that is not JSON is an invalid receipt, not a parse error the
+    // caller has to interpret.
+    throw new Error('invalid fresh-schema receipt')
+  }
   if (receipt.status !== 'passed' || !Number.isInteger(receipt.migrations))
     throw new Error('invalid fresh-schema receipt')
   // The focused desktop principal journey runs in this lane, against the same
@@ -171,12 +203,20 @@ try {
   // must say it passed. A pass count alone cannot prove that, because the
   // offline regressions of the focused file always run.
   assertFocusedJourneyPassed(focusedOutput)
-  passedReceipt = {
-    status: 'passed',
+  passedReceipt = buildAcceptanceReceipt({
     migrations: receipt.migrations,
-    verificationRequired: true,
-    ...(receipt.desktopPrincipal ? { desktopPrincipal: receipt.desktopPrincipal } : {}),
-  }
+    // The receipt names the class of its own evidence: a disposable loopback
+    // instance of the real provider and the real database. It is not a CI
+    // result and not a live one, and it may not be recorded as either.
+    evidence: classifyEvidence('local-disposable'),
+    checkout,
+    module,
+    desktopPrincipal: receipt.desktopPrincipal,
+  })
+  // The lane publishes a receipt the recovery procedure can consume. A
+  // receipt it cannot consume is not a receipt, and the run fails rather than
+  // publishing one.
+  assertDatabaseProof(passedReceipt)
 } catch (error) {
   failed = true
   console.error(error.message)
