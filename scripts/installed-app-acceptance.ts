@@ -647,8 +647,9 @@ export async function runInstalledAppAcceptance(dependencies: {
     artifact: {
       summary,
       origin: INSTALLED_APP_ORIGIN,
-      bundle: dependencies.bundle,
-      profileRoot: profile.root,
+      // The published artifact may not carry a machine path.
+      bundle: redactRecordedText(dependencies.bundle),
+      profileRoot: redactRecordedText(profile.root),
       competingCopies,
       checks,
     },

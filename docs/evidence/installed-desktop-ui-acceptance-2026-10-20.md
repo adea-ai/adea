@@ -138,8 +138,13 @@ apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app --artifact
 | 22  | `the-installed-application-relaunches-with-its-own-state`            | the application starts again and keeps its state directory, owner-only                                                | the application answered again; its state directory is `700`                                                           | installed-app        | pass     |
 
 Screenshots: every UI row that changed the screen left the screen it produced
-behind, under `<artifact>/screenshots/` (15 files, `01-first-run.png` …
-`10-reload.png`).
+behind. They are committed with this record under
+[`docs/evidence/installed-desktop-ui-acceptance-2026-10-20/screenshots/`](./installed-desktop-ui-acceptance-2026-10-20/screenshots/)
+(15 files, `01-first-run.png` … `10-reload.png`), together with the run's own
+artifact — the expected/actual record of every row — under
+[`installed-app-acceptance.json`](./installed-desktop-ui-acceptance-2026-10-20/installed-app-acceptance.json).
+The artifact is the run's own output with the lane's redaction applied to its
+two path fields; the lane now applies that redaction itself.
 
 ### The no-provider proof (Railway-only, no Neon)
 
