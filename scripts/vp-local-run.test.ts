@@ -4,6 +4,7 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -366,6 +367,45 @@ describe('ensurePrivateDirectory', () => {
     expect(() => ensurePrivateDirectory(join(scratch, 'h1'), join(scratch, 'h2', 'x'))).toThrow(
       'outside the cache home'
     )
+  })
+
+  test('a component another run created at the same time is used, not refused', () => {
+    const home = join(scratch, 'ensure-race')
+    const target = join(home, 'repo', 'head-x', 'env')
+    let created = false
+
+    // Another run creates the component after this one has found it missing and before it creates it.
+    ensurePrivateDirectory(home, target, {
+      beforeCreate: (path) => {
+        if (created) return
+        created = true
+        mkdirSync(path, { recursive: true, mode: 0o700 })
+      },
+    })
+    expect(created).toBe(true)
+    expect(lstatSync(target).isDirectory()).toBe(true)
+    expect(lstatSync(target).mode & 0o777).toBe(0o700)
+    expect(realpathSync(target)).toBe(target)
+  })
+
+  test('a component another run created at the same time is still judged by what it is', () => {
+    const home = join(scratch, 'ensure-race-open')
+    const target = join(home, 'repo', 'head-x', 'env')
+    let created = false
+
+    // Another run creates the component, but it is writable by group members.
+    expect(() =>
+      ensurePrivateDirectory(home, target, {
+        beforeCreate: (path) => {
+          if (created) return
+          created = true
+          mkdirSync(path, { recursive: true, mode: 0o700 })
+          chmodSync(path, 0o770)
+        },
+      })
+    ).toThrow('writable by group or others')
+    expect(created).toBe(true)
+    chmodSync(join(home, 'repo'), 0o700)
   })
 })
 
@@ -791,6 +831,124 @@ describe('withLock', () => {
     expect(existsSync(`${dir}.lock`)).toBe(false)
     expect(existsSync(`${dir}.lock.reclaim`)).toBe(false)
   })
+
+  test('many processes contending on one directory never overlap, and none of them fails', async () => {
+    const dir = join(scratch, 'many', 'cache')
+    mkdirSync(join(scratch, 'many'), { recursive: true })
+    const log = join(scratch, 'many', 'log.txt')
+    const child = join(scratch, 'many', 'child.mjs')
+    writeFileSync(
+      child,
+      [
+        "import { appendFileSync } from 'node:fs'",
+        'const { withLock } = await import(process.env.VP_MODULE)',
+        'await withLock(process.env.VP_DIR, async () => {',
+        '  appendFileSync(process.env.VP_LOG, `in ${process.pid}\\n`)',
+        '  await new Promise((done) => setTimeout(done, 15))',
+        '  appendFileSync(process.env.VP_LOG, `out ${process.pid}\\n`)',
+        '}, { timeoutMs: 30000 })',
+        '',
+      ].join('\n')
+    )
+
+    // The children write to the same log; a child that failed would say so on its own stderr.
+    const run = () =>
+      new Promise<{ code: number | null; stderr: string }>((done) => {
+        const proc = spawn(process.execPath, [child], {
+          env: { ...process.env, VP_MODULE: MODULE, VP_DIR: dir, VP_LOG: log },
+          stdio: ['ignore', 'ignore', 'pipe'],
+        })
+        let stderr = ''
+        proc.stderr.on('data', (chunk) => {
+          stderr += String(chunk)
+        })
+        proc.on('exit', (code) => done({ code, stderr }))
+      })
+    const results = await Promise.all(Array.from({ length: 12 }, run))
+    expect(results.map((result) => result.code)).toEqual(Array.from({ length: 12 }, () => 0))
+    expect(results.map((result) => result.stderr).join('')).toBe('')
+
+    const lines = readFileSync(log, 'utf8').trim().split('\n')
+    expect(lines).toHaveLength(24)
+    for (let i = 0; i < lines.length; i += 2) {
+      const [kindIn, pidIn] = lines[i].split(' ')
+      const [kindOut, pidOut] = lines[i + 1].split(' ')
+      expect(kindIn).toBe('in')
+      expect(kindOut).toBe('out')
+      expect(pidOut).toBe(pidIn)
+    }
+    expect(existsSync(`${dir}.lock`)).toBe(false)
+    expect(existsSync(`${dir}.lock.reclaim`)).toBe(false)
+  })
+
+  test('a lock that is released between the check and the read is absent, not a failure', async () => {
+    const dir = join(scratch, 'released', 'cache')
+    mkdirSync(join(scratch, 'released'), { recursive: true })
+    writeFileSync(`${dir}.lock`, token(deadPid()))
+
+    // The owner releases the lock after it has been checked and before it is read.
+    let released = false
+    const outcome = await withLock(dir, async () => 'ran', {
+      pollMs: 5,
+      timeoutMs: 2000,
+      hooks: {
+        beforeRead: (path) => {
+          if (released || path !== `${dir}.lock`) return
+          released = true
+          rmSync(path, { force: true })
+        },
+      },
+    })
+    expect(released).toBe(true)
+    expect(outcome).toBe('ran')
+    expect(existsSync(`${dir}.lock`)).toBe(false)
+    expect(existsSync(`${dir}.lock.run`)).toBe(false)
+  })
+
+  test('a run record that is released between the check and the read leaves the dead owner dead', async () => {
+    const dir = join(scratch, 'run-released', 'cache')
+    mkdirSync(join(scratch, 'run-released'), { recursive: true })
+    const dead = token(deadPid())
+    writeFileSync(`${dir}.lock`, dead)
+    writeFileSync(`${dir}.lock.run`, `${deadPid()}\n${dead.split('\n')[1]}`)
+
+    // The run record is released after it has been checked and before it is read.
+    let released = false
+    const outcome = await withLock(dir, async () => 'ran', {
+      pollMs: 5,
+      timeoutMs: 2000,
+      hooks: {
+        beforeRead: (path) => {
+          if (released || path !== `${dir}.lock.run`) return
+          released = true
+          rmSync(path, { force: true })
+        },
+      },
+    })
+    expect(released).toBe(true)
+    expect(outcome).toBe('ran')
+    expect(existsSync(`${dir}.lock`)).toBe(false)
+    expect(existsSync(`${dir}.lock.run`)).toBe(false)
+  })
+
+  test('a lock that is released between the check and the read does not fail the release', async () => {
+    const dir = join(scratch, 'release-window', 'cache')
+    mkdirSync(join(scratch, 'release-window'), { recursive: true })
+
+    // The lock is removed after it has been checked and before it is read, in the release of the run itself.
+    let released = false
+    const outcome = await withLock(dir, async () => 'ran', {
+      hooks: {
+        beforeRead: (path) => {
+          if (released || path !== `${dir}.lock`) return
+          released = true
+          rmSync(path, { force: true })
+        },
+      },
+    })
+    expect(released).toBe(true)
+    expect(outcome).toBe('ran')
+  })
 })
 
 /** A cache home of its own, so that no two tests share a directory. */
@@ -874,6 +1032,16 @@ appendFileSync(process.env.FAKE_VP_LOG, JSON.stringify({ args: process.argv.slic
 const code = Number(process.env.FAKE_VP_EXIT ?? 0)
 if (process.env.FAKE_VP_SLEEP) setTimeout(() => process.exit(code), 60000)
 else process.exit(code)
+`
+
+/** A stand-in `vp` that records when it enters and when it leaves, so two of them can be seen to overlap or not. */
+const FAKE_VP_SERIAL = `#!/usr/bin/env node
+const { appendFileSync } = require('node:fs')
+appendFileSync(process.env.FAKE_VP_LOG, \`in \${process.pid}\\n\`)
+setTimeout(() => {
+  appendFileSync(process.env.FAKE_VP_LOG, \`out \${process.pid}\\n\`)
+  process.exit(Number(process.env.FAKE_VP_EXIT ?? 0))
+}, 20)
 `
 
 /** A committed checkout with a stand-in `vp` in node_modules, which git ignores. */
@@ -1095,6 +1263,57 @@ describe('main, runVp and exit codes', () => {
         }
       )
     )
+  })
+
+  test('the wrapper, run as a child process under contention, exits zero, writes nothing to stderr and never overlaps', async () => {
+    const root = fixtureCheckout('wrapper-contention')
+    const vp = join(root, 'node_modules', '.bin', 'vp')
+    writeFileSync(vp, FAKE_VP_SERIAL)
+    chmodSync(vp, 0o755)
+    // The wrapper takes its root from the directory it lives in, so it runs from the fixture.
+    mkdirSync(join(root, 'scripts'), { recursive: true })
+    copyFileSync(MODULE, join(root, 'scripts', 'vp-local-run.mjs'))
+    writeFileSync(join(root, '.gitignore'), 'node_modules/\nscripts/\n')
+    commitAll(root, 'ignore the copied wrapper')
+    const log = join(scratch, 'wrapper-contention.log')
+    const cacheHomeDir = join(scratch, 'wrapper-contention-home', '.cache', 'adea-vp')
+
+    const run = () =>
+      new Promise<{ code: number | null; stderr: string }>((done) => {
+        const child = spawn(
+          process.execPath,
+          [join(root, 'scripts', 'vp-local-run.mjs'), 'orch:test'],
+          {
+            env: {
+              ...process.env,
+              CI: '',
+              FAKE_VP_LOG: log,
+              FAKE_VP_EXIT: '0',
+              ADEA_VP_CACHE_HOME: cacheHomeDir,
+            },
+            stdio: ['ignore', 'ignore', 'pipe'],
+          }
+        )
+        let stderr = ''
+        child.stderr.on('data', (chunk) => {
+          stderr += String(chunk)
+        })
+        child.on('exit', (code) => done({ code, stderr }))
+      })
+    const results = await Promise.all(Array.from({ length: 6 }, run))
+    expect(results.map((result) => result.code)).toEqual(Array.from({ length: 6 }, () => 0))
+    expect(results.map((result) => result.stderr).join('')).toBe('')
+
+    // The work is serialised: every "in" is followed by the "out" of the same child before the next "in".
+    const lines = readFileSync(log, 'utf8').trim().split('\n')
+    expect(lines).toHaveLength(12)
+    for (let i = 0; i < lines.length; i += 2) {
+      const [kindIn, pidIn] = lines[i].split(' ')
+      const [kindOut, pidOut] = lines[i + 1].split(' ')
+      expect(kindIn).toBe('in')
+      expect(kindOut).toBe('out')
+      expect(pidOut).toBe(pidIn)
+    }
   })
 
   test('register records the group of the work, and a record of a live group keeps the lock held', async () => {
