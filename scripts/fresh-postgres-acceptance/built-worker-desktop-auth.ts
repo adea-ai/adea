@@ -30,6 +30,8 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
+import { BuiltWorkerFailure } from './built-worker-failures'
+
 /** The route the built Worker serves for a desktop authorization request. */
 export const DESKTOP_AUTHORIZE_PATH = '/api/auth/desktop/authorize'
 
@@ -66,11 +68,30 @@ export type BuiltWorkerResponse = {
 /** The transport the qualification drives the built Worker through. */
 export type BuiltWorkerTransport = (request: BuiltWorkerRequest) => Promise<BuiltWorkerResponse>
 
+/**
+ * How one attempt ended.
+ *
+ * The vocabulary is fixed, so a receipt cannot grow a value that carries a
+ * secret, and so a reader can tell an application failure from an
+ * infrastructure failure without parsing prose.
+ */
+export type DesktopAttemptOutcome =
+  | 'passed'
+  | 'refused'
+  | 'application-failure'
+  | 'infrastructure-failure'
+  | 'transport-failure'
+  | 'assertion-failed'
+
 /** One named assertion and what it found. */
 export type DesktopEndpointAssertion = {
   readonly name: string
   readonly passed: boolean
   readonly detail: string
+  /** How many attempts the assertion made. */
+  readonly attempts: number
+  /** How each attempt ended, in order. */
+  readonly outcomes: readonly DesktopAttemptOutcome[]
 }
 
 /** The auth lifecycle evidence the receipt carries. */
@@ -82,13 +103,21 @@ export type AuthLifecycleEvidence = {
 
 /** The receipt the qualification publishes. It carries no credential. */
 export type BuiltWorkerDesktopAuthReceipt = {
-  readonly status: 'passed'
+  readonly status: 'passed' | 'failed'
   readonly proofKind: typeof BUILT_WORKER_DESKTOP_AUTH_PROOF_KIND
   readonly evidence: 'local-disposable' | 'ci' | 'simulated'
   readonly worker: {
     readonly built: true
     readonly baseUrl: string
     readonly routes: readonly string[]
+    /** The artifact the qualification actually proved. */
+    readonly artifact: {
+      readonly digest: string
+      readonly sha: string
+      readonly dirty: boolean | null
+      /** True when the artifact was proved to belong to this checkout. */
+      readonly verified: boolean
+    }
   }
   /** Every assertion the qualification made, in the order it made them. */
   readonly assertions: readonly DesktopEndpointAssertion[]
@@ -116,6 +145,8 @@ export type BuiltWorkerDesktopAuthInput = {
   readonly transport: BuiltWorkerTransport
   /** The base URL the built Worker serves. */
   readonly baseUrl: string
+  /** The artifact the qualification proves. */
+  readonly artifact: BuiltWorkerDesktopAuthReceipt['worker']['artifact']
   /** The origin the desktop shell sends. */
   readonly desktopOrigin?: string
   /**
@@ -142,21 +173,29 @@ type StepOutcome = {
   readonly attempts: number
 }
 
-/** What one step found. */
+/**
+ * What one step found.
+ *
+ * A step that reached the Worker is judged by the response it produced, a
+ * refusal included. A step that never received a response carries the outcome
+ * of the attempt itself, so the receipt can show what happened.
+ */
 type StepResult = {
   readonly passed: boolean
   readonly detail: string
-  /**
-   * True when the step could not be judged because the transport failed. Such
-   * a step is retried with fresh material; a step that reached the Worker is
-   * judged by the response it produced, refusal included.
-   */
-  readonly transportFailure?: boolean
+  readonly outcome: DesktopAttemptOutcome
 }
 
 /** A step the qualification runs. */
 type Step = {
   readonly name: string
+  /**
+   * True when the step changes state. A step that changes state is never
+   * replayed: a request whose outcome is unknown may already have changed the
+   * instance, and repeating it would turn an unknown outcome into a second
+   * mutation rather than an answer.
+   */
+  readonly mutating: boolean
   readonly run: (attempt: number) => Promise<StepResult>
 }
 
@@ -301,6 +340,48 @@ export function desktopExchangeRequest(input: {
   }
 }
 
+/**
+ * True when the response is the local runtime's own error envelope.
+ *
+ * The local runtime answers a failed request with its own envelope, which
+ * names the transport failure. An application error is the application's own
+ * answer, and the two must not be confused: an application failure is a
+ * failure of the product and is never retried into a pass.
+ */
+export function isInfrastructureErrorEnvelope(body: string): boolean {
+  const text = String(body ?? '').trim()
+  if (!text) return false
+  if (text.startsWith('Error: ')) return true
+  return text.includes('Error inside ProxyWorker')
+}
+
+/** The outcome a response that did not satisfy an assertion carries. */
+export function failureOutcome(response: BuiltWorkerResponse): DesktopAttemptOutcome {
+  if (response.status >= 500) {
+    return isInfrastructureErrorEnvelope(response.body)
+      ? 'infrastructure-failure'
+      : 'application-failure'
+  }
+  return 'assertion-failed'
+}
+
+/**
+ * The result of a request that answered with something the assertion did not
+ * expect. The detail is a fixed sentence: it names the status and the kind of
+ * failure, never a body and never a value.
+ */
+export function serverFailure(response: BuiltWorkerResponse, what: string): StepResult {
+  const outcome = failureOutcome(response)
+  return {
+    passed: false,
+    detail:
+      outcome === 'infrastructure-failure'
+        ? `${what} failed in the local runtime (${response.status})`
+        : `${what} answered ${response.status}`,
+    outcome,
+  }
+}
+
 /** True when the response body names a desktop session credential. */
 export function responseCarriesCredential(body: string): boolean {
   return /"credential"\s*:\s*"[^"]{8,}"/u.test(body)
@@ -353,32 +434,59 @@ export async function runBuiltWorkerDesktopAuth(
   }
 
   /**
-   * A step that could not be judged because the transport failed is retried.
-   * A response the Worker produced, including a refusal, is never retried.
+   * Runs one step and records how every attempt ended.
+   *
+   * A step is retried only when it changed nothing and the failure was not the
+   * application refusing or failing. An application failure is never retried
+   * into a pass, and a step that changes state is never replayed: its outcome
+   * may already be unknown, and repeating it would change the instance twice
+   * instead of answering the question once.
    */
   const runStep = async (step: Step): Promise<StepOutcome> => {
     let used = 0
-    let last: StepResult = { passed: false, detail: 'the step did not run' }
+    const outcomes: DesktopAttemptOutcome[] = []
+    let last: StepResult = {
+      passed: false,
+      detail: 'the step did not run',
+      outcome: 'assertion-failed',
+    }
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       used = attempt + 1
       try {
         last = await step.run(attempt)
-      } catch (error) {
+      } catch {
         last = {
           passed: false,
-          detail: `the transport failed: ${error instanceof Error ? error.message : 'unknown'}`,
-          transportFailure: true,
+          detail: 'the request never reached the Worker',
+          outcome: 'transport-failure',
         }
       }
-      if (!last.transportFailure) {
+      outcomes.push(last.outcome)
+      if (last.passed) {
         return {
-          assertion: { name: step.name, passed: last.passed, detail: last.detail },
+          assertion: {
+            name: step.name,
+            passed: true,
+            detail: last.detail,
+            attempts: used,
+            outcomes,
+          },
           attempts: used,
         }
       }
+      const retryable =
+        !step.mutating &&
+        (last.outcome === 'transport-failure' || last.outcome === 'infrastructure-failure')
+      if (!retryable) break
     }
     return {
-      assertion: { name: step.name, passed: false, detail: last.detail },
+      assertion: {
+        name: step.name,
+        passed: false,
+        detail: last.detail,
+        attempts: used,
+        outcomes,
+      },
       attempts: used,
     }
   }
@@ -391,28 +499,30 @@ export async function runBuiltWorkerDesktopAuth(
   const password = base64url(randomBytes(24))
   const signUp = await runStep({
     name: 'the-built-worker-signs-up-a-fresh-account',
+    mutating: true,
     run: async () => {
       const index = await send(
         freshAccountSignUpRequest({ baseUrl: input.baseUrl, email, password })
       )
       const response = responses[index]!
       if (response.status >= 500) {
-        return {
-          passed: false,
-          detail: `the sign-up returned ${response.status}`,
-          transportFailure: true,
-        }
+        return serverFailure(response, 'the sign-up returned ${response.status}')
       }
       const cookie = sessionCookieFrom(response)
       if (response.status !== 200 || !cookie) {
         return {
           passed: false,
           detail: `the sign-up did not issue a session cookie (status ${response.status})`,
+          outcome: 'assertion-failed',
         }
       }
       sessionCookie = cookie
       observeIssued(cookie, index)
-      return { passed: true, detail: 'the built Worker issued a session for a fresh account' }
+      return {
+        passed: true,
+        detail: 'the built Worker issued a session for a fresh account',
+        outcome: 'passed',
+      }
     },
   })
 
@@ -449,6 +559,7 @@ export async function runBuiltWorkerDesktopAuth(
 
   steps.push({
     name: 'the-desktop-authorize-route-refuses-a-request-without-a-session',
+    mutating: false,
     run: async () => {
       const pkce = desktopPkcePair()
       const { nonce, state } = desktopNonceAndState()
@@ -458,28 +569,34 @@ export async function runBuiltWorkerDesktopAuth(
       })
       const response = responses[index]!
       if (response.status >= 500) {
-        return {
-          passed: false,
-          detail: `the authorize route returned ${response.status}`,
-          transportFailure: true,
-        }
+        return serverFailure(response, 'the authorize route returned ${response.status}')
       }
       const location = response.headers.location ?? ''
       if (response.status !== 303) {
         return {
           passed: false,
           detail: `the authorize route answered ${response.status} instead of refusing the caller`,
+          outcome: 'assertion-failed',
         }
       }
       if (!location.includes('/auth/sign-in')) {
-        return { passed: false, detail: 'the authorize route did not send the caller to sign in' }
+        return {
+          passed: false,
+          detail: 'the authorize route did not send the caller to sign in',
+          outcome: 'assertion-failed',
+        }
       }
-      return { passed: true, detail: 'the authorize route sent the unsigned caller to sign in' }
+      return {
+        passed: true,
+        detail: 'the authorize route sent the unsigned caller to sign in',
+        outcome: 'refused',
+      }
     },
   })
 
   steps.push({
     name: 'the-desktop-authorize-route-refuses-an-undefined-parameter',
+    mutating: false,
     run: async () => {
       const pkce = desktopPkcePair()
       const { nonce, state } = desktopNonceAndState()
@@ -494,35 +611,42 @@ export async function runBuiltWorkerDesktopAuth(
       })
       const response = responses[index]!
       if (response.status >= 500) {
-        return {
-          passed: false,
-          detail: `the authorize route returned ${response.status}`,
-          transportFailure: true,
-        }
+        return serverFailure(response, 'the authorize route returned ${response.status}')
       }
       if (response.status !== 400) {
         return {
           passed: false,
           detail: `the authorize route answered ${response.status} instead of refusing the request`,
+          outcome: 'assertion-failed',
         }
       }
-      return { passed: true, detail: 'the authorize route refused a parameter it does not define' }
+      return {
+        passed: true,
+        detail: 'the authorize route refused a parameter it does not define',
+        outcome: 'refused',
+      }
     },
   })
 
   steps.push({
     name: 'the-desktop-authorize-route-issues-an-authorization-code',
+    mutating: true,
     run: async () => {
       const issued = await authorizeWithSession()
       if (!issued.code) {
         return {
           passed: false,
           detail: `the authorize route answered ${issued.status} at ${issued.location} without an authorization code`,
+          outcome:
+            issued.status >= 500
+              ? failureOutcome(responses[responses.length - 1]!)
+              : 'assertion-failed',
         }
       }
       return {
         passed: true,
         detail: 'the authorize route issued an authorization code in the completion fragment',
+        outcome: 'passed',
       }
     },
   })
@@ -533,6 +657,7 @@ export async function runBuiltWorkerDesktopAuth(
 
   steps.push({
     name: 'the-desktop-exchange-route-issues-a-session',
+    mutating: true,
     run: async () => {
       const issued = await authorizeWithSession()
       const index = await send(
@@ -545,25 +670,27 @@ export async function runBuiltWorkerDesktopAuth(
       )
       const response = responses[index]!
       if (response.status >= 500) {
-        return {
-          passed: false,
-          detail: `the exchange route returned ${response.status}`,
-          transportFailure: true,
-        }
+        return serverFailure(response, 'the exchange route returned ${response.status}')
       }
       if (response.status !== 200) {
         return {
           passed: false,
           detail: `the exchange route answered ${response.status} instead of issuing a session`,
+          outcome: 'assertion-failed',
         }
       }
       if (!responseCarriesCredential(response.body)) {
-        return { passed: false, detail: 'the exchange route issued no desktop session credential' }
+        return {
+          passed: false,
+          detail: 'the exchange route issued no desktop session credential',
+          outcome: 'assertion-failed',
+        }
       }
       if (response.headers['access-control-allow-origin'] !== desktopOrigin) {
         return {
           passed: false,
           detail: 'the exchange route did not allow the trusted desktop origin',
+          outcome: 'assertion-failed',
         }
       }
       const credential = response.body.match(/"credential"\s*:\s*"([^"]+)"/u)?.[1] ?? ''
@@ -571,12 +698,17 @@ export async function runBuiltWorkerDesktopAuth(
       exchangedCode = issued.code
       exchangedNonce = issued.nonce
       exchangedVerifier = issued.verifier
-      return { passed: true, detail: 'the exchange route turned the code into a desktop session' }
+      return {
+        passed: true,
+        detail: 'the exchange route turned the code into a desktop session',
+        outcome: 'passed',
+      }
     },
   })
 
   steps.push({
     name: 'the-desktop-exchange-route-refuses-a-wrong-pkce-verifier',
+    mutating: true,
     run: async () => {
       const issued = await authorizeWithSession()
       const wrong = base64url(randomBytes(48))
@@ -590,30 +722,33 @@ export async function runBuiltWorkerDesktopAuth(
       )
       const response = responses[index]!
       if (response.status >= 500) {
-        return {
-          passed: false,
-          detail: `the exchange route returned ${response.status}`,
-          transportFailure: true,
-        }
+        return serverFailure(response, 'the exchange route returned ${response.status}')
       }
       if (response.status !== 400) {
         return {
           passed: false,
           detail: `the exchange route answered ${response.status} instead of refusing the verifier`,
+          outcome: 'assertion-failed',
         }
       }
       if (responseCarriesCredential(response.body)) {
         return {
           passed: false,
           detail: 'the exchange route issued a credential for a wrong verifier',
+          outcome: 'assertion-failed',
         }
       }
-      return { passed: true, detail: 'the exchange route refused a wrong PKCE verifier' }
+      return {
+        passed: true,
+        detail: 'the exchange route refused a wrong PKCE verifier',
+        outcome: 'refused',
+      }
     },
   })
 
   steps.push({
     name: 'the-desktop-exchange-route-refuses-an-untrusted-origin',
+    mutating: true,
     run: async () => {
       const issued = await authorizeWithSession()
       const index = await send(
@@ -626,39 +761,47 @@ export async function runBuiltWorkerDesktopAuth(
       )
       const response = responses[index]!
       if (response.status >= 500) {
-        return {
-          passed: false,
-          detail: `the exchange route returned ${response.status}`,
-          transportFailure: true,
-        }
+        return serverFailure(response, 'the exchange route returned ${response.status}')
       }
       if (response.status !== 400) {
         return {
           passed: false,
           detail: `the exchange route answered ${response.status} instead of refusing the origin`,
+          outcome: 'assertion-failed',
         }
       }
       if (responseCarriesCredential(response.body)) {
         return {
           passed: false,
           detail: 'the exchange route issued a credential for an untrusted origin',
+          outcome: 'assertion-failed',
         }
       }
       if (response.headers['access-control-allow-origin']) {
         return {
           passed: false,
           detail: 'the exchange route allowed an untrusted origin in its CORS headers',
+          outcome: 'assertion-failed',
         }
       }
-      return { passed: true, detail: 'the exchange route refused an untrusted origin' }
+      return {
+        passed: true,
+        detail: 'the exchange route refused an untrusted origin',
+        outcome: 'refused',
+      }
     },
   })
 
   steps.push({
     name: 'the-desktop-exchange-route-refuses-a-replayed-code',
+    mutating: true,
     run: async () => {
       if (!exchangedCode) {
-        return { passed: false, detail: 'no exchanged code was available to replay' }
+        return {
+          passed: false,
+          detail: 'no exchanged code was available to replay',
+          outcome: 'assertion-failed',
+        }
       }
       const index = await send(
         desktopExchangeRequest({
@@ -670,30 +813,33 @@ export async function runBuiltWorkerDesktopAuth(
       )
       const response = responses[index]!
       if (response.status >= 500) {
-        return {
-          passed: false,
-          detail: `the exchange route returned ${response.status}`,
-          transportFailure: true,
-        }
+        return serverFailure(response, 'the exchange route returned ${response.status}')
       }
       if (response.status !== 400) {
         return {
           passed: false,
           detail: `the exchange route answered ${response.status} instead of refusing the replay`,
+          outcome: 'assertion-failed',
         }
       }
       if (responseCarriesCredential(response.body)) {
         return {
           passed: false,
           detail: 'the exchange route issued a second credential for one code',
+          outcome: 'assertion-failed',
         }
       }
-      return { passed: true, detail: 'the exchange route refused the replayed code' }
+      return {
+        passed: true,
+        detail: 'the exchange route refused the replayed code',
+        outcome: 'refused',
+      }
     },
   })
 
   steps.push({
     name: 'the-desktop-exchange-preflight-refuses-an-untrusted-origin',
+    mutating: false,
     run: async () => {
       const index = await send({
         method: 'OPTIONS',
@@ -702,25 +848,27 @@ export async function runBuiltWorkerDesktopAuth(
       })
       const response = responses[index]!
       if (response.status >= 500) {
-        return {
-          passed: false,
-          detail: `the exchange preflight returned ${response.status}`,
-          transportFailure: true,
-        }
+        return serverFailure(response, 'the exchange preflight returned ${response.status}')
       }
       if (response.status !== 403) {
         return {
           passed: false,
           detail: `the exchange preflight answered ${response.status} instead of refusing the origin`,
+          outcome: 'assertion-failed',
         }
       }
       if (response.headers['access-control-allow-origin']) {
         return {
           passed: false,
           detail: 'the exchange preflight allowed an untrusted origin',
+          outcome: 'assertion-failed',
         }
       }
-      return { passed: true, detail: 'the exchange preflight refused an untrusted origin' }
+      return {
+        passed: true,
+        detail: 'the exchange preflight refused an untrusted origin',
+        outcome: 'refused',
+      }
     },
   })
 
@@ -750,19 +898,22 @@ export async function runBuiltWorkerDesktopAuth(
         leaked.length === 0
           ? 'no response carried the auth secret, the session cookie, the code or the credential'
           : 'a response carried a value that must never leave the Worker',
+      attempts: 1,
+      outcomes: [leaked.length === 0 ? 'passed' : 'assertion-failed'],
     },
   ]
 
   const passed = assertions.filter((assertion) => assertion.passed).length
   const failed = assertions.length - passed
   const receipt: BuiltWorkerDesktopAuthReceipt = {
-    status: 'passed',
+    status: failed === 0 && passed > 0 ? 'passed' : 'failed',
     proofKind: BUILT_WORKER_DESKTOP_AUTH_PROOF_KIND,
     evidence: input.evidence,
     worker: {
       built: true,
       baseUrl: input.baseUrl,
       routes: [DESKTOP_AUTHORIZE_PATH, DESKTOP_EXCHANGE_PATH],
+      artifact: input.artifact,
     },
     assertions,
     passed,
@@ -771,17 +922,25 @@ export async function runBuiltWorkerDesktopAuth(
     checkout: input.checkout,
     module: input.module,
   }
-  if (failed > 0) {
-    // The detail of an assertion is a fixed sentence, never a value the Worker
-    // produced, so the failure says what it saw without carrying a credential.
-    const failedDetails = assertions
-      .filter((assertion) => !assertion.passed)
-      .map((assertion) => `${assertion.name}: ${assertion.detail}`)
-      .join('; ')
-    throw new Error(`the built-Worker desktop qualification failed: ${failedDetails}`)
-  }
-  if (passed === 0) {
-    throw new Error('the built-Worker desktop qualification proved nothing')
-  }
   return receipt
+}
+
+/**
+ * Fails when the receipt does not prove what the qualification promises.
+ *
+ * The receipt is returned either way: a failed qualification still publishes
+ * the assertions it made, how many attempts each made and how every attempt
+ * ended, because a failure that cannot be read cannot be acted on. This
+ * helper is the fail-closed gate the runner applies.
+ */
+export function assertBuiltWorkerDesktopAuthPassed(receipt: BuiltWorkerDesktopAuthReceipt): void {
+  const failed = receipt.assertions.filter((assertion) => !assertion.passed)
+  if (failed.length === 0 && receipt.passed > 0) return
+  const names = failed.map((assertion) => assertion.name).join(', ')
+  throw new BuiltWorkerFailure(
+    'assertion-failed',
+    names
+      ? `the built-Worker qualification failed: ${names}`
+      : 'the built-Worker qualification proved nothing'
+  )
 }

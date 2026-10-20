@@ -102,8 +102,16 @@ The **built-Worker desktop authorization qualification**
 - no response carried the auth secret, the session cookie, the authorization
   code or the desktop credential;
 - the receipt carries every assertion by name, the number of assertions that
-  passed, and the full auth lifecycle assertions the lane proved against the same
-  instance;
+  passed, how many attempts each assertion made, how every attempt ended, the
+  identity of the built artifact the qualification proved, and the full auth
+  lifecycle assertions the lane proved against the same instance;
+- a failure is published with one of a fixed set of kinds and a redacted
+  detail, and the runtime's own output is redacted before it is quoted;
+- an application failure is never retried into a pass, and a request whose
+  outcome is unknown is never replayed;
+- the Worker is stopped and its shutdown confirmed before the runtime material
+  and the container are removed, and the material is kept when the Worker does
+  not exit;
 - the Worker and the disposable instance are removed on success, on failure and
   on interruption.
 

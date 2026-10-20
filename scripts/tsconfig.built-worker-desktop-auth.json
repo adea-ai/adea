@@ -9,7 +9,10 @@
   "include": [
     "fresh-postgres-acceptance/built-worker-desktop-auth.ts",
     "fresh-postgres-acceptance/built-worker-desktop-auth.test.ts",
+    "fresh-postgres-acceptance/built-worker-failures.ts",
+    "fresh-postgres-acceptance/built-worker-failures.test.ts",
     "fresh-postgres-acceptance/built-worker-runtime.ts",
+    "fresh-postgres-acceptance/built-worker-runtime.test.ts",
     "built-worker-desktop-auth-cli.ts"
   ]
 }

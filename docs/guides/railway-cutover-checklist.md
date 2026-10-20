@@ -181,8 +181,12 @@ that no Railway service exists outside this repository.
       Worker signs up itself; the exchange route turns that code into a desktop session
       and refuses a wrong PKCE verifier, an untrusted origin and a replayed code; and no
       response carries the auth secret, the session cookie, the authorization code or
-      the desktop credential. The receipt carries every assertion by name and the full
-      auth lifecycle assertions, and it must not become a green skipped run.
+      the desktop credential. The receipt carries every assertion by name, how many
+      attempts each assertion made, how every attempt ended, the identity of the built
+      artifact it proved, and the full auth lifecycle assertions. A run whose failure
+      was published as a receipt is a failed run: an application failure is never retried
+      into a pass, and a request whose outcome is unknown is never replayed. It must not
+      become a green skipped run.
 - [ ] The invalid, expired, revoked and wrong-origin cases, plus refresh, logout and
       delivery, passed. `docs/authentication.md` step 5 requires them before switching
       traffic.

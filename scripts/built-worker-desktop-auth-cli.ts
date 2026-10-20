@@ -60,6 +60,7 @@ import { applyAuthSchema } from '../packages/auth/src/schema-init'
 import { classifyDisposableProofEvidence } from './fresh-postgres-acceptance/evidence.mjs'
 import { readCheckoutProvenance } from './fresh-postgres-acceptance/provenance.mjs'
 import {
+  assertBuiltWorkerDesktopAuthPassed,
   parseAuthLifecycleAssertions,
   runBuiltWorkerDesktopAuth,
   type AuthLifecycleEvidence,
@@ -69,9 +70,18 @@ import {
   buildLocalWorkerConfig,
   builtWorkerArtifact,
   startBuiltWorker,
+  tearDownAfterWorker,
+  verifyBuildProvenance,
   workerTransport,
+  writeBuildProvenance,
   type RunningBuiltWorker,
 } from './fresh-postgres-acceptance/built-worker-runtime'
+import {
+  BuiltWorkerFailure,
+  failureMessage,
+  sanitizeText,
+  sanitizeWorkerLogs,
+} from './fresh-postgres-acceptance/built-worker-failures'
 
 const dbRequire = createRequire(new URL('../packages/db/package.json', import.meta.url))
 /** The client the canonical boundary fixture takes. */
@@ -288,25 +298,50 @@ async function main(): Promise<void> {
     )
   }
 
-  // The Worker this qualification proves. The build is the repository's own,
-  // and a build that fails is a qualification that does not run.
+  // The Worker this qualification proves. A build that cannot be placed in
+  // this checkout is not reused: the qualification builds the Worker itself and
+  // records which checkout the build came from, so the receipt can name the
+  // artifact it actually proved.
   let artifact = builtWorkerArtifact(repositoryRoot)
-  if (!artifact) {
+  let verified =
+    artifact !== null &&
+    verifyBuildProvenance({ root: repositoryRoot, artifact, source: provenance })
+  if (!artifact || !verified) {
     buildBuiltWorker(repositoryRoot)
     artifact = builtWorkerArtifact(repositoryRoot)
-  }
-  if (!artifact) {
-    throw new Error('the built Worker is absent after the build; the qualification cannot run')
+    if (!artifact) {
+      throw new BuiltWorkerFailure(
+        'artifact-unavailable',
+        'the built Worker is absent after the build'
+      )
+    }
+    writeBuildProvenance({ root: repositoryRoot, artifact, source: provenance })
+    verified = verifyBuildProvenance({ root: repositoryRoot, artifact, source: provenance })
+    if (!verified) {
+      throw new BuiltWorkerFailure(
+        'artifact-provenance-unverified',
+        'the built Worker could not be placed in this checkout'
+      )
+    }
   }
 
   const containerName = `adea-built-worker-desktop-${randomBytes(6).toString('hex')}`
   const password = randomBytes(24).toString('hex')
   const directory = mkdtempSync(join(tmpdir(), 'adea-built-worker-desktop-'))
   const certificate = createCertificate(directory)
-  const cleanup = attachOwnedContainerCleanup({
+  // The runtime material is removed only after the Worker process is gone.
+  let runtimeMaterialRemovable = true
+  attachOwnedContainerCleanup({
     name: containerName,
     remove: removeContainer,
     removeTemporaryMaterial: () => {
+      // The Worker is asked to stop before its material goes, so an
+      // interrupted run does not leave a Worker serving from removed files.
+      worker?.requestStop()
+      if (!runtimeMaterialRemovable) {
+        console.error('the built-Worker runtime material was kept: the Worker process did not exit')
+        return
+      }
       rmSync(workerCertificate, { force: true })
       rmSync(directory, { recursive: true, force: true })
     },
@@ -501,69 +536,100 @@ async function main(): Promise<void> {
       persistDirectory: join(directory, 'worker-state'),
     })
 
-    try {
-      receipt = await runBuiltWorkerDesktopAuth({
-        transport: workerTransport({
-          baseUrl: worker.baseUrl,
-          certificatePath: certificate.certificatePath,
-        }),
+    receipt = await runBuiltWorkerDesktopAuth({
+      transport: workerTransport({
         baseUrl: worker.baseUrl,
-        secrets: [AUTH_SECRET, password],
-        authLifecycle,
-        evidence: classifyDisposableProofEvidence(process.env),
-        checkout: provenance,
-        module: provenance,
-      })
-    } catch (error) {
-      const evidence = worker.logs
-        .filter((line) => /error|failed|denied|exception/i.test(line))
-        .slice(-10)
-        .join(' | ')
-      throw new Error(`${String(error)}${evidence ? `; the Worker said: ${evidence}` : ''}`, {
-        cause: error,
-      })
-    }
+        certificatePath: certificate.certificatePath,
+      }),
+      baseUrl: worker.baseUrl,
+      artifact: {
+        digest: artifact.digest,
+        sha: provenance.sha,
+        dirty: provenance.dirty,
+        verified,
+      },
+      secrets: [AUTH_SECRET, password],
+      authLifecycle,
+      evidence: classifyDisposableProofEvidence(process.env),
+      checkout: provenance,
+      module: provenance,
+    })
   } catch (error) {
     bodyError = error
   }
 
-  // The teardown runs whether the qualification passed or failed: the Worker
-  // and the container this run owns are removed either way.
-  worker?.stop()
+  // The Worker is stopped and its shutdown is confirmed before the runtime
+  // material and the container are removed: the material must not disappear
+  // while the process that reads it is still alive.
+  let stopError: unknown
   let cleanupError: unknown
   try {
-    cleanup.teardown()
+    const teardown = await tearDownAfterWorker({
+      worker,
+      removeContainer: () => removeContainer(containerName),
+      removeMaterial: () => {
+        rmSync(workerCertificate, { force: true })
+        rmSync(directory, { recursive: true, force: true })
+      },
+      onFailure: (message) => {
+        runtimeMaterialRemovable = false
+        console.error(message)
+      },
+    })
+    if (!teardown.workerStopped) stopError = teardown.stopError
   } catch (error) {
     cleanupError = error
   }
-  if (bodyError !== undefined && cleanupError !== undefined) {
-    throw new Error(
-      `the built-Worker desktop qualification failed: ${String(bodyError)}; cleanup also failed: ${String(cleanupError)}`,
-      { cause: bodyError }
-    )
-  }
-  if (bodyError !== undefined) {
-    throw new Error(`the built-Worker desktop qualification failed: ${String(bodyError)}`, {
-      cause: bodyError,
-    })
-  }
-  if (cleanupError !== undefined) {
-    throw new Error(
-      `the built-Worker desktop qualification could not clean up: ${String(cleanupError)}`,
-      {
-        cause: cleanupError,
-      }
-    )
+
+  // A failed qualification still publishes the assertions it made, how many
+  // attempts each made and how every attempt ended. The receipt is the
+  // evidence; the exit status is the verdict.
+  if (receipt) {
+    console.log(`BUILT_WORKER_DESKTOP_AUTH ${JSON.stringify(receipt)}`)
   }
 
-  console.log(`BUILT_WORKER_DESKTOP_AUTH ${JSON.stringify(receipt)}`)
+  const failures = [bodyError, stopError, cleanupError].filter(
+    (failure): failure is unknown => failure !== undefined
+  )
+  if (failures.length === 0) {
+    if (receipt) assertBuiltWorkerDesktopAuthPassed(receipt)
+    return
+  }
+  const reported = failures.map((failure) => describeFailure(failure, [AUTH_SECRET, password]))
+  const evidence = sanitizeWorkerLogs(worker?.logs ?? [], [AUTH_SECRET, password])
+  const detail = [
+    reported.join('; '),
+    evidence.length > 0 ? `the Worker said: ${evidence.join(' | ')}` : '',
+  ]
+    .filter(Boolean)
+    .join('; ')
+  throw new BuiltWorkerFailure(
+    failures[0] === stopError
+      ? 'worker-stop-failed'
+      : failures[0] === cleanupError
+        ? 'cleanup-failed'
+        : 'unexpected-failure',
+    detail,
+    { cause: failures[0] }
+  )
+}
+
+/**
+ * The published description of a failure: its fixed kind and a redacted
+ * detail. A raw exception message or a raw runtime log line can carry the
+ * instance password or the auth secret, so neither is published.
+ */
+function describeFailure(error: unknown, secrets: readonly string[]): string {
+  if (error instanceof BuiltWorkerFailure) return failureMessage(error)
+  return `unexpected-failure: ${sanitizeText(
+    error instanceof Error ? error.message : String(error),
+    secrets
+  )}`
 }
 
 try {
   await main()
 } catch (error) {
-  console.error(
-    error instanceof Error ? error.message : 'the built-Worker desktop qualification failed'
-  )
+  console.error(describeFailure(error, [AUTH_SECRET]))
   process.exitCode = 1
 }
