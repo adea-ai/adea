@@ -183,8 +183,9 @@ export function createLeadTurnProduct(
       const childPublicationCurrent = adapter.childPublicationCurrent
       let after: { acceptedAt: string; delegationId: string } | undefined
       let published = 0
+      let totalChildren: number | undefined
       const seen = new Set<string>()
-      do {
+      for (;;) {
         const observed = await service.children(scope, { limit: 256, ...(after ? { after } : {}) })
         const page = observed.childObservations
         const parent = observed.leadTurn
@@ -197,6 +198,12 @@ export function createLeadTurnProduct(
           !parent.preparationRef
         )
           throw new Error('CHILD_PUBLICATION_UNAVAILABLE')
+        if (totalChildren === undefined) totalChildren = page.totalChildren
+        if (
+          page.totalChildren !== totalChildren ||
+          seen.size + page.children.length > totalChildren
+        )
+          throw new Error('CHILD_PUBLICATION_CHANGED')
         const binding = {
           schemaVersion: 'pi-lead-dispatch/v1' as const,
           intentId: scope.intentId,
@@ -251,7 +258,10 @@ export function createLeadTurnProduct(
           )
           published++
         }
-        if (page.complete) return { published }
+        if (page.complete) {
+          if (seen.size !== totalChildren) throw new Error('CHILD_PUBLICATION_CHANGED')
+          return { published }
+        }
         if (
           !page.next ||
           (after &&
@@ -260,8 +270,7 @@ export function createLeadTurnProduct(
         )
           throw new Error('CHILD_PUBLICATION_CHANGED')
         after = page.next
-      } while (seen.size <= 10_000)
-      throw new Error('CHILD_PUBLICATION_CHANGED')
+      }
     },
     async latest(workspaceId: string, channelId: string, userId: string) {
       const receipt = await getLatestLeadTurnForChannel(database, workspaceId, channelId, {
