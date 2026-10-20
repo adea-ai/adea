@@ -726,6 +726,35 @@ are unchanged. The lane's entry point, the native launch path and every
 real-profile operation remain unexecuted, and the installed-application rows
 stay pending while no supported per-run native profile contract exists.
 
+## 19. The stream-finalization repair — only a confirmed end is a successful drain
+
+Root's review of the preserved local branch found one remaining defect in
+`drainOutputStreams`: a stream whose `destroyed` flag was already set counted
+as drained even when it had never ended, and a `close` event reported success
+without confirming the readable end. Unread trailing bytes could therefore be
+discarded while the run recorded a clean "everything was logged" verdict.
+
+**The repair.** Only a **confirmed readable end** is a successful drain: the
+stream has already ended, or it emits `end`. A stream that is destroyed before
+it ends, a stream that closes before it ends, a stream that fails, and a
+stream that does not end within the bound are all **failed teardowns**, each
+with a fixed reason that carries no stream text, no path and no value. The
+stream's `error` event is now observed as well, which also stops an unhandled
+stream error from escaping the teardown. The failures are recorded in the run's
+log-failure ledger before the ledger is snapshotted, so the verdict cannot be
+clean while output may still have been lost.
+
+**Preserved.** The bounded teardown, the shared and idempotent `stop()`
+promise (one in-flight finalization, one descriptor close) and the
+fail-closed validated isolation gate are unchanged.
+
+**The tests.** The cases grew from 67 to **73 (210 assertions)**, with bounded
+injected streams for: a stream that has already ended (drained), a stream
+destroyed before it ended, a stream that closes before it ends, and a stream
+that fails — whose fixed reason carries no error text. The existing timeout
+case is retained, and a failing stream is shown to reach the verdict through
+the teardown.
+
 ## 12. Publication
 
 The branch is `test/installed-desktop-ui-acceptance-20261020`, three commits

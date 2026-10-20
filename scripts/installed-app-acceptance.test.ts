@@ -98,6 +98,50 @@ function endingStream(): OutputStreamProbe {
   }
 }
 
+/** An output stream that has already ended. */
+function alreadyEndedStream(): OutputStreamProbe {
+  return {
+    readableEnded: true,
+    destroyed: true,
+    once: () => undefined,
+    removeListener: () => undefined,
+  }
+}
+
+/** An output stream that was destroyed before it ended. */
+function destroyedBeforeEndStream(): OutputStreamProbe {
+  return {
+    readableEnded: false,
+    destroyed: true,
+    once: () => undefined,
+    removeListener: () => undefined,
+  }
+}
+
+/** An output stream that closes before it ends. */
+function closingBeforeEndStream(): OutputStreamProbe {
+  return {
+    readableEnded: false,
+    destroyed: false,
+    once: (event, listener) => {
+      if (event === 'close') setTimeout(listener, 1)
+    },
+    removeListener: () => undefined,
+  }
+}
+
+/** An output stream that fails while it is drained. */
+function failingStream(): OutputStreamProbe {
+  return {
+    readableEnded: false,
+    destroyed: false,
+    once: (event, listener) => {
+      if (event === 'error') setTimeout(listener, 1)
+    },
+    removeListener: () => undefined,
+  }
+}
+
 function check(overrides: Partial<AcceptanceCheck> = {}): AcceptanceCheck {
   return acceptanceRow({
     id: 'a-row',
@@ -957,5 +1001,75 @@ describe('the teardown helpers report a timeout as a failure', () => {
     await stopper.stop()
     expect(stopper.problems()).toEqual([])
     expect(ledger.count()).toBe(0)
+  })
+})
+
+describe('only a confirmed readable end is a successful drain', () => {
+  test('a stream that has already ended is drained', async () => {
+    const outcome = await drainOutputStreams([alreadyEndedStream()], 25)
+    expect(outcome.completed).toBe(true)
+    expect(outcome.problems).toEqual([])
+  })
+
+  test('a stream destroyed before it ended is a failed drain', async () => {
+    const outcome = await drainOutputStreams([destroyedBeforeEndStream()], 25)
+    expect(outcome.completed).toBe(false)
+    expect(outcome.problems).toHaveLength(1)
+    expect(outcome.problems[0]).toContain('was destroyed before it ended')
+  })
+
+  test('a stream that closes before it ends is a failed drain', async () => {
+    const outcome = await drainOutputStreams([closingBeforeEndStream()], 1_000)
+    expect(outcome.completed).toBe(false)
+    expect(outcome.problems).toHaveLength(1)
+    expect(outcome.problems[0]).toContain('closed before it ended')
+  })
+
+  test('a stream that fails is a failed drain, and the reason carries no stream text', async () => {
+    const outcome = await drainOutputStreams([failingStream()], 1_000)
+    expect(outcome.completed).toBe(false)
+    expect(outcome.problems).toHaveLength(1)
+    expect(outcome.problems[0]).toContain('failed while draining')
+    // The reason is fixed: no error text, no path, no value.
+    expect(outcome.problems[0]).not.toMatch(/Error|error:|at |\//)
+  })
+
+  test('a stream that fails reaches the verdict through the teardown', async () => {
+    const ledger = createLogFailureLedger()
+    const stopper = createFinalizingStop({
+      signal: () => {},
+      exit: { exitCode: 0, signalCode: null, once: () => undefined, off: () => undefined },
+      streams: [failingStream()],
+      close: () => {},
+      ledger,
+      bounds: { exit: 25, drain: 1_000 },
+    })
+    await stopper.stop()
+    expect(stopper.problems()).toHaveLength(1)
+    expect(ledger.count()).toBe(1)
+    const result = await finalizeAndAssessLaunches(
+      [
+        {
+          pid: 1,
+          logPath: '/nonexistent/app.log',
+          logWriteFailures: () => ledger.count(),
+          stop: () => stopper.stop(),
+        },
+      ],
+      ledger
+    )
+    expect(result.completeness.status).toBe('fail')
+    expect(result.completeness.actual).toContain('1 log write failure')
+  })
+
+  test('a destroyed stream and a closing stream are both reported', async () => {
+    const outcome = await drainOutputStreams(
+      [destroyedBeforeEndStream(), closingBeforeEndStream()],
+      1_000
+    )
+    expect(outcome.completed).toBe(false)
+    expect(outcome.problems).toHaveLength(2)
+    expect(outcome.problems[0]).toContain('destroyed before it ended')
+    expect(outcome.problems[1]).toContain('closed before it ended')
   })
 })

@@ -1010,9 +1010,15 @@ export async function waitForProcessExit(
  * Waits for the application's output streams to end, bounded.
  *
  * The trailing bytes a process writes as it goes down are part of the
- * evidence, so the drain is awaited before the descriptor is closed — and a
- * stream that did not end within the bound is a FAILURE of the teardown, not
- * a successful drain.
+ * evidence, so the drain is awaited before the descriptor is closed — and
+ * only a CONFIRMED readable end counts as a successful drain.
+ *
+ * A stream that is destroyed before it ended, a stream that closes before it
+ * ended, a stream that fails, and a stream that does not end within the
+ * bound are all FAILURES of the teardown: in each of them the trailing bytes
+ * may have been discarded, so the run may not record a clean verdict. The
+ * failure reasons are fixed and carry no stream text, so a path, a value or
+ * an error message cannot reach the artifact.
  */
 export async function drainOutputStreams(
   streams: readonly (OutputStreamProbe | null | undefined)[],
@@ -1027,26 +1033,41 @@ export async function drainOutputStreams(
             resolve_()
             return
           }
-          if (stream.readableEnded === true || stream.destroyed === true) {
+          // A stream that has already ended is drained.
+          if (stream.readableEnded === true) {
             resolve_()
             return
           }
-          const finish = (completed: boolean) => {
+          // A stream that is already destroyed and never ended is a failed
+          // drain: its trailing bytes were discarded.
+          if (stream.destroyed === true) {
+            problems.push(`the application's output stream ${index} was destroyed before it ended`)
+            resolve_()
+            return
+          }
+          const finish = (problem?: string) => {
             clearTimeout(timer)
             stream.removeListener?.('end', onEnd)
             stream.removeListener?.('close', onClose)
-            if (!completed) {
-              problems.push(
-                `the application's output stream ${index} did not end within ${timeoutMs}ms`
-              )
-            }
+            stream.removeListener?.('error', onError)
+            if (problem !== undefined) problems.push(problem)
             resolve_()
           }
-          const onEnd = () => finish(true)
-          const onClose = () => finish(true)
-          const timer = setTimeout(() => finish(false), timeoutMs)
+          const onEnd = () => finish()
+          const onClose = () =>
+            finish(`the application's output stream ${index} closed before it ended`)
+          // The stream's own failure is recorded as a fixed reason; the error
+          // itself is never carried into the artifact.
+          const onError = () =>
+            finish(`the application's output stream ${index} failed while draining`)
+          const timer = setTimeout(
+            () =>
+              finish(`the application's output stream ${index} did not end within ${timeoutMs}ms`),
+            timeoutMs
+          )
           stream.once('end', onEnd)
           stream.once('close', onClose)
+          stream.once('error', onError)
         })
     )
   )
