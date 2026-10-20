@@ -50,44 +50,340 @@ export const FRESH_ACCOUNT_SCOPED_FILES = Object.freeze([
   'scripts/disposable-postgres-cli.ts',
 ])
 
-/** The constructs that would break the fresh-account-only rule. */
+/**
+ * The lexical helpers the rules are written with.
+ *
+ * Every search below walks the text once, forwards only, and never rewinds.
+ * A rule therefore costs the length of the text and no more, whatever the
+ * input is: an unbounded pattern that backtracks would let a long input make
+ * a scan quadratic, which is what the security scanner reports.
+ */
+
+/** True for the characters a JavaScript identifier may hold. */
+function isWordCharacter(character) {
+  if (character === undefined) return false
+  const code = character.charCodeAt(0)
+  return (
+    (code >= 97 && code <= 122) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 48 && code <= 57) ||
+    character === '_'
+  )
+}
+
+/** True when the text at the index starts with the word, on a word boundary. */
+function startsWithWord(text, index, word, caseInsensitive) {
+  if (index + word.length > text.length) return false
+  for (let offset = 0; offset < word.length; offset += 1) {
+    const character = text[index + offset]
+    const expected = word[offset]
+    if (character === expected) continue
+    if (caseInsensitive && character.toLowerCase() === expected.toLowerCase()) continue
+    return false
+  }
+  return !isWordCharacter(text[index - 1]) && !isWordCharacter(text[index + word.length])
+}
+
+/** The index after the run of word characters that starts at the index. */
+function wordEnd(text, index) {
+  let cursor = index
+  while (cursor < text.length && isWordCharacter(text[cursor])) cursor += 1
+  return cursor
+}
+
+/** The index after the whitespace that starts at the index. */
+function whitespaceEnd(text, index) {
+  let cursor = index
+  while (cursor < text.length && /\s/.test(text[cursor])) cursor += 1
+  return cursor
+}
+
+/**
+ * The index after the SQL comment that starts at the index.
+ *
+ * A block comment ends at its closing marker, and a line comment ends at the
+ * line break. The index is unchanged when there is no comment. A block
+ * comment that is never closed ends the text, so the search never revisits
+ * what it has already read.
+ */
+function sqlCommentEnd(text, index) {
+  if (text[index] === '/' && text[index + 1] === '*') {
+    const closing = text.indexOf('*/', index + 2)
+    return closing === -1 ? text.length : closing + 2
+  }
+  if (text[index] === '-' && text[index + 1] === '-' && !isWordCharacter(text[index + 2])) {
+    const lineBreak = text.indexOf('\n', index)
+    return lineBreak === -1 ? text.length : lineBreak
+  }
+  return index
+}
+
+/** A legacy provider environment variable, such as `NEON_AUTH_BASE_URL`. */
+function detectLegacyEnvironment(text) {
+  const marker = 'NEON_'
+  let index = text.indexOf(marker)
+  while (index !== -1) {
+    const end = wordEnd(text, index)
+    if (end > index + marker.length && !isWordCharacter(text[index - 1])) {
+      return text.slice(index, end)
+    }
+    index = text.indexOf(marker, index + 1)
+  }
+  return null
+}
+
+/** A legacy provider host, such as `db.neon.tech`. */
+function detectLegacyHost(text) {
+  const host = 'neon.tech'
+  const lower = text.toLowerCase()
+  let index = lower.indexOf(host)
+  while (index !== -1) {
+    if (startsWithWord(text, index, host, true)) return text.slice(index, index + host.length)
+    index = lower.indexOf(host, index + 1)
+  }
+  return null
+}
+
+/** A legacy provider package, such as `@neondatabase/serverless`. */
+function detectLegacyPackage(text) {
+  const name = '@neondatabase/'
+  const index = text.indexOf(name)
+  return index === -1 ? null : text.slice(index, index + name.length)
+}
+
+/** A call that imports a legacy identity, such as `importLegacyIdentities`. */
+function detectLegacyImport(text) {
+  const prefixes = [
+    'import',
+    'load',
+    'copy',
+    'migrate',
+    'reconcile',
+    'seed',
+    'sync',
+    'read',
+    'restore',
+  ]
+  const lower = text.toLowerCase()
+  let index = 0
+  while (index < text.length) {
+    for (const prefix of prefixes) {
+      // The prefix is the start of a word, and the marker follows it directly.
+      if (isWordCharacter(text[index - 1])) continue
+      if (!lower.startsWith(prefix, index)) continue
+      const afterPrefix = index + prefix.length
+      if (!lower.startsWith('legacy', afterPrefix)) continue
+      // The word after the marker is part of the name.
+      const end = wordEnd(text, afterPrefix + 'legacy'.length)
+      return text.slice(index, end)
+    }
+    index += 1
+  }
+  return null
+}
+
+/** A legacy identity import written the other way round, such as `legacyUserImport`. */
+function detectLegacySuffix(text) {
+  const suffixes = ['import', 'seed', 'copy', 'reconcile', 'migration', 'restore']
+  const lower = text.toLowerCase()
+  let index = lower.indexOf('legacy')
+  while (index !== -1) {
+    if (!isWordCharacter(text[index - 1])) {
+      // The name is the word that starts with the marker, and the suffix ends
+      // that word.
+      const end = wordEnd(text, index)
+      for (const suffix of suffixes) {
+        if (end - index < suffix.length) continue
+        if (lower.slice(end - suffix.length, end) !== suffix) continue
+        if (!isWordCharacter(text[end - suffix.length - 1])) continue
+        return text.slice(index, end)
+      }
+    }
+    index = lower.indexOf('legacy', index + 1)
+  }
+  return null
+}
+
+/**
+ * The index of a word inside a range, or -1 when the range holds no such word.
+ *
+ * The range is read once, forwards only.
+ */
+function findWordWithin(text, from, to, word) {
+  const lower = text.toLowerCase()
+  let index = from
+  while (index < to) {
+    if (startsWithWord(lower, index, word, true)) return index
+    index += 1
+  }
+  return -1
+}
+
+/**
+ * A statement that copies rows out of another table.
+ *
+ * The scan is a single forward pass. It looks for `INSERT`, then for the
+ * `INTO` that may follow it across whitespace and SQL comments, and then for
+ * the `SELECT` that may follow that before the statement ends. A new `INSERT`
+ * seen on the way replaces the candidate, so the scan never has to go back.
+ *
+ * A line comment runs to the end of its line, and the keyword that follows it
+ * may sit inside that extent. The extent is read once to find it, so the
+ * result is the same as a backtracking pattern would give, and the cost is
+ * still the length of the text.
+ */
+function detectRowCopy(text) {
+  const lower = text.toLowerCase()
+  let index = 0
+  let candidate = -1
+  let phase = 'insert'
+  while (index < lower.length) {
+    if (phase === 'select') {
+      if (text[index] === ';') {
+        candidate = -1
+        phase = 'insert'
+        index += 1
+        continue
+      }
+      if (startsWithWord(lower, index, 'select', true)) {
+        return text.slice(candidate, index + 'select'.length)
+      }
+      if (startsWithWord(lower, index, 'insert', true)) candidate = index
+      index += 1
+      continue
+    }
+    if (phase === 'into' && startsWithWord(lower, index, 'into', true)) {
+      phase = 'select'
+      index += 'into'.length
+      continue
+    }
+    if (startsWithWord(lower, index, 'insert', true)) {
+      candidate = index
+      phase = 'into'
+      index += 'insert'.length
+      continue
+    }
+    if (candidate >= 0) {
+      const whitespace = whitespaceEnd(text, index)
+      if (whitespace > index) {
+        index = whitespace
+        continue
+      }
+      if (text[index] === '/' && text[index + 1] === '*') {
+        // A block comment is one unit: it is skipped whole.
+        const closing = text.indexOf('*/', index + 2)
+        index = closing === -1 ? text.length : closing + 2
+        continue
+      }
+      if (text[index] === '-' && text[index + 1] === '-' && !isWordCharacter(text[index + 2])) {
+        // A line comment runs to the end of its line, and the keyword that
+        // follows the statement may sit inside that extent.
+        const lineBreak = text.indexOf('\n', index)
+        const extent = lineBreak === -1 ? text.length : lineBreak
+        const into = findWordWithin(text, index, extent, 'into')
+        if (into !== -1) {
+          phase = 'select'
+          index = into + 'into'.length
+          continue
+        }
+        index = extent
+        continue
+      }
+      // The statement did not continue with `INTO`, so the candidate is void.
+      candidate = -1
+      phase = 'insert'
+      index += 1
+      continue
+    }
+    index += 1
+  }
+  return null
+}
+
+/** A server-side copy, such as `\copy`. */
+function detectServerSideCopy(text) {
+  const marker = '\\copy'
+  const lower = text.toLowerCase()
+  let index = lower.indexOf(marker)
+  while (index !== -1) {
+    if (!isWordCharacter(text[index + marker.length])) {
+      return text.slice(index, index + marker.length)
+    }
+    index = lower.indexOf(marker, index + 1)
+  }
+  return null
+}
+
+/** A server-side copy written as `COPY … FROM`, such as `COPY app.users FROM other`. */
+function detectCopyFrom(text) {
+  const lower = text.toLowerCase()
+  let index = 0
+  while (index < lower.length) {
+    if (startsWithWord(lower, index, 'copy', true)) {
+      const afterKeyword = whitespaceEnd(lower, index + 'copy'.length)
+      if (afterKeyword > index + 'copy'.length) {
+        const target = text[afterKeyword]
+        if (target !== undefined && /[A-Za-z_"]/.test(target)) {
+          let cursor = afterKeyword + 1
+          while (cursor < lower.length) {
+            if (text[cursor] === ';') break
+            if (startsWithWord(lower, cursor, 'from', true)) {
+              return text.slice(index, cursor + 'from'.length)
+            }
+            cursor += 1
+          }
+        }
+      }
+    }
+    index += 1
+  }
+  return null
+}
+
+/**
+ * The constructs that would break the fresh-account-only rule.
+ *
+ * Every rule is a bounded, linear lexical scan. None of them uses a pattern
+ * that can backtrack, so a long input cannot make a rule cost more than the
+ * length of the text.
+ */
 export const FRESH_ACCOUNT_FORBIDDEN = Object.freeze([
   Object.freeze({
     kind: 'legacy-environment',
-    pattern: /\bNEON_[A-Z0-9_]+\b/,
     detail: 'a legacy environment variable',
+    detect: detectLegacyEnvironment,
   }),
   Object.freeze({
     kind: 'legacy-host',
-    pattern: /\bneon\.tech\b/i,
     detail: 'a legacy provider host',
+    detect: detectLegacyHost,
   }),
   Object.freeze({
     kind: 'legacy-import',
-    pattern: /\b(?:import|load|copy|migrate|reconcile|seed|sync|read|restore)Legacy[A-Za-z0-9_]*/i,
     detail: 'a legacy identity import',
+    detect: detectLegacyImport,
   }),
   Object.freeze({
     kind: 'legacy-import',
-    pattern: /\blegacy[A-Za-z0-9_]*(?:Import|Seed|Copy|Reconcile|Migration|Restore)\b/i,
     detail: 'a legacy identity import',
+    detect: detectLegacySuffix,
   }),
   Object.freeze({
     kind: 'row-copy',
     // A SQL comment may sit between the two keywords, and a comment inside a
     // string literal is part of the statement.
-    pattern: /\bINSERT(?:\s+|\/\*[\s\S]*?\*\/|--(?![A-Za-z0-9_$])[^\n]*)+INTO\b[^;]*\bSELECT\b/i,
     detail: 'a row copy out of another table',
+    detect: detectRowCopy,
   }),
   Object.freeze({
     kind: 'row-copy',
-    pattern: /\\copy\b/i,
     detail: 'a server-side row copy',
+    detect: detectServerSideCopy,
   }),
   Object.freeze({
     kind: 'row-copy',
-    pattern: /\bCOPY\s+[A-Za-z_"][^;]*\bFROM\b/i,
     detail: 'a server-side row copy',
+    detect: detectCopyFrom,
   }),
 ])
 
@@ -102,18 +398,18 @@ export const FRESH_ACCOUNT_FORBIDDEN = Object.freeze([
 export const NO_NEON_FORBIDDEN = Object.freeze([
   Object.freeze({
     kind: 'legacy-environment',
-    pattern: /\bNEON_[A-Z0-9_]+\b/,
     detail: 'a legacy provider environment variable',
+    detect: detectLegacyEnvironment,
   }),
   Object.freeze({
     kind: 'legacy-host',
-    pattern: /\bneon\.tech\b/i,
     detail: 'a legacy provider host',
+    detect: detectLegacyHost,
   }),
   Object.freeze({
     kind: 'legacy-package',
-    pattern: /@neondatabase\//,
     detail: 'a legacy provider package',
+    detect: detectLegacyPackage,
   }),
 ])
 
@@ -127,13 +423,13 @@ export function noNeonViolations(path, text) {
   const code = stripComments(text)
   const violations = []
   for (const rule of NO_NEON_FORBIDDEN) {
-    const match = rule.pattern.exec(code)
-    if (match) {
+    const evidence = rule.detect(code)
+    if (evidence !== null) {
       violations.push({
         path,
         kind: rule.kind,
         detail: rule.detail,
-        evidence: match[0].slice(0, 80),
+        evidence: evidence.slice(0, 80),
       })
     }
   }
@@ -249,9 +545,28 @@ export function normalizeForNeedle(text) {
   return normalized
 }
 
-/** Removes the SQL comment markers a string literal may carry. */
+/**
+ * Removes the SQL comment markers a string literal may carry.
+ *
+ * The scan is a single forward pass: a block comment ends at its closing
+ * marker, a line comment ends at the line break, and a block comment that is
+ * never closed ends the text. The text is never revisited, so a long input
+ * cannot make this cost more than the length of the text.
+ */
 function removeSqlComments(text) {
-  return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--(?![A-Za-z0-9_$])[^\n]*/g, ' ')
+  let result = ''
+  let index = 0
+  while (index < text.length) {
+    const comment = sqlCommentEnd(text, index)
+    if (comment !== index) {
+      result += ' '
+      index = comment
+      continue
+    }
+    result += text[index]
+    index += 1
+  }
+  return result
 }
 
 /** Copies one quoted string, honoring the escapes inside it. */
@@ -303,30 +618,59 @@ function scanRegularExpression(source, start) {
   return [null, start]
 }
 
-/** True when a slash at this point starts a regular expression and not a division. */
+/** True for whitespace, read one character at a time. */
+function isWhitespace(character) {
+  if (character === undefined) return false
+  return /\s/.test(character)
+}
+
+/** True for the characters an identifier may hold, the dollar sign included. */
+function isIdentifierCharacter(character) {
+  if (character === undefined) return false
+  const code = character.charCodeAt(0)
+  return (
+    (code >= 97 && code <= 122) ||
+    (code >= 65 && code <= 90) ||
+    (code >= 48 && code <= 57) ||
+    character === '_' ||
+    character === '$'
+  )
+}
+
+/** The keywords a regular expression may follow. */
+const REGULAR_EXPRESSION_KEYWORDS = new Set([
+  'return',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'case',
+  'do',
+  'else',
+  'yield',
+  'await',
+])
+
+/**
+ * True when a slash at this point starts a regular expression and not a division.
+ *
+ * Only the characters at the end of the copied text matter, so the check reads
+ * them backwards. It never copies the text, so a long source with many slashes
+ * does not make the scan quadratic.
+ */
 function regularExpressionAllowed(copied) {
-  const trimmed = copied.replace(/\s+$/, '')
-  if (trimmed.length === 0) return true
-  const last = trimmed[trimmed.length - 1]
+  let cursor = copied.length - 1
+  while (cursor >= 0 && isWhitespace(copied[cursor])) cursor -= 1
+  if (cursor < 0) return true
+  const last = copied[cursor]
   if (last === ')' || last === ']' || last === '}') return false
-  if (/[A-Za-z0-9_$]/.test(last)) {
-    const identifier = /([A-Za-z0-9_$]+)$/.exec(trimmed)
-    const word = identifier ? identifier[1] : ''
-    return [
-      'return',
-      'typeof',
-      'instanceof',
-      'in',
-      'of',
-      'new',
-      'delete',
-      'void',
-      'case',
-      'do',
-      'else',
-      'yield',
-      'await',
-    ].includes(word)
+  if (isIdentifierCharacter(last)) {
+    let start = cursor
+    while (start >= 0 && isIdentifierCharacter(copied[start])) start -= 1
+    return REGULAR_EXPRESSION_KEYWORDS.has(copied.slice(start + 1, cursor + 1))
   }
   return true
 }
@@ -477,13 +821,13 @@ export function freshAccountOnlyViolations(path, text) {
   const code = stripComments(text)
   const violations = []
   for (const rule of FRESH_ACCOUNT_FORBIDDEN) {
-    const match = rule.pattern.exec(code)
-    if (match) {
+    const evidence = rule.detect(code)
+    if (evidence !== null) {
       violations.push({
         path,
         kind: rule.kind,
         detail: rule.detail,
-        evidence: match[0].slice(0, 80),
+        evidence: evidence.slice(0, 80),
       })
     }
   }

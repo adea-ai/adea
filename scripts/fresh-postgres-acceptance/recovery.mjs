@@ -29,7 +29,7 @@ export const RECOVERY_METHODS = Object.freeze(['forward-fix', 'railway-backup-re
  * that those fields support. A receipt that does not carry them names no
  * artifact, so a guarantee is never stamped on a run that did not produce it.
  */
-const DATABASE_PROOFS = Object.freeze({
+export const DATABASE_PROOFS = Object.freeze({
   'fresh-schema-acceptance': Object.freeze({
     observed: (receipt) =>
       Number.isInteger(receipt.migrations) &&
