@@ -107,8 +107,12 @@ The **built-Worker desktop authorization qualification**
   teardown, and the full auth lifecycle assertions the lane proved against the
   same instance;
 - an authorization is validated before it is exchanged: the redirect must be a
-  `303` to the desktop completion page, and its callback must be exactly the
-  desktop callback with exactly the code, nonce and state the client sent;
+  `303` to the desktop completion page **on the origin the Worker serves**, and
+  its callback must be exactly the desktop callback with exactly the code, nonce
+  and state the client sent;
+- the artifact's identity covers the entry point, the chunks it imports, the
+  assets it serves and the configuration it was built with, and it does not
+  change when the provenance stamp is written beside it;
 - a failure is published with one of a fixed set of kinds and a redacted
   detail, and the runtime's own output is redacted before it is quoted;
 - every field of the stored receipt and of the published receipt is sanitized
@@ -118,7 +122,7 @@ The **built-Worker desktop authorization qualification**
   outcome is unknown is never replayed;
 - the Worker is stopped and its process group confirmed gone before the runtime
   material and the container are removed, and the material is kept when the
-  process is still alive;
+  group is still alive — including when a signal arrives during the startup;
 - the receipt is published only after that teardown succeeded, and the Worker
   and the disposable instance are removed on success, on failure and on
   interruption.

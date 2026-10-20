@@ -70,6 +70,7 @@ import {
   buildLocalWorkerConfig,
   builtWorkerArtifact,
   mayPublishReceipt,
+  mayRemoveRuntimeMaterial,
   startBuiltWorker,
   tearDownAfterWorker,
   waitForWorkerReady,
@@ -339,10 +340,16 @@ async function main(): Promise<void> {
     remove: removeContainer,
     removeTemporaryMaterial: () => {
       // The Worker is asked to stop before its material goes, so an
-      // interrupted run does not leave a Worker serving from removed files.
+      // interrupted run does not leave a Worker serving from removed files. The
+      // material is only removed once the process group is gone: an
+      // interruption that arrives during the startup is no different from one
+      // that arrives later.
       worker?.requestStop()
-      if (!runtimeMaterialRemovable) {
-        console.error('the built-Worker runtime material was kept: the Worker process did not exit')
+      if (!mayRemoveRuntimeMaterial({ worker }) || !runtimeMaterialRemovable) {
+        runtimeMaterialRemovable = false
+        console.error(
+          'the built-Worker runtime material was kept: the Worker process group is still alive'
+        )
         return
       }
       rmSync(workerCertificate, { force: true })

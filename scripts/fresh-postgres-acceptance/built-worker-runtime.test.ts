@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -9,6 +9,7 @@ import {
   buildProvenancePath,
   builtWorkerArtifact,
   mayPublishReceipt,
+  mayRemoveRuntimeMaterial,
   readBuildProvenance,
   startBuiltWorker,
   tearDownAfterWorker,
@@ -65,11 +66,13 @@ function buildFixture(): {
 } {
   const root = mkdtempSync(join(tmpdir(), 'adea-worker-build-'))
   mkdirSync(join(root, 'apps/web/dist/server'), { recursive: true })
+  mkdirSync(join(root, 'apps/web/dist/client/assets'), { recursive: true })
   writeFileSync(
     join(root, 'apps/web/dist/server/wrangler.json'),
     JSON.stringify({ main: 'index.js', assets: { directory: '../client' } })
   )
   writeFileSync(join(root, 'apps/web/dist/server/index.js'), 'export default {}')
+  writeFileSync(join(root, 'apps/web/dist/client/assets/app.js'), 'export const app = 1')
   return {
     root,
     source: { sha: 'a'.repeat(40), dirty: false, source: 'main' },
@@ -288,6 +291,50 @@ describe('the built-Worker shutdown', () => {
 })
 
 describe('the built-Worker group settlement', () => {
+  test('a launcher that exited before the stop does not settle the group', async () => {
+    const child = new FakeChild()
+    // The launcher exits before the stop is called, and a descendant of the
+    // group is still alive.
+    child.exit(0)
+    const directory = mkdtempSync(join(tmpdir(), 'adea-worker-runtime-'))
+    try {
+      const worker = await startBuiltWorker(
+        {
+          root: directory,
+          artifact: {
+            directory,
+            configPath: join(directory, 'wrangler.json'),
+            digest: 'digest',
+            files: 1,
+          },
+          config: {},
+          configPath: join(directory, 'worker.json'),
+          port: 8796,
+          certificatePath: certificateFile(),
+          keyPath: join(directory, 'server.key'),
+          persistDirectory: join(directory, 'state'),
+        },
+        {
+          spawn: () => child,
+          signal: () => undefined,
+          groupAlive: () => true,
+          request: async () => ({ status: 200, headers: {}, body: '' }),
+          now: (() => {
+            let clock = 0
+            return () => (clock += 1_000)
+          })(),
+          sleep: async () => undefined,
+        }
+      )
+      // The child has already exited, and the teardown must not report a clean
+      // stop while a descendant of the group is still alive.
+      expect(child.exitCode).not.toBeNull()
+      await expect(worker.stop()).rejects.toThrow(/worker-stop-failed/u)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   test('a child that exits while its group lives does not settle the stop', async () => {
     const child = new FakeChild()
     const directory = mkdtempSync(join(tmpdir(), 'adea-worker-runtime-'))
@@ -414,6 +461,58 @@ describe('the built-Worker response bound', () => {
   })
 })
 
+describe('the built-Worker runtime material', () => {
+  test('the material is kept while the process group is alive', () => {
+    expect(mayRemoveRuntimeMaterial({ worker: { groupAlive: () => true } })).toBe(false)
+    expect(mayRemoveRuntimeMaterial({ worker: { groupAlive: () => false } })).toBe(true)
+    expect(mayRemoveRuntimeMaterial({ worker: undefined })).toBe(true)
+  })
+
+  test('a signal during the startup keeps the material', async () => {
+    const child = new FakeChild()
+    const directory = mkdtempSync(join(tmpdir(), 'adea-worker-runtime-'))
+    try {
+      const worker = await startBuiltWorker(
+        {
+          root: directory,
+          artifact: {
+            directory,
+            configPath: join(directory, 'wrangler.json'),
+            digest: 'digest',
+            files: 1,
+          },
+          config: {},
+          configPath: join(directory, 'worker.json'),
+          port: 8795,
+          certificatePath: certificateFile(),
+          keyPath: join(directory, 'server.key'),
+          persistDirectory: join(directory, 'state'),
+        },
+        {
+          spawn: () => child,
+          signal: () => undefined,
+          // The startup is not finished: the group is alive.
+          groupAlive: () => true,
+          request: async () => {
+            throw new Error('the Worker is not listening yet')
+          },
+          now: (() => {
+            let clock = 0
+            return () => (clock += 1_000)
+          })(),
+          sleep: async () => undefined,
+        }
+      )
+      // A signal during the startup: the Worker is asked to stop, and the
+      // material stays because the group is still alive.
+      worker.requestStop()
+      expect(mayRemoveRuntimeMaterial({ worker })).toBe(false)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('the built-Worker receipt publication', () => {
   test('a receipt is published only after the Worker is gone and the material is removed', () => {
     expect(
@@ -498,6 +597,36 @@ describe('the built-Worker artifact provenance', () => {
     }
   })
 
+  test('an unchanged artifact recomputes to the same identity after the stamp', () => {
+    const { root, source } = buildFixture()
+    try {
+      const artifact = builtWorkerArtifact(root)!
+      writeBuildProvenance({ root, artifact, source })
+      // The stamp is written beside the artifact. The identity of the artifact
+      // does not change because of it.
+      expect(existsSync(join(root, 'apps/web/dist/server/built-worker-provenance.json'))).toBe(true)
+      const recomputed = builtWorkerArtifact(root)!
+      expect(recomputed.digest).toBe(artifact.digest)
+      expect(verifyBuildProvenance({ root, artifact: recomputed, source })).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a changed served asset makes the artifact a different one', () => {
+    const { root, source } = buildFixture()
+    try {
+      const artifact = builtWorkerArtifact(root)!
+      writeBuildProvenance({ root, artifact, source })
+      writeFileSync(join(root, 'apps/web/dist/client/assets/app.js'), 'export const app = 2')
+      const rebuilt = builtWorkerArtifact(root)!
+      expect(rebuilt.digest).not.toBe(artifact.digest)
+      expect(verifyBuildProvenance({ root, artifact: rebuilt, source })).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   test('a changed chunk makes the artifact a different one', () => {
     const { root, source } = buildFixture()
     try {
@@ -539,13 +668,14 @@ describe('the built-Worker artifact provenance', () => {
       mkdirSync(join(root, 'apps/web/dist/server/start-assets'), { recursive: true })
       writeFileSync(join(root, 'apps/web/dist/server/start-assets/chunk.js'), 'export const a = 1')
       const artifact = builtWorkerArtifact(root)!
-      expect(artifact.files).toBe(3)
+      expect(artifact.files).toBe(4)
       const fingerprint = artifactFingerprint({
         directory: artifact.directory,
         configPath: artifact.configPath,
+        assetsDirectory: join(root, 'apps/web/dist/client'),
       })
       expect(fingerprint.digest).toBe(artifact.digest)
-      expect(fingerprint.files).toBe(3)
+      expect(fingerprint.files).toBe(4)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

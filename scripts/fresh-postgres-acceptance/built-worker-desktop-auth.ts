@@ -338,6 +338,7 @@ export type AuthorizationValidation =
 export function validateIssuedAuthorization(input: {
   readonly status: number
   readonly location: string
+  readonly expectedOrigin: string
   readonly expectedState: string
   readonly expectedNonce: string
 }): AuthorizationValidation {
@@ -350,19 +351,35 @@ export function validateIssuedAuthorization(input: {
   } catch {
     return { ok: false, reason: 'the authorize route answered with an unusable location' }
   }
+  if (destination.origin !== input.expectedOrigin) {
+    return { ok: false, reason: 'the authorize route sent the caller to another origin' }
+  }
   if (destination.pathname !== DESKTOP_COMPLETION_PATH) {
     return {
       ok: false,
       reason: 'the authorize route did not send the caller to the completion page',
     }
   }
+  if (destination.search) {
+    return { ok: false, reason: 'the authorize route answered with an unexpected query' }
+  }
   const fragment = input.location.split('#')[1] ?? ''
+  const fragmentKeys = [...new URLSearchParams(fragment).keys()]
+  if (fragmentKeys.length !== 1 || fragmentKeys[0] !== 'callback') {
+    return { ok: false, reason: 'the authorize route answered with unexpected fragment parameters' }
+  }
   const callback = new URLSearchParams(fragment).get('callback') ?? ''
   let parsed: URL
   try {
     parsed = new URL(callback)
   } catch {
     return { ok: false, reason: 'the authorize route answered without a desktop callback' }
+  }
+  if (parsed.username || parsed.password) {
+    return { ok: false, reason: 'the desktop callback carried credentials' }
+  }
+  if (parsed.hash) {
+    return { ok: false, reason: 'the desktop callback carried a fragment' }
   }
   if (`${parsed.protocol}//${parsed.host}${parsed.pathname}` !== DESKTOP_CALLBACK_URI) {
     return { ok: false, reason: 'the authorize route answered with another callback destination' }
@@ -713,6 +730,7 @@ export async function runBuiltWorkerDesktopAuth(
     const validation = validateIssuedAuthorization({
       status: response.status,
       location,
+      expectedOrigin: new URL(input.baseUrl).origin,
       expectedState: state,
       expectedNonce: nonce,
     })

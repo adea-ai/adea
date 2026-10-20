@@ -40,12 +40,15 @@ function response(
   return { status, headers, body }
 }
 
+/** The origin the built Worker serves on. */
+const WORKER_ORIGIN = 'https://127.0.0.1:8790'
+
 function callbackLocation(code: string, nonce: string, state: string): string {
   const callback = new URL(DESKTOP_CALLBACK_URI)
   callback.searchParams.set('code', code)
   callback.searchParams.set('nonce', nonce)
   callback.searchParams.set('state', state)
-  return `/auth/desktop/complete#callback=${encodeURIComponent(callback.toString())}`
+  return `${WORKER_ORIGIN}/auth/desktop/complete#callback=${encodeURIComponent(callback.toString())}`
 }
 
 /** A transport that answers like a correct built Worker does. */
@@ -457,7 +460,7 @@ describe('the built-Worker desktop authorization validation', () => {
   test('an authorize that answers another callback destination issues nothing', async () => {
     const worker = workerWithAuthorize(
       () =>
-        `/auth/desktop/complete#callback=${encodeURIComponent(
+        `${WORKER_ORIGIN}/auth/desktop/complete#callback=${encodeURIComponent(
           'adea://evil/callback?code=abcdefghijklmnop&nonce=n&state=s'
         )}`
     )
@@ -471,7 +474,10 @@ describe('the built-Worker desktop authorization validation', () => {
 
   test('an authorize whose callback carries another nonce issues nothing', async () => {
     const worker = workerWithAuthorize(
-      (url) => `/auth/desktop/complete#callback=${validCallback(url, { nonce: 'another-nonce' })}`
+      (url) =>
+        `${WORKER_ORIGIN}/auth/desktop/complete#callback=${validCallback(url, {
+          nonce: 'another-nonce',
+        })}`
     )
     const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
     const issued = receipt.assertions.find(
@@ -483,7 +489,10 @@ describe('the built-Worker desktop authorization validation', () => {
 
   test('an authorize whose callback carries another state issues nothing', async () => {
     const worker = workerWithAuthorize(
-      (url) => `/auth/desktop/complete#callback=${validCallback(url, { state: 'another-state' })}`
+      (url) =>
+        `${WORKER_ORIGIN}/auth/desktop/complete#callback=${validCallback(url, {
+          state: 'another-state',
+        })}`
     )
     const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
     const issued = receipt.assertions.find(
@@ -498,8 +507,76 @@ describe('the built-Worker desktop authorization validation', () => {
       const callback = new URL('adea://auth/callback')
       callback.searchParams.set('code', 'abcdefghijklmnop')
       callback.searchParams.set('state', url.searchParams.get('state') ?? '')
-      return `/auth/desktop/complete#callback=${encodeURIComponent(callback.toString())}`
+      return `${WORKER_ORIGIN}/auth/desktop/complete#callback=${encodeURIComponent(
+        callback.toString()
+      )}`
     })
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('an authorize that answers the same path on another origin issues nothing', async () => {
+    const worker = workerWithAuthorize(
+      (url) => `https://attacker.example.test/auth/desktop/complete#callback=${validCallback(url)}`
+    )
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('an authorize that answers with an unexpected query issues nothing', async () => {
+    const worker = workerWithAuthorize(
+      (url) => `${WORKER_ORIGIN}/auth/desktop/complete?next=evil#callback=${validCallback(url)}`
+    )
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('an authorize that answers with an extra fragment parameter issues nothing', async () => {
+    const worker = workerWithAuthorize(
+      (url) => `${WORKER_ORIGIN}/auth/desktop/complete#callback=${validCallback(url)}&extra=value`
+    )
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('an authorize whose callback carries credentials issues nothing', async () => {
+    const worker = workerWithAuthorize(
+      () =>
+        `${WORKER_ORIGIN}/auth/desktop/complete#callback=${encodeURIComponent(
+          'adea://user:password@auth/callback?code=abcdefghijklmnop&nonce=n&state=s'
+        )}`
+    )
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    const issued = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
+    )
+    expect(issued?.passed).toBe(false)
+    expect(worker.exchanges()).toBe(0)
+  })
+
+  test('an authorize whose callback carries a fragment issues nothing', async () => {
+    const worker = workerWithAuthorize(
+      () =>
+        `${WORKER_ORIGIN}/auth/desktop/complete#callback=${encodeURIComponent(
+          'adea://auth/callback?code=abcdefghijklmnop&nonce=n&state=s#fragment'
+        )}`
+    )
     const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
     const issued = receipt.assertions.find(
       (assertion) => assertion.name === 'the-desktop-authorize-route-issues-an-authorization-code'
@@ -510,7 +587,7 @@ describe('the built-Worker desktop authorization validation', () => {
 
   test('an authorize that does not answer 303 issues nothing', async () => {
     const worker = workerWithAuthorize(
-      (url) => `/auth/desktop/complete#callback=${validCallback(url)}`,
+      (url) => `${WORKER_ORIGIN}/auth/desktop/complete#callback=${validCallback(url)}`,
       200
     )
     const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))

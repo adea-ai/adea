@@ -97,19 +97,38 @@ export type BuildProvenance = {
 }
 
 /**
+ * The files of the built directory that are not part of the artifact.
+ *
+ * The provenance stamp records which checkout a build belongs to, and the
+ * qualification copies the disposable instance's certificate next to the Worker
+ * for the run. Both are written beside the artifact and neither is part of it:
+ * including them would make the identity of an unchanged build change when the
+ * stamp is written.
+ */
+export const RUN_ONLY_ARTIFACT_FILES: readonly string[] = [
+  'built-worker-provenance.json',
+  'built-worker-desktop-auth-ca.crt',
+]
+
+/**
  * The fingerprint of a built artifact.
  *
  * The entry point alone does not name the build: the Worker imports the
- * chunks beside it and runs with the configuration the build wrote. The
- * fingerprint therefore covers every file of the built directory and the
- * configuration itself, so a changed chunk or a changed configuration makes
- * it a different artifact.
+ * chunks beside it, serves the assets beside those and runs with the
+ * configuration the build wrote. The fingerprint therefore covers every file of
+ * the built directory, the served assets and the configuration itself, so a
+ * changed chunk, a changed asset or a changed configuration makes it a
+ * different artifact.
  */
 export function artifactFingerprint(input: {
   readonly directory: string
   readonly configPath: string
+  readonly assetsDirectory?: string
 }): { readonly digest: string; readonly files: number } {
-  const files = listFiles(input.directory).toSorted()
+  const files = listFiles(input.directory)
+    .filter((file) => !RUN_ONLY_ARTIFACT_FILES.includes(file))
+    .toSorted()
+  const assets = input.assetsDirectory ? listFiles(input.assetsDirectory).toSorted() : []
   const hash = createHash('sha256')
   hash.update('config\n')
   hash.update(readFileSync(input.configPath))
@@ -119,7 +138,13 @@ export function artifactFingerprint(input: {
     hash.update('\n')
     hash.update(readFileSync(resolve(input.directory, file)))
   }
-  return { digest: hash.digest('hex'), files: files.length }
+  for (const file of assets) {
+    hash.update('\nasset\n')
+    hash.update(file)
+    hash.update('\n')
+    hash.update(readFileSync(resolve(input.assetsDirectory!, file)))
+  }
+  return { digest: hash.digest('hex'), files: files.length + assets.length }
 }
 
 /** Every file of a directory, relative to it. */
@@ -141,17 +166,23 @@ export function builtWorkerArtifact(root: string): BuiltWorkerArtifact | null {
   const configPath = resolve(root, BUILT_WORKER_CONFIG)
   if (!existsSync(configPath)) return null
   const directory = resolve(root, BUILT_WORKER_DIRECTORY)
-  let built: { main: string }
+  let built: { main: string; assets?: { directory?: string } }
   try {
-    built = JSON.parse(readFileSync(configPath, 'utf8')) as { main: string }
+    built = JSON.parse(readFileSync(configPath, 'utf8')) as {
+      main: string
+      assets?: { directory?: string }
+    }
   } catch {
     return null
   }
   const entry = resolve(directory, built.main)
   if (!existsSync(entry)) return null
+  const assetsDirectory = built.assets?.directory
+    ? resolve(directory, built.assets.directory)
+    : undefined
   let fingerprint: { readonly digest: string; readonly files: number }
   try {
-    fingerprint = artifactFingerprint({ directory, configPath })
+    fingerprint = artifactFingerprint({ directory, configPath, assetsDirectory })
   } catch {
     return null
   }
@@ -333,6 +364,13 @@ export type RunningBuiltWorker = {
    */
   readonly requestStop: () => void
   /**
+   * True while a process of the Worker's process group is still alive.
+   *
+   * The interruption path cannot wait for the settlement, so it asks this
+   * question instead: the material stays while the answer is yes.
+   */
+  readonly groupAlive: () => boolean
+  /**
    * What the Worker and the local runtime wrote while it ran. The lines are
    * redacted before they are published; the caller decides what to keep.
    */
@@ -474,7 +512,6 @@ export async function startBuiltWorker(
   const stop = (): Promise<void> => {
     if (stopping) return stopping
     stopping = (async () => {
-      if (child.exitCode !== null) return
       if (!child.pid) return
       child.once('exit', () => {
         childExited = true
@@ -482,9 +519,10 @@ export async function startBuiltWorker(
       /**
        * True once the process group is gone.
        *
-       * The parent's exit is not the group's settlement: the local runtime
-       * leaves its own children behind, and the material they read must not be
-       * removed while they are alive.
+       * The parent's exit is not the group's settlement: a launcher that
+       * exits before the stop is called can leave its descendants behind, and
+       * the material they read must not be removed while they are alive. The
+       * group is therefore checked even when the child has already exited.
        */
       const groupSettled = async (): Promise<boolean> => {
         const deadline = dependencies.now() + GROUP_SETTLE_MS
@@ -519,7 +557,13 @@ export async function startBuiltWorker(
     return stopping
   }
 
-  return { baseUrl, stop, requestStop, logs }
+  return {
+    baseUrl,
+    stop,
+    requestStop,
+    groupAlive: () => dependencies.groupAlive(child.pid ?? -1),
+    logs,
+  }
 }
 
 /**
@@ -753,6 +797,21 @@ export async function tearDownAfterWorker(input: {
   input.worker?.requestStop()
   if (containerError !== undefined) throw containerError
   return { workerStopped, containerRemoved, materialRemoved: false, stopError }
+}
+
+/**
+ * True when the runtime material may be removed.
+ *
+ * The material is the Worker's own files. It may only go when the process group
+ * that reads it is gone: a Worker that is still serving from those files must
+ * not lose them, and an interruption that arrives during the startup is no
+ * different from one that arrives later.
+ */
+export function mayRemoveRuntimeMaterial(input: {
+  readonly worker?: Pick<RunningBuiltWorker, 'groupAlive'> | undefined
+}): boolean {
+  if (!input.worker) return true
+  return !input.worker.groupAlive()
 }
 
 /**
