@@ -297,18 +297,51 @@ test('a saved default that names a connection no longer listed reads as unavaila
   expect(errors).toEqual([])
 })
 
-test('revoking a connection marks it revoked, keeps drafts and direct sessions, and removes the revoke action', async ({
+test('revoking a connection marks it revoked, removes the revoke action and keeps the saved lead default', async ({
   page,
 }) => {
-  const errors = await mount(page, scenario({ inventory: inventory([connection()]) }))
+  const errors = await mount(
+    page,
+    scenario({
+      inventory: inventory([connection()]),
+      defaults: {
+        availability: 'available',
+        canManage: true,
+        defaults: {
+          revision: 1,
+          lead: { connectionRef: CONNECTION_REF, providerModel: 'fixture-model' },
+        },
+      },
+    })
+  )
+  await expect(page.getByText('Selected', { exact: true })).toHaveCount(1)
 
   await page.getByRole('button', { name: 'Revoke model connection' }).click()
 
+  // The copy says drafts and direct sessions are preserved. This harness has neither, so only the
+  // copy is asserted for them; the checks below are state checks on the saved lead default.
   await expect(
     page.getByText('Model connection revoked. Existing drafts and direct sessions are preserved.')
   ).toBeVisible()
   await expect(page.getByText('Revoked', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Revoke model connection' })).toHaveCount(0)
+  await expect(page.getByText('Selected', { exact: true })).toHaveCount(1)
+  await expect(
+    page.getByText('fixture-provider · fixture-model', { exact: true }).first()
+  ).toBeVisible()
+  await expect(page.getByText('Saved model connection unavailable', { exact: true })).toHaveCount(0)
+  expect(await callsOf(page, 'setWorkspaceModelDefaults')).toHaveLength(0)
+  const saved = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          leadModelPaneHarness: {
+            state: { defaults: { defaults?: { lead?: { connectionRef: string } } } }
+          }
+        }
+      ).leadModelPaneHarness.state.defaults.defaults?.lead?.connectionRef
+  )
+  expect(saved).toBe(CONNECTION_REF)
   const calls = await callsOf(page, 'revokeModelConnection')
   expect(calls).toHaveLength(1)
   expect(calls[0]?.input).toMatchObject({
