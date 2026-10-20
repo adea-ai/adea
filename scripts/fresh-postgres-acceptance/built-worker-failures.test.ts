@@ -5,6 +5,7 @@ import {
   BuiltWorkerFailure,
   failureMessage,
   publishedReceipt,
+  jsonAllMemberValues,
   rawCredentialValues,
   sanitizeText,
   sanitizeValue,
@@ -184,6 +185,15 @@ describe('the built-Worker top-level field removal', () => {
     const body = String.raw`{"\u0063redential":"FRESH_VALUE","credential":""}`
     expect(body).toContain('\\u0063redential')
     expect(rawCredentialValues(body)).toEqual(['FRESH_VALUE'])
+  })
+
+  test('an earlier escaped value is not lost when a later duplicate is safe', () => {
+    const body = String.raw`{"echo":"\u0062uilt-worker-auth-secret-0123456789abcdef","echo":"safe"}`
+    expect(body).toContain('\\u0062uilt-worker-auth-secret-0123456789abcdef')
+    const values = jsonAllMemberValues(body)
+    // The escaped character decodes to the first character of the secret.
+    expect(values).toContain('built-worker-auth-secret-0123456789abcdef')
+    expect(values).toContain('safe')
   })
 
   test('a raw duplicate member is read even when the first value is empty', () => {

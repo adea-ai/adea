@@ -32,8 +32,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import {
   BuiltWorkerFailure,
-  decodeJsonBody,
-  decodedStringValues,
+  jsonAllMemberValues,
   rawCredentialValues,
   sanitizeReceipt,
   topLevelStringValue,
@@ -629,10 +628,9 @@ export function responseCarriesCredentialMaterial(
   secrets: readonly string[] = []
 ): boolean {
   if (rawCredentialValues(response.body).length > 0) return true
-  const decoded = decodeJsonBody(response.body)
-  if (decoded !== undefined) {
-    if (decodedStringValues(decoded).some((value) => secrets.includes(value))) return true
-  }
+  // The body is read member by member, so a value that was written with an
+  // escape and a duplicate that follows it are both read.
+  if (jsonAllMemberValues(response.body).some((value) => secrets.includes(value))) return true
   return Object.entries(response.headers).some(
     ([name, value]) => CREDENTIAL_HEADER.test(name) && value.length > 0
   )
@@ -748,11 +746,9 @@ export async function runBuiltWorkerDesktopAuth(
       .filter((exemption) => exemption.bodyField)
       .reduce((text, exemption) => withoutTopLevelValue(text, exemption.bodyField!), response.body)
     if (`${headers}\n${body}`.includes(secret)) return true
-    // A value can hide behind an escaped character, so the decoded body is read
-    // as well.
-    const decoded = decodeJsonBody(body)
-    if (decoded === undefined) return false
-    return decodedStringValues(decoded).some((value) => value.includes(secret))
+    // A value can hide behind an escaped character, and a duplicate member can
+    // hide the value before it, so every member value is read.
+    return jsonAllMemberValues(body).some((value) => value.includes(secret))
   }
 
   /**

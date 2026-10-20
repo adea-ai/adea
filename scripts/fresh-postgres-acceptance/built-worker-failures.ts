@@ -360,6 +360,24 @@ function decodeJsonString(raw: string): string {
  */
 export function jsonMemberValues(body: string, field: string): string[] {
   const values: string[] = []
+  collectJsonMembers(body, field, values)
+  return values
+}
+
+/**
+ * Every string value of every member of a body, at any depth.
+ *
+ * The body is walked as text, so every occurrence is read: a duplicate member keeps its
+ * own value, and a value that was written with an escape is the value it decodes to. A
+ * parsed body would lose both.
+ */
+export function jsonAllMemberValues(body: string): string[] {
+  const values: string[] = []
+  collectJsonMembers(body, undefined, values)
+  return values
+}
+
+function collectJsonMembers(body: string, field: string | undefined, values: string[]): void {
   const collect = (from: number, to: number): void => {
     let index = from
     while (index < to) {
@@ -379,7 +397,7 @@ export function jsonMemberValues(body: string, field: string): string[] {
       let value = cursor + 1
       while (value < to && /\s/u.test(body[value]!)) value += 1
       const valueEnd = scanValue(body, value)
-      if (name === field) {
+      if (field === undefined || name === field) {
         if (body[value] === '"') {
           const decoded = decodeJsonString(body.slice(value + 1, Math.max(value + 1, valueEnd - 1)))
           if (decoded) values.push(decoded)
@@ -392,7 +410,6 @@ export function jsonMemberValues(body: string, field: string): string[] {
     }
   }
   collect(0, body.length)
-  return values
 }
 
 /**

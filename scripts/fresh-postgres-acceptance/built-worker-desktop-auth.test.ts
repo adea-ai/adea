@@ -838,6 +838,35 @@ describe('the built-Worker desktop credential material', () => {
     expect(leakage?.passed).toBe(false)
   })
 
+  test('an earlier escaped echo of a known secret is not lost when a later duplicate is safe', async () => {
+    const correct = correctWorker()
+    const wire: string[] = []
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        // The earlier echo carries the known secret with an escaped character;
+        // the later duplicate of the same key is safe.
+        const body = String.raw`{"echo":"\u0062uilt-worker-auth-secret-for-the-test-only-123456","echo":"safe"}`
+        // The wire is checked before the qualification reads the body.
+        expect(body).toContain('\\u0062uilt-worker-auth-secret-for-the-test-only-123456')
+        expect(body).toContain('"echo":"safe"')
+        wire.push(body)
+        return { ...answered, body }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth({
+      ...baseInput(transport),
+      secrets: [CALLER_AUTH_SECRET],
+    })
+    expect(wire.join('\n')).toContain('\\u0062uilt-worker-auth-secret-for-the-test-only-123456')
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+    expect(receipt.status).toBe('failed')
+  })
+
   test('an earlier escaped credential is not lost when a later duplicate is empty', async () => {
     const correct = correctWorker()
     const wire: string[] = []
