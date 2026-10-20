@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 
 // The pull-request database proof lane. It proves one disposable PostgreSQL
 // instance on the loopback interface and nothing else: there is no hosted
@@ -24,6 +26,7 @@ type Job = {
   name?: string
   needs?: string | string[]
   if?: string
+  env?: Record<string, string>
   'timeout-minutes'?: number
   steps: Step[]
 }
@@ -46,6 +49,7 @@ describe('the database proof lane proves only a disposable local instance', () =
     expect(Object.keys(jobs).toSorted()).toEqual([
       'disposable_postgres_gate',
       'disposable_postgres_proof',
+      'fresh_account_acceptance_proof',
     ])
 
     const proof = jobs.disposable_postgres_proof!
@@ -109,7 +113,6 @@ describe('the database proof lane proves only a disposable local instance', () =
 
   test('it has its own fail-closed gate', () => {
     const gate = jobs.disposable_postgres_gate!
-    expect([...(gate.needs as string[])]).toEqual(['disposable_postgres_proof'])
     expect(gate.if).toContain('always()')
     expect(gate.if).toContain('github.event.pull_request.draft == false')
     const check = stepNamed(gate, 'Require the disposable proof to succeed')
@@ -234,5 +237,224 @@ describe('the database proof lane proves only a disposable local instance', () =
     expect(cli).toContain('DISPOSABLE_POSTGRES_PROOF')
     expect(cli).not.toContain('console.log(adminUrl')
     expect(cli).not.toContain('console.log(provisioned')
+  })
+})
+
+describe('the fresh-account acceptance job wires the acceptance lane into CI', () => {
+  const job = jobs.fresh_account_acceptance_proof!
+
+  test('it is the lane’s own job, with the same draft filter as the proof', () => {
+    expect(job.name).toBe('Fresh account acceptance proof')
+    expect(job['timeout-minutes']).toBe(30)
+    expect(job.permissions).toEqual({ contents: 'read' })
+    expect(job.if).toContain('github.event.pull_request.draft == false')
+  })
+
+  test('it checks out the exact head and requires the receipt to name it', () => {
+    const checkout = stepNamed(job, 'Checkout pull request')
+    expect(checkout.uses).toBe('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1')
+    expect(checkout.with?.ref).toBe('${{ github.event.pull_request.head.sha }}')
+    expect(checkout.with?.['persist-credentials']).toBe(false)
+    expect(job.env?.EXPECTED_HEAD).toBe('${{ github.event.pull_request.head.sha }}')
+    const gate = stepNamed(job, 'Gate and publish the acceptance receipt')
+    expect(gate.run).toContain('"$EXPECTED_HEAD"')
+  })
+
+  test('it runs the acceptance lane’s own entrypoint, unchanged', () => {
+    const lane = stepNamed(job, 'Run the fresh-account acceptance lane')
+    expect(lane.run).toContain('node scripts/fresh-postgres-acceptance/run.mjs')
+    // The lane prints its receipt on stdout and the tree it names must stay the
+    // clean tree the run happened in, so the output goes outside the checkout.
+    expect(lane.run).toContain('"$RUNNER_TEMP/fresh-account-acceptance.out"')
+  })
+
+  test('it gates the receipt before it publishes anything', () => {
+    const names = job.steps.map((step: { name?: string }) => step.name)
+    const gate = names.indexOf('Gate and publish the acceptance receipt')
+    const publish = names.indexOf('Publish the acceptance receipt')
+    expect(gate).toBeGreaterThan(names.indexOf('Run the fresh-account acceptance lane'))
+    expect(gate).toBeLessThan(publish)
+    const step = stepNamed(job, 'Gate and publish the acceptance receipt')
+    expect(step.run).toContain('node scripts/ci-fresh-account-acceptance.mjs')
+    const upload = stepNamed(job, 'Publish the acceptance receipt')
+    expect(upload.uses).toBe('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a')
+    expect(upload.with?.['if-no-files-found']).toBe('error')
+    expect(upload.with?.path).toContain('fresh-account-acceptance-receipt.json')
+  })
+
+  test('it reads no secret and reaches no hosted database', () => {
+    const body = JSON.stringify(job)
+    expect(body).not.toContain('secrets.')
+    expect(body).not.toContain('vars.')
+    expect(body).not.toContain('console.neon.tech')
+    expect(body).not.toContain('NEON_')
+    expect(body.toLowerCase()).not.toContain('neon')
+  })
+
+  test('the gate it calls is the CI gate this lane owns', () => {
+    const gate = readFileSync(resolve(root, 'scripts/ci-fresh-account-acceptance.mjs'), 'utf8')
+    expect(gate).toContain('assertFreshAccountReceipt')
+    expect(gate).toContain('does not name the exact head the job checked out')
+    expect(gate).toContain('no executed ')
+    // The lane’s own contract is reused, not restated: the gate imports the
+    // acceptance lane’s proof and provenance checks.
+    expect(gate).toContain("from './fresh-postgres-acceptance/recovery.mjs'")
+    expect(gate).toContain("from './fresh-postgres-acceptance/provenance.mjs'")
+  })
+
+  test('a failed lane publishes no receipt and no artifact', () => {
+    const body = JSON.stringify(job)
+    // A step that runs whatever happened before it would publish a receipt the
+    // gate refused, or one the lane never proved.
+    expect(body).not.toContain('continue-on-error')
+    const publish = stepNamed(job, 'Publish the acceptance receipt')
+    expect(publish.if).toBeUndefined()
+    const gate = stepNamed(job, 'Gate and publish the acceptance receipt')
+    expect(gate.if).toBeUndefined()
+    // The receipt is published only after the gate, and the gate is the step
+    // that fails the job when the receipt is not a proof of the exact head.
+    const names = job.steps.map((step: { name?: string }) => step.name)
+    expect(names.indexOf('Gate and publish the acceptance receipt')).toBeLessThan(
+      names.indexOf('Publish the acceptance receipt')
+    )
+  })
+
+  test('a hung lane is cancelled by the job timeout, and a cancelled job publishes nothing', () => {
+    expect(job['timeout-minutes']).toBe(30)
+    // The cleanup check runs even when the lane failed and even when the job
+    // was cancelled, so a leaked resource is reported next to the primary
+    // failure instead of being hidden by it. The publish step and the gate
+    // have no condition of their own, so a cancelled run publishes nothing.
+    const cleanup = stepNamed(job, 'Require no newly observed container to remain')
+    expect(cleanup.if).toBe('always()')
+  })
+
+  test('the cleanup check reports newly observed resources and removes nothing', () => {
+    const names = job.steps.map((step: { name?: string }) => step.name)
+    const before = names.indexOf('Record the containers the runner has')
+    const lane = names.indexOf('Run the fresh-account acceptance lane')
+    const cleanup = names.indexOf('Require no newly observed container to remain')
+    expect(before).toBeGreaterThanOrEqual(0)
+    expect(before).toBeLessThan(lane)
+    expect(lane).toBeLessThan(cleanup)
+
+    const step = stepNamed(job, 'Require no newly observed container to remain')
+    // The difference between the two snapshots is a difference of two
+    // snapshots, not a prefix sweep, and it is reported as newly observed
+    // resources: it is never proof of ownership.
+    expect(step.run).toContain('containers-before.txt')
+    expect(step.run).toContain('containers-after.txt')
+    expect(step.run).toContain('comm -13')
+    expect(step.run).not.toContain('--filter')
+    expect(step.run).toContain('newly observed container resources')
+    // Nothing is removed here, and the difference never authorises a removal.
+    expect(step.run).not.toContain('docker rm')
+    expect(step.run).not.toContain('prune')
+    expect(step.run).not.toContain('docker system')
+    expect(step.run).not.toContain('docker kill')
+    expect(step.run).not.toContain('docker stop')
+  })
+
+  test('the snapshots name every container, in every state, by its identifier', () => {
+    // A container that was stopped and left behind is still a resource the
+    // runner holds, so the listing covers every state, and it names the
+    // immutable identifier rather than the mutable name.
+    for (const name of [
+      'Record the containers the runner has',
+      'Require no newly observed container to remain',
+    ]) {
+      const step = stepNamed(job, name)
+      expect(step.run).toContain('docker ps -a')
+      expect(step.run).toContain("'{{.ID}}'")
+      expect(step.run).not.toContain("'{{.Names}}'")
+    }
+  })
+
+  test('a stopped container that is newly observed fails the check', () => {
+    // The check runs its own script, so the regression is about what the job
+    // does: a container that was stopped and left behind is visible in the
+    // listing, it fails the check, and nothing is removed.
+    const step = stepNamed(job, 'Require no newly observed container to remain')
+    const directory = mkdtempSync(join(tmpdir(), 'adea-container-check-'))
+    try {
+      const bin = join(directory, 'bin')
+      mkdirSync(bin, { recursive: true })
+      const calls = join(directory, 'docker-calls.txt')
+      // A Docker that answers like the real one: it lists every state, and it
+      // holds a container that was stopped and left behind.
+      writeFileSync(
+        join(bin, 'docker'),
+        [
+          '#!/bin/sh',
+          `echo "$@" >> ${JSON.stringify(calls)}`,
+          'case "$*" in',
+          '  *-a*) echo "deadbeefcafe0123456789abcdef0123456789abcdef0123456789abcdef01234567" ;;',
+          'esac',
+          'exit 0',
+          '',
+        ].join('\n')
+      )
+      chmodSync(join(bin, 'docker'), 0o755)
+      const script = join(directory, 'check.sh')
+      writeFileSync(script, step.run ?? '')
+      const result = spawnSync('bash', [script], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          RUNNER_TEMP: directory,
+        },
+      })
+      // The stopped container is newly observed, so the check fails and names
+      // it.
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('deadbeefcafe')
+      // The difference never authorises a removal: the check asked Docker to
+      // list and nothing else.
+      const asked = readFileSync(calls, 'utf8')
+      for (const command of asked.split('\n').filter((line) => line.length > 0)) {
+        expect(command.split(' ')[0]).toBe('ps')
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('the job runs the lane and the gate on the repository Node runtime', () => {
+    const node = stepNamed(job, 'Install the repository Node runtime')
+    expect(node.uses).toBe('actions/setup-node@820762786026740c76f36085b0efc47a31fe5020')
+    // The runtime the repository pins, so the job cannot drift from it.
+    const mise = readFileSync(resolve(root, '.mise.toml'), 'utf8')
+    expect(node.with?.['node-version']).toBe(mise.match(/node = "([^"]+)"/)?.[1])
+    const names = job.steps.map((step: { name?: string }) => step.name)
+    expect(names.indexOf('Install the repository Node runtime')).toBeLessThan(
+      names.indexOf('Run the fresh-account acceptance lane')
+    )
+  })
+
+  test('the fail-closed aggregate covers the fresh-account acceptance result', () => {
+    const gate = jobs.disposable_postgres_gate!
+    // The aggregate's own check name and threshold are unchanged; it now also
+    // requires the fresh-account acceptance result.
+    expect(gate.name).toBe('Prove Disposable PostgreSQL')
+    expect(gate['timeout-minutes']).toBe(5)
+    expect([...(gate.needs as string[])]).toEqual([
+      'disposable_postgres_proof',
+      'fresh_account_acceptance_proof',
+    ])
+    const check = stepNamed(gate, 'Require the disposable proof to succeed')
+    expect(check.run).toContain('test "$PROOF_RESULT" = success')
+    expect(check.run).toContain('test "$ACCEPTANCE_RESULT" = success')
+    expect(check.env?.PROOF_RESULT).toBe('${{ needs.disposable_postgres_proof.result }}')
+    expect(check.env?.ACCEPTANCE_RESULT).toBe('${{ needs.fresh_account_acceptance_proof.result }}')
+  })
+
+  test('the job removes nothing and reaches no hosted database', () => {
+    const body = JSON.stringify(job)
+    // The job reports a leak; it never removes a resource it did not create,
+    // and it never prunes.
+    expect(body).not.toContain('docker rm')
+    expect(body).not.toContain('prune')
+    expect(body).not.toContain('docker system')
   })
 })
