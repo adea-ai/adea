@@ -76,9 +76,16 @@ test('the qualified service serves the optional view and leaves the app usable w
 
   const sessions = new Map<string, StoredSession>()
   const store = memoryStore(sessions)
+  // The workspace read authorization and the entitlement policy are independent gates. A workspace
+  // can be readable by the principal and still not entitled, and that case has to reach the
+  // entitlement policy rather than being refused by the membership check.
+  const readable = new Set(['workspace-one', 'workspace-two'])
   const entitled = new Set(['workspace-one'])
-  const policy = (scope: { workspaceId: string }) =>
-    entitled.has(scope.workspaceId) ? 'entitled' : 'not_entitled'
+  const policyCalls: { workspaceId: string; surface: string }[] = []
+  const policy = (scope: { workspaceId: string; surface: string; platform?: string }) => {
+    policyCalls.push({ workspaceId: scope.workspaceId, surface: scope.surface })
+    return entitled.has(scope.workspaceId) ? 'entitled' : 'not_entitled'
+  }
 
   let api: ReturnType<typeof createSimApi> | undefined
   const hostServer = await createServer({
@@ -125,9 +132,11 @@ test('the qualified service serves the optional view and leaves the app usable w
   await hostServer.listen()
   const parentOrigin = `http://localhost:${(hostServer.httpServer!.address() as { port: number }).port}`
 
+  const assetReads: string[] = []
   const reader = createSimPrivateAssetReader({
     location: 'agent-sim-export',
     read: async ({ key }) => {
+      assetReads.push(key)
       if (key === 'engine.json') {
         return {
           body: JSON.stringify({ version: 'composition-fixture' }),
@@ -164,7 +173,7 @@ test('the qualified service serves the optional view and leaves the app usable w
     ports: {
       resolvePrincipal: (request) =>
         request.headers.get('authorization') ? { userId: 'local-user' } : null,
-      authorizeWorkspace: (_principal, _action, workspaceId) => entitled.has(workspaceId),
+      authorizeWorkspace: (_principal, _action, workspaceId) => readable.has(workspaceId),
       policy,
     },
   })
@@ -207,7 +216,9 @@ test('the qualified service serves the optional view and leaves the app usable w
   const errors: string[] = []
   page.on('pageerror', (error) => errors.push(error.message))
   try {
-    // The private export is not reachable without a session, and it has no public alias.
+    // This service serves the private export only behind the session cookie, and it offers no
+    // other route to it. Whether the storage location itself is private is a deployment
+    // prerequisite, so this lane asserts the service's own boundary and nothing more.
     expect((await fetch(`${origin}/assets/agent-sim/engine.js`)).status).toBe(401)
     expect((await fetch(`${origin}/private/agent-sim/engine.js`)).status).toBe(404)
 
@@ -219,6 +230,10 @@ test('the qualified service serves the optional view and leaves the app usable w
       await page.frameLocator('iframe').locator('canvas').getAttribute('data-test-sim-scene')
     ).toBe('work')
     expect(store.rows.size).toBe(1)
+    expect(sessions.size).toBe(1)
+    expect(assetReads.length).toBeGreaterThanOrEqual(2)
+    expect(policyCalls.length).toBeGreaterThanOrEqual(1)
+    expect(policyCalls.every((call) => call.workspaceId === 'workspace-one')).toBe(true)
 
     // The session cookie is the only carrier, and it is a sim-only cookie.
     const cookies = await context.cookies()
@@ -227,15 +242,36 @@ test('the qualified service serves the optional view and leaves the app usable w
     expect(session?.secure).toBe(true)
     expect(session?.sameSite).toBe('None')
 
-    // An unentitled workspace is refused, and the rest of the app stays reachable.
+    // A readable workspace that the entitlement policy does not entitle reaches the independent
+    // entitlement gate: the policy is consulted, and nothing is issued for it.
+    const codesBefore = store.rows.size
+    const sessionsBefore = sessions.size
+    const readsBefore = assetReads.length
+    const callsBefore = policyCalls.length
     await page.goto(`${parentOrigin}/?workspace=workspace-two`)
     await page.getByText('Agent Sim is not included in this account').waitFor({ timeout: 20_000 })
     expect(await page.locator('iframe').count()).toBe(0)
-    expect(store.rows.size).toBe(1)
+    expect(policyCalls.length).toBe(callsBefore + 1)
+    expect(policyCalls.at(-1)).toEqual({ workspaceId: 'workspace-two', surface: 'hq' })
+    expect(store.rows.size).toBe(codesBefore)
+    expect(sessions.size).toBe(sessionsBefore)
+    expect(assetReads.length).toBe(readsBefore)
+    // The rest of the app stays reachable.
     await page.getByRole('button', { name: 'Chat', exact: true }).click()
     expect(await page.getByText('Chat stays available').isVisible()).toBe(true)
     await page.getByRole('button', { name: 'Dev', exact: true }).click()
     expect(await page.getByText('Dev stays available').isVisible()).toBe(true)
+
+    // A workspace the principal may not read is refused by the membership check, which runs
+    // before the entitlement policy, so the policy is never asked about it.
+    const callsBeforeUnreadable = policyCalls.length
+    await page.goto(`${parentOrigin}/?workspace=workspace-three`)
+    await page.getByText('Agent Sim is not included in this account').waitFor({ timeout: 20_000 })
+    expect(await page.locator('iframe').count()).toBe(0)
+    expect(policyCalls.length).toBe(callsBeforeUnreadable)
+    expect(store.rows.size).toBe(codesBefore)
+    expect(sessions.size).toBe(sessionsBefore)
+    expect(assetReads.length).toBe(readsBefore)
     expect(errors).toEqual([])
   } finally {
     await browser.close()

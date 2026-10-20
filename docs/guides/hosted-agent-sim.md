@@ -51,8 +51,11 @@ ports so that neither names an entitlement source, a storage engine or an origin
   and asks the entitlement policy about the workspace and surface the stored row names. The
   workspace and surface never come from the request.
 - `apps/web/src/server/sim-private-assets.ts` reads the engine export from one named private
-  location. The location is a plain identifier, not a URL or an alias, and the reader returns bytes
-  only, so the private export has no public alias.
+  location. The location is a plain identifier, not a URL or an alias, the request path cannot
+  select a key outside it, and the reader returns the object rather than an address. Whether the
+  storage location itself is private — its access control list, and any public alias the storage
+  provider may expose for the same objects — is a deployment prerequisite of the approved service,
+  not something this source decides.
 - `packages/db/src/sim-launch-ports.ts` adapts the durable tables to those ports: one code store
   per verified workspace for the issuer, a redeeming-only store for the hosted service, and the
   session lookup behind the private asset gate.
@@ -86,9 +89,11 @@ under the temporary evidence directory and are not uploaded or committed.
 
 The composition acceptance lane runs the approved composition on both sides of the
 launch against disposable in-memory stores: an entitled workspace reaches the
-optional view and its private entry, an unentitled workspace reaches nothing, the
-private export is unreachable without a session and has no public alias, and the
-rest of the app stays usable when the optional view is refused.
+optional view and its private entry, a workspace the principal may read but the
+entitlement policy does not entitle reaches the independent entitlement gate and
+receives no launch code, no session and no private read, a workspace the
+principal may not read is refused before the policy is asked, and the rest of the
+app stays usable when the optional view is refused.
 
 The HTTP lane covers denial before private storage reads, single-use code replay,
 session expiry, surface binding, missing authority, foreign origins, and bounded

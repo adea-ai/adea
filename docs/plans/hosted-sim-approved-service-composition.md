@@ -93,9 +93,20 @@ const reader = createSimPrivateAssetReader({
 
 The location name is a plain identifier, not a URL, a path or an alias, so nothing here can name a
 public bucket or a public prefix. The reader hands the location and the key to the storage adapter
-and returns bytes; it never returns a location, a URL or a redirect, so the private export has no
-public alias and the session gate stays the only way in. A malformed location name serves no object
-at all rather than falling back to a default.
+and returns the object; it never returns a location, a URL or a redirect, so this service offers no
+second route to a private object. A malformed location name serves no object at all rather than
+falling back to a default, and a request path cannot select a key outside the location.
+
+What this source does **not** decide, and what the deployment must therefore supply:
+
+- the access control list that makes the location private, so that no other principal and no
+  unsigned request can read the objects;
+- the absence of a public alias for the same objects — a public URL, a public CDN route, a public
+  bucket or prefix, or any other route the storage provider may expose for them;
+- the expiry of any signed URL or temporary credential the storage adapter may use.
+
+Identifier and key validation alone prove none of that. The request-side gate is proven by the
+source and its tests; the storage-side gate is a deployment prerequisite, listed below.
 
 ## The durable storage
 
@@ -127,14 +138,17 @@ These are decisions and actions, not source. None of them has been made here.
    cookie host separation from the app origin, and the deployment of that service. The host
    configuration refuses a parent on the same cookie host, so the destination cannot be a sibling
    path of the app origin.
-3. **The private asset location.** The named private location that holds the engine export, the
-   storage adapter that reads it, and the confirmation that the location has no public alias. The
-   engine export itself stays in the private repository; no engine source or binary is copied into
-   this repository.
-4. **The storage prerequisites.** The `sim_launch_codes` and `sim_sessions` migration applied to the
+3. **The private asset location.** The named private location that holds the engine export and the
+   storage adapter that reads it. The engine export itself stays in the private repository; no
+   engine source or binary is copied into this repository.
+4. **The private storage configuration.** The access control list that makes the location private,
+   the confirmation that the storage provider exposes no public alias for the same objects, and the
+   expiry of any signed URL or temporary credential the adapter uses. This source validates the
+   location name and the request key; it cannot validate any of that.
+5. **The storage prerequisites.** The `sim_launch_codes` and `sim_sessions` migration applied to the
    target database, the read and write access for the launch and the hosted service, and the
    cleanup of expired codes and sessions.
-5. **The deployment.** Building and deploying the separately hosted service, and any credential,
+6. **The deployment.** Building and deploying the separately hosted service, and any credential,
    binding or access change it needs. None of that is authorized here.
 
 ## What this page does not claim

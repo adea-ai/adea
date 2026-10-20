@@ -63,7 +63,7 @@ them as decisions rather than source:
 2. No composition assembled the separately hosted service from the durable session lookup, the
    entitlement policy and a private asset reader.
 3. The private asset location existed only inside a test fixture: there was no source that named
-   the private location, kept the read inside it and guaranteed that no public alias existed.
+   the private location and kept the read inside it.
 
 This lane adds that source:
 
@@ -71,6 +71,12 @@ This lane adds that source:
 - `apps/web/src/server/sim-host-service.ts` — the separately hosted service composition.
 - `apps/web/src/server/sim-private-assets.ts` — the named private asset location reader.
 - `packages/db/src/sim-launch-ports.ts` — the durable adapters for those ports.
+
+The reader proves the request-side half of the private asset gate: a plain location name, a key
+that cannot leave the location, and an object returned instead of an address. It does not prove
+anything about the storage access control list, about a public alias the storage provider may
+expose for the same objects, or about any other principal that may read them. Those are deployment
+prerequisites, and they are listed as such in the approved service composition.
 
 The [approved service composition](../plans/hosted-sim-approved-service-composition.md) records the
 interfaces and the decisions root still owns. No policy, origin, storage target or hosting
@@ -85,6 +91,7 @@ destination was selected.
 | expiry of a code and of a session                 | `apps/web/test/sim-launch-service.test.ts`, `apps/web/test/sim-host-service.test.ts`, `packages/db/tests/integration/sim-launch-sessions.test.ts` |
 | unauthorized principal, workspace or presentation | `apps/web/test/sim-launch-service.test.ts`, `apps/web/test/sim-host-service.test.ts`                                                              |
 | invalid entitlement answer                        | `apps/web/test/sim-launch-service.test.ts`, `apps/web/test/sim-host-service.test.ts`                                                              |
+| workspace-authorized but explicitly not entitled  | `apps/web/test/sim-launch-service.test.ts`, `apps/web/test/sim-offload-browser/composition-acceptance.test.ts`                                    |
 | storage failure                                   | `apps/web/test/sim-launch-service.test.ts`, `apps/web/test/sim-host-service.test.ts`, `packages/db/tests/integration/sim-launch-sessions.test.ts` |
 | private assets absent from the desktop bundle     | `scripts/desktop-sim-payload.test.ts`, `scripts/check-desktop-sim-payload.mjs`                                                                    |
 
@@ -128,37 +135,46 @@ the release workflow before publication; this lane did not build a release archi
 both sides of the launch against disposable in-memory stores, in a real browser:
 
 - an entitled workspace reaches the optional view and its private entry;
-- the private export answers `401` without a session and `404` under any other prefix;
+- this service answers `401` for a private asset without a session and `404` under any other
+  prefix, so it offers no second route to a private object;
 - the sim-only session cookie is the only carrier, and it is `HttpOnly`, `Secure` and
   `SameSite=None`;
-- an unentitled workspace reaches nothing, no code is issued for it, and the rest of the app stays
-  usable.
+- a workspace the principal may read but the entitlement policy does not entitle reaches the
+  independent entitlement gate: the policy is consulted about that workspace and surface, and no
+  launch code, no session and no private read happen for it;
+- a workspace the principal may not read is refused by the membership check, so the policy is
+  never asked about it;
+- in both refusals the rest of the app stays usable.
 
-The fixture app now accepts a `?workspace=` query parameter so the unentitled case can be driven
-without a second fixture. The default is unchanged.
+The fixture app accepts a `?workspace=` query parameter so these cases can be driven without a
+second fixture. The default is unchanged. The fixture's workspace read authorization and its
+entitlement policy are separate: an earlier version used one set for both, which made the
+not-entitled case fail the membership check before the entitlement policy was ever consulted.
 
 ## 6. Commands and results
 
-| Command                                                                                                        | Result                                                                                |
-| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| `bun install --frozen-lockfile`                                                                                | 39 packages installed; no lockfile change                                             |
-| `bun run build:web-deps`                                                                                       | 16/16 tasks successful                                                                |
-| `bun test apps/web/test/sim-*.test.ts packages/spatial/test/sim-*.test.ts scripts/desktop-sim-payload.test.ts` | 231 pass, 0 fail, 1007 assertions across 17 files                                     |
-| `bun test apps/web/test/sim-offload-browser/acceptance.test.ts`                                                | 1 pass, 0 fail, 28 assertions                                                         |
-| `bun test apps/web/test/sim-offload-browser/composition-acceptance.test.ts`                                    | 1 pass, 0 fail, 13 assertions                                                         |
-| `bun apps/desktop/scripts/client.mjs`                                                                          | Client built; payload check reported `simPayloadFiles: 0` over 317 files              |
-| `bun run format:check`                                                                                         | All matched files use the correct format                                              |
-| `bun run lint`                                                                                                 | 0 warnings, 0 errors in every workspace                                               |
-| `bun run --cwd apps/web typecheck`                                                                             | No type errors in 327 files                                                           |
-| `bun run --cwd packages/db typecheck`                                                                          | No type errors in 114 files                                                           |
-| `bun run test:coverage`                                                                                        | 2069 pass, 0 fail; all files 98.36% lines, 97.97% functions — unchanged from the base |
-| `bun run test:unit`                                                                                            | exit 0; every workspace lane passed                                                   |
-| `bun run --cwd packages/db db:migrate` (disposable PostgreSQL)                                                 | Migration verification passed, 60 migrations applied                                  |
-| `DATABASE_URL=… bun test packages/db/tests/integration/sim-launch-sessions.test.ts` (disposable PostgreSQL)    | 17 pass, 0 fail, 55 assertions                                                        |
+| Command                                                                                                                                      | Result                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `bun install --frozen-lockfile`                                                                                                              | 39 packages installed; no lockfile change                                             |
+| `bun run build:web-deps`                                                                                                                     | 16/16 tasks successful                                                                |
+| `bun test apps/web/test/sim-*.test.ts packages/spatial/test/sim-*.test.ts scripts/desktop-sim-payload.test.ts scripts/docs-boundary.test.ts` | 236 pass, 0 fail, 1026 assertions across 18 files                                     |
+| `bun test apps/web/test/sim-offload-browser/acceptance.test.ts`                                                                              | 1 pass, 0 fail, 28 assertions                                                         |
+| `bun test apps/web/test/sim-offload-browser/composition-acceptance.test.ts`                                                                  | 1 pass, 0 fail, 26 assertions                                                         |
+| `bun apps/desktop/scripts/client.mjs`                                                                                                        | Client built; payload check reported `simPayloadFiles: 0` over 317 files              |
+| `bun run format:check`                                                                                                                       | All matched files use the correct format                                              |
+| `bun run lint`                                                                                                                               | 0 warnings, 0 errors in every workspace                                               |
+| `bun run --cwd apps/web typecheck`                                                                                                           | No type errors in 327 files                                                           |
+| `bun run --cwd packages/db typecheck`                                                                                                        | No type errors in 114 files                                                           |
+| `bun run test:coverage`                                                                                                                      | 2069 pass, 0 fail; all files 98.36% lines, 97.97% functions — unchanged from the base |
+| `bun run test:unit`                                                                                                                          | exit 0; every workspace lane passed                                                   |
+| `bun run --cwd packages/db db:migrate` (disposable PostgreSQL)                                                                               | Migration verification passed, 60 migrations applied                                  |
+| `DATABASE_URL=… bun test packages/db/tests/integration/sim-launch-sessions.test.ts` (disposable PostgreSQL)                                  | 17 pass, 0 fail, 55 assertions                                                        |
 
 The database-backed suite ran against a disposable PostgreSQL container that this lane started on
-`127.0.0.1:55439` with the repository's own `infra/postgres/init` roles, and removed again
-afterwards. No shared, pre-existing or live database was used.
+`127.0.0.1:55439` with the repository's own `infra/postgres/init` roles and the pinned
+`postgres:18-alpine` image (server 18.6), and removed again afterwards. No shared, pre-existing or
+live database was used. The receipt of that run is 17 tests, 0 failures, 55 assertions, and the
+bounded follow-up below re-ran it unchanged.
 
 ### Environment notes
 
@@ -202,14 +218,65 @@ wider Neon removal belongs to the Railway lanes; this is the proof for the admit
 - **The durable storage is a root decision.** The `sim_launch_codes` and `sim_sessions` migration
   exists in `packages/db/drizzle/0059_sim_launch_sessions.sql`, but the target database, the
   access and the cleanup of expired rows were not selected.
+- **The private storage configuration is a root decision.** The source proves the request-side gate
+  — the location name, the key and the bytes. The access control list that makes the location
+  private, the absence of a public alias for the same objects, and the expiry of any signed URL or
+  temporary credential belong to the approved deployment.
 - **The installed integration is verified by lane G**, not by this lane.
 - **The seven-day cost measurement is the user's**, not this lane's.
 
-## 9. Publication
+## 9. Bounded follow-up after the root review
+
+Root reviewed all 14 pull request files and these evidence updates through head
+`a1fac535f31a83740176f99909650d419b89ef4c`, and admitted two scoped changes.
+
+### The independent entitlement gate
+
+The acceptance fixture used one set for both the workspace read authorization and the entitlement
+policy, so its "unentitled workspace" case failed the membership check and the entitlement policy
+was never consulted. The two gates are now separate in the fixture: `workspace-one` is readable and
+entitled, `workspace-two` is readable but not entitled, `workspace-three` is neither.
+
+The added cases:
+
+- `apps/web/test/sim-launch-service.test.ts` — a readable workspace the policy does not entitle
+  reaches the policy, is refused with `denied/not_entitled`, and no code is stored.
+- `apps/web/test/sim-offload-browser/composition-acceptance.test.ts` — the same case in a real
+  browser. The policy is consulted about that workspace and surface, the launch code count, the
+  session count and the private read count are all unchanged, no frame is created, and Chat and Dev
+  stay reachable. The unreadable workspace is refused by the membership check and the policy is
+  not asked about it at all, which is what makes the two gates independent.
+
+### Narrowed private-location claims
+
+Identifier and key validation do not prove a storage access control list, and they do not prove
+that the storage provider exposes no public alias for the same objects. The source, the tests, the
+guide, the plan and this evidence now say exactly that:
+
+- what is proven: a plain location name, a request path that cannot select a key outside the
+  location, and an object returned instead of an address, so this service offers no second route
+  to a private object;
+- what is a deployment prerequisite: the access control list that makes the location private, the
+  absence of a public alias for the same objects, and the expiry of any signed URL or temporary
+  credential the storage adapter uses.
+
+The approved service composition lists the storage configuration as its own root decision. The two
+tests that asserted the stronger claim were renamed and narrowed to the request-side gate.
+
+### The PostgreSQL receipt
+
+The durable database receipt is unchanged and re-verified: 17 tests, 0 failures, 55 assertions
+against a real PostgreSQL (the pinned `postgres:18-alpine` image, server 18.6) with 60 migrations
+applied, on a disposable container that was removed again afterwards.
+
+## 10. Publication
 
 - Branch: `codex/20261020-hosted-sim-w6`, pushed to `origin`.
-- Commit: `a7c4df34738b188b3d16f4a77c376c1c5caf3db0` (the first push). The no-Neon proof in
-  section 7 was added afterwards in a follow-up commit on the same branch.
+- Commits: `a7c4df34738b188b3d16f4a77c376c1c5caf3db0` (the source and the first evidence), then the
+  no-Neon proof and the durable integration receipt on the same branch. The bounded follow-up in
+  section 9 is one further commit on the same branch.
 - Pull request: draft [#1517](https://github.com/adea-ai/adea/pull/1517) against `main`, auto-merge
   off (`autoMergeRequest` is null). Root reviews the exact head; readiness and merge are root's.
+- The follow-up was not published as a new pull request, was not marked ready, did not enable
+  auto-merge, and made no live change.
 - No force push, no secret, no credential and no production change is part of it.

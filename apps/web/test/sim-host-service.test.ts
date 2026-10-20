@@ -128,11 +128,15 @@ test('an entitled session reads the private entry and the response is private', 
   expect(f.reads).toEqual([{ location: 'agent-sim-export', key: 'engine.js' }])
 })
 
-test('the private read carries the named private location and never a public alias', async () => {
+test('the private read asks for the named location and the key, and the service returns bytes', async () => {
+  // This proves the request-side half of the gate: the read names the configured location and the
+  // derived key, and the response carries the object rather than an address. Whether the storage
+  // location itself is private is a deployment prerequisite, not something this source decides.
   const f = fixture()
   f.sessions.set(TOKEN, { workspaceId: 'workspace-one', surface: 'hq', expiresAt: NOW + 60_000 })
   const response = await f.get('/assets/agent-sim/engine.js')
   expect(response.status).toBe(200)
+  expect(f.reads).toEqual([{ location: 'agent-sim-export', key: 'engine.js' }])
   expect(response.headers.get('location')).toBeNull()
   expect(await response.text()).not.toContain('http')
 })

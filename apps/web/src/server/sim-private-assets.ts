@@ -5,8 +5,15 @@ import type { SimPrivateAsset } from './sim-host'
  *
  * The location name is a plain identifier: not a URL, not a path and not an alias, so nothing here
  * can name a public bucket or a public prefix. The reader hands the location and the key to the
- * storage adapter and returns bytes only. It never returns a location, a URL or a redirect, so a
- * private object has no public alias and the session gate stays the only way in.
+ * storage adapter and returns bytes only. It never returns a location, a URL or a redirect, so
+ * this service itself offers no second route to an object.
+ *
+ * What this module does not decide: whether the storage location is actually private. The reader
+ * proves that a request path cannot select a key outside the named location, and that the reader
+ * hands back bytes rather than an address. It does not prove anything about the storage access
+ * control list, about a public alias the storage provider may expose for the same objects, or
+ * about any other principal that may be able to read them. Those are deployment prerequisites of
+ * the approved service, listed in the approved service composition.
  *
  * The location is supplied by the operator that owns the private export. Nothing here chooses one.
  */
@@ -39,6 +46,10 @@ export function simPrivateAssetKey(path: string): string | null {
 /**
  * The private reader for one named location. A malformed location name disables every read rather
  * than falling back to a default, so a misconfigured deployment serves no private asset at all.
+ *
+ * The reader is the request-side half of the gate: it keeps the key inside the named location and
+ * returns bytes. The storage-side half — the access control list that makes the location private,
+ * and the absence of a public alias for it — belongs to the deployment.
  */
 export function createSimPrivateAssetReader(options: {
   /** The named private location that holds the engine export. */

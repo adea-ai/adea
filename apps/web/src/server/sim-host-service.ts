@@ -22,8 +22,10 @@ import {
  *
  * The workspace and surface always come from the stored session row. No request body, query
  * string or header can select them, so a read cannot be aimed at another workspace or surface.
- * There is no public alias for the private export: the assets are served by this origin only,
- * behind the session cookie.
+ * This service serves the private assets only behind the session cookie and offers no other route
+ * to them. Whether the storage location itself is private — its access control list, and any
+ * public alias the storage provider may expose for the same objects — is a deployment prerequisite
+ * of the approved service, not something this source decides.
  */
 
 /**

@@ -130,6 +130,26 @@ test('the entitlement composition decides, and a membership answer alone never g
   expect(asked).toEqual([{ workspaceId: 'workspace-one', surface: 'hq', platform: 'web' }])
 })
 
+test('a readable workspace the entitlement policy does not entitle reaches the policy and is refused', async () => {
+  // The membership check passes and the explicit policy refuses. The policy is the independent
+  // gate, so it has to be consulted, and nothing may be issued for the refusal.
+  const asked: unknown[] = []
+  const { memory, launch } = service(
+    {},
+    {
+      authorizeWorkspace: () => true,
+      policy: (scope) => {
+        asked.push(scope)
+        return 'not_entitled'
+      },
+    }
+  )
+  const result = await launch(request(), body())
+  expect(result).toEqual({ status: 'denied', reason: 'not_entitled' })
+  expect(asked).toEqual([{ workspaceId: 'workspace-one', surface: 'hq', platform: 'web' }])
+  expect(memory.store.rows.size).toBe(0)
+})
+
 test('a request without an authenticated principal is denied and no policy is asked', async () => {
   let asked = 0
   const { launch } = service(
