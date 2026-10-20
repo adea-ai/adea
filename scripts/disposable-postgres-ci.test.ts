@@ -5,6 +5,7 @@ import { resolve } from 'node:path'
 import { inspectDatabaseConfiguration } from './database-config.mjs'
 import { assertDatabaseProof, recoveryArtifact } from './fresh-postgres-acceptance/recovery.mjs'
 import { classifyDisposableProofEvidence } from './fresh-postgres-acceptance/evidence.mjs'
+import { SELF_HOSTED_AUTH_LIFECYCLE_TEST } from './self-hosted-auth-lifecycle'
 import {
   BACKUP_RESTORE_TEST,
   buildDisposableProofReceipt,
@@ -64,11 +65,38 @@ const options: DisposableProofOptions = {
 type Fake = {
   readonly deps: DisposableProofDependencies
   readonly state: {
-    commands: { command: string; args: readonly string[] }[]
+    commands: {
+      command: string
+      args: readonly string[]
+      environment: Record<string, string | undefined>
+    }[]
     queries: { url: string; statement: string }[]
     authCalls: Record<string, string | undefined>[]
     created: { name: string; password: string; image: string; startScript: string }[]
     removed: string[]
+  }
+}
+
+/**
+ * A command that fails one suite and lets the other one pass.
+ *
+ * The disposable proof runs more than one suite, so a case that fails one of
+ * them has to let the others pass, or the case proves the wrong thing.
+ */
+function failingSuite(input: {
+  readonly suite: string
+  readonly status?: number
+  readonly stderr: string
+}) {
+  return (command: string, args: readonly string[]) => {
+    if (args.includes(input.suite)) {
+      return { status: input.status ?? 0, stdout: '', stderr: input.stderr }
+    }
+    const pass =
+      args.includes(BACKUP_RESTORE_TEST) || args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST)
+        ? '\n 1 pass\n 0 fail\n'
+        : ''
+    return { status: 0, stdout: '', stderr: pass }
   }
 }
 
@@ -111,10 +139,14 @@ function fake(overrides: Partial<DisposableProofDependencies> = {}): Fake {
       }
       return { applied: false, before: { add: [], create: [] } }
     },
-    command: (command, args) => {
-      state.commands.push({ command, args })
-      // The backup and restore test reports its summary on stderr, as bun does.
-      const summary = args.includes(BACKUP_RESTORE_TEST) ? '\n 1 pass\n 0 fail\n' : ''
+    command: (command, args, environment) => {
+      state.commands.push({ command, args, environment })
+      // The backup and restore test and the auth lifecycle report their summary
+      // on stderr, as bun does.
+      const summary =
+        args.includes(BACKUP_RESTORE_TEST) || args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST)
+          ? '\n 1 pass\n 0 fail\n'
+          : ''
       return { status: 0, stdout: '', stderr: summary }
     },
     query: async (url, statement) => {
@@ -180,6 +212,7 @@ describe('the disposable PostgreSQL proof', () => {
       '--no-env-file run --cwd packages/db db:check',
       '--no-env-file run --cwd packages/db db:verify',
       '--no-env-file --conditions=react-server test packages/db/tests/integration/migrations.test.ts',
+      `--no-env-file test --conditions=react-server ${SELF_HOSTED_AUTH_LIFECYCLE_TEST}`,
       `--no-env-file test ${BACKUP_RESTORE_TEST}`,
     ])
     // The hosted lane asserts the URL is present between the verifier and the
@@ -270,12 +303,105 @@ describe('the disposable PostgreSQL proof', () => {
     expect(backup?.args).toEqual(['--no-env-file', 'test', BACKUP_RESTORE_TEST])
   })
 
-  test('fails the lane when the backup and restore test fails', async () => {
+  test('proves the self-hosted auth lifecycle on the owned certificate-verified instance', async () => {
+    const { deps, state } = fake()
+    const receipt = await runDisposablePostgresProof(deps, options)
+
+    const lifecycle = state.commands.find((entry) =>
+      entry.args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST)
+    )
+    expect(lifecycle).toBeDefined()
+    expect(lifecycle?.command).toBe('bun')
+
+    // The lifecycle runs against the owned instance, over the connection that
+    // is verified with that instance's own certificate.
+    const environment = lifecycle?.environment ?? {}
+    const url = new URL(environment.AUTH_POSTGRES_TEST_URL ?? '')
+    expect(url.hostname).toBe(LOOPBACK_HOST)
+    expect(url.pathname).toBe(`/${PROOF_DATABASE}`)
+    expect(url.searchParams.get('sslmode')).toBe('verify-full')
+    expect(url.searchParams.get('sslrootcert')).toBeTruthy()
+
+    // The suite runs in a minimal environment, so nothing else can change what
+    // the lifecycle proves.
+    expect(
+      Object.keys(environment).every((name) =>
+        ['AUTH_POSTGRES_TEST_URL', 'PATH', 'TMPDIR', 'LANG'].includes(name)
+      )
+    ).toBe(true)
+    expect(environment.AUTH_POSTGRES_TEST_URL).toBeTruthy()
+
+    // The receipt says that the lifecycle was proved and names the suite.
+    expect(receipt.authLifecycle).toEqual({
+      proved: true,
+      suite: SELF_HOSTED_AUTH_LIFECYCLE_TEST,
+    })
+  })
+
+  test('fails the lane when the auth lifecycle suite fails', async () => {
     const { deps } = fake({
       command: (command, args) => ({
-        status: args.includes(BACKUP_RESTORE_TEST) ? 1 : 0,
+        status: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST) ? 1 : 0,
         stdout: '',
-        stderr: args.includes(BACKUP_RESTORE_TEST) ? ' 0 pass\n 1 fail\n' : '',
+        stderr: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST) ? ' 0 pass\n 1 fail\n' : '',
+      }),
+    })
+    await expect(runDisposablePostgresProof(deps, options)).rejects.toThrow(
+      /self-hosted auth lifecycle test failed with exit code 1/
+    )
+  })
+
+  test('fails the lane when the auth lifecycle suite skipped a case', async () => {
+    const { deps } = fake({
+      command: (command, args) => ({
+        status: 0,
+        stdout: '',
+        stderr: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST) ? ' 1 pass\n 0 fail\n 1 skip\n' : '',
+      }),
+    })
+    await expect(runDisposablePostgresProof(deps, options)).rejects.toThrow(
+      /skipped a case; a skipped run is not a proof/
+    )
+  })
+
+  test('fails the lane when the auth lifecycle suite reported no passing case', async () => {
+    const { deps } = fake({
+      command: (command, args) => ({
+        status: 0,
+        stdout: '',
+        stderr: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST) ? ' 0 pass\n 0 fail\n' : '',
+      }),
+    })
+    await expect(runDisposablePostgresProof(deps, options)).rejects.toThrow(
+      /did not run to completion; a skipped run is not a proof/
+    )
+  })
+
+  test('a failed auth lifecycle reports no credential', async () => {
+    const { deps, state } = fake({
+      command: (command, args) => ({
+        status: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST) ? 1 : 0,
+        stdout: '',
+        stderr: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST)
+          ? `error: could not connect to postgresql://postgres:${state.created[0]?.password ?? ''}@127.0.0.1/${PROOF_DATABASE}`
+          : '',
+      }),
+    })
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
+    )
+    const password = state.created[0]?.password ?? ''
+    expect(password).not.toBe('')
+    expect(failure).toContain('could not connect')
+    expect(failure).not.toContain(password)
+  })
+
+  test('fails the lane when the backup and restore test fails', async () => {
+    const { deps } = fake({
+      command: failingSuite({
+        suite: BACKUP_RESTORE_TEST,
+        status: 1,
+        stderr: ' 0 pass\n 1 fail\n',
       }),
     })
     await expect(runDisposablePostgresProof(deps, options)).rejects.toThrow(
@@ -285,17 +411,15 @@ describe('the disposable PostgreSQL proof', () => {
 
   test('a failed backup and restore run reports the failing line, not the header', async () => {
     const { deps } = fake({
-      command: (command, args) => ({
-        status: args.includes(BACKUP_RESTORE_TEST) ? 1 : 0,
-        stdout: '',
-        stderr: args.includes(BACKUP_RESTORE_TEST)
-          ? [
-              'bun test v1.4.2',
-              '(pass) loopback target guard > refuses a remote host [0.23ms]',
-              '(fail) schema backup and restore > the restored rows differ',
-              'error: expect(received).toEqual(expected)',
-            ].join('\n')
-          : '',
+      command: failingSuite({
+        suite: BACKUP_RESTORE_TEST,
+        status: 1,
+        stderr: [
+          'bun test v1.4.2',
+          '(pass) loopback target guard > refuses a remote host [0.23ms]',
+          '(fail) schema backup and restore > the restored rows differ',
+          'error: expect(received).toEqual(expected)',
+        ].join('\n'),
       }),
     })
     const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
@@ -307,13 +431,20 @@ describe('the disposable PostgreSQL proof', () => {
 
   test('a failed backup and restore run never carries a secret out of the proof', async () => {
     const { deps, state } = fake({
-      command: (command, args) => ({
-        status: args.includes(BACKUP_RESTORE_TEST) ? 1 : 0,
-        stdout: '',
-        stderr: args.includes(BACKUP_RESTORE_TEST)
-          ? `(fail) the dump failed for postgresql://postgres:${state.created[0]?.password ?? ''}@127.0.0.1/app`
-          : '',
-      }),
+      command: (command, args) => {
+        if (args.includes(BACKUP_RESTORE_TEST)) {
+          return {
+            status: 1,
+            stdout: '',
+            stderr: `(fail) the dump failed for postgresql://postgres:${state.created[0]?.password ?? ''}@127.0.0.1/app`,
+          }
+        }
+        const pass =
+          args.includes(BACKUP_RESTORE_TEST) || args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST)
+            ? '\n 1 pass\n 0 fail\n'
+            : ''
+        return { status: 0, stdout: '', stderr: pass }
+      },
     })
     const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
       String(error)

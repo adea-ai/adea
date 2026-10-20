@@ -24,6 +24,11 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import {
+  SELF_HOSTED_AUTH_LIFECYCLE_TEST,
+  proveSelfHostedAuthLifecycle,
+} from './self-hosted-auth-lifecycle'
+
 /** The canonical migration role the repository's canonical boundary fixture uses. */
 export const CANONICAL_MIGRATION_ROLE = 'agent_hq_local_migration'
 
@@ -238,6 +243,7 @@ export function buildDisposableProofReceipt(input: {
     checkout: input.options.checkout,
     module: input.options.module,
     auth: input.auth,
+    authLifecycle: { proved: true, suite: SELF_HOSTED_AUTH_LIFECYCLE_TEST },
   }
 }
 
@@ -718,6 +724,7 @@ export async function runDisposablePostgresProof(
         options.authSchema
       ),
     })
+    await proveAuthLifecycle(dependencies, { adminUrl, certificatePath })
     await proveBackupRestore(dependencies, { adminUrl, certificatePath }, secrets)
 
     receipt = buildDisposableProofReceipt({
@@ -944,6 +951,17 @@ export const BACKUP_RESTORE_TEST = 'packages/auth/tests/integration/schema-backu
  * there, and touches no other database.
  */
 export function backupRestoreUrl(adminUrl: string, certificatePath: string): string {
+  return certificateVerifiedDatabaseUrl(adminUrl, certificatePath)
+}
+
+/**
+ * The URL of the owned proof database, verified with the instance's own
+ * certificate.
+ *
+ * Every proof that runs against the instance uses this URL, so every one of
+ * them runs against the same instance over the same verified connection.
+ */
+export function certificateVerifiedDatabaseUrl(adminUrl: string, certificatePath: string): string {
   const url = new URL(adminUrl)
   url.pathname = `/${PROOF_DATABASE}`
   url.search = ''
@@ -985,6 +1003,31 @@ export function failureEvidence(output: string, secrets: readonly string[] = [])
   )
   const chosen = (failing.length > 0 ? failing : lines.slice(-5)).slice(0, 20)
   return redactSecrets(chosen.join('\n'), secrets).slice(0, 2000)
+}
+
+/**
+ * Proves the self-hosted auth lifecycle against the same owned instance.
+ *
+ * The lifecycle signs a user up, reads the session back, revokes it and proves
+ * the persisted session is gone. The suite skips itself when its variable is
+ * absent, so the qualification that runs it refuses a run that skipped or that
+ * reported no passing case: a skipped run is not a proof.
+ *
+ * The instance is the one this proof owns, and the connection is verified with
+ * that instance's own certificate, so the lifecycle is proved against the same
+ * certificate-verified disposable instance as everything else in this proof.
+ */
+async function proveAuthLifecycle(
+  dependencies: DisposableProofDependencies,
+  input: { readonly adminUrl: string; readonly certificatePath: string }
+): Promise<void> {
+  const databaseUrl = certificateVerifiedDatabaseUrl(input.adminUrl, input.certificatePath)
+  assertLoopbackTlsUrl(databaseUrl, 'AUTH_POSTGRES_TEST_URL', 'verify-full')
+  proveSelfHostedAuthLifecycle(
+    (name, args, environment) => dependencies.command(name, args, environment),
+    { databaseUrl },
+    { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR, LANG: process.env.LANG }
+  )
 }
 
 /**
