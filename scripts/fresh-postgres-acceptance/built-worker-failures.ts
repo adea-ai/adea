@@ -98,7 +98,31 @@ const SECRET_ASSIGNMENT = new RegExp(
 )
 
 /** A `name: value` pair whose name says the value is a secret. */
-const SECRET_FIELD = new RegExp(`(${SECRET_NAME})\\s*:\\s*("[^"]*"|'[^']*'|[^\\s,;)&]+)`, 'giu')
+const SECRET_FIELD = new RegExp(
+  `(["']?)(${SECRET_NAME})\\1\\s*:\\s*("[^"]*"|'[^']*'|[^\\s,;)&]+)`,
+  'giu'
+)
+
+/**
+ * Removes every secret and every credential-shaped value from a text.
+ *
+ * The known secrets are removed first, so the exact value never survives. The
+ * credential-shaped patterns are removed next, so a value the run did not know
+ * — a password in a URL the runtime printed, a token in a log line — does not
+ * survive either. The result is bounded, so a long detail cannot grow the
+ * evidence without limit.
+ */
+
+/**
+ * A URL query parameter whose name says the value is a secret.
+ *
+ * A failed response can name a token in its location, and a location that
+ * reaches a receipt is a published credential. The parameter's name decides:
+ * the value is replaced, the name is kept, so the evidence still says which
+ * parameter was there.
+ */
+const SECRET_QUERY =
+  /([?&][A-Za-z0-9_.-]*(?:password|passwd|pwd|secret|token|apikey|api_key|credential|authorization|cookie|code|nonce)[A-Za-z0-9_.-]*=)([^&#\s"']*)/giu
 
 /**
  * Removes every secret and every credential-shaped value from a text.
@@ -122,8 +146,9 @@ export function sanitizeText(value: string, secrets: readonly string[] = []): st
     }
   }
   text = text.replace(CREDENTIAL_URL, `$1://${REDACTED}:${REDACTED}@`)
+  text = text.replace(SECRET_QUERY, `$1${REDACTED}`)
   text = text.replace(SECRET_ASSIGNMENT, `$1=${REDACTED}`)
-  text = text.replace(SECRET_FIELD, `$1: ${REDACTED}`)
+  text = text.replace(SECRET_FIELD, `$1$2$1: ${REDACTED}`)
   // Control characters are removed without a control-character pattern: a
   // detail is one line, and a line break inside a published message is a way
   // to smuggle a second line past a reader.
@@ -134,6 +159,68 @@ export function sanitizeText(value: string, secrets: readonly string[] = []): st
     })
     .join('')
   return text.slice(0, MAX_DETAIL_LENGTH)
+}
+
+/**
+ * Sanitizes every string of a value, however deeply it is nested.
+ *
+ * A receipt is a tree of strings, and a secret can sit in any of them: in a
+ * detail, in a URL, in a name a suite reported, in a provenance field. The
+ * whole tree is walked, so a field nobody thought of is covered too.
+ */
+export function sanitizeValue(value: unknown, secrets: readonly string[] = []): unknown {
+  if (typeof value === 'string') return sanitizeText(value, secrets)
+  if (Array.isArray(value)) return value.map((entry) => sanitizeValue(entry, secrets))
+  if (value && typeof value === 'object') {
+    const sanitized: Record<string, unknown> = {}
+    for (const [name, entry] of Object.entries(value)) {
+      sanitized[name] = sanitizeValue(entry, secrets)
+    }
+    return sanitized
+  }
+  return value
+}
+
+/**
+ * The receipt as it may be published.
+ *
+ * Every field of the receipt is sanitized, not only the fields that are known
+ * to carry a value. The receipt of a failed run is published as the evidence
+ * of that failure, and evidence that leaks a credential is not evidence.
+ */
+export function sanitizeReceipt<T>(receipt: T, secrets: readonly string[] = []): T {
+  return sanitizeValue(receipt, secrets) as T
+}
+
+/**
+ * The receipt as it is published.
+ *
+ * The published receipt carries the teardown's verdict and nothing that must
+ * not leave the run: every field is sanitized on the way out, whatever field
+ * it sits in.
+ */
+export function publishedReceipt<T extends object>(input: {
+  readonly receipt: T
+  readonly verdict: {
+    readonly workerStopped: boolean
+    readonly containerRemoved: boolean
+    readonly materialRemoved: boolean
+  }
+  readonly secrets?: readonly string[]
+}): T & {
+  readonly cleanup: {
+    readonly workerStopped: boolean
+    readonly containerRemoved: boolean
+    readonly materialRemoved: boolean
+  }
+} {
+  return sanitizeReceipt({ ...input.receipt, cleanup: input.verdict }, input.secrets ?? []) as T & {
+    readonly cleanup: {
+      readonly workerStopped: boolean
+      readonly containerRemoved: boolean
+      readonly materialRemoved: boolean
+    }
+  }
 }
 
 /**

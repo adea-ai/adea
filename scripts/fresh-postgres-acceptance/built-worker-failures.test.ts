@@ -4,7 +4,9 @@ import {
   BUILT_WORKER_FAILURE_KINDS,
   BuiltWorkerFailure,
   failureMessage,
+  publishedReceipt,
   sanitizeText,
+  sanitizeValue,
   sanitizeWorkerLogs,
 } from './built-worker-failures'
 
@@ -69,6 +71,42 @@ describe('the built-Worker failure sanitization', () => {
       Array.from({ length: 50 }, (_value, index) => `ERROR failure ${index}`)
     )
     expect(logs.length).toBeLessThanOrEqual(5)
+  })
+})
+
+describe('the built-Worker receipt sanitization', () => {
+  test('a URL query credential never survives the sanitization', () => {
+    const text = sanitizeText('/error?token=SYNTHETIC_SECRET&state=kept')
+    expect(text).not.toContain('SYNTHETIC_SECRET')
+    expect(text).toContain('token=[redacted]')
+    expect(text).toContain('state=kept')
+  })
+
+  test('a quoted JSON secret field never survives the sanitization', () => {
+    const text = sanitizeText('{"credential":"SYNTHETIC_SECRET","error":"refused"}')
+    expect(text).not.toContain('SYNTHETIC_SECRET')
+    expect(text).toContain('refused')
+  })
+
+  test('every string of a nested value tree is sanitized', () => {
+    const sanitized = sanitizeValue({
+      detail: '/error?token=SYNTHETIC_SECRET',
+      nested: { deeper: ['{"credential":"SYNTHETIC_SECRET"}'] },
+    })
+    expect(JSON.stringify(sanitized)).not.toContain('SYNTHETIC_SECRET')
+  })
+
+  test('the published receipt carries the verdict and no value', () => {
+    const published = publishedReceipt({
+      receipt: {
+        status: 'failed',
+        assertions: [{ name: 'a', passed: false, detail: '{"credential":"SYNTHETIC_SECRET"}' }],
+      },
+      verdict: { workerStopped: true, containerRemoved: true, materialRemoved: true },
+    })
+    expect(JSON.stringify(published)).not.toContain('SYNTHETIC_SECRET')
+    expect(published.cleanup.workerStopped).toBe(true)
+    expect(published.cleanup.materialRemoved).toBe(true)
   })
 })
 

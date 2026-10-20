@@ -30,7 +30,7 @@
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
-import { BuiltWorkerFailure } from './built-worker-failures'
+import { BuiltWorkerFailure, sanitizeReceipt } from './built-worker-failures'
 
 /** The route the built Worker serves for a desktop authorization request. */
 export const DESKTOP_AUTHORIZE_PATH = '/api/auth/desktop/authorize'
@@ -1082,23 +1082,29 @@ export async function runBuiltWorkerDesktopAuth(
 
   const passed = assertions.filter((assertion) => assertion.passed).length
   const failed = assertions.length - passed
-  const receipt: BuiltWorkerDesktopAuthReceipt = {
-    status: failed === 0 && passed > 0 ? 'passed' : 'failed',
-    proofKind: BUILT_WORKER_DESKTOP_AUTH_PROOF_KIND,
-    evidence: input.evidence,
-    worker: {
-      built: true,
-      baseUrl: input.baseUrl,
-      routes: [DESKTOP_AUTHORIZE_PATH, DESKTOP_EXCHANGE_PATH],
-      artifact: input.artifact,
+  // The stored receipt is sanitized before it is returned: a receipt is
+  // published as the evidence of a run, and a value that the Worker produced
+  // must not travel out with it, whatever field it sits in.
+  const receipt = sanitizeReceipt(
+    {
+      status: failed === 0 && passed > 0 ? 'passed' : 'failed',
+      proofKind: BUILT_WORKER_DESKTOP_AUTH_PROOF_KIND,
+      evidence: input.evidence,
+      worker: {
+        built: true,
+        baseUrl: input.baseUrl,
+        routes: [DESKTOP_AUTHORIZE_PATH, DESKTOP_EXCHANGE_PATH],
+        artifact: input.artifact,
+      },
+      assertions,
+      passed,
+      failed,
+      authLifecycle: input.authLifecycle,
+      checkout: input.checkout,
+      module: input.module,
     },
-    assertions,
-    passed,
-    failed,
-    authLifecycle: input.authLifecycle,
-    checkout: input.checkout,
-    module: input.module,
-  }
+    [...observedSecrets, ...(input.secrets ?? [])]
+  ) as BuiltWorkerDesktopAuthReceipt
   return receipt
 }
 

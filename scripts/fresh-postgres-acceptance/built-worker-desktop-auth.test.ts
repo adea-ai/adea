@@ -15,6 +15,7 @@ import {
   type BuiltWorkerResponse,
   type BuiltWorkerTransport,
 } from './built-worker-desktop-auth'
+import { publishedReceipt } from './built-worker-failures'
 
 const AUTH_LIFECYCLE = {
   suite: 'packages/auth/tests/integration/better-auth-postgres.test.ts',
@@ -655,6 +656,51 @@ describe('the built-Worker desktop failure classification', () => {
     expect(refusal?.passed).toBe(false)
     expect(refusal?.attempts).toBe(1)
     expect(refusal?.outcomes).toEqual(['application-failure'])
+  })
+})
+
+describe('the built-Worker desktop receipt sanitization', () => {
+  test('a failed location that names a token never reaches the receipt', async () => {
+    const worker = workerWithAuthorize(() => '/error?token=SYNTHETIC_SECRET')
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(worker.transport))
+    expect(JSON.stringify(receipt)).not.toContain('SYNTHETIC_SECRET')
+    for (const assertion of receipt.assertions) {
+      expect(assertion.detail).not.toContain('SYNTHETIC_SECRET')
+    }
+  })
+
+  test('a quoted credential diagnostic never reaches the receipt', async () => {
+    const { transport } = correctWorker()
+    const receipt = await runBuiltWorkerDesktopAuth({
+      ...baseInput(transport),
+      authLifecycle: {
+        suite: 'packages/auth/tests/integration/better-auth-postgres.test.ts',
+        assertions: ['{"credential":"SYNTHETIC_SECRET"}'],
+        passed: 1,
+      },
+    })
+    expect(JSON.stringify(receipt)).not.toContain('SYNTHETIC_SECRET')
+  })
+
+  test('the published receipt carries the verdict and no value', async () => {
+    const { transport } = correctWorker()
+    // A receipt that carries a value in a nested field: the published receipt
+    // must not carry it out, whatever field it sits in.
+    const receipt = await runBuiltWorkerDesktopAuth({
+      ...baseInput(transport),
+      authLifecycle: {
+        suite: 'packages/auth/tests/integration/better-auth-postgres.test.ts',
+        assertions: ['{"credential":"SYNTHETIC_SECRET"}'],
+        passed: 1,
+      },
+    })
+    const published = publishedReceipt({
+      receipt,
+      verdict: { workerStopped: true, containerRemoved: true, materialRemoved: true },
+      secrets: ['SYNTHETIC_SECRET'],
+    })
+    expect(JSON.stringify(published)).not.toContain('SYNTHETIC_SECRET')
+    expect(published.cleanup.workerStopped).toBe(true)
   })
 })
 

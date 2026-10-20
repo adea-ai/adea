@@ -81,6 +81,7 @@ import {
 import {
   BuiltWorkerFailure,
   failureMessage,
+  publishedReceipt,
   sanitizeText,
   sanitizeWorkerLogs,
 } from './fresh-postgres-acceptance/built-worker-failures'
@@ -603,7 +604,14 @@ async function main(): Promise<void> {
   // material was removed: a receipt that claims a pass must not be published
   // while the Worker is still running or its material is still there.
   if (receipt && mayPublishReceipt({ verdict, cleanupFailed: cleanupError !== undefined })) {
-    console.log(`BUILT_WORKER_DESKTOP_AUTH ${JSON.stringify({ ...receipt, cleanup: verdict })}`)
+    // The published receipt is sanitized again, on the way out: the receipt is
+    // the evidence of the run, and it must not carry a value.
+    const published = publishedReceipt({
+      receipt,
+      verdict,
+      secrets: [AUTH_SECRET, password],
+    })
+    console.log(`BUILT_WORKER_DESKTOP_AUTH ${JSON.stringify(published)}`)
   }
 
   const failures = [bodyError, stopError, cleanupError].filter(

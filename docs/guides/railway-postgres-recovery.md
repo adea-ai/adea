@@ -111,6 +111,9 @@ The **built-Worker desktop authorization qualification**
   desktop callback with exactly the code, nonce and state the client sent;
 - a failure is published with one of a fixed set of kinds and a redacted
   detail, and the runtime's own output is redacted before it is quoted;
+- every field of the stored receipt and of the published receipt is sanitized
+  before it is published, so a value that reached a detail, a URL or a name a
+  suite reported cannot travel out with the evidence;
 - an application failure is never retried into a pass, and a request whose
   outcome is unknown is never replayed;
 - the Worker is stopped and its process group confirmed gone before the runtime
