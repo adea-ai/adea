@@ -1,6 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
@@ -14,12 +22,20 @@ import { gateAcceptanceReceipt, parseAcceptanceReceipt } from './ci-fresh-accoun
 // the provisioner, the fixture and the focused journey — with fakes, so every
 // failure path is exercised for real, without a container, and it asserts what
 // the pull-request lane is allowed to see: no passed receipt, the primary
-// failure and the cleanup failure both reported, the owned resource removed
+// failure and the cleanup failure both reported, the owned resource settled
 // and nothing else, and evidence that carries no credential.
+//
+// The qualification is hermetic. The lane resolves its Docker endpoint before
+// it provisions anything, so the run is handed a validated synthetic local
+// endpoint, every Docker setting the caller may have is removed, and the
+// runner's own Docker is replaced by one that records a call if it ever
+// happens. A qualification that depends on the machine's Docker is not a
+// qualification.
 
 const lanePath = resolve(import.meta.dir, 'fresh-postgres-acceptance/run.mjs')
 const password = 'fake-postgres-password'
 const fakeUrl = `postgresql://postgres:${password}@127.0.0.1:5432/postgres?sslmode=disable`
+const syntheticDockerEndpoint = 'unix:///tmp/adea-acceptance-fake-docker.sock'
 
 /** How the fakes behave in one run of the lane. */
 type Behaviour = {
@@ -33,6 +49,43 @@ const write = (root: string, path: string, content: string) => {
   const target = join(root, path)
   mkdirSync(dirname(target), { recursive: true })
   writeFileSync(target, content)
+}
+
+/**
+ * The Docker the lane discovers.
+ *
+ * The lane reads the selected context's endpoint before it provisions
+ * anything, and it refuses an endpoint that is not a local socket. The
+ * qualification therefore puts its own Docker first on the path: it answers
+ * with a validated synthetic local endpoint and records that it was asked, so
+ * the qualification can prove that the runner's own Docker was never
+ * consulted.
+ */
+function dockerShim(bin: string, available: boolean): string {
+  mkdirSync(bin, { recursive: true })
+  const script = join(bin, 'docker')
+  const answer = available
+    ? `echo '${JSON.stringify(syntheticDockerEndpoint)}'`
+    : `echo 'docker is not available in this qualification' >&2\nexit 1`
+  writeFileSync(script, `#!/bin/sh\n: > "\${DOCKER_CALLED_MARKER:-/dev/null}"\n${answer}\n`)
+  chmodSync(script, 0o755)
+  return bin
+}
+
+/**
+ * The environment the lane runs in.
+ *
+ * The lane refuses a TLS or a certificate override and a remote endpoint, so
+ * every Docker setting the caller may have is removed and a validated
+ * synthetic local endpoint takes its place. The run then depends on nothing
+ * outside the checkout it was given.
+ */
+function laneEnvironment(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const environment: NodeJS.ProcessEnv = { ...process.env, ...extra }
+  for (const name of ['DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_TLS_VERIFY', 'DOCKER_CERT_PATH']) {
+    delete environment[name]
+  }
+  return { ...environment, DOCKER_HOST: syntheticDockerEndpoint }
 }
 
 /**
@@ -62,15 +115,17 @@ function createFakeRepository(behaviour: Behaviour): { root: string; sha: string
   )
   write(root, 'scripts/fresh-postgres-acceptance/auth-lifecycle.ts', 'export {}\n')
 
-  // The provisioner. It owns one container and removes only that one.
+  // The provisioner. It owns one instance — a real directory, so the
+  // qualification sees a real resource settled — and it removes only that one.
   write(
     root,
     'scripts/capture-provisioning.mjs',
-    `import { writeFileSync } from 'node:fs'
+    `import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const instance = resolve(root, 'owned-instance')
 
 export function startCaptureProvisioning(register) {
   const handle = {
@@ -79,19 +134,22 @@ export function startCaptureProvisioning(register) {
     stop() {
       if (handle.stopped) return
       handle.stopped = true
-      writeFileSync(resolve(root, 'stopped.txt'), handle.containerName)
       ${
         behaviour.cleanup === 'throws'
-          ? "throw new Error('the owned container could not be removed')"
-          : ''
+          ? `// The removal failed: the instance is still there.
+      throw new Error('the owned container could not be removed')`
+          : `rmSync(instance, { recursive: true, force: true })
+      writeFileSync(resolve(root, 'stopped.txt'), handle.containerName)`
       }
     },
   }
   ${
     behaviour.provisioning === 'throws'
       ? "throw new Error('the disposable instance could not start')"
-      : `register(handle)
+      : `mkdirSync(instance, { recursive: true })
+  writeFileSync(resolve(instance, 'marker'), 'the owned instance')
   writeFileSync(resolve(root, 'provisioned.txt'), handle.containerName)
+  register(handle)
   // The provisioner owns the instance for the life of the process: a normal
   // exit and an interrupt both remove it, and the removal is idempotent.
   process.on('exit', () => {
@@ -123,16 +181,20 @@ export function startCaptureProvisioning(register) {
   )
 
   // The fixture: it applies the schema and prints the receipt the lane reads.
-  const fixtureBody =
-    behaviour.fixture === 'hangs'
-      ? 'await new Promise((resolve) => setTimeout(resolve, 4000))'
-      : behaviour.fixture === 'fails'
-        ? `import { writeFileSync } from 'node:fs'
+  // It records that it finished, so the qualification can wait for the run's
+  // own child before it removes the repository.
+  const fixturePrelude = `import { writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
-const line = 'the fixture failed with the secret ${password}\\n'
+process.on('exit', () => writeFileSync(resolve(root, 'fixture-finished.txt'), 'finished'))
+`
+  const fixtureBody =
+    behaviour.fixture === 'hangs'
+      ? 'await new Promise((resolve) => setTimeout(resolve, 4000))'
+      : behaviour.fixture === 'fails'
+        ? `const line = 'the fixture failed with the secret ${password}\\n'
 writeFileSync(resolve(root, 'fixture-output.txt'), line)
 process.stderr.write(line)
 process.exit(1)`
@@ -151,9 +213,16 @@ process.exit(1)`
       },
     })
 )`
-  write(root, 'scripts/fresh-postgres-acceptance/fixture.ts', `${fixtureBody}\n`)
+  write(root, 'scripts/fresh-postgres-acceptance/fixture.ts', `${fixturePrelude}${fixtureBody}\n`)
 
   // The focused journey: it prints its own receipt, and the lane requires it.
+  const journeyPrelude = `import { writeFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
+process.on('exit', () => writeFileSync(resolve(root, 'journey-finished.txt'), 'finished'))
+`
   const journeyBody =
     behaviour.journey === 'skips'
       ? "test.skip('the journey did not run', () => {})"
@@ -179,7 +248,7 @@ process.exit(1)`
   write(
     root,
     'scripts/fresh-postgres-acceptance/desktop-principal-lifecycle.test.ts',
-    `import { test } from 'bun:test'\n\n${journeyBody}\n`
+    `import { test } from 'bun:test'\n\n${journeyPrelude}\n${journeyBody}\n`
   )
 
   git(['init', '-q'])
@@ -209,11 +278,31 @@ type LaneRun = {
 /** Runs the lane against a fake repository and collects what it printed. */
 async function runLane(
   root: string,
-  options: { killWhenProvisioned?: boolean; signal?: NodeJS.Signals } = {}
+  options: {
+    killWhenProvisioned?: boolean
+    signal?: NodeJS.Signals
+    environment?: Record<string, string>
+    override?: Record<string, string>
+    docker?: 'available' | 'unavailable'
+  } = {}
 ): Promise<LaneRun> {
+  const bin = dockerShim(
+    mkdtempSync(join(tmpdir(), 'adea-acceptance-bin-')),
+    options.docker !== 'unavailable'
+  )
+  const marker = join(root, 'docker-was-called.txt')
   const child = spawn('node', [lanePath, '--repository', root], {
     encoding: 'utf8',
-    env: { ...process.env, FAKE_SECRET: password },
+    env: {
+      ...laneEnvironment({
+        ...options.environment,
+        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        DOCKER_CALLED_MARKER: marker,
+      }),
+      // Settings the caller insists on, applied after the exclusion, so the
+      // lane's own refusal of a hostile one can be seen.
+      ...options.override,
+    },
   })
   let stdout = ''
   let stderr = ''
@@ -223,23 +312,43 @@ async function runLane(
   child.stderr.on('data', (chunk: Buffer | string) => {
     stderr += chunk
   })
+  // The run is settled when its output is closed, not only when the process
+  // ends: a child the run left behind still holds the output open.
   const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
     (resolveExit, rejectExit) => {
       child.on('error', (error) => rejectExit(error))
-      child.on('exit', (code, signal) => resolveExit({ code, signal }))
+      child.on('close', (code, signal) => resolveExit({ code, signal }))
     }
   )
   if (options.killWhenProvisioned) {
     // The signal reaches a run that owns an instance, so the qualification
     // sees the cleanup of an instance that really existed.
-    const marker = join(root, 'provisioned.txt')
-    for (let attempt = 0; attempt < 200 && !existsSync(marker); attempt += 1) {
+    const provisioned = join(root, 'provisioned.txt')
+    for (let attempt = 0; attempt < 200 && !existsSync(provisioned); attempt += 1) {
       await new Promise((settled) => setTimeout(settled, 50))
     }
     child.kill(options.signal ?? 'SIGTERM')
   }
   const { code, signal } = await exited
   return { code, signal, stdout, stderr }
+}
+
+/**
+ * Waits, for a bounded time, for the run's own children to finish.
+ *
+ * A run the runner destroyed leaves its child behind, and the fake repository
+ * must not be removed while that child is still writing into it.
+ */
+async function settleChildren(root: string, timeoutMs = 20_000): Promise<boolean> {
+  // The fixture only runs when the instance was provisioned, so a run that
+  // never provisioned one has no child to wait for.
+  if (!existsSync(join(root, 'provisioned.txt'))) return true
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    if (existsSync(join(root, 'fixture-finished.txt'))) return true
+    if (Date.now() > deadline) return false
+    await new Promise((settled) => setTimeout(settled, 50))
+  }
 }
 
 /** The receipt the lane printed, or null when it printed none. */
@@ -251,14 +360,21 @@ function printedReceipt(run: LaneRun): Record<string, unknown> | null {
   }
 }
 
+/** The instance the run created, and the only one it was allowed to remove. */
+function ownedInstanceExists(fake: { root: string }): boolean {
+  return existsSync(join(fake.root, 'owned-instance'))
+}
+
 /**
- * The instance the run created, and the only one it was allowed to remove.
+ * The run removed its own instance and nothing else.
  *
- * The provisioner records the container it stopped, so the qualification sees
- * that the run removed its own instance and nothing else.
+ * The provisioner records the container it stopped, and the instance it
+ * created is a real directory, so the qualification sees a real resource
+ * settled.
  */
 function expectOwnedInstanceRemoved(fake: { root: string }) {
   expect(readFileSync(join(fake.root, 'stopped.txt'), 'utf8')).toBe('adea-capture-prov-fake')
+  expect(ownedInstanceExists(fake)).toBe(false)
 }
 
 const withFakeRepository = async (
@@ -269,6 +385,9 @@ const withFakeRepository = async (
   try {
     await body(fake)
   } finally {
+    // The repository is removed only after the run's own children settled, so
+    // no child is left writing into a directory that is gone.
+    await settleChildren(fake.root)
     rmSync(fake.root, { recursive: true, force: true })
   }
 }
@@ -282,7 +401,7 @@ describe('the acceptance lane fails closed', () => {
       expect(run.stdout).not.toContain('"status":"passed"')
       expect(run.stderr).toContain('the disposable instance could not start')
       // The instance was never created, so there was nothing to remove.
-      expect(existsSync(join(fake.root, 'stopped.txt'))).toBe(false)
+      expect(ownedInstanceExists(fake)).toBe(false)
     })
   }, 30_000)
 
@@ -334,8 +453,10 @@ describe('the acceptance lane fails closed', () => {
       expect(run.code).toBe(1)
       expect(printedReceipt(run)).toBeNull()
       expect(run.stderr).toContain('owned PostgreSQL cleanup failed')
-      // The removal was attempted for the owned instance, and it failed.
-      expectOwnedInstanceRemoved(fake)
+      // The removal was attempted for the owned instance and it failed, so the
+      // instance is still there: this is the leak the pull-request lane's
+      // check reports by name.
+      expect(ownedInstanceExists(fake)).toBe(true)
     })
   }, 30_000)
 
@@ -348,12 +469,11 @@ describe('the acceptance lane fails closed', () => {
       // cleanup failure is not hidden by the primary one.
       expect(run.stderr).toContain('fresh-schema fixture failed')
       expect(run.stderr).toContain('owned PostgreSQL cleanup failed')
-      // The removal was attempted for the owned instance, and it failed.
-      expectOwnedInstanceRemoved(fake)
+      expect(ownedInstanceExists(fake)).toBe(true)
     })
   }, 30_000)
 
-  test('a cancelled run publishes no receipt and removes its own instance', async () => {
+  test('an interrupted run publishes no receipt and settles its own instance', async () => {
     await withFakeRepository({ fixture: 'hangs' }, async (fake) => {
       const run = await runLane(fake.root, { killWhenProvisioned: true, signal: 'SIGTERM' })
       // The interrupt does not let the run succeed, whichever way the process
@@ -362,24 +482,32 @@ describe('the acceptance lane fails closed', () => {
       expect(printedReceipt(run)).toBeNull()
       expect(run.stdout).not.toContain('"status":"passed"')
       // The provisioner owns the instance for the life of the process, so the
-      // run removes it before it ends and a cancelled run leaves nothing
+      // run removes it before it ends, and a cancelled run leaves nothing
       // behind.
       expectOwnedInstanceRemoved(fake)
+      // The run's own child finished, and the output the run produced is
+      // complete.
+      expect(await settleChildren(fake.root)).toBe(true)
     })
-  }, 30_000)
+  }, 40_000)
 
-  test('a run the runner destroyed publishes no receipt', async () => {
+  test('a run the runner destroyed publishes no receipt and settles nothing', async () => {
     await withFakeRepository({ fixture: 'hangs' }, async (fake) => {
       const run = await runLane(fake.root, { killWhenProvisioned: true, signal: 'SIGKILL' })
       expect(run.signal).toBe('SIGKILL')
       expect(printedReceipt(run)).toBeNull()
       expect(run.stdout).not.toContain('"status":"passed"')
-      // A killed process cannot remove anything: the runner's own teardown is
-      // what ends the instance, and the pull-request lane's leak check reports
-      // it if it outlives the run.
-      expect(existsSync(join(fake.root, 'stopped.txt'))).toBe(false)
+      // A killed process runs no finally block: it cannot settle the instance
+      // it owned, and nothing in it may claim that it did. The runner's own
+      // teardown is what ends the instance, and the pull-request lane's check
+      // reports it by name if it outlives the run. The cleanup qualification
+      // for a destroyed run therefore stays pending.
+      expect(ownedInstanceExists(fake)).toBe(true)
+      // The run's own child still finished, and the qualification waited for
+      // it before the repository was removed.
+      expect(await settleChildren(fake.root)).toBe(true)
     })
-  }, 30_000)
+  }, 40_000)
 
   test('the failure evidence carries no credential', async () => {
     await withFakeRepository({ fixture: 'fails', cleanup: 'throws' }, async (fake) => {
@@ -392,13 +520,13 @@ describe('the acceptance lane fails closed', () => {
     })
   }, 30_000)
 
-  test('the lane removes only the container it created', async () => {
-    await withFakeRepository({ cleanup: 'throws' }, async (fake) => {
+  test('the lane removes only the instance it created', async () => {
+    await withFakeRepository({}, async (fake) => {
       const run = await runLane(fake.root)
-      expect(run.code).toBe(1)
-      // The owned container is the one the run created, and it is the only
-      // one the run tried to remove.
-      expect(readFileSync(join(fake.root, 'stopped.txt'), 'utf8')).toBe('adea-capture-prov-fake')
+      expect(run.code).toBe(0)
+      // The owned instance is the one the run created, and it is the only one
+      // the run removed.
+      expectOwnedInstanceRemoved(fake)
     })
   }, 30_000)
 
@@ -418,6 +546,62 @@ describe('the acceptance lane fails closed', () => {
       expect(journey.provider).toBe('better-auth')
       expect(journey.refused).toEqual({ origin: 1, pkce: 1, replay: 1 })
       expect(run.stdout).not.toContain(password)
+    })
+  }, 30_000)
+})
+
+describe('the qualification is hermetic', () => {
+  test('the run discovers Docker through the qualification’s own seam', async () => {
+    await withFakeRepository({}, async (fake) => {
+      const run = await runLane(fake.root)
+      expect(run.code).toBe(0)
+      // The shim answers the lane's discovery, so the runner's own Docker was
+      // never consulted, and the endpoint the lane used is the synthetic one.
+      expect(existsSync(join(fake.root, 'docker-was-called.txt'))).toBe(true)
+      expect(run.stderr).not.toContain('could not inspect the selected Docker context endpoint')
+    })
+  }, 30_000)
+
+  test('a caller’s Docker settings are excluded from the run', async () => {
+    const environment = laneEnvironment({
+      DOCKER_TLS_VERIFY: '1',
+      DOCKER_CERT_PATH: '/tmp/hostile.pem',
+      DOCKER_CONTEXT: 'hostile',
+    })
+    // The lane refuses a TLS or a certificate override, so a caller that
+    // carries one would stop the qualification. The environment the run gets
+    // carries none of them.
+    expect(environment.DOCKER_TLS_VERIFY).toBeUndefined()
+    expect(environment.DOCKER_CERT_PATH).toBeUndefined()
+    expect(environment.DOCKER_CONTEXT).toBeUndefined()
+    expect(environment.DOCKER_HOST).toBe(syntheticDockerEndpoint)
+  })
+
+  test('a run with Docker unavailable fails closed', async () => {
+    await withFakeRepository({}, async (fake) => {
+      const run = await runLane(fake.root, { docker: 'unavailable' })
+      // The lane cannot resolve an endpoint, so it proves nothing and
+      // publishes no receipt.
+      expect(run.code).toBe(1)
+      expect(printedReceipt(run)).toBeNull()
+      expect(run.stdout).not.toContain('"status":"passed"')
+      expect(run.stderr).toContain('could not inspect the selected Docker context endpoint')
+      // The instance was never created, so there was nothing to remove.
+      expect(ownedInstanceExists(fake)).toBe(false)
+    })
+  }, 30_000)
+
+  test('a run with a hostile Docker setting fails closed', async () => {
+    await withFakeRepository({}, async (fake) => {
+      const run = await runLane(fake.root, {
+        override: { DOCKER_CERT_PATH: '/tmp/hostile.pem' },
+      })
+      // The lane refuses a certificate override outright, so a caller that
+      // carries one cannot make the run reach a database.
+      expect(run.code).toBe(1)
+      expect(printedReceipt(run)).toBeNull()
+      expect(run.stderr).toContain('refuses Docker TLS overrides')
+      expect(ownedInstanceExists(fake)).toBe(false)
     })
   }, 30_000)
 })

@@ -117,6 +117,16 @@ in which its three seams — the provisioner, the fixture and the focused
 journey — are replaced with fakes, so every path is exercised without a
 container. The lane itself is not changed, and no part of it is copied.
 
+The qualification is hermetic. The lane reads the selected Docker context
+before it provisions anything, and it refuses a TLS or a certificate
+override, so the run is handed a validated synthetic local endpoint, every
+Docker setting the caller may have is removed, and the qualification's own
+Docker answers the discovery in place of the runner's. The qualification
+therefore does not depend on the machine's Docker, and it is also qualified
+for the two refusals that make that matter: a run whose Docker cannot be
+discovered, and a run that carries a hostile Docker setting, both fail closed
+and publish no receipt.
+
 | Path                                    | What the lane does                                       | What the pull-request lane sees                     |
 | --------------------------------------- | -------------------------------------------------------- | --------------------------------------------------- |
 | setup failure                           | the provisioner fails, the run exits 1                   | no receipt, the failure named, no artifact          |
@@ -141,12 +151,22 @@ Four properties hold on every one of those paths:
   being hidden by it.
 - **Only the owned instance is removed, and the cleanup is verified.** The run
   removes the instance it created and nothing else, and it never prunes. The
-  qualification checks the removal on every path: the provisioner records the
-  container it stopped, so a run that failed, a run whose journey was skipped
-  and a cancelled run are all seen to remove their own instance. A run the
-  runner destroyed cannot remove anything, and the runner's own teardown is
-  what ends the instance; the pull-request lane's leak check reports it by
-  name if it outlives the run.
+  instance is a real resource — a directory the provisioner creates and
+  removes — so the qualification sees a real resource settled rather than a
+  marker. The removal is checked on every path: a run that failed, a run
+  whose journey was skipped and an interrupted run are all seen to remove
+  their own instance. A run the **runner destroyed** cannot: a killed process
+  runs no finally block, so it cannot settle what it owned, and nothing here
+  claims that it did. The runner's own teardown is what ends that instance,
+  and the pull-request lane's leak check reports it by name if it outlives
+  the run. The cleanup qualification for a destroyed run therefore stays
+  **pending**.
+- **The run's own child and output settle.** The qualification waits, for a
+  bounded time, for the run's child to finish before it removes the fake
+  repository, and it reads the run's output when the output is closed rather
+  than when the process ends, because a child the run left behind still holds
+  the output open. A parent that exits proves nothing about either, and the
+  qualification no longer takes the parent's word for it.
 - **The evidence is sanitized.** The failure evidence names the failure and
   nothing else: the child's raw output, which may carry the URL and its
   parameters, is never relayed, and the published receipt carries the commit,
@@ -175,9 +195,10 @@ program the job runs is the program the qualification exercises.
 | Command                                                           | Result                                                                                                                                    |
 | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `bun test scripts/ci-fresh-account-acceptance.test.ts`            | 23 pass, 0 fail                                                                                                                           |
-| `bun test scripts/ci-fresh-account-acceptance-failure.test.ts`    | 14 pass, 0 fail                                                                                                                           |
+| `bun test scripts/ci-fresh-account-acceptance-failure.test.ts`    | 18 pass, 0 fail                                                                                                                           |
 | `bun test scripts/database-proof-workflow.test.ts`                | 29 pass, 0 fail                                                                                                                           |
 | `bun test scripts/desktop-principal-acceptance-boundary.test.ts`  | 14 pass, 0 fail                                                                                                                           |
+| `bun run test:coverage` (the full unit coverage lane)             | 2147 pass, 0 fail across 159 files                                                                                                        |
 | `bun test scripts/ci-fresh-account-acceptance.test.ts --coverage` | `scripts/ci-fresh-account-acceptance.mjs` at 100.00% functions and 99.21% lines (the one uncovered line is the program's own entry guard) |
 | `oxfmt --check` on the changed sources                            | all files use the correct format                                                                                                          |
 | `oxlint --deny-warnings` on the changed sources                   | no findings                                                                                                                               |
