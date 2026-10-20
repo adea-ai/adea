@@ -347,6 +347,54 @@ suite holds the child-process proofs.
 **What this qualification is not.** It is one machine, one cache home and no hosted runner. It claims nothing about
 timings under load, nothing about a hosted restore, and nothing about a cutover.
 
+### 4.8 The hosted proof for the current graph
+
+The lane's own hosted lane (`.github/workflows/vite-plus-proof.yml`, the opt-in, non-required Vite+ Cache Proof) ran the
+production graph twice on GitHub-hosted runners, on the proof branch `claude/project-thread-bdfpdv`. Both runs are
+push-triggered, and both pushed commits are **empty**: the tree they executed is
+`cf4da7d7d9244a64cb44fca7a27361ecbb934f67`, the graph of `d55f485000e294db511fd70fd412c568ca7c46fe`, and the five
+graph inputs the cache key hashes are byte-identical between the two proof commits and the current `main`:
+`package.json` `89de57e9`, `bun.lock` `efe36254`, `bunfig.toml` `672a310b`, `vite.config.ts` `70e01c50`, `.mise.toml`
+`292f9ff9`. The pinned runtime was Code Foundry `v1.48.1` at `e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d`.
+
+**The cold run** - <https://github.com/adea-ai/adea/actions/runs/39493260628>, commit
+`5e7e14aabd148fb6d7e5bbe9f47ee8590a129f92`:
+
+- `vite-plus proof (orch:build): 0/15 cache hit`, and the pattern check `PASS expected cold`;
+- 1,907 dist files across 15 workspaces;
+- manifest sha256 `ac0dfaf2b5cb9e1099443045151f9948a7e3e6c3ac643cc4bada8dc9505863bc`;
+- the save step succeeded, and the read-only cache listing shows the entry it wrote: id `9240042876`, 4,499,100 bytes,
+  ref `refs/heads/claude/project-thread-bdfpdv`, key ending `39493260628-1`.
+
+**The warm run** - <https://github.com/adea-ai/adea/actions/runs/39495222084>, commit
+`0186c951bacc745ab54f42190e6a3be231735536`:
+
+- the run completed successfully and every step succeeded, including `Vite+ orch:build (restored task cache)`;
+- the commit's trailers were `vp-proof-expect: warm` and `vp-proof-manifest:
+ac0dfaf2b5cb9e1099443045151f9948a7e3e6c3ac643cc4bada8dc9505863bc` (read back with the lane's own extraction), so the
+  pinned proof script asserted both the hit pattern and the manifest, and it exits non-zero unless each holds: the
+  successful step is the evidence that every cacheable task hit and that the restored outputs produced the cold run's
+  manifest exactly;
+- root's read of the run log reports 15 output-replay cache hits, zero cache-miss lines, and a 9.8 MB task cache on the
+  runner;
+- the read-only cache listing shows the warm run's own saved entry - id `9240629990`, 4,489,589 bytes, the same ref, key
+  ending `39495222084-1` - and its dependency and vite-config hashes are the cold entry's, which is why it restored that
+  entry rather than another one.
+
+**What is not recorded here.** The warm run's own emitted-file count is not in the evidence readable without admin
+rights (the run log needs them and the workflow uploads no artifact), so no count is stated for the warm run; the count
+above is the cold run's. The manifest _equality_ is evidenced by the proof step's success under the pinned script, not by a
+file count. There was exactly one warm run, and no second warm repeat is implied. The 9.8 MB is the runner-local task
+cache size from the log; the 4,499,100 and 4,489,589 bytes are the compressed Actions cache archives - two different
+measurements of two different things.
+
+**What this proof is and is not.** It is the repository's own opt-in, non-required lane: it holds `permissions: contents:
+read`, it deploys and publishes nothing, it writes exactly one thing (the Actions cache entry), and it runs on hosted
+`ubuntu-latest` runners, where a fresh workspace is what makes the restore a restore. It proves that the current graph's
+task cache saves on a trusted push and is restored on a fresh hosted runner with the identical outputs. It says nothing
+about timings, nothing about a cutover, and nothing about the local cache of section 4.7, which is a separate
+measurement on a separate machine with its own cache home.
+
 ## 5. What was run
 
 Host: macOS 14 (darwin-arm64), Node 24.21.0 and Bun 1.4.3 from the repository's pinned toolchain. The numbers
