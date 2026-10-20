@@ -196,6 +196,17 @@ describe('the built-Worker top-level field removal', () => {
     expect(values).toContain('safe')
   })
 
+  test('an escaped secret in an array is read as a value', () => {
+    const body = String.raw`{"echo":["\u0062uilt-worker-auth-secret-0123456789abcdef"]}`
+    expect(body).toContain('\\u0062uilt-worker-auth-secret-0123456789abcdef')
+    expect(jsonAllMemberValues(body)).toContain('built-worker-auth-secret-0123456789abcdef')
+  })
+
+  test('an escaped secret in a nested array is read as a value', () => {
+    const body = String.raw`{"echo":[["\u0062uilt-worker-auth-secret-0123456789abcdef"]]}`
+    expect(jsonAllMemberValues(body)).toContain('built-worker-auth-secret-0123456789abcdef')
+  })
+
   test('a nested duplicate under an unrelated wrapper is read', () => {
     // The wrapper is not the member that is looked for, but it carries one.
     const body = String.raw`{"data":{"\u0063redential":"FRESH_VALUE","credential":""}}`

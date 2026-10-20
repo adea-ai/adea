@@ -365,11 +365,12 @@ export function jsonMemberValues(body: string, field: string): string[] {
 }
 
 /**
- * Every string value of every member of a body, at any depth.
+ * Every string value of a body, at any depth.
  *
  * The body is walked as text, so every occurrence is read: a duplicate member keeps its
- * own value, and a value that was written with an escape is the value it decodes to. A
- * parsed body would lose both.
+ * own value, a value that was written with an escape is the value it decodes to, and
+ * an array element is a value like any other. A parsed body would lose the first two,
+ * and a reader that only followed member names would lose the third.
  */
 export function jsonAllMemberValues(body: string): string[] {
   const values: string[] = []
@@ -390,6 +391,13 @@ function collectJsonMembers(body: string, field: string | undefined, values: str
       let cursor = end
       while (cursor < to && /\s/u.test(body[cursor]!)) cursor += 1
       if (body[cursor] !== ':') {
+        // The token is a value and not a member name: an array element or a
+        // bare string. It is read when every value of the body is wanted, so a
+        // secret that is an array element is not skipped.
+        if (field === undefined) {
+          const decoded = decodeJsonString(body.slice(index + 1, Math.max(index + 1, end - 1)))
+          if (decoded) values.push(decoded)
+        }
         index = end
         continue
       }

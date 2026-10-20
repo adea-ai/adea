@@ -838,6 +838,34 @@ describe('the built-Worker desktop credential material', () => {
     expect(leakage?.passed).toBe(false)
   })
 
+  test('a known secret escaped inside an array is not lost', async () => {
+    const correct = correctWorker()
+    const wire: string[] = []
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        // The known secret is an array element and the escape is written with a
+        // literal backslash-u sequence.
+        const body = String.raw`{"echo":["\u0062uilt-worker-auth-secret-for-the-test-only-123456"],{"deeper":[["\u0062uilt-worker-auth-secret-for-the-test-only-123456"]]}]}`
+        // The wire is checked before the qualification reads the body.
+        expect(body).toContain('\\u0062uilt-worker-auth-secret-for-the-test-only-123456')
+        wire.push(body)
+        return { ...answered, body }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth({
+      ...baseInput(transport),
+      secrets: [CALLER_AUTH_SECRET],
+    })
+    expect(wire.join('\n')).toContain('\\u0062uilt-worker-auth-secret-for-the-test-only-123456')
+    const leakage = receipt.assertions.find(
+      (assertion) => assertion.name === 'no-response-carries-a-secret'
+    )
+    expect(leakage?.passed).toBe(false)
+    expect(receipt.status).toBe('failed')
+  })
+
   test('a nested escaped credential under an unrelated wrapper is not lost', async () => {
     const correct = correctWorker()
     const wire: string[] = []
