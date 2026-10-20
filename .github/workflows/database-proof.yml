@@ -72,6 +72,108 @@ jobs:
       - name: Prove the disposable PostgreSQL boundary
         run: bun --no-env-file run scripts/disposable-postgres-cli.ts
 
+  # The self-hosted fresh-account acceptance lane: the real provider lifecycle
+  # and the desktop principal journey against a disposable PostgreSQL 18. The
+  # lane is the acceptance lane's own; this job is the CI wiring it was
+  # handed, and it changes nothing in the lane.
+  fresh_account_acceptance_proof:
+    name: Fresh account acceptance proof
+    # A draft pull request allocates no runner and a ready one does: the same
+    # filter the disposable proof job uses.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # The exact head the job checks out. The receipt has to name it, or the
+      # job refuses the receipt: a receipt that names another commit is not a
+      # proof of this pull request.
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The exact head, not the synthetic merge commit. The receipt names
+          # the commit a recovery procedure may name, and a merge commit is not
+          # a commit anyone can fetch. The merge result is proven by the
+          # validation lane, which checks it out itself.
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install the PostgreSQL 18 client tools
+        # The same steps the disposable proof job uses: the backup and restore
+        # proof needs the matching pg_dump and pg_restore, and the runner's own
+        # client is older.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error --location \
+            --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+
+      - name: Check the PostgreSQL 18 client tools
+        run: |
+          /usr/lib/postgresql/18/bin/pg_dump --version
+          /usr/lib/postgresql/18/bin/pg_restore --version
+
+      - name: Build the workspace packages the phase imports
+        run: |
+          bun run --cwd packages/types build
+          bun run --cwd packages/auth build
+
+      - name: Run the fresh-account acceptance lane
+        # The lane prints its receipt on stdout and fails when it cannot prove
+        # anything. The output goes outside the checkout, so the tree the
+        # receipt names is still the clean tree the run happened in.
+        run: |
+          node scripts/fresh-postgres-acceptance/run.mjs \
+            > "$RUNNER_TEMP/fresh-account-acceptance.out"
+
+      - name: Require the lane's own container to be gone
+        # The lane removes the instance it created on success, on failure and
+        # on interruption, and fails the run when it cannot. A container that is
+        # still running here means the lane left one behind, and the job fails
+        # rather than reporting a proof next to a leak.
+        run: |
+          leaked="$(docker ps --filter 'name=adea-capture-prov-' --format '{{.Names}}')"
+          if [ -n "$leaked" ]; then
+            echo "::error::the acceptance lane left a container running: $leaked" >&2
+            exit 1
+          fi
+
+      - name: Gate and publish the acceptance receipt
+        # Fail-closed: the receipt is published only when it is the lane's own
+        # proof of the exact head, with a journey that really executed. A
+        # skipped run, a zero-pass run and a receipt from another tree are
+        # refused, and a refused receipt writes no artifact.
+        run: |
+          node scripts/ci-fresh-account-acceptance.mjs \
+            "$RUNNER_TEMP/fresh-account-acceptance.out" \
+            "$EXPECTED_HEAD" \
+            "$RUNNER_TEMP/fresh-account-acceptance-receipt.json"
+          cat "$RUNNER_TEMP/fresh-account-acceptance-receipt.json"
+
+      - name: Publish the acceptance receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: fresh-account-acceptance-receipt
+          path: ${{ runner.temp }}/fresh-account-acceptance-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
   disposable_postgres_gate:
     # The same fail-closed shape as before: it passes only when the disposable
     # proof succeeds, and a failed, cancelled, skipped or missing result fails

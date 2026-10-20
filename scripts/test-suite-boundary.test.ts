@@ -409,10 +409,13 @@ describe('test suite boundaries', () => {
     expect(commands).not.toContain('bun run test:integration')
     expect(commands).not.toContain('ADEA_INTEGRATION_SHARD')
     // The pull-request lane proves a disposable loopback instance and nothing
-    // else: no hosted branch, no provider API and no secret.
+    // else: no hosted branch, no provider API and no secret. The fresh-account
+    // acceptance job is a second disposable loopback proof: it provisions its
+    // own instance and reaches no hosted database.
     expect(Object.keys(databaseWorkflow.jobs).toSorted()).toEqual([
       'disposable_postgres_gate',
       'disposable_postgres_proof',
+      'fresh_account_acceptance_proof',
     ])
     expect(databaseWorkflow.jobs.disposable_postgres_gate!.name).toBe('Prove Disposable PostgreSQL')
     expect(databaseWorkflow.jobs.disposable_postgres_gate!.needs).toEqual([

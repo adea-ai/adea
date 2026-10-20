@@ -24,6 +24,7 @@ type Job = {
   name?: string
   needs?: string | string[]
   if?: string
+  env?: Record<string, string>
   'timeout-minutes'?: number
   steps: Step[]
 }
@@ -46,6 +47,7 @@ describe('the database proof lane proves only a disposable local instance', () =
     expect(Object.keys(jobs).toSorted()).toEqual([
       'disposable_postgres_gate',
       'disposable_postgres_proof',
+      'fresh_account_acceptance_proof',
     ])
 
     const proof = jobs.disposable_postgres_proof!
@@ -234,5 +236,74 @@ describe('the database proof lane proves only a disposable local instance', () =
     expect(cli).toContain('DISPOSABLE_POSTGRES_PROOF')
     expect(cli).not.toContain('console.log(adminUrl')
     expect(cli).not.toContain('console.log(provisioned')
+  })
+})
+
+describe('the fresh-account acceptance job wires the acceptance lane into CI', () => {
+  const job = jobs.fresh_account_acceptance_proof!
+
+  test('it is the lane’s own job, with the same draft filter as the proof', () => {
+    expect(job.name).toBe('Fresh account acceptance proof')
+    expect(job['timeout-minutes']).toBe(30)
+    expect(job.permissions).toEqual({ contents: 'read' })
+    expect(job.if).toContain('github.event.pull_request.draft == false')
+  })
+
+  test('it checks out the exact head and requires the receipt to name it', () => {
+    const checkout = stepNamed(job, 'Checkout pull request')
+    expect(checkout.uses).toBe('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1')
+    expect(checkout.with?.ref).toBe('${{ github.event.pull_request.head.sha }}')
+    expect(checkout.with?.['persist-credentials']).toBe(false)
+    expect(job.env?.EXPECTED_HEAD).toBe('${{ github.event.pull_request.head.sha }}')
+    const gate = stepNamed(job, 'Gate and publish the acceptance receipt')
+    expect(gate.run).toContain('"$EXPECTED_HEAD"')
+  })
+
+  test('it runs the acceptance lane’s own entrypoint, unchanged', () => {
+    const lane = stepNamed(job, 'Run the fresh-account acceptance lane')
+    expect(lane.run).toContain('node scripts/fresh-postgres-acceptance/run.mjs')
+    // The lane prints its receipt on stdout and the tree it names must stay the
+    // clean tree the run happened in, so the output goes outside the checkout.
+    expect(lane.run).toContain('"$RUNNER_TEMP/fresh-account-acceptance.out"')
+  })
+
+  test('it gates the receipt before it publishes anything', () => {
+    const names = job.steps.map((step: { name?: string }) => step.name)
+    const gate = names.indexOf('Gate and publish the acceptance receipt')
+    const publish = names.indexOf('Publish the acceptance receipt')
+    expect(gate).toBeGreaterThan(names.indexOf('Run the fresh-account acceptance lane'))
+    expect(gate).toBeLessThan(publish)
+    const step = stepNamed(job, 'Gate and publish the acceptance receipt')
+    expect(step.run).toContain('node scripts/ci-fresh-account-acceptance.mjs')
+    const upload = stepNamed(job, 'Publish the acceptance receipt')
+    expect(upload.uses).toBe('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a')
+    expect(upload.with?.['if-no-files-found']).toBe('error')
+    expect(upload.with?.path).toContain('fresh-account-acceptance-receipt.json')
+  })
+
+  test('it fails when the lane left its own container behind', () => {
+    const step = stepNamed(job, "Require the lane's own container to be gone")
+    expect(step.run).toContain('adea-capture-prov-')
+    expect(step.run).toContain('exit 1')
+  })
+
+  test('it reads no secret and reaches no hosted database', () => {
+    const body = JSON.stringify(job)
+    expect(body).not.toContain('secrets.')
+    expect(body).not.toContain('vars.')
+    expect(body).not.toContain('console.neon.tech')
+    expect(body).not.toContain('NEON_')
+    expect(body.toLowerCase()).not.toContain('neon')
+  })
+
+  test('the gate it calls is the CI gate this lane owns', () => {
+    const gate = readFileSync(resolve(root, 'scripts/ci-fresh-account-acceptance.mjs'), 'utf8')
+    expect(gate).toContain('assertFreshAccountReceipt')
+    expect(gate).toContain('does not name the exact head the job checked out')
+    expect(gate).toContain('no executed ')
+    // The lane’s own contract is reused, not restated: the gate imports the
+    // acceptance lane’s proof and provenance checks.
+    expect(gate).toContain("from './fresh-postgres-acceptance/recovery.mjs'")
+    expect(gate).toContain("from './fresh-postgres-acceptance/provenance.mjs'")
   })
 })
