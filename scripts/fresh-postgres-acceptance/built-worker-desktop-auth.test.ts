@@ -838,6 +838,46 @@ describe('the built-Worker desktop credential material', () => {
     expect(leakage?.passed).toBe(false)
   })
 
+  test('a refusal that carries a session cookie fails closed', async () => {
+    const correct = correctWorker()
+    const wire: string[] = []
+    let exchanges = 0
+    const transport: BuiltWorkerTransport = async (request) => {
+      const answered = await correct.transport(request)
+      if (request.method === 'POST' && request.path === DESKTOP_EXCHANGE_PATH) {
+        exchanges += 1
+        if (exchanges === 2 && answered.status !== 200) {
+          const refused = {
+            ...answered,
+            headers: {
+              ...answered.headers,
+              'set-cookie':
+                '__Secure-better-auth.session_token=a-fresh-session-cookie; Path=/; HttpOnly',
+            },
+          }
+          // What the transport put on the wire is what the qualification reads.
+          wire.push(refused.headers['set-cookie'] ?? '')
+          return refused
+        }
+      }
+      return answered
+    }
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    // The wire carried the cookie.
+    expect(wire.join('\n')).toContain('a-fresh-session-cookie')
+    // The rest of the path is valid: the successful exchange still passed.
+    const exchange = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-exchange-route-issues-a-session'
+    )
+    expect(exchange?.passed).toBe(true)
+    // The refusal that carried the cookie did not pass.
+    const denial = receipt.assertions.find(
+      (assertion) => assertion.name === 'the-desktop-exchange-route-refuses-a-wrong-pkce-verifier'
+    )
+    expect(denial?.passed).toBe(false)
+    expect(receipt.status).toBe('failed')
+  })
+
   test('an issuance body with a known secret behind an escaped character fails the leak invariant', async () => {
     const correct = correctWorker()
     const wire: string[] = []

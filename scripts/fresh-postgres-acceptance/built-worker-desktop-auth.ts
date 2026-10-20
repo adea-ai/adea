@@ -607,8 +607,14 @@ export function responseCarriesRawCredential(body: string): boolean {
   return credential !== null && credential.length > 0
 }
 
-/** A header that carries a credential when it is not empty. */
-const CREDENTIAL_HEADER = /authorization|credential|desktop-session/iu
+/**
+ * A header that carries a credential when it is not empty.
+ *
+ * A session cookie counts: a refusal that sets one issued a session, whether
+ * or not the cookie's value was seen before. The exchange route sets no cookie
+ * of its own, so a cookie on a refusal is never expected.
+ */
+const CREDENTIAL_HEADER = /authorization|credential|desktop-session|set-cookie/iu
 
 /**
  * True when a refused answer carries credential material anywhere.
