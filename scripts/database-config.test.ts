@@ -67,10 +67,10 @@ describe('inspectDatabaseConfiguration', () => {
     ).toThrow('must never be client-exposed')
   })
 
-  test('requires every connection to reach one database instance', () => {
-    // One instance serves the runtime and migration roles. A configuration that points
-    // the two connections at two different instances is two databases. The check names
-    // no provider.
+  test('requires every connection to reach one PostgreSQL instance', () => {
+    // One instance serves the runtime and migration roles. The instance is identified by
+    // its host, its port and its database name, and all three have to agree. The check
+    // names no provider and forgives no host name.
     expect(() =>
       inspectDatabaseConfiguration({
         ...localEnvironment,
@@ -84,53 +84,107 @@ describe('inspectDatabaseConfiguration', () => {
         DATABASE_URL_UNPOOLED:
           'postgresql://agent_hq_local_app:local-password@localhost:55432/agent_hq?sslmode=disable',
       })
-    ).toThrow('Pooled and unpooled connections must target the same environment')
+    ).toThrow('must reach the same PostgreSQL instance')
   })
 
-  test('accepts one instance addressed through a pooled and a direct endpoint', () => {
-    // The pull-request database lane addresses one branch through two endpoints: a pooled
-    // runtime endpoint and a direct migration endpoint. The health probe runs against
-    // exactly that pair, so the check compares the instance and not the literal host.
-    // Refusing it would fail the lane before the database query, and refusing it would
-    // say nothing about any provider.
-    const pooledHost = 'ep-quiet-pond-123456-pooler.us-east-2.aws.example.test'
-    const directHost = 'ep-quiet-pond-123456.us-east-2.aws.example.test'
-    const result = inspectDatabaseConfiguration({
-      DATABASE_URL: `postgresql://adea_dev_app:secret@${pooledHost}/neondb?sslmode=require&connect_timeout=10`,
-      DATABASE_URL_UNPOOLED: `postgresql://adea_dev_app:secret@${directHost}/neondb?sslmode=require&connect_timeout=10`,
-      DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${directHost}/neondb?sslmode=require&connect_timeout=10`,
+  test('accepts a managed deployment and a loopback database addressed exactly', () => {
+    // The two shapes this deployment uses: one managed instance reached directly, and the
+    // local container. Both address one instance through one host and one port, and the
+    // roles are the only thing that differs.
+    const managed = inspectDatabaseConfiguration({
+      DATABASE_URL:
+        'postgresql://agent_hq_prod_app:secret@db.railway.internal:5432/agent_hq?sslmode=require',
+      DATABASE_URL_UNPOOLED:
+        'postgresql://agent_hq_prod_app:secret@db.railway.internal:5432/agent_hq?sslmode=require',
+      DATABASE_MIGRATION_URL:
+        'postgresql://agent_hq_prod_migration:secret@db.railway.internal:5432/agent_hq?sslmode=require',
     })
-    expect(result).toEqual({
-      database: 'neondb',
+    expect(managed).toEqual({
+      database: 'agent_hq',
       hosted: true,
-      migrationRole: 'adea_dev_migration',
-      runtimeRole: 'adea_dev_app',
+      migrationRole: 'agent_hq_prod_migration',
+      runtimeRole: 'agent_hq_prod_app',
     })
+    expect(
+      inspectDatabaseConfiguration({
+        DATABASE_URL:
+          'postgresql://agent_hq_prod_app:secret@db.railway.internal:5432/agent_hq?sslmode=require',
+        DATABASE_MIGRATION_URL:
+          'postgresql://agent_hq_prod_migration:secret@db.railway.internal:5432/agent_hq?sslmode=require',
+      })
+    ).toEqual(managed)
   })
 
-  test('refuses a second instance reached through the same host name', () => {
-    // The pooler marker is the only difference the instance comparison forgives. A
-    // different branch, a different region and a different port are different
-    // instances and stay refused.
-    const pooledHost = 'ep-quiet-pond-123456-pooler.us-east-2.aws.example.test'
+  test('refuses two different hosts, whatever their names look like', () => {
+    // A hostname is a name, not evidence about which server answers it. These pairs are the
+    // ones a rewrite rule would have mistaken for one instance: the marker in the middle of
+    // a label, the marker twice, and the marker on an unrelated name.
+    const runtimeHost = 'evil-pooler.attacker.example.test'
     for (const migrationHost of [
-      'ep-other-654321.us-east-2.aws.example.test',
-      'ep-quiet-pond-123456.us-west-2.aws.example.test',
+      'evil.attacker.example.test',
+      'evil-pooler-pooler.attacker.example.test',
+      'attacker.example.test',
     ]) {
       expect(() =>
         inspectDatabaseConfiguration({
-          DATABASE_URL: `postgresql://adea_dev_app:secret@${pooledHost}/neondb?sslmode=require`,
+          DATABASE_URL: `postgresql://adea_dev_app:secret@${runtimeHost}/neondb?sslmode=require`,
           DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${migrationHost}/neondb?sslmode=require`,
         })
       ).toThrow('must reach the same PostgreSQL instance')
     }
+  })
+
+  test('refuses a pooled and a direct endpoint of one branch', () => {
+    // The hosted branch lane addressed one branch through two endpoint hostnames, and the
+    // check that forgave that difference was a host-name rewrite that could not prove the
+    // two addresses were one server. The lane is being replaced by the provider-free
+    // disposable CI proof, which addresses one instance through one host and one port, so
+    // the shape is refused rather than excused.
+    const pooledHost = 'ep-quiet-pond-123456-pooler.us-east-2.aws.example.test'
+    const directHost = 'ep-quiet-pond-123456.us-east-2.aws.example.test'
     expect(() =>
       inspectDatabaseConfiguration({
-        DATABASE_URL: `postgresql://adea_dev_app:secret@${pooledHost}:5432/neondb?sslmode=require`,
-        DATABASE_MIGRATION_URL:
-          'postgresql://adea_dev_migration:secret@ep-quiet-pond-123456.us-east-2.aws.example.test:5433/neondb?sslmode=require',
+        DATABASE_URL: `postgresql://adea_dev_app:secret@${pooledHost}/neondb?sslmode=require`,
+        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${directHost}/neondb?sslmode=require`,
       })
     ).toThrow('must reach the same PostgreSQL instance')
+    // The other way round is refused the same way.
+    expect(() =>
+      inspectDatabaseConfiguration({
+        DATABASE_URL: `postgresql://adea_dev_app:secret@${directHost}/neondb?sslmode=require`,
+        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${directHost}/neondb?sslmode=require`,
+        DATABASE_URL_UNPOOLED: `postgresql://adea_dev_app:secret@${pooledHost}/neondb?sslmode=require`,
+      })
+    ).toThrow('must reach the same PostgreSQL instance')
+  })
+
+  test('refuses two ports on one host', () => {
+    // One host can serve two instances on two ports. The port is part of the identity.
+    const host = 'db.railway.internal'
+    expect(() =>
+      inspectDatabaseConfiguration({
+        DATABASE_URL: `postgresql://adea_dev_app:secret@${host}:5432/neondb?sslmode=require`,
+        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${host}:5433/neondb?sslmode=require`,
+      })
+    ).toThrow('must reach the same PostgreSQL instance')
+    expect(() =>
+      inspectDatabaseConfiguration({
+        DATABASE_URL: `postgresql://adea_dev_app:secret@${host}:5432/neondb?sslmode=require`,
+        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${host}:5432/neondb?sslmode=require`,
+        DATABASE_URL_UNPOOLED: `postgresql://adea_dev_app:secret@${host}:5433/neondb?sslmode=require`,
+      })
+    ).toThrow('must reach the same PostgreSQL instance')
+  })
+
+  test('refuses one host and one port carrying different databases', () => {
+    expect(() =>
+      inspectDatabaseConfiguration({
+        DATABASE_URL:
+          'postgresql://adea_dev_app:secret@db.railway.internal:5432/neondb?sslmode=require',
+        DATABASE_MIGRATION_URL:
+          'postgresql://adea_dev_migration:secret@db.railway.internal:5432/other?sslmode=require',
+      })
+    ).toThrow('must target the same database')
   })
 
   test('accepts one hosted host with separate runtime and migration roles', () => {

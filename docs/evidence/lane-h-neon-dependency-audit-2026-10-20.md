@@ -46,7 +46,7 @@ this lane owns are in the same commit as this page.
 | ----------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Runtime           | `packages/db/src/config.ts`                                | `isTransactionPooledHost` and the `-pooler.`/`.neon.tech` host heuristic that decided the statement mode.                | Every connection prepares statements. A host name is not a statement-capability contract.                                                                                                                                                                                                     |
 | Runtime           | `packages/db/src/connection.ts`                            | The connection-role branch behind `prepare`.                                                                             | `prepare` defaults to true; only a declared transaction-pooled origin may turn it off.                                                                                                                                                                                                        |
-| Scripts           | `scripts/database-config.mjs`                              | The pooled/unpooled endpoint rules and the "same environment" hostname normalisation.                                    | Runtime, migration and unpooled connections must reach one database instance and one port. The comparison names no provider, and it accepts the pull-request database lane's own two-endpoint shape.                                                                                          |
+| Scripts           | `scripts/database-config.mjs`                              | The pooled/unpooled endpoint rules and the "same environment" hostname normalisation.                                    | Runtime, migration and unpooled connections must reach one PostgreSQL instance, identified exactly by its host, its port and its database name. No host name is rewritten and no lookalike is forgiven.                                                                                       |
 | Generated config  | `apps/web/wrangler.jsonc`, `apps/web/cloudflare.config.ts` | The `DATABASE_URL`/`NEON_AUTH_BASE_URL`/`NEON_AUTH_COOKIE_SECRET` bindings and the store name that carried the provider. | `DATABASE_URL`, `AUTH_BASE_URL`, `AUTH_SECRET`, `AUTH_DATABASE_URL` bound to the Railway-managed records.                                                                                                                                                                                     |
 | Runtime           | `apps/web/src/server/event-cursor.ts`                      | The cursor's signing key read from `NEON_AUTH_COOKIE_SECRET`.                                                            | `AUTH_SECRET`, the one secret the deployment rotates.                                                                                                                                                                                                                                         |
 | Browser boundary  | `apps/web/start/client-policy.mjs`                         | Nothing is removed from the private-environment list.                                                                    | The legacy secret names stay denied while the auth lane's legacy reader, driver and client SDK dependency are still in the tree; `AUTH_SECRET`, `AUTH_DATABASE_URL` and `AUTH_BASE_URL` are added. `AUTH_BASE_URL` is server-only too, which the cutover checklist had flagged as unreviewed. |
@@ -226,11 +226,10 @@ What changed is narrow and testable:
 
 - The connection role is no longer sniffed from a provider hostname, so no deployment can be
   misclassified by a name it happens to carry.
-- The deploy-time validator now compares the **database instance** the connections reach, not the
-  literal host, and it refuses a configuration whose runtime and migration connections reach two
-  different instances. It refuses that without naming any provider, and it accepts the
-  pull-request database lane's own two-endpoint shape (a pooled runtime endpoint and a direct
-  migration endpoint for one branch), which the earlier host-equality rule broke.
+- The deploy-time validator identifies the PostgreSQL instance a connection addresses by its host,
+  its port and its database name, and requires the runtime, migration and unpooled connections to
+  agree on all three. A host name is a name, not evidence about which server answers it, so no
+  host name is rewritten and no lookalike is forgiven.
 
 Both are covered by regressions in `packages/db/tests/unit/config.test.ts`,
 `packages/db/tests/unit/connection.test.ts` and `scripts/database-config.test.ts`.
@@ -354,32 +353,46 @@ the pull-request database lane runs before its migrations. Two pull requests tou
 the coordination has to be settled at integration rather than by either owner editing the other's
 paths.
 
-| Pull request     | Owner              | Change to `scripts/database-config.mjs`                                                                                                                                                                                                                                                          |
-| ---------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| #1515 (this one) | H (this lane)      | Removes the provider-named endpoint rules. Compares the **database instance** the runtime and migration connections reach, and the instance the unpooled connection reaches, instead of the literal host. The instance comparison forgives only the pooler marker and compares the port exactly. |
-| #1516            | F (CI and release) | Removes the same provider-named endpoint rules and renames the normalisation helper. Replaces the hosted branch workflow with a provider-free disposable loopback proof.                                                                                                                         |
+| Pull request     | Owner              | Change to `scripts/database-config.mjs`                                                                                                                                                                                                                                                                     |
+| ---------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #1515 (this one) | H (this lane)      | Removes the provider-named endpoint rules and the host-name normalisation with them. Identifies the PostgreSQL instance by its host, its port and its database name, and requires the runtime, migration and unpooled connections to agree on all three. No name is rewritten and no lookalike is forgiven. |
+| #1516            | F (CI and release) | Removes the same provider-named endpoint rules and renames the normalisation helper, keeping it. Replaces the hosted branch workflow with a provider-free disposable loopback proof.                                                                                                                        |
 
-**The overlap and its resolution.** The earlier revision of this lane compared the literal host,
-which broke the still-active hosted branch lane deterministically: that lane builds
-`DATABASE_URL` from the pooled endpoint and `DATABASE_MIGRATION_URL` from the direct endpoint of
-one branch, so the health probe failed before it reached the database query. This lane's rule now
-compares the instance, which accepts that two-endpoint shape and still refuses two different
-instances. The provider-free replacement in #1516 addresses one loopback instance on one port
-through all three variables, which the same rule accepts.
+**The overlap and its resolution.** Two revisions of this lane's rule have been reviewed. The first
+compared the literal host, which broke the still-active hosted branch lane deterministically:
+that lane builds `DATABASE_URL` from the pooled endpoint and `DATABASE_MIGRATION_URL` from the
+direct endpoint of one branch, so the health probe failed before it reached the database query. The
+second forgave a pooler marker in the host name. That fixed the branch lane and introduced a worse
+defect: rewriting a host name cannot prove that two addresses are one server, and it forgave every
+lookalike — `evil-pooler.example.test` and `evil.example.test` were accepted as one instance.
 
-At integration, this lane's file is a superset of #1516's: same removed rules, same helper
-semantics under the provider-neutral name, plus the runtime-versus-migration instance comparison
-and the exact port comparison. This lane owns the path; #1516's owner is asked to take this lane's
-version of the file at integration and to keep #1516's CI replacement.
+The third revision removes the forgiveness. The instance is identified by the host, the port and the
+database name, all three exactly, and two host names are never equal by resemblance.
 
-**The health gate is not weakened.** The comparison is strictly stronger than the one it replaces
-in the provider-free world: the original code never compared the runtime and migration hosts at
-all, and this lane's rule does. No provider fallback is restored, and no gate is skipped.
+**The merge precondition.** The exact rule refuses the hosted branch lane's two-endpoint shape, so
+that lane's health probe fails while the workflow still exists. #1516 removes the workflow and
+replaces it with the provider-free disposable loopback proof, which addresses one instance through
+one host and one port through all three variables and which the exact rule accepts. **#1516, or at
+least its removal of the hosted branch workflow, has to be merged before or together with this
+pull request.** Merging this one first leaves the pull-request database lane red on `main` until
+#1516 lands. That ordering is root's to decide; this lane does not edit the CI lane's files.
 
-**Both lanes are exercised.** `scripts/database-config.test.ts` now carries the hosted branch lane's
-exact URL shape as a regression — a pooled runtime endpoint and a direct migration endpoint for one
-branch — and asserts it is accepted, alongside a regression that a different branch, a different
-region and a different port are still refused.
+At integration, this lane's version of `scripts/database-config.mjs` **supersedes** #1516's: the
+provider-named rules are removed in both, and #1516's copy of the normalisation helper is not
+taken, because a host-name rewrite is the defect being fixed. This lane owns the path; #1516's owner
+is asked to take this lane's version of the file at integration and to keep #1516's CI replacement.
+
+**The health gate is not weakened.** The comparison is strictly stronger than the one it replaces:
+the original code never compared the runtime and migration hosts at all, and this lane's rule
+requires all three parts of the instance identity to agree. No provider fallback is restored, and no
+gate is skipped.
+
+**Both lanes are exercised.** `scripts/database-config.test.ts` carries, as regressions, the managed
+deployment shape and the loopback shape (both accepted, with the host, the port and the database
+name exact), and the refusals: two different hosts, the hosted branch lane's pooled and direct
+endpoint pair in both orders, two ports on one host, one host and one port carrying two databases,
+and the adversarial lookalikes a host-name rewrite would have accepted — a pooler marker in the
+middle of a label, the marker twice, and the marker on an unrelated name.
 
 ## 11. What this audit does not establish
 
@@ -407,7 +420,7 @@ region and a different port are still refused.
 
 ### Withdrawn claims
 
-Two statements in the earlier revision of this page were wrong, and they are withdrawn rather than
+Three statements in earlier revisions of this page were wrong, and they are withdrawn rather than
 quietly edited:
 
 - _"If step 2 has not happened, the deploy fails closed and the previous Worker keeps serving."_
@@ -418,3 +431,8 @@ quietly edited:
   safe preparation. Repointing `adea-db` changes where the running Worker sends its queries at
   once. It is either part of a coordinated authorized cutover or it is done on a separately
   prepared binding.
+- _"The instance comparison forgives only the pooler marker."_ True of the revision it described
+  and false as a statement about instances. Rewriting a host name cannot prove that two addresses
+  are one server: it accepts any lookalike, and it accepted `evil-pooler.example.test` with
+  `evil.example.test`. The rule now identifies the instance by its host, its port and its database
+  name, and forgives nothing.
