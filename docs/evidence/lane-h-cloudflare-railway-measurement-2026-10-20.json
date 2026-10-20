@@ -361,7 +361,25 @@
         "secretName": "AGENT_HQ_WORKER_AUTH_COOKIE_SECRET",
         "storeId": "b3a1b4e8427a4d23ac7925cc18a7a2ac"
       }
-    ]
+    ],
+    "rootIndependentObservation": {
+      "at": "2026-10-20 about 08:00-08:02 UTC",
+      "by": "root",
+      "method": "Direct read of the Cloudflare settings.",
+      "findings": {
+        "legacyAuthBindingsRemain": true,
+        "hyperdriveOrigin": "still the provider’s host",
+        "hyperdriveCachingDisabled": false
+      },
+      "agreement": "Root’s 08:00-08:02 UTC reading and this lane’s 07:30Z reading agree on all three facts. Root’s is the later one.",
+      "thisLanesReread": {
+        "attemptedAt": "2026-10-20 after 08:10:48Z",
+        "result": "blocked",
+        "reason": "The `cf` CLI credential expired at 2026-10-20T08:10:48.586Z and the API answers HTTP 403 for it. The credential was not refreshed or re-authorized: refreshing a credential is not this lane’s decision, and no new credential or access grant is authorized."
+      },
+      "liveMigrationComplete": false,
+      "productionMutationAuthorized": false
+    }
   },
   "hyperdrive": [
     {
@@ -374,7 +392,9 @@
       "originConnectionLimit": 20,
       "cachingDisabled": false,
       "createdOn": "2026-09-04T21:50:41.798564Z",
-      "modifiedOn": "2026-09-06T07:55:44.54781Z"
+      "modifiedOn": "2026-09-06T07:55:44.54781Z",
+      "edgeQueryCache": "enabled",
+      "note": "The edge query cache lives on this Cloudflare binding, outside this repository. The repository’s own in-process cache is a different mechanism in a different place; it says nothing about this setting, and nothing in this pull request changes it. Cache-disabled routing for authentication, session and permission reads is a cutover prerequisite that this patch does not establish."
     }
   ],
   "railway": {
@@ -455,6 +475,13 @@
       "route": "Cloudflare account analytics.",
       "result": "The account-level Workers analytics dataset did not answer; only the raw per-invocation quantiles above were readable.",
       "conclusion": "Billed CPU is not established by this read. The CPU figures here are raw per-bucket reservoir-sampled quantiles, which are not a billed-CPU figure."
+    },
+    {
+      "question": "A second, independent read of the live Cloudflare settings after 08:10:48Z",
+      "route": "The `cf` CLI OAuth credential, read from the CLI’s own config.",
+      "result": "HTTP 403 for every account-scoped route. The credential’s own `expiration_time` is 2026-10-20T08:10:48.586Z.",
+      "conclusion": "The series and the configuration reads in this file are the 07:30Z reading and cannot be refreshed from this lane. Root’s independent 08:00-08:02 UTC observation is the later reading, and it agrees on every fact recorded here."
     }
-  ]
+  ],
+  "authorityNote": "The measurement series was taken with a credential that has since expired. No credential was refreshed, re-authorized or created, and no production setting was read again after the expiry."
 }

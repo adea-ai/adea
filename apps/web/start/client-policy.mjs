@@ -51,6 +51,13 @@ export const PRIVATE_ENV_NAMES = [
   'AUTH_SECRET',
   'AUTH_DATABASE_URL',
   'AUTH_BASE_URL',
+  // The legacy auth names stay denied while the auth lane's legacy reader, driver and
+  // client SDK dependency are still in the tree. These are output deny markers: they
+  // keep a name out of the browser bundle whether or not anything still reads it, and
+  // removing one before the code that reads it is gone weakens the check rather than
+  // proving anything. They are removed with that code, not before.
+  'NEON_AUTH_COOKIE_SECRET',
+  'NEON_AUTH_BASE_URL',
   'CONTROL_PLANE_API_TOKEN',
   // ADR 0013 per-request signer: the Ed25519 private key (Worker secret) and
   // its key id/issuer stay server-only.

@@ -17,14 +17,19 @@ this lane owns are in the same commit as this page.
    that provider.** The runtime has no provider-shaped branch left, and the deployment configuration
    binds only the managed database and the self-hosted auth service.
 3. **The live production Worker still does.** That is a production fact, not a repository fact, and
-   it is in [the production operations section](#production-operations-needing-root-approval) below
-   with the exact steps.
+   it is in [the production operations section](#9-production-operations-needing-root-approval) below
+   with the exact steps. Root read the same three facts directly at about 08:00–08:02 UTC on
+   2026-10-20: the legacy bindings remain, the edge pooler's origin is still the provider's, and
+   its query cache is enabled. **The live migration is not complete**, and no production mutation is
+   authorized.
 4. **The remaining references are in other owners' lanes.** They are listed with the owner and the
    scoped action, so each owner can take its own change without this lane editing its files.
 5. **The Cloudflare CPU, request, error and subrequest series is now readable.** The
    [Railway cost week plan](../guides/railway-cost-week-plan.md) recorded that the live read was
    blocked on the route that was tried. It is not blocked any more: the Cloudflare GraphQL
-   Analytics API answers for this account through the already-authorized `cf` CLI credential.
+   Analytics API answers for this account through the already-authorized `cf` CLI credential. That
+   credential has since expired, so the series cannot be refreshed without a credential decision
+   that is not this lane's to make.
 
 ## How the classes are defined
 
@@ -37,16 +42,16 @@ this lane owns are in the same commit as this page.
 
 ## 1. Active integrations removed by this lane
 
-| Area              | File                                                       | What was removed                                                                                                         | What replaces it                                                                                                                                                   |
-| ----------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Runtime           | `packages/db/src/config.ts`                                | `isTransactionPooledHost` and the `-pooler.`/`.neon.tech` host heuristic that decided the statement mode.                | Every connection prepares statements. A host name is not a statement-capability contract.                                                                          |
-| Runtime           | `packages/db/src/connection.ts`                            | The connection-role branch behind `prepare`.                                                                             | `prepare` defaults to true; only a declared transaction-pooled origin may turn it off.                                                                             |
-| Scripts           | `scripts/database-config.mjs`                              | The pooled/unpooled endpoint rules and the "same environment" hostname normalisation.                                    | Runtime, migration and unpooled connections must reach one PostgreSQL host and one port. The provider's two-endpoint shape is refused without naming the provider. |
-| Generated config  | `apps/web/wrangler.jsonc`, `apps/web/cloudflare.config.ts` | The `DATABASE_URL`/`NEON_AUTH_BASE_URL`/`NEON_AUTH_COOKIE_SECRET` bindings and the store name that carried the provider. | `DATABASE_URL`, `AUTH_BASE_URL`, `AUTH_SECRET`, `AUTH_DATABASE_URL` bound to the Railway-managed records.                                                          |
-| Runtime           | `apps/web/src/server/event-cursor.ts`                      | The cursor's signing key read from `NEON_AUTH_COOKIE_SECRET`.                                                            | `AUTH_SECRET`, the one secret the deployment rotates.                                                                                                              |
-| Browser boundary  | `apps/web/start/client-policy.mjs`                         | The provider's secret names in the private-environment list.                                                             | `AUTH_SECRET`, `AUTH_DATABASE_URL`, `AUTH_BASE_URL`. `AUTH_BASE_URL` is now server-only too, which the cutover checklist had flagged as unreviewed.                |
-| App code          | `apps/web/src/**`, `apps/web/start/**`                     | The provider-named adapter calls and comments.                                                                           | The provider-neutral aliases `createAuthServerAdapter`, `handleAuthRequest` and `createAuthClientAdapter`, which `@adea-ai/auth` already exported.                 |
-| Local environment | `apps/web/.env.example`, `apps/web/.dev.vars.example`      | The provider's local auth names and the instruction to read them from a provider CLI.                                    | The self-hosted auth service's own names.                                                                                                                          |
+| Area              | File                                                       | What was removed                                                                                                         | What replaces it                                                                                                                                                                                                                                                                              |
+| ----------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime           | `packages/db/src/config.ts`                                | `isTransactionPooledHost` and the `-pooler.`/`.neon.tech` host heuristic that decided the statement mode.                | Every connection prepares statements. A host name is not a statement-capability contract.                                                                                                                                                                                                     |
+| Runtime           | `packages/db/src/connection.ts`                            | The connection-role branch behind `prepare`.                                                                             | `prepare` defaults to true; only a declared transaction-pooled origin may turn it off.                                                                                                                                                                                                        |
+| Scripts           | `scripts/database-config.mjs`                              | The pooled/unpooled endpoint rules and the "same environment" hostname normalisation.                                    | Runtime, migration and unpooled connections must reach one database instance and one port. The comparison names no provider, and it accepts the pull-request database lane's own two-endpoint shape.                                                                                          |
+| Generated config  | `apps/web/wrangler.jsonc`, `apps/web/cloudflare.config.ts` | The `DATABASE_URL`/`NEON_AUTH_BASE_URL`/`NEON_AUTH_COOKIE_SECRET` bindings and the store name that carried the provider. | `DATABASE_URL`, `AUTH_BASE_URL`, `AUTH_SECRET`, `AUTH_DATABASE_URL` bound to the Railway-managed records.                                                                                                                                                                                     |
+| Runtime           | `apps/web/src/server/event-cursor.ts`                      | The cursor's signing key read from `NEON_AUTH_COOKIE_SECRET`.                                                            | `AUTH_SECRET`, the one secret the deployment rotates.                                                                                                                                                                                                                                         |
+| Browser boundary  | `apps/web/start/client-policy.mjs`                         | Nothing is removed from the private-environment list.                                                                    | The legacy secret names stay denied while the auth lane's legacy reader, driver and client SDK dependency are still in the tree; `AUTH_SECRET`, `AUTH_DATABASE_URL` and `AUTH_BASE_URL` are added. `AUTH_BASE_URL` is server-only too, which the cutover checklist had flagged as unreviewed. |
+| App code          | `apps/web/src/**`, `apps/web/start/**`                     | The provider-named adapter calls and comments.                                                                           | The provider-neutral aliases `createAuthServerAdapter`, `handleAuthRequest` and `createAuthClientAdapter`, which `@adea-ai/auth` already exported.                                                                                                                                            |
+| Local environment | `apps/web/.env.example`, `apps/web/.dev.vars.example`      | The provider's local auth names and the instruction to read them from a provider CLI.                                    | The self-hosted auth service's own names.                                                                                                                                                                                                                                                     |
 
 The provider's own client-bundle deny rules stay: `apps/web/start/client-policy.mjs` and
 `apps/web/test/start-client-denylist.json` still refuse `@neondatabase/auth` in the browser graph,
@@ -77,7 +82,26 @@ legacy provider's auth names and does **not** bind `AUTH_BASE_URL`, `AUTH_SECRET
 so the failure is silent on the signed-in path; the `/api/auth/*` route does not catch it and returns 500.
 
 This is the state this lane's source change is designed to end, and it is a production operation to
-end it. See [the operations list](#production-operations-needing-root-approval).
+end it. See [the operations list](#9-production-operations-needing-root-approval).
+
+### Root's independent live observation
+
+Root read the Cloudflare settings directly on 2026-10-20 at about 08:00–08:02 UTC and found the same
+three facts this lane's 07:30Z read recorded:
+
+- the live Worker still carries the legacy auth bindings;
+- the Hyperdrive origin is still the provider's host;
+- `caching.disabled` is `false`, so the edge pooler's query cache is **on**.
+
+This lane's own re-read of the same settings was attempted afterwards and is **blocked**: the
+`cf` CLI credential expired at 2026-10-20T08:10:48Z and the API answers HTTP 403 for it. This lane
+did not refresh or re-authorize it, because refreshing a credential is not this lane's to decide.
+Root's observation is therefore the later reading, and it is recorded as root's.
+
+**No production mutation is authorized, and the live migration is not complete.** The live Worker
+still reaches the provider through the edge pooler, and the three legacy bindings are still
+attached. Nothing in this pull request changes that; the pull request changes what the repository
+deploys, once root runs the operations below.
 
 ## 3. Active integrations owned by another lane
 
@@ -134,12 +158,13 @@ none of them is a path the runtime or the deployment configuration still takes.
 
 ## 5. Naming-only references kept
 
-| File                                                                                                                    | Why it stays                                                                                                                                                |
-| ----------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/db/tests/unit/config.test.ts`, `packages/db/tests/unit/connection.test.ts`                                    | The regression that proves the retired endpoint shape is no longer special-cased names that shape. Removing the name would remove the regression's meaning. |
-| `scripts/identity-boundary.test.ts`                                                                                     | Refuses provider-shaped user-id fields. A gate.                                                                                                             |
-| `scripts/desktop-auth-boundary.test.ts`, `apps/web/start/client-policy.mjs`, `apps/web/test/start-client-denylist.json` | Refuse the legacy SDK in the client graph. Gates that guard a dependency that still exists.                                                                 |
-| `scripts/test-target-guard.test.ts`, `scripts/relay-retention-config.test.ts`, `packages/db/tests/integration/**`       | Fixture host names. They reach nothing.                                                                                                                     |
+| File                                                                                                                    | Why it stays                                                                                                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/db/tests/unit/config.test.ts`, `packages/db/tests/unit/connection.test.ts`                                    | The regression that proves the retired endpoint shape is no longer special-cased names that shape. Removing the name would remove the regression's meaning.                                                                                                                                                                     |
+| `scripts/identity-boundary.test.ts`                                                                                     | Refuses provider-shaped user-id fields. A gate.                                                                                                                                                                                                                                                                                 |
+| `scripts/desktop-auth-boundary.test.ts`, `apps/web/start/client-policy.mjs`, `apps/web/test/start-client-denylist.json` | Refuse the legacy SDK in the client graph. Gates that guard a dependency that still exists.                                                                                                                                                                                                                                     |
+| `apps/web/start/client-policy.mjs` (the private-environment list)                                                       | The legacy auth names stay denied while the auth lane's legacy reader, driver and dependency are still in the tree. These are output deny markers: they keep a name out of the browser bundle whether or not anything still reads it, so removing one before its reader is gone weakens the check rather than proving anything. |
+| `scripts/test-target-guard.test.ts`, `scripts/relay-retention-config.test.ts`, `packages/db/tests/integration/**`       | Fixture host names. They reach nothing.                                                                                                                                                                                                                                                                                         |
 
 ## 6. Measurement
 
@@ -195,19 +220,38 @@ profiling evidence named the local PostgreSQL SCRAM handshake and the per-connec
 among the top CPU frames, and the deployed series shows a per-minute CPU p50 of 10–34 ms with a
 bucket p99 above 350 ms. Those figures do not attribute CPU to any one route, so this lane did not
 guess at a per-route fix and did not cache any authentication, session or permission decision: the
-drizzle database still owns `$cache: undefined`, and the Worker still reads every authorization
-decision fresh.
+Worker still reads every authorization decision fresh.
 
 What changed is narrow and testable:
 
 - The connection role is no longer sniffed from a provider hostname, so no deployment can be
   misclassified by a name it happens to carry.
-- The deploy-time validator now refuses a configuration whose connections do not reach one
-  PostgreSQL host, which is the provider's retired two-endpoint shape, and it refuses it without
-  naming the provider.
+- The deploy-time validator now compares the **database instance** the connections reach, not the
+  literal host, and it refuses a configuration whose runtime and migration connections reach two
+  different instances. It refuses that without naming any provider, and it accepts the
+  pull-request database lane's own two-endpoint shape (a pooled runtime endpoint and a direct
+  migration endpoint for one branch), which the earlier host-equality rule broke.
 
 Both are covered by regressions in `packages/db/tests/unit/config.test.ts`,
 `packages/db/tests/unit/connection.test.ts` and `scripts/database-config.test.ts`.
+
+### The edge query cache is a separate thing, and it is on
+
+The ORM's in-process cache and the edge pooler's query cache are different mechanisms in different
+places, and this lane's change touches neither. Two facts have to be kept apart:
+
+- The drizzle database in `packages/db/src/connection.ts` owns `$cache: undefined`, and the Worker
+  reads every authorization decision fresh. That is the repository's own behaviour and it is
+  unchanged by this pull request.
+- The live edge pooler has **query caching enabled**: root read `caching.disabled = false` at about
+  08:00–08:02 UTC on 2026-10-20, and this lane's 07:30Z read recorded the same value. That cache
+  lives on the Cloudflare binding, outside this repository, and no change in this pull request
+  turns it off.
+
+So the repository's in-process cache being off says nothing about the edge cache, and this pull
+request establishes nothing about it either way. **Cache-disabled routing for authentication,
+session and permission reads is a cutover prerequisite**, and it is a live Cloudflare setting that
+root owns. It is listed below as such, and it is not a prerequisite this patch satisfies.
 
 Two further levers are available and are **not** taken here, because they are live settings or
 another lane's:
@@ -220,16 +264,16 @@ another lane's:
 This is the no-provider proof for a local shutdown. It covers what a developer
 machine and the local test lanes actually reach.
 
-| Local surface                           | What it reaches                                                                                                      | Provider reference                                                |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `compose.yml`                           | One pinned PostgreSQL container on `127.0.0.1:55432`.                                                                | None.                                                             |
-| `apps/web/.env.example`                 | The same loopback database, and the auth service's own `AUTH_BASE_URL`, `AUTH_SECRET` and `AUTH_DATABASE_URL`.       | None.                                                             |
-| `apps/web/.dev.vars.example`            | The same.                                                                                                            | None.                                                             |
-| `bun run dev`                           | The Vite dev server with the loopback database and the local auth service.                                           | None.                                                             |
-| `bun run test:integration`              | The loopback database, with `DATABASE_URL`, `DATABASE_URL_UNPOOLED` and `DATABASE_MIGRATION_URL` all pointing at it. | None.                                                             |
-| `bun run test:e2e`, `bun run test:unit` | The same loopback database.                                                                                          | None.                                                             |
-| `packages/db/src/config.ts`             | The connection rules.                                                                                                | None: the statement mode is not decided by a hostname.            |
-| `scripts/database-config.mjs`           | The deploy-time configuration check.                                                                                 | None: the refused shape is described without naming the provider. |
+| Local surface                           | What it reaches                                                                                                      | Provider reference                                     |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `compose.yml`                           | One pinned PostgreSQL container on `127.0.0.1:55432`.                                                                | None.                                                  |
+| `apps/web/.env.example`                 | The same loopback database, and the auth service's own `AUTH_BASE_URL`, `AUTH_SECRET` and `AUTH_DATABASE_URL`.       | None.                                                  |
+| `apps/web/.dev.vars.example`            | The same.                                                                                                            | None.                                                  |
+| `bun run dev`                           | The Vite dev server with the loopback database and the local auth service.                                           | None.                                                  |
+| `bun run test:integration`              | The loopback database, with `DATABASE_URL`, `DATABASE_URL_UNPOOLED` and `DATABASE_MIGRATION_URL` all pointing at it. | None.                                                  |
+| `bun run test:e2e`, `bun run test:unit` | The same loopback database.                                                                                          | None.                                                  |
+| `packages/db/src/config.ts`             | The connection rules.                                                                                                | None: the statement mode is not decided by a hostname. |
+| `scripts/database-config.mjs`           | The deploy-time configuration check.                                                                                 | None: the comparison names no provider.                |
 
 The one provider-dependent path left in the repository is the pull-request CI
 workflow, which is not a local surface and is the CI lane's to remove.
@@ -242,18 +286,58 @@ than turned into a reason to reach for a hosted branch.
 ## 9. Production operations needing root approval
 
 Root owns every live action. This lane performs none of them, and each step below is separate and
-needs its own approval. The order matters: the secrets must exist before the pull request merges,
-because the merge is what deploys the Worker.
+needs its own approval.
 
-| #   | Action                                            | Detail                                                                                                                                                                                                                                                                                     | Why it is root's                                             |
-| --- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------ |
-| 1   | Create the Railway database and the auth database | One Railway-managed PostgreSQL with the `app` and `auth` schemas, the `_app` runtime roles and the `_migration` role, and the auth schema initialized by `bun run --cwd packages/auth schema-init -- --apply`.                                                                             | Provisioning, roles and schema creation are live operations. |
-| 2   | Create the four Secrets Store records             | `ADEA_RAILWAY_PRODUCTION_DATABASE_URL`, `ADEA_RAILWAY_PRODUCTION_AUTH_BASE_URL`, `ADEA_RAILWAY_PRODUCTION_AUTH_SECRET`, `ADEA_RAILWAY_PRODUCTION_AUTH_DATABASE_URL`, in the account Secrets Store the Worker already reads.                                                                | A credential creation. The lane does not create credentials. |
-| 3   | Decide `AUTH_BASE_URL`                            | It is the public app origin Better Auth scopes its cookies to. The Worker serves `adea.dev` and `adea-web.adea-ai.workers.dev`; one base URL means one of them is the cookie host. The record is in the store rather than in the repository so the value can be set without a code change. | A live value with a user-visible consequence.                |
-| 4   | Repoint the edge pooler                           | Hyperdrive `adea-db` must front the Railway origin instead of `ep-aged-king-a52genig.us-east-2.aws.neon.tech`.                                                                                                                                                                             | A live Cloudflare setting on a production binding.           |
-| 5   | Merge the pull request                            | The merge deploys the Worker with the new binding set. If step 2 has not happened, the deploy fails closed and the previous Worker keeps serving.                                                                                                                                          | A deployment.                                                |
-| 6   | Observe                                           | Sign-in, refresh, logout and revocation outcomes; the verification deliveries; the Workers CPU-overrun counter; the request and subrequest counts.                                                                                                                                         | Live observation.                                            |
-| 7   | Retire the legacy bindings                        | Delete `AGENT_HQ_NEON_PRODUCTION_DATABASE_URL`, `AGENT_HQ_NEON_PRODUCTION_AUTH_BASE_URL` and `AGENT_HQ_WORKER_AUTH_COOKIE_SECRET` from the store, once the observation window is clean.                                                                                                    | A credential deletion.                                       |
+**Two facts the previous revision of this page got wrong are corrected here.** Both were this
+lane's own overstatement, and both would have made the cutover unsafe to plan:
+
+- **Repointing the existing edge pooler mutates the database the deployed Worker is using, at once.**
+  Hyperdrive `adea-db` is bound to the live Worker, so changing its origin changes where the
+  running Worker sends every database query the moment the change lands. It is not isolated
+  preparation, and it cannot be done "before the merge" without the current Worker starting to
+  reach a different database.
+- **A missing Secrets Store record does not block the deployment.** `apps/web/src/server/worker-bindings.ts`
+  resolves Secrets Store bindings lazily, per request, and a read failure is caught and swallowed:
+  the hydration deletes the environment value and the consuming guard returns its "not configured"
+  response. A missing record therefore does not fail the build, does not fail the deploy, and does
+  not leave the previous Worker serving. It surfaces at request time. This page previously claimed
+  the opposite; the claim is withdrawn.
+
+The consequence is that the cutover needs **positive validation** rather than an assumed
+fail-closed deployment.
+
+### The two authorized shapes
+
+Either shape is acceptable, and the choice is root's:
+
+| Shape                              | What it is                                                                                                                                                                                  | What it requires                                                                                                                                                                                                                                 |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Coordinated authorized cutover** | The pooler repoint and the new Worker version land together, as one approved change, with the Railway target fully prepared first.                                                          | One approval covering both. The preparation below must be complete and verified _before_ the repoint, because the instant the pooler changes is the instant the live Worker reaches the new database.                                            |
+| **Separately prepared binding**    | A second edge pooler is prepared against the Railway origin and the new Worker version binds it. The existing `adea-db` and the live Worker are untouched until the new version is serving. | Root creates the new pooler and supplies its id. The id in `apps/web/wrangler.jsonc` and `apps/web/cloudflare.config.ts` is then the new one, so **this pull request needs that id before it merges** — which is why the id is not changed here. |
+
+This pull request implements the first shape's _repository_ half: it keeps the existing pooler id
+and changes the bindings the Worker deploys with. The cutover itself is root's action.
+
+### The preparation that must be verified first
+
+None of this is performed or authorized by this lane.
+
+| #   | Action                                            | Detail                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Why it is root's                                             |
+| --- | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| 1   | Create the Railway database and the auth database | One Railway-managed PostgreSQL with the `app` and `auth` schemas, the `_app` runtime roles and the `_migration` role, and the auth schema initialized by `bun run --cwd packages/auth schema-init -- --apply`.                                                                                                                                                                                                                                                          | Provisioning, roles and schema creation are live operations. |
+| 2   | Create the four Secrets Store records             | `ADEA_RAILWAY_PRODUCTION_DATABASE_URL`, `ADEA_RAILWAY_PRODUCTION_AUTH_BASE_URL`, `ADEA_RAILWAY_PRODUCTION_AUTH_SECRET`, `ADEA_RAILWAY_PRODUCTION_AUTH_DATABASE_URL`, in the account Secrets Store the Worker already reads.                                                                                                                                                                                                                                             | A credential creation. The lane does not create credentials. |
+| 3   | Decide `AUTH_BASE_URL`                            | It is the public app origin Better Auth scopes its cookies to. The Worker serves `adea.dev` and `adea-web.adea-ai.workers.dev`; one base URL means one of them is the cookie host. The record is in the store rather than in the repository so the value can be set without a code change.                                                                                                                                                                              | A live value with a user-visible consequence.                |
+| 4   | Verify the target before it is switched to        | **Positive validation, because nothing validates it by itself.** Read each of the four store records back and confirm each resolves; confirm the Railway target answers on the runtime role and on the migration role; confirm the `app` schema and its tables and the `auth` schema and its tables are present and initialized; confirm the health probe's own checks pass against the target (`node scripts/database-health.mjs` with the three canonical variables). | A live read of a live target.                                |
+| 5   | Move the pooler, in the chosen shape              | Repoint `adea-db` to the Railway origin **as one change with the deploy**, or prepare a second pooler and bind that. See the two shapes above.                                                                                                                                                                                                                                                                                                                          | A live Cloudflare setting on a production binding.           |
+| 6   | Merge the pull request                            | The merge deploys the Worker with the new binding set. It does **not** validate steps 2 or 4: the deployment succeeds whether or not the records resolve, and a record that does not resolve shows up at request time as "not configured".                                                                                                                                                                                                                              | A deployment.                                                |
+| 7   | Verify the bindings resolved, then observe        | After the deploy, confirm the Worker resolves each of the four bindings — a failing resolution is silent by construction — and then record sign-in, refresh, logout and revocation outcomes, the verification deliveries, the Workers CPU-overrun counter, and the request and subrequest counts.                                                                                                                                                                       | Live observation.                                            |
+| 8   | Retire the legacy bindings                        | Delete `AGENT_HQ_NEON_PRODUCTION_DATABASE_URL`, `AGENT_HQ_NEON_PRODUCTION_AUTH_BASE_URL` and `AGENT_HQ_WORKER_AUTH_COOKIE_SECRET` from the store, once the observation window is clean.                                                                                                                                                                                                                                                                                 | A credential deletion.                                       |
+
+**Cache-disabled routing for authentication, session and permission reads is a prerequisite of the
+cutover and is not satisfied by this pull request.** The live pooler has query caching enabled; the
+cache lives on the Cloudflare binding, outside this repository, and root owns it. It has to be
+disabled, or the pooler that serves those reads has to be one without it, before the cutover is
+accepted.
 
 **Not required, and deliberately not done:** deleting, dropping, truncating or altering any provider
 branch, database, role or table. The legacy environment is retained untouched as an accountability
@@ -263,8 +347,49 @@ record.
 provider fallback, no backward-compatibility path and no provider rollback. The proposed rollback
 plan in the cutover checklist stays on the record as history; it is not an active dependency.
 
-## 10. What this audit does not establish
+## 10. Coordination with the pull-request database lane
 
+`scripts/database-config.mjs` is read by the health probe (`scripts/database-health.mjs`), which
+the pull-request database lane runs before its migrations. Two pull requests touch that file, and
+the coordination has to be settled at integration rather than by either owner editing the other's
+paths.
+
+| Pull request     | Owner              | Change to `scripts/database-config.mjs`                                                                                                                                                                                                                                                          |
+| ---------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| #1515 (this one) | H (this lane)      | Removes the provider-named endpoint rules. Compares the **database instance** the runtime and migration connections reach, and the instance the unpooled connection reaches, instead of the literal host. The instance comparison forgives only the pooler marker and compares the port exactly. |
+| #1516            | F (CI and release) | Removes the same provider-named endpoint rules and renames the normalisation helper. Replaces the hosted branch workflow with a provider-free disposable loopback proof.                                                                                                                         |
+
+**The overlap and its resolution.** The earlier revision of this lane compared the literal host,
+which broke the still-active hosted branch lane deterministically: that lane builds
+`DATABASE_URL` from the pooled endpoint and `DATABASE_MIGRATION_URL` from the direct endpoint of
+one branch, so the health probe failed before it reached the database query. This lane's rule now
+compares the instance, which accepts that two-endpoint shape and still refuses two different
+instances. The provider-free replacement in #1516 addresses one loopback instance on one port
+through all three variables, which the same rule accepts.
+
+At integration, this lane's file is a superset of #1516's: same removed rules, same helper
+semantics under the provider-neutral name, plus the runtime-versus-migration instance comparison
+and the exact port comparison. This lane owns the path; #1516's owner is asked to take this lane's
+version of the file at integration and to keep #1516's CI replacement.
+
+**The health gate is not weakened.** The comparison is strictly stronger than the one it replaces
+in the provider-free world: the original code never compared the runtime and migration hosts at
+all, and this lane's rule does. No provider fallback is restored, and no gate is skipped.
+
+**Both lanes are exercised.** `scripts/database-config.test.ts` now carries the hosted branch lane's
+exact URL shape as a regression — a pooled runtime endpoint and a direct migration endpoint for one
+branch — and asserts it is accepted, alongside a regression that a different branch, a different
+region and a different port are still refused.
+
+## 11. What this audit does not establish
+
+- **It does not establish that the live migration is complete.** The live Worker still binds the
+  provider's legacy auth names and the edge pooler still fronts the provider's host, which root
+  read directly at about 08:00–08:02 UTC on 2026-10-20. This pull request changes what the
+  repository deploys; it changes nothing live, and no production mutation is authorized.
+- It does not establish that the edge query cache is off, for authentication, session or permission
+  reads or anywhere else. The live pooler has query caching enabled, the cache lives outside this
+  repository, and the repository's own in-process cache says nothing about it.
 - It does not establish that the provider is gone from the live deployment. The live Worker still
   binds it, and the table above says what ends that.
 - It does not establish billed Cloudflare CPU, per-route attribution, or Hyperdrive query and cache
@@ -279,3 +404,17 @@ plan in the cutover checklist stays on the record as history; it is not an activ
 - It does not measure cost. The seven-day cost interval is a measurement the user runs next week
   with the [cost week plan](../guides/railway-cost-week-plan.md) as its procedure; it is not a
   gate on this migration, and nothing here waits for it.
+
+### Withdrawn claims
+
+Two statements in the earlier revision of this page were wrong, and they are withdrawn rather than
+quietly edited:
+
+- _"If step 2 has not happened, the deploy fails closed and the previous Worker keeps serving."_
+  False. Secrets Store bindings resolve lazily per request and a read failure is suppressed, so a
+  missing record does not fail the build, does not fail the deploy, and does not leave the previous
+  Worker serving. It surfaces at request time as "not configured".
+- _"Repoint the edge pooler" as a preparation step, before the merge._ False as a description of a
+  safe preparation. Repointing `adea-db` changes where the running Worker sends its queries at
+  once. It is either part of a coordinated authorized cutover or it is done on a separately
+  prepared binding.

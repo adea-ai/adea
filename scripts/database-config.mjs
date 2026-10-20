@@ -57,6 +57,29 @@ function readConnection(environment, name) {
   }
 }
 
+/**
+ * A transaction-pooled endpoint and its direct endpoint are two addresses for one
+ * database instance, so the pooler marker is removed before two hosts are compared.
+ * The comparison names no provider: the same rule serves a pooled edge endpoint, a
+ * direct endpoint and the loopback database.
+ */
+function normalizedPoolerHost(hostname) {
+  return hostname.replace('-pooler.', '.')
+}
+
+/**
+ * True when two connections address the same database instance. One instance can be
+ * reached through a pooled endpoint and through its direct endpoint, so the address
+ * is compared without the pooler marker, and the port is compared exactly: two
+ * instances can share a host on different ports.
+ */
+function sameDatabaseInstance(one, other) {
+  return (
+    normalizedPoolerHost(one.hostname) === normalizedPoolerHost(other.hostname) &&
+    one.port === other.port
+  )
+}
+
 export function inspectDatabaseConfiguration(environment = process.env) {
   for (const key of CLIENT_DATABASE_KEYS) {
     if (environment[key]) {
@@ -82,19 +105,21 @@ export function inspectDatabaseConfiguration(environment = process.env) {
   if (runtime.hosted !== migration.hosted) {
     throw new Error('Runtime and migration connections must target the same environment type')
   }
-  // One managed database serves every role, so every connection reaches one host and one
-  // port. The provider this deployment has left offered a pooled runtime endpoint and a
-  // direct migration endpoint on two different hosts; that split is what this check
-  // refuses, and it refuses it without naming the provider.
-  if (migration.hostname !== runtime.hostname || migration.port !== runtime.port) {
-    throw new Error('Runtime and migration connections must reach the same PostgreSQL host')
+  // Every role must reach one database instance. The pull-request database lane
+  // addresses one branch through two endpoints — a pooled runtime endpoint and a
+  // direct migration endpoint — and a managed deployment addresses one instance
+  // directly, so the instance is compared rather than the literal host. Comparing the
+  // literal host would refuse the lane's own two-endpoint shape, and refusing it
+  // would say nothing about any provider.
+  if (!sameDatabaseInstance(runtime, migration)) {
+    throw new Error('Runtime and migration connections must reach the same PostgreSQL instance')
   }
   if (unpooled) {
     if (unpooled.role !== runtime.role || unpooled.database !== runtime.database) {
       throw new Error('DATABASE_URL_UNPOOLED must use the runtime role and database')
     }
-    if (unpooled.hostname !== runtime.hostname || unpooled.port !== runtime.port) {
-      throw new Error('DATABASE_URL_UNPOOLED must reach the same PostgreSQL host as DATABASE_URL')
+    if (!sameDatabaseInstance(unpooled, runtime)) {
+      throw new Error('Pooled and unpooled connections must target the same environment')
     }
   }
 

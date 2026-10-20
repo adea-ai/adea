@@ -105,6 +105,10 @@ describe('pure browser dependency boundaries', () => {
       'AUTH_SECRET',
       'AUTH_DATABASE_URL',
       'AUTH_BASE_URL',
+      // The legacy auth names stay denied until the auth lane removes the legacy reader,
+      // driver and client SDK dependency that read them.
+      'NEON_AUTH_COOKIE_SECRET',
+      'NEON_AUTH_BASE_URL',
     ])
       expect(PRIVATE_ENV_NAMES).toContain(name)
   })

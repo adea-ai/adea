@@ -67,25 +67,70 @@ describe('inspectDatabaseConfiguration', () => {
     ).toThrow('must never be client-exposed')
   })
 
-  test('requires every connection to reach one PostgreSQL host', () => {
-    // One managed database serves the runtime and migration roles. A configuration that
-    // points the two connections at different hosts is two databases, and the provider this
-    // deployment has left offered exactly that split with a pooled runtime endpoint and a
-    // direct migration endpoint. The check names neither provider.
+  test('requires every connection to reach one database instance', () => {
+    // One instance serves the runtime and migration roles. A configuration that points
+    // the two connections at two different instances is two databases. The check names
+    // no provider.
     expect(() =>
       inspectDatabaseConfiguration({
         ...localEnvironment,
         DATABASE_MIGRATION_URL:
           'postgresql://agent_hq_local_migration:local-password@127.0.0.1:55433/agent_hq?sslmode=disable',
       })
-    ).toThrow('must reach the same PostgreSQL host')
+    ).toThrow('must reach the same PostgreSQL instance')
     expect(() =>
       inspectDatabaseConfiguration({
         ...localEnvironment,
         DATABASE_URL_UNPOOLED:
           'postgresql://agent_hq_local_app:local-password@localhost:55432/agent_hq?sslmode=disable',
       })
-    ).toThrow('must reach the same PostgreSQL host as DATABASE_URL')
+    ).toThrow('Pooled and unpooled connections must target the same environment')
+  })
+
+  test('accepts one instance addressed through a pooled and a direct endpoint', () => {
+    // The pull-request database lane addresses one branch through two endpoints: a pooled
+    // runtime endpoint and a direct migration endpoint. The health probe runs against
+    // exactly that pair, so the check compares the instance and not the literal host.
+    // Refusing it would fail the lane before the database query, and refusing it would
+    // say nothing about any provider.
+    const pooledHost = 'ep-quiet-pond-123456-pooler.us-east-2.aws.example.test'
+    const directHost = 'ep-quiet-pond-123456.us-east-2.aws.example.test'
+    const result = inspectDatabaseConfiguration({
+      DATABASE_URL: `postgresql://adea_dev_app:secret@${pooledHost}/neondb?sslmode=require&connect_timeout=10`,
+      DATABASE_URL_UNPOOLED: `postgresql://adea_dev_app:secret@${directHost}/neondb?sslmode=require&connect_timeout=10`,
+      DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${directHost}/neondb?sslmode=require&connect_timeout=10`,
+    })
+    expect(result).toEqual({
+      database: 'neondb',
+      hosted: true,
+      migrationRole: 'adea_dev_migration',
+      runtimeRole: 'adea_dev_app',
+    })
+  })
+
+  test('refuses a second instance reached through the same host name', () => {
+    // The pooler marker is the only difference the instance comparison forgives. A
+    // different branch, a different region and a different port are different
+    // instances and stay refused.
+    const pooledHost = 'ep-quiet-pond-123456-pooler.us-east-2.aws.example.test'
+    for (const migrationHost of [
+      'ep-other-654321.us-east-2.aws.example.test',
+      'ep-quiet-pond-123456.us-west-2.aws.example.test',
+    ]) {
+      expect(() =>
+        inspectDatabaseConfiguration({
+          DATABASE_URL: `postgresql://adea_dev_app:secret@${pooledHost}/neondb?sslmode=require`,
+          DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${migrationHost}/neondb?sslmode=require`,
+        })
+      ).toThrow('must reach the same PostgreSQL instance')
+    }
+    expect(() =>
+      inspectDatabaseConfiguration({
+        DATABASE_URL: `postgresql://adea_dev_app:secret@${pooledHost}:5432/neondb?sslmode=require`,
+        DATABASE_MIGRATION_URL:
+          'postgresql://adea_dev_migration:secret@ep-quiet-pond-123456.us-east-2.aws.example.test:5433/neondb?sslmode=require',
+      })
+    ).toThrow('must reach the same PostgreSQL instance')
   })
 
   test('accepts one hosted host with separate runtime and migration roles', () => {
