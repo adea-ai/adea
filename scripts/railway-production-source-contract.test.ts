@@ -65,7 +65,7 @@ describe('the Railway production-source contract', () => {
 
   test('a mismatched project refuses', () => {
     const plan = planRailwayProductionSource(IDENTITY, {
-      deployments: [{...SOURCE.deployments[0], projectId: 'project-other'}],
+      deployments: [{ ...SOURCE.deployments[0], projectId: 'project-other' }],
     })
     expect(plan.ok).toBe(false)
     if (!plan.ok) expect(plan.refusal).toBe('identity-mismatch')
@@ -73,7 +73,7 @@ describe('the Railway production-source contract', () => {
 
   test('a mismatched service refuses', () => {
     const plan = planRailwayProductionSource(IDENTITY, {
-      deployments: [{...SOURCE.deployments[0], serviceId: 'service-other'}],
+      deployments: [{ ...SOURCE.deployments[0], serviceId: 'service-other' }],
     })
     expect(plan.ok).toBe(false)
     if (!plan.ok) expect(plan.refusal).toBe('identity-mismatch')
@@ -81,23 +81,23 @@ describe('the Railway production-source contract', () => {
 
   test('a mismatched environment refuses', () => {
     const plan = planRailwayProductionSource(IDENTITY, {
-      deployments: [{...SOURCE.deployments[0], environmentId: 'environment-other'}],
+      deployments: [{ ...SOURCE.deployments[0], environmentId: 'environment-other' }],
     })
     expect(plan.ok).toBe(false)
     if (!plan.ok) expect(plan.refusal).toBe('identity-mismatch')
   })
 
   test('a malformed payload refuses', () => {
-    expect(normalizeRailwaySource({deployments: [{deploymentId: 'x'}]}).ok).toBe(false)
+    expect(normalizeRailwaySource({ deployments: [{ deploymentId: 'x' }] }).ok).toBe(false)
     expect(normalizeRailwaySource({}).ok).toBe(false)
     expect(normalizeRailwaySource(null).ok).toBe(false)
-    const plan = planRailwayProductionSource(IDENTITY, {deployments: [{deploymentId: 'x'}]})
+    const plan = planRailwayProductionSource(IDENTITY, { deployments: [{ deploymentId: 'x' }] })
     expect(plan.ok).toBe(false)
     if (!plan.ok) expect(plan.refusal).toBe('malformed-source')
   })
 
   test('an empty source refuses', () => {
-    const plan = planRailwayProductionSource(IDENTITY, {deployments: []})
+    const plan = planRailwayProductionSource(IDENTITY, { deployments: [] })
     expect(plan.ok).toBe(false)
     if (!plan.ok) expect(plan.refusal).toBe('empty-source')
   })
@@ -113,7 +113,10 @@ describe('the Railway production-source contract', () => {
   test('the contract and the fixtures carry no secret-shaped values', () => {
     const secretPattern =
       /(token|secret|password|passwd|api[_-]?key|authorization|bearer|eyJ[A-Za-z0-9_-]{8,})/i
-    const source = readFileSync(import.meta.dirname + '/railway-production-source-contract.ts', 'utf8')
+    const source = readFileSync(
+      import.meta.dirname + '/railway-production-source-contract.ts',
+      'utf8'
+    )
     const fixture = JSON.stringify(SOURCE)
     expect(secretPattern.test(fixture)).toBe(false)
     // The contract module names the secret-shaped words only in the guard

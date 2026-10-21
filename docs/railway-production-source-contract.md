@@ -9,14 +9,14 @@ production read, a deployment, or any change to production configuration.
 
 ## Schema provenance (public, non-secret)
 
-| Field | Value |
-| --- | --- |
-| Provider | Railway |
-| Contract | the public API reference: the deployments query and the Deployment type |
-| Source | <https://docs.railway.com/reference/public-api> (public, no credential required) |
-| Retrieved | 2026-10-21 |
-| Captured provider output | **no** — the fixtures are normalized placeholders shaped like the published schema |
-| Identity evidence | **none** — the production project, service and environment are not established in this repository |
+| Field                    | Value                                                                                             |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| Provider                 | Railway                                                                                           |
+| Contract                 | the public API reference: the deployments query and the Deployment type                           |
+| Source                   | <https://docs.railway.com/reference/public-api> (public, no credential required)                  |
+| Retrieved                | 2026-10-21                                                                                        |
+| Captured provider output | **no** — the fixtures are normalized placeholders shaped like the published schema                |
+| Identity evidence        | **none** — the production project, service and environment are not established in this repository |
 
 The normalized deployment shape binds the four fields the published schema
 declares: the deployment identifier, the project, the service and the
@@ -36,7 +36,7 @@ export const UNCONFIGURED_RAILWAY_SOURCE_IDENTITY = {
   projectId: null,
   serviceId: null,
   environmentId: null,
-};
+}
 ```
 
 Nothing in this repository may set that identity without an authorized source
@@ -49,12 +49,12 @@ A plan binds the deployment history to **all three** identifiers — project,
 service and environment. A source in which any deployment does not match all
 three is refused in full; a partial match never yields a plan.
 
-| Refusal | When |
-| --- | --- |
-| `identity-unconfigured` | the identity is unconfigured, or it does not name all three identifiers |
-| `identity-mismatch` | a deployment does not bind the declared project, service and environment |
-| `malformed-source` | the payload does not carry the declared schema fields |
-| `empty-source` | the payload carries no deployments |
+| Refusal                 | When                                                                     |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `identity-unconfigured` | the identity is unconfigured, or it does not name all three identifiers  |
+| `identity-mismatch`     | a deployment does not bind the declared project, service and environment |
+| `malformed-source`      | the payload does not carry the declared schema fields                    |
+| `empty-source`          | the payload carries no deployments                                       |
 
 ## Source ownership and the offline/live boundary
 
