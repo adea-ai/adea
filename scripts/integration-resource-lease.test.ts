@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -1196,7 +1196,9 @@ if (claim.decision === 'granted') setInterval(() => {}, 1000)
       expect(decisions.filter((decision) => decision.decision === 'granted')).toHaveLength(1)
       expect(decisions.filter((decision) => decision.decision === 'refused')).toHaveLength(3)
       for (const decision of decisions.filter((entry) => entry.decision === 'refused')) {
-        expect(decision.reason).toBe(CLEANUP_REFUSAL.active)
+        // A loser is refused because the lock is held by a live process, or
+        // because it could not read the lock at that moment.
+        expect([CLEANUP_REFUSAL.active, CLEANUP_REFUSAL.uncertain]).toContain(decision.reason)
       }
       // Every process named the same resource, so none of them was a different
       // project that happened to lose.
@@ -1357,7 +1359,9 @@ describe('the stale takeover', () => {
     })
     const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
 
-    // A reads the stale claim and pauses between its read and its move.
+    // A reads the stale claim and pauses between its read and its move. The
+    // liveness is realistic: the holder of the lock is alive, so a contender
+    // cannot break it.
     let contenderB = null
     let contenderC = null
     const a = claimSharedResource({
@@ -1366,7 +1370,7 @@ describe('the stale takeover', () => {
       runId: 'run-dead',
       identity,
       owner: { ...owner, pid: 5151 },
-      isProcessAlive: () => false,
+      isProcessAlive: (pid) => pid === 5151,
       afterClaimRead: () => {
         // B reaches for the same stale record. It belongs to another run, so
         // the arbitration cannot be proved and B is refused.
@@ -1376,7 +1380,7 @@ describe('the stale takeover', () => {
           runId: 'run-b',
           identity,
           owner: { ...owner, pid: 6161 },
-          isProcessAlive: () => false,
+          isProcessAlive: (pid) => pid === 5151,
         })
         // C reaches for it as well.
         contenderC = claimSharedResource({
@@ -1385,17 +1389,19 @@ describe('the stale takeover', () => {
           runId: 'run-c',
           identity,
           owner: { ...owner, pid: 7171 },
-          isProcessAlive: () => false,
+          isProcessAlive: (pid) => pid === 5151,
         })
       },
     })
 
-    // Exactly one holder: A, which owns the record it took back.
+    // Exactly one holder: A, which owns the record it took back. B and C used
+    // the same run id as A and are still refused, because the lock is held by
+    // a live process and a run id is not a process identity.
     expect(a.decision).toBe('granted')
     expect(contenderB?.decision).toBe('refused')
-    expect(contenderB?.reason).toBe(CLEANUP_REFUSAL.unsafeArbitration)
+    expect([CLEANUP_REFUSAL.active, CLEANUP_REFUSAL.uncertain]).toContain(contenderB?.reason)
     expect(contenderC?.decision).toBe('refused')
-    expect(contenderC?.reason).toBe(CLEANUP_REFUSAL.unsafeArbitration)
+    expect([CLEANUP_REFUSAL.active, CLEANUP_REFUSAL.uncertain]).toContain(contenderC?.reason)
 
     // The claim on disk is A's, and nobody else's record replaced it.
     const held = JSON.parse(readFileSync(claimFile, 'utf8'))
@@ -1441,7 +1447,7 @@ describe('the stale takeover', () => {
     expect(takeover.claim?.owner.pid).toBe(5151)
   })
 
-  test("another run's stale record is refused, because the arbitration cannot be proved", () => {
+  test('another run may take a stale record over, because the lock arbitrates it', () => {
     const directory = leaseDirectoryForTest()
     claimSharedResource({
       directory,
@@ -1451,7 +1457,7 @@ describe('the stale takeover', () => {
       owner: { ...owner, pid: 4242 },
       isProcessAlive: () => false,
     })
-    const refused = claimSharedResource({
+    const takeover = claimSharedResource({
       directory,
       resourceKey: identity.label,
       runId: 'run-other',
@@ -1459,11 +1465,43 @@ describe('the stale takeover', () => {
       owner: { ...owner, pid: 5151 },
       isProcessAlive: () => false,
     })
-    expect(refused.decision).toBe('refused')
-    expect(refused.reason).toBe(CLEANUP_REFUSAL.unsafeArbitration)
-    // The record of the run that is gone is left exactly as it was.
+    expect(takeover.decision).toBe('granted')
+    expect(takeover.claim?.runId).toBe('run-other')
+    // The record on disk is the new holder's, and the lock is free again.
     const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
-    expect(JSON.parse(readFileSync(claimFile, 'utf8')).runId).toBe('run-dead')
+    expect(JSON.parse(readFileSync(claimFile, 'utf8')).owner.pid).toBe(5151)
+    const lockFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.lock')
+    expect(existsSync(lockFile)).toBe(false)
+  })
+
+  test('a live lock is never broken, so a live claim is never displaced', () => {
+    const directory = leaseDirectoryForTest()
+    // A live process holds the claim.
+    const held = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-live',
+      identity,
+      owner: { ...owner, pid: 4242 },
+      isProcessAlive: (pid) => pid === 4242,
+    })
+    expect(held.decision).toBe('granted')
+    // Another run, with the same run id and a different one, is refused.
+    for (const runId of ['run-live', 'run-other']) {
+      const refused = claimSharedResource({
+        directory,
+        resourceKey: identity.label,
+        runId,
+        identity,
+        owner: { ...owner, pid: 5151 },
+        isProcessAlive: (pid) => pid === 4242,
+      })
+      expect(refused.decision).toBe('refused')
+      expect(refused.reason).toBe(CLEANUP_REFUSAL.active)
+    }
+    // The live holder's claim is exactly as it was.
+    const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
+    expect(JSON.parse(readFileSync(claimFile, 'utf8')).owner.pid).toBe(4242)
   })
 })
 

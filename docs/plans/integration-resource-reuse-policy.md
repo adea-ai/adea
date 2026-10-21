@@ -56,20 +56,24 @@ fully written record onto the claim path, so two runs that ask at the same
 moment cannot both hold it. A scan of per-run records cannot do that, because
 two processes can both read an empty directory and then both write into it.
 
-A claim whose owner is gone may be taken over only by the run that recorded
-it, because that arbitration is the run's own: a restarting run names the
-same run id, so it takes its own record back. Another run is refused, with
-the reason that the arbitration cannot be proved, because two reclaimers
-reaching for one stale record is exactly the case nothing here can settle.
-A contested shared instance is therefore not taken: the run that cannot prove
-it is entitled to it takes an instance of its own instead.
+The arbitration is held by a lock: one lock per resource, taken with an
+exclusive create and held for the whole claim or release. A run id is not a
+process identity, so two processes that share one can reach for the same
+record; the lock is a process identity, and it is what makes the arbitration
+sound. A run that cannot take the lock is refused, because the resource is in
+use, and a run that cannot read the lock is refused, because its owner is
+unknown. A lock whose owner is gone is broken by moving it aside and
+comparing the moved file with the one that was read: if they differ, a live
+lock was displaced, so it is put back with a link — a link refuses to replace
+a lock that is already there — and the claim is refused.
 
-Within the run that owns the record, the stale file is moved aside before it
-is replaced, and the moved file is compared with the one that was read. If
-they differ, a live claim was displaced, so it is put back with a link — a
-link refuses to replace a claim that is already there — and the claim is
-refused. The claim is read back before the run treats the resource as
-claimed, and a claim that is still live is never moved aside at all.
+A claim whose owner is gone may be taken over when the identity matches, and
+the lock is held while that happens, so only one reclaimer is in the operation
+at a time. Within it, the stale record is moved aside before it is replaced
+and the moved file is compared with the one that was read: if they differ, a
+live claim was displaced, so it is put back and the claim is refused. A claim
+that is still live is never moved aside at all. The claim is read back before
+the run treats the resource as claimed.
 
 A claim that cannot be read is uncertain, and an uncertain claim is never
 taken. The claim is released with the cleanup, and a claim that cannot be

@@ -468,6 +468,150 @@ function claimsDirectory(directory) {
 }
 
 /**
+ * The file that holds the lock on one resource's claim.
+ *
+ * The lock is what makes the claim's arbitration sound. A run id is not a
+ * process identity, so two processes that share one can reach for the same
+ * record; a lock that only one process can take is a process identity.
+ */
+function lockPath(directory, resourceKey) {
+  return join(claimsDirectory(directory), `${safeClaimName(resourceKey)}.lock`)
+}
+
+/**
+ * The name a resource's claim and lock files carry.
+ */
+function safeClaimName(resourceKey) {
+  const name = String(resourceKey).replace(/[^A-Za-z0-9._-]+/g, '-')
+  if (name === '' || name === '.' || name === '..') {
+    throw new Error('the resource key is not a safe claim name')
+  }
+  return name
+}
+
+/**
+ * Writes a record in full and creates a path with it, exclusively.
+ *
+ * The record is written beside the path and linked onto it. A link is atomic
+ * and refuses a path that is already there, so the path only ever appears
+ * complete, and only one caller can create it.
+ */
+function createExclusive(path, content, suffix) {
+  const temporary = `${path}.${suffix}.tmp`
+  writeFileSync(temporary, content)
+  try {
+    linkSync(temporary, path)
+    return true
+  } finally {
+    try {
+      rmSync(temporary, { force: true })
+    } catch {
+      // The temporary record is not the claim or the lock; leaving it behind is
+      // untidy but harmless.
+    }
+  }
+}
+
+/**
+ * Takes the lock that serialises the claim and the release of one resource.
+ *
+ * The lock is taken with an exclusive create, so exactly one process holds it.
+ * A lock whose owner is gone is broken: the stale lock is moved aside and the
+ * moved file is compared with the one that was read, and if they differ a live
+ * lock was displaced, so it is put back with a link and the claim is refused.
+ * A lock that cannot be read has an unknown owner, so it is never broken.
+ */
+function acquireLock({ directory, resourceKey, runId, identity, owner, now, isProcessAlive }) {
+  mkdirSync(claimsDirectory(directory), { recursive: true })
+  const path = lockPath(directory, resourceKey)
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const record = {
+      version: CLAIM_VERSION,
+      resourceKey,
+      runId,
+      identity,
+      owner: {
+        pid: owner.pid,
+        hostname: owner.hostname,
+        startedAt: owner.startedAt ?? null,
+      },
+      createdAt: now(),
+    }
+    const content = `${JSON.stringify(record, null, 2)}\n`
+    try {
+      createExclusive(path, content, `${runId}-${attempt}`)
+      return { acquired: true, record }
+    } catch (error) {
+      if (error?.code !== 'EEXIST') {
+        return { acquired: false, reason: CLEANUP_REFUSAL.uncertain }
+      }
+    }
+    let raw = null
+    let held = null
+    try {
+      raw = readFileSync(path, 'utf8')
+      held = JSON.parse(raw)
+    } catch {
+      held = null
+    }
+    if (!held || !held.owner) {
+      // The lock is there and cannot be understood, so its owner is unknown.
+      return { acquired: false, reason: CLEANUP_REFUSAL.uncertain }
+    }
+    if (isProcessAlive(held.owner.pid, held.owner.hostname)) {
+      return { acquired: false, reason: CLEANUP_REFUSAL.active }
+    }
+    // The lock is stale. It is moved aside and compared with the one that was
+    // read, and a live lock is never displaced.
+    const aside = `${path}.aside-${runId}-${attempt}`
+    try {
+      renameSync(path, aside)
+    } catch {
+      continue
+    }
+    let asideContent = null
+    try {
+      asideContent = readFileSync(aside, 'utf8')
+    } catch {
+      asideContent = null
+    }
+    if (asideContent !== raw) {
+      try {
+        linkSync(aside, path)
+        rmSync(aside, { force: true })
+      } catch {
+        // The lock stays where it is; its holder reads it and refuses.
+      }
+      return { acquired: false, reason: CLEANUP_REFUSAL.active }
+    }
+    try {
+      rmSync(aside, { force: true })
+    } catch {
+      // The stale lock is out of the way either way.
+    }
+  }
+  return { acquired: false, reason: CLEANUP_REFUSAL.active }
+}
+
+/**
+ * Releases the lock on one resource's claim.
+ *
+ * Only the process that took the lock may release it, and a lock that belongs
+ * to another process is left alone.
+ */
+function releaseLock({ directory, resourceKey, owner }) {
+  const path = lockPath(directory, resourceKey)
+  try {
+    const held = JSON.parse(readFileSync(path, 'utf8'))
+    if (held.owner?.pid !== owner.pid) return { released: false }
+    rmSync(path, { force: true })
+    return { released: true }
+  } catch {
+    return { released: false }
+  }
+}
+
+/**
  * The file that holds the claim on one resource.
  *
  * The name is the resource's key, not a run's name: there is one file per
@@ -475,11 +619,7 @@ function claimsDirectory(directory) {
  * same file.
  */
 function claimPath(directory, resourceKey) {
-  const name = String(resourceKey).replace(/[^A-Za-z0-9._-]+/g, '-')
-  if (name === '' || name === '.' || name === '..') {
-    throw new Error('the resource key is not a safe claim name')
-  }
-  return join(claimsDirectory(directory), `${name}.claim`)
+  return join(claimsDirectory(directory), `${safeClaimName(resourceKey)}.claim`)
 }
 
 /**
@@ -530,7 +670,43 @@ export function claimSharedResource({
   // reclaimer finish in between.
   afterClaimRead = null,
 }) {
-  mkdirSync(claimsDirectory(directory), { recursive: true })
+  // The lock is held for the whole operation, so the record on disk is only
+  // ever changed by the process that holds it. That is what makes the
+  // arbitration sound: a run id is not a process identity, and the lock is
+  // one. A run that cannot take the lock is refused rather than arbitrated.
+  const lock = acquireLock({ directory, resourceKey, runId, identity, owner, now, isProcessAlive })
+  if (!lock.acquired) {
+    return { decision: 'refused', reason: lock.reason, claim: null }
+  }
+  try {
+    return claimUnderLock({
+      directory,
+      resourceKey,
+      runId,
+      identity,
+      owner,
+      now,
+      isProcessAlive,
+      afterClaimRead,
+    })
+  } finally {
+    releaseLock({ directory, resourceKey, owner: lock.record.owner })
+  }
+}
+
+/**
+ * The claim itself, taken with the resource's lock held.
+ */
+function claimUnderLock({
+  directory,
+  resourceKey,
+  runId,
+  identity,
+  owner,
+  now,
+  isProcessAlive,
+  afterClaimRead,
+}) {
   const path = claimPath(directory, resourceKey)
   for (let attempt = 0; attempt < 4; attempt++) {
     let raw = null
@@ -557,22 +733,11 @@ export function claimSharedResource({
         // The resource belongs to another identity. It is never taken.
         return { decision: 'refused', reason: CLEANUP_REFUSAL.foreign, claim: existing }
       }
-      if (existing.runId !== runId) {
-        // The stale record belongs to another run. Taking it over would let
-        // two reclaimers reach for the same record, and nothing here can prove
-        // which of them is entitled to it, so the claim is refused rather than
-        // arbitrated. A run that is restarting takes its own record back: it
-        // names the same run, so the arbitration is the run's own.
-        return {
-          decision: 'refused',
-          reason: CLEANUP_REFUSAL.unsafeArbitration,
-          claim: existing,
-        }
-      }
-      // The owner is gone and the identity matches, and the record is this
-      // run's own. The stale record is moved aside before it is replaced, and
-      // the moved file is compared with the one that was read: if they differ,
-      // a live claim was displaced, so it is put back and the claim is refused.
+      // The owner is gone and the identity matches, and the lock is held, so
+      // this is the only reclaimer in the operation. The stale record is moved
+      // aside before it is replaced, and the moved file is compared with the
+      // one that was read: if they differ, a live claim was displaced, so it
+      // is put back and the claim is refused.
       if (typeof afterClaimRead === 'function') {
         afterClaimRead({ raw, claim: existing })
       }
@@ -620,12 +785,8 @@ export function claimSharedResource({
       },
       createdAt: now(),
     }
-    // The record is written in full beside the claim and then linked onto it.
-    // A link is atomic and refuses an existing target, so the claim path only
-    // ever appears complete, and only one reclaimer can create it. A reader
-    // never sees a half-written record and never has to guess what it says.
-    const temporary = `${path}.${runId}.${attempt}.tmp`
     const content = `${JSON.stringify(record, null, 2)}\n`
+    const temporary = `${path}.${runId}.${attempt}.tmp`
     try {
       writeFileSync(temporary, content)
       linkSync(temporary, path)
