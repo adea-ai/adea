@@ -824,19 +824,35 @@ function connectionBlockers(
  * Project one runtime connection's observations into the bounded public read
  * model.
  *
- * Only allow-listed fields are copied, so a native path, credential, process
- * handle or native session state held by the caller cannot travel into a
- * client payload through this projection.
+ * Every field is copied by name from the approved source type. Nothing is
+ * spread, so a nested object carrying an unexpected key — a credential under
+ * `access`, an endpoint under `health`, native session state under `identity` —
+ * cannot travel into the projection or into its JSON. The caller's source is
+ * only read: the projection never mutates it and never shares one of its
+ * nested objects.
  */
 export function projectRuntimeConnectionExecutionReadModel(
   source: RuntimeConnectionExecutionSource
 ): RuntimeConnectionExecutionReadModel {
   return {
-    access: { ...source.access },
+    access: {
+      entitlement: source.access.entitlement,
+      grant: source.access.grant,
+    },
     blockers: [...connectionBlockers(source)],
     capabilities: [...source.capabilities],
-    health: { ...source.health },
-    identity: { ...source.identity },
+    health: {
+      host: source.health.host,
+      node: source.health.node,
+      provider: source.health.provider,
+      runtime: source.health.runtime,
+      transport: source.health.transport,
+    },
+    identity: {
+      id: source.identity.id,
+      runtimeDefinitionId: source.identity.runtimeDefinitionId,
+      runtimeNodeId: source.identity.runtimeNodeId,
+    },
     observedAt: source.observedAt,
     transport: source.transport,
   }

@@ -573,6 +573,120 @@ describe('runtime connection read model', () => {
       expect(serialized).not.toContain(secret)
     }
   })
+
+  test('a nested extra never reaches the projection, only the named fields do', () => {
+    // The nested objects are replaced wholesale by a source that carries an
+    // unexpected key inside each of them. A spread would copy that key.
+    const source = {
+      ...connectionSource(),
+      access: {
+        clientSecret: 'nested-access-secret',
+        entitlement: 'allowed',
+        grant: 'granted',
+      },
+      health: {
+        endpoint: 'https://host.internal:8443',
+        host: 'online',
+        node: 'healthy',
+        provider: 'ready',
+        runtime: 'healthy',
+        transport: 'available',
+      },
+      identity: {
+        id: 'connection-1',
+        nativeSessionState: { pid: 4321, cwd: '/Users/owner/private' },
+        runtimeDefinitionId: 'runtime-definition-1',
+        runtimeNodeId: 'host-1',
+      },
+    } as unknown as RuntimeConnectionExecutionSource
+
+    const model = projectRuntimeConnectionExecutionReadModel(source)
+
+    expect(Object.keys(model.access).toSorted()).toEqual(['entitlement', 'grant'])
+    expect(Object.keys(model.health).toSorted()).toEqual([
+      'host',
+      'node',
+      'provider',
+      'runtime',
+      'transport',
+    ])
+    expect(Object.keys(model.identity).toSorted()).toEqual([
+      'id',
+      'runtimeDefinitionId',
+      'runtimeNodeId',
+    ])
+    expect(model.access).not.toHaveProperty('clientSecret')
+    expect(model.health).not.toHaveProperty('endpoint')
+    expect(model.identity).not.toHaveProperty('nativeSessionState')
+  })
+
+  test('a nested extra never reaches the serialized projection', () => {
+    const source = {
+      ...connectionSource(),
+      access: {
+        clientSecret: 'nested-access-secret',
+        entitlement: 'allowed',
+        grant: 'granted',
+      },
+      health: {
+        endpoint: 'https://host.internal:8443',
+        host: 'online',
+        node: 'healthy',
+        provider: 'ready',
+        runtime: 'healthy',
+        transport: 'available',
+      },
+      identity: {
+        id: 'connection-1',
+        nativeSessionState: { pid: 4321, cwd: '/Users/owner/private' },
+        runtimeDefinitionId: 'runtime-definition-1',
+        runtimeNodeId: 'host-1',
+      },
+    } as unknown as RuntimeConnectionExecutionSource
+
+    const serialized = JSON.stringify(projectRuntimeConnectionExecutionReadModel(source))
+
+    for (const extra of [
+      'nested-access-secret',
+      'host.internal',
+      'nativeSessionState',
+      '/Users/owner',
+      'pid',
+    ]) {
+      expect(serialized).not.toContain(extra)
+    }
+  })
+
+  test('the projection keeps every allowed field of the source', () => {
+    const model = projectRuntimeConnectionExecutionReadModel(connectionSource())
+
+    expect(model.access).toEqual({ entitlement: 'allowed', grant: 'not_required' })
+    expect(model.health).toEqual(healthyHealth)
+    expect(model.identity).toEqual({
+      id: 'connection-1',
+      runtimeDefinitionId: 'runtime-definition-1',
+      runtimeNodeId: 'host-1',
+    })
+    expect(model.capabilities).toEqual(['task.execute'])
+    expect(model.observedAt).toBe(observedAt)
+    expect(model.transport).toBe('remote_gateway')
+    expect(model.blockers).toEqual([])
+  })
+
+  test('the projection reads the caller’s input without changing it', () => {
+    const source = connectionSource()
+    const before = structuredClone(source)
+
+    const model = projectRuntimeConnectionExecutionReadModel(source)
+
+    expect(source).toEqual(before)
+    // The projection shares no nested object with the caller, so a later
+    // change to one cannot rewrite the other.
+    expect(model.access).not.toBe(source.access)
+    expect(model.health).not.toBe(source.health)
+    expect(model.identity).not.toBe(source.identity)
+    expect(model.capabilities).not.toBe(source.capabilities)
+  })
 })
 
 describe('execution location with a runtime connection inventory', () => {
