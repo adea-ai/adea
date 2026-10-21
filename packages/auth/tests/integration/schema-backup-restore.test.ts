@@ -18,6 +18,29 @@ import { Pool } from 'pg'
 // database package's own migration-history preflight. The ledger is the target
 // identity the current schema exposes; no other identity is invented here.
 //
+// The schema objects are compared as well, because the tables and the columns
+// do not carry them: the restored application schema is compared index by
+// index, constraint by constraint, function by function, trigger by trigger and
+// sequence by sequence, so a restore that lost an object the product relies on
+// cannot pass as a clean copy. The objects are compared by their definitions,
+// which the restore reproduces exactly: the application schema's definitions
+// are schema-qualified, so a restored definition and a source definition are
+// the same text. A sequence's current value is data, not a definition, and is
+// deliberately not compared.
+//
+// The objects are not only compared, they are exercised. The restored target
+// refuses a second write to a rollback fence's attribution, which is the
+// trigger's own refusal, and it refuses a second admission for the same target
+// context, which is the unique index's own refusal. The restored target is
+// also accepted by the database package's own migration-history preflight
+// before its ledger is altered, so the proof shows a restored target that the
+// product's own tooling accepts, not only one that a comparison accepts.
+//
+// The fixture the behaviour proof owns lives in the restored target only and is
+// removed again before the comparison that follows, so the restored target is
+// left exactly as the restore made it and the source target is never written
+// to at all.
+//
 // This is a DATA restoration proof. It says nothing about the runtime's
 // no-send behaviour, about a session generation, or about who may restore a
 // production database: the runtime owns the session and its monotonic
@@ -62,14 +85,21 @@ const TOOL_TIMEOUT_MS = 30_000
 const DB_QUERY_TIMEOUT_MS = 5_000
 const CLEANUP_TIMEOUT_MS = 10_000
 const CLEANUP_STEPS = 5
-// Pg_dump, pg_restore, the two initializer runs and the migration verifier, each a
-// bounded child process.
-const BODY_TOOL_CALLS = 5
+// The body tests: the dump and restore test, the application-schema test and the
+// restored-behaviour test. Pg_dump, pg_restore, the two initializer runs, the
+// migration verifier and the positive preflight are each a bounded child
+// process; the forty-three statements are the bounded queries the body runs.
+const BODY_TOOL_CALLS = 6
 const BODY_DB_QUERIES = 43
-const TEST_BUDGET_MS =
-  BODY_TOOL_CALLS * TOOL_TIMEOUT_MS +
-  BODY_DB_QUERIES * DB_QUERY_TIMEOUT_MS +
-  CLEANUP_STEPS * CLEANUP_TIMEOUT_MS
+// The body tests' own deadline: the sum of their bounded steps, so it can only
+// fire after every bounded step has finished. The cleanup steps are not part of
+// it: they run in `afterAll`, under the after-all budget below, and counting
+// them here as well counted the same work twice.
+const TEST_BUDGET_MS = BODY_TOOL_CALLS * TOOL_TIMEOUT_MS + BODY_DB_QUERIES * DB_QUERY_TIMEOUT_MS
+// The restored-behaviour test's own deadline: one verifier child and the five
+// statements of the behaviour proof. Its steps are inside the body's budget
+// above, so the worst case below does not count them twice.
+const RESTORED_BEHAVIOUR_BUDGET_MS = 1 * TOOL_TIMEOUT_MS + 5 * DB_QUERY_TIMEOUT_MS
 const BEFORE_ALL_BUDGET_MS = 2 * DB_QUERY_TIMEOUT_MS + 10_000
 const AFTER_ALL_BUDGET_MS = CLEANUP_STEPS * CLEANUP_TIMEOUT_MS + 5_000
 // The blocked-lock test: an admin DDL, the holder's lock, and one cleanup statement.
@@ -375,9 +405,9 @@ async function runMigrationVerifier(database: string) {
 
 /**
  * The application schema as one document: every table with its exact row count,
- * every column, the seeded tables' rows and the migration ledger. One statement
- * per side, so the comparison cannot be spread over a per-table loop that a
- * restored schema could outgrow.
+ * every column, the seeded tables' rows, the migration ledger and every schema
+ * object the application schema owns. One statement per side, so the comparison
+ * cannot be spread over a per-table loop that a restored schema could outgrow.
  *
  * The columns are compared in their physical order but without their ordinal
  * numbers: PostgreSQL's `information_schema.columns.ordinal_position` is the
@@ -385,6 +415,19 @@ async function runMigrationVerifier(database: string) {
  * migration dropped. A restored schema has no dropped columns, so the numbers
  * differ while the columns and their order do not. The order is the schema
  * property; the number is an artefact of the table's history.
+ *
+ * The objects are compared by their definitions, which is what a restore has to
+ * reproduce: the index definition, the constraint definition, the function
+ * definition, the trigger definition and the sequence's parameters. The
+ * definitions are read from the catalog, so they name the schema they live in
+ * and a restored definition and a source definition are the same text. The
+ * order inside each class is by content, never by a catalog identifier, because
+ * an identifier is a creation order and a restore creates the objects in the
+ * dump's order, not in the source's.
+ *
+ * A sequence's current value is data rather than a definition and is not
+ * compared: a restored sequence carries the value the dump recorded, and that
+ * value is not a property of the schema.
  */
 const APPLICATION_DOCUMENT_SQL = `
 SELECT jsonb_build_object(
@@ -405,6 +448,53 @@ SELECT jsonb_build_object(
       c.table_name, c.column_name, c.data_type, c.is_nullable
     ) ORDER BY c.table_name, c.ordinal_position)
     FROM information_schema.columns c WHERE c.table_schema = $1
+  ),
+  'indexes', (
+    SELECT jsonb_agg(jsonb_build_array(
+      c.relname, i.indisunique, i.indisprimary, (i.indpred IS NOT NULL),
+      pg_get_indexdef(i.indexrelid)
+    ) ORDER BY c.relname, pg_get_indexdef(i.indexrelid))
+    FROM pg_index i
+    JOIN pg_class c ON c.oid = i.indrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = $1
+  ),
+  'constraints', (
+    SELECT jsonb_agg(jsonb_build_array(
+      c.relname, con.conname, con.contype,
+      CASE WHEN con.contype IN ('c', 'f', 'p', 'u', 'x')
+        THEN pg_get_constraintdef(con.oid) ELSE '' END
+    ) ORDER BY c.relname, con.conname, con.contype)
+    FROM pg_constraint con
+    JOIN pg_class c ON c.oid = con.conrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = $1
+  ),
+  'functions', (
+    SELECT jsonb_agg(jsonb_build_array(
+      p.proname, pg_get_function_identity_arguments(p.oid), pg_get_functiondef(p.oid)
+    ) ORDER BY p.proname, pg_get_function_identity_arguments(p.oid), pg_get_functiondef(p.oid))
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = $1
+  ),
+  'triggers', (
+    SELECT jsonb_agg(jsonb_build_array(
+      c.relname, t.tgname, pg_get_triggerdef(t.oid)
+    ) ORDER BY c.relname, t.tgname, pg_get_triggerdef(t.oid))
+    FROM pg_trigger t
+    JOIN pg_class c ON c.oid = t.tgrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = $1 AND NOT t.tgisinternal
+  ),
+  'sequences', (
+    SELECT jsonb_agg(jsonb_build_array(
+      c.relname, s.seqstart, s.seqincrement, s.seqmin, s.seqmax, s.seqcache, s.seqcycle
+    ) ORDER BY c.relname)
+    FROM pg_sequence s
+    JOIN pg_class c ON c.oid = s.seqrelid
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = $1
   ),
   'ledger', (
     SELECT jsonb_agg(jsonb_build_array(j.id, j.hash, j.created_at) ORDER BY j.id)
@@ -584,7 +674,8 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
 
   test('the bounded budgets fit inside the outer command ceiling, with a margin', () => {
     // The disposable CLI kills the whole run at its ceiling, before cleanup can finish,
-    // so every budget that can run in one file must fit under it.
+    // so every budget that can run in one file must fit under it. The body's budget
+    // already covers the restored-behaviour test's steps, so they are not added here.
     const worstCase =
       BEFORE_ALL_BUDGET_MS +
       TEST_BUDGET_MS +
@@ -746,18 +837,205 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
   )
 
   test(
-    'the application schema is restored with its tables, columns, rows and migration ledger, and a wrong target is refused',
+    'the restored target is accepted by the migration preflight, and keeps the fence immutable and one admission per target',
+    async () => {
+      const validated = target!
+      const restoredConnection = urlFor(validated, restoredDatabase)
+
+      // 1. The positive preflight: the restored target is one the database package
+      //    itself accepts. The ledger the restore carried is the source's ledger, so
+      //    the preflight passes, and the verifier's own rerun changes nothing.
+      const verified = await runMigrationVerifier(restoredDatabase)
+      expect(verified.code).toBe(0)
+      expect(verified.stdout).toContain('Migration verification passed')
+      expect(verified.stderr).not.toContain('Migration history preflight failed')
+
+      // 2. The fixture this proof owns inside the restored target: one agent, one
+      //    group channel, two messages and one admission that names a target
+      //    context. Every identifier is this run's own, and the whole fixture is
+      //    removed again below, so the restored target is left exactly as the
+      //    restore made it and the source target is never written to at all.
+      const agentId = crypto.randomUUID()
+      const channelId = crypto.randomUUID()
+      const messageId = crypto.randomUUID()
+      const secondMessageId = crypto.randomUUID()
+      const intentId = crypto.randomUUID()
+      const secondIntentId = crypto.randomUUID()
+      const targetTaskId = crypto.randomUUID()
+      const targetSessionId = `restore-proof-session-${suffix}`
+      const controlPlaneAgentId = `agt_${'0'.repeat(26)}`
+      const pool = poolFor(restoredConnection)
+      try {
+        // The fixture is one statement: the parents and the admission it names are
+        // written together, so the foreign keys resolve inside the statement.
+        const inserted = await pool.query(
+          `WITH inserted_agent AS (
+             INSERT INTO ${applicationSchema}.agents
+               (id, control_plane_agent_id, workspace_id, name, profile_id, profile_version)
+             VALUES ($1::uuid, $2, $3::uuid, 'Restore Proof Agent', 'restore-proof-profile', '1.0.0')
+           ), inserted_channel AS (
+             INSERT INTO ${applicationSchema}.channels
+               (id, workspace_id, kind, title, idempotency_key)
+             VALUES ($4::uuid, $3::uuid, 'group', 'Restore Proof Channel',
+                     'restore-proof-channel-' || $4::text)
+           ), inserted_message AS (
+             INSERT INTO ${applicationSchema}.messages
+               (id, workspace_id, channel_id, sender_kind, sender_user_id, body_text,
+                idempotency_key, create_payload_hash)
+             VALUES ($5::uuid, $3::uuid, $4::uuid, 'user', $6::uuid, 'Restore proof message',
+                     'restore-proof-message-' || $5::text, 'restore-proof-hash-' || $5::text),
+                    ($7::uuid, $3::uuid, $4::uuid, 'user', $6::uuid, 'Restore proof second message',
+                     'restore-proof-message-' || $7::text, 'restore-proof-hash-' || $7::text)
+           ), inserted_intent AS (
+             INSERT INTO ${applicationSchema}.lead_turn_intents (
+               id, workspace_id, channel_id, message_id, actor_user_id, agent_id,
+               control_plane_agent_id, profile_id, profile_version, profile_revision,
+               channel_version, channel_visibility, audience, dispatch_key, state, reason_code,
+               handoff_target_session_id, handoff_target_generation, handoff_target_task_id,
+               handoff_target_attempt
+             ) VALUES (
+               $8::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $1::uuid,
+               $2, 'restore-proof-profile', '1.0.0', 0,
+               1, 'workspace', '[]'::jsonb, 'lead-turn:' || $8::text, 'blocked',
+               'ADMISSION_SERVICE_UNAVAILABLE',
+               $9, 1, $10::uuid, 1
+             )
+           )
+           SELECT count(*)::int AS intents FROM inserted_intent`,
+          [
+            agentId,
+            controlPlaneAgentId,
+            seededWorkspaceId,
+            channelId,
+            messageId,
+            seededUserId,
+            secondMessageId,
+            intentId,
+            targetSessionId,
+            targetTaskId,
+          ]
+        )
+        expect(inserted.rows[0]?.intents).toBe(1)
+
+        // 3. The fence is set the way the product sets it: one statement that writes
+        //    the whole attribution at once. The restored target accepts it, so the
+        //    guard it carries is the one the source schema has.
+        const fenced = await pool.query(
+          `UPDATE ${applicationSchema}.lead_turn_intents
+           SET rollback_fenced_at = $1::timestamptz,
+               rollback_fence_actor_kind = 'user',
+               rollback_fence_actor_ref = $2::uuid::text,
+               rollback_fence_reason = 'operator_intervention',
+               rollback_fence_authority = '{"schemaVersion":"1"}'::jsonb
+           WHERE id = $3::uuid`,
+          [at, seededUserId, intentId]
+        )
+        expect(fenced.rowCount).toBe(1)
+
+        // 4. The attribution is immutable: a second write is refused, and the refusal
+        //    is the trigger's own (a check violation with the trigger's message), not
+        //    a constraint's.
+        const refusedChange = await pool
+          .query(
+            `UPDATE ${applicationSchema}.lead_turn_intents
+             SET rollback_fence_reason = 'rollback_cohort'
+             WHERE id = $1::uuid`,
+            [intentId]
+          )
+          .then(
+            () => null,
+            (error: unknown) => error
+          )
+        expect(refusedChange).not.toBeNull()
+        expect((refusedChange as { code?: string }).code).toBe('23514')
+        expect((refusedChange as Error).message).toContain(
+          'rollback fence attribution is immutable'
+        )
+
+        // 5. One admission per target context: a second admission for the same target
+        //    is refused by the unique index, in the restored target.
+        const refusedDuplicate = await pool
+          .query(
+            `INSERT INTO ${applicationSchema}.lead_turn_intents (
+               id, workspace_id, channel_id, message_id, actor_user_id, agent_id,
+               control_plane_agent_id, profile_id, profile_version, profile_revision,
+               channel_version, channel_visibility, audience, dispatch_key, state, reason_code,
+               handoff_target_session_id, handoff_target_generation, handoff_target_task_id,
+               handoff_target_attempt
+             ) VALUES (
+               $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid,
+               $7, 'restore-proof-profile', '1.0.0', 0,
+               1, 'workspace', '[]'::jsonb, 'lead-turn:' || $1::text, 'blocked',
+               'ADMISSION_SERVICE_UNAVAILABLE',
+               $8, 1, $9::uuid, 1
+             )`,
+            [
+              secondIntentId,
+              seededWorkspaceId,
+              channelId,
+              secondMessageId,
+              seededUserId,
+              agentId,
+              controlPlaneAgentId,
+              targetSessionId,
+              targetTaskId,
+            ]
+          )
+          .then(
+            () => null,
+            (error: unknown) => error
+          )
+        expect(refusedDuplicate).not.toBeNull()
+        expect((refusedDuplicate as { code?: string }).code).toBe('23505')
+        expect((refusedDuplicate as Error).message).toContain('lead_turn_intents_target_unique')
+
+        // 6. The fixture is removed again, and the fence it carried is still the
+        //    fence the refused write could not change.
+        const removed = await pool.query(
+          `WITH removed_intent AS (
+             DELETE FROM ${applicationSchema}.lead_turn_intents WHERE id = $1::uuid
+             RETURNING rollback_fenced_at, rollback_fence_actor_ref, rollback_fence_reason
+           ), removed_messages AS (
+             DELETE FROM ${applicationSchema}.messages WHERE id = ANY($2::uuid[])
+           ), removed_channel AS (
+             DELETE FROM ${applicationSchema}.channels WHERE id = $3::uuid
+           ), removed_agent AS (
+             DELETE FROM ${applicationSchema}.agents WHERE id = $4::uuid
+           )
+           SELECT rollback_fenced_at, rollback_fence_actor_ref, rollback_fence_reason
+           FROM removed_intent`,
+          [intentId, [messageId, secondMessageId], channelId, agentId]
+        )
+        expect(removed.rows).toHaveLength(1)
+        expect(removed.rows[0]?.rollback_fenced_at).not.toBeNull()
+        expect(removed.rows[0]?.rollback_fence_actor_ref).toBe(seededUserId)
+        expect(removed.rows[0]?.rollback_fence_reason).toBe('operator_intervention')
+      } finally {
+        await pool.end()
+      }
+    },
+    RESTORED_BEHAVIOUR_BUDGET_MS
+  )
+
+  test(
+    'the application schema is restored with its tables, columns, rows, schema objects and migration ledger, and a wrong target is refused',
     async () => {
       const validated = target!
       const sourceConnection = urlFor(validated, validated.pathname.slice(1))
       const restoredConnection = urlFor(validated, restoredDatabase)
 
       // 1. The source application schema, as one document: every table with its exact row
-      //    count, every column, the seeded rows and the migration ledger.
+      //    count, every column, the seeded rows, the schema objects and the migration
+      //    ledger.
       const source = (await applicationDocument(sourceConnection)) as {
         columns?: unknown[]
+        constraints?: unknown[]
+        functions?: unknown[]
+        indexes?: unknown[]
         ledger?: unknown[]
+        sequences?: unknown[]
         tables?: unknown[]
+        triggers?: unknown[]
         users?: unknown[]
         workspaces?: unknown[]
       } | null
@@ -767,6 +1045,22 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       // The ledger is the target identity the schema exposes, and it is not empty: a
       // restored schema with no ledger would compare equal to an empty one.
       expect(source!.ledger?.length ?? 0).toBeGreaterThan(0)
+      // Every object class is compared, and every one of them is present in the
+      // source: an empty class would compare equal to an empty one, and the schema
+      // objects are what the comparison below is for. The fence's own trigger and
+      // function are among them, and the identity columns' sequences are too.
+      expect(source!.indexes?.length ?? 0).toBeGreaterThan(0)
+      expect(source!.constraints?.length ?? 0).toBeGreaterThan(0)
+      expect(source!.functions?.length ?? 0).toBeGreaterThan(0)
+      expect(source!.triggers?.length ?? 0).toBeGreaterThan(0)
+      expect(source!.sequences?.length ?? 0).toBeGreaterThan(0)
+      expect(JSON.stringify(source!.triggers)).toContain(
+        'lead_turn_intents_rollback_fence_immutable'
+      )
+      expect(JSON.stringify(source!.functions)).toContain(
+        'lead_turn_intents_rollback_fence_immutable'
+      )
+      expect(JSON.stringify(source!.indexes)).toContain('lead_turn_intents_target_unique')
       // The seeded rows are in the source, so the row comparison below is not vacuous.
       expect(source!.users).toContainEqual([seededUserId, `Restore Proof User ${suffix}`, false])
       expect(source!.workspaces).toContainEqual([
@@ -777,7 +1071,8 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       ])
 
       // 2. The restored application schema is the same document: the same tables with the
-      //    same row counts, the same columns, the same seeded rows and the same ledger.
+      //    same row counts, the same columns, the same seeded rows, the same schema
+      //    objects and the same ledger.
       const restored = await applicationDocument(restoredConnection)
       expect(restored).toEqual(source)
 
