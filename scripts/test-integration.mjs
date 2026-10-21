@@ -28,18 +28,21 @@ import {
   buildInventory,
   callerIdentity,
   claimResource,
+  claimSharedResource,
   cleanupReceipt,
-  createRunToken,
   currentOwner,
   deriveDisposablePort,
   diskPressureAdmission,
   leaseDirectory,
   listLeases,
   planCleanup,
+  processIsAlive,
   reconcileLeases,
   releaseLease,
+  releaseSharedResource,
   resolveResourceMode,
   resourceIdentity,
+  runTokenFor,
   summariseReceipt,
 } from './integration-resource-lease.mjs'
 import { cleanupOwnedResources, runBounded } from './disposable-postgres-volume-cleanup.mjs'
@@ -58,8 +61,12 @@ const usesExplicitDatabase = Boolean(process.env.DATABASE_URL)
 // is written before anything is created, so an interrupted run leaves evidence
 // of what it owned instead of an unexplained resource.
 const requestedMode = resolveResourceMode(process.env)
-const runToken = createRunToken()
-const runId = process.env.ADEA_INTEGRATION_RUN_ID ?? `run-${runToken}`
+// The run's identity. A caller may name the run, and a named run keeps its
+// project, its port and its database identity across a restart, so a restart
+// recovers the recorded lease instead of minting a second, conflicting one.
+const requestedRunId = process.env.ADEA_INTEGRATION_RUN_ID
+const runToken = runTokenFor(requestedRunId)
+const runId = requestedRunId ?? `run-${runToken}`
 const leaseDirectoryPath = leaseDirectory(process.env)
 const owner = currentOwner()
 
@@ -283,35 +290,71 @@ const reconciliation = reconcileLeases({
 console.log(
   `the integration lease reconciliation found ${reconciliation.found.length} record(s) and pruned ${reconciliation.pruned.length}`
 )
+
+// The liveness of an owner is read from the process table, not assumed. An
+// owner on another host cannot be probed, and an unprobeable owner is treated
+// as a live one, so a resource somebody else may still hold is never taken.
+const ownerIsAlive = (pid, ownerHostname) => processIsAlive(pid, ownerHostname)
+
+// The shared claim is one file per resource, created with an exclusive
+// create. Two live runs cannot both hold it, so they cannot share a database
+// even when they read the same empty directory at the same moment.
+let sharedClaim = null
+if (ownership === 'owned') {
+  sharedClaim = claimSharedResource({
+    directory: leaseDirectoryPath,
+    resourceKey: identity.label,
+    runId,
+    identity,
+    owner,
+    isProcessAlive: ownerIsAlive,
+  })
+  if (
+    sharedClaim.decision === 'refused' &&
+    requestedMode === RESOURCE_MODE.reusable &&
+    sharedClaim.reason === CLEANUP_REFUSAL.active
+  ) {
+    // The shared instance is held by a live run. A concurrent run does not
+    // share a database with it: it takes an instance labelled for itself, and
+    // says so.
+    identity = resourceIdentity({
+      mode: RESOURCE_MODE.disposable,
+      runToken,
+      port: deriveDisposablePort(runToken),
+    })
+    sharedClaim = claimSharedResource({
+      directory: leaseDirectoryPath,
+      resourceKey: identity.label,
+      runId,
+      identity,
+      owner,
+      isProcessAlive: ownerIsAlive,
+    })
+  }
+  if (sharedClaim.decision === 'refused') {
+    throw new Error(`the integration resource is not available: ${sharedClaim.reason}`)
+  }
+}
+
+// The lease is this run's own record of what it owns.
 let claim = claimResource({
   directory: leaseDirectoryPath,
   runId,
   mode: ownership === 'caller' ? 'caller' : requestedMode,
   identity,
   owner,
+  isProcessAlive: ownerIsAlive,
 })
-if (
-  claim.decision === 'refused' &&
-  ownership === 'owned' &&
-  requestedMode === RESOURCE_MODE.reusable &&
-  claim.reason === CLEANUP_REFUSAL.active
-) {
-  // The shared instance is held by a live run. A concurrent run does not share
-  // a database with it: it takes an instance labelled for itself, and says so.
-  identity = resourceIdentity({
-    mode: RESOURCE_MODE.disposable,
-    runToken,
-    port: deriveDisposablePort(runToken),
-  })
-  claim = claimResource({
-    directory: leaseDirectoryPath,
-    runId,
-    mode: RESOURCE_MODE.disposable,
-    identity,
-    owner,
-  })
-}
 if (claim.decision === 'refused') {
+  // The run's own record says something else, so the run owns nothing here.
+  if (sharedClaim?.decision === 'granted') {
+    releaseSharedResource({
+      directory: leaseDirectoryPath,
+      resourceKey: identity.label,
+      runId,
+      identity,
+    })
+  }
   throw new Error(`the integration resource is not available: ${claim.reason}`)
 }
 const lease = claim.lease
@@ -798,6 +841,21 @@ function applyCleanupPlan(cleanupPlan) {
       }
       return { ...resource, verifiedAbsent: removal.remaining.includes(identity.volume) === false }
     })
+  }
+
+  // The shared claim is released with the cleanup, so the next sequential run
+  // can take the instance it was using. A claim that cannot be released is
+  // reported: the next run will find an owner that is gone and will say so.
+  if (sharedClaim?.decision === 'granted') {
+    const released = releaseSharedResource({
+      directory: leaseDirectoryPath,
+      resourceKey: identity.label,
+      runId,
+      identity,
+    })
+    if (!released.released) {
+      errors.push(`the shared claim was not released: ${released.reason}`)
+    }
   }
 
   const receipt = cleanupReceipt({

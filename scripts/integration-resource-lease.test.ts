@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -6,13 +7,16 @@ import { join } from 'node:path'
 import {
   CLEANUP_DECISION,
   CLEANUP_REFUSAL,
+  CLAIM_STATE,
   DISK_PRESSURE,
   LEASE_STATE,
   RESOURCE_DISPOSITION,
   RESOURCE_MODE,
   callerIdentity,
   claimResource,
+  claimSharedResource,
   buildInventory,
+  classifyClaim,
   classifyDockerResource,
   classifyLease,
   cleanupReceipt,
@@ -24,11 +28,14 @@ import {
   leasePath,
   listLeases,
   planCleanup,
+  processIsAlive,
   readLease,
   reconcileLeases,
   releaseLease,
+  releaseSharedResource,
   resolveResourceMode,
   resourceIdentity,
+  runTokenFor,
   summariseReceipt,
 } from './integration-resource-lease.mjs'
 
@@ -144,18 +151,19 @@ describe('the claim', () => {
       runToken: 'a',
       port: '55432',
     })
-    const first = claimResource({
+    const first = claimSharedResource({
       directory,
+      resourceKey: identity.label,
       runId: 'run-a',
-      mode: RESOURCE_MODE.reusable,
       identity,
       owner,
+      isProcessAlive: () => true,
     })
     expect(first.decision).toBe('granted')
-    const second = claimResource({
+    const second = claimSharedResource({
       directory,
+      resourceKey: identity.label,
       runId: 'run-b',
-      mode: RESOURCE_MODE.reusable,
       identity,
       owner: { ...owner, pid: 5151 },
       isProcessAlive: () => true,
@@ -172,10 +180,10 @@ describe('the claim', () => {
       port: '55432',
     })
     const claims = ['run-a', 'run-b'].map((runId, index) =>
-      claimResource({
+      claimSharedResource({
         directory,
+        resourceKey: identity.label,
         runId,
-        mode: RESOURCE_MODE.reusable,
         identity,
         owner: { ...owner, pid: 1000 + index },
         isProcessAlive: (pid) => pid === 1000,
@@ -897,4 +905,322 @@ describe('the restart reconciliation', () => {
     expect(reconciliation.pruned).toEqual([])
     expect(readLease(directory, 'run-dead')).not.toBeNull()
   })
+})
+
+describe('the liveness of an owner', () => {
+  test('a process that is running is alive', () => {
+    expect(processIsAlive(process.pid)).toBe(true)
+  })
+
+  test('a process that is not running is not alive', () => {
+    // A process id that cannot be running: the kernel has no such process.
+    const dead = 2 ** 30
+    expect(processIsAlive(dead)).toBe(false)
+  })
+
+  test('an owner on another host cannot be probed, and is treated as alive', () => {
+    // The probe cannot reach another host, so its liveness is unknown, and an
+    // unknown liveness must not hand a live resource to a second run.
+    expect(processIsAlive(process.pid, 'another-host')).toBe(true)
+  })
+
+  test('a lease with no probe at all is treated as held by a live owner', () => {
+    const lease = {
+      version: 1,
+      runId: 'run-a',
+      identity: { label: 'adea-integration-disposable:adea-int-d-a' },
+      owner: { pid: 4242, hostname: 'synthetic-host' },
+      state: 'claimed',
+    }
+    // The production default must fail closed: without a probe, the owner is
+    // assumed to be alive, so the claim is refused.
+    expect(classifyLease(lease)).toBe(LEASE_STATE.active)
+  })
+})
+
+describe('the shared-resource claim', () => {
+  const identity = resourceIdentity({ mode: RESOURCE_MODE.reusable, runToken: 'a', port: '55432' })
+
+  test('the first run holds the claim and the second is refused it', () => {
+    const directory = leaseDirectoryForTest()
+    const first = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-a',
+      identity,
+      owner,
+      isProcessAlive: () => true,
+    })
+    expect(first.decision).toBe('granted')
+    const second = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-b',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => true,
+    })
+    expect(second.decision).toBe('refused')
+    expect(second.reason).toBe(CLEANUP_REFUSAL.active)
+  })
+
+  test('a claim whose owner is gone is taken over by the same identity', () => {
+    const directory = leaseDirectoryForTest()
+    const first = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-a',
+      identity,
+      owner: { ...owner, pid: 4242 },
+      isProcessAlive: () => false,
+    })
+    expect(first.decision).toBe('granted')
+    const restarted = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-a',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => false,
+    })
+    expect(restarted.decision).toBe('granted')
+    expect(restarted.claim?.owner.pid).toBe(5151)
+  })
+
+  test('a claim is never taken over by a different identity', () => {
+    const directory = leaseDirectoryForTest()
+    claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-a',
+      identity,
+      owner: { ...owner, pid: 4242 },
+      isProcessAlive: () => false,
+    })
+    const other = resourceIdentity({ mode: RESOURCE_MODE.disposable, runToken: 'b', port: '20002' })
+    const refused = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-b',
+      identity: other,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => false,
+    })
+    expect(refused.decision).toBe('refused')
+    expect(refused.reason).toBe(CLEANUP_REFUSAL.foreign)
+  })
+
+  test('a claim that cannot be read is uncertain, and an uncertain claim is refused', () => {
+    const directory = leaseDirectoryForTest()
+    claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-a',
+      identity,
+      owner,
+      isProcessAlive: () => false,
+    })
+    const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
+    writeFileSync(claimFile, 'not json at all')
+    const refused = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-b',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => false,
+    })
+    expect(refused.decision).toBe('refused')
+    expect(refused.reason).toBe(CLEANUP_REFUSAL.uncertain)
+  })
+
+  test('a claim is released only by the run that holds it', () => {
+    const directory = leaseDirectoryForTest()
+    claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-a',
+      identity,
+      owner,
+      isProcessAlive: () => true,
+    })
+    const foreign = releaseSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-b',
+      identity,
+    })
+    expect(foreign.released).toBe(false)
+    const released = releaseSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-a',
+      identity,
+    })
+    expect(released.released).toBe(true)
+  })
+
+  test('a claim record that cannot be understood is uncertain', () => {
+    expect(classifyClaim(null)).toBe(CLAIM_STATE.uncertain)
+    expect(classifyClaim({ version: 99 })).toBe(CLAIM_STATE.uncertain)
+    expect(
+      classifyClaim({
+        version: 1,
+        resourceKey: 'k',
+        identity: { label: 'l' },
+        owner: { pid: 1 },
+      })
+    ).toBe(CLAIM_STATE.active)
+  })
+})
+
+describe('the run identity', () => {
+  test('a named run keeps the same token, project and port across a restart', () => {
+    const first = runTokenFor('run-stable')
+    const second = runTokenFor('run-stable')
+    expect(first).toBe(second)
+    const identity = resourceIdentity({
+      mode: RESOURCE_MODE.disposable,
+      runToken: first,
+      port: '20001',
+    })
+    const restarted = resourceIdentity({
+      mode: RESOURCE_MODE.disposable,
+      runToken: second,
+      port: '20001',
+    })
+    expect(restarted.project).toBe(identity.project)
+    expect(restarted.label).toBe(identity.label)
+    expect(deriveDisposablePort(second)).toBe(deriveDisposablePort(first))
+  })
+
+  test('a run that names nothing is given a token of its own', () => {
+    const token = runTokenFor(undefined, { now: () => 1_700_000_000_000, random: () => 0.5 })
+    expect(token).not.toBe('')
+    expect(token).toBe(runTokenFor(undefined, { now: () => 1_700_000_000_000, random: () => 0.5 }))
+  })
+})
+
+describe('the claim under real processes', () => {
+  const modelUrl = new URL('./integration-resource-lease.mjs', import.meta.url).href
+
+  // A helper that claims the shared instance the way the lane does, with the
+  // real liveness probe, and holds the claim while it is alive.
+  function claimScript(): string {
+    return `
+import { hostname } from 'node:os'
+import { claimSharedResource, processIsAlive, resourceIdentity, runTokenFor } from ${JSON.stringify(
+      modelUrl
+    )}
+const [directory, runId, mode] = process.argv.slice(2)
+const identity = resourceIdentity({ mode, runToken: runTokenFor(runId), port: '20001' })
+const claim = claimSharedResource({
+  directory,
+  resourceKey: identity.label,
+  runId,
+  identity,
+  owner: { pid: process.pid, hostname: hostname(), startedAt: null },
+  isProcessAlive: processIsAlive,
+})
+console.log(JSON.stringify({ decision: claim.decision, reason: claim.reason ?? null, label: identity.label }))
+if (claim.decision === 'granted') setInterval(() => {}, 1000)
+`
+  }
+
+  test('only one of several processes at once holds the shared instance', async () => {
+    const directory = leaseDirectoryForTest()
+    const script = join(directory, 'claim.mjs')
+    writeFileSync(script, claimScript())
+    const children = Array.from({ length: 4 }, (_, index) =>
+      spawn(process.execPath, [script, directory, `run-${index}`, 'reusable'], {
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    )
+    try {
+      const decisions = await Promise.all(
+        children.map(
+          (child) =>
+            new Promise<{ decision: string; reason: string | null; label: string }>((resolve) => {
+              let output = ''
+              child.stdout!.on('data', (chunk) => {
+                output += String(chunk)
+                if (!output.includes('\n')) return
+                try {
+                  resolve(JSON.parse(output.trim().split('\n').at(-1) ?? '{}'))
+                } catch {
+                  resolve({ decision: 'unknown', reason: 'no answer', label: '' })
+                }
+              })
+              child.once('exit', () => {
+                if (output.includes('\n')) return
+                resolve({ decision: 'unknown', reason: 'no answer', label: '' })
+              })
+            })
+        )
+      )
+      // Exactly one process created the claim, and every other one read the
+      // winner's record and was refused it.
+      expect(decisions.filter((decision) => decision.decision === 'granted')).toHaveLength(1)
+      expect(decisions.filter((decision) => decision.decision === 'refused')).toHaveLength(3)
+      for (const decision of decisions.filter((entry) => entry.decision === 'refused')) {
+        expect(decision.reason).toBe(CLEANUP_REFUSAL.active)
+      }
+      // Every process named the same resource, so none of them was a different
+      // project that happened to lose.
+      expect(new Set(decisions.map((decision) => decision.label)).size).toBe(1)
+    } finally {
+      for (const child of children) child.kill('SIGKILL')
+    }
+  }, 30_000)
+
+  test('a restarted run recovers the claim and the identity it recorded', async () => {
+    const directory = leaseDirectoryForTest()
+    const script = join(directory, 'claim.mjs')
+    writeFileSync(script, claimScript())
+    const first = spawn(process.execPath, [script, directory, 'run-stable', 'disposable'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    const firstDecision = await new Promise<string>((resolve) => {
+      let output = ''
+      first.stdout!.on('data', (chunk) => {
+        output += String(chunk)
+        if (output.includes('\n')) resolve(output.trim())
+      })
+    })
+    const firstRecord = JSON.parse(firstDecision)
+    expect(firstRecord.decision).toBe('granted')
+    // The process dies without releasing anything, exactly as a crashed run
+    // would.
+    first.kill('SIGKILL')
+    await new Promise((resolve) => first.once('exit', resolve))
+
+    const restarted = spawn(process.execPath, [script, directory, 'run-stable', 'disposable'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    try {
+      const decision = await new Promise<{
+        decision: string
+        reason: string | null
+        label: string
+      }>((resolve) => {
+        let output = ''
+        restarted.stdout!.on('data', (chunk) => {
+          output += String(chunk)
+          if (output.includes('\n')) {
+            try {
+              resolve(JSON.parse(output.trim().split('\n').at(-1) ?? '{}'))
+            } catch {
+              resolve({ decision: 'unknown', reason: 'no answer', label: '' })
+            }
+          }
+        })
+      })
+      expect(decision.decision).toBe('granted')
+      // The restart recovered the recorded identity. It did not mint a second
+      // project for the same run.
+      expect(decision.label).toBe(firstRecord.label)
+    } finally {
+      restarted.kill('SIGKILL')
+    }
+  }, 30_000)
 })

@@ -41,6 +41,7 @@ function exercise(options: {
   removalFails?: boolean
   admissionRefused?: boolean
   inventory?: boolean
+  sharedClaimRefused?: string
 }) {
   const child = `
     import vm from 'node:vm'
@@ -51,6 +52,7 @@ function exercise(options: {
     const databaseEnvironments = []
     const receipts = []
     const claims = []
+    const sharedClaims = []
     const logs = []
     const removed = new Set()
     let created = false
@@ -191,6 +193,31 @@ function exercise(options: {
         },
         resourceIdentity({ mode, port }) {
           return { ...syntheticIdentity(mode), port: port ?? (mode === 'reusable' ? '55432' : '20001') }
+        },
+        claimSharedResource({ resourceKey, runId, identity }) {
+          sharedClaims.push({ resourceKey, runId, label: identity.label })
+          calls.push(['shared-claim', resourceKey])
+          if (options.sharedClaimRefused)
+            return { decision: 'refused', reason: options.sharedClaimRefused, claim: null }
+          return {
+            decision: 'granted',
+            claim: {
+              version: 1,
+              resourceKey,
+              runId,
+              identity,
+              owner: { pid: 123, hostname: 'synthetic-host', startedAt: null },
+              createdAt: 0,
+            },
+          }
+        },
+        releaseSharedResource({ resourceKey, runId }) {
+          calls.push(['shared-release', resourceKey])
+          return { released: true }
+        },
+        processIsAlive() { return true },
+        runTokenFor(runId) {
+          return runId ? String(runId).toLowerCase().replace(/[^a-z0-9]+/g, '-') : 'synthetictoken'
         },
         claimResource({ mode, identity }) {
           claims.push({ mode, label: identity.label })
@@ -339,7 +366,7 @@ function exercise(options: {
     let failure
     try { await runner.evaluate() } catch (error) { failure = error.message === '__exited__' ? undefined : error.message }
     for (const listener of [...(listeners.get('exit') ?? [])]) listener(failure ? 1 : 0)
-    console.log(JSON.stringify({ claims, created, failure, calls, errors, databaseEnvironments, logs, receipts }))
+    console.log(JSON.stringify({ claims, sharedClaims, created, failure, calls, errors, databaseEnvironments, logs, receipts }))
   `
   const result = spawnSync(
     nodePath,
@@ -354,6 +381,7 @@ function exercise(options: {
   expect(result.status, result.stderr).toBe(0)
   return JSON.parse(result.stdout) as {
     claims: { mode: string; label: string }[]
+    sharedClaims: { resourceKey: string; runId: string; label: string }[]
     databaseEnvironments: Record<string, string>[]
     created: boolean
     failure: string
@@ -1307,11 +1335,42 @@ test('a cleanup that cannot remove everything fails the lane', () => {
 })
 
 test('a shared instance that a live run holds sends this run to an instance of its own', () => {
-  const result = exercise({ mode: 'reusable', claimRefused: 'active', success: true })
-  expect(result.claims.map((claim) => claim.mode)).toEqual(['reusable', 'disposable'])
+  const result = exercise({ mode: 'reusable', sharedClaimRefused: 'active', success: true })
+  // The shared claim is refused, so the run takes an instance of its own.
+  expect(result.sharedClaims.map((claim) => claim.resourceKey)).toEqual([
+    'adea-integration-reusable:agent-hq',
+    'adea-integration-disposable:adea-int-d-synthetictoken',
+  ])
   const composeCalls = result.calls.filter((call) => call[0] === 'docker' && call[1] === 'compose')
   expect(composeCalls.every((call) => call.includes('adea-int-d-synthetictoken'))).toBe(true)
   expect(composeCalls.every((call) => !call.includes('agent-hq'))).toBe(true)
+})
+
+test('the shared claim is taken before the run records its lease', () => {
+  const result = exercise({ success: true })
+  const calls = result.calls.map((call) => call.join(' '))
+  const shared = calls.findIndex((call) => call.startsWith('shared-claim'))
+  const lease = calls.findIndex((call) => call.startsWith('claim'))
+  expect(shared).toBeGreaterThan(-1)
+  expect(lease).toBeGreaterThan(shared)
+})
+
+test('the shared claim is released with the cleanup', () => {
+  const result = exercise({ success: true })
+  const calls = result.calls.map((call) => call.join(' '))
+  const release = calls.findIndex((call) => call.startsWith('shared-release'))
+  expect(release).toBeGreaterThan(-1)
+  // The claim is released after the removal, so the next sequential run can
+  // take the instance.
+  const removal = calls.findIndex((call) => call.startsWith('docker rm'))
+  expect(release).toBeGreaterThan(removal)
+})
+
+test('a refused shared claim stops the run before it creates anything', () => {
+  const result = exercise({ sharedClaimRefused: 'active', success: true })
+  expect(result.failure).toContain('the integration resource is not available')
+  const calls = result.calls.map((call) => call.join(' '))
+  expect(calls.some((call) => call.startsWith('docker compose'))).toBe(false)
 })
 
 test('a shared instance this run started is stopped and kept for the next run', () => {

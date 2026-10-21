@@ -94,6 +94,26 @@ export const DISK_PRESSURE = {
 /** How long a settled lease record is kept before the lane prunes it. */
 export const DEFAULT_LEASE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
+/** The claim record's version. A record of another version is not understood. */
+export const CLAIM_VERSION = 1
+
+/** The states a shared-resource claim can be in. */
+export const CLAIM_STATE = {
+  active: 'active',
+  stale: 'stale',
+  uncertain: 'uncertain',
+}
+
+/**
+ * The liveness answer used when nothing can be established.
+ *
+ * A resource whose owner's liveness is unknown is a resource somebody else may
+ * still be using, so an unknown liveness is treated as alive. The alternative
+ * would let an unreadable ownership record hand a live resource to a second
+ * run, and that is the failure this model exists to prevent.
+ */
+const UNKNOWN_LIVENESS_IS_ALIVE = () => true
+
 /** The lease record's version. A record of another version is not understood. */
 export const LEASE_VERSION = 1
 
@@ -139,6 +159,48 @@ export function createRunToken({ now = Date.now, random = Math.random } = {}) {
   const clock = Math.trunc(now()).toString(36)
   const entropy = Math.trunc(random() * 0xffffffffff).toString(36)
   return `${clock}${entropy}`
+}
+
+/**
+ * Derives the token a run's resources are named after.
+ *
+ * When the caller names the run, the token comes from that name. A restarted
+ * run therefore keeps the same project, the same port and the same database
+ * identity, which is what makes a restart a recovery rather than a second,
+ * conflicting run. A generated token is only used for a run that did not name
+ * itself.
+ */
+export function runTokenFor(runId, { now = Date.now, random = Math.random } = {}) {
+  if (runId) {
+    const token = String(runId)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+    if (token === '') throw new Error('the run id does not name a resource')
+    return token.slice(0, 48)
+  }
+  return createRunToken({ now, random })
+}
+
+/**
+ * Reads whether a process is still running.
+ *
+ * The answer is conservative on purpose. A process on another host cannot be
+ * probed from here, so its liveness is unknown, and an unknown liveness is
+ * reported as alive: a resource held by a process we cannot see is a resource
+ * we must not touch. A process we can see is probed with the null signal,
+ * which asks whether it exists without disturbing it.
+ */
+export function processIsAlive(pid, ownerHostname) {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  if (ownerHostname && ownerHostname !== hostname()) return true
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    // The process exists but this user may not signal it.
+    return error?.code === 'EPERM'
+  }
 }
 
 /**
@@ -325,7 +387,7 @@ export function currentOwner(pid = process.pid) {
  */
 export function classifyLease(
   lease,
-  { isProcessAlive = () => false, expectedIdentity = null } = {}
+  { isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE, expectedIdentity = null } = {}
 ) {
   if (!lease || typeof lease !== 'object') return LEASE_STATE.uncertain
   if (lease.version !== LEASE_VERSION) return LEASE_STATE.uncertain
@@ -339,8 +401,162 @@ export function classifyLease(
   }
   if (lease.state === 'released' || lease.state === 'retained') return LEASE_STATE.settled
   if (!lease.owner || typeof lease.owner.pid !== 'number') return LEASE_STATE.uncertain
-  if (isProcessAlive(lease.owner.pid)) return LEASE_STATE.active
+  // The owner is alive unless the probe says otherwise. A lease whose owner
+  // lives on another host cannot be probed from here, and an unprobeable owner
+  // is treated as a live owner.
+  if (isProcessAlive(lease.owner.pid, lease.owner.hostname)) return LEASE_STATE.active
   return LEASE_STATE.stale
+}
+
+/**
+ * The directory the shared claims live in.
+ */
+function claimsDirectory(directory) {
+  return join(directory, 'claims')
+}
+
+/**
+ * The file that holds the claim on one resource.
+ *
+ * The name is the resource's key, not a run's name: there is one file per
+ * shared resource, so two runs that want the same resource argue over the
+ * same file.
+ */
+function claimPath(directory, resourceKey) {
+  const name = String(resourceKey).replace(/[^A-Za-z0-9._-]+/g, '-')
+  if (name === '' || name === '.' || name === '..') {
+    throw new Error('the resource key is not a safe claim name')
+  }
+  return join(claimsDirectory(directory), `${name}.claim`)
+}
+
+/**
+ * Classifies a claim.
+ *
+ * A record that cannot be understood is uncertain, and an uncertain claim is
+ * never taken: the owner of a record we cannot read is unknown, and an unknown
+ * owner keeps what it holds.
+ */
+export function classifyClaim(claim, { isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE } = {}) {
+  if (!claim || typeof claim !== 'object') return CLAIM_STATE.uncertain
+  if (claim.version !== CLAIM_VERSION) return CLAIM_STATE.uncertain
+  if (typeof claim.resourceKey !== 'string' || claim.resourceKey === '') {
+    return CLAIM_STATE.uncertain
+  }
+  if (!claim.identity || typeof claim.identity.label !== 'string') {
+    return CLAIM_STATE.uncertain
+  }
+  if (!claim.owner || typeof claim.owner.pid !== 'number') return CLAIM_STATE.uncertain
+  if (isProcessAlive(claim.owner.pid, claim.owner.hostname)) return CLAIM_STATE.active
+  return CLAIM_STATE.stale
+}
+
+/**
+ * Takes the exclusive right to use one shared resource.
+ *
+ * The claim is one file per resource, created with an exclusive create. Two
+ * processes that ask at the same time cannot both create it: one wins, and
+ * the other reads the winner's record and refuses. A scan of per-run records
+ * cannot do that, because two processes can both read an empty directory and
+ * then both write into it.
+ *
+ * A claim whose owner is gone may be taken over, but only by a run that names
+ * the same resource identity, so a takeover can never point a shared resource
+ * at a different project. A claim that cannot be read is uncertain, and an
+ * uncertain claim is never taken.
+ */
+export function claimSharedResource({
+  directory,
+  resourceKey,
+  runId,
+  identity,
+  owner,
+  now = Date.now,
+  isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
+}) {
+  mkdirSync(claimsDirectory(directory), { recursive: true })
+  const path = claimPath(directory, resourceKey)
+  for (let attempt = 0; attempt < 4; attempt++) {
+    let existing = null
+    try {
+      existing = JSON.parse(readFileSync(path, 'utf8'))
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        // The claim is there but cannot be understood. Its owner is unknown,
+        // and an unknown owner is never displaced.
+        return { decision: 'refused', reason: CLEANUP_REFUSAL.uncertain, claim: null }
+      }
+    }
+    if (existing) {
+      const state = classifyClaim(existing, { isProcessAlive })
+      if (state === CLAIM_STATE.active) {
+        return { decision: 'refused', reason: CLEANUP_REFUSAL.active, claim: existing }
+      }
+      if (state === CLAIM_STATE.uncertain) {
+        return { decision: 'refused', reason: CLEANUP_REFUSAL.uncertain, claim: existing }
+      }
+      if (existing.identity?.label && existing.identity.label !== identity.label) {
+        // The resource belongs to another identity. It is never taken.
+        return { decision: 'refused', reason: CLEANUP_REFUSAL.foreign, claim: existing }
+      }
+      // The owner is gone and the identity matches. The takeover is an
+      // exclusive create, so two takeovers cannot both win it.
+      try {
+        rmSync(path, { force: true })
+      } catch {
+        // The exclusive create below decides who holds the claim.
+      }
+      continue
+    }
+    const record = {
+      version: CLAIM_VERSION,
+      resourceKey,
+      runId,
+      identity,
+      owner: {
+        pid: owner.pid,
+        hostname: owner.hostname,
+        startedAt: owner.startedAt ?? null,
+      },
+      createdAt: now(),
+    }
+    try {
+      writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx' })
+      return { decision: 'granted', claim: record }
+    } catch (error) {
+      if (error?.code === 'EEXIST') continue
+      return { decision: 'refused', reason: CLEANUP_REFUSAL.uncertain, claim: null }
+    }
+  }
+  return { decision: 'refused', reason: CLEANUP_REFUSAL.active, claim: null }
+}
+
+/**
+ * Releases a claim on a shared resource.
+ *
+ * Only the run that holds the claim may release it, and only for the same
+ * identity it recorded. A claim held by another run is left alone.
+ */
+export function releaseSharedResource({ directory, resourceKey, runId, identity }) {
+  const path = claimPath(directory, resourceKey)
+  let existing = null
+  try {
+    existing = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    return { released: false, reason: 'the claim could not be read' }
+  }
+  if (existing.runId !== runId) {
+    return { released: false, reason: 'the claim belongs to another run' }
+  }
+  if (existing.identity?.label !== identity.label) {
+    return { released: false, reason: 'the claim names another identity' }
+  }
+  try {
+    rmSync(path, { force: true })
+    return { released: true }
+  } catch (error) {
+    return { released: false, reason: error.message }
+  }
 }
 
 /**
@@ -359,7 +575,7 @@ export function claimResource({
   identity,
   owner,
   now = Date.now,
-  isProcessAlive = () => false,
+  isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
 }) {
   const existing = readLease(directory, runId)
   if (existing) {
@@ -381,17 +597,6 @@ export function claimResource({
     }
     writeLease(directory, lease)
     return { decision: 'granted', reason: 'reclaimed', lease, reclaimed: true }
-  }
-
-  if (mode === RESOURCE_MODE.reusable) {
-    for (const other of listLeases(directory)) {
-      if (other.runId === runId) continue
-      if (other.identity?.label !== identity.label) continue
-      const state = classifyLease(other, { isProcessAlive })
-      if (state === LEASE_STATE.active) {
-        return { decision: 'refused', reason: CLEANUP_REFUSAL.active, lease: other }
-      }
-    }
   }
 
   const lease = leaseRecord({ runId, mode, identity, owner, now })
@@ -416,7 +621,7 @@ export function planCleanup({
   startedByThisRun = false,
   ownerPid = process.pid,
   retainedPaths = [],
-  isProcessAlive = () => false,
+  isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
 }) {
   const identity = lease?.identity
   const named = [
@@ -685,7 +890,7 @@ export function diskPressureAdmission({ availableBytes, requiredBytes = 0, limit
  */
 export function classifyDockerResource(
   resource,
-  { identity, leases = [], isProcessAlive = () => false } = {}
+  { identity, leases = [], isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE } = {}
 ) {
   const kind = resource.kind
   const name = resource.name
@@ -787,7 +992,7 @@ export function pruneSettledLeases({
   directory,
   now = Date.now,
   retentionMs = DEFAULT_LEASE_RETENTION_MS,
-  isProcessAlive = () => false,
+  isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
 } = {}) {
   const pruned = []
   for (const lease of listLeases(directory)) {
@@ -821,7 +1026,7 @@ export function reconcileLeases({
   identity,
   now = Date.now,
   retentionMs = DEFAULT_LEASE_RETENTION_MS,
-  isProcessAlive = () => false,
+  isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
 } = {}) {
   const found = []
   for (const lease of listLeases(directory)) {

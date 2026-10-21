@@ -48,6 +48,39 @@ refused rather than guessing.
 A lease records an identity, not a password. A caller-supplied target is named
 by its endpoint alone.
 
+## The shared claim
+
+A lease says what a run owns. The claim says who may use a shared resource
+right now, and it is the arbiter: one file per resource, created with an
+exclusive create, so two runs that ask at the same moment cannot both hold it.
+A scan of per-run records cannot do that, because two processes can both read
+an empty directory and then both write into it.
+
+A claim whose owner is gone may be taken over, but only by a run that names the
+same resource identity, so a takeover can never point a shared resource at a
+different project. A claim that cannot be read is uncertain, and an uncertain
+claim is never taken. The claim is released with the cleanup, and a claim that
+cannot be released is reported rather than hidden.
+
+## The liveness of an owner
+
+Whether an owner is still running is read from the process table, not assumed.
+A process on another host cannot be probed from here, so its liveness is
+unknown, and an unknown liveness is treated as alive: a resource somebody else
+may still be holding is never taken. The same rule applies when no probe is
+available at all, so a missing probe can never hand a live resource to a
+second run.
+
+## The restart
+
+A run may name itself with `ADEA_INTEGRATION_RUN_ID`. A named run keeps its
+project, its port and its database identity across a restart, so the restart
+recovers the lease and the claim it recorded instead of minting a second,
+conflicting identity. A restart recovers only what it recorded: it takes back
+its own lease and its own claim, and it never takes a resource that names
+another identity, another project, or an owner it cannot prove is gone. An
+uncertain resource is left alone, and it is never recreated.
+
 ## What may be removed
 
 The cleanup decision is about ownership, not convenience.
