@@ -364,9 +364,8 @@ test('General saves workspace identity changes as they are made', async ({ page 
   await expect(panel.getByRole('status', { name: 'Workspace identity save status' })).toHaveText(
     'Changes save as you make them.'
   )
-  await expect(panel.getByRole('status', { name: 'Workspace order position' })).toHaveText(
-    'Position 1 of 2'
-  )
+  // Order lives in the workspace menu, not in settings.
+  await expect(panel.getByText('Workspace order')).toHaveCount(0)
   const name = panel.getByRole('textbox', { name: 'Workspace name' })
   await name.fill('Renamed harness')
   await name.press('Enter')
@@ -376,8 +375,8 @@ test('General saves workspace identity changes as they are made', async ({ page 
   // The target banner follows the saved name.
   await expect(page.getByText('Settings for Renamed harness', { exact: true })).toBeVisible()
   await panel
-    .getByRole('radiogroup', { name: 'Virtual world' })
-    .getByText('Home', { exact: true })
+    .getByRole('group', { name: 'Virtual world' })
+    .getByRole('button', { name: 'Home', exact: true })
     .click()
   await expect
     .poll(async () =>
@@ -385,25 +384,22 @@ test('General saves workspace identity changes as they are made', async ({ page 
     )
     .toMatchObject({ name: 'Renamed harness', scene: 'home', version: 3 })
 
-  // A custom colour saves as lowercase #rrggbb and shows on the Custom button;
-  // choosing a preset afterwards replaces it.
-  const custom = panel.getByRole('button', { name: 'Custom', exact: true })
-  await expect(custom).toHaveAttribute('aria-pressed', 'false')
-  await panel.locator('input[type="color"]').fill('#2563eb')
+  // The first swatch is "Inherit (default)" and starts checked; a preset
+  // replaces it and choosing Inherit again clears the override.
+  const accent = panel.getByRole('radiogroup', { name: 'Workspace accent' })
+  await expect(accent.getByRole('radio', { name: 'Inherit (default)' })).toBeChecked()
+  await accent.getByRole('radio', { name: 'Violet' }).press('Space')
   await expect
     .poll(async () =>
       JSON.parse((await page.locator('#harness-root').getAttribute('data-workspace')) ?? '{}')
     )
-    .toMatchObject({ accent: '#2563eb', version: 4 })
-  await expect(custom).toHaveAttribute('aria-pressed', 'true')
-  await expect(panel.locator('[data-custom-accent-swatch]')).toBeVisible()
-  await panel.locator('label[for="workspace-accent-violet-input"]').click()
+    .toMatchObject({ accent: 'violet', version: 4 })
+  await accent.getByRole('radio', { name: 'Inherit (default)' }).press('Space')
   await expect
     .poll(async () =>
       JSON.parse((await page.locator('#harness-root').getAttribute('data-workspace')) ?? '{}')
     )
-    .toMatchObject({ accent: 'violet', version: 5 })
-  await expect(custom).toHaveAttribute('aria-pressed', 'false')
+    .toMatchObject({ accent: null, version: 5 })
   expect(errors).toEqual([])
 })
 
@@ -412,6 +408,7 @@ test('a host without workspace updates renders General read-only', async ({ page
   const panel = page.locator('#settings-panel-workspace-general')
   await expect(panel.getByRole('textbox', { name: 'Workspace name' })).toBeDisabled()
   await expect(panel.getByText('Changes save as you make them.')).toHaveCount(0)
+  await expect(panel.getByRole('group', { name: 'Virtual world' })).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -432,10 +429,15 @@ async function openControlPlaneHarness(
       body: '<html><body><div id="harness-root"></div></body></html>',
     })
   )
-  await page.goto(`${path}#settings/workspace-${section}`)
-  await page
-    .locator('#harness-root')
-    .evaluate((element, value) => element.setAttribute('data-control-plane', value), mode)
+  await page.goto(`${path}#settings/workspace-${section === 'skills' ? 'connections' : section}`)
+  await page.locator('#harness-root').evaluate(
+    (element, [value, skills]) => {
+      element.setAttribute('data-control-plane', value!)
+      // Skills lives in the Plugins dialog, not in a Settings section.
+      if (skills) element.setAttribute('data-plugins-skills', '')
+    },
+    [mode, section === 'skills' ? 'skills' : ''] as const
+  )
   await page.evaluate(
     async (url) => {
       await import(url)
@@ -443,6 +445,13 @@ async function openControlPlaneHarness(
     '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-settings-harness-app.tsx')
   )
   return errors
+}
+
+/** The Skills tab of the Plugins dialog, where a workspace's skills are managed. */
+async function openSkillsTab(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Plugins', exact: true })
+  await dialog.getByRole('tab', { name: 'Skills', exact: true }).click()
+  return dialog
 }
 
 async function recordedRequests(page: Page) {
@@ -455,7 +464,7 @@ test('Skills lists workspace and read-only system skills and deprecates after co
   page,
 }) => {
   const errors = await openControlPlaneHarness(page, 'scoped', 'skills')
-  const panel = page.locator('#settings-panel-workspace-skills')
+  const panel = await openSkillsTab(page)
   await expect(panel.getByText('Release notes')).toBeVisible()
   await expect(panel.getByText('This workspace · 1.0.0 · revision 2')).toBeVisible()
   await expect(panel.getByText('Code review')).toBeVisible()
@@ -515,7 +524,7 @@ test('Cloud connections adds a connection with a write-only secret, rotates and 
   })
 
   await panel.getByRole('button', { name: 'Rotate the github secret' }).click()
-  await panel.getByLabel('New github secret').fill(`${CLOUD_SECRET_CANARY}-2`)
+  await panel.getByRole('textbox', { name: 'New github secret' }).fill(`${CLOUD_SECRET_CANARY}-2`)
   await panel.getByRole('button', { name: 'Rotate secret' }).click()
   await expect(
     panel.getByRole('status').filter({ hasText: 'github secret rotated.' })
@@ -534,19 +543,20 @@ test('Cloud connections adds a connection with a write-only secret, rotates and 
   expect(errors).toEqual([])
 })
 
-test('an unconfigured deployment explains why Skills and cloud connections are unavailable', async ({
+test('an unconfigured deployment explains why cloud connections are unavailable', async ({
   page,
 }) => {
   const errors = await openControlPlaneHarness(page, 'unavailable', 'connections')
   const connections = page.locator('#settings-panel-workspace-connections')
   await expect(connections.getByText(/The Control Plane is unavailable right now/u)).toBeVisible()
   await expect(connections.getByRole('button', { name: 'Add cloud connection…' })).toHaveCount(0)
-  await page.getByRole('tab', { name: 'Skills', exact: true }).click()
-  await expect(
-    page
-      .locator('#settings-panel-workspace-skills')
-      .getByText(/The Control Plane is unavailable right now/u)
-  ).toHaveCount(2)
+  expect(errors).toEqual([])
+})
+
+test('an unconfigured deployment explains why Skills are unavailable', async ({ page }) => {
+  const errors = await openControlPlaneHarness(page, 'unavailable', 'skills')
+  const skills = await openSkillsTab(page)
+  await expect(skills.getByText(/The Control Plane is unavailable right now/u)).toHaveCount(2)
   expect(errors).toEqual([])
 })
 
@@ -607,7 +617,7 @@ test('settings headers and notes keep the shared palette and sized marks', async
 
 test('publish form textareas honor their rows contract', async ({ page }) => {
   const errors = await openControlPlaneHarness(page, 'scoped', 'skills')
-  const panel = page.locator('#settings-panel-workspace-skills')
+  const panel = await openSkillsTab(page)
   await expect(panel.getByRole('button', { name: 'Publish a skill…' })).toBeVisible()
   await panel.getByRole('button', { name: 'Publish a skill…' }).click()
   const manifestLocator = panel.locator('#skills-publish-manifest')

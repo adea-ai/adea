@@ -256,6 +256,7 @@ export function NavLeafTree(props: NavLeafTreeProps) {
   return (
     <Tree
       aria-label={props.label}
+      guides
       visibleItems={rows().items}
       activeId={activeId()}
       onActiveIdChange={setActiveId}

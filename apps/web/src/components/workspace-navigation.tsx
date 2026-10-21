@@ -21,7 +21,6 @@ import {
   useAgentListQuery,
   useCreateWorkspaceMutation,
   useUpdateWorkspaceMutation,
-  useReorderWorkspacesMutation,
   useWorkspaceListQuery,
 } from '@adea-ai/data'
 import { useWorkspaceEventStream } from '@adea-ai/data/provider'
@@ -394,7 +393,6 @@ function WorkspaceSettingsOverlay(props: {
   workspaces: readonly WorkspaceSummary[]
 }) {
   const agentsQuery = useAgentListQuery(props.client, () => props.workspace.id)
-  const reorderWorkspaces = useReorderWorkspacesMutation(props.client)
   const updateWorkspace = useUpdateWorkspaceMutation(props.client)
   return (
     <WorkspaceSettingsDialog
@@ -409,9 +407,6 @@ function WorkspaceSettingsOverlay(props: {
       onCreateWorkspace={props.onCreateWorkspace}
       onOpenAgents={props.onOpenAgents}
       onOpenWorkspace={props.onOpenWorkspace}
-      onReorderWorkspaces={async (workspaceIds) => {
-        await reorderWorkspaces.mutateAsync(workspaceIds)
-      }}
       onSignIn={props.onSignIn}
       onSignOut={props.onSignOut}
       onSwitchWorkspace={props.onSwitchWorkspace}
@@ -1752,11 +1747,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
           lazyComponent fetches its chunk at startup, which silently defeats
           the code split these boundaries exist to create. */}
       <Show when={globalPanel() === 'plugins' && props.activeWorkspace}>
-        <PluginsDialog
-          open
-          onClose={() => workspaceStore.getState().setGlobalPanel(null)}
-          provider={props.services.plugins}
-        />
+        {(workspace) => (
+          <PluginsDialog
+            open
+            onClose={() => workspaceStore.getState().setGlobalPanel(null)}
+            provider={props.services.plugins}
+            skills={{ client: props.client, workspaceId: workspace().id }}
+          />
+        )}
       </Show>
       <Show when={globalPanel() === 'about'}>
         <WorkspaceAboutDialog
