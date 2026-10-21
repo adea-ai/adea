@@ -1,0 +1,61 @@
+{
+  "vector": "remote-result-cross-runtime-v1",
+  "keyPurpose": "return",
+  "description": "Synthetic request-bound return envelopes for cross-runtime qualification. Ciphertext only: the fixture holds no plaintext and no private key material, and it is not a production key.",
+  "active": {
+    "label": "active epoch",
+    "recipientIkm": "synthetic client return key material for cross-runtime vector 0001",
+    "ephemeralIkm": "synthetic host ephemeral material for cross-runtime vector 0001",
+    "recipient": {
+      "version": 1,
+      "keyId": "return_00000000-0000-4000-8000-00000000000a",
+      "publicKey": "lYrrpQjDh9CIsi1k8LcyaUSg1j0N6OqwItsX_MW6sS8",
+      "workspaceId": "00000000-0000-4000-8000-000000000001",
+      "runtimeNodeId": "00000000-0000-4000-8000-000000000002",
+      "requestId": "00000000-0000-4000-8000-000000000003",
+      "issuedAt": "2026-09-22T12:00:00.000Z",
+      "expiresAt": "2026-09-22T20:00:00.000Z"
+    },
+    "enc": "7xDy7C3kNw4cAC9YzFi5qFkTG9-cIYMFpGE_NRFqRzA",
+    "ciphertext": "VZXcS6BREvtO3v4t_dWVvGZjTkXcWVS8r9Jx4HhItMX1JpGLiLdeDpk7bh9kc-_6oZs",
+    "aad": {
+      "version": 1,
+      "keyId": "return_00000000-0000-4000-8000-00000000000a",
+      "workspaceId": "00000000-0000-4000-8000-000000000001",
+      "runtimeNodeId": "00000000-0000-4000-8000-000000000002",
+      "requestId": "00000000-0000-4000-8000-000000000003",
+      "payloadType": "execution.result",
+      "schemaVersion": 1,
+      "issuedAt": "2026-09-22T12:00:00.000Z",
+      "expiresAt": "2026-09-22T20:00:00.000Z"
+    }
+  },
+  "revoked": {
+    "label": "revoked epoch",
+    "recipientIkm": "synthetic client return key material for revoked cross-runtime vector 0001",
+    "ephemeralIkm": "synthetic host ephemeral material for revoked cross-runtime vector 0001",
+    "recipient": {
+      "version": 1,
+      "keyId": "return_00000000-0000-4000-8000-00000000000b",
+      "publicKey": "h9-kZRDQMZQ0cJbE6vdjy_10JK4TBmy_JEJGvElhax0",
+      "workspaceId": "00000000-0000-4000-8000-000000000001",
+      "runtimeNodeId": "00000000-0000-4000-8000-000000000002",
+      "requestId": "00000000-0000-4000-8000-000000000003",
+      "issuedAt": "2026-09-22T12:00:00.000Z",
+      "expiresAt": "2026-09-22T20:00:00.000Z"
+    },
+    "enc": "On5pDTOOCJujWXFOqYG3mHu8sd_vrcYl48rzVqSrOjk",
+    "ciphertext": "PjqoPBjs1kHLEy1Z-EL86JVOtzha18LjCcz5tQbUs0ITHlrTxKA5ojIbFH-irjKGC7M",
+    "aad": {
+      "version": 1,
+      "keyId": "return_00000000-0000-4000-8000-00000000000b",
+      "workspaceId": "00000000-0000-4000-8000-000000000001",
+      "runtimeNodeId": "00000000-0000-4000-8000-000000000002",
+      "requestId": "00000000-0000-4000-8000-000000000003",
+      "payloadType": "execution.result",
+      "schemaVersion": 1,
+      "issuedAt": "2026-09-22T12:00:00.000Z",
+      "expiresAt": "2026-09-22T20:00:00.000Z"
+    }
+  }
+}
