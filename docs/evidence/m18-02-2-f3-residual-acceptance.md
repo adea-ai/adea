@@ -23,22 +23,26 @@ changed. The base was `ee31982e70406ab5de447a79603d6545ac11359f` on branch
 One disposable source workspace, built only through product APIs, with an audience that has three
 distinct answers:
 
-| Element           | What it is                                                                                                                                               |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Owner             | workspace owner, participant of the group, creator of both projects and of the task graph                                                                |
-| Member            | workspace member, listed on both projects, participant of the group, holder of a group grant                                                             |
-| Outsider          | workspace member, listed on neither project, not a participant of the group                                                                              |
-| Revoked           | workspace member whose membership is removed mid-file                                                                                                    |
-| Group             | participants-only channel with an audience grant per human and an enlistment grant for an Agent                                                          |
-| Visible project   | workspace-visible, with a channel, two messages, two tasks and one task dependency                                                                       |
-| Members project   | members-only, with a channel and one message                                                                                                             |
-| Artifact          | an object-store artifact with a locator and provenance, and an external-harness artifact, both linked from one message and granted to a second workspace |
-| Content refs      | an offline local body, an E2E-synchronized body with a cloud replica, a deleted body, a task objective body                                              |
-| Execution attempt | one cloud-location attempt on the task graph                                                                                                             |
-| Invitation        | a workspace invitation, so a credential and an email exist in the source                                                                                 |
+| Element           | What it is                                                                                                                                                                                                                              |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Owner             | workspace owner, participant of the group, creator of both projects and of the task graph                                                                                                                                               |
+| Member            | workspace member, listed on both projects, participant of the group, holder of a group grant                                                                                                                                            |
+| Outsider          | workspace member, listed on neither project, not a participant of the group                                                                                                                                                             |
+| Revoked           | workspace member whose membership is removed mid-file                                                                                                                                                                                   |
+| Group             | participants-only channel with an audience grant per human and an enlistment grant for an Agent                                                                                                                                         |
+| Visible project   | workspace-visible, with a channel, seven messages, two tasks and one task dependency                                                                                                                                                    |
+| Members project   | members-only, with a channel, one message and one task                                                                                                                                                                                  |
+| Artifact          | an object-store artifact with a locator and provenance, and an external-harness artifact, both linked from one message and granted to a second workspace                                                                                |
+| Content refs      | a body the local authority holds, a body it holds but cannot serve, a body it does not hold, a deleted body, an E2E-synchronized body with a cloud replica, a task objective body and a task objective body in the members-only project |
+| Execution attempt | one cloud-location attempt on the task graph                                                                                                                                                                                            |
+| Invitation        | a workspace invitation, so a credential and an email exist in the source                                                                                                                                                                |
+| Publication       | a job publication: a system sender whose stored identifier is an encoded binding of the acting user, the job and its workspace                                                                                                          |
+| Tombstone         | a message the workspace removed, kept with the time of its removal                                                                                                                                                                      |
 
 The three audience texts are distinct: a workspace-visible text, a members-only text and a
-participants-only group text. The canaries are the artifact locator, the artifact provenance, the
+participants-only group text. The content references cover every state the local authority can
+report — held, held but not servable, not held, and removed — so the document's statement about
+each state is proved rather than assumed. The canaries are the artifact locator, the artifact provenance, the
 external-harness reference and harness id, the artifact reference grant id, the execution reference,
 the replica ciphertext and nonce, the invitation email, the invitation token digest and the session
 credential digest. Every one of them is asserted to be present in the source before its absence
@@ -57,19 +61,22 @@ recorded under the commands below.
 The evidence classes below are the ones this file adds. Everything already proved by the merged
 files is cited, not repeated.
 
-| Class | Claim                                                                                                                                     | Where                                                                                                                                                              |
-| ----- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| E1    | The authorized bundle is nonempty in every family the format claims to carry                                                              | `the authorized bundle is nonempty in every family the format claims to carry`                                                                                     |
-| E2    | The bundle lists the messages in the order the canonical reader serves them, and the restore reproduces it                                | `the bundle lists the messages in the order the canonical reader serves them`, `the restore reproduces the order, the links and the digest of the bundle`          |
-| E3    | The audience matrix: owner, listed member and outsider each receive exactly their own audience                                            | `the audience matrix gives each reader exactly their own audience`                                                                                                 |
-| E4    | Revocation: a revoked group grant removes the group and its text; a removed membership is refused indistinguishably                       | `a revoked group audience grant removes the group and its text from the next bundle`, `a removed membership is refused with the same body as an unknown workspace` |
-| E5    | Artifact references do not travel and the withheld domain is named, not silently lost                                                     | `artifact references do not travel, and the withheld domain is named`                                                                                              |
-| E6    | The source's grants are never transplanted; the restore issues its own                                                                    | `the source grants are never transplanted; the restore issues its own`                                                                                             |
-| E7    | The residency classification, and the actual stores the restored workspace occupies                                                       | `the restored workspace lives in an enumerated set of stores and nowhere else`, `the stores without a workspace column hold only the provisioned identities`       |
-| E8    | Offline and withheld content is stated honestly, and every external domain is reported unavailable                                        | `the withheld external domains are reported unavailable and the offline bodies are stated honestly`                                                                |
-| E9    | Malicious manifests, ordering and collision errors are refused and write nothing                                                          | `a malicious manifest is refused and writes nothing`, `ordering and collision errors are refused and write nothing`                                                |
-| E10   | A manifest that claims another exporter's authority transfers no authority                                                                | `a manifest claiming another exporter's authority does not transfer authority`                                                                                     |
-| E11   | Secret canaries are in the source and in no bundle and in no destination; private plaintext reaches the authorized reader and nobody else | `the secret canaries are in the source and in no bundle and in no destination`, `the private plaintext reaches the authorized reader and no one else`              |
+| Class | Claim                                                                                                                                                                                                 | Where                                                                                                                                                              |
+| ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| E1    | The authorized bundle is nonempty in every family the format claims to carry                                                                                                                          | `the authorized bundle is nonempty in every family the format claims to carry`                                                                                     |
+| E2    | The bundle lists the messages in the order the canonical reader serves them, and the restore reproduces it                                                                                            | `the bundle lists the messages in the order the canonical reader serves them`, `the restore reproduces the order, the links and the digest of the bundle`          |
+| E3    | The audience matrix: owner, listed member and outsider each receive exactly their own audience                                                                                                        | `the audience matrix gives each reader exactly their own audience`                                                                                                 |
+| E4    | Revocation: a revoked group grant removes the group and its text; a removed membership is refused indistinguishably                                                                                   | `a revoked group audience grant removes the group and its text from the next bundle`, `a removed membership is refused with the same body as an unknown workspace` |
+| E5    | Artifact references do not travel and the withheld domain is named, not silently lost                                                                                                                 | `artifact references do not travel, and the withheld domain is named`                                                                                              |
+| E6    | The source's grants are never transplanted; the restore issues its own                                                                                                                                | `the source grants are never transplanted; the restore issues its own`                                                                                             |
+| E7    | The residency classification, and the actual stores the restored workspace occupies                                                                                                                   | `the restored workspace lives in an enumerated set of stores and nowhere else`, `the stores without a workspace column hold only the provisioned identities`       |
+| E8    | Offline and withheld content is stated honestly, and every external domain is reported unavailable                                                                                                    | `the withheld external domains are reported unavailable and the offline bodies are stated honestly`                                                                |
+| E9    | Malicious manifests, ordering and collision errors are refused and write nothing                                                                                                                      | `a malicious manifest is refused and writes nothing`, `ordering and collision errors are refused and write nothing`                                                |
+| E10   | A manifest that claims another exporter's authority transfers no authority                                                                                                                            | `a manifest claiming another exporter's authority does not transfer authority`                                                                                     |
+| E11   | Secret canaries are in the source and in no bundle and in no destination; private plaintext reaches the authorized reader and nobody else                                                             | `the secret canaries are in the source and in no bundle and in no destination`, `the private plaintext reaches the authorized reader and no one else`              |
+| E12   | The source, the document and the restored workspace agree on the order of every channel, and the document's own position is that order                                                                | `the source, the export and the import agree on the order of every channel`                                                                                        |
+| E13   | The document carries the authorized content and its provenance unchanged: authorship, timestamps, versions, tombstones, body states, reference metadata, task fields, profile pins and project fields | `the export carries the authorized content and its provenance, unchanged`                                                                                          |
+| E14   | The body states are stated exactly, and a reference the reader may not know about is absent from that reader's document                                                                               | `the body states and the unknown-to-the-reader case are stated exactly`                                                                                            |
 
 ### E2, the order and the links
 
@@ -185,6 +192,58 @@ stored: its digest is, and the digest is the canary. The private plaintext canar
 the owner's bundle and in the owner's destination, absent from the outsider's bundle, and absent
 from the outsider's destination, whose only workspace membership is the outsider, as owner.
 
+### E12, the order across the source, the document and the restore
+
+The order a conversation is read in is compared in three places at once, for every channel the
+owner may read: the canonical reader's order in the source, the order the document lists, and the
+canonical reader's order in the restored workspace. The three sequences must be the same list of
+record ids, and the document's own `channelOrder` must be the one-based position of each record in
+that list. A document that listed the right records in a different order, or a restore that
+reordered them, fails here.
+
+### E13, the authorized content and its provenance
+
+Every carried record is compared with the source row it came from, field by field: the author, the
+created, updated, edited and removed times, the version, and the body of each message; the content
+type, digest, sensitivity, key version, schema version, storage policy, synchronization policy,
+revision and body state of each content reference; the title, kind, priority, lifecycle state,
+creator, version, creation time, objective and objective reference of each task; the name, profile
+pins, profile state and lead flag of each Agent; and the name, icon, visibility, lifecycle state,
+sort order and source kind of each project. Nothing in the document is invented and nothing is
+altered.
+
+Two records the workspace holds are deliberately **not** carried, and the file says so rather than
+asserting them into the document:
+
+- a **job publication** is withheld by the readers that decide what the requester may read, so it
+  is absent from the document, and the system sender's stored identifier — an encoded binding of the
+  acting user, the job and its workspace — travels nowhere;
+- a **tombstone** is carried as a tombstone with the time of its removal, and the removed text does
+  not travel with it.
+
+### E14, the body states, and what a reader cannot know
+
+Four references cover the four states the local authority can report, and the file states exactly
+what the document can and cannot say about them:
+
+| Source state                                   | Document          | Restored workspace |
+| ---------------------------------------------- | ----------------- | ------------------ |
+| the authority holds the body                   | `local_authority` | `missing`          |
+| the authority holds it but cannot serve it now | `local_authority` | `missing`          |
+| the authority does not hold it                 | `local_authority` | `missing`          |
+| the authority removed it                       | `deleted`         | `deleted`          |
+
+The first three are indistinguishable in the document, and that is the honest limit of the format:
+`bodyState` says where a body lives, not whether it is servable now, and the body never travels, so
+the destination reports every body that was not removed as missing. The removal time is kept for a
+removed body and absent for the others, and the storage and synchronization policies are never
+upgraded.
+
+The fourth case is a reference the reader may not know about: a task objective in the members-only
+project is present in the owner's document and absent from the outsider's, together with the task
+itself. The document never names a record the reader may not read, and the file asserts the
+outsider's document contains neither the task nor its reference.
+
 ## What this file does not prove
 
 The residual native and real-store gates, stated as gates rather than as failures:
@@ -278,7 +337,7 @@ DATABASE_MIGRATION_URL=postgresql://agent_hq_local_migration:agent_hq_local_migr
 
 | #   | Command                                                                                                                                                                                                                                                             | Exit | Result                                                                                                                     |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------- |
-| C1  | `bun scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test --preload ./scripts/test-solid-transform.ts --timeout 30000 apps/web/test/integration/portable-export-residual-residency.test.ts`                                              | 0    | 16 pass, 0 fail, 346 assertions                                                                                            |
+| C1  | `bun scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test --preload ./scripts/test-solid-transform.ts --timeout 30000 apps/web/test/integration/portable-export-residual-residency.test.ts`                                              | 0    | 19 pass, 0 fail, 638 assertions                                                                                            |
 | C2  | `bun scripts/run-with-capture-provisioning.mjs -- bun test --parallel --conditions=react-server --preload ./scripts/test-solid-transform.ts --timeout 30000` over the residual file and the five merged portable route-flow files                                   | 0    | 74 pass, 0 fail, 724 assertions across 6 files                                                                             |
 | C3  | `bun scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test --timeout 30000` over the six `packages/db/tests/integration/portable-*.test.ts` files                                                                                         | 0    | 60 pass, 0 fail, 325 assertions across 6 files                                                                             |
 | C4  | `bun test` over the four portable unit files and `packages/types/tests/portable-export.test.ts`                                                                                                                                                                     | 0    | 48 pass, 0 fail, 257 assertions across 5 files                                                                             |
@@ -292,6 +351,11 @@ DATABASE_MIGRATION_URL=postgresql://agent_hq_local_migration:agent_hq_local_migr
 | C12 | `bun test scripts/integration-inventory.test.ts`                                                                                                                                                                                                                    | 0    | 20 pass, 0 fail (the new route-flow file is discovered by the lane's own inventory)                                        |
 | C13 | `bun test scripts/capture-provisioning.test.ts scripts/run-with-capture-provisioning.test.ts`                                                                                                                                                                       | 0    | 53 pass, 0 fail                                                                                                            |
 | C14 | `bun scripts/run-with-capture-provisioning.mjs -- bun test --parallel --conditions=react-server --preload ./scripts/test-solid-transform.ts --timeout 30000` over every file in `apps/web/test/integration`                                                         | 0    | 347 pass, 0 fail, 8291 assertions across 33 files                                                                          |
+| C15 | `git fetch origin main`                                                                                                                                                                                                                                             | 0    | `origin/main` is `73e444f59eb3526f5b18f985c2b2f1f9ae302d5a`, and the base commit is an ancestor of it                      |
+| C16 | `git fetch origin "pull/1549/head:refs/remotes/origin/pr-1549"`                                                                                                                                                                                                     | 0    | the pull request's head is `1dc887d74aacc52ff4237a9025283535f40ceb52`, this branch's own commit                            |
+| C17 | the residual acceptance file on a fresh task-owned source database                                                                                                                                                                                                  | 0    | 19 pass, 0 fail, 638 assertions                                                                                            |
+| C18 | the five other `packages/db` portable integration files on the same task-owned database                                                                                                                                                                             | 0    | 50 pass, 0 fail, 233 assertions                                                                                            |
+| C19 | `packages/db/tests/integration/portable-export-channel-bounds.test.ts` on the same task-owned database                                                                                                                                                              | 0    | 11 pass, 0 fail, 101 assertions                                                                                            |
 
 C2's file list is `portable-export-residual-residency.test.ts`,
 `portable-residency-e2e.test.ts`, `portable-workspace-clean-restore.test.ts`,
@@ -497,6 +561,30 @@ No production database, no other lane's database and no other lane's container w
 written. The task-owned disposable instance and its two databases were removed after the evidence
 above was captured, and nothing else was stopped, removed or pruned.
 
+## Current main and the pull request
+
+`origin/main` has moved on since the base commit. It is now
+`73e444f59eb3526f5b18f985c2b2f1f9ae302d5a`, six commits ahead, and the base commit
+`ee31982e70406ab5de447a79603d6545ac11359f` is an ancestor of it, so this branch is behind main
+rather than diverged from it. Those six commits are the protected Home lifecycle (#1547), the
+populated migration rollback outcome (#1545), the runtime connection and profile read models
+(#1544), the remote-content return envelopes (#1546), the cross-runtime return vector (#1552) and
+the workspace reorder conflict fix (#1542).
+
+**None of them touches the three paths of this work.** `git diff` between the base commit and
+current main over the three paths is empty, so the merged work on main neither conflicts with this
+boundary nor changes the behaviour these proofs observe. The branch is deliberately **not** rebased:
+a rebase would rewrite the published head of the pull request and need a force push, which is not
+authorized here, and the three paths need no change to sit on the new main.
+
+The pull request is #1549. Its published head is `1dc887d74aacc52ff4237a9025283535f40ceb52`, which
+carries exactly the three paths. The branch has one further local commit on top of it, which
+completes the content, provenance and body-state coverage; it is **not** published, because no
+authorized publishing route exists, and publishing it would be a normal push with no history
+rewrite. The pull-request ref was read through a read-only fetch, because the GitHub CLI in this
+environment is not authenticated and an interactive login is not permitted; nothing was pushed, and
+no credential was created.
+
 ## Boundary compliance
 
 Held and recorded:
@@ -525,7 +613,25 @@ in `packages/db/tests/integration/portable-export-channel-bounds.test.ts`, on br
 `codex/f3w4-adea-20261021` at base `ee31982e70406ab5de447a79603d6545ac11359f`.
 
 The three paths are committed on this branch, on top of the base commit
-`ee31982e70406ab5de447a79603d6545ac11359f`, and the working tree is clean.
+`ee31982e70406ab5de447a79603d6545ac11359f`, and the working tree is clean. The pull request is
+**#1549**, a draft, with auto-merge off.
+
+### The draft packet
+
+| Item           | Value                                                                                                                                                                                              |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Pull request   | #1549, **draft**, auto-merge off, no issue closed                                                                                                                                                  |
+| Branch         | `codex/f3w4-adea-20261021`                                                                                                                                                                         |
+| Base           | `ee31982e70406ab5de447a79603d6545ac11359f` (an ancestor of current `origin/main`)                                                                                                                  |
+| Head           | the commit on this branch, over the three paths below                                                                                                                                              |
+| Paths          | `apps/web/test/integration/portable-export-residual-residency.test.ts`, `docs/evidence/m18-02-2-f3-residual-acceptance.md`, `packages/db/tests/integration/portable-export-channel-bounds.test.ts` |
+| Body           | this document, verbatim                                                                                                                                                                            |
+| Reviewer state | no readiness claimed, no merge, no production action                                                                                                                                               |
+
+The counts this packet quotes are the ones this document records: the residual acceptance file at
+**19 tests and 638 assertions**, the repaired channel-bounds file at **11 tests and 101
+assertions**, the five neighbouring portable integration files at **50 tests and 233 assertions**,
+and the bounded reproduction of the lane collision as the four rows in the table above.
 
 Draft publication is **blocked**. No authorized GitHub publishing route has been supplied by the
 controller, so nothing was pushed: no credential was created, no interactive login was used, and no

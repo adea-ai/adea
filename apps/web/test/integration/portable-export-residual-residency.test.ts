@@ -278,6 +278,10 @@ describe('residual portable export and residency acceptance', () => {
   let syncContentRefId: string
   let deletedContentRefId: string
   let objectiveContentRefId: string
+  let availableContentRefId: string
+  let unknownContentRefId: string
+  let hiddenObjectiveContentRefId: string
+  let hiddenTaskId: string
   let inviteToken: string
   let groupGrantIds: string[] = []
   let sourceMessageIds: string[] = []
@@ -522,15 +526,17 @@ describe('residual portable export and residency acceptance', () => {
       { idempotencyKey: `residual-members-channel-${run}`, title: 'Residual members lane' }
     )
 
-    // Content references: an offline local body, an E2E-synchronized body with a cloud replica, a
-    // body whose local authority no longer holds it, and a task objective body.
+    // Content references, one per state the local authority can report, so the export's honest
+    // statement about each state is proved rather than assumed: a body the authority holds, a body
+    // it holds but cannot serve right now, a body it does not hold at all, and a body it removed.
     const makeRef = async (
       contentType: 'message_body' | 'task_objective',
-      synchronizationPolicy: 'agent_hq_e2ee_sync' | 'local_only'
+      synchronizationPolicy: 'agent_hq_e2ee_sync' | 'local_only',
+      availability: 'available' | 'missing' | 'offline' = 'offline'
     ) => {
       const id = randomUUID()
       await agentHq.createContentRef(connection.db, workspaceId, owner.principal, {
-        availability: 'offline',
+        availability,
         contentType,
         digestSha256: 'a'.repeat(64),
         id,
@@ -546,6 +552,9 @@ describe('residual portable export and residency acceptance', () => {
     syncContentRefId = await makeRef('message_body', 'agent_hq_e2ee_sync')
     objectiveContentRefId = await makeRef('task_objective', 'local_only')
     deletedContentRefId = await makeRef('message_body', 'local_only')
+    availableContentRefId = await makeRef('message_body', 'local_only', 'available')
+    unknownContentRefId = await makeRef('message_body', 'local_only', 'missing')
+    hiddenObjectiveContentRefId = await makeRef('task_objective', 'local_only', 'offline')
     await agentHq.upsertContentReplica(
       connection.db,
       workspaceId,
@@ -679,6 +688,45 @@ describe('residual portable export and residency acceptance', () => {
       idempotencyKey: `residual-visible-2-${run}`,
       sender: owner.principal,
     })
+    // A body the local authority holds, and a body it does not hold at all: the document says the
+    // same thing about both, and the destination says the same thing about both.
+    await agentHq.createMessage(connection.db, workspaceId, visibleChannel.id, owner.principal, {
+      bodyContentRefId: availableContentRefId,
+      idempotencyKey: `residual-visible-3-${run}`,
+      sender: owner.principal,
+    })
+    await agentHq.createMessage(connection.db, workspaceId, visibleChannel.id, owner.principal, {
+      bodyContentRefId: unknownContentRefId,
+      idempotencyKey: `residual-visible-4-${run}`,
+      sender: owner.principal,
+    })
+    // A job publication. The system sender's stored identifier is an encoded binding of the acting
+    // user, the job and its workspace, and it must not travel under any name.
+    const jobPublicationSender = `job-outbound:v1:${Buffer.from(
+      JSON.stringify({ actorUserId: owner.principal.userId, jobId: `residual-job-${run}` })
+    ).toString('base64url')}`
+    await agentHq.createMessage(connection.db, workspaceId, visibleChannel.id, owner.principal, {
+      bodyText: `${plaintext.workspace}-publication`,
+      idempotencyKey: `residual-visible-5-${run}`,
+      sender: { kind: 'system', systemId: jobPublicationSender },
+    })
+    // A tombstone: a message the workspace removed. It travels as a tombstone and keeps the time
+    // of its removal.
+    const tombstone = await agentHq.createMessage(
+      connection.db,
+      workspaceId,
+      visibleChannel.id,
+      owner.principal,
+      {
+        bodyText: `${plaintext.workspace}-tombstone`,
+        idempotencyKey: `residual-visible-tombstone-${run}`,
+        sender: owner.principal,
+      }
+    )
+    await connection.db
+      .update(agentHq.messages)
+      .set({ deletedAt: new Date() })
+      .where(eq(agentHq.messages.id, tombstone.id))
     await agentHq.createMessage(connection.db, workspaceId, membersChannel.id, owner.principal, {
       artifactIds: [artifactId, harnessArtifactId],
       bodyText: plaintext.members,
@@ -714,6 +762,19 @@ describe('residual portable export and residency acceptance', () => {
       { idempotencyKey: `residual-task-${run}`, requestId: randomUUID() }
     )
     taskId = task.id
+    // A task in the members-only project, with an objective body the outsider cannot know about.
+    const hiddenTask = await agentHq.createTask(
+      connection.db,
+      workspaceId,
+      owner.principal,
+      {
+        objectiveContentRefId: hiddenObjectiveContentRefId,
+        projectId: membersProjectId,
+        title: `Residual hidden task ${run}`,
+      },
+      { idempotencyKey: `residual-hidden-task-${run}`, requestId: randomUUID() }
+    )
+    hiddenTaskId = hiddenTask.id
     await connection.db.insert(agentHq.taskExecutionAttempts).values({
       attempt: 1,
       change: 'initial',
@@ -860,6 +921,202 @@ describe('residual portable export and residency acceptance', () => {
       expect(bundled.map((message) => message.messageId)).toEqual(
         served.messages.map((message) => message.id)
       )
+    }
+  })
+
+  test('the source, the export and the import agree on the order of every channel', async () => {
+    const destination = await ensureOwnerDestination()
+    for (const channel of ownerBundle.content.channels) {
+      const source = await agentHq.listMessagesForUser(
+        connection.db,
+        workspaceId,
+        channel.channelId,
+        owner.principal
+      )
+      const exported = ownerBundle.content.messages
+        .filter((message) => message.channelId === channel.channelId)
+        .toSorted((left, right) => left.channelOrder - right.channelOrder)
+      const imported = await agentHq.listMessagesForUser(
+        destination.db,
+        workspaceId,
+        channel.channelId,
+        owner.principal
+      )
+      const sourceIds = source.messages.map((message) => message.id)
+      const exportedIds = exported.map((message) => message.messageId)
+      const importedIds = imported.messages.map((message) => message.id)
+      // The same sequence of records, read from the source, carried by the document and served by
+      // the destination.
+      expect(exportedIds).toEqual(sourceIds)
+      expect(importedIds).toEqual(sourceIds)
+      // The document's own position of each record is its position in that shared order.
+      expect(exported.map((message) => message.channelOrder)).toEqual(
+        exportedIds.map((_, index) => index + 1)
+      )
+    }
+  })
+
+  test('the export carries the authorized content and its provenance, unchanged', async () => {
+    const sourceMessages = await connection.db
+      .select()
+      .from(agentHq.messages)
+      .where(eq(agentHq.messages.workspaceId, workspaceId))
+    expect(sourceMessages.length).toBeGreaterThan(0)
+    const messagesById = new Map(
+      ownerBundle.content.messages.map((message) => [message.messageId, message])
+    )
+    // A job publication is withheld by the readers that decide what the requester may read, so it
+    // is absent from the document and its encoded binding does not travel under any name.
+    const publication = sourceMessages.find((row) => row.senderKind === 'system')
+    expect(publication).toBeDefined()
+    expect(messagesById.get(publication!.id)).toBeUndefined()
+    assertAbsent(JSON.stringify(ownerBundle), [publication!.senderSystemId!])
+    // Every other message the workspace holds is carried, with its provenance unchanged.
+    for (const row of sourceMessages) {
+      if (row.senderKind === 'system') continue
+      const exported = messagesById.get(row.id)
+      expect(exported).toBeDefined()
+      expect(exported!.createdAt).toBe(row.createdAt.toISOString())
+      expect(exported!.updatedAt).toBe(row.updatedAt.toISOString())
+      expect(exported!.editedAt).toBe(row.editedAt ? row.editedAt.toISOString() : null)
+      expect(exported!.deletedAt).toBe(row.deletedAt ? row.deletedAt.toISOString() : null)
+      expect(exported!.version).toBe(row.version)
+      expect(exported!.sender).toEqual({ kind: 'user', userId: row.senderUserId! })
+      if (row.deletedAt) expect(exported!.body).toEqual({ kind: 'deleted' })
+      else if (row.bodyContentRefId)
+        expect(exported!.body).toEqual({
+          contentRefId: row.bodyContentRefId,
+          kind: 'content_ref',
+        })
+      else expect(exported!.body).toEqual({ kind: 'text', text: row.bodyText ?? '' })
+    }
+    // A tombstone carries no body text, so the removed text does not travel with it.
+    const tombstone = sourceMessages.find((row) => row.deletedAt !== null)
+    expect(tombstone).toBeDefined()
+    assertAbsent(JSON.stringify(ownerBundle), [tombstone!.bodyText ?? ''])
+
+    const sourceRefs = await connection.db
+      .select()
+      .from(agentHq.contentRefs)
+      .where(eq(agentHq.contentRefs.workspaceId, workspaceId))
+    expect(sourceRefs.length).toBeGreaterThan(0)
+    const refsById = new Map(ownerBundle.content.contentRefs.map((ref) => [ref.contentRefId, ref]))
+    for (const row of sourceRefs) {
+      const exported = refsById.get(row.id)
+      expect(exported).toBeDefined()
+      expect(exported!.contentType).toBe(row.contentType)
+      expect(exported!.digestSha256).toBe(row.digestSha256)
+      expect(exported!.sensitivity).toBe(row.sensitivity)
+      expect(exported!.keyVersion).toBe(row.keyVersion)
+      expect(exported!.schemaVersion).toBe(row.schemaVersion)
+      expect(exported!.storagePolicy).toBe(row.storagePolicy)
+      expect(exported!.synchronizationPolicy).toBe(row.synchronizationPolicy)
+      expect(exported!.revision).toBe(row.revision)
+      expect(exported!.bodyState).toBe(
+        row.availability === 'deleted' ? 'deleted' : 'local_authority'
+      )
+    }
+
+    const sourceTasks = await connection.db
+      .select()
+      .from(agentHq.tasks)
+      .where(eq(agentHq.tasks.workspaceId, workspaceId))
+    expect(sourceTasks.length).toBeGreaterThan(0)
+    const tasksById = new Map(ownerBundle.content.tasks.map((task) => [task.taskId, task]))
+    for (const row of sourceTasks) {
+      const exported = tasksById.get(row.id)
+      expect(exported).toBeDefined()
+      expect(exported!.title).toBe(row.title)
+      expect(exported!.kind).toBe(row.kind)
+      expect(exported!.priority).toBe(row.priority)
+      expect(exported!.lifecycleState).toBe(row.lifecycleState)
+      expect(exported!.creatorUserId).toBe(row.creatorUserId)
+      expect(exported!.version).toBe(row.version)
+      expect(exported!.createdAt).toBe(row.createdAt.toISOString())
+      expect(exported!.objective).toBe(row.objective)
+      expect(exported!.objectiveContentRefId).toBe(row.objectiveContentRefId)
+    }
+
+    const sourceAgents = await connection.db
+      .select()
+      .from(agentHq.agents)
+      .where(eq(agentHq.agents.workspaceId, workspaceId))
+    expect(sourceAgents.length).toBeGreaterThan(0)
+    const agentsById = new Map(ownerBundle.content.agents.map((agent) => [agent.agentId, agent]))
+    for (const row of sourceAgents) {
+      const exported = agentsById.get(row.id)
+      expect(exported).toBeDefined()
+      expect(exported!.name).toBe(row.name)
+      expect(exported!.profileId).toBe(row.profileId)
+      expect(exported!.profileVersion).toBe(row.profileVersion)
+      expect(exported!.profileRevision).toBe(row.profileRevision)
+      expect(exported!.profileState).toBe(row.profileState)
+      expect(exported!.isWorkspaceLead).toBe(row.isWorkspaceLead)
+    }
+
+    const sourceProjects = await connection.db
+      .select()
+      .from(agentHq.projects)
+      .where(eq(agentHq.projects.workspaceId, workspaceId))
+    expect(sourceProjects.length).toBeGreaterThan(0)
+    const projectsById = new Map(
+      ownerBundle.content.projects.map((project) => [project.projectId, project])
+    )
+    for (const row of sourceProjects) {
+      const exported = projectsById.get(row.id)
+      expect(exported).toBeDefined()
+      expect(exported!.name).toBe(row.name)
+      expect(exported!.iconKey).toBe(row.iconKey)
+      expect(exported!.visibility).toBe(row.visibility)
+      expect(exported!.lifecycleState).toBe(row.lifecycleState)
+      expect(exported!.sortOrder).toBe(row.sortOrder)
+      expect(exported!.sourceKind).toBe(row.sourceKind)
+    }
+  })
+
+  test('the body states and the unknown-to-the-reader case are stated exactly', async () => {
+    const destination = await ensureOwnerDestination()
+    const bundled = new Map(ownerBundle.content.contentRefs.map((ref) => [ref.contentRefId, ref]))
+    // A body the local authority holds, a body it holds but cannot serve, and a body it does not
+    // hold at all are indistinguishable in the document: all three travel as `local_authority`.
+    // Only a body the authority removed is stated as removed.
+    for (const id of [availableContentRefId, localContentRefId, unknownContentRefId])
+      expect(bundled.get(id)?.bodyState).toBe('local_authority')
+    expect(bundled.get(deletedContentRefId)?.bodyState).toBe('deleted')
+
+    // The destination reports every body that is not removed as missing, because no body travels.
+    const rows = await destination.db
+      .select()
+      .from(agentHq.contentRefs)
+      .where(eq(agentHq.contentRefs.workspaceId, workspaceId))
+    const byId = new Map(rows.map((row) => [row.id, row]))
+    expect(byId.get(availableContentRefId)?.availability).toBe('missing')
+    expect(byId.get(localContentRefId)?.availability).toBe('missing')
+    expect(byId.get(unknownContentRefId)?.availability).toBe('missing')
+    expect(byId.get(deletedContentRefId)?.availability).toBe('deleted')
+    // The removal time of a body the authority removed is kept; the others were never removed.
+    expect(byId.get(deletedContentRefId)?.deletedAt).not.toBeNull()
+    expect(byId.get(unknownContentRefId)?.deletedAt).toBeNull()
+    // The synchronization policy is never upgraded, whatever the source's state was.
+    expect(byId.get(availableContentRefId)?.synchronizationPolicy).toBe('local_only')
+    expect(byId.get(unknownContentRefId)?.synchronizationPolicy).toBe('local_only')
+    expect(byId.get(syncContentRefId)?.synchronizationPolicy).toBe('agent_hq_e2ee_sync')
+
+    // A reference the reader may not know about is absent from that reader's document entirely:
+    // the document never names a record the reader may not read.
+    expect(bundled.get(hiddenObjectiveContentRefId)).toBeDefined()
+    expect(ownerBundle.content.tasks.map((task) => task.taskId)).toContain(hiddenTaskId)
+    expect(outsiderBundle.content.contentRefs.map((ref) => ref.contentRefId)).not.toContain(
+      hiddenObjectiveContentRefId
+    )
+    expect(outsiderBundle.content.tasks.map((task) => task.taskId)).not.toContain(hiddenTaskId)
+    assertAbsent(JSON.stringify(outsiderBundle), [hiddenObjectiveContentRefId, hiddenTaskId])
+
+    // Every withheld external domain is reported unavailable, with its authority and treatment.
+    for (const domain of ownerImportBody.externalDomains) {
+      expect(domain.status).toBe('unavailable')
+      expect(domain.authority.length).toBeGreaterThan(0)
+      expect(domain.treatment.length).toBeGreaterThan(0)
     }
   })
 
