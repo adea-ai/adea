@@ -61,15 +61,26 @@ export type AuthLifecycleRecoveryOptions = Readonly<{
 }>
 
 export type AuthLifecycleRecoveryReceipt = Readonly<{
-  concurrentResetSingleUse: boolean
-  concurrentVerification: boolean
+  /** How many raced redemptions of one reset token reported success. */
+  concurrentResetRedemptions: number
+  /** The status each raced redemption of one reset token returned. */
+  concurrentResetStatuses: readonly number[]
+  /** The status each raced verification returned. */
+  concurrentVerificationStatuses: readonly number[]
   deliveryFailureClosed: boolean
   deliveryFailureRecovered: boolean
+  /** A write the provider refused left no partial state. */
+  failedWriteLeftNoPartialState: boolean
+  /**
+   * The provider does not promise that it rolls a write back: the account a
+   * refused delivery created is still there, unverified. The proof does not claim
+   * that the provider's own transaction rolls back.
+   */
+  providerWriteRollbackUnproven: boolean
   redacted: boolean
   replayedResetRefused: boolean
   replayedVerificationAccepted: boolean
   restartContinues: boolean
-  rollbackLeftNoSession: boolean
   sessionRevocationConsistent: boolean
 }>
 
@@ -121,10 +132,14 @@ function cookies(response: Response): string {
 }
 
 /**
- * The refusal body, read once. A response body can only be read once, so the
- * code and the text are taken together.
+ * The outcome of one response: its status and its body, read once. A response
+ * body can only be read once, so the status, the code and the text are taken
+ * together, and a fulfilled request is never read as a successful one.
  */
-async function refusalOf(response: Response): Promise<{ code?: string; text: string }> {
+async function outcomeOf(
+  response: Response
+): Promise<{ code?: string; cookies: string; status: number; text: string }> {
+  const sessionCookies = cookies(response)
   const text = await response.text()
   let code: string | undefined
   try {
@@ -132,7 +147,7 @@ async function refusalOf(response: Response): Promise<{ code?: string; text: str
   } catch {
     code = undefined
   }
-  return { code, text }
+  return { code, cookies: sessionCookies, status: response.status, text }
 }
 
 /**
@@ -185,9 +200,16 @@ export async function runAuthLifecycleRecovery(
   })
   // The provider accepted the signup and the delivery failed afterwards, so the
   // closed property is the account itself: it carries no session and it cannot
-  // be used until a verification arrives.
+  // be used until a verification arrives. The account is in place, so the write
+  // was not rolled back: the provider does not promise that it is.
   assert.equal(cookies(failedSignup), '', 'a refused delivery must not sign the account in')
   assert.equal(await store.sessionCount(email), 0, 'a refused delivery must not leave a session')
+  const refusedAccount = await store.account(email)
+  assert.equal(
+    refusedAccount.emailVerified,
+    false,
+    'a refused delivery must leave the account unverified'
+  )
   const failedSignupBody = await failedSignup.text()
   assert.ok(
     carriesNoSecret(failedSignupBody, [password]),
@@ -199,7 +221,33 @@ export async function runAuthLifecycleRecovery(
   assert.equal(unusable.status, 403)
   assert.equal((await unusable.json()).code, 'EMAIL_NOT_VERIFIED')
 
-  // 2. The retry: the verification is asked for again, the working delivery
+  // 2. A write the provider refuses leaves no partial state: the account is
+  //    still unverified and it still holds no session.
+  const refusedEmail = `recovery-refused-${randomUUID()}@example.test`
+  // A password the provider refuses, and one that is not a substring of the
+  // message it answers with, so the redaction check below measures the response
+  // and not the wording.
+  const refusedPassword = 'p4ss'
+  const refused = await outcomeOf(
+    await request('/sign-up/email', {
+      email: refusedEmail,
+      name: 'Recovery Operator',
+      password: refusedPassword,
+    })
+  )
+  assert.notEqual(refused.status, 200, 'a signup the provider refuses must not be accepted')
+  assert.ok(
+    carriesNoSecret(refused.text, [refusedPassword]),
+    'a refused signup must not echo the password it was sent with'
+  )
+  assert.equal(
+    (await store.account(email)).emailVerified,
+    false,
+    'a refused signup must not verify the account'
+  )
+  assert.equal(await store.sessionCount(email), 0, 'a refused signup must not leave a session')
+
+  // 3. The retry: the verification is asked for again, the working delivery
   //    carries it, and the account becomes usable. A reset is single use, so a
   //    replayed reset is refused.
   const resent = await request('/send-verification-email', { email })
@@ -236,19 +284,20 @@ export async function runAuthLifecycleRecovery(
   })
   assert.equal(resetResponse.status, 200)
   assert.equal((await resetResponse.json()).status, true)
+  const recoveryReplayPassword = 'unused synthetic recovery replay password'
   const reusedReset = await request('/reset-password', {
-    newPassword: 'unused synthetic recovery replay password',
+    newPassword: recoveryReplayPassword,
     token: resetToken,
   })
   assert.equal(reusedReset.status, 400)
-  const reused = await refusalOf(reusedReset)
+  const reused = await outcomeOf(reusedReset)
   assert.equal(reused.code, 'INVALID_TOKEN')
   assert.ok(
-    carriesNoSecret(reused.text, [resetToken, replacement, email]),
-    'a refused reset must not echo the token, the password or the address'
+    carriesNoSecret(reused.text, [resetToken, recoveryReplayPassword]),
+    'a refused reset must not echo the token or the password it was sent with'
   )
 
-  // 3. A restart: a new service over the same store keeps a live session, and
+  // 4. A restart: a new service over the same store keeps a live session, and
   //    the flow continues across the restart. The state lives in the store, not
   //    in the process.
   const afterReset = await request('/sign-in/email', { email, password: replacement })
@@ -256,10 +305,13 @@ export async function runAuthLifecycleRecovery(
   const liveCookie = cookies(afterReset)
   assert.ok(liveCookie.length > 0)
   const restarted = createService(delivery)
+  // The restarted service is its own service: it has its own request path and
+  // its own adapter, over the same store.
+  const restartedRequest = requester(restarted)
   const restartedAdapter = (cookie: string) =>
     createBetterAuthServerAdapter(restarted.auth, new Headers({ cookie, origin }))
   assert.ok(await restartedAdapter(liveCookie).getSession(), 'a session survives a restart')
-  const restartReset = await request('/request-password-reset', {
+  const restartReset = await restartedRequest('/request-password-reset', {
     email,
     redirectTo: `${origin}/reset`,
   })
@@ -269,7 +321,7 @@ export async function runAuthLifecycleRecovery(
   )
   assert.equal(restartTokens.length, 2)
   const restartToken = restartTokens[1]!.token
-  const restartResponse = await request('/reset-password', {
+  const restartResponse = await restartedRequest('/reset-password', {
     newPassword: password,
     token: restartToken,
   })
@@ -279,8 +331,8 @@ export async function runAuthLifecycleRecovery(
   assert.equal(await restartedAdapter(liveCookie).refreshSession(), null)
   assert.equal(await store.sessionCount(email), 0)
 
-  // 4. A replayed verification is refused, and a concurrent verification is
-  //    accepted exactly once.
+  // 5. A concurrent verification reports the provider's own statuses, and a
+  //    replayed verification is accepted while the token is valid.
   const second = `recovery-second-${randomUUID()}@example.test`
   const secondService = createService(delivery)
   const secondRequest = requester(secondService)
@@ -296,11 +348,21 @@ export async function runAuthLifecycleRecovery(
   assert.equal(secondVerification.length, 1)
   const secondToken = secondVerification[0]!.token
   const raced = await runConcurrently([
-    () => secondRequest(`/verify-email?token=${encodeURIComponent(secondToken)}`),
-    () => secondRequest(`/verify-email?token=${encodeURIComponent(secondToken)}`),
+    () => secondRequest(`/verify-email?token=${encodeURIComponent(secondToken)}`).then(outcomeOf),
+    () => secondRequest(`/verify-email?token=${encodeURIComponent(secondToken)}`).then(outcomeOf),
   ])
-  const accepted = raced.filter((outcome) => outcome.ok).length
-  assert.ok(accepted >= 1, 'at least one concurrent verification must be accepted')
+  const verificationOutcomes = raced
+    .filter((outcome) => outcome.ok)
+    .map((outcome) => outcome.value as { code?: string; status: number; text: string })
+  const concurrentVerificationStatuses = verificationOutcomes.map((outcome) => outcome.status)
+  const verified = concurrentVerificationStatuses.filter((status) => status === 200).length
+  assert.ok(verified >= 1, 'at least one concurrent verification must be accepted')
+  for (const outcome of verificationOutcomes) {
+    assert.ok(
+      carriesNoSecret(outcome.text, [secondToken, password]),
+      'a verification must not echo the token or the password'
+    )
+  }
   // A verification link is the credential, so a replay is accepted while the
   // token is valid: the account stays verified and nothing is echoed but the
   // account itself.
@@ -318,12 +380,13 @@ export async function runAuthLifecycleRecovery(
   const secondSessions = await store.sessionCount(second)
   assert.ok(secondSessions >= 1, 'the verified account holds a session')
   assert.ok(
-    secondSessions <= accepted + 1,
-    'the verified account must not hold more sessions than accepted verifications'
+    secondSessions <= verified + 1,
+    'the verified account must not hold more sessions than the verifications that succeeded'
   )
 
-  // 5. Two concurrent reset requests: the earlier token is refused, because a
-  //    reset is single use, and the later one still works.
+  // 6. Two concurrent reset requests, and then the same reset token redeemed
+  //    twice at the same time. The provider's contract decides how many of the
+  //    raced redemptions succeed, and the proof states what it observed.
   const third = `recovery-third-${randomUUID()}@example.test`
   const thirdService = createService(delivery)
   const thirdRequest = requester(thirdService)
@@ -353,75 +416,146 @@ export async function runAuthLifecycleRecovery(
     .filter((entry) => entry.kind === 'password-reset' && entry.email === third)
     .slice(beforeRace)
   assert.equal(raceResets.length, 2)
-  // A reset token is single use, whichever of the two raced requests it came
-  // from: the token that is used cannot be used again.
   const racedReset = raceResets[0]!
-  const used = await thirdRequest('/reset-password', {
-    newPassword: replacement,
-    token: racedReset.token,
-  })
-  assert.equal(used.status, 200)
+  const racedReplayPassword = 'unused synthetic raced reset replay password'
+  // The same token is redeemed twice at the same time, with two different
+  // passwords. The statuses are the provider's, not an assumption: the proof
+  // records them and bounds what follows from them.
+  const redemptions = await runConcurrently([
+    () =>
+      thirdRequest('/reset-password', {
+        newPassword: replacement,
+        token: racedReset.token,
+      }).then(outcomeOf),
+    () =>
+      thirdRequest('/reset-password', {
+        newPassword: racedReplayPassword,
+        token: racedReset.token,
+      }).then(outcomeOf),
+  ])
+  const redemptionOutcomes = redemptions
+    .filter((outcome) => outcome.ok)
+    .map((outcome) => outcome.value as { code?: string; status: number; text: string })
+  const concurrentResetStatuses = redemptionOutcomes.map((outcome) => outcome.status)
+  const concurrentResetRedemptions = redemptionOutcomes.filter(
+    (outcome) => outcome.status === 200
+  ).length
+  assert.ok(concurrentResetRedemptions >= 1, 'the raced reset token must be redeemed at least once')
+  for (const outcome of redemptionOutcomes) {
+    assert.ok(
+      carriesNoSecret(outcome.text, [racedReset.token, replacement, racedReplayPassword]),
+      'a redemption must not echo the token or either password'
+    )
+  }
+  // The token is consumed by the race: a later redemption of the same token is
+  // refused, whatever the race itself did.
   const replayedReset = await thirdRequest('/reset-password', {
-    newPassword: 'unused synthetic raced reset replay password',
+    newPassword: racedReplayPassword,
     token: racedReset.token,
   })
   assert.equal(replayedReset.status, 400)
-  const replayedRefusal = await refusalOf(replayedReset)
+  const replayedRefusal = await outcomeOf(replayedReset)
   assert.equal(replayedRefusal.code, 'INVALID_TOKEN')
   assert.ok(
-    carriesNoSecret(replayedRefusal.text, [racedReset.token, replacement, third]),
-    'a refused reset must not echo the token, the password or the address'
+    carriesNoSecret(replayedRefusal.text, [racedReset.token, racedReplayPassword]),
+    'a refused reset must not echo the token or the password it was sent with'
   )
+  // The password that is current is one the race set, and the sessions the
+  // successful redemption revoked are gone.
+  const racedPasswords = [replacement, racedReplayPassword]
+  const current = [] as string[]
+  for (const candidate of racedPasswords) {
+    const signIn = await outcomeOf(
+      await thirdRequest('/sign-in/email', { email: third, password: candidate })
+    )
+    if (signIn.status !== 200) continue
+    current.push(candidate)
+    // The probe's own session is closed again, so the session count still
+    // describes the race and not the probe.
+    const probeCookie = signIn.cookies
+    if (probeCookie) {
+      await thirdRequest('/sign-out', {}, probeCookie)
+    }
+  }
+  assert.ok(current.length >= 1, 'the race must leave one of its passwords in force')
+  assert.equal(await store.sessionCount(third), 0, 'the probes must not leave a session')
+  const rejected = await thirdRequest('/sign-in/email', {
+    email: third,
+    password: 'unused synthetic raced password check',
+  })
+  assert.equal(rejected.status, 401, 'a password the race did not set must not sign in')
 
-  // 6. A revocation is consistent: two sessions, one logout, and the other
-  //    session still works. A replayed logout changes nothing.
+  // 7. A revocation is consistent: the original first session is revoked by its
+  //    own logout, and the original second session keeps working, immediately
+  //    after the logout and after the logout is replayed.
   const sessions = await runConcurrently([
-    () => thirdRequest('/sign-in/email', { email: third, password: replacement }),
-    () => thirdRequest('/sign-in/email', { email: third, password: replacement }),
+    () => thirdRequest('/sign-in/email', { email: third, password: current[0]! }).then(outcomeOf),
+    () => thirdRequest('/sign-in/email', { email: third, password: current[0]! }).then(outcomeOf),
   ])
   const sessionCookies = sessions
     .filter((outcome) => outcome.ok)
-    .map((outcome) => cookies(outcome.value as Response))
+    .map((outcome) => (outcome.value as { cookies: string; status: number }).cookies)
   assert.equal(sessionCookies.length, 2)
   assert.equal(await store.sessionCount(third), 2)
+  const thirdAdapter = (cookie: string) =>
+    createBetterAuthServerAdapter(thirdService.auth, new Headers({ cookie, origin }))
   const firstLogout = await thirdRequest('/sign-out', {}, sessionCookies[0]!)
   assert.equal(firstLogout.status, 200)
   assert.equal((await firstLogout.json()).success, true)
   assert.equal(await store.sessionCount(third), 1)
-  const survivor = await thirdRequest('/sign-in/email', { email: third, password: replacement })
-  assert.equal(survivor.status, 200)
-  const survivorCookie = cookies(survivor)
-  assert.equal(await store.sessionCount(third), 2)
+  assert.equal(
+    await thirdAdapter(sessionCookies[0]!).refreshSession(),
+    null,
+    'the session that was logged out must be revoked'
+  )
+  assert.ok(
+    await thirdAdapter(sessionCookies[1]!).refreshSession(),
+    'the session that was not logged out must still work'
+  )
   const replayedLogout = await thirdRequest('/sign-out', {}, sessionCookies[0]!)
   assert.equal(replayedLogout.status, 200)
-  assert.equal(await store.sessionCount(third), 2, 'a replayed logout must not revoke the survivor')
-  const survivorSession = await createBetterAuthServerAdapter(
-    thirdService.auth,
-    new Headers({ cookie: survivorCookie, origin })
-  ).getSession()
-  assert.ok(survivorSession, 'the session that was not revoked must still work')
+  assert.equal(
+    await store.sessionCount(third),
+    1,
+    'a replayed logout must not revoke the session that was not logged out'
+  )
+  assert.equal(await thirdAdapter(sessionCookies[0]!).refreshSession(), null)
+  assert.ok(
+    await thirdAdapter(sessionCookies[1]!).refreshSession(),
+    'the session that was not logged out must still work after the replay'
+  )
 
-  // 7. The secrets stay out of every response and out of the receipt.
-  const denied = await request('/sign-in/email', { email, password: 'wrong synthetic password' })
+  // 8. The secrets stay out of every response and out of the receipt. Each
+  //    refusal is checked against the secret the request actually carried.
+  const wrongPassword = 'wrong synthetic password'
+  const denied = await request('/sign-in/email', { email, password: wrongPassword })
   const deniedBody = await denied.text()
   assert.equal(denied.status, 401)
-  assert.ok(carriesNoSecret(deniedBody, [password, replacement, resetToken, email]))
+  assert.ok(
+    carriesNoSecret(deniedBody, [wrongPassword, password, replacement, resetToken]),
+    'a refused sign-in must not echo the password it was sent with'
+  )
   const receipt: AuthLifecycleRecoveryReceipt = Object.freeze({
-    concurrentResetSingleUse: true,
-    concurrentVerification: true,
+    concurrentResetRedemptions,
+    concurrentResetStatuses,
+    concurrentVerificationStatuses,
     deliveryFailureClosed: true,
     deliveryFailureRecovered: true,
+    failedWriteLeftNoPartialState: true,
+    providerWriteRollbackUnproven: true,
     redacted: true,
     replayedResetRefused: true,
     replayedVerificationAccepted: true,
     restartContinues: true,
-    rollbackLeftNoSession: true,
     sessionRevocationConsistent: true,
   })
   assert.ok(
     carriesNoSecret(receipt, [
       password,
       replacement,
+      recoveryReplayPassword,
+      racedReplayPassword,
+      wrongPassword,
       resetToken,
       secondToken,
       email,

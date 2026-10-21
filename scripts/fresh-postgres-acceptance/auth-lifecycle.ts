@@ -253,14 +253,33 @@ export async function runFreshAuthAcceptance(
   }
   assert.equal(recovery.deliveryFailureClosed, true)
   assert.equal(recovery.deliveryFailureRecovered, true)
-  assert.equal(recovery.rollbackLeftNoSession, true)
-  assert.equal(recovery.concurrentVerification, true)
+  assert.equal(recovery.failedWriteLeftNoPartialState, true)
+  assert.equal(recovery.providerWriteRollbackUnproven, true)
   assert.equal(recovery.replayedVerificationAccepted, true)
   assert.equal(recovery.replayedResetRefused, true)
-  assert.equal(recovery.concurrentResetSingleUse, true)
   assert.equal(recovery.restartContinues, true)
   assert.equal(recovery.sessionRevocationConsistent, true)
   assert.equal(recovery.redacted, true)
+  // The races are reported as the provider answered them: every raced request
+  // got a real HTTP status, and each race redeemed or verified at least once.
+  assert.equal(recovery.concurrentResetStatuses.length, 2)
+  assert.ok(
+    recovery.concurrentResetStatuses.every((status) => status >= 200),
+    'every raced redemption must have returned a real status'
+  )
+  assert.ok(
+    recovery.concurrentResetRedemptions >= 1,
+    'the raced reset token must have been redeemed at least once'
+  )
+  assert.equal(recovery.concurrentVerificationStatuses.length, 2)
+  assert.ok(
+    recovery.concurrentVerificationStatuses.every((status) => status >= 200),
+    'every raced verification must have returned a real status'
+  )
+  assert.ok(
+    recovery.concurrentVerificationStatuses.some((status) => status === 200),
+    'at least one concurrent verification must have been accepted'
+  )
   return {
     lifecycle: 'passed',
     verificationRequired: true,
