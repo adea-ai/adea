@@ -58,12 +58,12 @@ test.skipIf(process.env.FRESH_AUTH_ACCEPTANCE !== '1' && !process.env.FRESH_AUTH
     const store: AuthLifecycleStore = {
       async account(email: string) {
         const user = records.user.find((entry) => entry.email === email)
-        assert.ok(user, 'the account must exist')
+        if (!user) return null
         return { emailVerified: Boolean(user.emailVerified), id: user.id }
       },
       async sessionCount(email: string) {
         const user = records.user.find((entry) => entry.email === email)
-        assert.ok(user, 'the account must exist')
+        if (!user) return 0
         return records.session.filter((entry) => entry.userId === user.id).length
       },
     }
@@ -79,7 +79,7 @@ test.skipIf(process.env.FRESH_AUTH_ACCEPTANCE !== '1' && !process.env.FRESH_AUTH
     // behaviour it does not promise: the races are reported as they answered.
     assert.equal(receipt.deliveryFailureClosed, true)
     assert.equal(receipt.deliveryFailureRecovered, true)
-    assert.equal(receipt.failedWriteLeftNoPartialState, true)
+    assert.equal(receipt.refusedWriteLeftNoAccount, true)
     assert.equal(receipt.providerWriteRollbackUnproven, true)
     assert.equal(receipt.redacted, true)
     assert.equal(receipt.replayedResetRefused, true)

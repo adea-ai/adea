@@ -29,10 +29,10 @@ import type { AuthDelivery } from '../../packages/auth/src/delivery'
 
 /** The provider state the journey observes. */
 export type AuthLifecycleStore = Readonly<{
-  /** How many live sessions the account holds. */
+  /** How many live sessions the account holds, zero when it does not exist. */
   sessionCount(email: string): Promise<number>
-  /** The account's verification state and identifier. */
-  account(email: string): Promise<{ emailVerified: boolean; id: string }>
+  /** The account's verification state and identifier, or null when it is absent. */
+  account(email: string): Promise<{ emailVerified: boolean; id: string } | null>
 }>
 
 /** A service the journey may build more than once. */
@@ -69,8 +69,12 @@ export type AuthLifecycleRecoveryReceipt = Readonly<{
   concurrentVerificationStatuses: readonly number[]
   deliveryFailureClosed: boolean
   deliveryFailureRecovered: boolean
-  /** A write the provider refused left no partial state. */
-  failedWriteLeftNoPartialState: boolean
+  /**
+   * A signup the provider refused created no account and no session. The
+   * refusal was a validation of the password before any write, so it says
+   * nothing about a transaction that fails after a write.
+   */
+  refusedWriteLeftNoAccount: boolean
   /**
    * The provider does not promise that it rolls a write back: the account a
    * refused delivery created is still there, unverified. The proof does not claim
@@ -204,9 +208,10 @@ export async function runAuthLifecycleRecovery(
   // was not rolled back: the provider does not promise that it is.
   assert.equal(cookies(failedSignup), '', 'a refused delivery must not sign the account in')
   assert.equal(await store.sessionCount(email), 0, 'a refused delivery must not leave a session')
-  const refusedAccount = await store.account(email)
+  const unverifiedAccount = await store.account(email)
+  assert.ok(unverifiedAccount, 'the account of the refused delivery is in place')
   assert.equal(
-    refusedAccount.emailVerified,
+    unverifiedAccount.emailVerified,
     false,
     'a refused delivery must leave the account unverified'
   )
@@ -240,12 +245,28 @@ export async function runAuthLifecycleRecovery(
     carriesNoSecret(refused.text, [refusedPassword]),
     'a refused signup must not echo the password it was sent with'
   )
+  // The refused account is inspected where it would have been: it does not
+  // exist, and it holds no session. The refusal was a validation of the
+  // password, before any write: it proves that a refused signup writes nothing,
+  // and it says nothing about a transaction that fails after a write.
   assert.equal(
-    (await store.account(email)).emailVerified,
-    false,
-    'a refused signup must not verify the account'
+    await store.account(refusedEmail),
+    null,
+    'a refused signup must not create the account'
   )
-  assert.equal(await store.sessionCount(email), 0, 'a refused signup must not leave a session')
+  assert.equal(
+    await store.sessionCount(refusedEmail),
+    0,
+    'a refused signup must not leave a session'
+  )
+  const refusedAccount = await store.account(email)
+  assert.ok(refusedAccount, 'the account of the refused delivery is still there')
+  assert.equal(
+    refusedAccount.emailVerified,
+    false,
+    'a refused delivery must leave the account unverified'
+  )
+  assert.equal(await store.sessionCount(email), 0, 'a refused delivery must not leave a session')
 
   // 3. The retry: the verification is asked for again, the working delivery
   //    carries it, and the account becomes usable. A reset is single use, so a
@@ -356,7 +377,12 @@ export async function runAuthLifecycleRecovery(
     .map((outcome) => outcome.value as { code?: string; status: number; text: string })
   const concurrentVerificationStatuses = verificationOutcomes.map((outcome) => outcome.status)
   const verified = concurrentVerificationStatuses.filter((status) => status === 200).length
-  assert.ok(verified >= 1, 'at least one concurrent verification must be accepted')
+  // The provider's own statuses: a verification link is a credential, so both
+  // raced verifications are accepted while the token is valid.
+  assert.equal(verified, 2, 'both concurrent verifications are accepted while the token is valid')
+  for (const status of concurrentVerificationStatuses) {
+    assert.equal(status, 200, 'each concurrent verification must have been accepted')
+  }
   for (const outcome of verificationOutcomes) {
     assert.ok(
       carriesNoSecret(outcome.text, [secondToken, password]),
@@ -374,9 +400,13 @@ export async function runAuthLifecycleRecovery(
     'a replayed verification must not echo the password or the token'
   )
   const secondAccount = await store.account(second)
+  assert.ok(secondAccount, 'the verified account is in place')
   assert.equal(secondAccount.emailVerified, true)
   // The sessions never outnumber the accepted verifications: a race must not
   // create a session of its own.
+  // The sessions correspond to the verifications that actually succeeded: the
+  // provider reuses the session it already made, so the accepted verifications
+  // do not add one session each.
   const secondSessions = await store.sessionCount(second)
   assert.ok(secondSessions >= 1, 'the verified account holds a session')
   assert.ok(
@@ -440,7 +470,15 @@ export async function runAuthLifecycleRecovery(
   const concurrentResetRedemptions = redemptionOutcomes.filter(
     (outcome) => outcome.status === 200
   ).length
-  assert.ok(concurrentResetRedemptions >= 1, 'the raced reset token must be redeemed at least once')
+  // A reset token is single use: exactly one of the two redemptions may succeed
+  // and the other must be refused. If the provider ever lets both through, this
+  // assertion fails and the race is reported rather than relaxed.
+  const winners = redemptionOutcomes.filter((outcome) => outcome.status === 200)
+  const losers = redemptionOutcomes.filter((outcome) => outcome.status !== 200)
+  assert.equal(winners.length, 1, 'exactly one redemption of the raced reset token may succeed')
+  assert.equal(losers.length, 1, 'the other redemption of the raced token must be refused')
+  assert.equal(losers[0]!.status, 400, 'the refused redemption must be a refusal')
+  assert.equal(losers[0]!.code, 'INVALID_TOKEN', 'the refused redemption must name the token')
   for (const outcome of redemptionOutcomes) {
     assert.ok(
       carriesNoSecret(outcome.text, [racedReset.token, replacement, racedReplayPassword]),
@@ -477,7 +515,11 @@ export async function runAuthLifecycleRecovery(
       await thirdRequest('/sign-out', {}, probeCookie)
     }
   }
-  assert.ok(current.length >= 1, 'the race must leave one of its passwords in force')
+  assert.equal(
+    current.length,
+    1,
+    'exactly one of the raced passwords must be in force after the race'
+  )
   assert.equal(await store.sessionCount(third), 0, 'the probes must not leave a session')
   const rejected = await thirdRequest('/sign-in/email', {
     email: third,
@@ -541,7 +583,7 @@ export async function runAuthLifecycleRecovery(
     concurrentVerificationStatuses,
     deliveryFailureClosed: true,
     deliveryFailureRecovered: true,
-    failedWriteLeftNoPartialState: true,
+    refusedWriteLeftNoAccount: true,
     providerWriteRollbackUnproven: true,
     redacted: true,
     replayedResetRefused: true,

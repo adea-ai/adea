@@ -223,8 +223,9 @@ export async function runFreshAuthAcceptance(
       const result = await providerSql<
         { id: string; emailVerified: boolean }[]
       >`SELECT id, "emailVerified" FROM "user" WHERE email = ${address}`
-      assert.equal(result.length, 1)
-      return { emailVerified: result[0]!.emailVerified, id: result[0]!.id }
+      const row = result[0]
+      if (!row) return null
+      return { emailVerified: row.emailVerified, id: row.id }
     },
     async sessionCount(address) {
       const result = await providerSql<
@@ -253,7 +254,7 @@ export async function runFreshAuthAcceptance(
   }
   assert.equal(recovery.deliveryFailureClosed, true)
   assert.equal(recovery.deliveryFailureRecovered, true)
-  assert.equal(recovery.failedWriteLeftNoPartialState, true)
+  assert.equal(recovery.refusedWriteLeftNoAccount, true)
   assert.equal(recovery.providerWriteRollbackUnproven, true)
   assert.equal(recovery.replayedVerificationAccepted, true)
   assert.equal(recovery.replayedResetRefused, true)
