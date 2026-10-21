@@ -91,14 +91,14 @@ async function openWorkspaceNavigation(page: Page, url: string) {
   return globalNavigation
 }
 
-// The contextual sidebar's Workspaces accordion (ADR 0011): the active
-// workspace is the expanded one, titled by a level-3 heading; every other
-// workspace is one row whose click switches to it.
-const workspaceNav = (page: Page) => page.getByRole('navigation', { name: 'Workspaces' })
+// The top bar's switcher names the active workspace; choosing another from its
+// menu switches to it.
 const activeWorkspaceHeading = (page: Page, name: string) =>
-  workspaceNav(page).getByRole('heading', { name, level: 3 })
-const collapsedWorkspaceRow = (page: Page, name: string) =>
-  workspaceNav(page).getByRole('button', { name: new RegExp(`^${name}(?: |$)`) })
+  page.getByRole('button', { name: `Switch workspace, current: ${name}`, exact: true })
+const switchWorkspaceTo = async (page: Page, name: string) => {
+  await page.getByRole('button', { name: /^Switch workspace, current:/ }).click()
+  await page.getByRole('menuitemradio', { name: new RegExp(`^${name}(?: |$)`) }).click()
+}
 
 test('a scene deep link opens the workspace with that scene', async ({ page }) => {
   await mockTwoWorkspaceBootstrap(page)
@@ -122,12 +122,11 @@ test('switching workspaces updates the scene with one navigation', async ({ page
   await openWorkspaceNavigation(page, '/')
   await expect(activeWorkspaceHeading(page, 'Work')).toBeVisible()
 
-  await collapsedWorkspaceRow(page, 'Home').click()
+  await switchWorkspaceTo(page, 'Home')
   await expect(activeWorkspaceHeading(page, 'Home')).toBeVisible()
-  await expect(collapsedWorkspaceRow(page, 'Work')).toBeVisible()
   await expect(page).toHaveURL(/scene=home/)
 
-  await collapsedWorkspaceRow(page, 'Work').click()
+  await switchWorkspaceTo(page, 'Work')
   await expect(activeWorkspaceHeading(page, 'Work')).toBeVisible()
   await expect(page).toHaveURL(/scene=work/)
 })

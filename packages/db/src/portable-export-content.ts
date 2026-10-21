@@ -245,8 +245,12 @@ export function mapPortableContent(
   const portableWorkspace: PortableWorkspace = {
     accent: input.workspace.accent as PortableWorkspace['accent'],
     createdAt: iso(input.workspace.createdAt),
-    logoKind: input.workspace.logoKind as PortableWorkspace['logoKind'],
-    logoValue: input.workspace.logoValue,
+    // An uploaded image is a presentation asset and is not exported (the same
+    // treatment as agent avatars): the document carries the default box mark.
+    logoKind: (input.workspace.logoKind === 'image'
+      ? 'box'
+      : input.workspace.logoKind) as PortableWorkspace['logoKind'],
+    logoValue: input.workspace.logoKind === 'image' ? null : input.workspace.logoValue,
     name: input.workspace.name,
     scene: input.workspace.scene as PortableWorkspace['scene'],
     updatedAt: iso(input.workspace.updatedAt),

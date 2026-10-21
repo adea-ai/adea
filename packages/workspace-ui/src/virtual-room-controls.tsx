@@ -229,11 +229,7 @@ export function VirtualRoomControls(props: {
     archiveTaskMutation
       .mutateAsync({ command: taskCommand(task, 'archive'), taskId: task.id })
       .then(() => undefined)
-  const workspaceHost = (): WorkspaceNavHost =>
-    props.workspaceHost ?? {
-      workspaces: bootstrapData()?.workspaces ?? [],
-      onSwitchWorkspace: (workspace) => workspaceStore.getState().switchWorkspace(workspace.id),
-    }
+  const workspaceHost = (): WorkspaceNavHost => props.workspaceHost ?? {}
   const queryIssue = () => {
     if (bootstrap.isError)
       return { message: 'Workspace could not be loaded.', retry: () => void bootstrap.refetch() }
@@ -301,7 +297,7 @@ export function VirtualRoomControls(props: {
         onArchiveChannel={archiveChannel}
         onArchiveTask={archiveTask}
         onChannelIntent={prefetchChannelMessages}
-        onCreateGroup={() => setDialog('create-group')}
+        onCreateConversation={() => setDialog('create-group')}
         onCreateProject={() => setDialog('create-project')}
         onMarkAllRead={() => markAllReadMutation.mutateAsync().then(() => undefined)}
         onOpenAgents={() => routeToChat('agents')}
@@ -351,6 +347,7 @@ export function VirtualRoomControls(props: {
             busy={createGroupMutation.isPending}
             client={client()}
             currentUserId={bootstrapData()?.principal.userId}
+            leadAgentId={(settledData(agents) ?? []).find((agent) => agent.isWorkspaceLead)?.id}
             onClose={() => setDialog(null)}
             workspaceId={workspaceId() ?? ''}
             onCreate={createGroup}

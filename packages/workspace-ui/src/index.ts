@@ -50,7 +50,6 @@ export {
   verifyRegistryArtifacts,
 } from './marketplace-catalog'
 export { WorkspaceSettingsDialog } from './workspace-settings'
-export { WorkspaceDetailsDialog } from './workspace-details-dialog'
 export { CapabilityCard, CapabilityList } from './capability-card'
 export {
   capabilitiesNeedingAttention,

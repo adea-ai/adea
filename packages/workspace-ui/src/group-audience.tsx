@@ -39,6 +39,7 @@ import {
   groupSelection,
   groupAudienceCopy,
   groupFingerprint,
+  agentKey,
   humanKey,
   nextAttempt,
   participantKey,
@@ -276,8 +277,18 @@ export function CreateGroupDialog(props: {
   onOpen?: (channelId: string) => void
   open: boolean
   scope: GroupScope
+  /**
+   * The workspace's existing lead Agent. A conversation started from the
+   * sidebar begins with it already chosen; the person can still remove it or
+   * add anyone else they may reach. Nothing here creates a lead or grants access.
+   */
+  leadAgentId?: string
 }) {
   const [title, setTitle] = createSignal('')
+  const leadSelection = (): AudienceSelection =>
+    props.leadAgentId && choices().agents.some(({ key }) => key === agentKey(props.leadAgentId!))
+      ? [agentKey(props.leadAgentId)]
+      : []
   const [selected, setSelected] = createSignal<AudienceSelection>([])
   const [failure, setFailure] = createSignal<GroupFailure | null>(null)
   const [pending, setPending] = createSignal(false)
@@ -324,6 +335,16 @@ export function CreateGroupDialog(props: {
   )
   const canPick = () => Boolean(props.audience)
   const empty = createMemo(() => title().trim().length === 0)
+  // The lead may arrive after the lists load; seed it once, and only while the
+  // person has not chosen anything of their own.
+  let seeded = false
+  createEffect(() => {
+    if (seeded || untrack(selected).length > 0) return
+    const lead = leadSelection()
+    if (lead.length === 0) return
+    seeded = true
+    setSelected(lead)
+  })
 
   // A different account or workspace is a different group: nothing typed or selected carries over.
   createEffect(
@@ -334,6 +355,7 @@ export function CreateGroupDialog(props: {
         inFlight = false
         setPending(false)
         setTitle('')
+        seeded = false
         setSelected([])
         setFailure(null)
         setCreated(null)
@@ -457,8 +479,12 @@ export function CreateGroupDialog(props: {
       class="max-h-full overflow-y-auto"
       open={props.open}
       onClose={props.onClose}
-      title="New group conversation"
-      description="A durable conversation for users and multiple Agents, without requiring a Project."
+      title="New conversation"
+      description={
+        props.leadAgentId
+          ? "A durable conversation that starts with this workspace's lead Agent. Add anyone else you can reach."
+          : 'A durable conversation for users and multiple Agents, without requiring a Project.'
+      }
     >
       <Show
         when={!created()}
@@ -589,6 +615,7 @@ export function ConnectedCreateGroupDialog(
       onOpen={props.onOpen}
       open={props.open}
       scope={props.scope}
+      leadAgentId={props.leadAgentId}
     />
   )
 }

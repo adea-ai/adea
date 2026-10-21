@@ -64,7 +64,7 @@ async function mountWithUnreadyPicker(page: Page) {
 }
 
 const openNewProjectDialog = async (page: Page) => {
-  await page.getByRole('button', { name: 'New project in Workspace' }).click()
+  await page.getByRole('button', { name: 'Add project' }).first().click()
   const dialog = page.getByRole('dialog', { name: 'New project in Workspace' })
   await dialog.getByRole('textbox', { name: 'Project name' }).fill('Cloud project')
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click()

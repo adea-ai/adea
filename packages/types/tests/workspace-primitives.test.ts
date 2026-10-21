@@ -4,7 +4,10 @@ import {
   isSidebarGroupMode,
   isUserPrincipalRef,
   isWorkspaceAccent,
+  isWorkspaceLogoIconKey,
+  isWorkspaceLogoImage,
   sidebarGroupModes,
+  WORKSPACE_LOGO_IMAGE_MAX_LENGTH,
   workspaceAccentIds,
 } from '../src/index'
 
@@ -51,5 +54,43 @@ describe('public workspace primitive guards', () => {
       expect(isWorkspaceAccent(color)).toBe(true)
     for (const value of ['#ABCDEF', '#fff', '#12345678', 'rgb(0,0,0)', '', 'red', null, 42])
       expect(isWorkspaceAccent(value)).toBe(false)
+  })
+
+  test('accepts lowercase hyphenated icon keys and refuses everything else', () => {
+    for (const key of ['box', 'git-branch', 'a1', 'x'.padEnd(32, 'y')])
+      expect(isWorkspaceLogoIconKey(key)).toBe(true)
+    for (const value of [
+      'Box',
+      '1box',
+      '-box',
+      'box_',
+      'has space',
+      '',
+      'x'.padEnd(33, 'y'),
+      null,
+      4,
+    ])
+      expect(isWorkspaceLogoIconKey(value)).toBe(false)
+  })
+
+  test('accepts only bounded webp and png data URLs as image marks', () => {
+    const png = 'data:image/png;base64,iVBORw0KGgo='
+    expect(isWorkspaceLogoImage(png)).toBe(true)
+    expect(isWorkspaceLogoImage('data:image/webp;base64,UklGRg==')).toBe(true)
+    for (const value of [
+      'data:image/svg+xml;base64,PHN2Zz4=',
+      'data:image/png;base64,',
+      'data:image/png;base64,not base64!',
+      'https://example.test/logo.png',
+      '',
+      null,
+      7,
+    ])
+      expect(isWorkspaceLogoImage(value)).toBe(false)
+    const prefix = 'data:image/png;base64,'
+    expect(
+      isWorkspaceLogoImage(prefix + 'A'.repeat(WORKSPACE_LOGO_IMAGE_MAX_LENGTH - prefix.length))
+    ).toBe(true)
+    expect(isWorkspaceLogoImage(prefix + 'A'.repeat(WORKSPACE_LOGO_IMAGE_MAX_LENGTH))).toBe(false)
   })
 })
