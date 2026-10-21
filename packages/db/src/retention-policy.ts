@@ -18,6 +18,11 @@
  * blocks cleanup. Decisions carry only reason and blocker codes, never subject
  * ids, timestamps, locations or content. Trust in the inventory and executor
  * identities is established by the caller's authenticated boundary, not here.
+ *
+ * The policy set is total over the categories: `retentionCategoryRule` resolves
+ * exactly one rule per category and refuses a category that has none. Malformed
+ * input is refused with a typed code as well, so no caller can turn a policy
+ * question into an untyped error.
  */
 
 export const RETENTION_CATEGORIES = [
@@ -44,7 +49,7 @@ export const CLEANUP_COVERAGE_KINDS = [
 
 export type CleanupCoverageKind = (typeof CLEANUP_COVERAGE_KINDS)[number]
 
-type RetentionRule = {
+export type RetentionRule = {
   readonly requiredCoverage: readonly CleanupCoverageKind[]
   /** Backups are removed by backup expiry, never by per-subject deletion. */
   readonly eventualBackupExpiry: boolean
@@ -91,6 +96,20 @@ export const RETENTION_COVERAGE_RULES: Readonly<Record<RetentionCategory, Retent
     },
   })
 
+/**
+ * The policy of one category. The policy set is total over the categories: every
+ * category resolves to exactly one rule, and a category without a rule is not a
+ * policy. Such a category is refused with a typed code, never defaulted and never
+ * dereferenced, so an undefined rule cannot crash the gate into an untyped error.
+ */
+export function retentionCategoryRule(category: string): RetentionRule {
+  const rule = (RETENTION_COVERAGE_RULES as Readonly<Record<string, RetentionRule | undefined>>)[
+    category
+  ]
+  if (rule === undefined) fail('invalid_candidate')
+  return rule
+}
+
 /** Retention periods in whole days. `null` means unset and refuses deletion. */
 export type RetentionPeriods = Readonly<Record<RetentionCategory, number | null>>
 
@@ -116,6 +135,7 @@ export type RetentionPolicyErrorCode =
   | 'invalid_periods'
   | 'invalid_candidate'
   | 'invalid_receipt'
+  | 'invalid_input'
   | 'untrusted_executor'
 
 export class RetentionPolicyError extends Error {
@@ -378,8 +398,7 @@ export function parseRetentionCoverageInventory(
   value: unknown,
   category: RetentionCategory
 ): ParsedRetentionCoverageInventory {
-  const required = RETENTION_COVERAGE_RULES[category]?.requiredCoverage
-  if (!required) fail('invalid_candidate')
+  const required = retentionCategoryRule(category).requiredCoverage
   if (value === undefined)
     return Object.freeze({ complete: required.length === 0, executorsByCoverage: new Map() })
   if (typeof value !== 'object' || value === null || Array.isArray(value)) fail('invalid_candidate')
@@ -400,6 +419,7 @@ export function parseRetentionCoverageInventory(
 }
 
 function parseCandidate(value: RetentionCandidate): RetentionCandidate {
+  if (typeof value !== 'object' || value === null) fail('invalid_candidate')
   if (!RETENTION_CATEGORIES.includes(value.category)) fail('invalid_candidate')
   opaqueId(value.subjectId, 'invalid_candidate')
   timestampMs(value.anchorAt, 'invalid_candidate')
@@ -534,6 +554,10 @@ function coverageState(
  * `verified_complete` supports reporting deletion as complete.
  */
 export function evaluateRetentionDeletion(input: RetentionEvaluationInput): RetentionDecision {
+  if (typeof input !== 'object' || input === null) fail('invalid_input')
+  if (typeof input.periods !== 'object' || input.periods === null) fail('invalid_periods')
+  if (!Array.isArray(input.receipts)) fail('invalid_receipt')
+  if (!(input.trustedExecutors instanceof Map)) fail('invalid_input')
   const candidate = parseCandidate(input.candidate)
   const nowMs = timestampMs(input.now, 'invalid_candidate')
   const anchorMs = timestampMs(candidate.anchorAt, 'invalid_candidate')
@@ -552,7 +576,7 @@ export function evaluateRetentionDeletion(input: RetentionEvaluationInput): Rete
   if (!authorizationIsCurrent(candidate.authorization, nowMs))
     return { outcome: 'refused', reason: 'authorization_not_current' }
 
-  const rule = RETENTION_COVERAGE_RULES[candidate.category]
+  const rule = retentionCategoryRule(candidate.category)
   if (rule.eventualBackupExpiry)
     return { outcome: 'pending', blockers: [{ kind: 'backup_expiry' }] }
 

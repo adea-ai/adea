@@ -69,6 +69,7 @@ export {
   RETENTION_COVERAGE_RULES,
   RetentionPolicyError,
   recordCleanupReceipt,
+  retentionCategoryRule,
   UNSET_RETENTION_PERIODS,
   type CleanupCoverageKind,
   type CleanupReceipt,
