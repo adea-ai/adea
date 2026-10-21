@@ -45,13 +45,19 @@ const audience = (channelId: string, participant: UserPrincipalRef, grantId: str
   revokedAt: null,
 })
 
-const enlistment = (channelId: string, agentId: string, workspaceId: string, grantId: string) => ({
+const enlistment = (
+  channelId: string,
+  agentId: string,
+  workspaceId: string,
+  grantId: string,
+  revision = 1
+) => ({
   agent: { agentId, workspaceId },
   expiresAt: null,
   grantId,
   groupId: channelId,
   issuedAt: ISSUED,
-  revision: 1,
+  revision,
   revokedAt: null,
 })
 
@@ -835,4 +841,215 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
       expect(rest.turns.map((turn) => turn.id)).toEqual([second.turn.id])
     }
   )
+
+  /**
+   * The roster rewrite removes the addressed Agent and adds it again: the
+   * grant id is the same, the revision is new. The work admitted under the
+   * old revision must not be authorized by the new one.
+   */
+  async function removeThenReaddLead(f: Fixture) {
+    const version = async () => {
+      const [channel] = await connection.db
+        .select({ version: schema.channels.version })
+        .from(schema.channels)
+        .where(eq(schema.channels.id, f.channelId))
+        .limit(1)
+      if (!channel) throw new Error('Test channel missing')
+      return channel.version
+    }
+    await setGroupChannelParticipantsWithGrants(
+      connection.db,
+      f.workspace.id,
+      f.channelId,
+      f.owner,
+      {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [
+            audience(f.channelId, f.owner, 'gra_owner'),
+            audience(f.channelId, f.member, 'gra_member'),
+          ],
+          enlistmentGrants: [enlistment(f.channelId, f.helper.id, f.workspace.id, 'gra_helper')],
+        }),
+        expectedVersion: await version(),
+        now: new Date().toISOString(),
+      }
+    )
+    await setGroupChannelParticipantsWithGrants(
+      connection.db,
+      f.workspace.id,
+      f.channelId,
+      f.owner,
+      {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [
+            audience(f.channelId, f.owner, 'gra_owner'),
+            audience(f.channelId, f.member, 'gra_member'),
+          ],
+          enlistmentGrants: [
+            enlistment(f.channelId, f.helper.id, f.workspace.id, 'gra_helper'),
+            enlistment(f.channelId, f.lead.id, f.workspace.id, 'gra_lead', 2),
+          ],
+        }),
+        expectedVersion: await version(),
+        now: new Date().toISOString(),
+      }
+    )
+  }
+
+  /** The claim's retained grant binding, the durable authorization of the work. */
+  async function retainedBinding(f: Fixture, turnId: string) {
+    const [row] = await connection.db
+      .select({
+        authGrantId: schema.addressedAgentTurns.authGrantId,
+        authRevision: schema.addressedAgentTurns.authRevision,
+      })
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, turnId))
+    if (!row) throw new Error('Test turn missing')
+    return row
+  }
+
+  /** The publication's own state: the message it wrote and the runtime row it left behind. */
+  async function publicationState(f: Fixture, intentId: string) {
+    const [runtime] = await connection.db
+      .select({
+        publishedMessageId: schema.leadTurnRuntime.publishedMessageId,
+        state: schema.leadTurnRuntime.state,
+      })
+      .from(schema.leadTurnRuntime)
+      .where(eq(schema.leadTurnRuntime.intentId, intentId))
+    const messages = await connection.db
+      .select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(eq(schema.messages.channelId, f.channelId))
+    return { messages, runtime }
+  }
+
+  T('the claim retains the exact participation grant that admitted the work', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    expect(await retainedBinding(f, turn.id)).toEqual({
+      authGrantId: 'gra_lead',
+      authRevision: 1,
+    })
+  })
+
+  T(
+    'a removed and re-added Agent does not authorize the old work: the late result is held',
+    async () => {
+      const f = await fixture()
+      const { turn } = await address(f, f.lead.id)
+      const intentId = turn.leadTurnIntentId!
+      const publish = await complete(f, intentId)
+      await removeThenReaddLead(f)
+      // The new grant revision is live for the Agent, and the work admitted
+      // under the old one is still held.
+      await expect(publish()).rejects.toMatchObject({
+        name: 'GroupPublicationHoldError',
+        reason: 'publication_binding_mismatch',
+      })
+      const state = await publicationState(f, intentId)
+      // The hold keeps the result out of the group and says nothing about the
+      // independently owned job.
+      expect(state.runtime?.state).toBe('completed')
+      expect(state.runtime?.publishedMessageId).toBeNull()
+      expect(state.messages).toHaveLength(1)
+      const [row] = await connection.db
+        .select()
+        .from(schema.addressedAgentTurns)
+        .where(eq(schema.addressedAgentTurns.id, turn.id))
+      expect(row).toMatchObject({ responseMessageId: null, state: 'dispatching' })
+    }
+  )
+
+  T('a revoked enlistment holds the late result with the typed revocation reason', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    const intentId = turn.leadTurnIntentId!
+    const publish = await complete(f, intentId)
+    await revokeGroupGrant(connection.db, f.workspace.id, f.channelId, f.owner, {
+      grantId: 'gra_lead',
+      kind: 'enlistment',
+      revokedAt: new Date().toISOString(),
+    })
+    await expect(publish()).rejects.toMatchObject({
+      name: 'GroupPublicationHoldError',
+      reason: 'publication_participation_revoked',
+    })
+    expect((await publicationState(f, intentId)).messages).toHaveLength(1)
+  })
+
+  T('an expired enlistment holds the late result with the typed stale reason', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    const intentId = turn.leadTurnIntentId!
+    const publish = await complete(f, intentId)
+    await connection.db
+      .update(schema.groupEnlistmentGrants)
+      .set({ expiresAt: new Date(Date.now() - 1000).toISOString() })
+      .where(
+        and(
+          eq(schema.groupEnlistmentGrants.channelId, f.channelId),
+          eq(schema.groupEnlistmentGrants.grantId, 'gra_lead')
+        )
+      )
+    await expect(publish()).rejects.toMatchObject({
+      name: 'GroupPublicationHoldError',
+      reason: 'publication_participation_stale',
+    })
+    expect((await publicationState(f, intentId)).messages).toHaveLength(1)
+  })
+
+  T('a claim without a retained binding proves nothing and fails closed', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    const intentId = turn.leadTurnIntentId!
+    const publish = await complete(f, intentId)
+    // A claim persisted before the binding existed carries no provable
+    // authorization, so it authorizes nothing.
+    await connection.db
+      .update(schema.addressedAgentTurns)
+      .set({ authGrantId: null, authRevision: null })
+      .where(eq(schema.addressedAgentTurns.id, turn.id))
+    await expect(publish()).rejects.toMatchObject({
+      name: 'GroupPublicationHoldError',
+      reason: 'publication_binding_mismatch',
+    })
+    expect((await publicationState(f, intentId)).messages).toHaveLength(1)
+  })
+
+  T(
+    'a replay converges on the same message while the binding holds, and is held once it does not',
+    async () => {
+      const f = await fixture()
+      const { turn } = await address(f, f.lead.id)
+      const intentId = turn.leadTurnIntentId!
+      const publish = await complete(f, intentId)
+      const messageId = await publish()
+      expect(await publish()).toBe(messageId)
+      expect((await publicationState(f, intentId)).messages).toHaveLength(2)
+      await removeThenReaddLead(f)
+      // A replay after the binding changed writes nothing new.
+      await expect(publish()).rejects.toMatchObject({
+        name: 'GroupPublicationHoldError',
+        reason: 'publication_binding_mismatch',
+      })
+      expect((await publicationState(f, intentId)).messages).toHaveLength(2)
+    }
+  )
+
+  T('concurrent publications of one addressed turn write exactly one message', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    const intentId = turn.leadTurnIntentId!
+    const publish = await complete(f, intentId)
+    const [first, second] = await Promise.all([publish(), publish()])
+    expect(first).toBe(second)
+    expect((await publicationState(f, intentId)).messages).toHaveLength(2)
+    const [row] = await connection.db
+      .select()
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, turn.id))
+    expect(row).toMatchObject({ responseMessageId: first, state: 'responded' })
+  })
 })

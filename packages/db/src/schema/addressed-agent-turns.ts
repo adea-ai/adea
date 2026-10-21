@@ -59,6 +59,19 @@ export const addressedAgentTurns = appSchema.table(
     /** Deterministic causal ID: `turn:<triggerMessageId>:<agentId>:<revision>`. */
     causalId: text('causal_id').notNull(),
     dispatchRevision: integer('dispatch_revision').notNull(),
+    /**
+     * The exact participation grant that admitted this work: the grant id and
+     * revision the addressed Agent's admission was bound to when the claim was
+     * persisted. Late publication compares this binding against the Agent's
+     * CURRENT admission, so a remove-then-re-add (a new, higher revision on
+     * the same grant id) cannot authorize work admitted under the old one.
+     *
+     * Both columns are null ONLY for claims persisted before this binding
+     * existed. Such a claim carries no provable authorization and therefore
+     * authorizes nothing: publication fails closed on it.
+     */
+    authGrantId: text('auth_grant_id'),
+    authRevision: integer('auth_revision'),
     /** 0 for root turns; parent depth + 1 for recursive follow-ups. */
     depth: integer('depth').notNull(),
     /** Budget recorded before dispatch: bounds on this turn tree. */
@@ -96,6 +109,10 @@ export const addressedAgentTurns = appSchema.table(
       sql`${table.depth} >= 0 and ${table.maxDepth} >= 0 and ${table.maxTurns} >= 1`
     ),
     check('addressed_agent_turns_label_valid', sql`length(btrim(${table.addressedLabel})) > 0`),
+    check(
+      'addressed_agent_turns_auth_binding_valid',
+      sql`(${table.authGrantId} is null and ${table.authRevision} is null) or (${table.authGrantId} is not null and length(btrim(${table.authGrantId})) > 0 and ${table.authRevision} is not null and ${table.authRevision} > 0)`
+    ),
     check(
       'addressed_agent_turns_state_valid',
       sql`${table.state} in ('claimed','dispatching','responded','superseded','cancelled')`
