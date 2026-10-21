@@ -40,7 +40,7 @@ There are two exact revisions in this record, and they are not the same thing.
 | Role                           | Value                                                                          |
 | ------------------------------ | ------------------------------------------------------------------------------ |
 | Repository                     | `adea-ai/adea`                                                                 |
-| **Frozen source candidate**    | `73e444f59eb3526f5b18f985c2b2f1f9ae302d5a`                                     |
+| **Frozen source candidate**    | `85be87e3f9e9da0d5cde917c4faf37b7b364b693`                                     |
 | Verified from                  | `refs/heads/main` of `adea-ai/adea`, read with the existing remote credentials |
 | Package version at that commit | `0.99.0` (root `package.json`) and `0.99.0` (`@adea-ai/types`)                 |
 | **Artifact candidate**         | the branch head that carries this record, published as draft PR #1550          |
@@ -58,7 +58,7 @@ candidate. The runner is invoked with `--base` so that the two never blur.
 
 ### Reconciling the advance of main
 
-`main` moved five commits between the previous base and this one, and all five
+`main` moved six commits between the previous base and this one, and all six
 are other owners' merges:
 
 | Commit      | Pull request | What it merged                                                                     |
@@ -68,10 +68,16 @@ are other owners' merges:
 | `f673af22f` | #1545        | db: qualify the populated migration rollback outcome (#1219/#1222/#1220)           |
 | `f4bee99c7` | #1547        | workspaces: complete the protected Home lifecycle (#1214/#1175)                    |
 | `73e444f59` | #1552        | remote-content: label the cross-runtime return vector as public synthetic material |
+| `85be87e3f` | #1543        | ci: give the integration lane a resource ownership and reuse policy                |
 
 **None of the 27 cited test files changed.** No cited title was invalidated by
 the advance. The cited tests were still re-run at the new candidate, because a
-test that has not been re-run says nothing about a new commit.
+test that has not been re-run says nothing about a new commit. The last of the
+six, #1543, changes the integration lane's resource lease and its runner; it
+touches no cited test, no owned path and no product source file, and the
+qualification was run again at that commit to show that the result is
+unchanged: the same 28 passed, 11 skipped, 23 unavailable, 2 untestable, 0
+failed and 0 certified.
 
 What the advance did change is the **pending-row inventory**: three owners
 merged the very tests that many of the pending rows said were missing.
@@ -87,7 +93,7 @@ them, runs them, and reports them against the row they cover. Three rows moved
 out of `untestable` because of them.
 
 The evidence manifest's own pin is unchanged at
-`e8b75daa5cc996a4c0d84489a3885535c3045a2f`, which is 275 commits behind the
+`e8b75daa5cc996a4c0d84489a3885535c3045a2f`, which is 276 commits behind the
 candidate. The manifest is **not** re-pinned: it belongs to another owner,
 and re-pinning it would declare the changed behaviors covered without
 requalifying them. What this runner does instead is re-run every cited test at
@@ -204,7 +210,7 @@ checkout and verified to exist. Nothing here is inferred.
 
 | Ref                   | SHA                                        | Role                                                |
 | --------------------- | ------------------------------------------ | --------------------------------------------------- |
-| `refs/heads/main`     | `73e444f59eb3526f5b18f985c2b2f1f9ae302d5a` | **the frozen source candidate**                     |
+| `refs/heads/main`     | `85be87e3f9e9da0d5cde917c4faf37b7b364b693` | **the frozen source candidate**                     |
 | `refs/pull/1515/head` | `312c49db2e77371cf38a5397c386439494e53019` | an open draft, not merged, not a candidate          |
 | `refs/pull/1518/head` | `fcb72ad807d95fa82bb9b76801a24b16c0cccb0e` | an open draft, not merged, not a candidate          |
 | `refs/pull/1522/head` | `a18e35ff2e213133480811435b47107a68c6e2b3` | an open draft, not merged, not a candidate          |
@@ -241,7 +247,7 @@ its two component heads `3118a7c9f5d177a3fdce2de8ced7fbf353d91e43` and
 the local control-plane checkout.
 
 **No candidate pair is certified.** The only pair this repository pins is
-Adea `73e444f5…` with control-plane `1aa42ff2…`, and the control-plane side of
+Adea `85be87e3…` with control-plane `1aa42ff2…`, and the control-plane side of
 that pair is a _pinned revision of the consumer contract_, not a published
 candidate head. CP #943 has no pull request at all, so no control-plane
 candidate can be named for it. The `cross-product` gate therefore reports the
@@ -447,7 +453,7 @@ semantics the merged readiness script uses. A presence probe is a search, not a
 proof: it shows that an identifier is or is not in product source at that
 commit.
 
-| Criterion | Probe                | Result at `73e444f5` | Files | Owner  |
+| Criterion | Probe                | Result at `85be87e3` | Files | Owner  |
 | --------- | -------------------- | -------------------- | ----- | ------ |
 | ACC-03    | reduced-motion-tests | **present**          | 17    | Claude |
 | COST-03   | budget-reservation   | **absent**           | 0     | root   |
@@ -494,7 +500,7 @@ the product source with this work's own files:
 
 ```
 bun scripts/evidence-candidate-certification.mjs --run --json \
-  --base 73e444f59eb3526f5b18f985c2b2f1f9ae302d5a \
+  --base 85be87e3f9e9da0d5cde917c4faf37b7b364b693 \
   --database-url "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55473/agent_hq?sslmode=disable" \
   --database-migration-url "postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55473/agent_hq?sslmode=disable" \
   --control-plane-source <a control-plane checkout at 1aa42ff20c7fe1b0d9cc484983a7a631f4589746>
@@ -504,7 +510,7 @@ bun scripts/evidence-candidate-certification.mjs --run --json \
 
 | Step                      | Command                                                                                       | Exit             | Result                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------- |
-| export the tree           | `git archive --format=tar 73e444f59eb3526f5b18f985c2b2f1f9ae302d5a`                           | 0                | 3 246 files, matching the commit tree exactly                                    |
+| export the tree           | `git archive --format=tar 85be87e3f9e9da0d5cde917c4faf37b7b364b693`                           | 0                | 3 246 files, matching the commit tree exactly                                    |
 | install dependencies      | workspace packages linked into the checkout, third-party entries linked to the installed tree | 0                | 15 workspace trees linked                                                        |
 | build the needed packages | `bun run build` (cwd the packages the lane needs)                                             | 0                | from the same commit                                                             |
 | run the cited tests       | `bun test <file> --reporter=junit --reporter-outfile=<tmp>/junit/<file>.xml`                  | 0 for every file | **24 files, 369 testcases, 0 failures**                                          |
@@ -581,7 +587,7 @@ from an existing authorized source:
 
 | Side          | SHA                                        | Source of the SHA                                           |
 | ------------- | ------------------------------------------ | ----------------------------------------------------------- |
-| Adea          | `73e444f59eb3526f5b18f985c2b2f1f9ae302d5a` | `refs/heads/main` of `adea-ai/adea`                         |
+| Adea          | `85be87e3f9e9da0d5cde917c4faf37b7b364b693` | `refs/heads/main` of `adea-ai/adea`                         |
 | Control plane | `1aa42ff20c7fe1b0d9cc484983a7a631f4589746` | this repository's own committed `control-plane-source.json` |
 
 This is a source-level proof that the two repositories agree on the fence-v2
@@ -753,7 +759,7 @@ them.
 | `control-plane-candidate` | control-plane owners | A control-plane candidate head for CP #943. The control-plane remote publishes **no** `refs/pull/943/head` and no `refs/pull/943/merge`, so there is no head to name. The published control-plane candidate head is `95021f73a1127d117317ed78e5d7466f3ad61783` for CP #1210.                                                                                                                                               |
 | `packaged-native`         | release owners       | A packaged or native candidate artifact for the milestone, and the contract version the evidence manifest accepts. `compatibility.contractVersions` is empty, so **every** candidate contract is currently incompatible. This task does not authorize a release.                                                                                                                                                           |
 | `deployed`                | release owners       | A deployed environment built from the candidate. None is available, and this task does not authorize access to production.                                                                                                                                                                                                                                                                                                 |
-| `cross-product`           | both product owners  | One exact pair of **candidate** heads, one from each repository. The joined journey **was** executed and passed at a verified pair (Adea `73e444f5…` with control-plane `1aa42ff2…`, 41 tests, 0 failures, 2 274 assertions), but the control-plane side of that pair is a pinned consumer-contract revision, not a published candidate head: CP #943 has no pull request, so there is no control-plane candidate to name. |
+| `cross-product`           | both product owners  | One exact pair of **candidate** heads, one from each repository. The joined journey **was** executed and passed at a verified pair (Adea `85be87e3…` with control-plane `1aa42ff2…`, 41 tests, 0 failures, 2 274 assertions), but the control-plane side of that pair is a pinned consumer-contract revision, not a published candidate head: CP #943 has no pull request, so there is no control-plane candidate to name. |
 | `soak-24h`                | release owners       | A 24-hour soak result. Not run here; this task does not authorize long paid or production soaks.                                                                                                                                                                                                                                                                                                                           |
 | `performance-cost`        | release owners       | Approved latency and cost thresholds and a meter. The candidate measures none of the eight instrumentation identifiers, so nothing can be measured for them.                                                                                                                                                                                                                                                               |
 | `owner-acceptance`        | owner                | The owner's daily-driver journey. A human decision, reported as open and never inferred.                                                                                                                                                                                                                                                                                                                                   |
@@ -886,14 +892,14 @@ bun scripts/evidence-candidate-certification.mjs --json
 
 # every journey, at the frozen source candidate
 bun scripts/evidence-candidate-certification.mjs --run --json \
-  --base 73e444f59eb3526f5b18f985c2b2f1f9ae302d5a \
+  --base 85be87e3f9e9da0d5cde917c4faf37b7b364b693 \
   --database-url "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55473/agent_hq?sslmode=disable" \
   --database-migration-url "postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55473/agent_hq?sslmode=disable" \
   --control-plane-source <a control-plane checkout at 1aa42ff20c7fe1b0d9cc484983a7a631f4589746>
 
 # the disposable-integration journey on its own
 bun scripts/evidence-candidate-certification.mjs --run \
-  --base 73e444f59eb3526f5b18f985c2b2f1f9ae302d5a \
+  --base 85be87e3f9e9da0d5cde917c4faf37b7b364b693 \
   --database-url "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55473/agent_hq?sslmode=disable" \
   --database-migration-url "postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55473/agent_hq?sslmode=disable"
 
