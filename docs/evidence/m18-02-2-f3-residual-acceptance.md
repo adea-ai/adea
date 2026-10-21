@@ -11,7 +11,7 @@ carry, what a destination ends up holding, and which stores were never touched a
 
 This file records that round trip. It is the evidence for a new test file and nothing else:
 
-- `apps/web/test/integration/portable-export-residual-residency.test.ts` (16 tests)
+- `apps/web/test/integration/portable-export-residual-residency.test.ts` (19 tests)
 - this document
 
 No product source, no shared group or migration file, no UI, no credential and no deployment
@@ -338,8 +338,8 @@ DATABASE_MIGRATION_URL=postgresql://agent_hq_local_migration:agent_hq_local_migr
 | #   | Command                                                                                                                                                                                                                                                             | Exit | Result                                                                                                                                                                                                                                                                                                                                                                                              |
 | --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | C1  | `bun scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test --preload ./scripts/test-solid-transform.ts --timeout 30000 apps/web/test/integration/portable-export-residual-residency.test.ts`                                              | 0    | 19 pass, 0 fail, 638 assertions                                                                                                                                                                                                                                                                                                                                                                     |
-| C2  | `bun scripts/run-with-capture-provisioning.mjs -- bun test --parallel --conditions=react-server --preload ./scripts/test-solid-transform.ts --timeout 30000` over the residual file and the five merged portable route-flow files                                   | 0    | 74 pass, 0 fail, 724 assertions across 6 files                                                                                                                                                                                                                                                                                                                                                      |
-| C3  | `bun scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test --timeout 30000` over the six `packages/db/tests/integration/portable-*.test.ts` files                                                                                         | 0    | 60 pass, 0 fail, 325 assertions across 6 files                                                                                                                                                                                                                                                                                                                                                      |
+| C2  | `bun scripts/run-with-capture-provisioning.mjs -- bun test --parallel --conditions=react-server --preload ./scripts/test-solid-transform.ts --timeout 30000` over the residual file and the five merged portable route-flow files                                   | 0    | 77 pass, 0 fail, 1016 assertions across 6 files. The first measurement of this row, 74 pass and 724 assertions, predated the residual file's second round; the continuation re-measured it against the file the branch now carries (Q7)                                                                                                                                                             |
+| C3  | `bun scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test --timeout 30000` over the six `packages/db/tests/integration/portable-*.test.ts` files                                                                                         | 0    | 61 pass, 0 fail, 334 assertions across 6 files. The first measurement of this row, 60 pass and 325 assertions, was taken against the pre-repair channel-bounds file; the continuation re-measured it against the repaired file and against the pre-repair file, to show which is which (Q6, Q8)                                                                                                     |
 | C4  | `bun test` over the four portable unit files and `packages/types/tests/portable-export.test.ts`                                                                                                                                                                     | 0    | 48 pass, 0 fail, 257 assertions across 5 files                                                                                                                                                                                                                                                                                                                                                      |
 | C5  | `bun scripts/database-health.mjs`                                                                                                                                                                                                                                   | 0    | `Database health check passed (database=agent_hq, runtimeRole=agent_hq_local_app, migrationRole=agent_hq_local_migration)`                                                                                                                                                                                                                                                                          |
 | C6  | `bun run --cwd packages/db db:migrate`                                                                                                                                                                                                                              | 0    | `Migration verification passed (61 applied migration(s))`                                                                                                                                                                                                                                                                                                                                           |
@@ -351,8 +351,8 @@ DATABASE_MIGRATION_URL=postgresql://agent_hq_local_migration:agent_hq_local_migr
 | C12 | `bun test scripts/integration-inventory.test.ts`                                                                                                                                                                                                                    | 0    | 20 pass, 0 fail (the new route-flow file is discovered by the lane's own inventory)                                                                                                                                                                                                                                                                                                                 |
 | C13 | `bun test scripts/capture-provisioning.test.ts scripts/run-with-capture-provisioning.test.ts`                                                                                                                                                                       | 0    | 53 pass, 0 fail                                                                                                                                                                                                                                                                                                                                                                                     |
 | C14 | `bun scripts/run-with-capture-provisioning.mjs -- bun test --parallel --conditions=react-server --preload ./scripts/test-solid-transform.ts --timeout 30000` over every file in `apps/web/test/integration`                                                         | 0    | 347 pass, 0 fail, 8291 assertions across 33 files                                                                                                                                                                                                                                                                                                                                                   |
-| C15 | `git fetch origin main`                                                                                                                                                                                                                                             | 0    | `origin/main` is `73e444f59eb3526f5b18f985c2b2f1f9ae302d5a`, and the base commit is an ancestor of it                                                                                                                                                                                                                                                                                               |
-| C16 | `git fetch origin "pull/1549/head:refs/remotes/origin/pr-1549"`                                                                                                                                                                                                     | 0    | the pull request's head is `1dc887d74aacc52ff4237a9025283535f40ceb52`, this branch's own commit                                                                                                                                                                                                                                                                                                     |
+| C15 | `git fetch origin main`                                                                                                                                                                                                                                             | 0    | `origin/main` is `73e444f59eb3526f5b18f985c2b2f1f9ae302d5a`, and the base commit is an ancestor of it. The continuation re-fetched it: `origin/main` is now `f3cf912d093fbf163a107c3b197e237c81f2c2bb`, and the base commit is still an ancestor of it, so the branch is still behind main rather than diverged from it; the three paths are still untouched by it (Q13)                            |
+| C16 | `git fetch origin "pull/1549/head:refs/remotes/origin/pr-1549"`                                                                                                                                                                                                     | 0    | the pull request's head is `1dc887d74aacc52ff4237a9025283535f40ceb52`, this branch's own commit. The continuation re-fetched it: the pull request's head is now `7afd68613d4e3d70401c2e74a144ed8ce97636ff`, which is this branch's own head, so the branch's four commits are on the pull request (Q13)                                                                                             |
 | C17 | the residual acceptance file on a fresh task-owned source database                                                                                                                                                                                                  | 0    | 19 pass, 0 fail, 638 assertions                                                                                                                                                                                                                                                                                                                                                                     |
 | C18 | the five other `packages/db` portable integration files on the same task-owned database                                                                                                                                                                             | 0    | 50 pass, 0 fail, 233 assertions                                                                                                                                                                                                                                                                                                                                                                     |
 | C19 | `packages/db/tests/integration/portable-export-channel-bounds.test.ts` on the same task-owned database                                                                                                                                                              | 0    | 11 pass, 0 fail, 101 assertions                                                                                                                                                                                                                                                                                                                                                                     |
@@ -531,13 +531,13 @@ Two controls on a second, clean database isolate the repair from the leftovers:
 | C0      | pristine, pre-repair | clean database | 0    | 10 pass, 0 fail — the base file is green, so the step-A failure is the seeded condition and not the file |
 | C3      | repaired             | clean database | 0    | 11 pass, 0 fail, 101 assertions                                                                          |
 
-The first version of the repair failed C1 on a clean database: it scoped the identifiers to the run
-but moved the heavy-scale family to the high end of the identifier space, which changed two
-order-sensitive assertions of the base file (the participant batch no longer split at 156 channels,
-and the export met the participant-bound channel on its last page instead of its first). The repair
-was corrected to preserve the identifier positions, and the table above records the corrected
-result. That correction is why the identifier _position_ is now part of the recorded contract of
-this fixture.
+The first version of the repair failed the C3 control on a clean database: it scoped the identifiers
+to the run but moved the heavy-scale family to the high end of the identifier space, which changed
+two order-sensitive assertions of the base file (the participant batch no longer split at 156
+channels, and the export met the participant-bound channel on its last page instead of its first).
+The repair was corrected to preserve the identifier positions, and the table above records the
+corrected result. That correction is why the identifier _position_ is now part of the recorded
+contract of this fixture.
 
 **Attribution.** The evidence supports the fixture attribution and nothing else. The pristine
 fixture fails on exactly the recorded primary key, the repaired fixture passes with that same row
@@ -559,12 +559,116 @@ it was.
 | `bun run --cwd packages/db db:migrate` against both reproduction databases                                                                  | 0    | `Migration verification passed (61 applied migration(s))`                                                                                                                                                                                                               |
 | the leftover-row plant                                                                                                                      | 0    | `INSERT 0 1`, `INSERT 0 1`, `INSERT 0 2`                                                                                                                                                                                                                                |
 | the repaired file on the clean database, step C3 above                                                                                      | 0    | 11 pass, 0 fail, 101 assertions                                                                                                                                                                                                                                         |
-| the residual acceptance file, `apps/web/test/integration/portable-export-residual-residency.test.ts`, on a fresh task-owned source database | 0    | 16 pass, 0 fail, 346 assertions                                                                                                                                                                                                                                         |
+| the residual acceptance file, `apps/web/test/integration/portable-export-residual-residency.test.ts`, on a fresh task-owned source database | 0    | 16 pass, 0 fail, 346 assertions — the residual file as it stood in this phase. The file the branch finally carries is 19 tests and 638 assertions; see C1, C17 and Q1                                                                                                   |
 | the five other `packages/db` portable integration files on the same task-owned database                                                     | 0    | 50 pass, 0 fail, 233 assertions                                                                                                                                                                                                                                         |
 
 No production database, no other lane's database and no other lane's container was read or
 written. The task-owned disposable instance and its two databases were removed after the evidence
 above was captured, and nothing else was stopped, removed or pruned.
+
+## The continuation: a second qualification round
+
+The continuation re-qualified the two fixtures this branch owns, on a second task-owned disposable
+instance, and did not rebuild the merged implementation. It ran the focused suites first and did not
+start a workspace-wide aggregate.
+
+**The disposable instance.** `f3w4-qual-postgres-1792606402`, from the repository-pinned image
+`public.ecr.aws/docker/library/postgres:18-alpine@sha256:d3e1620b…`, bound to `127.0.0.1:55441` ->
+5432, started with the repository's own `infra/postgres/init/001-roles.sql`, so it carries the
+repository's own role boundary (`agent_hq_local_app` / `agent_hq_local_migration` /
+`agent_hq_local_admin`). It is not the shared Compose instance and it is not any other lane's
+container: it was created under its own name on its own loopback port, and the container, its volume
+and its network were removed by name when the round ended. It carried two databases, `agent_hq` and
+`f3w4_qual_repro`, both migrated with the repository's own migrations (61 applied) and both verified
+by `bun scripts/database-health.mjs`.
+
+The `f3w4_qual_repro` database carried the seeded condition of the bounded reproduction: the two
+legacy channel primary keys, in a workspace of their own so that the file's own cleanup — which
+deletes by its own `workspace_id` — could not remove them. The seed is the same condition the first
+phase planted, written independently of it, and the rows are still there after the round: a leftover
+that the repaired fixture has to survive.
+
+**The seed and the repeat.** The qualification asked two questions the first phase did not: does the
+repaired fixture survive a database that already carries another run's leftovers, and does it survive
+being run again against the same database. The answers are in Q2, Q3, Q9, Q10 and Q11 below: the
+repaired fixture passes on the seeded database with the leftovers present, passes again on a second
+run against the same database, and the leftovers are still present afterwards. The residual
+acceptance file was run twice against the same source database and once against the seeded
+database, and it left no residue of its own: the source database held zero workspaces, users,
+channels, messages and tasks after each run, and no scratch database survived.
+
+**The commands and their exits.** All of them ran from the worktree root with
+`DATABASE_URL=postgresql://agent_hq_local_app:…@127.0.0.1:55441/…` and
+`DATABASE_MIGRATION_URL=postgresql://agent_hq_local_migration:…@127.0.0.1:55441/…`, against the
+task-owned instance only.
+
+| #   | Command                                                                                                   | Exit | Result                                                                                                                                                                                                                                                                                                     |
+| --- | --------------------------------------------------------------------------------------------------------- | ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Q1  | the residual acceptance file on a fresh task-owned source database                                        | 0    | 19 pass, 0 fail, 638 assertions                                                                                                                                                                                                                                                                            |
+| Q2  | the residual acceptance file, repeated, on the same source database                                       | 0    | 19 pass, 0 fail, 638 assertions; the source database held zero workspaces, users, channels, messages and tasks afterwards, and no scratch database survived                                                                                                                                                |
+| Q3  | the residual acceptance file on the seeded database, with the two legacy primary keys still present       | 0    | 19 pass, 0 fail, 638 assertions; both seeded rows still present and untouched                                                                                                                                                                                                                              |
+| Q4  | the repaired channel-bounds file on a clean task-owned database                                           | 0    | 11 pass, 0 fail, 101 assertions                                                                                                                                                                                                                                                                            |
+| Q5  | the five other `packages/db` portable integration files on the same database                              | 0    | 50 pass, 0 fail, 233 assertions                                                                                                                                                                                                                                                                            |
+| Q6  | the six `packages/db` portable integration files, with the repaired channel-bounds file                   | 0    | 61 pass, 0 fail, 334 assertions across 6 files                                                                                                                                                                                                                                                             |
+| Q7  | the residual file and the five merged portable route-flow files, in parallel                              | 0    | 77 pass, 0 fail, 1016 assertions across 6 files                                                                                                                                                                                                                                                            |
+| Q8  | the same six `packages/db` portable integration files, with the **pre-repair** channel-bounds file        | 0    | 60 pass, 0 fail, 325 assertions across 6 files — the first measurement of C3, reproduced                                                                                                                                                                                                                   |
+| Q9  | the bounded reproduction, step A: the pre-repair file on the seeded database                              | 1    | 8 pass, 2 fail. `PostgresError: duplicate key value violates unique constraint "channels_pkey"`, code `23505`, on `Key (id)=(ffffffff-ffff-4fff-8fff-ffffffffffff) already exists` and then on `Key (id)=(00000000-0000-4000-8000-000000000000) already exists` — the recorded lane failure, byte for byte |
+| Q10 | the bounded reproduction, step B: the repaired file on the seeded database                                | 0    | 11 pass, 0 fail, 101 assertions, and no duplicate-key error                                                                                                                                                                                                                                                |
+| Q11 | the bounded reproduction, step C: the repaired file, repeated, on the same seeded database                | 0    | 11 pass, 0 fail, 101 assertions; two patched runs in a row against one database both succeed                                                                                                                                                                                                               |
+| Q12 | the control: the pre-repair file on a clean database                                                      | 0    | 10 pass, 0 fail, 92 assertions — the base file is green, so Q9's failure is the seeded condition and not the file                                                                                                                                                                                          |
+| Q13 | the read-only `git fetch origin main` and `git fetch origin "pull/1549/head:refs/remotes/origin/pr-1549"` | 0    | `origin/main` is `f3cf912d093fbf163a107c3b197e237c81f2c2bb`, eleven commits ahead of the base, and the three paths are untouched by it; the pull request's head is `7afd68613d4e3d70401c2e74a144ed8ce97636ff`, this branch's own head                                                                      |
+
+Q9's failure is the attribution, again: the pre-repair fixture fails on exactly the recorded primary
+key, the repaired fixture passes with that same row still in the database, and the product's
+`channels_pkey` is correct and untouched. The reproduction is the same on a second instance, on a
+second pair of databases, with a seed written independently of the first phase's.
+
+**The checks that were re-run unchanged.** The portable unit files and `packages/types`' portable
+export test (48 pass, 0 fail, 257 assertions across 5 files), `bun scripts/database-health.mjs`,
+`bun run --cwd packages/db db:migrate` against both databases, `bunx tsc -p packages/db/tsconfig.json
+--noEmit`, `bunx tsc -p packages/types/tsconfig.json --noEmit`, the standalone `tsc --ignoreConfig`
+check of the residual file, `bunx oxlint --deny-warnings` and `bunx oxfmt --check` over both files,
+`bun test scripts/integration-inventory.test.ts` (20 pass) and `bun test scripts/capture-provisioning.test.ts
+scripts/run-with-capture-provisioning.test.ts` (53 pass). The last of those printed the same
+environmental `toomanyrequests: Data limit exceeded` messages from the shared image registry that
+the first phase recorded; they are the registry's answer, not a failure of the code under test.
+
+**What the continuation did not do, and why.**
+
+- It did not re-run the whole route-flow lane (C14, 33 files) or any workspace-wide aggregate. The
+  machine's load average was between 8 and 14 on twelve cores while the round ran, and the round
+  was told not to start one. The six portable route-flow files (Q7) and the six `packages/db`
+  portable files (Q6) are the focused groups that cover this change, and both are green.
+- It did not re-run the Miniflare dispatch probes (C20, C21) and did not regenerate
+  `apps/web/cloudflare-env.d.ts`. That path is a gitignored generated artifact, and the verified
+  official body is already in this worktree: sha256 `9b5e7188fa64b8807fb0a48873dc0755d0490b71ce6b8598f3b9b79d1718025e`,
+  623,606 bytes, carrying the `// Begin runtime types` marker and no HTML. Running the generator
+  again in this environment replaces it with the network's parked page, so the file was left alone.
+- It did not re-run the broad root `bun check -p tsconfig.json` (C24). That check is not the
+  repository's gate, it is not green on this base for pre-existing reasons, and the root TypeScript
+  settings are out of scope for this change: the global `lib` is ES2022 while every package
+  configuration uses ES2023, and the remedy belongs to a repository-wide decision, not to this
+  branch. The two focused type checks above are the ones that cover the three paths.
+- It did not re-run the repository's whole type check (C22) and did not re-run the gate's type check
+  on its own. The gate is change-aware: it type-checks only when a typed source or a compiler
+  configuration is staged, and the continuation stages one Markdown document, so the gate runs the
+  format check over that document and skips the type check. The type-check result at C22 and C23
+  was measured at the first phase's code state, and the continuation changed no typed file, no
+  compiler configuration and no product source, so that result still stands for this branch's code.
+  The two focused type checks above cover the three paths directly.
+- It did not rebuild the merged implementation, and it did not change any product path. The only
+  tracked path this continuation changed is this document.
+
+**Two observations that are not defects, recorded so that they are not rediscovered as ones.**
+
+1. The run-scoped identifier's index is written as three hexadecimal digits, so the family would
+   stop being a valid UUID shape if the heavy scale range ever grew past 4,094 channels. The file's
+   range is 157, and an overflow would fail loudly as a malformed identifier rather than as a
+   silent collision, so the shape is safe as it stands and no change was made.
+2. The seeded rows in this round live in a workspace of their own, exactly as in the first phase, so
+   the file's own cleanup never removed them and the condition was live for every repetition in
+   Q9, Q10 and Q11. That is what makes those three rows a repeat-and-seed proof rather than three
+   ordinary runs.
 
 ## The pre-commit type check blocker, and what it was
 
@@ -616,12 +720,15 @@ artifact rather than to run the generator blindly.
 ## Current main and the pull request
 
 `origin/main` has moved on since the base commit. It is now
-`73e444f59eb3526f5b18f985c2b2f1f9ae302d5a`, six commits ahead, and the base commit
+`f3cf912d093fbf163a107c3b197e237c81f2c2bb`, eleven commits ahead, and the base commit
 `ee31982e70406ab5de447a79603d6545ac11359f` is an ancestor of it, so this branch is behind main
-rather than diverged from it. Those six commits are the protected Home lifecycle (#1547), the
+rather than diverged from it. Those eleven commits are the protected Home lifecycle (#1547), the
 populated migration rollback outcome (#1545), the runtime connection and profile read models
-(#1544), the remote-content return envelopes (#1546), the cross-runtime return vector (#1552) and
-the workspace reorder conflict fix (#1542).
+(#1544), the remote-content return envelopes (#1546), the cross-runtime return vector (#1552), the
+workspace reorder conflict fix (#1542), the integration lane's resource ownership and reuse policy
+(#1543), the group's bounded revoke and earlier-history grant commands (#1178, #1553), the group's
+effective standing read model (#1178, #1554), the `0.100.0` release (#1556) and the native session
+family's field-drift cases (#1557).
 
 **None of them touches the three paths of this work.** `git diff` between the base commit and
 current main over the three paths is empty, so the merged work on main neither conflicts with this
@@ -629,13 +736,16 @@ boundary nor changes the behaviour these proofs observe. The branch is deliberat
 a rebase would rewrite the published head of the pull request and need a force push, which is not
 authorized here, and the three paths need no change to sit on the new main.
 
-The pull request is #1549. Its published head is `1dc887d74aacc52ff4237a9025283535f40ceb52`, which
-carries exactly the three paths. The branch has one further local commit on top of it, which
-completes the content, provenance and body-state coverage; it is **not** published, because no
-authorized publishing route exists, and publishing it would be a normal push with no history
-rewrite. The pull-request ref was read through a read-only fetch, because the GitHub CLI in this
-environment is not authenticated and an interactive login is not permitted; nothing was pushed, and
-no credential was created.
+The pull request is #1549. Its published head is now
+`7afd68613d4e3d70401c2e74a144ed8ce97636ff`, which is this branch's own head: the branch's four
+commits — the fixture repair, the residual acceptance's first and second rounds, and the type-check
+provenance record — are all on the pull request. The read-only fetch in the first phase found the
+pull request one commit behind the branch, with that commit unpublished because no authorized
+publishing route existed then; the normal publisher has since carried it, and the continuation
+re-read the ref to confirm the state rather than repeat the first phase's account of it. The
+pull-request ref is read only through a read-only fetch with the credential helper disabled and the
+terminal prompt disabled, so no credential is read, created or used; nothing was pushed, and no
+issue was closed.
 
 ## Boundary compliance
 
@@ -657,6 +767,12 @@ Held and recorded:
 - No other lane's database, container or file was written. The other lanes' PostgreSQL instances
   and the shared Compose instance were left untouched; the one neighbouring log that was read
   (`/tmp/f3w7-integration-lane.log`) was read only, to attribute the recorded failure.
+- The continuation added one more task-owned disposable instance of its own, on its own name and its
+  own loopback port, and removed it by name at the end of the round. It read two remote-tracking
+  refs, `origin/main` and the pull request's head, through read-only fetches with the credential
+  helper disabled and the terminal prompt disabled. It pushed nothing, created no credential, used
+  no interactive login, made no unauthenticated `gh` call, marked nothing ready, merged nothing and
+  closed no issue.
 
 ## Publication
 
@@ -685,13 +801,19 @@ error.
 The counts this packet quotes are the ones this document records: the residual acceptance file at
 **19 tests and 638 assertions**, the repaired channel-bounds file at **11 tests and 101
 assertions**, the five neighbouring portable integration files at **50 tests and 233 assertions**,
-and the bounded reproduction of the lane collision as the four rows in the table above.
+and the bounded reproduction of the lane collision as the five rows of the two tables above (the
+three steps A, B and C and the two controls C0 and C3).
 
-Draft publication is **blocked**. No authorized GitHub publishing route has been supplied by the
-controller, so nothing was pushed: no credential was created, no interactive login was used, and no
-unauthenticated `gh` call was made. The draft, once a route exists, is this branch and the three
-paths above, with this document as the pull-request body, auto-merge left off, and no issue closed.
+Before the continuation's evidence repair, the pull request's published head was this branch's head.
+The branch's head is now one commit ahead of it, and that one commit is a documentation-only change
+to this file. It needs the normal publisher's ordinary push, with no history rewrite. Nothing in
+this branch is published by the continuation: no credential was created or read, no interactive login
+was used, no unauthenticated `gh` call was made, the draft was not marked ready, and no issue was
+closed. The draft, once the publisher carries the one commit, is this branch and the three paths
+above, with this document as the pull-request body, auto-merge left off, and no issue closed.
 
 Both gates that stood in front of that draft are now closed: the bounded reproduction ran on a
 task-owned disposable database with the results recorded above, and the commit carries exactly the
-three admitted paths and nothing else.
+three admitted paths and nothing else. The continuation re-ran the bounded reproduction on a second
+task-owned disposable instance and reproduced the same three steps and both controls (Q4, Q9, Q10,
+Q11 and Q12), so that gate is closed twice over, on two independent instances.
