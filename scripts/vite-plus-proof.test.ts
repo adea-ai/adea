@@ -332,7 +332,12 @@ test('the CLI prints the graph-derived expectation and the output manifest', asy
 
   const manifest = await proofEntry(['--print-manifest'], coldReply)
   expect(manifest.status).toBe(0)
-  expect(manifest.output.trim()).toMatch(/^[0-9a-f]{64} \d+$/)
+  const lines = manifest.output.trim().split('\n')
+  // The first line is the manifest of the whole build, and every owned file
+  // follows with its own digest, so a difference can be named.
+  expect(lines[0]).toMatch(/^[0-9a-f]{64} \d+$/)
+  expect(lines.length).toBeGreaterThan(1)
+  expect(lines[1]).toMatch(/^[0-9a-f]{64} {2}\S/)
 })
 
 test('a recorded pass is checked against the graph, not against a written-down count', async () => {

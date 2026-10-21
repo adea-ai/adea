@@ -134,15 +134,21 @@ function ownedFiles(root, directory) {
 /** The manifest of exactly the declared owned outputs. */
 export function ownedOutputManifest(root, toolchainId, env = process.env) {
   const hash = createHash('sha256')
-  let count = 0
+  const files = []
   for (const directory of ownedOutputs(root, toolchainId, env))
     for (const file of ownedFiles(root, directory)) {
+      const bytes = readFileSync(join(root, file))
       hash.update(`${file}\0`)
-      hash.update(readFileSync(join(root, file)))
+      hash.update(bytes)
       hash.update('\0')
-      count += 1
+      files.push({ path: file, sha: createHash('sha256').update(bytes).digest('hex') })
     }
-  return { sha: hash.digest('hex'), count, outputs: ownedOutputs(root, toolchainId, env) }
+  return {
+    sha: hash.digest('hex'),
+    count: files.length,
+    outputs: ownedOutputs(root, toolchainId, env),
+    files,
+  }
 }
 
 /**
@@ -170,24 +176,43 @@ export function clearOwnedOutputs(root, toolchainId, env = process.env) {
  * nothing, so an empty one never matches.
  */
 export function compareManifests(expected, actual) {
-  if (expected.count === 0 || actual.count === 0) {
-    return { identical: false, reason: 'an empty manifest proves nothing' }
+  const same = { identical: true, reason: '', missing: [], extra: [], differing: [] }
+  if (!expected?.count || !actual?.count) {
+    return { ...same, identical: false, reason: 'an empty manifest proves nothing' }
   }
-  if (expected.sha !== actual.sha) {
-    return {
-      identical: false,
-      reason: `the outputs differ (${expected.sha} against ${actual.sha})`,
-    }
+  if (expected.sha === actual.sha) return same
+  const expectedFiles = new Map((expected.files ?? []).map((file) => [file.path, file.sha]))
+  const actualFiles = new Map((actual.files ?? []).map((file) => [file.path, file.sha]))
+  return {
+    identical: false,
+    reason: `the outputs differ (${expected.sha} against ${actual.sha})`,
+    missing: [...expectedFiles.keys()].filter((path) => !actualFiles.has(path)).toSorted(),
+    extra: [...actualFiles.keys()].filter((path) => !expectedFiles.has(path)).toSorted(),
+    differing: [...expectedFiles.keys()]
+      .filter((path) => actualFiles.has(path) && actualFiles.get(path) !== expectedFiles.get(path))
+      .toSorted(),
   }
-  return { identical: true, reason: '' }
 }
 
 /** Reads a recorded manifest file: the sha and the file count it holds. */
 function readManifestFile(path) {
-  const text = readFileSync(path, 'utf8').trim()
-  const [sha, count] = text.split(/\s+/)
+  const lines = readFileSync(path, 'utf8').trim().split('\n')
+  const [sha, count] = (lines[0] ?? '').split(/\s+/)
   if (!sha || count === undefined) throw new Error(`${path} holds no manifest`)
-  return { sha, count: Number(count) }
+  const files = lines.slice(1).flatMap((line) => {
+    const [fileSha, ...rest] = line.split(/\s+/)
+    return fileSha && rest.length ? [{ path: rest.join(' '), sha: fileSha }] : []
+  })
+  return { sha, count: Number(count), files }
+}
+
+/** The named differences, in a form a failing lane can report. */
+function describeDifferences(result) {
+  const parts = []
+  if (result.missing.length) parts.push(`missing: ${result.missing.join(', ')}`)
+  if (result.extra.length) parts.push(`extra: ${result.extra.join(', ')}`)
+  if (result.differing.length) parts.push(`different bytes: ${result.differing.join(', ')}`)
+  return parts.join('; ')
 }
 
 function check(label, condition, detail) {
@@ -305,7 +330,11 @@ function once(args) {
   if (compare !== null) {
     const [left, right] = compare.split(',')
     const result = compareManifests(readManifestFile(left), readManifestFile(right))
-    check('the restored outputs are the same bytes', result.identical, result.reason)
+    check(
+      'the restored outputs are the same bytes',
+      result.identical,
+      [result.reason, describeDifferences(result)].filter(Boolean).join(' — ')
+    )
     return
   }
   if (printExpectation) {
@@ -318,13 +347,15 @@ function once(args) {
     // The manifest of the declared owned outputs, so two passes can be compared.
     // An empty manifest proves nothing, so it is refused: two empty manifests
     // must never pass a comparison.
-    const recorded = recordedManifest(ownedManifest(callerRoot))
+    const owned = ownedManifest(callerRoot)
+    const recorded = recordedManifest(owned)
     if (!recorded) {
       process.stderr.write('the declared owned outputs are empty; there is nothing to compare\n')
       process.exitCode = 1
       return
     }
     console.log(`${recorded.sha} ${recorded.count}`)
+    for (const file of owned.files) console.log(`${file.sha}  ${file.path}`)
     return
   }
   if (pass) {
