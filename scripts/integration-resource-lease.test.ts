@@ -1,0 +1,900 @@
+import { afterEach, describe, expect, test } from 'bun:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import {
+  CLEANUP_DECISION,
+  CLEANUP_REFUSAL,
+  DISK_PRESSURE,
+  LEASE_STATE,
+  RESOURCE_DISPOSITION,
+  RESOURCE_MODE,
+  callerIdentity,
+  claimResource,
+  buildInventory,
+  classifyDockerResource,
+  classifyLease,
+  cleanupReceipt,
+  createRunToken,
+  currentOwner,
+  deriveDisposablePort,
+  diskPressureAdmission,
+  leaseDirectory,
+  leasePath,
+  listLeases,
+  planCleanup,
+  readLease,
+  reconcileLeases,
+  releaseLease,
+  resolveResourceMode,
+  resourceIdentity,
+  summariseReceipt,
+} from './integration-resource-lease.mjs'
+
+// The lease model is exercised entirely with synthetic state. No test here
+// creates a container, a volume, a database or a worktree: the model decides
+// what may be done to a resource, and the decision is what is under test.
+//
+// Every directory the tests write to is created by the test, labelled with the
+// test's own run id, and removed by the test that created it. Nothing here
+// touches a resource the repository did not create for this purpose.
+
+const directories: string[] = []
+
+function leaseDirectoryForTest(): string {
+  const directory = mkdtempSync(join(tmpdir(), 'adea-lease-model-'))
+  directories.push(directory)
+  return directory
+}
+
+afterEach(() => {
+  while (directories.length > 0) {
+    rmSync(directories.pop()!, { recursive: true, force: true })
+  }
+})
+
+const owner = { pid: 4242, hostname: 'synthetic-host', startedAt: '2026-10-21T00:00:00.000Z' }
+
+function disposableIdentity(runToken = 'syntheticrun', port = '20001') {
+  return resourceIdentity({ mode: RESOURCE_MODE.disposable, runToken, port })
+}
+
+describe('the resource mode', () => {
+  test('defaults to a disposable instance, because a run that did not choose may not share one', () => {
+    expect(resolveResourceMode({})).toBe(RESOURCE_MODE.disposable)
+    expect(resolveResourceMode({ ADEA_INTEGRATION_RESOURCE_MODE: '' })).toBe(
+      RESOURCE_MODE.disposable
+    )
+  })
+
+  test('reads the mode that was asked for', () => {
+    expect(resolveResourceMode({ ADEA_INTEGRATION_RESOURCE_MODE: 'reusable' })).toBe(
+      RESOURCE_MODE.reusable
+    )
+    expect(resolveResourceMode({ ADEA_INTEGRATION_RESOURCE_MODE: 'disposable' })).toBe(
+      RESOURCE_MODE.disposable
+    )
+  })
+
+  test('refuses a mode it does not understand instead of guessing one', () => {
+    expect(() => resolveResourceMode({ ADEA_INTEGRATION_RESOURCE_MODE: 'shared' })).toThrow(
+      /ADEA_INTEGRATION_RESOURCE_MODE must be reusable or disposable/
+    )
+  })
+})
+
+describe('the resource identity', () => {
+  test('a disposable instance is labelled for its run alone', () => {
+    const first = disposableIdentity('runone', '20001')
+    const second = disposableIdentity('runtwo', '20002')
+    expect(first.project).not.toBe(second.project)
+    expect(first.volume).not.toBe(second.volume)
+    expect(first.container).not.toBe(second.container)
+    expect(first.label).not.toBe(second.label)
+    expect(first.project).toContain('runone')
+  })
+
+  test('a reusable instance has one identity, so sequential runs find the same instance', () => {
+    const first = resourceIdentity({ mode: RESOURCE_MODE.reusable, runToken: 'a', port: '55432' })
+    const second = resourceIdentity({ mode: RESOURCE_MODE.reusable, runToken: 'b', port: '55432' })
+    expect(first.project).toBe(second.project)
+    expect(first.label).toBe(second.label)
+    expect(first.volume).toBe('agent-hq_agent-hq-postgres-data')
+  })
+
+  test('a derived port belongs to its run and does not move between restarts', () => {
+    expect(deriveDisposablePort('syntheticrun')).toBe(deriveDisposablePort('syntheticrun'))
+    expect(deriveDisposablePort('syntheticrun')).not.toBe(deriveDisposablePort('synthetictwo'))
+    const port = Number(deriveDisposablePort('syntheticrun'))
+    expect(port).toBeGreaterThanOrEqual(20_000)
+    expect(port).toBeLessThan(60_000)
+  })
+
+  test('a caller-owned target is named by its endpoint and never by a credential', () => {
+    const identity = callerIdentity('postgresql://adea_local_app:secret@127.0.0.1:55432/agent_hq')
+    expect(identity.label).toBe('caller:127.0.0.1:55432/agent_hq')
+    expect(JSON.stringify(identity)).not.toContain('secret')
+    expect(identity.project).toBeNull()
+  })
+})
+
+describe('the claim', () => {
+  test('a first run takes its own instance and records the ownership before it exists', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner,
+    })
+    expect(claim.decision).toBe('granted')
+    const lease = readLease(directory, 'run-a')
+    expect(lease?.identity.label).toBe(identity.label)
+    expect(lease?.owner.pid).toBe(owner.pid)
+    expect(lease?.state).toBe('claimed')
+  })
+
+  test('a live owner keeps the shared instance, and a second run is refused it', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = resourceIdentity({
+      mode: RESOURCE_MODE.reusable,
+      runToken: 'a',
+      port: '55432',
+    })
+    const first = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.reusable,
+      identity,
+      owner,
+    })
+    expect(first.decision).toBe('granted')
+    const second = claimResource({
+      directory,
+      runId: 'run-b',
+      mode: RESOURCE_MODE.reusable,
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => true,
+    })
+    expect(second.decision).toBe('refused')
+    expect(second.reason).toBe(CLEANUP_REFUSAL.active)
+  })
+
+  test('two concurrent claims of the shared instance leave exactly one holder', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = resourceIdentity({
+      mode: RESOURCE_MODE.reusable,
+      runToken: 'a',
+      port: '55432',
+    })
+    const claims = ['run-a', 'run-b'].map((runId, index) =>
+      claimResource({
+        directory,
+        runId,
+        mode: RESOURCE_MODE.reusable,
+        identity,
+        owner: { ...owner, pid: 1000 + index },
+        isProcessAlive: (pid) => pid === 1000,
+      })
+    )
+    expect(claims.filter((claim) => claim.decision === 'granted')).toHaveLength(1)
+    expect(claims.filter((claim) => claim.decision === 'refused')).toHaveLength(1)
+    expect(claims.find((claim) => claim.decision === 'refused')?.reason).toBe(
+      CLEANUP_REFUSAL.active
+    )
+  })
+
+  test('concurrent runs never share a resource identity', () => {
+    const directory = leaseDirectoryForTest()
+    const identities = ['run-a', 'run-b', 'run-c'].map((runId, index) => {
+      const token = createRunToken({ now: () => 1_700_000_000_000, random: () => index / 4 })
+      const identity = disposableIdentity(token, String(20_001 + index))
+      const claim = claimResource({
+        directory,
+        runId,
+        mode: RESOURCE_MODE.disposable,
+        identity,
+        owner: { ...owner, pid: 2000 + index },
+      })
+      expect(claim.decision).toBe('granted')
+      return identity
+    })
+    expect(new Set(identities.map((identity) => identity.project)).size).toBe(3)
+    expect(new Set(identities.map((identity) => identity.volume)).size).toBe(3)
+    expect(new Set(identities.map((identity) => identity.port)).size).toBe(3)
+  })
+
+  test('a lease that names another resource is refused, because it is foreign', () => {
+    const directory = leaseDirectoryForTest()
+    const first = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity: disposableIdentity('one', '20001'),
+      owner,
+    })
+    expect(first.decision).toBe('granted')
+    const second = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity: disposableIdentity('two', '20002'),
+      owner,
+    })
+    expect(second.decision).toBe('refused')
+    expect(second.reason).toBe(CLEANUP_REFUSAL.foreign)
+  })
+
+  test('a lease that cannot be understood is refused, because its owner is unknown', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner,
+    })
+    expect(claim.decision).toBe('granted')
+    // A record of another version is not understood, and an understood record
+    // is the only basis for a decision.
+    const lease = readLease(directory, 'run-a')!
+    lease.version = 99
+    writeFileSync(join(directory, 'run-a.json'), JSON.stringify(lease))
+    const again = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner,
+    })
+    expect(again.decision).toBe('refused')
+    expect(again.reason).toBe(CLEANUP_REFUSAL.uncertain)
+  })
+})
+
+describe('the crash and restart path', () => {
+  test('a restarted run takes its own lease back', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    const first = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner: { ...owner, pid: 1000 },
+    })
+    expect(first.decision).toBe('granted')
+    // The process is gone: the run crashed before it settled its lease.
+    const restarted = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner: { ...owner, pid: 2000 },
+      isProcessAlive: () => false,
+    })
+    expect(restarted.decision).toBe('granted')
+    expect(restarted.reclaimed).toBe(true)
+    expect(readLease(directory, 'run-a')?.owner.pid).toBe(2000)
+  })
+
+  test('another run does not take over a lease that is not its own', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner: { ...owner, pid: 1000 },
+    })
+    const other = claimResource({
+      directory,
+      runId: 'run-b',
+      mode: RESOURCE_MODE.disposable,
+      identity: disposableIdentity('other', '20002'),
+      owner: { ...owner, pid: 2000 },
+      isProcessAlive: () => false,
+    })
+    expect(other.decision).toBe('granted')
+    expect(other.lease?.identity.label).not.toBe(identity.label)
+    // The crashed run's lease is still there: nothing reclaimed it.
+    expect(readLease(directory, 'run-a')).not.toBeNull()
+  })
+
+  test('a lease whose owner is still alive is never taken over', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner: { ...owner, pid: 1000 },
+    })
+    const again = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner: { ...owner, pid: 2000 },
+      isProcessAlive: (pid) => pid === 1000,
+    })
+    expect(again.decision).toBe('refused')
+    expect(again.reason).toBe(CLEANUP_REFUSAL.active)
+  })
+})
+
+describe('the cleanup plan', () => {
+  test('a disposable instance this run created is removed', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner,
+    })
+    const plan = planCleanup({ lease: claim.lease, startedByThisRun: true, ownerPid: owner.pid })
+    expect(plan.decision).toBe(CLEANUP_DECISION.remove)
+    // The container, the volume and the network this run created, the
+    // database inside it, and the isolated test data that goes with it.
+    expect(plan.resources.map((resource) => resource.name)).toEqual([
+      identity.container,
+      identity.volume,
+      identity.network,
+      'agent_hq',
+      'agent_hq data',
+    ])
+    expect(plan.resources.every((resource) => resource.action === 'removed')).toBe(true)
+    expect(plan.resources.map((resource) => resource.kind)).toEqual([
+      'container',
+      'volume',
+      'network',
+      'database',
+      'data',
+    ])
+  })
+
+  test('a shared instance is kept, and the run that did not start it does not stop it', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = resourceIdentity({
+      mode: RESOURCE_MODE.reusable,
+      runToken: 'a',
+      port: '55432',
+    })
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.reusable,
+      identity,
+      owner,
+    })
+    const plan = planCleanup({ lease: claim.lease, startedByThisRun: false, ownerPid: owner.pid })
+    expect(plan.decision).toBe(CLEANUP_DECISION.stop)
+    expect(plan.resources.find((resource) => resource.kind === 'container')?.action).toBe(
+      'retained'
+    )
+    expect(plan.resources.find((resource) => resource.kind === 'volume')?.action).toBe('retained')
+  })
+
+  test('a shared instance this run started is stopped and kept for the next run', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = resourceIdentity({
+      mode: RESOURCE_MODE.reusable,
+      runToken: 'a',
+      port: '55432',
+    })
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.reusable,
+      identity,
+      owner,
+    })
+    const plan = planCleanup({ lease: claim.lease, startedByThisRun: true, ownerPid: owner.pid })
+    expect(plan.decision).toBe(CLEANUP_DECISION.stop)
+    expect(plan.resources.find((resource) => resource.kind === 'container')?.action).toBe('stopped')
+    expect(plan.resources.find((resource) => resource.kind === 'volume')?.action).toBe('retained')
+  })
+
+  test('a caller-owned target is refused, and nothing is named for removal', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = callerIdentity('postgresql://adea_local_app:secret@127.0.0.1:55432/agent_hq')
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: 'caller',
+      identity,
+      owner,
+    })
+    const plan = planCleanup({
+      lease: claim.lease,
+      ownership: 'caller',
+      ownerPid: owner.pid,
+    })
+    expect(plan.decision).toBe(CLEANUP_DECISION.refuse)
+    expect(plan.reason).toBe(CLEANUP_REFUSAL.callerOwned)
+    expect(plan.resources.every((resource) => resource.action === 'refused')).toBe(true)
+  })
+
+  test('a resource another live run holds is refused', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner: { ...owner, pid: 1000 },
+    })
+    const plan = planCleanup({
+      lease: claim.lease,
+      ownerPid: 2000,
+      isProcessAlive: (pid) => pid === 1000,
+    })
+    expect(plan.decision).toBe(CLEANUP_DECISION.refuse)
+    expect(plan.reason).toBe(CLEANUP_REFUSAL.active)
+  })
+
+  test('the checkout the run used is named as kept, because the lane never removes one', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner,
+    })
+    const plan = planCleanup({
+      lease: claim.lease,
+      startedByThisRun: true,
+      ownerPid: owner.pid,
+      retainedPaths: ['/synthetic/checkout'],
+    })
+    const worktree = plan.resources.find((resource) => resource.kind === 'worktree')
+    expect(worktree?.action).toBe('retained')
+    expect(worktree?.name).toBe('/synthetic/checkout')
+  })
+})
+
+describe('the cleanup receipt', () => {
+  test('separates the child outcome from the fate of the resources', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner,
+    })
+    const plan = planCleanup({ lease: claim.lease, startedByThisRun: true, ownerPid: owner.pid })
+    const receipt = cleanupReceipt({
+      lease: claim.lease,
+      decision: plan.decision,
+      reason: plan.reason,
+      resources: plan.resources.map((resource) => ({ ...resource, verifiedAbsent: true })),
+      child: { status: 1, signal: null },
+    })
+    expect(receipt.child).toEqual({ exited: true, status: 1, signal: null })
+    expect(receipt.removed).toEqual([
+      identity.container,
+      identity.volume,
+      identity.network,
+      'agent_hq',
+      'agent_hq data',
+    ])
+    expect(receipt.retained).toEqual([])
+    expect(receipt.errors).toEqual([])
+  })
+
+  test('a retained resource is not reported as removed', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = resourceIdentity({
+      mode: RESOURCE_MODE.reusable,
+      runToken: 'a',
+      port: '55432',
+    })
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.reusable,
+      identity,
+      owner,
+    })
+    const plan = planCleanup({ lease: claim.lease, startedByThisRun: true, ownerPid: owner.pid })
+    const receipt = cleanupReceipt({
+      lease: claim.lease,
+      decision: plan.decision,
+      reason: plan.reason,
+      resources: plan.resources,
+      child: { status: 0, signal: null },
+    })
+    expect(receipt.removed).toEqual([])
+    expect(receipt.stopped).toEqual([identity.container])
+    expect(receipt.retained).toEqual([
+      identity.volume,
+      identity.network,
+      'agent_hq',
+      'agent_hq data',
+    ])
+    expect(summariseReceipt(receipt)).toContain('retained=')
+  })
+
+  test('a cleanup that could not remove everything says so', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner,
+    })
+    const plan = planCleanup({ lease: claim.lease, startedByThisRun: true, ownerPid: owner.pid })
+    const receipt = cleanupReceipt({
+      lease: claim.lease,
+      decision: plan.decision,
+      reason: plan.reason,
+      resources: plan.resources.map((resource) => ({ ...resource, verifiedAbsent: false })),
+      child: { status: 0, signal: null },
+      errors: ['removing the owned volume failed with exit code 1'],
+    })
+    expect(receipt.errors).toHaveLength(1)
+    expect(summariseReceipt(receipt)).toContain('child=exited:0')
+  })
+
+  test('the receipt is kept with the lease, so the evidence outlives the run', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner,
+    })
+    const plan = planCleanup({ lease: claim.lease, startedByThisRun: true, ownerPid: owner.pid })
+    const receipt = cleanupReceipt({
+      lease: claim.lease,
+      decision: plan.decision,
+      reason: plan.reason,
+      resources: plan.resources,
+      child: { status: 0, signal: null },
+    })
+    releaseLease({ directory, runId: 'run-a', receipt })
+    const settled = readLease(directory, 'run-a')
+    expect(settled?.state).toBe('released')
+    expect(settled?.cleanup?.decision).toBe(CLEANUP_DECISION.remove)
+    expect(settled?.cleanup?.resources).toHaveLength(5)
+    expect(listLeases(directory)).toHaveLength(1)
+  })
+
+  test('a run that ended without a child records that it does not know the child outcome', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner,
+    })
+    const plan = planCleanup({ lease: claim.lease, startedByThisRun: true, ownerPid: owner.pid })
+    const receipt = cleanupReceipt({
+      lease: claim.lease,
+      decision: plan.decision,
+      reason: plan.reason,
+      resources: plan.resources,
+    })
+    expect(receipt.child).toEqual({ exited: false, status: null, signal: null })
+  })
+})
+
+describe('the lease classification', () => {
+  test('a record of another version is uncertain, not stale', () => {
+    expect(classifyLease({ version: 99, runId: 'run-a' })).toBe(LEASE_STATE.uncertain)
+    expect(classifyLease(null)).toBe(LEASE_STATE.uncertain)
+    expect(classifyLease({ version: 1, runId: 'run-a' })).toBe(LEASE_STATE.uncertain)
+  })
+
+  test('a record whose owner is alive is active, and one whose owner is gone is stale', () => {
+    const lease = {
+      version: 1,
+      runId: 'run-a',
+      identity: { label: 'adea-integration-disposable:synthetic' },
+      owner: { pid: 1000 },
+      state: 'claimed',
+    }
+    expect(classifyLease(lease, { isProcessAlive: (pid) => pid === 1000 })).toBe(LEASE_STATE.active)
+    expect(classifyLease(lease, { isProcessAlive: () => false })).toBe(LEASE_STATE.stale)
+  })
+
+  test('a record that names another resource is foreign', () => {
+    const lease = {
+      version: 1,
+      runId: 'run-a',
+      identity: { label: 'adea-integration-disposable:other' },
+      owner: { pid: 1000 },
+      state: 'claimed',
+    }
+    expect(
+      classifyLease(lease, { expectedIdentity: { label: 'adea-integration-disposable:mine' } })
+    ).toBe(LEASE_STATE.foreign)
+  })
+})
+
+describe('the lease directory and the records in it', () => {
+  test('the directory is the one the caller named, and otherwise the temporary one', () => {
+    expect(leaseDirectory({ ADEA_INTEGRATION_LEASE_DIR: '/synthetic/leases' })).toBe(
+      '/synthetic/leases'
+    )
+    expect(leaseDirectory({})).toContain('adea-integration-leases')
+  })
+
+  test('a run id that is not a safe file name is refused', () => {
+    expect(() => leasePath('/synthetic/leases', '../escape')).toThrow(/not a safe lease name/)
+  })
+
+  test('a record that cannot be parsed is not a lease', () => {
+    const directory = leaseDirectoryForTest()
+    writeFileSync(join(directory, 'run-a.json'), 'not json at all')
+    expect(readLease(directory, 'run-a')).toBeNull()
+    expect(listLeases(directory)).toEqual([])
+  })
+
+  test('a directory that holds nothing holds no lease', () => {
+    expect(listLeases(join(leaseDirectoryForTest(), 'never-created'))).toEqual([])
+  })
+
+  test('the owner of this process is named with its process and its host', () => {
+    const processOwner = currentOwner(4321)
+    expect(processOwner.pid).toBe(4321)
+    expect(processOwner.hostname.length).toBeGreaterThan(0)
+    expect(processOwner.startedAt).toContain('T')
+  })
+})
+
+describe('the refusals the plan makes', () => {
+  test('a lease that names another resource is refused', () => {
+    const directory = leaseDirectoryForTest()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity: disposableIdentity(),
+      owner,
+    })
+    const foreign = {
+      ...claim.lease,
+      identity: { ...claim.lease.identity, label: 'adea-integration-disposable:someone-else' },
+    }
+    const plan = planCleanup({
+      lease: foreign,
+      expectedIdentity: claim.lease.identity,
+      ownerPid: owner.pid,
+    })
+    expect(plan.decision).toBe(CLEANUP_DECISION.refuse)
+    expect(plan.reason).toBe(CLEANUP_REFUSAL.foreign)
+    expect(plan.resources.every((resource) => resource.action === 'refused')).toBe(true)
+  })
+
+  test('a lease that cannot be understood is refused', () => {
+    const plan = planCleanup({ lease: { version: 99 }, ownerPid: owner.pid })
+    expect(plan.decision).toBe(CLEANUP_DECISION.refuse)
+    expect(plan.reason).toBe(CLEANUP_REFUSAL.uncertain)
+  })
+
+  test('a record whose identity has no label is uncertain', () => {
+    expect(classifyLease({ version: 1, runId: 'run-a', identity: { label: '' } })).toBe(
+      LEASE_STATE.uncertain
+    )
+  })
+})
+
+describe('the disk-pressure admission', () => {
+  test('a disk with room admits the run', () => {
+    const decision = diskPressureAdmission({
+      availableBytes: 10_000_000_000,
+      requiredBytes: 1_000_000_000,
+      limitBytes: 2_000_000_000,
+    })
+    expect(decision.decision).toBe(DISK_PRESSURE.admitted)
+    expect(decision.availableBytes).toBe(10_000_000_000)
+  })
+
+  test('a disk below the floor refuses the run before it creates anything', () => {
+    const decision = diskPressureAdmission({
+      availableBytes: 100,
+      requiredBytes: 1_000,
+      limitBytes: 2_000,
+    })
+    expect(decision.decision).toBe(DISK_PRESSURE.refused)
+    expect(decision.reason).toContain('below the lane')
+  })
+
+  test('a disk that cannot be read is refused, because an unknown disk is not a free disk', () => {
+    expect(diskPressureAdmission({ availableBytes: Number.NaN }).decision).toBe(
+      DISK_PRESSURE.refused
+    )
+    expect(diskPressureAdmission({ availableBytes: undefined }).reason).toContain(
+      'could not be established'
+    )
+  })
+})
+
+describe('the reclamation safety of one resource', () => {
+  const identity = { ...disposableIdentity(), runId: 'run-a' }
+
+  test('a pinned image is reused, never removed', () => {
+    const decision = classifyDockerResource(
+      { kind: 'image', name: 'postgres:18-alpine@sha256:abc' },
+      { identity }
+    )
+    expect(decision.disposition).toBe(RESOURCE_DISPOSITION.reuse)
+  })
+
+  test('a resource this run created and labelled is removable', () => {
+    const decision = classifyDockerResource(
+      { kind: 'container', name: identity.container, label: identity.project },
+      { identity }
+    )
+    expect(decision.disposition).toBe(RESOURCE_DISPOSITION.removable)
+  })
+
+  test('a resource of another project is protected', () => {
+    const decision = classifyDockerResource(
+      { kind: 'container', name: 'someone-elses-postgres-1', label: 'someone-else' },
+      { identity }
+    )
+    expect(decision.disposition).toBe(RESOURCE_DISPOSITION.protected)
+    expect(decision.reason).toContain('someone-else')
+  })
+
+  test('a volume with no label is protected, and an unattached volume is never safe to delete', () => {
+    const decision = classifyDockerResource(
+      { kind: 'volume', name: 'agent-hq_agent-hq-postgres-data', label: null, attached: false },
+      { identity }
+    )
+    expect(decision.disposition).toBe(RESOURCE_DISPOSITION.protected)
+    expect(decision.reason).toContain('never safe to delete')
+  })
+
+  test('a resource held by a live run is protected', () => {
+    const leases = [
+      {
+        version: 1,
+        runId: 'run-b',
+        identity: { label: identity.label },
+        owner: { pid: 1000 },
+        state: 'claimed',
+      },
+    ]
+    const decision = classifyDockerResource(
+      { kind: 'volume', name: identity.volume, label: identity.project },
+      { identity, leases, isProcessAlive: (pid) => pid === 1000 }
+    )
+    expect(decision.disposition).toBe(RESOURCE_DISPOSITION.protected)
+    expect(decision.reason).toContain('live run run-b')
+  })
+
+  test('a run that owns no project owns no resource', () => {
+    const decision = classifyDockerResource(
+      { kind: 'volume', name: 'anything', label: 'anything' },
+      { identity: { project: null, label: 'caller:127.0.0.1:5432/agent_hq' } }
+    )
+    expect(decision.disposition).toBe(RESOURCE_DISPOSITION.protected)
+  })
+})
+
+describe('the dry-run inventory', () => {
+  test('names every resource with the disposition it would receive and the reason', () => {
+    const identity = { ...disposableIdentity(), runId: 'run-a' }
+    const inventory = buildInventory({
+      identity,
+      resources: [
+        { kind: 'image', name: 'postgres:18-alpine@sha256:abc' },
+        { kind: 'container', name: identity.container, label: identity.project },
+        { kind: 'volume', name: 'agent-hq_agent-hq-postgres-data', label: null, attached: false },
+      ],
+    })
+    expect(inventory.items).toHaveLength(3)
+    expect(inventory.items[0].disposition).toBe(RESOURCE_DISPOSITION.reuse)
+    expect(inventory.items[1].disposition).toBe(RESOURCE_DISPOSITION.removable)
+    expect(inventory.items[2].disposition).toBe(RESOURCE_DISPOSITION.protected)
+    expect(inventory.counts).toEqual({ reuse: 1, removable: 1, protected: 1 })
+  })
+})
+
+describe('the restart reconciliation', () => {
+  test('reports the records, prunes the settled ones past the bound, and keeps the rest', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity()
+    // A settled record from long ago: it is past the retention bound.
+    const settled = claimResource({
+      directory,
+      runId: 'run-old',
+      mode: RESOURCE_MODE.disposable,
+      identity: disposableIdentity('old', '20001'),
+      owner,
+    })
+    releaseLease({
+      directory,
+      runId: 'run-old',
+      receipt: cleanupReceipt({
+        lease: settled.lease,
+        decision: CLEANUP_DECISION.remove,
+        reason: 'disposable-instance-owned-by-this-run',
+        resources: [],
+        child: { status: 0, signal: null },
+      }),
+    })
+    const settledRecord = readLease(directory, 'run-old')!
+    settledRecord.updatedAt = 1_000
+    writeFileSync(join(directory, 'run-old.json'), JSON.stringify(settledRecord))
+    // A live run's record: it is never pruned.
+    claimResource({
+      directory,
+      runId: 'run-live',
+      mode: RESOURCE_MODE.disposable,
+      identity: disposableIdentity('live', '20002'),
+      owner: { ...owner, pid: 1000 },
+    })
+
+    const reconciliation = reconcileLeases({
+      directory,
+      runId: 'run-new',
+      identity,
+      now: 10_000_000_000,
+      retentionMs: 1_000,
+      isProcessAlive: (pid) => pid === 1000,
+    })
+    expect(reconciliation.pruned).toEqual(['run-old'])
+    expect(reconciliation.found.map((record) => record.runId).toSorted()).toEqual([
+      'run-live',
+      'run-old',
+    ])
+    expect(reconciliation.found.find((record) => record.runId === 'run-live')?.state).toBe(
+      LEASE_STATE.active
+    )
+    expect(readLease(directory, 'run-old')).toBeNull()
+    expect(readLease(directory, 'run-live')).not.toBeNull()
+  })
+
+  test('a record left by a dead run is reported, and its resource is not reclaimed', () => {
+    const directory = leaseDirectoryForTest()
+    claimResource({
+      directory,
+      runId: 'run-dead',
+      mode: RESOURCE_MODE.disposable,
+      identity: disposableIdentity('dead', '20003'),
+      owner: { ...owner, pid: 1000 },
+    })
+    const reconciliation = reconcileLeases({
+      directory,
+      runId: 'run-new',
+      identity: disposableIdentity(),
+      now: 10_000_000_000,
+      isProcessAlive: () => false,
+    })
+    expect(reconciliation.found).toEqual([
+      {
+        runId: 'run-dead',
+        label: 'adea-integration-disposable:adea-int-d-dead',
+        state: LEASE_STATE.stale,
+        own: false,
+      },
+    ])
+    // The record is evidence. The lane reports it and leaves it alone.
+    expect(reconciliation.pruned).toEqual([])
+    expect(readLease(directory, 'run-dead')).not.toBeNull()
+  })
+})
