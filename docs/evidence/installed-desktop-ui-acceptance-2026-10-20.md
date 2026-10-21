@@ -14,25 +14,25 @@ into one bundle.
 
 ## 1. The candidate under test
 
-| Fact                                                | Value                                                                                                                                                    |
-| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Candidate's integration base `main`                 | `333b948d4c5fba1f88d98d764c075b790be6ee22` (unchanged since the first run)                                                                               |
-| This lane's branch                                  | `test/installed-desktop-ui-acceptance-20261020`                                                                                                          |
-| Pull request base (current `main`)                  | `1098c658300beec7e49f1a2143aabd971aefbcfe` (the base moved forward from `333b948d4`)                                                                     |
-| Published head (the pull request)                   | `a18e35ff2e213133480811435b47107a68c6e2b3` — 13 commits on that base                                                                                     |
-| Local head (this record's continuation)             | the published head plus four local commits — the teardown repair, the drain repair, the evidence reconciliation and the row-log repair — all unpublished |
-| B — CI, no vendor dependency                        | `codex/20261020-ci-release-w7` @ `fcb20c08bafad0940330dd5728175a52f334beb3` (#1516, draft)                                                               |
-| C — provider coupling removed                       | `codex/20261020-efficiency-audit-w8` @ `7fa24f2ee991d672cb6ed1373b63f125a6e206e1` (#1515, draft)                                                         |
-| D — Railway qualification lane                      | `feat/railway-postgres-qualification-lane-a` @ `82addf079` (#1514, draft)                                                                                |
-| Integration candidate (local only, never published) | `integration/cp1048-g-20261020` @ `49cb6e19c`                                                                                                            |
-| Bundle                                              | `apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app`                                                                                                  |
-| Bundle identity                                     | `Adea-dev` 0.98.0, channel `dev`, identifier `dev.adea.desktop`                                                                                          |
-| Runtime                                             | Electrobun **2.0.4**, bundled CEF, bundled Bun 1.4.0, `defaultRenderer: native`                                                                          |
-| Declared URL scheme                                 | `adea` (`CFBundleURLTypes` → `CFBundleURLSchemes`)                                                                                                       |
-| Recorded build target                               | `{"mode":"local","cloudOrigin":"http://localhost:3000"}`                                                                                                 |
-| Shell entry digest (sha256)                         | `38b4dae799e6a14740f2ed13f7da6a02e655f5d4e02288f5e73225e47fe31b6e`                                                                                       |
-| Build target record digest (sha256)                 | `f4f73f77f565d7d3c4029e23de0b4d0fd6a997786986f01ef9a5a07c938f444e`                                                                                       |
-| Version identity digest (sha256)                    | `f82b5e671ad33ec0efbb65231030646858b10a748adb82de733fa8945e1e268b`                                                                                       |
+| Fact                                                | Value                                                                                                                                                                                      |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Candidate's integration base `main`                 | `333b948d4c5fba1f88d98d764c075b790be6ee22` (unchanged since the first run)                                                                                                                 |
+| This lane's branch                                  | `test/installed-desktop-ui-acceptance-20261020`                                                                                                                                            |
+| Pull request base (current `main`)                  | `1098c658300beec7e49f1a2143aabd971aefbcfe` (the base moved forward from `333b948d4`)                                                                                                       |
+| Published head (the pull request)                   | `a18e35ff2e213133480811435b47107a68c6e2b3` — 13 commits on that base                                                                                                                       |
+| Local head (this record's continuation)             | the published head plus five local commits — the teardown repair, the drain repair, the evidence reconciliation, the row-log repair and the boot-credential-store repair — all unpublished |
+| B — CI, no vendor dependency                        | `codex/20261020-ci-release-w7` @ `fcb20c08bafad0940330dd5728175a52f334beb3` (#1516, draft)                                                                                                 |
+| C — provider coupling removed                       | `codex/20261020-efficiency-audit-w8` @ `7fa24f2ee991d672cb6ed1373b63f125a6e206e1` (#1515, draft)                                                                                           |
+| D — Railway qualification lane                      | `feat/railway-postgres-qualification-lane-a` @ `82addf079` (#1514, draft)                                                                                                                  |
+| Integration candidate (local only, never published) | `integration/cp1048-g-20261020` @ `49cb6e19c`                                                                                                                                              |
+| Bundle                                              | `apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app`                                                                                                                                    |
+| Bundle identity                                     | `Adea-dev` 0.98.0, channel `dev`, identifier `dev.adea.desktop`                                                                                                                            |
+| Runtime                                             | Electrobun **2.0.4**, bundled CEF, bundled Bun 1.4.0, `defaultRenderer: native`                                                                                                            |
+| Declared URL scheme                                 | `adea` (`CFBundleURLTypes` → `CFBundleURLSchemes`)                                                                                                                                         |
+| Recorded build target                               | `{"mode":"local","cloudOrigin":"http://localhost:3000"}`                                                                                                                                   |
+| Shell entry digest (sha256)                         | `38b4dae799e6a14740f2ed13f7da6a02e655f5d4e02288f5e73225e47fe31b6e`                                                                                                                         |
+| Build target record digest (sha256)                 | `f4f73f77f565d7d3c4029e23de0b4d0fd6a997786986f01ef9a5a07c938f444e`                                                                                                                         |
+| Version identity digest (sha256)                    | `f82b5e671ad33ec0efbb65231030646858b10a748adb82de733fa8945e1e268b`                                                                                                                         |
 
 The candidate is the **local** target, not a release build: a release build
 needs Apple signing and notarization, which this lane does not do and is not
@@ -268,8 +268,9 @@ application down.
 The failure is not weakened: no content becomes readable, and the reason the
 boot reports is a fixed, secret-free string.
 
-**Proof**: `bun test tests/boot-credential-store.test.ts` (apps/desktop) — 7
-cases, 0 failures, 15 assertions.
+**Proof**: `bun test tests/boot-credential-store.test.ts` (apps/desktop) — 11
+cases, 0 failures, 31 assertions. §21 records the two defects the publication
+review found in this decision, and the repair.
 
 ## 6. The blocked boundary — recorded, not passed
 
@@ -355,7 +356,7 @@ installed application reports that state instead of pretending to work.
 | `bun run --cwd packages/db db:migrate`                                                   | 60 migrations applied and verified                                                                                                              |
 | `bun run --cwd apps/web dev` (no provider endpoint configured)                           | local cloud on `http://localhost:3000`; server log contains no `neon`                                                                           |
 | `bun scripts/installed-app-acceptance.ts --app-bundle … --artifact … --profile-parent …` | **21 passed, 1 failed, 22 rows** (row 6, §6.2) — the run predates the safety repair of §13, and the entry point was not executed again after it |
-| `bun test tests/boot-credential-store.test.ts` (apps/desktop)                            | 7 pass, 0 fail, 15 assertions                                                                                                                   |
+| `bun test tests/boot-credential-store.test.ts` (apps/desktop)                            | 11 pass, 0 fail, 31 assertions                                                                                                                  |
 | `bun test scripts/installed-app-acceptance.test.ts`                                      | 74 pass, 0 fail, 288 assertions (59 pass / 168 assertions at the published head `a18e35ff`)                                                     |
 | `bun check -p shell/tsconfig.json` (apps/desktop)                                        | no type errors in 229 files — re-checked for this revision with `tsc --noEmit -p shell/tsconfig.json`, exit 0, no diagnostics                   |
 | pre-commit hook (`vp run orch:typecheck`)                                                | 33/33 successful, no type errors in 324 files                                                                                                   |
@@ -404,12 +405,13 @@ the head of the open pull request, and that head is on the remote:
 to it. The published head is **13 commits** on the pull request's current
 base, `1098c658300beec7e49f1a2143aabd971aefbcfe`.
 
-Everything after the published head is **local and unpublished**: four
+Everything after the published head is **local and unpublished**: five
 commits — the teardown repair (`e7f7e2704`), the drain repair (`90e19c63`),
-the evidence reconciliation (`a2ce5140f`) and this record's row-log repair.
-The published head is not an ancestor of the local head — the two lines have
-shared no ancestor since `1001f8fa`, the point at which the repairs branched
-off, so the published scope was never folded into the local one.
+the evidence reconciliation (`a2ce5140f`), the row-log repair
+(`364af10f7`) and the boot-credential-store repair. The published head is not
+an ancestor of the local head — the two lines have shared no ancestor since
+`1001f8fa`, the point at which the repairs branched off, so the published
+scope was never folded into the local one.
 
 **The publication hold on this pull request is in force.** Nothing here is
 pushed, the pull request is not marked ready, nothing is merged, no issue is
@@ -916,3 +918,74 @@ from 73 cases to **74 (288 assertions)**:
 
 The case fails against the pre-fix row log and passes against the repair, so
 the row log cannot drift back into a runner's verdict shape.
+
+## 21. The boot-credential-store repair — one failure, and not another
+
+The publication review of this pull request found two defects in the shell's
+own boot-time credential store. Both are corrected here, inside the files this
+lane wrote. **No production relay, outbox, inbox, schema or command/event
+source is touched, and no migration or security state changes.**
+
+### The defects
+
+**The legacy path still took the application down.** `createBunSecretsVaultKeyStore`
+returns the raw legacy store when the runtime does not expose `Bun.secrets` or
+is older than `1.4.0`, and it returns it **without reading the key** — the key
+is read later, while the Dev Runtime host composes. A keychain that refuses at
+that moment failed with the vault's own message, which is not the boot's fixed
+reason, so `isUnavailableCredentialStoreError` did not match it and
+`apps/desktop/shell/src/bun/index.ts` rethrew it. The application died with
+an unhandled rejection: the exact failure this pull request set out to
+remove, still reachable on the legacy path.
+
+**An integrity fault was relabelled as an absent store.** The resolver caught
+every failure with a bare `catch {}` and reported the fixed reason "the OS
+credential store is unavailable" for all of them. Two key stores that
+disagree is not an absent store: it is a fault the vault classifies as
+`corrupt_state`, and an operator told "the OS credential store is unavailable"
+goes and unlocks a keychain that is already unlocked, while the fault that
+actually needs repair — the two stores holding different keys — is hidden.
+
+### The repair
+
+- The store the resolver returns now **reports the refusal with the boot's
+  fixed reason**, wherever the refusal arrives: while the store is resolved,
+  or later, while the host composes. The vault's own refusal is kept as the
+  failure's cause, so its diagnosis is not lost, and the fixed reason still
+  carries no store detail.
+- The resolver **degrades only on the store being unable to answer**. A typed
+  fault that is anything else — `corrupt_state`, and the vault's own
+  classification of it — is an integrity condition, and it now fails loudly,
+  with the vault's own diagnosis, instead of being relabelled.
+
+The boot's contract is unchanged: an unanswerable store still leaves the
+application booting, the Dev Runtime's surfaces still typed unavailable, and
+the fallback still fails closed — every operation throws, and the read path
+still never answers "absent".
+
+### The focused tests
+
+`apps/desktop/tests/boot-credential-store.test.ts` grew from 7 cases to
+**11 (31 assertions)**, all with injected fakes and no credential store of any
+kind:
+
+- **it is the boot's own failure, so the boot degrades instead of dying** — a
+  legacy-path refusal surfaces as the boot's fixed reason and is recognised by
+  `isUnavailableCredentialStoreError`;
+- **the fixed reason carries no store detail, and the refusal is kept as the
+  cause**;
+- **a store that answers still answers through the reported store**;
+- **two key stores that disagree fail loudly, with the vault's own diagnosis**
+  — the fault is not the boot's unavailability, so the boot does not degrade
+  on it.
+
+The three new behavioural cases fail against the pre-fix resolver and pass
+against the repair.
+
+### What was not changed
+
+The vault (`apps/desktop/shell/src/dev-runtime/vault.ts`) is untouched: it
+still owns the classification of a refusal and of an integrity fault, and the
+shell now respects both. The shell's own composition (`index.ts`) is untouched
+as well: the boot still degrades on exactly one failure, and any other
+composition failure still fails loudly.

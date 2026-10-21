@@ -15,6 +15,7 @@ import { describe, expect, test } from 'bun:test'
 import { DevAuthorityError } from '../shell/src/dev-runtime/authority'
 import {
   createUnavailableVaultKeyStore,
+  isUnavailableCredentialStoreError,
   resolveBootCredentialStore,
   UNAVAILABLE_CREDENTIAL_STORE_REASON,
 } from '../shell/src/bun/boot-credential-store'
@@ -46,6 +47,26 @@ function workingSecrets(key: string): BunSecretsApi {
   return {
     get: async () => key,
     set: async () => {},
+  }
+}
+
+/** A legacy store that refuses the way the OS credential store refuses. */
+function refusingTypedLegacyStore(): VaultKeyStore {
+  const refuse = (): never => {
+    throw new DevAuthorityError(
+      'auth_required',
+      'the OS credential store refused: the OS credential store did not answer in time'
+    )
+  }
+  return { get: refuse, set: refuse, delete: refuse }
+}
+
+/** A legacy store that answers with one key. */
+function legacyStoreWithKey(encoded: string): VaultKeyStore {
+  return {
+    get: () => Buffer.from(encoded, 'base64'),
+    set: () => {},
+    delete: () => {},
   }
 }
 
@@ -127,5 +148,88 @@ describe('the boot credential store decision', () => {
     expect(resolved.reason).not.toContain('master-key-v1')
     expect(resolved.reason).not.toContain('com.adea')
     expect(resolved.reason).not.toContain('/')
+  })
+})
+
+describe('a refusal that arrives after the store is resolved', () => {
+  test("it is the boot's own failure, so the boot degrades instead of dying", async () => {
+    // The legacy path resolves the store without reading the key: the key is
+    // read later, while the Dev Runtime host composes. A refusal that arrives
+    // then must be the same failure the boot already knows how to degrade on,
+    // or the shell takes the application down with it.
+    const resolved = await resolveBootCredentialStore({
+      legacyStore: refusingTypedLegacyStore(),
+      runtimeVersion: '1.3.0',
+    })
+    expect(resolved.degraded).toBe(false)
+    expect(resolved.reason).toBeNull()
+    let thrown: unknown
+    try {
+      resolved.store.get('com.adea.desktop.dev-runtime', 'master-key-v1')
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(DevAuthorityError)
+    expect((thrown as DevAuthorityError).message).toBe(UNAVAILABLE_CREDENTIAL_STORE_REASON)
+    expect(isUnavailableCredentialStoreError(thrown)).toBe(true)
+  })
+
+  test('the fixed reason carries no store detail, and the refusal is kept as the cause', async () => {
+    const resolved = await resolveBootCredentialStore({
+      legacyStore: refusingTypedLegacyStore(),
+      runtimeVersion: '1.3.0',
+    })
+    let thrown: unknown
+    try {
+      resolved.store.get('com.adea.desktop.dev-runtime', 'master-key-v1')
+    } catch (error) {
+      thrown = error
+    }
+    const message = (thrown as DevAuthorityError).message
+    expect(message).not.toContain('did not answer in time')
+    expect(message).not.toContain('master-key-v1')
+    expect(message).not.toContain('com.adea')
+    // The vault's own diagnosis is not lost: it is the failure's cause.
+    expect((thrown as DevAuthorityError).cause).toBeInstanceOf(DevAuthorityError)
+    expect(((thrown as DevAuthorityError).cause as DevAuthorityError).message).toContain(
+      'did not answer in time'
+    )
+  })
+
+  test('a store that answers still answers through the reported store', async () => {
+    const key = Buffer.alloc(32, 7).toString('base64')
+    const resolved = await resolveBootCredentialStore({
+      legacyStore: legacyStoreWithKey(key),
+      runtimeVersion: '1.3.0',
+    })
+    expect(resolved.degraded).toBe(false)
+    expect(resolved.store.get('com.adea.desktop.dev-runtime', 'master-key-v1')).toBeInstanceOf(
+      Buffer
+    )
+  })
+})
+
+describe('an integrity fault is not the store being unable to answer', () => {
+  test("two key stores that disagree fail loudly, with the vault's own diagnosis", async () => {
+    // The stores disagreeing is an integrity condition, not an absent store.
+    // The boot must not relabel it as one: the operator has to see it.
+    const bunKey = Buffer.alloc(32, 7).toString('base64')
+    const legacyKey = Buffer.alloc(32, 9).toString('base64')
+    let thrown: unknown
+    try {
+      await resolveBootCredentialStore({
+        legacyStore: legacyStoreWithKey(legacyKey),
+        secrets: workingSecrets(bunKey),
+        runtimeVersion: '1.4.3',
+      })
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(DevAuthorityError)
+    expect((thrown as DevAuthorityError).code).toBe('corrupt_state')
+    expect((thrown as DevAuthorityError).message).toBe('vault key stores disagree')
+    // It is not the boot's own unavailability, so the boot does not degrade on
+    // it and the shell keeps failing loudly.
+    expect(isUnavailableCredentialStoreError(thrown)).toBe(false)
   })
 })

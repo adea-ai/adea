@@ -71,11 +71,52 @@ export function isUnavailableCredentialStoreError(error: unknown): boolean {
 }
 
 /**
+ * Runs one key store operation, and reports the OS credential store's own
+ * refusal with the boot's fixed reason.
+ *
+ * The vault's own refusal is kept as the failure's cause, so its diagnosis is
+ * not lost, and the fixed reason still carries no store detail.
+ */
+function reportWithFixedReason<T>(operation: () => T): T {
+  try {
+    return operation()
+  } catch (error) {
+    if (error instanceof DevAuthorityError && error.code === 'auth_required') {
+      const failure = new DevAuthorityError('auth_required', UNAVAILABLE_CREDENTIAL_STORE_REASON)
+      failure.cause = error
+      throw failure
+    }
+    throw error
+  }
+}
+
+/**
+ * A key store that reports the OS credential store's own refusal with the
+ * boot's fixed reason.
+ *
+ * The refusal can arrive while the store is resolved, or later, while the
+ * Dev Runtime host composes and reads the vault key — the legacy path reads
+ * the key only then. The boot needs one reason either way, and it needs the
+ * failure its composition is allowed to degrade on to be that one.
+ */
+function createFixedReasonKeyStore(inner: VaultKeyStore): VaultKeyStore {
+  return {
+    get: (service, account) => reportWithFixedReason(() => inner.get(service, account)),
+    set: (service, account, key) => reportWithFixedReason(() => inner.set(service, account, key)),
+    delete: (service, account) => reportWithFixedReason(() => inner.delete(service, account)),
+  }
+}
+
+/**
  * Resolves the boot-time credential store.
  *
  * The OS credential store is used when it answers. When it does not, the
  * application still boots with a store that fails closed, and the result says
  * so, so the shell can report the degradation once.
+ *
+ * The store it returns reports a refusal with the boot's fixed reason, so a
+ * refusal that arrives later — while the Dev Runtime host composes — is the
+ * same failure the boot already knows how to degrade on.
  *
  * The dependencies are injectable so the decision can be exercised without a
  * credential store of any kind: a test injects a legacy store and a Bun
@@ -94,8 +135,15 @@ export async function resolveBootCredentialStore(
       secrets: dependencies.secrets,
       runtimeVersion: dependencies.runtimeVersion,
     })
-    return { store, degraded: false, reason: null }
-  } catch {
+    return { store: createFixedReasonKeyStore(store), degraded: false, reason: null }
+  } catch (error) {
+    // The vault owns this classification. A typed fault that is not the store
+    // being unable to answer — two key stores that disagree, a key of the
+    // wrong size — is an integrity condition, and it must not be relabelled
+    // as an absent store: it fails loudly, with the vault's own diagnosis.
+    if (error instanceof DevAuthorityError && error.code !== 'auth_required') {
+      throw error
+    }
     return {
       store: createUnavailableVaultKeyStore(),
       degraded: true,
