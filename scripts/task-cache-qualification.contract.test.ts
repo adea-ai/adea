@@ -2,10 +2,10 @@
 //
 // The workflow must not assert a cache count written down when the graph was
 // smaller: the number of cacheable tasks is a property of the build graph, so
-// the expectation is derived from it. The workflow must also prove that a
-// restored build reproduces the same output bytes, and it must keep the rules
-// that decide who may write the cache, which readers may read it, when the
-// billing pause applies and which actions are pinned.
+// the expectation is derived from it. The workflow must also prove that the
+// restored build reproduces the same output bytes as an independent cold build,
+// and it must keep the rules that decide who may write the cache, which readers
+// may read it, when the billing pause applies and which actions are pinned.
 import { describe, expect, test } from 'bun:test'
 
 import { readFileSync } from 'node:fs'
@@ -29,21 +29,40 @@ describe('the cache qualification workflow', () => {
     expect(workflow).toContain('expected="$(node scripts/vite-plus-proof.mjs --print-expectation)"')
   })
 
-  test('proves that the restored outputs are byte-identical', () => {
+  test('the baseline is an independent uncached build', () => {
+    // An empty cache directory: the baseline cannot restore anything, so it is
+    // not the restored cache measured against itself.
+    expect(workflow).toContain('mkdir -p "$RUNNER_TEMP/cold-cache"')
+    expect(workflow).toContain('VITE_CACHE_PATH="$RUNNER_TEMP/cold-cache" bun run build')
+    // The baseline really was cold.
+    expect(workflow).toContain('--check-pass cold --log "$RUNNER_TEMP/build-cold.log"')
+  })
+
+  test('the owned outputs are cleared, so the restored pass measures the restore', () => {
+    expect(workflow).toContain('node scripts/vite-plus-proof.mjs --clear-outputs')
+    const clears = workflow.match(/--clear-outputs/g) ?? []
+    // Once before the cold baseline and once before the restored pass.
+    expect(clears.length).toBeGreaterThanOrEqual(2)
+  })
+
+  test('the restored outputs are compared with the cold baseline', () => {
     expect(workflow).toContain('node scripts/vite-plus-proof.mjs --print-manifest')
     expect(workflow).toContain(
-      'cmp "$RUNNER_TEMP/manifest-first.txt" "$RUNNER_TEMP/manifest-second.txt"'
+      'node scripts/vite-plus-proof.mjs --compare-manifest "$RUNNER_TEMP/manifest-cold.txt,$RUNNER_TEMP/manifest-restored.txt"'
+    )
+    expect(workflow).toContain(
+      'node scripts/vite-plus-proof.mjs --compare-manifest "$RUNNER_TEMP/manifest-cold.txt,$RUNNER_TEMP/manifest-warm.txt"'
     )
   })
 
-  test('the second pass must run warm, and the first pass depends on the restore', () => {
-    // The second pass runs on the cache the first pass left.
-    expect(workflow).toContain('--check-pass warm --log "$RUNNER_TEMP/build-second.log"')
-    // A complete restore for the same head hits every task on the first pass too.
+  test('the warm pass must run warm, and the restored pass depends on the restore', () => {
+    // The last pass runs on the cache the restored pass wrote.
+    expect(workflow).toContain('--check-pass warm --log "$RUNNER_TEMP/build-warm.log"')
+    // A complete restore for the same head hits every task on the restored pass too.
     expect(workflow).toContain('if test "$previous" = "$head"; then')
-    expect(workflow).toContain('--check-pass warm --log "$RUNNER_TEMP/build-first.log"')
+    expect(workflow).toContain('--check-pass warm --log "$RUNNER_TEMP/build-restored.log"')
     // An incomplete or stale restore is reported, and the bytes are compared instead.
-    expect(workflow).toContain('--check-pass observed --log "$RUNNER_TEMP/build-first.log"')
+    expect(workflow).toContain('--check-pass observed --log "$RUNNER_TEMP/build-restored.log"')
   })
 
   test('only the default branch may write the cache', () => {

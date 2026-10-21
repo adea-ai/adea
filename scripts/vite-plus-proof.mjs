@@ -11,7 +11,7 @@
 // computed from the node and bun that `vp` runs, so this script adds none.
 import { createHash } from 'node:crypto'
 import { spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
+import { appendFileSync, existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -101,6 +101,95 @@ export function distManifest(root) {
 const withDist = (root) =>
   discoverWorkspaces(root).filter(({ dir }) => distFiles(root, dir).length > 0)
 
+/**
+ * The output directories the build graph declares for its cacheable build tasks.
+ *
+ * These are the outputs the qualification owns. Nothing else is read, compared or
+ * removed: a file outside them belongs to the workspace, not to the cache.
+ */
+export function ownedOutputs(root, toolchainId, env = process.env) {
+  const tasks = buildTasks(root, toolchainId, env)
+  const group = tasks[TASK]
+  const names = (group?.dependsOn ?? []).filter((name) => tasks[name]?.cache !== false)
+  const directories = new Set()
+  for (const name of names)
+    for (const glob of tasks[name]?.cache?.output ?? []) {
+      const [prefix] = glob.split('*')
+      const directory = prefix.replace(/\/$/, '')
+      if (directory) directories.add(directory)
+    }
+  return [...directories].toSorted()
+}
+
+/** Every file under one owned output directory, relative to the root. */
+function ownedFiles(root, directory) {
+  const base = join(root, directory)
+  if (!existsSync(base)) return []
+  return readdirSync(base, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => relative(root, join(entry.parentPath, entry.name)))
+    .toSorted()
+}
+
+/** The manifest of exactly the declared owned outputs. */
+export function ownedOutputManifest(root, toolchainId, env = process.env) {
+  const hash = createHash('sha256')
+  let count = 0
+  for (const directory of ownedOutputs(root, toolchainId, env))
+    for (const file of ownedFiles(root, directory)) {
+      hash.update(`${file}\0`)
+      hash.update(readFileSync(join(root, file)))
+      hash.update('\0')
+      count += 1
+    }
+  return { sha: hash.digest('hex'), count, outputs: ownedOutputs(root, toolchainId, env) }
+}
+
+/**
+ * Removes the declared owned outputs, and nothing else.
+ *
+ * Only the directories the graph declares as its build outputs are removed, so
+ * the workspace's own files are never touched. The count of the removed files is
+ * returned, so a caller can tell a cleared tree from one that had no outputs.
+ */
+export function clearOwnedOutputs(root, toolchainId, env = process.env) {
+  let removed = 0
+  for (const directory of ownedOutputs(root, toolchainId, env)) {
+    for (const file of ownedFiles(root, directory)) {
+      rmSync(join(root, file), { force: true })
+      removed += 1
+    }
+  }
+  return removed
+}
+
+/**
+ * Whether two recorded manifests describe the same bytes.
+ *
+ * Two empty manifests are not the same build: a manifest without outputs proves
+ * nothing, so an empty one never matches.
+ */
+export function compareManifests(expected, actual) {
+  if (expected.count === 0 || actual.count === 0) {
+    return { identical: false, reason: 'an empty manifest proves nothing' }
+  }
+  if (expected.sha !== actual.sha) {
+    return {
+      identical: false,
+      reason: `the outputs differ (${expected.sha} against ${actual.sha})`,
+    }
+  }
+  return { identical: true, reason: '' }
+}
+
+/** Reads a recorded manifest file: the sha and the file count it holds. */
+function readManifestFile(path) {
+  const text = readFileSync(path, 'utf8').trim()
+  const [sha, count] = text.split(/\s+/)
+  if (!sha || count === undefined) throw new Error(`${path} holds no manifest`)
+  return { sha, count: Number(count) }
+}
+
 function check(label, condition, detail) {
   console.log(`${condition ? 'PASS' : 'FAIL'} ${label}${detail ? ` — ${detail}` : ''}`)
   if (!condition) process.exitCode = 1
@@ -115,6 +204,8 @@ const FLAGS = new Set([
   '--print-manifest',
   '--check-pass',
   '--log',
+  '--clear-outputs',
+  '--compare-manifest',
 ])
 const PASS_PATTERNS = new Set(['cold', 'warm', 'partial', 'observed'])
 
@@ -150,10 +241,19 @@ export function parseArgs(args) {
   if (log !== null && pass === null) throw new Error('--log requires --check-pass')
   const printExpectation = args.includes('--print-expectation')
   const printManifest = args.includes('--print-manifest')
-  const exclusive = [wanted !== null, pass !== null, printExpectation, printManifest].filter(
-    Boolean
-  ).length
+  const clearOutputs = args.includes('--clear-outputs')
+  const compare = value(args, '--compare-manifest')
+  const exclusive = [
+    wanted !== null,
+    pass !== null,
+    printExpectation,
+    printManifest,
+    clearOutputs,
+    compare !== null,
+  ].filter(Boolean).length
   if (exclusive > 1) throw new Error('only one expectation may be asked for at a time')
+  if (compare !== null && compare.split(',').length !== 2)
+    throw new Error('--compare-manifest needs two manifest files, separated by a comma')
   return {
     wanted,
     manifest,
@@ -162,11 +262,52 @@ export function parseArgs(args) {
     log,
     printExpectation,
     printManifest,
+    clearOutputs,
+    compare,
   }
 }
 
+/** The manifest of the declared owned outputs, as it is recorded. */
+function ownedManifest(root) {
+  return ownedOutputManifest(root, expectedId(root))
+}
+
+/**
+ * The manifest of the declared owned outputs, as it is recorded.
+ *
+ * A manifest without outputs proves nothing, so it is refused: two empty
+ * manifests must never pass a comparison.
+ */
+export function recordedManifest(owned) {
+  if (!owned || owned.count === 0) return null
+  return { sha: owned.sha, count: owned.count }
+}
+
 function once(args) {
-  const { wanted, manifest, fresh, pass, log, printExpectation, printManifest } = parseArgs(args)
+  const {
+    wanted,
+    manifest,
+    fresh,
+    pass,
+    log,
+    printExpectation,
+    printManifest,
+    clearOutputs,
+    compare,
+  } = parseArgs(args)
+  if (clearOutputs) {
+    // Only the outputs the graph declares are removed, so the workspace's own
+    // files are never touched.
+    const removed = clearOwnedOutputs(callerRoot, expectedId(callerRoot))
+    console.log(`cleared ${removed} owned output files`)
+    return
+  }
+  if (compare !== null) {
+    const [left, right] = compare.split(',')
+    const result = compareManifests(readManifestFile(left), readManifestFile(right))
+    check('the restored outputs are the same bytes', result.identical, result.reason)
+    return
+  }
   if (printExpectation) {
     // The expectation a fully restored run must reach, derived from the graph.
     const expectation = graphExpectation(callerRoot, expectedId(callerRoot))
@@ -174,9 +315,16 @@ function once(args) {
     return
   }
   if (printManifest) {
-    // The manifest of the outputs as they stand, so two passes can be compared.
-    const dist = distManifest(callerRoot)
-    console.log(`${dist.sha} ${dist.count}`)
+    // The manifest of the declared owned outputs, so two passes can be compared.
+    // An empty manifest proves nothing, so it is refused: two empty manifests
+    // must never pass a comparison.
+    const recorded = recordedManifest(ownedManifest(callerRoot))
+    if (!recorded) {
+      process.stderr.write('the declared owned outputs are empty; there is nothing to compare\n')
+      process.exitCode = 1
+      return
+    }
+    console.log(`${recorded.sha} ${recorded.count}`)
     return
   }
   if (pass) {

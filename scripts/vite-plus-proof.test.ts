@@ -17,12 +17,17 @@ import { fileURLToPath } from 'node:url'
 import * as childProcess from 'node:child_process'
 
 import {
+  clearOwnedOutputs,
+  compareManifests,
   distManifest,
   expectedSummary,
   graphExpectation,
   matchesPattern,
+  ownedOutputManifest,
+  ownedOutputs,
   parseArgs,
   parseVpOutput,
+  recordedManifest,
 } from './vite-plus-proof.mjs'
 import { expectedId } from './orch-toolchain.mjs'
 
@@ -145,6 +150,8 @@ describe('parseArgs', () => {
       log: null,
       printExpectation: false,
       printManifest: false,
+      clearOutputs: false,
+      compare: null,
     })
     expect(parseArgs([])).toEqual({
       wanted: null,
@@ -154,6 +161,8 @@ describe('parseArgs', () => {
       log: null,
       printExpectation: false,
       printManifest: false,
+      clearOutputs: false,
+      compare: null,
     })
   })
 
@@ -353,4 +362,95 @@ test('a recorded pass is checked against the graph, not against a written-down c
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+})
+
+/** A fixture workspace with declared build outputs and an unrelated source file. */
+function fixtureWithOutputs() {
+  const root = mkdtempSync(join(tmpdir(), 'adea-proof-owned-'))
+  mkdirSync(join(root, 'packages', 'alpha'), { recursive: true })
+  writeFileSync(
+    join(root, 'packages', 'alpha', 'package.json'),
+    JSON.stringify({ name: '@fixture/alpha', scripts: { build: 'tsc' } })
+  )
+  mkdirSync(join(root, 'packages', 'alpha', 'dist', 'nested'), { recursive: true })
+  writeFileSync(join(root, 'packages', 'alpha', 'dist', 'a.js'), 'alpha bytes')
+  writeFileSync(join(root, 'packages', 'alpha', 'dist', 'nested', 'b.js'), 'nested bytes')
+  // A file the lane does not own: it must survive every clearing.
+  writeFileSync(join(root, 'packages', 'alpha', 'src.ts'), 'source bytes')
+  return root
+}
+
+describe('the declared owned outputs', () => {
+  test('only the outputs the graph declares are owned', () => {
+    const root = fixtureWithOutputs()
+    try {
+      expect(ownedOutputs(root, 'fixture-toolchain')).toEqual(['packages/alpha/dist'])
+      const manifest = ownedOutputManifest(root, 'fixture-toolchain')
+      expect(manifest.count).toBe(2)
+      expect(manifest.outputs).toEqual(['packages/alpha/dist'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('clearing the owned outputs leaves every unrelated file alone', () => {
+    const root = fixtureWithOutputs()
+    try {
+      const removed = clearOwnedOutputs(root, 'fixture-toolchain')
+      expect(removed).toBe(2)
+      expect(existsSync(join(root, 'packages', 'alpha', 'dist', 'a.js'))).toBe(false)
+      expect(existsSync(join(root, 'packages', 'alpha', 'dist', 'nested', 'b.js'))).toBe(false)
+      // The workspace's own files are not the lane's to remove.
+      expect(existsSync(join(root, 'packages', 'alpha', 'src.ts'))).toBe(true)
+      expect(existsSync(join(root, 'packages', 'alpha', 'package.json'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('two empty manifests never pass a comparison', () => {
+    const empty = { sha: '0'.repeat(64), count: 0 }
+    const result = compareManifests(empty, { ...empty })
+    expect(result.identical).toBe(false)
+    expect(result.reason).toContain('empty manifest')
+  })
+
+  test('missing, truncated or stale restored bytes fail the comparison', () => {
+    const root = fixtureWithOutputs()
+    try {
+      const baseline = ownedOutputManifest(root, 'fixture-toolchain')
+      expect(
+        compareManifests(baseline, ownedOutputManifest(root, 'fixture-toolchain')).identical
+      ).toBe(true)
+
+      // A restored output that is missing.
+      rmSync(join(root, 'packages', 'alpha', 'dist', 'nested', 'b.js'))
+      const missing = ownedOutputManifest(root, 'fixture-toolchain')
+      expect(compareManifests(baseline, missing).identical).toBe(false)
+      writeFileSync(join(root, 'packages', 'alpha', 'dist', 'nested', 'b.js'), 'nested bytes')
+
+      // A restored output that was truncated.
+      writeFileSync(join(root, 'packages', 'alpha', 'dist', 'a.js'), 'alpha')
+      const truncated = ownedOutputManifest(root, 'fixture-toolchain')
+      expect(compareManifests(baseline, truncated).identical).toBe(false)
+      writeFileSync(join(root, 'packages', 'alpha', 'dist', 'a.js'), 'alpha bytes')
+
+      // A restored output that is stale.
+      writeFileSync(join(root, 'packages', 'alpha', 'dist', 'a.js'), 'stale bytes')
+      const stale = ownedOutputManifest(root, 'fixture-toolchain')
+      expect(compareManifests(baseline, stale).identical).toBe(false)
+      expect(compareManifests(baseline, stale).reason).toContain('the outputs differ')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+test('a manifest without outputs is refused, so two empty ones cannot pass', () => {
+  // The refusal the CLI applies to the manifest it is about to record.
+  expect(recordedManifest({ sha: '0'.repeat(64), count: 0 })).toBeNull()
+  expect(recordedManifest({ sha: 'a'.repeat(64), count: 3 })).toEqual({
+    sha: 'a'.repeat(64),
+    count: 3,
+  })
 })
