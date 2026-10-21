@@ -104,7 +104,10 @@ const TOOL_TIMEOUT_MS = 5_000
 // Measured, it finished in about a second and a half.
 const PREFIX_TOOL_TIMEOUT_MS = 10_000
 const DB_QUERY_TIMEOUT_MS = 5_000
-const CONNECT_TIMEOUT_MS = 5_000
+// The bound of a connection to the loopback instance. Measured, a connection and
+// its TLS handshake take milliseconds, so this is far above the measurement and
+// far below a query.
+const CONNECT_TIMEOUT_MS = 2_000
 const CLEANUP_TIMEOUT_MS = 10_000
 // The grace an abandoned cleanup stage is given to stop before the next stage
 // runs. It is short: the stage was cancelled, so the work is already ending.
@@ -112,50 +115,66 @@ const CLEANUP_SETTLE_MS = 1_000
 // The before-all phase: the admin connection, the connection the seed rows are
 // written on, then the schema, the restore database and the two seed inserts.
 const BEFORE_ALL_BUDGET_MS = 2 * CONNECT_TIMEOUT_MS + 4 * DB_QUERY_TIMEOUT_MS
-// The dump and restore phase: two snapshot connections (the source and the
-// restored target, the latter read twice), thirty-five statements and four child
-// processes (the initializer twice, pg_dump and pg_restore).
+// The dump and restore phase: two connections (the source is read once and the
+// restored target is read twice, each on the pool of its own target),
+// thirty-five statements and four child processes (the initializer twice,
+// pg_dump and pg_restore).
 const DUMP_RESTORE_BUDGET_MS =
   2 * CONNECT_TIMEOUT_MS + 35 * DB_QUERY_TIMEOUT_MS + 4 * TOOL_TIMEOUT_MS
 // The restored-behaviour phase: one connection and five statements.
 const RESTORED_BEHAVIOUR_BUDGET_MS = CONNECT_TIMEOUT_MS + 5 * DB_QUERY_TIMEOUT_MS
-// The application-document phase: two connections, four statements (the source
-// document, the raw restored document, the document after the verifier and the
-// altered ledger) and two child processes (the migration verifier twice: once
-// for the restored target and once for the target whose ledger was altered).
+// The application-document phase: two connections (the source is read once and
+// the restored target is read three times, each on the pool of its own target),
+// four statements (the source document, the raw restored document, the document
+// after the verifier and the altered ledger) and two child processes (the
+// migration verifier twice: once for the restored target and once for the target
+// whose ledger was altered).
 const APPLICATION_DOCUMENT_BUDGET_MS =
   2 * CONNECT_TIMEOUT_MS + 4 * DB_QUERY_TIMEOUT_MS + 2 * TOOL_TIMEOUT_MS
 // The historical-prefix phase: four connections (the source document, the
-// seeded rows, the prefix document read twice and the drop's own connection),
-// seven statements (the source document, the create, the two seed inserts, the
-// prefix document, the document after the repair and the drop) and two child
-// processes (the prefix runner and the migration verifier).
+// prefix target read twice, the connection the seed rows are written on and the
+// drop's own connection), seven statements (the source document, the create, the
+// two seed inserts, the prefix document, the document after the repair and the
+// drop) and two child processes (the prefix runner and the migration verifier).
 const HISTORICAL_PREFIX_BUDGET_MS =
   4 * CONNECT_TIMEOUT_MS + 7 * DB_QUERY_TIMEOUT_MS + PREFIX_TOOL_TIMEOUT_MS + TOOL_TIMEOUT_MS
 // The blocked-lock phase: three connections (the holder of the lock and the two
-// own-statement calls) and eight statements.
-const BLOCKED_TEST_BUDGET_MS = 3 * CONNECT_TIMEOUT_MS + 8 * DB_QUERY_TIMEOUT_MS
+// own-statement calls) and seven statements: the probe table, the transaction,
+// the lock, the blocked drop, the rollback, the drop and the check.
+const BLOCKED_TEST_BUDGET_MS = 3 * CONNECT_TIMEOUT_MS + 7 * DB_QUERY_TIMEOUT_MS
 // The cleanup-lifecycle phase: one connection, one statement and the settle
 // grace the abandoned statement is given.
 const CLEANUP_LIFECYCLE_BUDGET_MS = CONNECT_TIMEOUT_MS + DB_QUERY_TIMEOUT_MS + CLEANUP_SETTLE_MS
+// The failure-path phase: three connections (one per failure shape), one
+// statement and one child process.
+const FAILURE_PATH_BUDGET_MS = 3 * CONNECT_TIMEOUT_MS + DB_QUERY_TIMEOUT_MS + TOOL_TIMEOUT_MS
+// The historical-prefix setup phase: three connections (the source document,
+// the prefix target and the drop's own connection) and four statements.
+const PREFIX_SETUP_FAILURE_BUDGET_MS = 3 * CONNECT_TIMEOUT_MS + 4 * DB_QUERY_TIMEOUT_MS
 // The cleanup stages, each individually bounded and settled before the next one
 // runs: the reap of the child processes, five statements on their own
 // connections, the statement that proves the seeded rows are gone on the admin
-// connection, the close of the admin pool and the removal of the work
-// directory.
+// connection, the close of the admin pool, the close of the pools this file
+// still owns and the removal of the work directory.
 const CLEANUP_STAGE_BUDGET_MS = CONNECT_TIMEOUT_MS + DB_QUERY_TIMEOUT_MS
 const CLEANUP_PROVE_BUDGET_MS = DB_QUERY_TIMEOUT_MS
 const CLEANUP_REAP_BUDGET_MS = TOOL_TIMEOUT_MS
 const CLEANUP_POOL_BUDGET_MS = CONNECT_TIMEOUT_MS
 const CLEANUP_WORK_DIRECTORY_BUDGET_MS = TOOL_TIMEOUT_MS
+// The number of pools this file can still own when the cleanup runs: the
+// restored target, the restored behaviour, the historical prefix and the three
+// failure-path pools.
+const OWNED_POOL_LIMIT = 6
+const CLEANUP_OWNED_POOLS_BUDGET_MS = OWNED_POOL_LIMIT * CONNECT_TIMEOUT_MS
 // The number of cleanup stages, and therefore the settle grace every stage can
 // spend when it is abandoned and cannot be stopped.
-const CLEANUP_STAGES = 9
+const CLEANUP_STAGES = 10
 const AFTER_ALL_BUDGET_MS =
   CLEANUP_REAP_BUDGET_MS +
   5 * CLEANUP_STAGE_BUDGET_MS +
   CLEANUP_PROVE_BUDGET_MS +
   CLEANUP_POOL_BUDGET_MS +
+  CLEANUP_OWNED_POOLS_BUDGET_MS +
   CLEANUP_WORK_DIRECTORY_BUDGET_MS +
   CLEANUP_STAGES * CLEANUP_SETTLE_MS
 // The loopback guard and the stalled-child tests, all of which finish in seconds:
@@ -284,6 +303,56 @@ function environmentFor(migrationUrl: string): Record<string, string> {
 
 function poolFor(url: string): Pool {
   return new Pool({ connectionString: url, ...POOL_OPTIONS })
+}
+
+/**
+ * The pools this file opened and still owns. A pool is registered when it is
+ * opened and forgotten when it is closed, so the cleanup closes whatever a
+ * failed phase left behind.
+ */
+const ownedPools = new Set<{ end: () => Promise<void> }>()
+
+/**
+ * Opens a pool this file owns. The pool is registered until it is closed, so a
+ * phase that fails before it closes its own pool still leaves the pool to the
+ * owner's cleanup.
+ */
+function ownPool(url: string): Pool {
+  const pool = poolFor(url)
+  ownedPools.add(pool)
+  return pool
+}
+
+/** The number of pools this file still owns. */
+export function ownedPoolCount(): number {
+  return ownedPools.size
+}
+
+/**
+ * Closes a pool this file owns and forgets it. A close that rejects is
+ * reported, and the pool stays owned, so the owner's cleanup tries it again.
+ */
+async function closeOwnedPool(pool: { end: () => Promise<void> }): Promise<string | undefined> {
+  try {
+    await pool.end()
+    ownedPools.delete(pool)
+    return undefined
+  } catch (error) {
+    return error instanceof Error ? error.message : 'unexpected non-error failure'
+  }
+}
+
+/**
+ * Closes every pool this file still owns. Every close is attempted, even when
+ * one of them rejects, and the failures are reported.
+ */
+export async function closeOwnedPools(): Promise<string[]> {
+  const failures: string[] = []
+  for (const pool of ownedPools) {
+    const failure = await closeOwnedPool(pool)
+    if (failure) failures.push(failure)
+  }
+  return failures
 }
 
 /** The admin connection, derived from the validated target like every other one. */
@@ -923,6 +992,8 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
       HISTORICAL_PREFIX_BUDGET_MS +
       BLOCKED_TEST_BUDGET_MS +
       CLEANUP_LIFECYCLE_BUDGET_MS +
+      FAILURE_PATH_BUDGET_MS +
+      PREFIX_SETUP_FAILURE_BUDGET_MS +
       AFTER_ALL_BUDGET_MS +
       UNCONDITIONAL_BUDGET_MS
     expect(worstCase).toBeLessThanOrEqual(OUTER_COMMAND_CEILING_MS - OUTER_MARGIN_MS)
@@ -953,6 +1024,39 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
     // The stalled stage never stopped, and the outcome says so: a shared pool it
     // uses must not be closed while it may still be running.
     expect(outcome.unsettled).toEqual(['stalled'])
+  }, 10_000)
+
+  test('every pool this file owns is closed, even when one close rejects', async () => {
+    // The owner's close attempts every pool it owns, even when one of them
+    // rejects, and it reports the rejection. Nothing is left owned afterwards.
+    const closed: string[] = []
+    const rejecting = {
+      end: async () => {
+        closed.push('rejecting')
+        throw new Error('boom')
+      },
+    }
+    const accepting = {
+      end: async () => {
+        closed.push('accepting')
+      },
+    }
+    ownedPools.add(rejecting)
+    ownedPools.add(accepting)
+    expect(ownedPoolCount()).toBe(2)
+    const failures = await closeOwnedPools()
+    expect(closed).toEqual(['rejecting', 'accepting'])
+    expect(failures).toEqual(['boom'])
+    // The pool whose close failed is still owned, so the owner's cleanup tries it
+    // again; the pool that closed is forgotten.
+    expect(ownedPoolCount()).toBe(1)
+    const second = await closeOwnedPools()
+    expect(second).toEqual(['boom'])
+    expect(ownedPoolCount()).toBe(1)
+    // The rejecting pool is dropped from the ownership, so the file leaves no
+    // pool behind.
+    ownedPools.delete(rejecting)
+    expect(ownedPoolCount()).toBe(0)
   }, 10_000)
 
   test('a cleanup statement whose connection cannot be established still tears its pool down', async () => {
@@ -999,6 +1103,17 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
     // closed or a connection is reset.
     const steps: CleanupStep[] = [
       ['reap live tool processes', reapLiveChildren, undefined, CLEANUP_REAP_BUDGET_MS],
+      [
+        'close the pools this file owns',
+        async () => {
+          const failures = await closeOwnedPools()
+          if (failures.length > 0) {
+            throw new Error(failures.join('; '))
+          }
+        },
+        undefined,
+        CLEANUP_OWNED_POOLS_BUDGET_MS,
+      ],
       ownStatementStage(
         'drop the restored database',
         `DROP DATABASE IF EXISTS "${restoredDatabase}" WITH (FORCE)`
@@ -1040,6 +1155,9 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
     admin = undefined
     workDirectory = undefined
     const problems = [...outcome.failures]
+    if (ownedPoolCount() > 0) {
+      problems.push(`${ownedPoolCount()} pools this file owns are still open`)
+    }
     for (const label of outcome.unsettled) {
       problems.push(`${label}: did not settle within ${CLEANUP_SETTLE_MS} ms`)
     }
@@ -1054,9 +1172,11 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       const sourceSearchPath = urlFor(validated, validated.pathname.slice(1), schema)
       const restoredConnection = urlFor(validated, restoredDatabase)
       // Two connections for the whole phase: the source is read once and the
-      // restored target is read twice, on the pool of its own target.
-      const sourcePool = poolFor(sourceConnection)
-      const restoredPool = poolFor(restoredConnection)
+      // restored target is read twice, on the pool of its own target. Both are
+      // owned by this file, so a phase that fails before it closes them still
+      // leaves them to the owner's cleanup.
+      const sourcePool = ownPool(sourceConnection)
+      const restoredPool = ownPool(restoredConnection)
 
       // 1. Create the schema with the explicit initializer, then fill it with synthetic rows.
       const applied = await runInitializer('apply', sourceSearchPath)
@@ -1085,7 +1205,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         [at]
       )
       const source = await snapshotOf(sourcePool, schema)
-      await sourcePool.end()
+      await closeOwnedPool(sourcePool)
       expect(source.tables).toEqual(expectedTables)
       expect(source.counts).toEqual({ account: 1, session: 1, user: 2, verification: 1 })
 
@@ -1126,7 +1246,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       expect(planned.applied).toBe(false)
       expect(planned.before).toEqual({ add: [], create: [] })
       const after = await snapshotOf(restoredPool, schema)
-      await restoredPool.end()
+      await closeOwnedPool(restoredPool)
       expect(after.counts).toEqual(source.counts)
       expect(await tablesIn(schema)).toEqual(expectedTables)
     },
@@ -1153,7 +1273,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       const targetTaskId = crypto.randomUUID()
       const targetSessionId = `restore-proof-session-${suffix}`
       const controlPlaneAgentId = `agt_${'0'.repeat(26)}`
-      const pool = poolFor(restoredConnection)
+      const pool = ownPool(restoredConnection)
       try {
         // The fixture is one statement: the parents and the admission it names are
         // written together, so the foreign keys resolve inside the statement.
@@ -1301,7 +1421,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         expect(removed.rows[0]?.rollback_fence_actor_ref).toBe(seededUserId)
         expect(removed.rows[0]?.rollback_fence_reason).toBe('operator_intervention')
       } finally {
-        await pool.end()
+        await closeOwnedPool(pool)
       }
     },
     RESTORED_BEHAVIOUR_BUDGET_MS
@@ -1314,9 +1434,11 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       const sourceConnection = urlFor(validated, validated.pathname.slice(1))
       const restoredConnection = urlFor(validated, restoredDatabase)
       // Two connections for the whole phase: the source is read once and the
-      // restored target is read three times, on the pool of its own target.
-      const sourcePool = poolFor(sourceConnection)
-      const restoredPool = poolFor(restoredConnection)
+      // restored target is read three times, on the pool of its own target. Both
+      // are owned by this file, so a phase that fails before it closes them
+      // still leaves them to the owner's cleanup.
+      const sourcePool = ownPool(sourceConnection)
+      const restoredPool = ownPool(restoredConnection)
 
       // The phases the proof runs against the restored target, in the order it runs
       // them. The raw comparison has to come first: the database package's own
@@ -1417,8 +1539,8 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
          WHERE id = (SELECT min(id) FROM ${applicationLedger})`,
         ['tampered-target-identity']
       )
-      await sourcePool.end()
-      await restoredPool.end()
+      await closeOwnedPool(sourcePool)
+      await closeOwnedPool(restoredPool)
       const refused = await runMigrationVerifier(restoredDatabase)
       expect(refused.code).not.toBe(0)
       expect(refused.stderr).toContain('Migration history preflight failed')
@@ -1432,20 +1554,23 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       const validated = target!
       const sourceConnection = urlFor(validated, validated.pathname.slice(1))
       const prefixConnection = urlFor(validated, prefixDatabase)
-      // Three connections for the phase: the source document, the prefix target
-      // (read twice) and the connection the seed rows are written on. The drop
-      // runs on its own connection, as every cleanup statement does.
-      const sourcePool = poolFor(sourceConnection)
-      const prefixPool = poolFor(prefixConnection)
-      const source = await applicationDocument(sourcePool)
+      // Four connections for the phase: the source document, the prefix target
+      // (read twice), the connection the seed rows are written on and the drop's
+      // own connection. The drop runs on its own connection, as every cleanup
+      // statement does. Every pool is owned by this file, and the whole setup is
+      // inside the protected lifetime, so a failure here closes them too.
+      const sourcePool = ownPool(sourceConnection)
+      const prefixPool = ownPool(prefixConnection)
       const count = prefixMigrationCount()
 
-      // 1. A database that carries the chain's prefix: the migrations before the
-      //    rollback fence's own migration, applied the way they were applied then.
-      //    The prefix runner never decides what that database is; the database
-      //    package's own preflight decides that below.
-      await admin!.query(`CREATE DATABASE "${prefixDatabase}"`)
       try {
+        // 1. The source document and the database that carries the chain's
+        //    prefix: the migrations before the rollback fence's own migration,
+        //    applied the way they were applied then. The prefix runner never
+        //    decides what that database is; the database package's own preflight
+        //    decides that below.
+        const source = await applicationDocument(sourcePool)
+        await admin!.query(`CREATE DATABASE "${prefixDatabase}"`)
         const applied = await runPrefixRunner(prefixDatabase, count)
         expect(applied.applied).toBe(count)
 
@@ -1480,8 +1605,8 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         const afterRepair = await applicationDocument(prefixPool)
         expect(afterRepair).toEqual(source)
       } finally {
-        await sourcePool.end()
-        await prefixPool.end()
+        await closeOwnedPool(sourcePool)
+        await closeOwnedPool(prefixPool)
         await runOwnStatement(`DROP DATABASE IF EXISTS "${prefixDatabase}" WITH (FORCE)`)
       }
     },
@@ -1513,6 +1638,101 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       expect(lifecycle.torndown).toBe(true)
     },
     CLEANUP_LIFECYCLE_BUDGET_MS
+  )
+
+  test(
+    'a failed phase leaves no pool or connection behind',
+    async () => {
+      const validated = target!
+      const connection = urlFor(validated, validated.pathname.slice(1))
+      // Three failure shapes, each of which opens a pool and fails: a query that
+      // fails, an assertion that fails and a migration verifier that fails. The
+      // pool is closed in the protected lifetime, so neither the pool nor its
+      // connection is left behind.
+      const shapes: ReadonlyArray<{
+        name: string
+        work: (pool: Pool) => Promise<unknown>
+      }> = [
+        {
+          name: 'a failed query',
+          work: async (pool) => pool.query('SELECT * FROM app.no_such_table'),
+        },
+        {
+          name: 'a failed assertion',
+          work: async () => {
+            expect(1).toBe(2)
+          },
+        },
+        {
+          name: 'a failed verifier',
+          work: async () => {
+            // The verifier's own verdict, read the way the phases read it: a
+            // verifier that did not succeed fails the phase.
+            const result = await runMigrationVerifier(`adea_missing_${suffix}`)
+            expect(result.code).toBe(0)
+          },
+        },
+      ]
+      for (const shape of shapes) {
+        const pool = ownPool(connection)
+        let failed = false
+        try {
+          await shape.work(pool)
+        } catch {
+          failed = true
+        } finally {
+          await closeOwnedPool(pool)
+        }
+        expect(failed).toBe(true)
+        expect(pool.ended).toBe(true)
+        expect(pool.totalCount).toBe(0)
+      }
+      expect(ownedPoolCount()).toBe(0)
+    },
+    FAILURE_PATH_BUDGET_MS
+  )
+
+  test(
+    'a failed historical-prefix setup leaves no pool or connection behind',
+    async () => {
+      const validated = target!
+      const missing = urlFor(validated, `adea_missing_${suffix}`)
+      // The prefix phase reads the source document and creates its database
+      // before its own protected lifetime. A failure in either must not leave a
+      // pool or a connection behind.
+      const sourcePool = ownPool(missing)
+      let queryFailed = false
+      try {
+        await applicationDocument(sourcePool)
+      } catch {
+        queryFailed = true
+      }
+      expect(queryFailed).toBe(true)
+
+      const prefixPool = ownPool(urlFor(validated, prefixDatabase))
+      await admin!.query(`CREATE DATABASE "${prefixDatabase}"`)
+      let createFailed = false
+      try {
+        await admin!.query(`CREATE DATABASE "${prefixDatabase}"`)
+      } catch {
+        createFailed = true
+      }
+      expect(createFailed).toBe(true)
+
+      // Every pool is still owned, and the owner's cleanup closes all of them.
+      expect(ownedPoolCount()).toBe(2)
+      const failures = await closeOwnedPools()
+      expect(failures).toEqual([])
+      expect(sourcePool.ended).toBe(true)
+      expect(prefixPool.ended).toBe(true)
+      expect(sourcePool.totalCount).toBe(0)
+      expect(prefixPool.totalCount).toBe(0)
+      expect(ownedPoolCount()).toBe(0)
+
+      // The database the failed create left behind is dropped again.
+      await runOwnStatement(`DROP DATABASE IF EXISTS "${prefixDatabase}" WITH (FORCE)`)
+    },
+    PREFIX_SETUP_FAILURE_BUDGET_MS
   )
 
   test(
