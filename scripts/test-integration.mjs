@@ -358,12 +358,20 @@ let claim = claimResource({
 if (claim.decision === 'refused') {
   // The run's own record says something else, so the run owns nothing here.
   if (sharedClaim?.decision === 'granted') {
-    releaseSharedResource({
+    // The claim is released with the token it was issued with, so the release is
+    // a release by the holder. A release that fails is reported, and it does
+    // not replace the refusal that is stopping this run: that refusal is the
+    // reason the run stops, and the claim left behind is evidence of it.
+    const released = releaseSharedResource({
       directory: leaseDirectoryPath,
       resourceKey: identity.label,
       runId,
       identity,
+      token: sharedClaim.claim?.token,
     })
+    if (!released.released) {
+      console.error(`the shared claim was not released: ${released.reason}`)
+    }
   }
   throw new Error(`the integration resource is not available: ${claim.reason}`)
 }

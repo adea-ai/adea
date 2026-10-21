@@ -87,6 +87,12 @@ A claim that cannot be read is uncertain, and an uncertain claim is never
 taken. The claim is released with the cleanup, under the same exclusive lock,
 so a claim and a release cannot interleave.
 
+The claim is also released when the run's own record is refused, because then
+the run owns nothing and must not leave a claim behind. That release presents
+the token the claim was issued with, like every other release. A release that
+fails is reported, and it does not replace the refusal that stopped the run:
+the refusal is why the run stops, and a claim left behind is evidence of it.
+
 A release proves that it is the holder, and only the token does that: a
 process id can be recycled, and a run id is not a process identity. The
 release must present a valid token, and the record must carry a valid token,

@@ -42,6 +42,7 @@ function exercise(options: {
   admissionRefused?: boolean
   inventory?: boolean
   sharedClaimRefused?: string
+  leaseRefused?: string
   removalUnconfirmed?: boolean
 }) {
   const child = `
@@ -236,6 +237,8 @@ function exercise(options: {
         claimResource({ mode, identity }) {
           claims.push({ mode, label: identity.label })
           calls.push(['claim', mode])
+          if (options.leaseRefused)
+            return { decision: 'refused', reason: options.leaseRefused, lease: null }
           if (options.claimRefused) return { decision: 'refused', reason: options.claimRefused, lease: null }
           return {
             decision: 'granted', reason: 'claimed',
@@ -1533,4 +1536,18 @@ test('the release presents the token the claim was issued with', () => {
   // the release.
   expect(result.failure).toBeUndefined()
   expect(result.receipts.at(-1)?.errors).toEqual([])
+})
+
+test('a refused per-run lease releases the shared claim with the token it was issued with', () => {
+  const result = exercise({ success: true, leaseRefused: 'uncertain' })
+  // The run's own record was refused, so the run owns nothing.
+  expect(result.failure).toContain('the integration resource is not available: uncertain')
+  // The shared claim it had taken is released with the token it was issued
+  // with, so the release is a release by the holder.
+  const release = result.calls.find((call) => call[0] === 'shared-release')
+  expect(release).toBeDefined()
+  expect(release?.[2]).toBe('3f2a1b0c-1111-4222-8333-444455556666')
+  // The refusal that stopped the run is the one that is reported, and the
+  // release did not add a failure of its own.
+  expect(result.errors.filter((message) => message.includes('was not released'))).toEqual([])
 })
