@@ -21,7 +21,6 @@ describe('private application UI boundary', () => {
     const consumers = [
       'apps/web/src/components/workspace-navigation.tsx',
       'packages/workspace-nav/src/workspace-nav.tsx',
-      'packages/workspace-ui/src/workspace-identity-settings.tsx',
       'packages/workspace-ui/src/workspace-settings.tsx',
       'packages/ui/src/components/workspace-identity-mark.tsx',
     ]
@@ -30,6 +29,11 @@ describe('private application UI boundary', () => {
       expect(code).toContain("from '@adea-ai/ui/components/theme/lazy'")
       expect(code).not.toContain('components/theme-provider')
     }
+    // The identity form hands accent colouring to the shared AccentPicker, so it no
+    // longer reads the theme context itself; it must still not reach a host copy.
+    expect(
+      repositoryFile('packages/workspace-ui/src/workspace-identity-settings.tsx')
+    ).not.toContain('components/theme-provider')
     // The host view keeps only the V2 seam the appearance editor writes through.
     const host = source('components/appearance-host.tsx')
     for (const name of [

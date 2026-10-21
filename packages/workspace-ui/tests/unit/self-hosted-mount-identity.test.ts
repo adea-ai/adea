@@ -6,12 +6,15 @@ import { join } from 'node:path'
 // from the host's own session. The shell's bootstrap query is a shared cache that can outlive a
 // sign-out, so the shell never derives the id from it. This reads the source because the shell's
 // standalone settings mount has no rendered harness; the rendered account-swap, guest-to-signed-in
-// and late-response cases run in e2e/self-hosted-workspace-details.spec.ts.
+// and late-response cases run in e2e/self-hosted-workspace-details.spec.ts (its Settings > Workspaces harness).
 const src = join(import.meta.dir, '../../src')
 
-test('the standalone shell passes the host-supplied principal to Workspace Details, not bootstrap data', () => {
+test('the standalone shell passes the host-supplied principal to Settings, not bootstrap data', () => {
   const code = readFileSync(join(src, 'conventional-workspace-shell.tsx'), 'utf8')
-  const mount = /<WorkspaceDetailsDialog\s+accountPrincipalId=\{([\s\S]*?)\}\s+onClose/.exec(code)
+  const mount =
+    /<WorkspaceSettingsDialog\s+accountAuthenticated=\{[^}]*\}\s+accountPrincipalId=\{([\s\S]*?)\}\s+accountLabel/.exec(
+      code
+    )
   expect(mount).not.toBeNull()
   const accessor = mount![1]!
   expect(accessor).toContain('account?.principalId')

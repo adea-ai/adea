@@ -16,7 +16,7 @@ async function openHarness(page: Page, attributes: Record<string, string> = {}):
       body: '<html><body><div id="harness-root"></div></body></html>',
     })
   )
-  await page.goto(`${path}#workspace-settings/general`)
+  await page.goto(`${path}#settings/workspace-general`)
   await page.locator('#harness-root').evaluate(
     (element, entries) => {
       for (const [name, value] of entries) element.setAttribute(name, value)

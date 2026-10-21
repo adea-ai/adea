@@ -2,7 +2,7 @@ import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { Tree, TreeRow, type TreeItemDescriptor } from '@adea-ai/ui/components/composites/tree'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Text } from '@adea-ai/ui/components/ui/typography'
-import { CircleAlert, House, Plus } from 'lucide-solid'
+import { CircleAlert, House, Plus, Settings2 } from 'lucide-solid'
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js'
 
 import type { NavLeafMetaKind, NavMenuItemId, ViewAdapter } from './adapters'
@@ -16,7 +16,7 @@ import {
   type NavLeaf,
   type NavProject,
 } from './model'
-import { LeafStatusIcon, ProjectIcon } from './nav-icons'
+import { LeafStatusIcon, ProjectGlyph } from './nav-icons'
 import { NavRowMenu } from './nav-row-menu'
 
 export type NavLeafTreeProps = {
@@ -28,7 +28,8 @@ export type NavLeafTreeProps = {
   selectedLeafId?: string | null
   onSelectLeaf: (leaf: NavLeaf, project: NavProject) => void
   onCreateLeaf?: (project: NavProject) => void
-  onProjectMenuAction?: (id: NavMenuItemId, project: NavProject) => void
+  /** Opens the project's settings dialog; the row shows the button only when present. */
+  onOpenProjectSettings?: (project: NavProject) => void
   onLeafMenuAction?: (id: NavMenuItemId, leaf: NavLeaf, project: NavProject) => void
   /** Hover or focus on a leaf: the host may prefetch what selecting it shows. */
   onLeafIntent?: (leaf: NavLeaf) => void
@@ -51,10 +52,12 @@ type LeafPlacement = 'project' | 'status' | 'recent'
 const CLOCK_TICK_MS = 60_000
 
 /**
- * The active workspace's projects and leaves as one keyboard tree. Grouping by
- * project keeps the hierarchy (checkout, "Worktrees" divider, worktrees and
- * tasks); status and recent groupings flatten the leaves and label each with
- * its project. All data and actions arrive through props.
+ * The active workspace's projects and sessions as one keyboard tree. Grouping
+ * by project keeps the hierarchy: each project is a top-level accordion group
+ * whose open state is its own, so opening or selecting one never closes
+ * another. Clicking the row toggles it; the row's buttons act on their own.
+ * Status and recent groupings flatten the sessions and label each with its
+ * project. All data and actions arrive through props.
  */
 export function NavLeafTree(props: NavLeafTreeProps) {
   const [ownCollapsed, setOwnCollapsed] = createSignal<ReadonlySet<string>>(new Set())
@@ -253,6 +256,7 @@ export function NavLeafTree(props: NavLeafTreeProps) {
   return (
     <Tree
       aria-label={props.label}
+      guides
       visibleItems={rows().items}
       activeId={activeId()}
       onActiveIdChange={setActiveId}
@@ -280,7 +284,9 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                 <TreeRow
                   item={descriptor(projectKey(group.project.id))}
                   data-project-id={group.project.id}
-                  leading={<ProjectIcon icon={props.adapter.projectIcon(group.project)} />}
+                  leading={
+                    <ProjectGlyph iconKey={group.project.iconKey} accent={group.project.accent} />
+                  }
                   trailing={
                     <>
                       <Show when={!expanded() && summary()}>
@@ -305,17 +311,20 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                             <Plus aria-hidden="true" />
                           </ActionButton>
                         </Show>
-                        <Show when={props.adapter.projectMenu(group.project).length > 0}>
-                          <NavRowMenu
-                            // Named for the noun: in Chat and Virtual the default
-                            // leaf carries the project's name, so its own
-                            // "Options for …" menu must not share this name.
-                            label={`${props.adapter.nouns.project} options for ${projectLabel().text}`}
-                            items={props.adapter.projectMenu(group.project)}
-                            portalMount={props.portalMount}
-                            tooltips={props.tooltips}
-                            onSelect={(id) => props.onProjectMenuAction?.(id, group.project)}
-                          />
+                        <Show when={props.onOpenProjectSettings}>
+                          <ActionButton
+                            variant="ghost"
+                            size="icon-xs"
+                            tooltip={
+                              props.tooltips === false
+                                ? undefined
+                                : `${props.adapter.nouns.project} settings`
+                            }
+                            aria-label={`${props.adapter.nouns.project} settings for ${projectLabel().text}`}
+                            onClick={() => props.onOpenProjectSettings?.(group.project)}
+                          >
+                            <Settings2 aria-hidden="true" />
+                          </ActionButton>
                         </Show>
                       </span>
                     </>

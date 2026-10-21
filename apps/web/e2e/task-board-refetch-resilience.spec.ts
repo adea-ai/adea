@@ -25,7 +25,7 @@ import {
 
 // ---------------------------------------------------------------------------
 // Coverage class: deterministic fault injection into the real workspace
-// surface. Unlike account-directory-ui.spec.ts (which never intercepts a
+// surface. Unlike account-directory-auth.spec.ts (which never intercepts a
 // request), this lane proves that a transient failure of a workspace query
 // refetch cannot unmount an already-rendered surface. `page.route` is used
 // deliberately, and only to fail the list refetch after data is on screen.

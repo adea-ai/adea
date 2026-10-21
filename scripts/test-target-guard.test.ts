@@ -1,9 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -17,13 +15,10 @@ import {
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const local = 'postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq'
-const ciHost = 'ep-quiet-pond-123456.us-east-2.aws.neon.tech'
-const ciUrl = `postgresql://adea_dev_app:secret@${ciHost}/neondb?sslmode=require`
-const productionHost = 'ep-prod-654321.us-east-2.aws.neon.tech'
-const productionLike = `postgresql://owner:secret@${productionHost}/neondb`
-// What the create-branch step emits for the current pull request.
-const branchEnv = { GITHUB_ACTIONS: 'true', ADEA_CI_BRANCH_HOSTS: ciHost }
-const pooledHost = 'ep-quiet-pond-123456-pooler.us-east-2.aws.neon.tech'
+const remoteHost = 'db.example.test'
+const remoteUrl = `postgresql://adea_dev_app:secret@${remoteHost}/app?sslmode=require`
+const productionHost = 'db.production.example.test'
+const productionLike = `postgresql://owner:secret@${productionHost}/app`
 
 describe('test target classification', () => {
   test('loopback hosts are local', () => {
@@ -38,44 +33,43 @@ describe('test target classification', () => {
     }
   })
 
-  test('the CI Neon branch is ephemeral only for the hosts the create-branch step emitted', () => {
-    expect(classifyDatabaseTarget(ciUrl, branchEnv)).toBe('ci-ephemeral')
+  test('no remote database is reachable, so a CI lane has no ephemeral host to reach', () => {
+    // The pull-request database lane proves a disposable loopback instance, so
+    // there is no branch, no provider API and no CI-supplied host list any
+    // more. A remote database is remote in every environment, including one
+    // that names the host in a CI list.
+    expect(classifyDatabaseTarget(remoteUrl, {})).toBe('remote')
+    expect(classifyDatabaseTarget(remoteUrl, { GITHUB_ACTIONS: 'true' })).toBe('remote')
+    expect(classifyDatabaseTarget(remoteUrl, { ADEA_CI_BRANCH_HOSTS: remoteHost })).toBe('remote')
     expect(
-      classifyDatabaseTarget(ciUrl.replace('adea_dev_app', 'adea_dev_migration'), branchEnv)
-    ).toBe('ci-ephemeral')
-    // The pooled host is listed alongside the direct one.
-    expect(
-      classifyDatabaseTarget(ciUrl.replace(ciHost, pooledHost), {
-        ...branchEnv,
-        ADEA_CI_BRANCH_HOSTS: `${ciHost},${pooledHost}`,
+      classifyDatabaseTarget(remoteUrl, {
+        GITHUB_ACTIONS: 'true',
+        ADEA_CI_BRANCH_HOSTS: remoteHost,
       })
-    ).toBe('ci-ephemeral')
-    // Same URL from a developer shell, any other role, or a host the step did not emit.
-    expect(classifyDatabaseTarget(ciUrl, { ADEA_CI_BRANCH_HOSTS: ciHost })).toBe('remote')
-    expect(classifyDatabaseTarget(ciUrl, { GITHUB_ACTIONS: 'true' })).toBe('remote')
-    expect(classifyDatabaseTarget(ciUrl.replace('adea_dev_app', 'owner'), branchEnv)).toBe('remote')
-    expect(classifyDatabaseTarget(`postgresql://adea_dev_app:s@db.example.com/x`, branchEnv)).toBe(
-      'remote'
-    )
+    ).toBe('remote')
+    // The restricted CI roles name nothing now: a role never vouches for a host.
+    expect(
+      classifyDatabaseTarget(remoteUrl.replace('adea_dev_app', 'adea_dev_migration'), {
+        GITHUB_ACTIONS: 'true',
+      })
+    ).toBe('remote')
   })
 
   test('a production host with the same CI role and GitHub Actions is still remote', () => {
-    // The old rule (GITHUB_ACTIONS + *.neon.tech + role name) accepted this.
-    const sameRole = `postgresql://adea_dev_app:secret@${productionHost}/neondb?sslmode=require`
+    // The old rule (GITHUB_ACTIONS + a vendor host pattern + a role name)
+    // accepted this.
+    const sameRole = `postgresql://adea_dev_app:secret@${productionHost}/app?sslmode=require`
     expect(classifyDatabaseTarget(sameRole, { GITHUB_ACTIONS: 'true' })).toBe('remote')
-    expect(classifyDatabaseTarget(sameRole, branchEnv)).toBe('remote')
     // One listed host does not vouch for an unlisted one in a multi-host URL.
     expect(
-      classifyDatabaseTarget(
-        `postgresql://adea_dev_app:s@${ciHost},${productionHost}/neondb`,
-        branchEnv
-      )
+      classifyDatabaseTarget(`postgresql://adea_dev_app:s@${remoteHost},${productionHost}/app`, {
+        ADEA_CI_BRANCH_HOSTS: remoteHost,
+      })
     ).toBe('remote')
-    // A configured production host is production even if the branch list names it.
+    // A configured production host is production even if a CI list names it.
     expect(
       classifyDatabaseTarget(sameRole, {
-        ...branchEnv,
-        ADEA_CI_BRANCH_HOSTS: `${ciHost},${productionHost}`,
+        ADEA_CI_BRANCH_HOSTS: remoteHost,
         ADEA_PRODUCTION_TARGET_HOSTS: productionHost,
       })
     ).toBe('production')
@@ -160,7 +154,7 @@ describe('database URL host resolution', () => {
       'postgresql://u:p@localhost,db.example.com/db',
       'postgresql://u:p@LOCALHOST:5433,Db.Example.com:5434/db',
       'postgresql://u:p@%2Fvar%2Frun%2Fpostgresql/db',
-      ciUrl,
+      remoteUrl,
       productionLike,
     ]
     const saved = process.env.PGHOST
@@ -200,25 +194,30 @@ describe('assertLocalTestTargets', () => {
     ).not.toThrow()
   })
 
-  test('accepts the CI branch from Actions when the step emitted its hosts', () => {
+  test('refuses a remote database even when a CI host list names it', () => {
     expect(() =>
       assertLocalTestTargets({
-        ...branchEnv,
-        DATABASE_URL: ciUrl,
-        DATABASE_URL_UNPOOLED: ciUrl,
-        DATABASE_MIGRATION_URL: ciUrl.replace('adea_dev_app', 'adea_dev_migration'),
+        GITHUB_ACTIONS: 'true',
+        ADEA_CI_BRANCH_HOSTS: remoteHost,
+        DATABASE_URL: remoteUrl,
+        DATABASE_URL_UNPOOLED: remoteUrl,
+        DATABASE_MIGRATION_URL: remoteUrl.replace('adea_dev_app', 'adea_dev_migration'),
       })
-    ).not.toThrow()
+    ).toThrow(remoteHost)
   })
 
   test('refuses a production host that carries the CI role, from Actions', () => {
-    const sameRole = `postgresql://adea_dev_app:secret@${productionHost}/neondb?sslmode=require`
+    const sameRole = `postgresql://adea_dev_app:secret@${productionHost}/app?sslmode=require`
     expect(() =>
       assertLocalTestTargets({ GITHUB_ACTIONS: 'true', DATABASE_URL: sameRole })
     ).toThrow(productionHost)
-    expect(() => assertLocalTestTargets({ ...branchEnv, DATABASE_URL: sameRole })).toThrow(
-      productionHost
-    )
+    expect(() =>
+      assertLocalTestTargets({
+        GITHUB_ACTIONS: 'true',
+        ADEA_CI_BRANCH_HOSTS: productionHost,
+        DATABASE_URL: sameRole,
+      })
+    ).toThrow(productionHost)
   })
 
   test('refuses a remote target in every variable, naming it without its credentials', () => {
@@ -293,7 +292,6 @@ describe('assertLocalTestTargets', () => {
           assertLocalTestTargets({
             [name]: `https://${host}/`,
             ADEA_ALLOW_REMOTE_TEST_TARGET: host,
-            ADEA_CI_AUTH_HOSTS: host,
             GITHUB_ACTIONS: 'true',
           })
         ).toThrow('no override')
@@ -308,29 +306,29 @@ describe('assertLocalTestTargets', () => {
     ).toThrow('no override')
   })
 
-  test('the Neon Auth endpoint is accepted only at the host the workflow emitted', () => {
-    const auth = 'https://ep-auth-1.neonauth.us-east-2.aws.neon.tech/neondb/auth'
+  test('the legacy Neon Auth URL is refused unless it is loopback', () => {
+    // The variable is still a deployment credential the product reads, so the
+    // guard refuses a hosted endpoint for it. Refusing is not a dependency: no
+    // CI lane supplies this variable any more.
+    const auth = 'https://legacy-auth.example.test/auth'
+    expect(() => assertLocalTestTargets({ NEON_AUTH_BASE_URL: auth })).toThrow('NEON_AUTH_BASE_URL')
     expect(() =>
       assertLocalTestTargets({
         GITHUB_ACTIONS: 'true',
-        ADEA_CI_AUTH_HOSTS: 'ep-auth-1.neonauth.us-east-2.aws.neon.tech',
+        ADEA_CI_AUTH_HOSTS: 'legacy-auth.example.test',
         NEON_AUTH_BASE_URL: auth,
       })
-    ).not.toThrow()
-    expect(() =>
-      assertLocalTestTargets({ GITHUB_ACTIONS: 'true', NEON_AUTH_BASE_URL: auth })
     ).toThrow('NEON_AUTH_BASE_URL')
     expect(() =>
       assertLocalTestTargets({
-        ADEA_CI_AUTH_HOSTS: 'ep-auth-1.neonauth.us-east-2.aws.neon.tech',
+        ADEA_CI_AUTH_HOSTS: 'legacy-auth.example.test',
         NEON_AUTH_BASE_URL: auth,
       })
     ).toThrow('NEON_AUTH_BASE_URL')
-    // The emitted host list is specific to the auth variable.
     expect(() =>
       assertLocalTestTargets({
         GITHUB_ACTIONS: 'true',
-        ADEA_CI_AUTH_HOSTS: 'ep-auth-1.neonauth.us-east-2.aws.neon.tech',
+        ADEA_CI_AUTH_HOSTS: 'legacy-auth.example.test',
         ADEA_ACCEPTANCE_URL: auth,
       })
     ).toThrow('ADEA_ACCEPTANCE_URL')
@@ -348,7 +346,7 @@ describe('assertLocalTestTargets', () => {
         ADEA_ALLOW_REMOTE_TEST_TARGET: `x.example, ${host.toUpperCase()}`,
       })
     ).not.toThrow()
-    for (const allow of ['', 'true', '1', 'neon.tech', '*', 'ep-prod-654321']) {
+    for (const allow of ['', 'true', '1', 'production.example.test', '*', 'ep-prod-654321']) {
       expect(() =>
         assertLocalTestTargets({ ...env, ADEA_ALLOW_REMOTE_TEST_TARGET: allow })
       ).toThrow()
@@ -359,93 +357,6 @@ describe('assertLocalTestTargets', () => {
         ADEA_ALLOW_REMOTE_TEST_TARGET: 'pr-12.preview.example.com',
       })
     ).not.toThrow()
-  })
-})
-
-// The CI hosts the guard trusts are written by the workflow, so run the
-// workflow's own scripts (no network, fake inputs) and feed what they emit to
-// the guard.
-describe('the Neon workflow binds the guard to the branch it created', () => {
-  const workflow = Bun.YAML.parse(
-    readFileSync(join(root, '.github/workflows/neon_workflow.yml'), 'utf8')
-  ) as {
-    jobs: Record<string, { steps: { name?: string; run?: string }[] }>
-  }
-  const script = (name: string) => {
-    const run = workflow.jobs.neon_proof!.steps.find((step) => step.name === name)?.run ?? ''
-    const body = /<<'NODE'\n([\s\S]*?)\n\s*NODE\s*$/.exec(run)?.[1]
-    if (!body) throw new Error(`no node script in step: ${name}`)
-    return body
-      .split('\n')
-      .map((line) => line.replace(/^ {10}/, ''))
-      .join('\n')
-  }
-
-  function runStep(name: string, env: Record<string, string>, githubEnv: string) {
-    // The auth step awaits a fetch; stand a stub in for it so nothing leaves the machine.
-    const code =
-      'globalThis.fetch = async () => ({ ok: true, json: async () => ({ keys: [] }) });\n' +
-      `(async () => {\n${script(name)}\n})().catch((e) => { console.error(e); process.exit(1) })`
-    const result = spawnSync('node', ['-e', code], {
-      env: { PATH: process.env.PATH ?? '', ...env, GITHUB_ENV: githubEnv },
-      encoding: 'utf8',
-    })
-    expect(result.status).toBe(0)
-  }
-
-  function emitted(): Record<string, string> {
-    const directory = mkdtempSync(join(tmpdir(), 'adea-github-env-'))
-    const githubEnv = join(directory, 'env')
-    try {
-      writeFileSync(githubEnv, '')
-      runStep(
-        'Build restricted database URLs',
-        {
-          DATABASE_HOST: ciHost,
-          DATABASE_HOST_POOLED: pooledHost,
-          DATABASE_APP_PASSWORD: 'app-secret',
-          DATABASE_MIGRATION_PASSWORD: 'migration-secret',
-        },
-        githubEnv
-      )
-      runStep(
-        'Verify isolated Neon Auth endpoint',
-        { NEON_AUTH_BASE_URL: 'https://ep-auth-1.neonauth.us-east-2.aws.neon.tech/neondb/auth' },
-        githubEnv
-      )
-      const entries: Record<string, string> = {}
-      for (const line of readFileSync(githubEnv, 'utf8').split('\n')) {
-        const at = line.indexOf('=')
-        if (at > 0) entries[line.slice(0, at)] = line.slice(at + 1)
-      }
-      return entries
-    } finally {
-      rmSync(directory, { recursive: true, force: true })
-    }
-  }
-
-  test('the emitted environment passes the guard, and only for those hosts', () => {
-    const env = { ...emitted(), GITHUB_ACTIONS: 'true' }
-    expect(env.ADEA_CI_BRANCH_HOSTS).toBe(`${ciHost},${pooledHost}`)
-    expect(env.ADEA_CI_AUTH_HOSTS).toBe('ep-auth-1.neonauth.us-east-2.aws.neon.tech')
-    for (const name of ['DATABASE_URL', 'DATABASE_URL_UNPOOLED', 'DATABASE_MIGRATION_URL']) {
-      expect(classifyDatabaseTarget(env[name]!, env)).toBe('ci-ephemeral')
-    }
-    expect(() =>
-      assertLocalTestTargets({
-        ...env,
-        NEON_AUTH_BASE_URL: 'https://ep-auth-1.neonauth.us-east-2.aws.neon.tech/neondb/auth',
-      })
-    ).not.toThrow()
-    expect(() => assertLocalTestTargets(env)).not.toThrow()
-
-    // The same roles at a production host, in the same Actions environment.
-    const hijacked = { ...env, DATABASE_URL: env.DATABASE_URL!.replace(pooledHost, productionHost) }
-    expect(hijacked.DATABASE_URL).toContain(productionHost)
-    expect(() => assertLocalTestTargets(hijacked)).toThrow(productionHost)
-    expect(() =>
-      assertLocalTestTargets({ ...env, NEON_AUTH_BASE_URL: 'https://adea.dev/auth' })
-    ).toThrow('production host adea.dev')
   })
 })
 
@@ -472,11 +383,7 @@ describe('lanes that load the guard', () => {
 
   test('Playwright binds the dev Worker and Node fixtures to the same validated database', () => {
     const binding = 'CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE'
-    const scenarios = [
-      { env: { DATABASE_URL: local.replace(':55432/', ':55852/') } },
-      { env: {} },
-      { env: { ...branchEnv, DATABASE_URL: ciUrl } },
-    ]
+    const scenarios = [{ env: { DATABASE_URL: local.replace(':55432/', ':55852/') } }, { env: {} }]
     for (const scenario of scenarios) {
       const code = `
         const { default: config } = await import(${JSON.stringify(join(root, 'playwright.config.ts'))});
@@ -497,7 +404,10 @@ describe('lanes that load the guard', () => {
       expect(targets.hyperdrive).toBe(targets.database)
       expect(targets.database).toBe(scenario.env.DATABASE_URL ?? local + '?sslmode=disable')
     }
-  })
+    // Each scenario starts a Node process that loads the Playwright config, so
+    // the case is slower than the default per-test ceiling on a loaded or
+    // slower machine. The ceiling is raised, not the assertion weakened.
+  }, 30_000)
 
   test('every probe that reads a database or acceptance target checks it first', async () => {
     const probes: [string, string, string][] = [

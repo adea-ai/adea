@@ -1,12 +1,13 @@
-# Applies Neon database migrations for the Cloudflare Worker deployment.
+# Applies production database migrations for the Cloudflare Worker deployment.
 #
 # Worker builds must not run migrations, so this workflow applies them from
 # CI instead, using the same idempotent verifier (bun run db:verify in
 # packages/db).
 #
 # Required repository secret:
-#   DATABASE_MIGRATION_URL - unpooled migration-role URL for the production
-#   Neon branch that backs the Worker (sslmode=require).
+#   DATABASE_MIGRATION_URL - migration-role URL for the production database
+#   that backs the Worker (sslmode=require). The value is the account's, not
+#   this repository's; which database it names is a live deployment decision.
 #
 # Deploy ordering caveat: the dashboard deploys the Worker on every push to
 # main in parallel with this workflow. Keep migrations backward-compatible

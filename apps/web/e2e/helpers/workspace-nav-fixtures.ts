@@ -64,8 +64,6 @@ const adeaProjects: NavProject[] = [
   ]),
 ]
 
-const summary = (running: number, needsYou: number, unread = 0) => ({ running, needsYou, unread })
-
 export const workspaceNavFixtures: NavWorkspace[] = [
   {
     id: 'adea-ws',
@@ -73,7 +71,6 @@ export const workspaceNavFixtures: NavWorkspace[] = [
     logo: { kind: 'monogram' },
     accent: 'violet',
     sortOrder: 0,
-    summary: summary(2, 1),
     projects: adeaProjects,
   },
   {
@@ -82,7 +79,6 @@ export const workspaceNavFixtures: NavWorkspace[] = [
     logo: { kind: 'emoji', value: '🎀' },
     accent: 'pink',
     sortOrder: 1,
-    summary: summary(2, 0, 3),
     projects: [
       project('pink-binder-web', 'pink-binder-web', 'local_repo', 0, [
         leaf('pink-binder-web', 'pbw-develop', 'checkout', 'develop', 'idle', 1),
@@ -100,7 +96,6 @@ export const workspaceNavFixtures: NavWorkspace[] = [
     logo: { kind: 'monogram' },
     accent: 'green',
     sortOrder: 2,
-    summary: summary(0, 2),
     projects: [
       project('nifty-contracts', 'nifty-contracts', 'local_repo', 0, [
         leaf(
@@ -123,7 +118,6 @@ export const workspaceNavFixtures: NavWorkspace[] = [
     logo: { kind: 'emoji', value: '🏡' },
     accent: null,
     sortOrder: 3,
-    summary: summary(0, 0),
     projects: [
       project('dotfiles', 'dotfiles', 'local_repo', 0, [
         leaf('dotfiles', 'dotfiles-main', 'checkout', 'main', 'idle', 1),
