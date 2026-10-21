@@ -13,9 +13,10 @@ this lane owns are in the same commit as this page.
 
 1. **Every remaining reference to the retired provider is classified.** Nothing in the repository is
    left unclassified, and each class has an owner and a next action.
-2. **The application's runtime, deployment configuration and local environment no longer reference
-   that provider.** The runtime has no provider-shaped branch left, and the deployment configuration
-   binds only the managed database and the self-hosted auth service.
+2. **This pull request removes the application's runtime, deployment configuration and local
+   environment references to that provider.** The runtime has no provider-shaped branch left, and the
+   deployment configuration binds only the managed database and the self-hosted auth service. These
+   removals land with this pull request's own merge; `main` still carries them until then (see §10).
 3. **The live production Worker still does.** That is a production fact, not a repository fact, and
    it is in [the production operations section](#9-production-operations-needing-root-approval) below
    with the exact steps. Root read the same three facts directly at about 08:00–08:02 UTC on
@@ -42,16 +43,16 @@ this lane owns are in the same commit as this page.
 
 ## 1. Active integrations removed by this lane
 
-| Area              | File                                                       | What was removed                                                                                                         | What replaces it                                                                                                                                                                                                                                                                              |
-| ----------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Runtime           | `packages/db/src/config.ts`                                | `isTransactionPooledHost` and the `-pooler.`/`.neon.tech` host heuristic that decided the statement mode.                | Every connection prepares statements. A host name is not a statement-capability contract.                                                                                                                                                                                                     |
-| Runtime           | `packages/db/src/connection.ts`                            | The connection-role branch behind `prepare`.                                                                             | `prepare` defaults to true; only a declared transaction-pooled origin may turn it off.                                                                                                                                                                                                        |
-| Scripts           | `scripts/database-config.mjs`                              | The pooled/unpooled endpoint rules and the "same environment" hostname normalisation.                                    | Runtime, migration and unpooled connections must reach one PostgreSQL instance, identified exactly by its host, its port and its database name. No host name is rewritten and no lookalike is forgiven.                                                                                       |
-| Generated config  | `apps/web/wrangler.jsonc`, `apps/web/cloudflare.config.ts` | The `DATABASE_URL`/`NEON_AUTH_BASE_URL`/`NEON_AUTH_COOKIE_SECRET` bindings and the store name that carried the provider. | `DATABASE_URL`, `AUTH_BASE_URL`, `AUTH_SECRET`, `AUTH_DATABASE_URL` bound to the Railway-managed records.                                                                                                                                                                                     |
-| Runtime           | `apps/web/src/server/event-cursor.ts`                      | The cursor's signing key read from `NEON_AUTH_COOKIE_SECRET`.                                                            | `AUTH_SECRET`, the one secret the deployment rotates.                                                                                                                                                                                                                                         |
-| Browser boundary  | `apps/web/start/client-policy.mjs`                         | Nothing is removed from the private-environment list.                                                                    | The legacy secret names stay denied while the auth lane's legacy reader, driver and client SDK dependency are still in the tree; `AUTH_SECRET`, `AUTH_DATABASE_URL` and `AUTH_BASE_URL` are added. `AUTH_BASE_URL` is server-only too, which the cutover checklist had flagged as unreviewed. |
-| App code          | `apps/web/src/**`, `apps/web/start/**`                     | The provider-named adapter calls and comments.                                                                           | The provider-neutral aliases `createAuthServerAdapter`, `handleAuthRequest` and `createAuthClientAdapter`, which `@adea-ai/auth` already exported.                                                                                                                                            |
-| Local environment | `apps/web/.env.example`, `apps/web/.dev.vars.example`      | The provider's local auth names and the instruction to read them from a provider CLI.                                    | The self-hosted auth service's own names.                                                                                                                                                                                                                                                     |
+| Area              | File                                                       | What was removed                                                                                                         | What replaces it                                                                                                                                                                                                                                                                                                    |
+| ----------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runtime           | `packages/db/src/config.ts`                                | `isTransactionPooledHost` and the `-pooler.`/`.neon.tech` host heuristic that decided the statement mode.                | Every connection prepares statements. A host name is not a statement-capability contract.                                                                                                                                                                                                                           |
+| Runtime           | `packages/db/src/connection.ts`                            | The connection-role branch behind `prepare`.                                                                             | `prepare` defaults to true; only a declared transaction-pooled origin may turn it off.                                                                                                                                                                                                                              |
+| Scripts           | `scripts/database-config.mjs`                              | The pooled/unpooled endpoint rules and the "same environment" hostname normalisation.                                    | Runtime, migration and unpooled connections must reach one PostgreSQL instance, identified exactly by its host, its port and its database name. No host name is rewritten and no lookalike is forgiven. This lands with this pull request's own merge; `main` still carries the normalisation until then (see §10). |
+| Generated config  | `apps/web/wrangler.jsonc`, `apps/web/cloudflare.config.ts` | The `DATABASE_URL`/`NEON_AUTH_BASE_URL`/`NEON_AUTH_COOKIE_SECRET` bindings and the store name that carried the provider. | `DATABASE_URL`, `AUTH_BASE_URL`, `AUTH_SECRET`, `AUTH_DATABASE_URL` bound to the Railway-managed records.                                                                                                                                                                                                           |
+| Runtime           | `apps/web/src/server/event-cursor.ts`                      | The cursor's signing key read from `NEON_AUTH_COOKIE_SECRET`.                                                            | `AUTH_SECRET`, the one secret the deployment rotates.                                                                                                                                                                                                                                                               |
+| Browser boundary  | `apps/web/start/client-policy.mjs`                         | Nothing is removed from the private-environment list.                                                                    | The legacy secret names stay denied while the auth lane's legacy reader, driver and client SDK dependency are still in the tree; `AUTH_SECRET`, `AUTH_DATABASE_URL` and `AUTH_BASE_URL` are added. `AUTH_BASE_URL` is server-only too, which the cutover checklist had flagged as unreviewed.                       |
+| App code          | `apps/web/src/**`, `apps/web/start/**`                     | The provider-named adapter calls and comments.                                                                           | The provider-neutral aliases `createAuthServerAdapter`, `handleAuthRequest` and `createAuthClientAdapter`, which `@adea-ai/auth` already exported.                                                                                                                                                                  |
+| Local environment | `apps/web/.env.example`, `apps/web/.dev.vars.example`      | The provider's local auth names and the instruction to read them from a provider CLI.                                    | The self-hosted auth service's own names.                                                                                                                                                                                                                                                                           |
 
 The provider's own client-bundle deny rules stay: `apps/web/start/client-policy.mjs` and
 `apps/web/test/start-client-denylist.json` still refuse `@neondatabase/auth` in the browser graph,
@@ -339,23 +340,37 @@ None of this is performed or authorized by this lane.
 | 7   | Verify the bindings resolved, then observe        | After the deploy, confirm the Worker resolves each of the four bindings — a failing resolution is silent by construction — and then record sign-in, refresh, logout and revocation outcomes, the verification deliveries, the Workers CPU-overrun counter, and the request and subrequest counts.                                                                                                                                                                       | Live observation.                                            |
 | 8   | Retire the legacy bindings                        | Delete `AGENT_HQ_NEON_PRODUCTION_DATABASE_URL`, `AGENT_HQ_NEON_PRODUCTION_AUTH_BASE_URL` and `AGENT_HQ_WORKER_AUTH_COOKIE_SECRET` from the store, once the observation window is clean.                                                                                                                                                                                                                                                                                 | A credential deletion.                                       |
 
-**Two prerequisites of the runtime Railway bindings are separate from this pull request, and
-neither is established by it.** The bindings this pull request deploys resolve lazily, per request,
+**Four prerequisites of the runtime Railway bindings are separate from this pull request, and none
+of them is established by it.** The bindings this pull request deploys resolve lazily, per request,
 and a record that does not resolve surfaces at request time rather than failing the deployment, so
-nothing in the repository validates them. Two things have to hold before those bindings are
-trusted, and this pull request establishes neither:
+nothing in the repository validates them. Four distinct things have to hold before a
+deployment-affecting merge of this pull request is trusted, and this pull request establishes none
+of them:
 
-1. **A prepared target that has been verified.** The Railway database and the auth database, the
-   four Secrets Store records and the target itself have to exist and be read back, answered on the
-   runtime and migration roles, and checked for the `app` and `auth` schemas and their tables.
-   That is steps 1 to 4 above, and this pull request performs none of it.
-2. **Cache-disabled routing for authentication, session and permission reads.** The live pooler has
+1. **A prepared Railway target that has been verified.** The Railway database and the auth
+   database, the four Secrets Store records and the target itself have to exist and be read back,
+   answered on the runtime and migration roles, and checked for the `app` and `auth` schemas and
+   their tables. That is steps 1 to 4 above, and this pull request performs none of it.
+2. **Strict TLS on the prepared target's URLs.** The Railway target is a hosted PostgreSQL
+   instance, and this pull request's own validator refuses a hosted URL that does not require TLS:
+   `scripts/database-config.mjs` accepts `sslmode=require`, `verify-ca` or `verify-full` for a
+   hosted target and refuses every other mode. The prepared target's runtime, migration and
+   unpooled URLs therefore have to carry a verifying TLS mode, and the health probe refuses the
+   target otherwise. This pull request supplies the rule; it prepares no target that meets it.
+3. **The production binding change.** The pooler move is a live Cloudflare setting on a production
+   binding: either `adea-db` is repointed to the Railway origin as one change with the deploy, or a
+   second pooler is prepared against the Railway origin and the new Worker version binds that. In
+   the second shape the new pooler's id is needed in `apps/web/wrangler.jsonc` and
+   `apps/web/cloudflare.config.ts` before this pull request can merge, which is why the id is not
+   changed here.
+4. **Cache-disabled routing for authentication, session and permission reads.** The live pooler has
    query caching enabled; the cache lives on the Cloudflare binding, outside this repository, and
    root owns it. It has to be disabled, or the pooler that serves those reads has to be one without
    it, before the cutover is accepted.
 
 **This pull request does not activate those bindings, does not deploy, does not provision, and does
-not mutate Railway or production, and it makes no claim that either prerequisite is satisfied.**
+not mutate Railway or production, and it makes no claim that any of those four prerequisites is
+satisfied.**
 
 **Not required, and deliberately not done:** deleting, dropping, truncating or altering any provider
 branch, database, role or table. The legacy environment is retained untouched as an accountability
@@ -372,10 +387,10 @@ the pull-request database lane runs before its migrations. Two pull requests tou
 the coordination has to be settled at integration rather than by either owner editing the other's
 paths.
 
-| Pull request     | Owner              | Change to `scripts/database-config.mjs`                                                                                                                                                                                                                                                                     |
-| ---------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| #1515 (this one) | H (this lane)      | Removes the provider-named endpoint rules and the host-name normalisation with them. Identifies the PostgreSQL instance by its host, its port and its database name, and requires the runtime, migration and unpooled connections to agree on all three. No name is rewritten and no lookalike is forgiven. |
-| #1516            | F (CI and release) | Removed the same provider-named endpoint rules, renamed the normalisation helper and **merged on 2026-10-20T18:04:26Z**; it replaced the hosted branch workflow with a provider-free disposable loopback proof.                                                                                             |
+| Pull request     | Owner              | Change to `scripts/database-config.mjs`                                                                                                                                                                                                                                                                                                                                                                                       |
+| ---------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| #1515 (this one) | H (this lane)      | Removes the provider-named endpoint rules and the host-name normalisation with them. Identifies the PostgreSQL instance by its host, its port and its database name, and requires the runtime, migration and unpooled connections to agree on all three. No name is rewritten and no lookalike is forgiven.                                                                                                                   |
+| #1516            | F (CI and release) | Removed the provider-named **CI** surface — the hosted branch workflow, its three tests and the CI-ephemeral host allow-list — and **merged on 2026-10-20T18:04:26Z**; it replaced the hosted branch workflow with a provider-free disposable loopback proof. It did **not** change this file: the exact rule here is this lane's, and #1516's own record states that its edit of `scripts/database-config.mjs` was reverted. |
 
 **The overlap and its resolution.** Two revisions of this lane's rule have been reviewed. The first
 compared the literal host, which broke the still-active hosted branch lane deterministically:
@@ -393,12 +408,18 @@ shape, so that lane's health probe failed while the workflow still existed. #151
 workflow and replaced it with the provider-free disposable loopback proof, which addresses one
 instance through one host and one port through all three variables and which the exact rule
 accepts. **#1516 was merged on 2026-10-20T18:04:26Z, before this pull request**, so the
-precondition no longer holds and the pull-request database lane is not waiting on it.
+precondition no longer holds and the pull-request database lane is not waiting on it. What is
+discharged there is the **CI dependency**; this pull request's own exact host, port and database
+name validator is still pending its own merge.
 
-The two versions of `scripts/database-config.mjs` have therefore already been reconciled on
-`main`: the provider-named rules are removed in both, and the host-name rewrite this lane removed is
-not present, because a host-name rewrite is the defect being fixed. What #1516 brought to `main` is
-its CI replacement, the provider-free disposable loopback proof.
+**The two versions of `scripts/database-config.mjs` are not reconciled on `main`.** At current `main`
+= `227bfe48fc5efae212a4f69f0261bd54f478e62d`, that file still carries `normalizedNeonHost` (`:59`),
+`hostname.replace('-pooler.', '.')` (`:60`), the comparison that uses that rewrite (`:92`) and the
+provider-specific `.neon.tech` endpoint conditions (`:97-103`). **This pull request's exact host,
+port and database name validator is pending its own merge** — #1515 is not on `main`, and the
+host-name rewrite it removes is still there. What #1516 brought to `main` is its CI replacement, the
+provider-free disposable loopback proof. **The repository-wide removal of the provider-named host
+handling is therefore not complete; it completes when this pull request merges.**
 
 **The health gate is not weakened.** The comparison is strictly stronger than the one it replaces:
 the original code never compared the runtime and migration hosts at all, and this lane's rule
@@ -440,7 +461,7 @@ middle of a label, the marker twice, and the marker on an unrelated name.
 
 ### Withdrawn claims
 
-Three statements in earlier revisions of this page were wrong, and they are withdrawn rather than
+Four statements in earlier revisions of this page were wrong, and they are withdrawn rather than
 quietly edited:
 
 - _"If step 2 has not happened, the deploy fails closed and the previous Worker keeps serving."_
@@ -456,3 +477,12 @@ quietly edited:
   are one server: it accepts any lookalike, and it accepted `evil-pooler.example.test` with
   `evil.example.test`. The rule now identifies the instance by its host, its port and its database
   name, and forgives nothing.
+- _"The two versions of `scripts/database-config.mjs` have already been reconciled on `main`, and
+  the host-name rewrite this lane removed is not present there."_ False as a statement about `main`.
+  #1516, merged 2026-10-20T18:04:26Z, removed the provider-named **CI** surface — the hosted
+  branch workflow, its three tests and the CI-ephemeral host allow-list — and did not change
+  `scripts/database-config.mjs` at all. At `main` = `227bfe48fc5efae212a4f69f0261bd54f478e62d` that
+  file still carries `normalizedNeonHost` (`:59`), `hostname.replace('-pooler.', '.')` (`:60`) and
+  the provider-specific `.neon.tech` endpoint conditions (`:97-103`). This pull request's exact
+  validator is pending its own merge, and the repository-wide removal of the provider-named host
+  handling is not complete until it merges.
