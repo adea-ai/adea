@@ -232,13 +232,22 @@ run is evidence of a resource that still exists, and the lane reports it and
 leaves it alone. The pruning touches the lane's own records and never a Docker
 resource.
 
-The pruning never deletes a record it cannot still prove is the one it read.
-The record is moved aside before it is removed and the moved file is compared
-with the one that was read: a run that is restarting with the same identity
-writes its own record over the settled one, and if that happened in between,
-the record that is moved aside is the new one, and it is put back rather than
-deleted. A record that cannot be established is preserved, because a bound on
-the evidence is better than losing the evidence.
+The pruning never deletes a record it cannot still prove is the one it
+selected. Every writer of a record takes that record's lock, and so does the
+pruner, so a record is never written or settled while it is pruned, and the
+pruner is never reading a record that is being changed. A record whose lock
+cannot be taken is preserved, because ownership that cannot be established is
+not ownership.
+
+Under the lock the record is read again and checked against the snapshot it
+was selected from: it must still be a lease record, still be settled, still
+belong to the same owner, and still carry the same time. A run that is
+restarting with the same identity replaces the record with one of its own, and
+that record is active and is not the record the snapshot described, so it is
+preserved rather than pruned. A record that was settled in the meantime is
+preserved for the same reason, and its receipt stays with it. A record that
+cannot be established is preserved, because a bound on the evidence is better
+than losing the evidence.
 
 A record that parses into something this model does not understand — nothing,
 false, zero, an array, an object without its shape — is not a lease, and it is

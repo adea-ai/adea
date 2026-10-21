@@ -1992,3 +1992,77 @@ describe('a record that is not a lease', () => {
     expect(listLeases(directory)).toEqual([])
   })
 })
+
+/** Writes a settled lease record with a chosen time, the way a finished run leaves it. */
+function settledLeaseRecord(directory: string, runId: string, updatedAt: number) {
+  const identity = disposableIdentity(runId, '20001')
+  const claim = claimResource({
+    directory,
+    runId,
+    mode: RESOURCE_MODE.disposable,
+    identity,
+    owner: { ...owner, pid: 4242 },
+    isProcessAlive: () => false,
+  })
+  const receipt = cleanupReceipt({
+    lease: claim.lease,
+    decision: CLEANUP_DECISION.remove,
+    reason: 'disposable-instance-owned-by-this-run',
+    resources: [],
+    child: { status: 0, signal: null },
+  })
+  releaseLease({ directory, runId, receipt })
+  const record = readLease(directory, runId)!
+  record.updatedAt = updatedAt
+  writeFileSync(join(directory, `${runId}.json`), JSON.stringify(record))
+  return { claim, receipt, record }
+}
+
+describe('the pruner and the writers of a record', () => {
+  test('a record settled between the snapshot and the read is preserved with its receipt', () => {
+    const directory = leaseDirectoryForTest()
+    const { receipt } = settledLeaseRecord(directory, 'run-settle', 1_000)
+    // The same run settles the record again while the pruner is between its
+    // snapshot and its read, so the record now carries a receipt and a fresh
+    // time.
+    const pruned = pruneSettledLeases({
+      directory,
+      now: () => 10_000_000_000,
+      retentionMs: 1_000,
+      isProcessAlive: () => false,
+      afterLeaseRead: () => {
+        const released = releaseLease({
+          directory,
+          runId: 'run-settle',
+          receipt,
+        })
+        expect(released).not.toBeNull()
+      },
+    })
+    // The pruner deleted nothing, and the receipt is still on the record.
+    expect(pruned).toEqual([])
+    const record = readLease(directory, 'run-settle')
+    expect(record?.state).toBe('released')
+    expect(record?.cleanup?.decision).toBe(CLEANUP_DECISION.remove)
+  })
+
+  test('a record whose lock the pruner cannot take is preserved', () => {
+    const directory = leaseDirectoryForTest()
+    settledLeaseRecord(directory, 'run-locked', 1_000)
+    // Another holder has the record's lock, so the pruner cannot establish
+    // that it owns the record alone.
+    mkdirSync(join(directory, 'locks'), { recursive: true })
+    writeFileSync(
+      join(directory, 'locks', 'run-locked.lock'),
+      `${JSON.stringify({ version: 1, runId: 'run-locked', token: 'another-holder', pid: 4242, at: 0 })}\n`
+    )
+    const pruned = pruneSettledLeases({
+      directory,
+      now: () => 10_000_000_000,
+      retentionMs: 1_000,
+      isProcessAlive: () => false,
+    })
+    expect(pruned).toEqual([])
+    expect(readLease(directory, 'run-locked')).not.toBeNull()
+  })
+})

@@ -315,19 +315,130 @@ export function leasePath(directory, runId) {
 }
 
 /**
- * Writes a lease.
+ * The directory the lease locks live in.
+ */
+function leaseLocksDirectory(directory) {
+  return join(directory, 'locks')
+}
+
+/**
+ * The file that holds the lock on one lease record.
+ */
+function leaseLockPath(directory, runId) {
+  const name = String(runId).replace(/[^A-Za-z0-9._-]+/g, '-')
+  if (name === '' || name === '.' || name === '..') {
+    throw new Error('the run id is not a safe lock name')
+  }
+  return join(leaseLocksDirectory(directory), `${name}.lock`)
+}
+
+/**
+ * Waits without yielding the event loop.
+ *
+ * The lock is held for a moment and the wait is a few milliseconds, so a
+ * writer that meets the pruner waits rather than failing.
+ */
+function sleepSync(milliseconds) {
+  if (!Number.isFinite(milliseconds) || milliseconds <= 0) return
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
+}
+
+/**
+ * Takes the lock that serialises the writers and the pruner of one record.
+ *
+ * The lease's writers and the pruner take the same lock, so a record is never
+ * written while it is being pruned, and a record is never pruned while it is
+ * being written. A lock that cannot be taken is not taken: the caller either
+ * waits for it or preserves the record.
+ */
+function acquireLeaseLock(directory, runId, { attempts = 1, sleepMs = 0 } = {}) {
+  try {
+    mkdirSync(leaseLocksDirectory(directory), { recursive: true })
+  } catch {
+    return { acquired: false, reason: CLEANUP_REFUSAL.uncertain }
+  }
+  const path = leaseLockPath(directory, runId)
+  const token = uniqueToken()
+  for (let attempt = 0; attempt < Math.max(1, attempts); attempt++) {
+    const temporary = `${path}.${token}.tmp`
+    try {
+      writeFileSync(
+        temporary,
+        `${JSON.stringify({ version: LEASE_VERSION, runId, token, pid: process.pid, at: Date.now() })}\n`,
+        { flag: 'wx' }
+      )
+      linkSync(temporary, path)
+      try {
+        rmSync(temporary, { force: true })
+      } catch {
+        // The lock is durable through the link.
+      }
+      return { acquired: true, token }
+    } catch (error) {
+      try {
+        rmSync(temporary, { force: true })
+      } catch {
+        // The temporary record is not the lock.
+      }
+      if (error?.code !== 'EEXIST') {
+        return { acquired: false, reason: CLEANUP_REFUSAL.uncertain }
+      }
+      if (attempt + 1 < attempts) sleepSync(sleepMs)
+    }
+  }
+  return { acquired: false, reason: CLEANUP_REFUSAL.active }
+}
+
+/**
+ * Releases the lock on one lease record.
+ *
+ * The lock's token is what says the lock is this call's, so a lock that
+ * belongs to another holder is left alone.
+ */
+function releaseLeaseLock(directory, runId, token) {
+  try {
+    const held = JSON.parse(readFileSync(leaseLockPath(directory, runId), 'utf8'))
+    if (held.token !== token) return { released: false }
+    rmSync(leaseLockPath(directory, runId), { force: true })
+    return { released: true }
+  } catch {
+    return { released: false }
+  }
+}
+
+/**
+ * Writes a lease without holding its lock.
  *
  * The write is atomic: the record is written beside its target and renamed
  * over it, so a reader never sees half a lease and an interrupted write never
  * destroys the previous record.
  */
-export function writeLease(directory, lease) {
+function writeLeaseUnlocked(directory, lease) {
   mkdirSync(directory, { recursive: true })
   const target = leasePath(directory, lease.runId)
   const temporary = `${target}.${process.pid}.tmp`
   writeFileSync(temporary, `${JSON.stringify(lease, null, 2)}\n`)
   renameSync(temporary, target)
   return lease
+}
+
+/**
+ * Writes a lease under the record's lock.
+ *
+ * Every writer of a record takes the same lock the pruner takes, so a record
+ * is never written while it is pruned. A lock that cannot be taken within the
+ * wait is a failure, and the caller reports it rather than writing anyway.
+ */
+export function writeLease(directory, lease) {
+  const lock = acquireLeaseLock(directory, lease.runId, { attempts: 60, sleepMs: 5 })
+  if (!lock.acquired) {
+    throw new Error(`the lease for ${lease.runId} could not be written: ${lock.reason}`)
+  }
+  try {
+    return writeLeaseUnlocked(directory, lease)
+  } finally {
+    releaseLeaseLock(directory, lease.runId, lock.token)
+  }
 }
 
 /**
@@ -1201,7 +1312,17 @@ export function releaseLease({ directory, runId, receipt }) {
     updatedAt: Date.now(),
     cleanup: receipt,
   }
-  writeLease(directory, settled)
+  // The receipt is settled under the record's lock, so the pruner cannot
+  // remove the record between the read and the write.
+  const lock = acquireLeaseLock(directory, runId, { attempts: 60, sleepMs: 5 })
+  if (!lock.acquired) return null
+  try {
+    writeLeaseUnlocked(directory, settled)
+  } catch {
+    return null
+  } finally {
+    releaseLeaseLock(directory, runId, lock.token)
+  }
   return settled
 }
 
@@ -1357,9 +1478,9 @@ export function pruneSettledLeases({
   now = Date.now,
   retentionMs = DEFAULT_LEASE_RETENTION_MS,
   isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
-  // A seam for the interleaving regression: it runs after a settled record has
-  // been read and before it is moved aside, so a test can let a restarting run
-  // write its own record over it in between.
+  // A seam for the interleaving regression: it runs after a record has been
+  // selected from the snapshot and before the pruner takes that record's
+  // lock, so a test can let a writer change the record in between.
   afterLeaseRead = null,
 } = {}) {
   // The clock is a function, and it is called. A clock that is not callable, or
@@ -1372,56 +1493,48 @@ export function pruneSettledLeases({
   }
   const pruned = []
   for (const lease of listLeases(directory)) {
+    // The eligibility comes from the snapshot: a settled record, older than
+    // the bound.
     if (classifyLease(lease, { isProcessAlive }) !== LEASE_STATE.settled) continue
     const settledAt = lease.updatedAt ?? lease.createdAt ?? 0
     if (!Number.isFinite(settledAt) || clock - settledAt < retentionMs) continue
-    const path = leasePath(directory, lease.runId)
-    // The record is moved aside before it is removed, and the moved file is
-    // compared with the one that was read. A run that is restarting with the
-    // same identity writes its own record over this one; if that happened
-    // between the read and the move, what is moved aside is the new record,
-    // and it is put back rather than deleted. A record that cannot be
-    // established is preserved, because a bound on the evidence is better than
-    // losing the evidence.
-    let raw = null
-    try {
-      raw = readFileSync(path, 'utf8')
-    } catch {
-      continue
-    }
     if (typeof afterLeaseRead === 'function') {
-      afterLeaseRead({ runId: lease.runId, raw })
+      afterLeaseRead({ runId: lease.runId, lease })
     }
-    const aside = `${path}.pruned-${uniqueToken()}`
-    try {
-      renameSync(path, aside)
-    } catch {
+    // The record's lock is the same lock its writers take, so the record is
+    // neither written nor settled while it is pruned, and the pruner is never
+    // reading a record that is being changed.
+    const lock = acquireLeaseLock(directory, lease.runId)
+    if (!lock.acquired) {
+      // The record cannot be established as this run's alone, so it is kept.
       continue
     }
-    let moved = null
     try {
-      moved = readFileSync(aside, 'utf8')
-    } catch {
-      moved = null
-    }
-    if (moved !== raw) {
-      // The record was replaced under the pruner. It is put back with a link,
-      // which refuses to replace a record that is already there, and nothing
-      // is deleted.
+      // The record is read again under the lock and checked against the
+      // snapshot it was selected from. A run that is restarting with the same
+      // identity replaces the record with one of its own: that record is
+      // active, and it is not the record the snapshot described, so it is
+      // preserved rather than pruned. A record that was settled in the
+      // meantime is preserved for the same reason.
+      let current = null
       try {
-        linkSync(aside, path)
-        rmSync(aside, { force: true })
+        current = JSON.parse(readFileSync(leasePath(directory, lease.runId), 'utf8'))
       } catch {
-        // The record stays where it is, and the evidence of it is kept.
+        continue
       }
-      continue
-    }
-    try {
-      rmSync(aside, { force: true })
-      pruned.push(lease.runId)
-    } catch {
-      // A record that cannot be pruned is kept: a bound on the evidence is
-      // better than losing the evidence.
+      if (!isLeaseRecord(current)) continue
+      if (classifyLease(current, { isProcessAlive }) !== LEASE_STATE.settled) continue
+      if (current.owner?.pid !== lease.owner?.pid) continue
+      if ((current.updatedAt ?? null) !== (lease.updatedAt ?? null)) continue
+      try {
+        rmSync(leasePath(directory, lease.runId), { force: true })
+        pruned.push(lease.runId)
+      } catch {
+        // A record that cannot be pruned is kept: a bound on the evidence is
+        // better than losing the evidence.
+      }
+    } finally {
+      releaseLeaseLock(directory, lease.runId, lock.token)
     }
   }
   return pruned
