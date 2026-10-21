@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { createLeadTurnSdkAdapter } from '../src/server/lead-turn-sdk-adapter'
+import { installedLeadSdkPort, LEAD_SDK_METHODS } from '../src/server/lead-turn-sdk-port'
 
 const actor = 'b7b5038e-77a8-4fbb-82e1-6ea172f376b8'
 const authority = {
@@ -249,4 +250,37 @@ test('lookup uses actual strict response decoder and opaque intent only; absent 
   expect(calls).toHaveLength(1)
   data.workspaceId = `wsp_${'1'.repeat(26)}`
   await expect(adapter.lookup!(authority)).rejects.toThrow('RUNTIME_RESPONSE_INVALID')
+})
+
+// The released SDK decides which operations exist. The port reads the installed SDK's own
+// exports, so a capability the released SDK does not ship stays disabled instead of being
+// emulated, and a later SDK that ships it flips the flag on its own.
+test('the port capabilities follow the installed SDK surface exactly', async () => {
+  const { ControlApiOperations, ControlPlaneClient } = await import('@adea-ai/sdk')
+  const shipped = (method: string): boolean =>
+    Boolean(Reflect.get(ControlApiOperations, method)) &&
+    typeof Reflect.get(ControlPlaneClient.prototype, method) === 'function'
+
+  expect(installedLeadSdkPort.childrenSupported).toBe(shipped('getPiDurableLeadChildren'))
+  expect(installedLeadSdkPort.childPublicationSupported).toBe(
+    shipped('getPiDurableChildPublication')
+  )
+  // The lead path stays usable while an optional child capability is missing.
+  expect(installedLeadSdkPort.supported).toBe(true)
+  expect(LEAD_SDK_METHODS).toContain('getPiDurableChildPublication')
+})
+
+// The released SDK does not ship a child-publication read yet. The capability must stay off and
+// the composition must not present a child-publication operation for it, so no native or
+// provider acceptance is claimed for a method that does not exist.
+test('an unshipped child-publication capability stays disabled', async () => {
+  const { ControlApiOperations, ControlPlaneClient } = await import('@adea-ai/sdk')
+  const shipped =
+    Boolean(Reflect.get(ControlApiOperations, 'getPiDurableChildPublication')) &&
+    typeof Reflect.get(ControlPlaneClient.prototype, 'getPiDurableChildPublication') === 'function'
+  if (shipped) {
+    expect(installedLeadSdkPort.childPublicationSupported).toBe(true)
+    return
+  }
+  expect(installedLeadSdkPort.childPublicationSupported).toBe(false)
 })
