@@ -203,14 +203,141 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # The built-Worker desktop authorization qualification: the routes the web
+  # build really serves, proved against a disposable PostgreSQL 18 the run
+  # owns. The qualification is the acceptance lane's own; this job is the CI
+  # wiring for it, and it changes nothing in the qualification.
+  built_worker_desktop_auth_proof:
+    name: Built Worker desktop auth proof
+    # A draft pull request allocates no runner and a ready one does: the same
+    # filter the disposable proof job uses.
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    # The qualification builds the web application itself, and its own build
+    # budget is thirty minutes, so the job needs more room than that.
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      # The exact head the job checks out. The receipt has to name it, and the
+      # built Worker has to be proved to belong to it.
+      EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The exact head, not the synthetic merge commit: the receipt names
+          # the commit a recovery procedure may name, and a merge commit is not
+          # a commit anyone can fetch.
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.3
+
+      - name: Install the repository Node runtime
+        # The workspace build the qualification needs is orchestrated with Node,
+        # on the runtime the repository pins.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.21.0
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install the PostgreSQL 18 client tools
+        # The same steps the disposable proof job uses: the self-hosted auth
+        # lifecycle the qualification runs takes a backup and a restore, and it
+        # needs the matching pg_dump and pg_restore.
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl --fail --silent --show-error --location \
+            --output /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-18
+          echo "/usr/lib/postgresql/18/bin" >> "$GITHUB_PATH"
+
+      - name: Check the PostgreSQL 18 client tools
+        run: |
+          /usr/lib/postgresql/18/bin/pg_dump --version
+          /usr/lib/postgresql/18/bin/pg_restore --version
+
+      - name: Build the workspace packages the web build imports
+        # The qualification builds the web application itself, so the workspace
+        # packages it imports are what has to be built first. This is the
+        # repository's own script for exactly that set, and the other lanes
+        # build the same way.
+        run: bun run build:web-deps
+
+      - name: Record the containers the runner has
+        # Every container the runner holds, in every state, by its immutable
+        # identifier. A container that was stopped and left behind is still a
+        # resource the runner holds, so it is recorded too.
+        run: |
+          docker ps -a --no-trunc --format '{{.ID}}' \
+            | sort > "$RUNNER_TEMP/containers-before.txt"
+
+      - name: Run the built-Worker desktop auth qualification
+        # The qualification prints its receipt on stdout and the exit status is
+        # the verdict. The output goes outside the checkout, so the tree the
+        # receipt names is still the clean tree the run happened in, and the
+        # failure reason stays in the log.
+        run: |
+          bun scripts/built-worker-desktop-auth-cli.ts \
+            > "$RUNNER_TEMP/built-worker-desktop-auth.out"
+
+      - name: Require no newly observed container to remain
+        # The difference between the two snapshots is what appeared while the
+        # run executed. It is not proof of ownership, so nothing is ever removed
+        # because of it, and the check has no removal step.
+        if: always()
+        run: |
+          before="$RUNNER_TEMP/containers-before.txt"
+          if [ ! -f "$before" ]; then
+            : > "$before"
+          fi
+          docker ps -a --no-trunc --format '{{.ID}}' \
+            | sort > "$RUNNER_TEMP/containers-after.txt"
+          newly="$(comm -13 "$before" "$RUNNER_TEMP/containers-after.txt")"
+          if [ -n "$newly" ]; then
+            echo "::error::newly observed container resources: $newly" >&2
+            exit 1
+          fi
+
+      - name: Gate and publish the acceptance receipt
+        # Fail-closed: the receipt is published only when it proves the exact
+        # head, when every assertion it made passed, and when the teardown
+        # removed what the run owned. A receipt that is refused writes no
+        # artifact and fails the job.
+        run: |
+          node scripts/ci-built-worker-desktop-auth.mjs \
+            "$RUNNER_TEMP/built-worker-desktop-auth.out" \
+            "$EXPECTED_HEAD" \
+            "$RUNNER_TEMP/built-worker-desktop-auth-receipt.json"
+          cat "$RUNNER_TEMP/built-worker-desktop-auth-receipt.json"
+
+      - name: Publish the acceptance receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: built-worker-desktop-auth-receipt
+          path: ${{ runner.temp }}/built-worker-desktop-auth-receipt.json
+          if-no-files-found: error
+          retention-days: 14
+
   disposable_postgres_gate:
     # The same fail-closed shape as before: it passes only when the disposable
     # proof succeeds, and a failed, cancelled, skipped or missing result fails
-    # it. The fresh-account acceptance proof is part of the same aggregate, so
-    # a run that failed or left its instance behind fails this gate too. Draft
-    # pull requests skip it.
+    # it. The fresh-account acceptance proof and the built-Worker desktop auth
+    # proof are part of the same aggregate, so a run that failed or left its
+    # instance behind fails this gate too. Draft pull requests skip it.
     name: Prove Disposable PostgreSQL
-    needs: [disposable_postgres_proof, fresh_account_acceptance_proof]
+    needs:
+      [disposable_postgres_proof, fresh_account_acceptance_proof, built_worker_desktop_auth_proof]
     if: >-
       always() && github.event.pull_request.draft == false &&
       (github.event.action == 'synchronize' || github.event.action == 'ready_for_review')
@@ -221,8 +348,11 @@ jobs:
         env:
           PROOF_RESULT: ${{ needs.disposable_postgres_proof.result }}
           ACCEPTANCE_RESULT: ${{ needs.fresh_account_acceptance_proof.result }}
+          WORKER_RESULT: ${{ needs.built_worker_desktop_auth_proof.result }}
         run: |
           echo "proof=$PROOF_RESULT"
           echo "acceptance=$ACCEPTANCE_RESULT"
+          echo "worker=$WORKER_RESULT"
           test "$PROOF_RESULT" = success
           test "$ACCEPTANCE_RESULT" = success
+          test "$WORKER_RESULT" = success

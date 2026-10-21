@@ -413,17 +413,19 @@ describe('test suite boundaries', () => {
     // acceptance job is a second disposable loopback proof: it provisions its
     // own instance and reaches no hosted database.
     expect(Object.keys(databaseWorkflow.jobs).toSorted()).toEqual([
+      'built_worker_desktop_auth_proof',
       'disposable_postgres_gate',
       'disposable_postgres_proof',
       'fresh_account_acceptance_proof',
     ])
     expect(databaseWorkflow.jobs.disposable_postgres_gate!.name).toBe('Prove Disposable PostgreSQL')
-    // The aggregate covers both disposable proofs: the boundary proof and the
-    // fresh-account acceptance proof, which also proves a disposable loopback
-    // instance and nothing else.
+    // The aggregate covers every disposable proof: the boundary proof, the
+    // fresh-account acceptance proof and the built-Worker desktop auth proof,
+    // which also prove a disposable loopback instance and nothing else.
     expect(databaseWorkflow.jobs.disposable_postgres_gate!.needs).toEqual([
       'disposable_postgres_proof',
       'fresh_account_acceptance_proof',
+      'built_worker_desktop_auth_proof',
     ])
   })
 
