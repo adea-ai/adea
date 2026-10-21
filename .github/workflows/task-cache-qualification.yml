@@ -12,6 +12,7 @@ on:
       - 'bun.lock'
       - 'vite.config.ts'
       - 'scripts/orch-*'
+      - 'scripts/vite-plus-proof*'
       - '.github/workflows/task-cache-qualification.yml'
   pull_request:
     types: [ready_for_review, synchronize]
@@ -20,6 +21,7 @@ on:
       - 'bun.lock'
       - 'vite.config.ts'
       - 'scripts/orch-*'
+      - 'scripts/vite-plus-proof*'
       - '.github/workflows/task-cache-qualification.yml'
   workflow_dispatch:
 
@@ -64,16 +66,31 @@ jobs:
           proof=node_modules/.vite/task-cache/qualification-head
           head="$(git rev-parse HEAD)"
           previous="$(cat "$proof" 2>/dev/null || true)"
+          # The cacheable task count comes from the build graph itself. A literal
+          # would keep asserting a number the graph no longer has.
+          expected="$(node scripts/vite-plus-proof.mjs --print-expectation)"
+          echo "expected cache summary: $expected"
           for pass in first second; do
             start=$SECONDS
             bun run build > "$RUNNER_TEMP/build-$pass.log" 2>&1
             cat "$RUNNER_TEMP/build-$pass.log"
+            node scripts/vite-plus-proof.mjs --print-manifest > "$RUNNER_TEMP/manifest-$pass.txt"
             echo "$pass elapsed: $((SECONDS-start))s" >> "$GITHUB_STEP_SUMMARY"
           done
-          grep -Fq '15/15 cache hit' "$RUNNER_TEMP/build-second.log"
+          # The restored outputs are byte-identical to the ones the first pass built.
+          cmp "$RUNNER_TEMP/manifest-first.txt" "$RUNNER_TEMP/manifest-second.txt"
+          echo 'The restored build outputs are byte-identical to the rebuilt ones.' >> "$GITHUB_STEP_SUMMARY"
+          # The second pass runs on the cache the first pass left, so every cacheable task hits.
+          node scripts/vite-plus-proof.mjs --check-pass warm --log "$RUNNER_TEMP/build-second.log"
           if test "$previous" = "$head"; then
-            grep -Fq '15/15 cache hit' "$RUNNER_TEMP/build-first.log"
+            # A complete restore for the same head: the first pass hits every task too.
+            node scripts/vite-plus-proof.mjs --check-pass warm --log "$RUNNER_TEMP/build-first.log"
             echo 'Fresh runner restored all production tasks for the same head.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            # An incomplete or stale restore: the first pass rebuilt what the restore
+            # did not cover, and the outputs are still the same bytes.
+            node scripts/vite-plus-proof.mjs --check-pass observed --log "$RUNNER_TEMP/build-first.log"
+            echo 'The restore did not cover this head; the first pass rebuilt from source.' >> "$GITHUB_STEP_SUMMARY"
           fi
           echo "Restored entry: ${RESTORED_KEY:-none}" >> "$GITHUB_STEP_SUMMARY"
           printf '%s\n' "$head" > "$proof"

@@ -15,7 +15,8 @@ import { appendFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { discoverWorkspaces } from './orch-graph.mjs'
+import { buildTasks, discoverWorkspaces } from './orch-graph.mjs'
+import { expectedId } from './orch-toolchain.mjs'
 
 const callerRoot = resolve(fileURLToPath(import.meta.url), '../..')
 export const TASK = 'orch:build'
@@ -32,10 +33,45 @@ export function parseVpOutput(output) {
   return { hits: Number(summary[1]), total: Number(summary[2]), missed, toolchain }
 }
 
-/** Whether a run matches the expected cache pattern. `cold` allows no hit; `warm` needs every cacheable task to hit. */
-export function matchesPattern(result, pattern) {
-  if (pattern === 'cold') return result.hits === 0 && result.total > 0
-  if (pattern === 'warm') return result.hits === result.total && result.total > 0
+/**
+ * The cacheable tasks of the build graph, derived from the graph itself.
+ *
+ * The count is a property of the workspaces and their scripts, not a constant: a
+ * workspace that gains or loses a build script changes it, and so does a rule
+ * that stops caching a build. Deriving the expectation keeps the qualification
+ * honest — a literal would keep asserting a number the graph no longer has.
+ */
+export function graphExpectation(root, toolchainId, env = process.env) {
+  const tasks = buildTasks(root, toolchainId, env)
+  const group = tasks[TASK]
+  if (!group) throw new Error(`the build graph has no ${TASK} task`)
+  const names = (group.dependsOn ?? []).filter((name) => tasks[name]?.cache !== false)
+  return {
+    cacheableTasks: names.length,
+    totalTasks: (group.dependsOn ?? []).length,
+    taskNames: names,
+  }
+}
+
+/** The cache summary a fully restored run prints, derived from the graph. */
+export function expectedSummary(expectation) {
+  return `${expectation.cacheableTasks}/${expectation.cacheableTasks} cache hit`
+}
+
+/**
+ * Whether a run matches the expected cache pattern.
+ *
+ * `cold` allows no hit, `warm` needs every cacheable task to hit, and
+ * `partial` is a restore that covered only some of them. When an expectation is
+ * given, the run's own total must also be the graph's count: a run that reports
+ * a different graph is not the graph under qualification.
+ */
+export function matchesPattern(result, pattern, expectation) {
+  const total = expectation?.cacheableTasks ?? result.total
+  if (pattern === 'cold') return result.hits === 0 && result.total === total && result.total > 0
+  if (pattern === 'warm') return result.hits === total && result.total === total && result.total > 0
+  if (pattern === 'partial')
+    return result.hits > 0 && result.hits < result.total && result.total === total
   throw new Error(`unknown pattern ${pattern}`)
 }
 
@@ -71,7 +107,16 @@ function check(label, condition, detail) {
 }
 
 const SHA256 = /^[0-9a-f]{64}$/
-const FLAGS = new Set(['--expect', '--expect-manifest', '--fresh'])
+const FLAGS = new Set([
+  '--expect',
+  '--expect-manifest',
+  '--fresh',
+  '--print-expectation',
+  '--print-manifest',
+  '--check-pass',
+  '--log',
+])
+const PASS_PATTERNS = new Set(['cold', 'warm', 'partial', 'observed'])
 
 function value(args, flag) {
   const index = args.indexOf(flag)
@@ -91,17 +136,65 @@ export function parseArgs(args) {
   if (unknown.length) throw new Error(`unknown option ${unknown.join(', ')}`)
   const wanted = value(args, '--expect')
   const manifest = value(args, '--expect-manifest')
+  const pass = value(args, '--check-pass')
+  const log = value(args, '--log')
   if (wanted !== null && wanted !== 'cold' && wanted !== 'warm')
     throw new Error(`--expect must be cold or warm, not ${wanted}`)
   if (manifest !== null && !SHA256.test(manifest))
     throw new Error('--expect-manifest must be a lowercase 64-character sha256')
   if (wanted === 'warm' && manifest === null)
     throw new Error('--expect warm requires --expect-manifest <the cold run sha256>')
-  return { wanted, manifest, fresh: args.includes('--fresh') }
+  if (pass !== null && !PASS_PATTERNS.has(pass))
+    throw new Error(`--check-pass must be one of ${[...PASS_PATTERNS].join(', ')}, not ${pass}`)
+  if (pass !== null && log === null) throw new Error('--check-pass requires --log <the build log>')
+  if (log !== null && pass === null) throw new Error('--log requires --check-pass')
+  const printExpectation = args.includes('--print-expectation')
+  const printManifest = args.includes('--print-manifest')
+  const exclusive = [wanted !== null, pass !== null, printExpectation, printManifest].filter(
+    Boolean
+  ).length
+  if (exclusive > 1) throw new Error('only one expectation may be asked for at a time')
+  return {
+    wanted,
+    manifest,
+    fresh: args.includes('--fresh'),
+    pass,
+    log,
+    printExpectation,
+    printManifest,
+  }
 }
 
 function once(args) {
-  const { wanted, manifest, fresh } = parseArgs(args)
+  const { wanted, manifest, fresh, pass, log, printExpectation, printManifest } = parseArgs(args)
+  if (printExpectation) {
+    // The expectation a fully restored run must reach, derived from the graph.
+    const expectation = graphExpectation(callerRoot, expectedId(callerRoot))
+    console.log(expectedSummary(expectation))
+    return
+  }
+  if (printManifest) {
+    // The manifest of the outputs as they stand, so two passes can be compared.
+    const dist = distManifest(callerRoot)
+    console.log(`${dist.sha} ${dist.count}`)
+    return
+  }
+  if (pass) {
+    // A recorded build log is checked against the graph, so a pass is judged by
+    // the graph it ran and not by a number written down earlier.
+    const output = readFileSync(log, 'utf8')
+    const result = parseVpOutput(output)
+    const expectation = graphExpectation(callerRoot, result.toolchain ?? expectedId(callerRoot))
+    const detail = `${result.hits}/${result.total} of ${expectation.cacheableTasks} graph tasks`
+    if (pass === 'observed') {
+      console.log(`observed: ${detail}`)
+      const missed = result.missed.map((m) => `${m.command} (${m.reason})`)
+      if (missed.length) console.log(`misses:\n  ${missed.join('\n  ')}`)
+      return
+    }
+    check(`expected ${pass}`, matchesPattern(result, pass, expectation), detail)
+    return
+  }
   if (fresh) {
     const built = withDist(callerRoot).map(({ dir }) => dir)
     check('no workspace has a dist before the run', built.length === 0, built.join(', '))
@@ -122,7 +215,9 @@ function once(args) {
   }
   const result = parseVpOutput(output)
   const dist = distManifest(callerRoot)
+  const expectation = graphExpectation(callerRoot, result.toolchain ?? expectedId(callerRoot))
   console.log(`vite-plus proof (${TASK}): ${result.hits}/${result.total} cache hit`)
+  console.log(`expected cache: ${expectedSummary(expectation)}`)
   console.log(`toolchain: ${result.toolchain}`)
   console.log(`dist outputs: ${dist.count} files, sha256 ${dist.sha}`)
   const missed = result.missed.map((m) => `${m.command} (${m.reason})`)
@@ -133,7 +228,11 @@ function once(args) {
       `### Vite+ proof, \`${TASK}\` (${wanted ?? 'observed'})\n\n- toolchain: \`${result.toolchain}\`\n- cache: ${result.hits}/${result.total} hit\n- dist: ${dist.count} files, sha256 \`${dist.sha}\`\n${missed.map((m) => `- miss: ${m}`).join('\n')}\n`
     )
   if (wanted)
-    check(`expected ${wanted}`, matchesPattern(result, wanted), `${result.hits}/${result.total}`)
+    check(
+      `expected ${wanted}`,
+      matchesPattern(result, wanted, expectation),
+      `${result.hits}/${result.total} of ${expectation.cacheableTasks} graph tasks`
+    )
   if (manifest) check('dist manifest matches', dist.sha === manifest, dist.sha)
   check(
     'dist was emitted',

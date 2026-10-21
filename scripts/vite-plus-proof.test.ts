@@ -16,12 +16,26 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as childProcess from 'node:child_process'
 
-import { distManifest, matchesPattern, parseArgs, parseVpOutput } from './vite-plus-proof.mjs'
+import {
+  distManifest,
+  expectedSummary,
+  graphExpectation,
+  matchesPattern,
+  parseArgs,
+  parseVpOutput,
+} from './vite-plus-proof.mjs'
+import { expectedId } from './orch-toolchain.mjs'
 
-const cold = 'a'.repeat(64)
+const repoRoot = resolve(import.meta.dir, '..')
+const coldManifest = 'a'.repeat(64)
 
 const miss =
   "$ ORCH_TOOLCHAIN=linux-x64.node22.bun1.4.0-abc env -u FORCE_COLOR bun run --cwd packages/types build ○ cache miss: env 'ORCH_TOOLCHAIN' changed, executing"
+
+// Every fixture is built from the graph, so a graph that gains or loses a task
+// moves the fixtures with it and no expectation is ever a number written down.
+const expectation = graphExpectation(repoRoot, expectedId(repoRoot))
+const tasks = expectation.cacheableTasks
 
 describe('parseVpOutput', () => {
   test('reads the summary, the misses and the toolchain id', () => {
@@ -39,6 +53,47 @@ describe('parseVpOutput', () => {
   })
 })
 
+describe('graphExpectation', () => {
+  test("the cacheable count is the graph's own, never a constant", () => {
+    expect(expectation.cacheableTasks).toBe(expectation.taskNames.length)
+    expect(expectation.cacheableTasks).toBeGreaterThan(0)
+    expect(expectation.totalTasks).toBeGreaterThanOrEqual(expectation.cacheableTasks)
+    // Every named task is a build task of the graph.
+    expect(expectation.taskNames.every((name) => name.startsWith('orch:'))).toBe(true)
+  })
+
+  test("the expected summary names the graph's count", () => {
+    expect(expectedSummary(expectation)).toBe(`${tasks}/${tasks} cache hit`)
+  })
+
+  test('a workspace that gains a build script changes the expectation', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'adea-proof-graph-'))
+    try {
+      for (const [name, scripts] of [
+        ['alpha', { build: 'tsc' }],
+        ['beta', {}],
+      ]) {
+        mkdirSync(join(fixture, 'packages', name), { recursive: true })
+        writeFileSync(
+          join(fixture, 'packages', name, 'package.json'),
+          JSON.stringify({ name: `@fixture/${name}`, scripts })
+        )
+      }
+      const withoutBuild = graphExpectation(fixture, 'fixture-toolchain')
+      expect(withoutBuild.cacheableTasks).toBe(1)
+      expect(withoutBuild.taskNames).toEqual(['orch:alpha:build'])
+      // The same graph with one more build script has one more cacheable task.
+      writeFileSync(
+        join(fixture, 'packages', 'beta', 'package.json'),
+        JSON.stringify({ name: '@fixture/beta', scripts: { build: 'tsc' } })
+      )
+      expect(graphExpectation(fixture, 'fixture-toolchain').cacheableTasks).toBe(2)
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('matchesPattern', () => {
   test('cold allows no hit and warm needs every task to hit', () => {
     expect(matchesPattern({ hits: 0, total: 15, missed: [], toolchain: null }, 'cold')).toBe(true)
@@ -51,6 +106,33 @@ describe('matchesPattern', () => {
     expect(matchesPattern({ hits: 0, total: 0, missed: [], toolchain: null }, 'cold')).toBe(false)
     expect(matchesPattern({ hits: 0, total: 0, missed: [], toolchain: null }, 'warm')).toBe(false)
   })
+
+  test('an expectation makes the run report the graph it ran', () => {
+    const graph = { cacheableTasks: 15, totalTasks: 15, taskNames: [] }
+    // A run that reports fewer tasks than the graph is not the graph under qualification.
+    expect(
+      matchesPattern({ hits: 15, total: 15, missed: [], toolchain: null }, 'warm', graph)
+    ).toBe(true)
+    expect(
+      matchesPattern({ hits: 14, total: 14, missed: [], toolchain: null }, 'warm', graph)
+    ).toBe(false)
+    expect(matchesPattern({ hits: 0, total: 14, missed: [], toolchain: null }, 'cold', graph)).toBe(
+      false
+    )
+  })
+
+  test('a partial restore is told apart from a complete one', () => {
+    const graph = { cacheableTasks: 15, totalTasks: 15, taskNames: [] }
+    expect(
+      matchesPattern({ hits: 9, total: 15, missed: [], toolchain: null }, 'partial', graph)
+    ).toBe(true)
+    expect(
+      matchesPattern({ hits: 0, total: 15, missed: [], toolchain: null }, 'partial', graph)
+    ).toBe(false)
+    expect(
+      matchesPattern({ hits: 15, total: 15, missed: [], toolchain: null }, 'partial', graph)
+    ).toBe(false)
+  })
 })
 
 describe('parseArgs', () => {
@@ -59,17 +141,31 @@ describe('parseArgs', () => {
       wanted: 'cold',
       manifest: null,
       fresh: true,
+      pass: null,
+      log: null,
+      printExpectation: false,
+      printManifest: false,
     })
-    expect(parseArgs([])).toEqual({ wanted: null, manifest: null, fresh: false })
+    expect(parseArgs([])).toEqual({
+      wanted: null,
+      manifest: null,
+      fresh: false,
+      pass: null,
+      log: null,
+      printExpectation: false,
+      printManifest: false,
+    })
   })
 
   test('a warm run must name the cold manifest', () => {
     expect(() => parseArgs(['--fresh', '--expect', 'warm'])).toThrow('requires --expect-manifest')
-    expect(parseArgs(['--expect', 'warm', '--expect-manifest', cold]).manifest).toBe(cold)
+    expect(parseArgs(['--expect', 'warm', '--expect-manifest', coldManifest]).manifest).toBe(
+      coldManifest
+    )
   })
 
   test('refuses a manifest that is not a lowercase sha256', () => {
-    for (const bad of ['', 'abc', 'A'.repeat(64), 'g'.repeat(64), `${cold}0`])
+    for (const bad of ['', 'abc', 'A'.repeat(64), 'g'.repeat(64), `${coldManifest}0`])
       expect(() => parseArgs(['--expect', 'warm', '--expect-manifest', bad])).toThrow()
     expect(() => parseArgs(['--expect', 'cold', '--expect-manifest', 'abc'])).toThrow('sha256')
   })
@@ -79,6 +175,18 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--expect', '--fresh'])).toThrow('needs a value')
     expect(() => parseArgs(['--expect', 'one-miss'])).toThrow('cold or warm')
     expect(() => parseArgs(['--self-check'])).toThrow('unknown option')
+  })
+
+  test('a checked pass needs its log, and only one expectation may be asked for', () => {
+    expect(() => parseArgs(['--check-pass', 'warm'])).toThrow('requires --log')
+    expect(() => parseArgs(['--log', 'build.log'])).toThrow('requires --check-pass')
+    expect(() => parseArgs(['--check-pass', 'half', '--log', 'build.log'])).toThrow(
+      '--check-pass must be'
+    )
+    expect(parseArgs(['--check-pass', 'warm', '--log', 'build.log']).pass).toBe('warm')
+    expect(() =>
+      parseArgs(['--check-pass', 'warm', '--log', 'b.log', '--print-expectation'])
+    ).toThrow('only one expectation')
   })
 })
 
@@ -118,17 +226,16 @@ async function proofEntry(
   args: string[],
   reply: { status: number; stdout: string; stderr: string }
 ) {
-  const root = resolve(import.meta.dir, '..')
   const script = fileURLToPath(new URL('./vite-plus-proof.mjs', import.meta.url))
   const directory = mkdtempSync(join(tmpdir(), 'adea-proof-cli-'))
-  const dist = join(root, 'packages/types/dist')
+  const dist = join(repoRoot, 'packages/types/dist')
   const existed = existsSync(dist)
   mkdirSync(dist, { recursive: true })
   const fixture = join(dist, `canvas-proof-${crypto.randomUUID()}.txt`)
   writeFileSync(fixture, 'owned unit-only proof output')
   const summary = join(directory, 'summary')
   writeFileSync(summary, '')
-  const manifest = distManifest(root)
+  const manifest = distManifest(repoRoot)
   const previous = { argv: process.argv, env: process.env, exitCode: process.exitCode }
   const command = spyOn(childProcess, 'spawnSync').mockReturnValue(reply as never)
   const output = spyOn(console, 'log').mockImplementation(() => {})
@@ -165,13 +272,17 @@ async function proofEntry(
 
 const warmReply = {
   status: 0,
-  stdout:
-    '$ ORCH_TOOLCHAIN=fixture-key env -u FORCE_COLOR bun run build\nvp run: 2/2 cache hit (100%), 2/2 successful',
+  stdout: `$ ORCH_TOOLCHAIN=fixture-key env -u FORCE_COLOR bun run build\nvp run: ${tasks}/${tasks} cache hit (100%), ${tasks}/${tasks} successful`,
   stderr: '',
 }
 const coldReply = {
   status: 0,
-  stdout: `${miss}\nvp run: 0/2 cache hit (0%), 2/2 successful`,
+  stdout: `${miss}\nvp run: 0/${tasks} cache hit (0%), ${tasks}/${tasks} successful`,
+  stderr: '',
+}
+const staleReply = {
+  status: 0,
+  stdout: `vp run: ${tasks - 1}/${tasks - 1} cache hit (100%), ${tasks - 1}/${tasks - 1} successful`,
   stderr: '',
 }
 
@@ -186,7 +297,9 @@ test('proof CLI validates fixture warm counts, output identity and workflow repo
   expect(result.output).toContain('PASS expected warm')
   expect(result.output).toContain('PASS dist manifest matches')
   expect(result.output).toContain('::group::raw vp run')
-  expect(result.summary).toContain('cache: 2/2 hit')
+  expect(result.summary).toContain(`cache: ${tasks}/${tasks} hit`)
+  // The expectation the run was judged against comes from the graph.
+  expect(result.output).toContain(`expected cache: ${tasks}/${tasks} cache hit`)
 })
 
 test('proof CLI reports cold misses and fails freshness or mismatched manifest assertions', async () => {
@@ -200,4 +313,44 @@ test('proof CLI reports cold misses and fails freshness or mismatched manifest a
   await expect(
     proofEntry([], { status: 2, stdout: '', stderr: 'fixture build failed' })
   ).rejects.toThrow('vp run orch:build failed (exit 2)')
+})
+
+test('the CLI prints the graph-derived expectation and the output manifest', async () => {
+  const printed = await proofEntry(['--print-expectation'], coldReply)
+  expect(printed.status).toBe(0)
+  expect(printed.output.trim()).toBe(`${tasks}/${tasks} cache hit`)
+  expect(printed.calls).toHaveLength(0)
+
+  const manifest = await proofEntry(['--print-manifest'], coldReply)
+  expect(manifest.status).toBe(0)
+  expect(manifest.output.trim()).toMatch(/^[0-9a-f]{64} \d+$/)
+})
+
+test('a recorded pass is checked against the graph, not against a written-down count', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'adea-proof-pass-'))
+  try {
+    const warm = join(directory, 'warm.log')
+    const stale = join(directory, 'stale.log')
+    const coldLog = join(directory, 'cold.log')
+    writeFileSync(warm, warmReply.stdout)
+    writeFileSync(stale, staleReply.stdout)
+    writeFileSync(coldLog, coldReply.stdout)
+
+    const warmResult = await proofEntry(['--check-pass', 'warm', '--log', warm], coldReply)
+    expect(warmResult.status).toBe(0)
+    expect(warmResult.output).toContain('PASS expected warm')
+
+    // A run that reports a different graph is not the graph under qualification.
+    const staleResult = await proofEntry(['--check-pass', 'warm', '--log', stale], coldReply)
+    expect(staleResult.status).toBe(1)
+    expect(staleResult.output).toContain('FAIL expected warm')
+
+    // An incomplete restore is reported, not asserted: the outputs are compared instead.
+    const observed = await proofEntry(['--check-pass', 'observed', '--log', coldLog], coldReply)
+    expect(observed.status).toBe(0)
+    expect(observed.output).toContain(`observed: 0/${tasks} of ${tasks} graph tasks`)
+    expect(observed.output).toContain('misses:')
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
 })
