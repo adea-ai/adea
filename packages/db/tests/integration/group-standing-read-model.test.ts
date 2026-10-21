@@ -1,22 +1,30 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import type { ConversationParticipantRef, UserPrincipalRef } from '@adea-ai/types'
 
 import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
+import {
+  archiveChannel,
+  getChannelForUser,
+  provisionPrimaryProjectChannel,
+} from '../../src/conversations'
 import {
   createGroupChannelWithGrants,
   groupCreationCandidatesFromGrants,
   postGroupChannelMessage,
   revokeGroupGrant,
 } from '../../src/group-channels'
+import { admissionInForce, loadGroupAdmission } from '../../src/group-participation-store'
 import {
   readGroupStanding,
   type GroupStandingMember,
   type GroupStandingReadModel,
 } from '../../src/group-standing-read-model'
 import { createTemporaryUserSession } from '../../src/identity'
-import { groupAdmissions, workspaceMemberships } from '../../src/schema'
+import { resolveProjectAccessScope } from '../../src/project-access'
+import { createProject } from '../../src/projects'
+import { groupAdmissions, projects, workspaceMemberships } from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
 // #1178 effective group standing: a read-only projection of one group's roster.
@@ -164,8 +172,8 @@ describe.skipIf(!connectionUrl)('effective group standing read model (#1178)', (
     }
     // The requester's own join point is preserved exactly as the canonical admission holds it.
     const owner = standingOf(model, f.owner.userId)
-    expect(model.requesterJoinPoint.joinedAt).toBe(owner.joinPoint.joinedAt)
-    expect(model.requesterJoinPoint.joinedSequence).toBe(owner.joinPoint.joinedSequence)
+    expect(model.requesterJoinPoint?.joinedAt).toBe(owner.joinPoint.joinedAt)
+    expect(model.requesterJoinPoint?.joinedSequence).toBe(owner.joinPoint.joinedSequence)
   })
 
   test('an expiry is published as the access end, and the standing ends with it', async () => {
@@ -310,7 +318,7 @@ describe.skipIf(!connectionUrl)('effective group standing read model (#1178)', (
     // The join point is preserved: the member's own reads start at their join point.
     expect(member.joinPoint.joinedSequence).toBe(posted.sequence)
     expect(member.joinPoint.joinedAt).toBe(joinedAt)
-    expect(model.requesterJoinPoint.joinedSequence).toBe(posted.sequence)
+    expect(model.requesterJoinPoint?.joinedSequence).toBe(posted.sequence)
 
     // The projection publishes standing and nothing else. The keys are asserted one by one, so a
     // field added later cannot slip into the projection unnoticed.
@@ -340,5 +348,212 @@ describe.skipIf(!connectionUrl)('effective group standing read model (#1178)', (
     expect(serialized).not.toContain('revokedAt')
     expect(serialized).not.toContain('the secret earlier body')
     expect(serialized).not.toContain(posted.id)
+  })
+
+  test('a requester whose workspace membership is removed is refused, while the group admission remains in force', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Standing lost membership')
+    // The positive control: the member is admitted and reads the projection.
+    const before = await settle(() =>
+      readGroupStanding(db(), {
+        channelId: group.channelId,
+        now: new Date().toISOString(),
+        requester: f.member,
+        workspaceId: f.workspace.id,
+      })
+    )
+    expect('value' in before).toBe(true)
+
+    // The membership goes; the group admission and its grant do not.
+    await db()
+      .delete(workspaceMemberships)
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, f.workspace.id),
+          eq(workspaceMemberships.userId, f.member.userId)
+        )
+      )
+    const admission = await loadGroupAdmission(db(), f.workspace.id, group.channelId, {
+      kind: 'user',
+      userId: f.member.userId,
+    })
+    // The control: the retained admission is still there and still in force. The refusal below is
+    // therefore the membership and project-access scope, not a lost admission.
+    expect(admission).not.toBeNull()
+    expect(admissionInForce(admission, group.channelId, new Date().toISOString())).toBe(true)
+
+    const refused = await settle(() =>
+      readGroupStanding(db(), {
+        channelId: group.channelId,
+        now: new Date().toISOString(),
+        requester: f.member,
+        workspaceId: f.workspace.id,
+      })
+    )
+    expect(refused).toEqual({ denied: 'Channel unavailable' })
+
+    // The positive control again: the membership back, the read back.
+    await db().insert(workspaceMemberships).values({
+      role: 'member',
+      userId: f.member.userId,
+      workspaceId: f.workspace.id,
+    })
+    const restored = await settle(() =>
+      readGroupStanding(db(), {
+        channelId: group.channelId,
+        now: new Date().toISOString(),
+        requester: f.member,
+        workspaceId: f.workspace.id,
+      })
+    )
+    expect('value' in restored).toBe(true)
+  })
+
+  test('the standing read and the canonical channel read decide together', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Standing parity')
+
+    /** What the canonical channel read answers, and what the standing read answers. */
+    const decide = async (principal: UserPrincipalRef) => {
+      const channel = await settle(() =>
+        getChannelForUser(db(), f.workspace.id, group.channelId, principal)
+      )
+      const standing = await settle(() =>
+        readGroupStanding(db(), {
+          channelId: group.channelId,
+          now: new Date().toISOString(),
+          requester: principal,
+          workspaceId: f.workspace.id,
+        })
+      )
+      return { channel: 'value' in channel, standing: 'value' in standing }
+    }
+
+    // An admitted member is served by both.
+    expect(await decide(f.member)).toEqual({ channel: true, standing: true })
+    // A workspace member who was never admitted is refused by both.
+    expect(await decide(f.stranger)).toEqual({ channel: false, standing: false })
+    // A principal who was never a workspace member is refused by both.
+    expect(await decide(await user('outsider'))).toEqual({ channel: false, standing: false })
+
+    // A revoked grant: the canonical read refuses, and so does the standing read.
+    await revokeGroupGrant(db(), f.workspace.id, group.channelId, f.owner, {
+      grantId: group.memberGrantId,
+      kind: 'audience',
+      revokedAt: new Date().toISOString(),
+    })
+    expect(await decide(f.member)).toEqual({ channel: false, standing: false })
+
+    // A removed workspace membership: the canonical read refuses, and so does the standing read.
+    const f2 = await fixture()
+    const group2 = await groupWithAudience(f2, 'Standing parity membership')
+    await db()
+      .delete(workspaceMemberships)
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, f2.workspace.id),
+          eq(workspaceMemberships.userId, f2.member.userId)
+        )
+      )
+    const channel = await settle(() =>
+      getChannelForUser(db(), f2.workspace.id, group2.channelId, f2.member)
+    )
+    const standing = await settle(() =>
+      readGroupStanding(db(), {
+        channelId: group2.channelId,
+        now: new Date().toISOString(),
+        requester: f2.member,
+        workspaceId: f2.workspace.id,
+      })
+    )
+    expect('value' in channel).toBe(false)
+    expect('value' in standing).toBe(false)
+    expect(standing).toEqual({ denied: 'Channel unavailable' })
+  })
+
+  test('an archived group keeps the canonical read-only semantics', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Standing archived')
+    await archiveChannel(db(), f.workspace.id, group.channelId, f.owner, 1)
+
+    // The archived group is still served to the member its records prove, exactly as the canonical
+    // read serves it: the standing read applies the archived rule instead of inventing one.
+    const member = await settle(() =>
+      readGroupStanding(db(), {
+        channelId: group.channelId,
+        now: new Date().toISOString(),
+        requester: f.member,
+        workspaceId: f.workspace.id,
+      })
+    )
+    if (!('value' in member)) throw new Error('the archived standing read was refused')
+    expect(member.value.members.map((entry) => entry.participant)).toEqual(
+      expect.arrayContaining([{ kind: 'user', userId: f.member.userId }])
+    )
+    // The archived channel is read-only: a stranger is still refused, and so is a write.
+    const stranger = await settle(() =>
+      readGroupStanding(db(), {
+        channelId: group.channelId,
+        now: new Date().toISOString(),
+        requester: f.stranger,
+        workspaceId: f.workspace.id,
+      })
+    )
+    expect(stranger).toEqual({ denied: 'Channel unavailable' })
+    const post = await settle(() =>
+      postGroupChannelMessage(db(), f.workspace.id, group.channelId, f.owner, f.owner, {
+        message: {
+          bodyText: 'a post into the archived group',
+          idempotencyKey: crypto.randomUUID(),
+        },
+        mode: 'direct',
+      })
+    )
+    expect(post).toEqual({ denied: 'Channel unavailable' })
+  })
+
+  test('a requester who lost project-read eligibility keeps exactly the canonical group access', async () => {
+    const f = await fixture()
+    const group = await groupWithAudience(f, 'Standing project eligibility')
+
+    // A members-only project the member is not listed on: their project-read eligibility for it
+    // is gone.
+    const project = await createProject(db(), f.workspace.id, f.owner, {
+      iconKey: 'folder',
+      name: 'Members only',
+    })
+    await db().update(projects).set({ visibility: 'members' }).where(eq(projects.id, project.id))
+    const projectChannel = await provisionPrimaryProjectChannel(
+      db(),
+      f.workspace.id,
+      project.id,
+      f.owner
+    )
+    const scope = await resolveProjectAccessScope(db(), f.workspace.id, f.member.userId)
+    expect(scope?.hiddenProjectIds).toContain(project.id)
+
+    // The project-read gate is live in this store: the canonical reader refuses that project's
+    // channel for a member who is not listed on it.
+    const projectRefused = await settle(() =>
+      getChannelForUser(db(), f.workspace.id, projectChannel.id, f.member)
+    )
+    expect(projectRefused).toEqual({ denied: 'Channel unavailable' })
+
+    // The group carries no project, so the canonical group read — and the standing read with it —
+    // are unchanged: the standing read follows the canonical chain instead of inventing a stricter
+    // rule of its own.
+    const channel = await settle(() =>
+      getChannelForUser(db(), f.workspace.id, group.channelId, f.member)
+    )
+    const standing = await settle(() =>
+      readGroupStanding(db(), {
+        channelId: group.channelId,
+        now: new Date().toISOString(),
+        requester: f.member,
+        workspaceId: f.workspace.id,
+      })
+    )
+    expect('value' in channel).toBe(true)
+    expect('value' in standing).toBe(true)
   })
 })

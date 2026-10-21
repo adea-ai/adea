@@ -4,9 +4,11 @@ import type { UserPrincipalRef } from '@adea-ai/types'
  * The server read of one group's effective standing (#1178).
  *
  * The canonical projection — the roster, the grant state, the join point and the expiry — is the
- * database package's business, and the authorization behind it is proven there: a requester reads
- * the roster only while its own group admission is in force. This surface adds the two things that
- * belong to the application:
+ * database package's business, and the authorization behind it is proven there: the read applies the
+ * same chain the product's own channel read applies — the workspace membership, the project-access
+ * scope, the channel's existence and lifecycle, the project visibility, and the group admission or
+ * the archived read rule — so a retained admission alone never exposes the roster. This surface
+ * adds the two things that belong to the application:
  *
  * - **The requester is the authenticated principal.** It arrives as an argument and is never read
  *   from a request body, a query string or a header this module parses, so a caller can never ask

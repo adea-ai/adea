@@ -8,18 +8,20 @@
  * roster and the standing decision are the store's and the policy's, and this module only projects
  * them.
  *
- * Two boundaries are deliberate.
+ * The authorization is the canonical one, not a second gate. The read model applies the same chain
+ * the product's own channel read applies — the workspace membership, the project-access scope, the
+ * channel's existence and lifecycle, the project visibility, and the group admission or the
+ * archived read rule — inside one read snapshot, so the decision and the facts it was made on are
+ * the same ones. A retained admission is therefore never enough on its own: a member whose
+ * workspace membership or project-read eligibility is gone learns nothing about the roster, even
+ * while their group admission row is still there and still in force.
  *
- * - **The requester must be authorized.** A principal reads the projection only while its own
- *   canonical admission is in force, which is the same decision the group's own reads and turns
- *   use. A stranger, a workspace member who was never admitted, and a member whose grant was
- *   revoked or expired all learn nothing — not even that the group exists.
- * - **The projection carries standing, never authority.** It publishes the grant *state*, the join
- *   point and the expiry. It never publishes the grant identity and revision, the issue or
- *   revocation instants, the sharing grants that unlock earlier history, or any conversation
- *   content. A member's standing can therefore be shown without handing out the token that
- *   authorizes them, and nothing before a join point is exposed: the projection carries no
- *   message, no sequence and no content of any kind.
+ * The projection carries standing, never authority. It publishes the grant *state*, the join point
+ * and the expiry. It never publishes the grant identity and revision, the issue or revocation
+ * instants, the sharing grants that unlock earlier history, or any conversation content. A member's
+ * standing can therefore be shown without handing out the token that authorizes them, and nothing
+ * before a join point is exposed: the projection carries no message, no sequence and no content of
+ * any kind.
  */
 
 import type {
@@ -29,13 +31,15 @@ import type {
   UserPrincipalRef,
 } from '@adea-ai/types'
 
+import type { AgentHqDatabase, AgentHqTransaction } from './connection'
+import { requireChannelAccess } from './conversations'
 import { evaluateGroupGrantWindow } from './group-participation-policy'
 import {
   admissionForParticipant,
   admissionInForce,
   loadGroupRoster,
-  type GroupStoreDatabase,
 } from './group-participation-store'
+import { inReadSnapshot } from './transactions'
 
 /** One member's effective standing in one group. */
 export type GroupStandingMember = Readonly<{
@@ -57,8 +61,13 @@ export type GroupStandingReadModel = Readonly<{
   channelId: string
   /** Every member of the group's canonical roster. */
   members: readonly GroupStandingMember[]
-  /** The requester's own join point: the point their own reads start from. */
-  requesterJoinPoint: GroupJoinPoint
+  /**
+   * The requester's own join point, or null when the requester holds no canonical admission.
+   *
+   * An archived group served to a retained legacy audience is the case: the canonical read allows
+   * it, and that audience carries no canonical admission, so it has no join point to publish.
+   */
+  requesterJoinPoint: GroupJoinPoint | null
   /** The workspace that scopes the group. */
   workspaceId: string
 }>
@@ -66,16 +75,16 @@ export type GroupStandingReadModel = Readonly<{
 /**
  * Read one group's effective standing.
  *
- * The requester must hold standing in that group right now; the check is the store's own
- * `admissionInForce`, so the read model cannot admit a reader the group's own readers would
- * refuse. A refused requester learns nothing: the answer is the same "Channel unavailable" the
- * group's other readers give.
+ * The requester must pass the canonical read authorization for that channel — the same chain
+ * `getChannelForUser` applies — so the standing read can never serve a reader the product's own
+ * channel read would refuse. A refused requester learns nothing: the answer is the same
+ * "Channel unavailable" the group's other readers give, and the roster is never read for them.
  *
- * The projection is read-only and holds no lock: it is a listing, not a decision, and the state
- * it publishes is the state at `now`.
+ * The read is a listing, not a decision: it holds no lock, and the state it publishes is the state
+ * at `now` inside one read snapshot.
  */
 export async function readGroupStanding(
-  database: GroupStoreDatabase,
+  database: AgentHqDatabase | AgentHqTransaction,
   input: Readonly<{
     /** The group to project. */
     channelId: string
@@ -88,29 +97,40 @@ export async function readGroupStanding(
   }>
 ): Promise<GroupStandingReadModel> {
   const now = input.now ?? new Date().toISOString()
-  const roster = await loadGroupRoster(database, input.workspaceId, input.channelId)
-  const requesterAdmission = admissionForParticipant(roster, {
-    kind: 'user',
-    userId: input.requester.userId,
+  return inReadSnapshot(database, async (snapshot) => {
+    // The canonical read authorization. It proves the workspace membership, the project-access
+    // scope, the channel's existence and lifecycle, the project visibility, and — for a group —
+    // the requester's own in-force admission or the archived read rule. It runs before the roster
+    // is read, so an unauthorized requester never materializes it.
+    await requireChannelAccess(
+      snapshot,
+      input.workspaceId,
+      input.channelId,
+      input.requester,
+      'read',
+      false,
+      now
+    )
+    const roster = await loadGroupRoster(snapshot, input.workspaceId, input.channelId)
+    const requesterAdmission = admissionForParticipant(roster, {
+      kind: 'user',
+      userId: input.requester.userId,
+    })
+    return {
+      channelId: input.channelId,
+      members: roster.map((admission) => ({
+        // The expiry is the access end the projection exists to publish.
+        expiresAt: admission.grant.expiresAt,
+        // A member stands only while the same decision the group's turns use allows it.
+        inForce: admissionInForce(admission, input.channelId, now),
+        // The join point is preserved exactly as the canonical admission holds it.
+        joinPoint: admission.joinPoint,
+        participant: admission.participant,
+        // The grant state comes from the policy's own window evaluation.
+        state: evaluateGroupGrantWindow(admission.grant, now),
+      })),
+      requesterJoinPoint: requesterAdmission?.joinPoint ?? null,
+      workspaceId: input.workspaceId,
+    }
   })
-  // The requester's own standing decides whether they may read the roster at all.
-  if (!requesterAdmission || !admissionInForce(requesterAdmission, input.channelId, now)) {
-    throw new Error('Channel unavailable')
-  }
-  return {
-    channelId: input.channelId,
-    members: roster.map((admission) => ({
-      // The expiry is the access end the projection exists to publish.
-      expiresAt: admission.grant.expiresAt,
-      // A member stands only while the same decision the group's turns use allows it.
-      inForce: admissionInForce(admission, input.channelId, now),
-      // The join point is preserved exactly as the canonical admission holds it.
-      joinPoint: admission.joinPoint,
-      participant: admission.participant,
-      // The grant state comes from the policy's own window evaluation.
-      state: evaluateGroupGrantWindow(admission.grant, now),
-    })),
-    requesterJoinPoint: requesterAdmission.joinPoint,
-    workspaceId: input.workspaceId,
-  }
 }
