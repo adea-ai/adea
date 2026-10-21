@@ -105,7 +105,10 @@ jobs:
             node scripts/vite-plus-proof.mjs --check-pass observed --log "$RUNNER_TEMP/build-restored.log"
             echo 'The restore did not cover this head; the restored pass rebuilt from source.' >> "$GITHUB_STEP_SUMMARY"
           fi
-          # 3. The warm pass: the cache the restored pass wrote.
+          # 3. The warm pass: the cache the restored pass wrote. The owned outputs
+          #    are cleared first, so this pass measures what the cache replays and
+          #    not what the restored pass left behind.
+          node scripts/vite-plus-proof.mjs --clear-outputs
           start=$SECONDS
           bun run build > "$RUNNER_TEMP/build-warm.log" 2>&1
           cat "$RUNNER_TEMP/build-warm.log"

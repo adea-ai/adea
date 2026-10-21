@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from 'bun:test'
 
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -15,6 +16,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as childProcess from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 
 import {
   clearOwnedOutputs,
@@ -458,4 +460,42 @@ test('a manifest without outputs is refused, so two empty ones cannot pass', () 
     sha: 'a'.repeat(64),
     count: 3,
   })
+})
+
+test('the two packages clean their own dist before compiling, so a removed source cannot survive', async () => {
+  for (const manifest of ['packages/types/package.json', 'packages/db/package.json']) {
+    const script = JSON.parse(readFileSync(join(repoRoot, manifest), 'utf8')).scripts?.build
+    expect(typeof script).toBe('string')
+    const fixture = mkdtempSync(join(tmpdir(), 'adea-proof-clean-'))
+    try {
+      // The output a module that no longer exists would have left behind.
+      mkdirSync(join(fixture, 'dist'), { recursive: true })
+      writeFileSync(
+        join(fixture, 'dist', 'removed-module.js'),
+        'the output of a module that no longer exists'
+      )
+      // A compiler that records what the dist held when it was called.
+      const bin = join(fixture, 'bin')
+      mkdirSync(bin)
+      writeFileSync(
+        join(bin, 'tsc'),
+        '#!/bin/sh\nif [ -e dist/removed-module.js ]; then echo stale-present; else echo stale-gone; fi\n'
+      )
+      chmodSync(join(bin, 'tsc'), 0o755)
+      const run = spawnSync('/bin/sh', ['-c', script], {
+        cwd: fixture,
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        encoding: 'utf8',
+      })
+      expect(run.status).toBe(0)
+      // The compiler saw a dist without the removed module's output, so the
+      // build cleaned it before it compiled.
+      expect(run.stdout).toContain('stale-gone')
+      // And it is gone afterwards, so the cache cannot capture it and a restore
+      // cannot bring it back.
+      expect(existsSync(join(fixture, 'dist', 'removed-module.js'))).toBe(false)
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  }
 })
