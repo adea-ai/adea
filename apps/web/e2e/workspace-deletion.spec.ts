@@ -9,14 +9,14 @@ async function openFixture(page: Page, attribute?: string) {
       body: `<html><body><div id="harness-root" ${attribute ?? ''}></div></body></html>`,
     })
   )
-  await page.goto(`${path}#workspace-settings/general`)
+  await page.goto(`${path}#settings/workspace-general`)
   await page.evaluate(
     async (url) => {
       await import(url)
     },
     '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-settings-harness-app.tsx')
   )
-  return page.getByRole('dialog', { name: 'Settings harness workspace settings', exact: true })
+  return page.getByRole('dialog', { name: 'Settings', exact: true })
 }
 
 test('active deletion is unavailable and cannot invoke the mutation; default mark is a box', async ({
@@ -70,7 +70,7 @@ test('personal Home remains protected after renaming and changing its icon', asy
   await name.fill('Personal studio')
   await name.blur()
   const renamed = page.getByRole('dialog', {
-    name: 'Personal studio workspace settings',
+    name: 'Settings',
     exact: true,
   })
   await renamed.getByRole('textbox', { name: 'Workspace emoji' }).fill('🌿')

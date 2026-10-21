@@ -73,6 +73,13 @@ function exercise(options: {
         return { status: 0, stdout: '' }
       } }),
       './test-target-guard.mjs': stub({ assertLocalTestTargets() {} }),
+      './self-hosted-auth-lifecycle.ts': stub({
+        // The qualification is exercised by its own test; here the runner only
+        // has to call it, so the stub records the URL it was handed.
+        proveSelfHostedAuthLifecycle(command, input) {
+          calls.push(['auth-lifecycle', input.databaseUrl])
+        },
+      }),
       './integration-inventory.mjs': stub({
         parseIntegrationShard() {}, discoverIntegrationInventory() { return {} },
         planIntegrationRun() { return { packageFiles: [], routeFiles: [] } },
@@ -239,6 +246,14 @@ async function exerciseBun(signal?: 'SIGINT' | 'SIGTERM', failMigration = false)
     'export function assertLocalTestTargets() {}'
   )
   writeFileSync(
+    join(scripts, 'self-hosted-auth-lifecycle.ts'),
+    `${fixtureLog}
+    export function proveSelfHostedAuthLifecycle(command, input) {
+      log('auth-lifecycle ' + new URL(input.databaseUrl).hostname);
+    }
+  `
+  )
+  writeFileSync(
     join(scripts, 'integration-inventory.mjs'),
     `
     export function parseIntegrationShard() {}
@@ -359,6 +374,11 @@ test('actual Bun runner cleans both fixtures after a successful run', async () =
   expect(result.code, result.stderr).toBe(0)
   expect(result.calls.filter((call) => call === 'docker compose stop postgres')).toHaveLength(1)
   expect(result.calls.filter((call) => call === 'capture-stop')).toHaveLength(1)
+  // The self-hosted auth lifecycle is proven on the way through, against the
+  // loopback instance this lane owns.
+  expect(result.calls.filter((call) => call.startsWith('auth-lifecycle '))).toEqual([
+    'auth-lifecycle 127.0.0.1',
+  ])
 })
 
 // Keep the production lifecycle modules byte-for-byte intact. Only the external
@@ -393,6 +413,10 @@ async function exerciseRealLifecycle(
   writeFileSync(
     join(scripts, 'test-target-guard.mjs'),
     'export function assertLocalTestTargets() {}'
+  )
+  writeFileSync(
+    join(scripts, 'self-hosted-auth-lifecycle.ts'),
+    'export function proveSelfHostedAuthLifecycle() {}'
   )
   writeFileSync(
     join(scripts, 'integration-inventory.mjs'),
@@ -465,7 +489,29 @@ async function exerciseRealLifecycle(
       if (args[0] === 'run') {
         const name = args[args.indexOf('--name') + 1];
         log('capture-run', name); fs.writeFileSync(resource('capture-resource'), name);
+        // The pinned image declares its data directory as a volume, so the instance carries one
+        // anonymous volume, the way Docker creates it.
+        fs.writeFileSync(resource('capture-volume'), 'synthetic-anonymous-volume');
         console.log('synthetic-container-id'); process.exit(0);
+      }
+      if (args[0] === 'inspect') {
+        const name = args[args.length - 1];
+        if (!fs.existsSync(resource('capture-resource')) || fs.readFileSync(resource('capture-resource'), 'utf8') !== name) {
+          console.error('Error response from daemon: No such object: ' + name); process.exit(1);
+        }
+        console.log(JSON.stringify([{ Type: 'volume', Name: 'synthetic-anonymous-volume', Destination: '/var/lib/postgresql' }]));
+        process.exit(0);
+      }
+      if (args[0] === 'volume') {
+        if (args[1] === 'inspect') {
+          if (!fs.existsSync(resource('capture-volume'))) {
+            console.error('Error: no such volume: synthetic-anonymous-volume'); process.exit(1);
+          }
+          console.log(JSON.stringify({ 'com.docker.volume.anonymous': '' })); process.exit(0);
+        }
+        if (args[1] === 'rm') {
+          log('capture-volume-rm', args[2]); fs.rmSync(resource('capture-volume'), { force: true }); process.exit(0);
+        }
       }
       if (args[0] === 'port') { console.log('127.0.0.1:54321'); process.exit(0) }
       if (args[0] === 'exec') process.exit(0);
@@ -551,7 +597,7 @@ async function exerciseRealLifecycle(
       stderr,
       events,
       cleanupEvidence,
-      resources: ['compose-resource', 'capture-resource'].filter((name) =>
+      resources: ['compose-resource', 'capture-resource', 'capture-volume'].filter((name) =>
         existsSync(join(directory, name))
       ),
     }
@@ -631,9 +677,14 @@ test('real lifecycle helpers preserve test failure when both resource teardowns 
   expect(result.events.filter(({ event }) => event === 'compose-stop')).toHaveLength(1)
   const captures = result.events.filter(({ event }) => event === 'capture-run')
   expect(captures).toHaveLength(1)
-  expect(
-    result.events.filter(({ event }) => event === 'capture-rm').map(({ detail }) => detail)
-  ).toEqual(captures.map(({ detail }) => detail))
+  // The capture removal that was not verified is tried again, so the same
+  // container is named twice, and both attempts are the container that started.
+  const captureRemovals = result.events.filter(({ event }) => event === 'capture-rm')
+  expect(captureRemovals).toHaveLength(2)
+  expect(captureRemovals.map(({ detail }) => detail)).toEqual([
+    ...captures.map(({ detail }) => detail),
+    ...captures.map(({ detail }) => detail),
+  ])
   expect(result.resources).toEqual([])
 }, 15000)
 

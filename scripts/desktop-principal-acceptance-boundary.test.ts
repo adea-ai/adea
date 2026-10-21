@@ -160,3 +160,65 @@ describe('the desktop principal acceptance boundary', () => {
     expect(focused).toContain('await admin?.end()')
   })
 })
+
+describe('the dedicated lane fails closed and cleans up after itself', () => {
+  test('the lane publishes a receipt only when nothing failed', () => {
+    // The receipt is the proof. A failed run has none, so nothing downstream
+    // can read a proof out of a run that failed.
+    expect(runner).toContain('if (!failed) console.log(JSON.stringify(passedReceipt))')
+    expect(runner).toContain('process.exitCode = failed ? 1 : 0')
+  })
+
+  test('a primary failure and a cleanup failure are both reported', () => {
+    // The primary failure is caught and reported, and the cleanup failure is
+    // reported next to it: neither hides the other.
+    expect(runner).toContain('failed = true')
+    expect(runner).toContain('console.error(error.message)')
+    expect(runner).toContain("console.error('owned PostgreSQL cleanup failed')")
+    const primary = runner.indexOf('console.error(error.message)')
+    const cleanup = runner.indexOf("console.error('owned PostgreSQL cleanup failed')")
+    expect(primary).toBeGreaterThanOrEqual(0)
+    expect(cleanup).toBeGreaterThan(primary)
+  })
+
+  test('the lane removes only the instance it created', () => {
+    // The lane stops its own handle. It never removes a container by a name it
+    // did not create, and it never prunes.
+    expect(runner).toContain('await fixture?.stop()')
+    expect(runner).not.toContain('docker rm')
+    expect(runner).not.toContain('prune')
+  })
+
+  test('the provisioner removes the owned instance when the process ends', () => {
+    // The instance is tied to the process that created it: a normal exit and
+    // an interrupt both remove it, and the removal happens once. A run that
+    // is cancelled therefore leaves nothing behind, and a run that fails
+    // cleans up after itself.
+    const provisioning = readFileSync(resolve(root, 'scripts/capture-provisioning.mjs'), 'utf8')
+    expect(provisioning).toContain('function attachRemoval(handle)')
+    expect(provisioning).toContain("process.on('exit', onExit)")
+    expect(provisioning).toContain('process.on(signal, listener)')
+    expect(provisioning).toContain('process.kill(process.pid, signal)')
+    expect(provisioning).toContain('if (stopped) return')
+    // Only the container it created is removed, and nothing is pruned.
+    expect(provisioning).toContain('removeNamedContainer(name, removalTimeoutMs)')
+    expect(provisioning).not.toContain("'prune'")
+  })
+
+  test('a child that overruns is killed, and its output is never relayed', () => {
+    // A child that hangs is killed instead of waiting forever, and a child that
+    // failed is reported by a fixed message: the raw output is not relayed,
+    // because it may carry the URL and its parameters.
+    expect(runner).toContain('timeout: 180_000')
+    expect(runner).toContain('timeout: 600_000')
+    expect(runner).toContain("killSignal: 'SIGKILL'")
+    expect(runner).toContain('Child failures may include SQL/URL parameters')
+    expect(runner).toContain(
+      "throw new Error('fresh-schema fixture failed; exit=' + result.status)"
+    )
+    expect(runner).toContain(
+      "throw new Error('the desktop principal acceptance phase failed; exit=' + focused.status)"
+    )
+    expect(runner).toContain('raw output withheld')
+  })
+})

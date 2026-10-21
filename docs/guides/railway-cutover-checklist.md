@@ -1,15 +1,15 @@
 # Railway cutover checklist
 
 This checklist prepares one cutover: moving the self-hosted Better Auth service onto the
-Railway-managed PostgreSQL at the current source, and the rollback that reverses it. It
+Railway-managed PostgreSQL at the current source, and the recovery that reverses it. It
 records what must be true before that cutover may be attempted and what must be true
 afterwards.
 
 It authorizes nothing. It does not provision, deploy, cut over, change a credential,
-delete anything in Neon, or mutate production. It does not replace the acceptance plan
+delete anything, or mutate production. It does not replace the acceptance plan
 in [Fresh PostgreSQL acceptance](fresh-postgres-acceptance.md); that plan's gates must
-pass first, and a passing local receipt there does not switch traffic, retire Neon or
-start the cost week.
+pass first, and a passing local receipt there does not switch traffic, retire the legacy
+environment or start the cost measurement.
 
 The cost measurement that follows a verified cutover is planned in
 [Railway cost week](railway-cost-week-plan.md).
@@ -59,7 +59,10 @@ that no Railway service exists outside this repository.
   `NEON_AUTH_COOKIE_SECRET` from `AGENT_HQ_WORKER_AUTH_COOKIE_SECRET`, alongside
   `AUTH_TRUSTED_ORIGINS` from `AGENT_HQ_WORKER_AUTH_TRUSTED_ORIGINS` and `DATABASE_URL`
   from `AGENT_HQ_NEON_PRODUCTION_DATABASE_URL`. Whether the running Worker holds exactly
-  these bindings is a live question this repository does not answer.
+  these bindings is a live question this repository does not answer. These bindings are
+  active Neon coupling: the Railway target is the only target, so they are to be removed
+  rather than kept as a fallback. Their files belong to the auth lane, and this checklist
+  records them as an open item instead of changing them.
 - **`AUTH_BASE_URL`, `AUTH_SECRET` and `AUTH_DATABASE_URL` are bound nowhere in this
   repository's deployment configuration.** The Railway-backed set exists in source and in
   the operator tooling, but no production or preview binding in this repository
@@ -72,7 +75,7 @@ that no Railway service exists outside this repository.
   legacy reader `readAuthConfig` is exported from `packages/auth/src/server.ts` but has no
   production caller in this source. Restoring the legacy `NEON_AUTH_*` bindings on the
   current artifact therefore does not select the former implementation; it leaves the
-  artifact without `AUTH_BASE_URL`, which fails closed. See the rollback section.
+  artifact without `AUTH_BASE_URL`, which fails closed. See the recovery section.
 - **Provider schema initialization is not wired into a deploy step.**
   `docs/authentication.md` records this as remaining work, and
   `packages/auth/README.md` provides the operator-run command that replaces it:
@@ -83,9 +86,11 @@ that no Railway service exists outside this repository.
   identifiers stay in `vars` and text bindings. A secret value must never enter this
   repository, a commit, a log or a receipt.
 - **The auth connection is not the application connection.** The application database
-  stays on Neon, and `packages/db/src/config.ts` classifies only Neon `-pooler` hosts as
-  transaction-pooled (`isTransactionPooledHost`); every other host, including a direct
-  Railway host, is classified as `preparedStatements: true`. The auth service does not
+  has not moved yet, and `packages/db/src/config.ts` classifies only Neon `-pooler`
+  hosts as transaction-pooled (`isTransactionPooledHost`); every other host, including
+  a direct Railway host, is classified as `preparedStatements: true`. That Neon host
+  classification is active Neon coupling, and it belongs to the application lane rather
+  than to this checklist. The auth service does not
   use that path at all: it opens its own `pg.Pool` with `max: 1` from the validated
   connection string (`createPostgresAuthDatabase`). Record the auth pool's effective
   `prepare` behaviour on the Railway host, and do not carry the legacy endpoint's
@@ -168,6 +173,21 @@ that no Railway service exists outside this repository.
 - [ ] `bun run --cwd apps/web start:test:auth-worker` passed at the cutover head. It
       runs the production-built Worker against a separate auth schema with a synthetic
       secret, and it must not become a green skipped test.
+- [ ] `bun run scripts/built-worker-desktop-auth-cli.ts` passed at the cutover head. It
+      runs the production-built Worker against a disposable loopback PostgreSQL and
+      proves the built desktop routes: the authorize route is registered, refuses a
+      caller without a session, refuses a request that carries a parameter the desktop
+      contract does not define, and issues an authorization code to a fresh account the
+      Worker signs up itself; the exchange route turns that code into a desktop session
+      and refuses a wrong PKCE verifier, an untrusted origin and a replayed code; and no
+      response carries the auth secret, the session cookie, the authorization code or
+      the desktop credential. The receipt carries every assertion by name, how many
+      attempts each assertion made, how every attempt ended, the identity of the built
+      artifact it proved, the verdict of the teardown, and the full auth lifecycle
+      assertions. A run whose failure was published as a receipt is a failed run: an
+      application failure is never retried into a pass, and a request whose outcome is
+      unknown is never replayed. A receipt is published only after the Worker was
+      stopped and its material removed. It must not become a green skipped run.
 - [ ] The invalid, expired, revoked and wrong-origin cases, plus refresh, logout and
       delivery, passed. `docs/authentication.md` step 5 requires them before switching
       traffic.
@@ -194,151 +214,132 @@ that no Railway service exists outside this repository.
       not prove recovery, and the absence of an error is not evidence of a healthy
       path.
 
-## Rollback checklist
+## Recovery checklist
 
-Rollback is not a binding change. It needs a **named compatible artifact** as well as
-bindings, because the current artifact constructs Better Auth unconditionally.
+Recovery is a forward-fix or a Railway backup/restore, and it is described in
+[Railway PostgreSQL recovery](railway-postgres-recovery.md). It is not a
+binding change, and it does not restore an earlier artifact.
 
+The current artifact constructs Better Auth unconditionally.
 `createNeonServerAdapter` and `handleNeonAuthRequest` both call
-`createBetterAuthService(environment)`, which reads `AUTH_BASE_URL` and throws when it
-is absent. The legacy reader `readAuthConfig` is exported but has no production caller
-in this source, so the former implementation is not reachable from the current artifact.
-Restoring `NEON_AUTH_BASE_URL` and `NEON_AUTH_COOKIE_SECRET` on the current artifact
-does not select the former implementation; it leaves the artifact without
-`AUTH_BASE_URL`, and the auth path fails closed.
+`createBetterAuthService(environment)`, which reads `AUTH_BASE_URL` and throws
+when it is absent. The legacy reader `readAuthConfig` is exported but has no
+production caller in this source, so the former implementation is not reachable
+from the current artifact. Restoring the legacy `NEON_AUTH_BASE_URL` and
+`NEON_AUTH_COOKIE_SECRET` on the current artifact does not select the former
+implementation; it leaves the artifact without `AUTH_BASE_URL`, and the auth
+path fails closed. There is therefore no legacy artifact to name, and a
+recovery that named one would be a procedure that no artifact satisfies.
 
-- [ ] A rollback artifact is named: a specific head or image whose auth entry points
-      were reviewed and qualified against the legacy `NEON_AUTH_*` bindings. "The
-      previous deployment" is not a name; the artifact identity is recorded.
-- [ ] The artifact and the binding set are qualified **as a combination**, at that
-      artifact, with the legacy bindings present. A binding set is not qualified on its
-      own.
-- [ ] The legacy `NEON_AUTH_BASE_URL` and `NEON_AUTH_COOKIE_SECRET` Secret Store
-      records are still present and unmodified at rollback time. The cutover adds the
-      new set; it does not remove the old one.
-- [ ] The legacy Neon Auth endpoint was never deleted, and its provider tables were
-      never migrated, altered or dropped by the cutover.
-- [ ] Rollback restores the previous binding set and invalidates the sessions the
-      cutover issued. Scope that invalidation precisely: rotating the auth cookie secret
-      affects the cookie/provider sessions Better Auth signs with `AUTH_SECRET`, and it
-      does **not** revoke desktop grants. A desktop grant is issued with a random
-      credential whose SHA-256 digest is persisted, together with a session ID, and it
-      is revoked or rotated by that digest and session ID
+- [ ] The recovery method is recorded: `forward-fix` or `railway-backup-restore`.
+      No other method is used.
+- [ ] The exact artifact the recovery works from is recorded, and it is the
+      artifact a proof receipt names, with the receipt's commit, source and
+      clean-tree flag, as
+      [Railway PostgreSQL recovery](railway-postgres-recovery.md) describes.
+      "The previous deployment" is not a name, and a commit that was not proved
+      is not an artifact.
+- [ ] A forward-fix is proved on a disposable instance of the same PostgreSQL
+      major version before it is applied to the target, and the plan output of
+      the schema initializer was read before the apply.
+- [ ] A backup/restore has a restored copy that was compared against the
+      backup before the target was pointed at it.
+- [ ] The scope of any session invalidation is recorded: which cookie and
+      provider sessions are affected, which desktop grants are not, and which
+      scoped revocation is planned instead. Rotating the auth cookie secret
+      affects the cookie/provider sessions Better Auth signs with `AUTH_SECRET`,
+      and it does **not** revoke desktop grants. A desktop grant is issued with
+      a random credential whose SHA-256 digest is persisted, together with a
+      session ID, and it is revoked or rotated by that digest and session ID
       (`createDesktopSessionService`, `revokeDesktopSessionRecord`,
-      `rotateDesktopSessionRecord`). Any desktop-grant revocation is therefore a separate,
-      scoped action against the persisted session ID and credential digest, planned on
-      its own. This checklist authorizes no credential or security mutation, and it does
-      not instruct one.
-- [ ] The scope of the invalidation is recorded: which cookie and provider sessions are
-      affected, which desktop grants are not, and which scoped revocation is planned
-      instead.
-- [ ] Rollback re-points `AUTH_TRUSTED_ORIGINS` only if the cutover changed it, and
-      restores the previous value exactly.
-- [ ] The Railway target is left intact after a rollback, so a second attempt does not
-      need to re-provision. Nothing in the rollback re-initializes the Railway schema.
-- [ ] The rollback receipt records the artifact identity, the exact bindings changed, the
-      sessions invalidated and the sessions deliberately left alone, and the observation
-      window after the rollback.
+      `rotateDesktopSessionRecord`). Any desktop-grant revocation is therefore a
+      separate, scoped action against the persisted session ID and credential
+      digest, planned on its own. This checklist authorizes no credential or
+      security mutation, and it does not instruct one.
+- [ ] The Railway target is left intact after a recovery, so a second attempt
+      does not need to re-provision. Nothing in the recovery re-initializes the
+      Railway schema.
+- [ ] The recovery receipt records the artifact identity, the exact bindings
+      changed, the sessions invalidated and the sessions deliberately left
+      alone, and the observation window after the recovery.
 
-### Proposed rollback plan for root review
+### Superseded: the legacy rollback proposal
 
-This section is a proposal. It names no approved artifact, sets no thresholds, and
-authorizes no live step. Each step below is a separate action that needs Andrew's
-approval when it runs.
+This entry is an accountability record, not a procedure. It is kept so the
+history of the migration is complete, and it is deliberately not an active
+dependency: no step below is authorized, and nothing in this checklist may be
+executed from it.
 
-**Candidate artifact (proposal only):** Adea main `5747673e5d31ff2da2dcc8dbdaa908ca94f8ace8`.
-This is the current source, which includes #1478, #1499 and #1511. It is not a rollback
-artifact for the legacy Neon Auth path. The section above explains why: this artifact
-constructs Better Auth unconditionally and cannot select the `NEON_AUTH_*` implementation.
-A rollback to legacy auth therefore needs a different, previously deployed artifact,
-reviewed and qualified with the legacy bindings present. Its identity is not in this
-repository, and root has to name it. Until it is named, the first checklist item above
-stays open.
+On 2026-10-20, PR #1512 (reviewed head `7a3c42392`, merged as `333b948d4`)
+proposed a rollback to a legacy-compatible artifact for the Railway auth
+cutover, and named Adea main `5747673e5d31ff2da2dcc8dbdaa908ca94f8ace8` as a
+**candidate** artifact. That commit was the squash of #1511, and it was
+recorded at the time as _incompatible as a legacy rollback artifact_: it
+constructs Better Auth unconditionally, so it cannot serve the legacy
+`NEON_AUTH_*` path either.
 
-**Provenance and compatibility check (candidate status stays CANDIDATE):** recorded
-against `origin/main` at `5747673e`. Recorded from repository reads and check-run
-reports only. No live system was read.
+That proposal is superseded. Recovery is a forward-fix or a Railway
+backup/restore, described in [Railway PostgreSQL recovery](railway-postgres-recovery.md).
+No legacy artifact is named, required or kept, and `5747673e5` is not treated
+as compatible with anything: it is neither a legacy rollback artifact nor a
+recovery artifact. The compatibility check recorded with the proposal stays on
+the record, and the decision owner and the triggers it left unset were never
+set.
 
-- Provenance: the commit is the squash of #1511, whose reviewed head was `12405633`. It
-  was merged by the repository owner account at 2026-10-20T03:50:54Z. The check runs
-  reported on the commit are success for release validation, the production build,
-  the desktop macOS build, desktop asset verification, the dev pre-release and CodeQL.
-- Compatibility: `createBetterAuthService` builds the Better Auth service from
-  `readBetterAuthConfig` on every call, and the checks above do not change that. The
-  legacy reader `readAuthConfig` is exported and has no production caller. `server.ts`
-  only re-exports it. So this commit cannot serve the legacy `NEON_AUTH_*` path. The verdict is
-  **incompatible as a legacy rollback artifact**.
-- Open item: the check run `Cloudflare Production / adea-web / Cloudflare Deploy /
-production` reports success on this commit, completed at 2026-10-20T03:52:29Z. That
-  reports a deploy workflow result. It does not show what is live, or which bindings the
-  live Worker runs with. The owner has to verify that before any rollback reasoning
-  relies on this artifact.
+## Legacy environment: evidence without an operating dependency
 
-**Decision owner and triggers:** not decided here. Root sets the owner, and the
-thresholds for any trigger listed below.
+The legacy environment is not a target of this work and not a recovery path.
+Nothing here requires one to exist, to stay running, or to be reachable, and
+nothing here reads one. The repository keeps its historical records of that
+environment as non-operational evidence, so the history of the migration stays
+readable, and those records carry no dependency.
 
-Candidate triggers for root to accept, reject or set:
+| Record                                     | What it is                                                          |
+| ------------------------------------------ | ------------------------------------------------------------------- |
+| `docs/authentication.md`                   | the documentation of the legacy provider configuration              |
+| `packages/auth/src/config.ts`              | the separate legacy configuration reader, with no production caller |
+| `docs/guides/fresh-postgres-acceptance.md` | the acceptance plan's description of the legacy boundary            |
 
-- Sign-in or session-refresh failures on the cutover host, above a threshold root sets.
-- Verification or reset delivery failures, above a threshold root sets.
-- A failure of the Railway target's connection or TLS check that the cutover cannot
-  resolve forward.
-
-**Revert steps, in order:**
-
-1. Stop further traffic changes. Record the decision, its owner and the time.
-2. Check that the legacy `NEON_AUTH_BASE_URL` and `NEON_AUTH_COOKIE_SECRET` records are
-   present and unmodified. A presence check cannot prove the contents are unchanged, so
-   compare the approved version or audit metadata instead. Never print a value.
-3. Re-point the deployment at the named legacy-compatible artifact from the first
-   checklist item above, not at the candidate artifact.
-4. Restore the previous binding set. Bind the legacy `NEON_AUTH_*` records. Do not
-   delete the new `AUTH_*` records, because the cutover adds them and does not remove
-   the old set.
-5. If the cutover changed `AUTH_TRUSTED_ORIGINS`, restore its previous value exactly.
-6. Scope the session invalidation as the checklist above describes. Rotating the
-   `AUTH_SECRET` affects only the Better Auth cookie and provider sessions. Desktop
-   grants are a separate, scoped revocation, planned on its own.
-7. Leave the Railway target intact. Do not re-initialize its schema.
-8. Re-check the legacy environment's reachability after the rollback. Record the result.
-9. Write the rollback receipt. It records the artifact identity, the bindings changed,
-   the sessions invalidated, the sessions left alone, and the observation window.
-
-**Neon retention:** no Neon branch, database, role or table is deleted, dropped,
-truncated or altered at any step. The preserved branch stays a recoverable restore
-parent until the cutover is accepted, as the invariants below require.
-
-## Neon-recoverable preservation
-
-These invariants hold for the whole cutover, and each one already has a source in this
-repository.
-
-| Invariant                                                                                                                   | Source                                     |
-| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| The legacy Neon-hosted Auth environment is left in place and recoverable; nothing deletes or cuts it over.                  | `docs/authentication.md`                   |
-| The legacy provider configuration is kept separate so the two environments can coexist while the old one stays recoverable. | `packages/auth/src/config.ts`              |
-| The legacy Neon-hosted Auth environment is retained, unchanged, for recovery.                                               | `docs/authentication.md`                   |
-| Existing Neon data stays recoverable throughout this work.                                                                  | `docs/guides/fresh-postgres-acceptance.md` |
-
-- [ ] No Neon branch, database, role or table is deleted, dropped, truncated or
-      migrated as part of the cutover.
-- [ ] No provider table is copied into an Adea migration, and no provider subject is
-      reinterpreted as a domain user ID.
-- [ ] No dual write is introduced and no old record is reconciled or imported. The two
-      environments may hold different accounts; the cutover does not merge them.
-- [ ] The legacy environment's accessibility is re-checked after the cutover and
-      again after the rollback, and the check is recorded. Retained is not the same as
-      reachable.
+- [ ] No provider table is copied into an Adea migration, and no provider subject
+      is reinterpreted as a domain user ID.
+- [ ] No dual write is introduced and no old record is reconciled or imported. The
+      two environments may hold different accounts; the cutover does not merge
+      them.
 - [ ] The application migration journal is unchanged by the cutover. The provider
       schema is owned by the provider's own tooling.
+- [ ] No legacy artifact, fallback provider or compatibility path is kept, required
+      or named. Recovery is a forward-fix or a Railway backup/restore, and it is
+      described in [Railway PostgreSQL recovery](railway-postgres-recovery.md).
+- [ ] No gate in this checklist requires the legacy environment, its secrets or
+      its endpoint to be present, reachable or unmodified.
+- [ ] The lane's own sources carry no legacy provider coupling, and the gate
+      that proves it is in the ordinary unit lane. It scans every source file
+      of this lane, the acceptance sources and the named lane files outside
+      them, and refuses a legacy provider environment variable, a legacy
+      provider host and a legacy provider package.
+
+## Evidence and the compatibility scope
+
+An acceptance receipt carries the class of its own evidence, so a synthetic
+result is never recorded as a CI result and a local result is never recorded as
+a live one. The classes, and what each one does not prove, are listed in
+[Railway PostgreSQL recovery](railway-postgres-recovery.md). The live class is
+refused until a live acceptance is authorized and verified, and live acceptance
+stays root-owned.
+
+The compatibility scope of the Control Plane is confirmed and bounded in the
+same document: the application, the authentication provider and the Control
+Plane own separate migration boundaries, the Control Plane's own production
+migration entry point, journal, object ownership and privileges stay open
+dependencies, and an Adea receipt cannot stand in for them.
 
 ## What this checklist does not establish
 
 - It does not qualify the Railway target, its TLS, its statement preparation, its
   pooling, or its cost. Those need their own evidence.
 - It does not establish that the cutover has run. Nothing here has been provisioned,
-  deployed, switched or rolled back.
-- It does not start the cost week, and it does not retire Neon.
+  deployed, switched or recovered.
+- It does not start the cost measurement. The user owns the next-week follow-up.
 - It does not complete the wider database migration. It covers the auth database only.
 - It does not prove live Cloudflare request, CPU, subrequest or Hyperdrive
   attribution. See [Railway cost week](railway-cost-week-plan.md) for what is

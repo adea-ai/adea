@@ -2,6 +2,7 @@ import {
   sidebarGroupModes,
   type SidebarGroupMode,
   type WorkspaceAccent,
+  type WorkspaceAccentId,
   type WorkspaceLogo,
 } from '@adea-ai/types'
 
@@ -66,17 +67,11 @@ export type NavProject = Readonly<{
    */
   roomName?: string
   iconKey?: string
+  /** A theme accent painting the project's icon; null or absent inherits the workspace accent. */
+  accent?: WorkspaceAccentId | null
   source: ProjectSource
   sortOrder: number
   leaves: readonly NavLeaf[]
-}>
-
-export type NavWorkspaceSummary = Readonly<{
-  running: number
-  needsYou: number
-  unread: number
-  /** Live mentions of the user (the cloud account summary); absent counts as zero. */
-  mentions?: number
 }>
 
 export type NavWorkspace = Readonly<{
@@ -85,21 +80,16 @@ export type NavWorkspace = Readonly<{
   logo: WorkspaceLogo
   accent: WorkspaceAccent | null
   sortOrder: number
-  /** The caller's Home workspace: it always leads the list, whatever the stored order says. */
+  /** The caller's Home workspace. */
   isHome?: boolean
-  summary: NavWorkspaceSummary
-  /** Present for the active workspace only; collapsed workspaces read counts. */
+  /** Present for the active workspace only: the sidebar shows one workspace at a time. */
   projects?: readonly NavProject[]
 }>
 
 export type NavTree = Readonly<{
   activeWorkspaceId: string
+  /** The active workspace; the sidebar never lists the member's other workspaces. */
   workspaces: readonly NavWorkspace[]
-  /**
-   * What needs the user, summed across every workspace: input-needing runs in
-   * Dev, mentions in Chat and Virtual. The "Needs you" strip hides at zero.
-   */
-  needsYou: number
 }>
 
 /** A worktree record, including the primary checkout (`kind: 'checkout'`). */
@@ -244,41 +234,6 @@ export function projectCollapsedSummary(project: Pick<NavProject, 'leaves'>): st
   return undefined
 }
 
-export type WorkspaceChipKind = 'needs_you' | 'running' | 'mention' | 'unread'
-
-export type WorkspaceChip = Readonly<{ kind: WorkspaceChipKind; count: number; label: string }>
-
-/**
- * Status chips for a collapsed workspace row, most urgent first: needs you,
- * running, mentions, unread. Zero counts are omitted.
- */
-export function workspaceChips(workspace: Pick<NavWorkspace, 'summary'>): WorkspaceChip[] {
-  const { needsYou, running, unread } = workspace.summary
-  const mentions = workspace.summary.mentions ?? 0
-  const chips: WorkspaceChip[] = []
-  if (needsYou > 0)
-    chips.push({ kind: 'needs_you', count: needsYou, label: `${needsYou} needs you` })
-  if (running > 0) chips.push({ kind: 'running', count: running, label: `${running} running` })
-  if (mentions > 0)
-    chips.push({
-      kind: 'mention',
-      count: mentions,
-      label: `${mentions} ${mentions === 1 ? 'mention' : 'mentions'}`,
-    })
-  if (unread > 0) chips.push({ kind: 'unread', count: unread, label: `${unread} unread` })
-  return chips
-}
-
-/** Workspaces in the caller's own order, with Home pinned first. */
-export function sortWorkspaces(workspaces: readonly NavWorkspace[]): NavWorkspace[] {
-  return workspaces.toSorted(
-    (left, right) =>
-      Number(right.isHome ?? false) - Number(left.isHome ?? false) ||
-      left.sortOrder - right.sortOrder ||
-      left.name.localeCompare(right.name)
-  )
-}
-
 /** One of the sidebar's groupings; the ids come from `@adea-ai/types`. */
 export type NavGroupMode = SidebarGroupMode
 
@@ -297,30 +252,6 @@ export const navGroupModes: readonly Readonly<{
 
 /** The grouping a sidebar shows before the user picks one. */
 export const defaultNavGroupMode: NavGroupMode = 'project'
-
-/**
- * Where "Needs you" lands when no other workspace needs the user: the status
- * grouping, which brings needs-you leaves to the top of this one. Every view
- * (Dev, Chat, Virtual) uses this one fallback.
- */
-export const needsYouFallbackGroupMode: NavGroupMode = 'status'
-
-/**
- * The first workspace other than the active one that needs the user (mentions
- * or needs-you runs), in the caller's workspace order; undefined when only
- * the active workspace (or none) does. "Needs you" switches to it, else
- * groups the active workspace by `needsYouFallbackGroupMode`.
- */
-export function nextWorkspaceNeedingYou(
-  workspaces: readonly NavWorkspace[],
-  activeWorkspaceId: string
-): NavWorkspace | undefined {
-  return sortWorkspaces(workspaces).find(
-    (workspace) =>
-      workspace.id !== activeWorkspaceId &&
-      (workspace.summary.mentions ?? 0) + workspace.summary.needsYou > 0
-  )
-}
 
 /** A leaf outside its project's tree carries the project's name with it. */
 export type NavLeafEntry = Readonly<{ leaf: NavLeaf; projectId: string; projectName: string }>
@@ -394,10 +325,9 @@ type PlainRecord = Readonly<Record<string, unknown>>
 /**
  * Structural equality for the tree's plain data (records, arrays, primitives),
  * returning at the first difference. A key holding `undefined` equals an
- * absent key, so optional fields spread in or left out compare alike. `ignore`
- * skips one top-level key.
+ * absent key, so optional fields spread in or left out compare alike.
  */
-function sameData(left: unknown, right: unknown, ignore?: string): boolean {
+function sameData(left: unknown, right: unknown): boolean {
   if (Object.is(left, right)) return true
   if (typeof left !== 'object' || typeof right !== 'object' || left === null || right === null)
     return false
@@ -410,10 +340,10 @@ function sameData(left: unknown, right: unknown, ignore?: string): boolean {
   const leftRecord = left as PlainRecord
   const rightRecord = right as PlainRecord
   for (const key of Object.keys(leftRecord)) {
-    if (key !== ignore && !sameData(leftRecord[key], rightRecord[key])) return false
+    if (!sameData(leftRecord[key], rightRecord[key])) return false
   }
   for (const key of Object.keys(rightRecord)) {
-    if (key === ignore || Object.hasOwn(leftRecord, key)) continue
+    if (Object.hasOwn(leftRecord, key)) continue
     if (rightRecord[key] !== undefined) return false
   }
   return true
@@ -451,9 +381,6 @@ function stabilizeProjects(
  * focus and open menus mid-interaction. Only what actually changed is
  * replaced, and an unchanged rebuild returns `previous` itself.
  *
- * The expanded workspace shows no status chips, so a counts-only change to it
- * (an account or run summary refresh) keeps the previous workspace object and
- * its whole subtree mounted.
  */
 export function stabilizeNavTree(previous: NavTree | undefined, next: NavTree): NavTree {
   if (!previous) return next
@@ -461,8 +388,7 @@ export function stabilizeNavTree(previous: NavTree | undefined, next: NavTree): 
   let changed = previous.workspaces.length !== next.workspaces.length
   const workspaces = next.workspaces.map((workspace, index) => {
     const prior = previousWorkspaces.get(workspace.id)
-    const ignore = workspace.id === next.activeWorkspaceId ? 'summary' : undefined
-    if (prior && sameData(prior, workspace, ignore)) {
+    if (prior && sameData(prior, workspace)) {
       if (previous.workspaces[index] !== prior) changed = true
       return prior
     }
@@ -470,12 +396,7 @@ export function stabilizeNavTree(previous: NavTree | undefined, next: NavTree): 
     if (!prior?.projects || !workspace.projects) return workspace
     return { ...workspace, projects: stabilizeProjects(prior.projects, workspace.projects) }
   })
-  if (
-    !changed &&
-    previous.activeWorkspaceId === next.activeWorkspaceId &&
-    previous.needsYou === next.needsYou
-  )
-    return previous
+  if (!changed && previous.activeWorkspaceId === next.activeWorkspaceId) return previous
   return { ...next, workspaces }
 }
 
@@ -530,16 +451,9 @@ export function navAgentCountLabel(count: number): string {
 
 /**
  * The help under an active workspace with no projects: what is missing and
- * how to start, offering only the actions the host wired ("+" and settings).
+ * how to start, offering only the action the host wired.
  */
-export function emptyWorkspaceHint(
-  projectNoun: string,
-  actions: Readonly<{ create: boolean; settings: boolean }>
-): string {
+export function emptyWorkspaceHint(projectNoun: string, create: boolean): string {
   const empty = `No ${projectNoun.toLowerCase()}s yet.`
-  const settings = 'open workspace settings to add connections, set a mark and pick a colour'
-  if (actions.create && actions.settings) return `${empty} Use + to add one, or ${settings}.`
-  if (actions.create) return `${empty} Use + to add one.`
-  if (actions.settings) return `${empty} ${settings[0]!.toUpperCase()}${settings.slice(1)}.`
-  return empty
+  return create ? `${empty} Use the add button above to start one.` : empty
 }

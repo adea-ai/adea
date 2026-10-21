@@ -9,6 +9,7 @@
  */
 import type { ApiProjectResponse, ApiProjectUpdateInput } from '@adea-ai/api-client'
 import { isProjectSourceKind } from '@adea-ai/db'
+import { workspaceAccentIds } from '@adea-ai/types'
 
 import { guardDesktopWorkspaceRequest } from './desktop-workspace'
 import { applicationManagementOperations } from './management-composition'
@@ -52,6 +53,17 @@ export async function updateProjectRequest(
     if (typeof value !== 'string') return workspaceInvalidRequestResponse(request)
     Object.assign(input, { [field]: value.trim() })
   }
+  if ('accent' in candidate) {
+    // A project paints with a theme accent only; null returns it to the
+    // workspace accent. Custom colours are a workspace-level choice.
+    const accent = candidate.accent
+    if (
+      accent !== null &&
+      !(typeof accent === 'string' && (workspaceAccentIds as readonly string[]).includes(accent))
+    )
+      return workspaceInvalidRequestResponse(request)
+    Object.assign(input, { accent })
+  }
   if ('sourceKind' in candidate) {
     if (!isProjectSourceKind(candidate.sourceKind)) return workspaceInvalidRequestResponse(request)
     Object.assign(input, { sourceKind: candidate.sourceKind })
@@ -66,6 +78,7 @@ export async function updateProjectRequest(
     return workspaceInvalidRequestResponse(request)
   }
   const outcome = await applicationManagementOperations().projectUpdate({
+    ...(input.accent !== undefined ? { accent: input.accent } : {}),
     ...(input.iconKey !== undefined ? { iconKey: input.iconKey } : {}),
     ...(input.name !== undefined ? { name: input.name } : {}),
     principal: resolution.principal,

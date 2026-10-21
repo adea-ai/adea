@@ -10,6 +10,7 @@ import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-iden
 import { cn } from '@adea-ai/app-ui/lib/utils'
 import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
+import { IconPicker, isShellIconKey } from '@adea-ai/ui/components/composites/icon-picker'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
@@ -60,6 +61,14 @@ export function WorkspaceIdentitySettings(props: {
   })
 
   const defaultIcon = () => (props.workspace.isPersonal ? ('home' as const) : ('box' as const))
+  // The picker shows the stored icon key; Home and box are the defaults, and
+  // an emoji or an unrecognised key checks nothing rather than a wrong glyph.
+  const pickedIconKey = () => {
+    const logo = props.workspace.logo
+    if (logo.kind === 'icon') return isShellIconKey(logo.value) ? logo.value : undefined
+    if (logo.kind === 'home' || logo.kind === 'box') return logo.kind
+    return undefined
+  }
   const editable = () => Boolean(props.onUpdate)
   const save = async (update: WorkspaceUpdate) => {
     if (!props.onUpdate) return
@@ -125,40 +134,64 @@ export function WorkspaceIdentitySettings(props: {
           }}
         />
       </SettingsRow>
-      <SettingsRow label="Mark" description="One emoji, or blank for the workspace icon.">
+      <SettingsRow
+        label="Mark"
+        description="Choose an icon or upload an image. Or use one emoji, or leave it blank for the workspace icon."
+      >
         <div class="workspace-identity-settings__mark">
-          <WorkspaceIdentityMark
-            accent={props.workspace.accent}
-            logo={props.workspace.logo}
-            name={props.workspace.name}
-            size="md"
-          />
-          <Input
-            aria-label="Workspace emoji"
-            value={emoji()}
-            maxLength={16}
-            placeholder="Workspace icon"
-            disabled={!editable()}
-            onInput={(event) => setEmoji(event.currentTarget.value)}
-            onBlur={commitEmoji}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') event.currentTarget.blur()
-            }}
-          />
-          <Show when={props.workspace.logo.kind === 'emoji'}>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
+          <div class="workspace-identity-settings__mark-row">
+            <WorkspaceIdentityMark
+              accent={props.workspace.accent}
+              logo={props.workspace.logo}
+              name={props.workspace.name}
+              size="md"
+            />
+            <Input
+              aria-label="Workspace emoji"
+              value={emoji()}
+              maxLength={16}
+              placeholder="Workspace icon"
               disabled={!editable()}
-              onClick={() => {
-                setEmoji('')
-                void save({ logo: { kind: defaultIcon() } })
+              onInput={(event) => setEmoji(event.currentTarget.value)}
+              onBlur={commitEmoji}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
               }}
-            >
-              Use workspace icon
-            </Button>
-          </Show>
+            />
+            <Show when={props.workspace.logo.kind !== defaultIcon()}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={!editable()}
+                onClick={() => {
+                  setEmoji('')
+                  void save({ logo: { kind: defaultIcon() } })
+                }}
+              >
+                Use workspace icon
+              </Button>
+            </Show>
+          </div>
+          <IconPicker
+            label="Workspace icon"
+            value={pickedIconKey()}
+            defaultKey={defaultIcon()}
+            disabled={!editable()}
+            onValueChange={(key) => {
+              setEmoji('')
+              void save({
+                logo:
+                  key === defaultIcon() ? { kind: defaultIcon() } : { kind: 'icon', value: key },
+              })
+            }}
+            image={props.workspace.logo.kind === 'image' ? props.workspace.logo.value : undefined}
+            onImageChange={(image) =>
+              void save({
+                logo: image ? { kind: 'image', value: image } : { kind: defaultIcon() },
+              })
+            }
+          />
         </div>
       </SettingsRow>
       <SettingsRow

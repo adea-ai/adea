@@ -1,11 +1,5 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
-import {
-  settledData,
-  useAccountSummaryQuery,
-  useArchiveProjectMutation,
-  useCreateWorkspaceMutation,
-  useDeleteProjectMutation,
-} from '@adea-ai/data'
+import { useArchiveProjectMutation, useDeleteProjectMutation } from '@adea-ai/data'
 import type {
   AgentSummary,
   ChannelReadStateSummary,
@@ -37,7 +31,6 @@ import {
   lazy,
   onCleanup,
   onMount,
-  untrack,
   Show,
   Suspense,
   type Accessor,
@@ -55,25 +48,18 @@ import {
   type ViewAdapter,
 } from '@adea-ai/workspace-nav/adapters'
 import { breadcrumbsFor } from '@adea-ai/workspace-nav/breadcrumbs'
-import {
-  needsYouFallbackGroupMode,
-  nextWorkspaceNeedingYou,
-  stabilizeNavTree,
-  type NavLeaf,
-  type NavProject,
-} from '@adea-ai/workspace-nav/model'
+import { stabilizeNavTree, type NavLeaf, type NavProject } from '@adea-ai/workspace-nav/model'
 import {
   createSidebarWidth,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
   SIDEBAR_WIDTH_STEP,
 } from '@adea-ai/workspace-nav/sidebar-width'
-import { WorkspaceNav, type WorkspaceCreationContext } from '@adea-ai/workspace-nav/workspace-nav'
+import { WorkspaceNav } from '@adea-ai/workspace-nav/workspace-nav'
 
 import { keyedRows } from './keyed-rows'
 import { platformModifierKey } from './keyboard-shortcuts'
 import { createProjectShare, ProjectShareHost, type ProjectShareContext } from './project-share'
-import { createClientRequestId } from './request-id'
 import { SidebarToggleButton } from './sidebar-toggle-button'
 import type { WorkspaceBreadcrumb } from './workspace-breadcrumbs'
 import type { WorkspaceNavigation } from './workspace-model'
@@ -81,7 +67,6 @@ import {
   buildWorkspaceNavSource,
   cloudLeafMenu,
   cloudProjectMenu,
-  type DevWorkspaceSummary,
   type NavLeafTarget,
 } from './workspace-nav-source'
 
@@ -90,9 +75,9 @@ import {
 // into the workspace shell chunk, which silently defeated the lazy imports in
 // `conventional-workspace-shell.tsx`: Rolldown reported the ineffective
 // dynamic-import boundary in every build (see docs/decisions/0008).
-const EditProjectDialog = lazy(() =>
+const ProjectSettingsDialog = lazy(() =>
   import('./create-workspace-dialogs').then((module) => ({
-    default: module.EditProjectDialog,
+    default: module.ProjectSettingsDialog,
   }))
 )
 const RenameConversationDialog = lazy(() =>
@@ -107,40 +92,16 @@ const ConfirmActionDialog = lazy(() =>
 )
 
 /**
- * What the host that owns workspace switching (the integrated frame) hands
- * the sidebar. Without it the sidebar switches through the workspace store
- * and lists the bootstrap workspaces.
+ * What the integrated frame hands the sidebar. The sidebar lists only the
+ * selected workspace; the frame's top bar owns switching between workspaces.
  */
 export type WorkspaceNavHost = Readonly<{
-  /** Every workspace the member belongs to, in their own order. */
-  workspaces: readonly WorkspaceSummary[]
-  /** Switch to a workspace: the host authorizes, resets context and routes the scene. */
-  onSwitchWorkspace: (workspace: WorkspaceSummary) => void | Promise<unknown>
-  /** Open Settings at its Workspace section; the header action hides without it. */
-  onOpenWorkspaceSettings?: () => void
-  /** The desktop cross-workspace Dev summary, when the host has one (ADR 0011). */
-  devSummary?: readonly DevWorkspaceSummary[]
-  /** Account-wide results mounted inside the existing Agents and Conversations surfaces. */
-  globalNav?: Readonly<{
-    agents?: (context: AccountAgentRosterContext) => JSX.Element
-    conversations?: (context: AccountConversationInboxContext) => JSX.Element
-  }>
   /**
    * Hand the top bar this sidebar's Workspace › Project › Leaf path while it is
    * mounted. Returns the unregister call; a later registration wins, so a
    * view swap never clears the crumbs the incoming view just published.
    */
   registerBreadcrumbs?: (crumbs: Accessor<readonly WorkspaceBreadcrumb[]>) => () => void
-}>
-
-/** This workspace's canonical Agents, so the supplemental account list can skip them. */
-export type AccountAgentRosterContext = Readonly<{
-  agents: Accessor<readonly AgentSummary[]>
-}>
-
-/** This workspace's canonical conversations, so the supplemental account list can skip them. */
-export type AccountConversationInboxContext = Readonly<{
-  channels: Accessor<readonly ChannelSummary[]>
 }>
 
 export function ConversationChannelRow(props: {
@@ -280,8 +241,9 @@ export function GlobalQuickActions(props: {
 const DEFAULT_DIRECT_TITLE = 'Direct conversation'
 
 /**
- * The global Conversations section (direct agent and group conversations),
- * below the Workspaces accordion in every view. Presentational: the host owns
+ * The selected workspace's Conversations section (direct agent and group
+ * conversations), below the Projects accordion in every view. "+" starts a
+ * conversation with the workspace's lead Agent. Presentational: the host owns
  * the data and every action.
  */
 export function ConversationsSection(props: {
@@ -289,12 +251,11 @@ export function ConversationsSection(props: {
   createDisabled?: boolean
   directChannels: readonly ChannelSummary[]
   groupChannels: readonly ChannelSummary[]
-  accountInbox?: (context: AccountConversationInboxContext) => JSX.Element
   readState: readonly ChannelReadStateSummary[]
   selectedChannelId: string | null
   onArchive: (channel: ChannelSummary) => void
   onCopyLink: (channel: ChannelSummary) => void
-  onCreateGroup: () => void
+  onCreateConversation: () => void
   onIntent?: (channelId: string) => void
   onOpenAgents: () => void
   onRename: (channel: ChannelSummary) => void
@@ -367,13 +328,6 @@ export function ConversationsSection(props: {
         ),
       () => (channel().kind === 'direct_agent' ? directLabel(channel()) : channel().title)
     )
-  const accountInboxContent = props.accountInbox
-    ? untrack(() =>
-        props.accountInbox!({
-          channels: () => [...props.directChannels, ...props.groupChannels],
-        })
-      )
-    : undefined
   return (
     <SidebarNavSection
       label="Conversations"
@@ -387,10 +341,10 @@ export function ConversationsSection(props: {
           variant="ghost"
           size="icon-md"
           touchTarget={props.touchTarget}
-          tooltip={props.tooltips === false ? undefined : 'Create a group conversation'}
-          aria-label="Create group conversation"
+          tooltip={props.tooltips === false ? undefined : 'New conversation with the lead Agent'}
+          aria-label="New conversation"
           disabled={props.createDisabled}
-          onClick={() => props.onCreateGroup()}
+          onClick={() => props.onCreateConversation()}
         >
           <Plus aria-hidden="true" />
         </ActionButton>
@@ -400,7 +354,6 @@ export function ConversationsSection(props: {
         <For each={directChannelRows()}>{(entry) => renderLocalChannel(entry.item)}</For>
         <For each={groupChannelRows()}>{(entry) => renderLocalChannel(entry.item)}</For>
       </div>
-      {accountInboxContent}
       <Show when={!props.directChannels.length && !props.groupChannels.length}>
         <SidebarNavButton type="button" onClick={() => props.onOpenAgents()}>
           <MessageCircle aria-hidden="true" />
@@ -437,7 +390,7 @@ type Props = Readonly<{
   onArchiveTask: (task: TaskSummary) => Promise<void>
   /** Fires on hover/focus of a channel affordance — prefetch before click. */
   onChannelIntent?: (channelId: string) => void
-  onCreateGroup: () => void
+  onCreateConversation: () => void
   onCreateProject: () => void
   onMarkAllRead: () => void | Promise<void>
   onOpenAgents: () => void
@@ -450,7 +403,11 @@ type Props = Readonly<{
   onToggleProject: (projectId: string) => void
   onUpdateProject: (
     projectId: string,
-    update: Readonly<{ iconKey?: string; name?: string }>
+    update: Readonly<{
+      accent?: ProjectSummary['accent']
+      iconKey?: string
+      name?: string
+    }>
   ) => Promise<void>
   projectBusy: boolean
   /**
@@ -460,12 +417,6 @@ type Props = Readonly<{
   share?: ProjectShareContext
   status?: JSX.Element
   workspaceReady?: boolean
-  /**
-   * Owner/placement facts for the inline draft's context line when the
-   * host knows them; unknown labels render honestly. Forwarded to the
-   * shared nav; no current caller feeds it (no account identity in scope).
-   */
-  creationContext?: WorkspaceCreationContext
 }>
 
 type RenameTarget =
@@ -489,10 +440,9 @@ function targetTask(target: NavLeafTarget): TaskSummary | undefined {
  *
  * The Chat and Virtual contextual sidebar (ADR 0011): the shared
  * `WorkspaceNav` accordion inside the resizable `ContextualSidebar` shell.
- * The active workspace is expanded with its projects, channels and tasks;
- * other workspaces are one row each with unread and mention chips, and
- * clicking one switches through the host. Conversations (direct and group)
- * stay global below the accordion.
+ * It lists the selected workspace alone: its projects (each an independent
+ * accordion of sessions) and then its Conversations. The top bar's switcher
+ * changes which workspace that is.
  */
 export function WorkspaceNavSidebar(props: Props) {
   // One stored width with the Dev sidebar; the toolbar and each contextual
@@ -506,13 +456,8 @@ export function WorkspaceNavSidebar(props: Props) {
   const [confirming, setConfirming] = createSignal<ConfirmTarget | null>(null)
   const [actionError, setActionError] = createSignal<string | null>(null)
   const projectShare = createProjectShare()
-  const [creatingWorkspace, setCreatingWorkspace] = createSignal(false)
-  const [workspaceDraftError, setWorkspaceDraftError] = createSignal<string>()
-  const [workspaceDraftPending, setWorkspaceDraftPending] = createSignal(false)
 
   const workspaceId = () => props.activeWorkspace?.id ?? ''
-  const accountSummary = useAccountSummaryQuery(props.client)
-  const createWorkspace = useCreateWorkspaceMutation(props.client)
   const archiveProject = useArchiveProjectMutation(props.client, workspaceId)
   const deleteProject = useDeleteProjectMutation(props.client, workspaceId)
 
@@ -520,16 +465,12 @@ export function WorkspaceNavSidebar(props: Props) {
     buildWorkspaceNavSource({
       activeWorkspaceId: workspaceId(),
       activeWorkspace: props.activeWorkspace,
-      workspaces: props.host.workspaces,
       navigation: props.navigation,
       tasks: props.tasks,
       readState: props.readState,
-      accountSummary: settledData(accountSummary),
-      devSummary: props.host.devSummary,
     })
   )
-  // Every refetch (read state, account summary, the 30s Dev summary poll)
-  // rebuilds the tree; rebuilds that change nothing keep the rendered rows,
+  // Every refetch (read state, tasks, projects) rebuilds the tree; rebuilds that change nothing keep the rendered rows,
   // and with them keyboard focus and open menus.
   const source = createMemo<ReturnType<typeof buildWorkspaceNavSource>>((previous) => {
     const next = built()
@@ -606,49 +547,16 @@ export function WorkspaceNavSidebar(props: Props) {
       .catch(() => setActionError('Conversation could not be deleted.'))
   }
 
-  const switchWorkspace = (nextWorkspaceId: string) => {
-    const workspace = props.host.workspaces.find(({ id }) => id === nextWorkspaceId)
-    if (workspace) void props.host.onSwitchWorkspace(workspace)
-  }
-
-  const createNamedWorkspace = (name: string) => {
-    // A second submit while one create is in flight would create a duplicate
-    // workspace under a fresh idempotency key.
-    if (workspaceDraftPending()) return
-    setWorkspaceDraftError(undefined)
-    setWorkspaceDraftPending(true)
-    // A fresh idempotency key per attempt: a retry after a failure is a new
-    // request, while a network replay of this one stays a single create.
-    createWorkspace
-      .mutateAsync({
-        idempotencyKey: createClientRequestId(),
-        name,
-        scene: 'home',
-      })
-      .then((result) => {
-        setCreatingWorkspace(false)
-        return props.host.onSwitchWorkspace(result.workspace)
-      })
-      .catch(() => setWorkspaceDraftError('Workspace could not be created. Try again.'))
-      .finally(() => setWorkspaceDraftPending(false))
-  }
-
-  // "Needs you" counts mentions across workspaces. Activating it takes the
-  // user to the first other workspace that needs them; when only this one
-  // does, the Status grouping (the same fallback as Dev) brings it to the top.
-  const openNeedsYou = () => {
-    const next = nextWorkspaceNeedingYou(source().tree.workspaces, workspaceId())
-    if (next) switchWorkspace(next.id)
-    else if (workspaceId())
-      workspaceStore.getState().setSidebarGroupBy(workspaceId(), needsYouFallbackGroupMode)
-  }
+  const navProject = (id: string): NavProject | undefined =>
+    source()
+      .tree.workspaces.flatMap((workspace) => workspace.projects ?? [])
+      .find((candidate) => candidate.id === id)
 
   const projectAction = (id: NavMenuItemId, project: NavProject) => {
     const summary = source().projects.get(project.id)
     if (!summary) return
     setActionError(null)
-    if (id === 'rename' || id === 'settings') setEditingProject(summary)
-    else if (id === 'share') projectShare.open(summary)
+    if (id === 'share') projectShare.open(summary)
     else if (id === 'archive') setConfirming({ kind: 'archive-project', project: summary })
     else if (id === 'delete') setConfirming({ kind: 'delete-project', project: summary })
   }
@@ -722,8 +630,7 @@ export function WorkspaceNavSidebar(props: Props) {
 
     return (
       <WorkspaceNav
-        label="Workspaces"
-        creationContext={props.creationContext}
+        label="Projects"
         tree={source().tree}
         adapter={adapter()}
         groupBy={groupBy()}
@@ -733,32 +640,19 @@ export function WorkspaceNavSidebar(props: Props) {
         selectedLeafId={highlightedChannelId()}
         onSelectLeaf={selectLeaf}
         onLeafIntent={leafIntent}
-        onSelectWorkspace={switchWorkspace}
-        onCreateWorkspace={createNamedWorkspace}
-        creatingWorkspace={creatingWorkspace()}
-        onCreatingWorkspaceChange={(creating) => {
-          setCreatingWorkspace(creating)
-          if (!creating) setWorkspaceDraftError(undefined)
-        }}
-        workspaceDraftError={workspaceDraftError()}
-        workspaceDraftPending={workspaceDraftPending() || createWorkspace.isPending}
         onCreateProject={() => props.onCreateProject()}
         createDisabled={props.workspaceReady === false}
-        onOpenWorkspaceSettings={
-          props.host.onOpenWorkspaceSettings
-            ? () => {
-                props.host.onOpenWorkspaceSettings?.()
-                closeSheet()
-              }
-            : undefined
-        }
-        onProjectMenuAction={projectAction}
+        onOpenProjectSettings={(project) => {
+          const summary = source().projects.get(project.id)
+          if (!summary) return
+          setActionError(null)
+          setEditingProject(summary)
+        }}
         onLeafMenuAction={leafAction}
         collapsedProjectIds={collapsedProjects()}
         onProjectExpandedChange={(projectId, expanded) => {
           if (expanded === collapsedProjects().has(projectId)) props.onToggleProject(projectId)
         }}
-        onNeedsYou={openNeedsYou}
         portalMount={menuMount()}
         tooltips={rowTooltips}
         quickActions={
@@ -781,7 +675,6 @@ export function WorkspaceNavSidebar(props: Props) {
         conversations={
           <ConversationsSection
             agents={props.agents}
-            accountInbox={props.host.globalNav?.conversations}
             createDisabled={props.workspaceReady === false}
             directChannels={props.navigation.directAgentChannels}
             groupChannels={props.navigation.groupChannels}
@@ -789,7 +682,7 @@ export function WorkspaceNavSidebar(props: Props) {
             selectedChannelId={highlightedChannelId()}
             onArchive={archiveChannel}
             onCopyLink={copyChannelLink}
-            onCreateGroup={() => props.onCreateGroup()}
+            onCreateConversation={() => props.onCreateConversation()}
             onIntent={(channelId) => props.onChannelIntent?.(channelId)}
             onOpenAgents={() => props.onOpenAgents()}
             onRename={(channel) => setRenaming({ kind: 'channel', channel })}
@@ -888,17 +781,31 @@ export function WorkspaceNavSidebar(props: Props) {
       </Show>
       <Suspense fallback={null}>
         <Show when={editingProject()}>
-          {(project) => (
-            <EditProjectDialog
-              busy={props.projectBusy}
-              initialIconKey={project().iconKey}
-              initialName={project().name}
-              onClose={() => setEditingProject(null)}
-              onSave={(input) => props.onUpdateProject(project().id, input)}
-              open
-              projectName={project().name}
-            />
-          )}
+          {(editing) => {
+            // The project actions close this dialog first, which unmounts the
+            // `Show` and makes its accessor stale, so read the project once.
+            const project = editing()
+            return (
+              <ProjectSettingsDialog
+                busy={props.projectBusy}
+                initial={{
+                  accent: project.accent,
+                  iconKey: project.iconKey,
+                  name: project.name,
+                }}
+                actions={
+                  navProject(project.id) ? adapter().projectMenu(navProject(project.id)!) : []
+                }
+                onAction={(id) => {
+                  const target = navProject(project.id)
+                  if (target) projectAction(id, target)
+                }}
+                onClose={() => setEditingProject(null)}
+                onSave={(input) => props.onUpdateProject(project.id, input)}
+                open
+              />
+            )
+          }}
         </Show>
         <Show when={renaming()}>
           {(target) => {

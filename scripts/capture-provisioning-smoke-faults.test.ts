@@ -33,9 +33,18 @@ function fakeDocker(
     failMirror?: boolean
     // Throttles every registry, so the start can only end by running out of its budget.
     throttleAll?: boolean
+    // Fails the inspection of one volume, the way a daemon that refuses answers.
+    volumeInspectFails?: (volume: string) => boolean
+    // Times the inspection of one volume out, the way a client that never answers does.
+    volumeInspectTimesOut?: (volume: string) => boolean
+    // Fails the removal of one volume, the way a volume that is still in use answers.
+    volumeRmFails?: (volume: string) => boolean
   } = {}
 ) {
   const present = new Set<string>()
+  // The volumes Docker created for each container, the way the pinned image's declared data
+  // directory appears: one anonymous volume per container.
+  const volumes = new Map<string, string>()
   const calls: string[][] = []
   const timeouts: number[] = []
   const docker = (args: string[], timeoutMs?: number): DockerReply => {
@@ -70,7 +79,10 @@ function fakeDocker(
           stderr: 'docker: Error response from daemon: manifest unknown',
           stdout: '',
         }
-      if (plan.run !== 'refused') present.add(name)
+      if (plan.run !== 'refused') {
+        present.add(name)
+        volumes.set(`volume-${name}`, name)
+      }
       if (plan.run)
         return { status: 125, stderr: `the daemon failed the start (${plan.run})`, stdout: '' }
       return { status: 0, stderr: '', stdout: `${name}\n` }
@@ -85,7 +97,48 @@ function fakeDocker(
           stdout: '',
         }
       if (!present.has(name)) return { status: 1, stderr: `No such object: ${name}`, stdout: '' }
+      const format = args[args.indexOf('--format') + 1]
+      if (format === '{{json .Mounts}}') {
+        // Every container of the pinned image carries the anonymous data volume,
+        // including one the test put there itself.
+        if (!volumes.has(`volume-${name}`)) volumes.set(`volume-${name}`, name)
+        const mounts = [...volumes.entries()]
+          .filter(([, owner]) => owner === name)
+          .map(([volume]) => ({
+            Type: 'volume',
+            Name: volume,
+            Destination: '/var/lib/postgresql',
+          }))
+        return { status: 0, stderr: '', stdout: `${JSON.stringify(mounts)}\n` }
+      }
       return { status: 0, stderr: '', stdout: args.includes('--format') ? 'true\n' : '' }
+    }
+    if (args[0] === 'volume') {
+      const name = args.at(-1)!
+      if (args[1] === 'inspect') {
+        if (plan.volumeInspectTimesOut?.(name))
+          return {
+            error: new Error('spawnSync docker ETIMEDOUT'),
+            status: null,
+            stderr: '',
+            stdout: '',
+          }
+        if (plan.volumeInspectFails?.(name))
+          return { status: 1, stderr: 'permission denied', stdout: '' }
+        if (!volumes.has(name)) return { status: 1, stderr: `no such volume: ${name}`, stdout: '' }
+        return { status: 0, stderr: '', stdout: '' }
+      }
+      if (args[1] === 'rm') {
+        if (plan.volumeRmFails?.(name))
+          return {
+            status: 1,
+            stderr: `Error response from daemon: volume is in use - [volume ${name}]`,
+            stdout: '',
+          }
+        volumes.delete(name)
+        return { status: 0, stderr: '', stdout: name }
+      }
+      throw new Error(`unexpected docker call: ${args.join(' ')}`)
     }
     if (args[0] === 'rm') {
       const name = args.at(-1)!
@@ -95,7 +148,7 @@ function fakeDocker(
     }
     throw new Error(`unexpected docker call: ${args.join(' ')}`)
   }
-  return { calls, docker, present, timeouts }
+  return { calls, docker, present, timeouts, volumes }
 }
 
 type ChildOptions = {
@@ -390,6 +443,133 @@ describe('capture provisioning smoke lifecycle, fault paths', () => {
     expect(removalsOf(fake.calls)).toEqual([owned, observed.sentinel])
   })
 
+  test('a child that never becomes ready still takes the sentinel volume with it', async () => {
+    const fake = fakeDocker()
+    const error = await failureOf({
+      docker: fake.docker,
+      spawnChild: () => fakeChild([`OWNED ${owned}`], { closeStdout: true }),
+    })
+    expect(messagesOf(error).join('\n')).toContain('the helper child ended before READY')
+    const sentinel = sentinelOf(fake.calls)
+    // The sentinel's own volume is removed, because its identity was captured when it was created.
+    const volumeRemovals = fake.calls
+      .filter((args) => args[0] === 'volume' && args[1] === 'rm')
+      .map((args) => args.at(-1))
+    expect(volumeRemovals).toContain(`volume-${sentinel}`)
+    expect(fake.volumes.size).toBe(0)
+    expect(fake.present.size).toBe(0)
+  })
+
+  test('a child that fails to start still takes the sentinel volume with it', async () => {
+    const fake = fakeDocker()
+    const error = await failureOf({
+      docker: fake.docker,
+      spawnChild: () => {
+        throw new Error('spawn ENOENT')
+      },
+    })
+    expect(messagesOf(error)).toEqual(['spawn ENOENT'])
+    const sentinel = sentinelOf(fake.calls)
+    const volumeRemovals = fake.calls
+      .filter((args) => args[0] === 'volume' && args[1] === 'rm')
+      .map((args) => args.at(-1))
+    expect(volumeRemovals).toContain(`volume-${sentinel}`)
+    expect(fake.volumes.size).toBe(0)
+  })
+
+  test('a failed volume deletion is retained, retried, and reported when it fails again', async () => {
+    const fake = fakeDocker({ volumeRmFails: () => true })
+    const child = fakeChild([`OWNED ${owned}`, `READY ${owned} 1`], {
+      onTerm: () => fake.present.delete(owned),
+    })
+    const error = await failureOf({
+      docker: fake.docker,
+      spawnChild: () => {
+        fake.present.add(owned)
+        return child
+      },
+    })
+    const sentinel = sentinelOf(fake.calls)
+    const volumeRemovals = fake.calls
+      .filter((args) => args[0] === 'volume' && args[1] === 'rm')
+      .map((args) => args.at(-1))
+    // The identity of a volume that could not be removed is retained and retried.
+    expect(volumeRemovals.filter((name) => name === `volume-${sentinel}`)).toHaveLength(2)
+    expect(messagesOf(error).join('\n')).toContain(`removing the volume volume-${sentinel} failed`)
+    // A named volume is never removed, and nothing outside the tracked ones is touched.
+    expect(volumeRemovals.every((name) => name?.startsWith('volume-'))).toBe(true)
+  })
+
+  test('a child that never becomes ready still takes the owned volume with it', async () => {
+    const fake = fakeDocker()
+    const error = await failureOf({
+      docker: fake.docker,
+      spawnChild: () => {
+        // The helper's own instance, with the anonymous volume Docker gives it.
+        fake.present.add(owned)
+        return fakeChild([`OWNED ${owned}`], { closeStdout: true })
+      },
+    })
+    expect(messagesOf(error).join('\n')).toContain('the helper child ended before READY')
+    const volumeRemovals = fake.calls
+      .filter((args) => args[0] === 'volume' && args[1] === 'rm')
+      .map((args) => args.at(-1))
+    // The owned volume's identity is recovered before the child is stopped, so
+    // the volume is removed even though the child never became ready.
+    expect(volumeRemovals).toContain(`volume-${owned}`)
+    expect(fake.volumes.size).toBe(0)
+    expect(fake.present.size).toBe(0)
+  })
+
+  test('a partial sentinel start still takes the sentinel volume with it', async () => {
+    const fake = fakeDocker({ run: 'partial' })
+    const error = await failureOf({ docker: fake.docker, spawnChild: () => fakeChild([]) })
+    expect(messagesOf(error).join('\n')).toContain('starting the sentinel container failed')
+    const sentinel = sentinelOf(fake.calls)
+    const volumeRemovals = fake.calls
+      .filter((args) => args[0] === 'volume' && args[1] === 'rm')
+      .map((args) => args.at(-1))
+    // A start that fails after the container was created leaves it and its
+    // volume behind, and the cleanup takes both.
+    expect(volumeRemovals).toContain(`volume-${sentinel}`)
+    expect(fake.volumes.size).toBe(0)
+    expect(fake.present.size).toBe(0)
+  })
+
+  test('a volume inspection that times out is not an absence', async () => {
+    const fake = fakeDocker({ volumeInspectTimesOut: () => true })
+    const child = fakeChild([`OWNED ${owned}`, `READY ${owned} 1`], {
+      onTerm: () => fake.present.delete(owned),
+    })
+    const error = await failureOf({
+      docker: fake.docker,
+      spawnChild: () => {
+        fake.present.add(owned)
+        return child
+      },
+    })
+    // The volume could not be inspected, so it is never reported as gone.
+    expect(messagesOf(error).join('\n')).toContain('inspecting the volume')
+    expect(messagesOf(error).join('\n')).toContain('ETIMEDOUT')
+  })
+
+  test('a volume inspection that is refused is not an absence', async () => {
+    const fake = fakeDocker({ volumeInspectFails: () => true })
+    const child = fakeChild([`OWNED ${owned}`, `READY ${owned} 1`], {
+      onTerm: () => fake.present.delete(owned),
+    })
+    const error = await failureOf({
+      docker: fake.docker,
+      spawnChild: () => {
+        fake.present.add(owned)
+        return child
+      },
+    })
+    expect(messagesOf(error).join('\n')).toContain(
+      `inspecting the volume volume-${owned} failed: permission denied`
+    )
+  })
+
   test('an inspect failure other than the absent-container answer is an error, not proof of removal', async () => {
     // The helper has stopped its instance, and then inspection of that instance fails for a reason other than
     // "no such container". The lifecycle must not read that as removed.
@@ -410,6 +590,9 @@ describe('capture provisioning smoke lifecycle, fault paths', () => {
     })
     expect(messagesOf(error)).toEqual([
       `inspecting ${owned} failed: Error response from daemon: permission denied while trying to connect to the Docker daemon socket`,
+      // The volumes of that container could not be read either, and an unreadable inspection is a
+      // failure, never an empty list.
+      `inspecting the volumes of ${owned} failed: Error response from daemon: permission denied while trying to connect to the Docker daemon socket`,
     ])
     expect(removalsOf(fake.calls)).toEqual([owned, sentinelOf(fake.calls)])
   })
