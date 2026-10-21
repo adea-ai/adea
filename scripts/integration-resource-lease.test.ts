@@ -1900,3 +1900,95 @@ describe('the lock and the token', () => {
     expect(existsSync(claimFile(directory))).toBe(true)
   })
 })
+
+describe('the pruner and a record replaced under it', () => {
+  test('a record a restarting run replaced is preserved, not deleted', () => {
+    const directory = leaseDirectoryForTest()
+    const identity = disposableIdentity('run-restart', '20001')
+    // The previous run of this identity died and left a settled record.
+    const first = claimResource({
+      directory,
+      runId: 'run-restart',
+      mode: RESOURCE_MODE.disposable,
+      identity,
+      owner: { ...owner, pid: 4242 },
+      isProcessAlive: () => false,
+    })
+    releaseLease({
+      directory,
+      runId: 'run-restart',
+      receipt: cleanupReceipt({
+        lease: first.lease,
+        decision: CLEANUP_DECISION.remove,
+        reason: 'disposable-instance-owned-by-this-run',
+        resources: [],
+        child: { status: 0, signal: null },
+      }),
+    })
+    const settled = readLease(directory, 'run-restart')!
+    settled.updatedAt = 1_000
+    writeFileSync(join(directory, 'run-restart.json'), JSON.stringify(settled))
+
+    // The same run restarts while the pruner is between its read and its
+    // move, and writes its own live record over the settled one.
+    const pruned = pruneSettledLeases({
+      directory,
+      now: () => 10_000_000_000,
+      retentionMs: 1_000,
+      isProcessAlive: () => false,
+      afterLeaseRead: () => {
+        const restarted = claimResource({
+          directory,
+          runId: 'run-restart',
+          mode: RESOURCE_MODE.disposable,
+          identity,
+          owner: { ...owner, pid: 5151 },
+          isProcessAlive: () => false,
+        })
+        expect(restarted.decision).toBe('granted')
+      },
+    })
+
+    // The pruner deleted nothing, and the restarting run's record is intact.
+    expect(pruned).toEqual([])
+    const live = readLease(directory, 'run-restart')
+    expect(live?.owner.pid).toBe(5151)
+    expect(live?.state).toBe('claimed')
+  })
+})
+
+describe('a record that is not a lease', () => {
+  const invalidRecords: [string, string][] = [
+    ['run-a.json', 'null'],
+    ['run-b.json', 'false'],
+    ['run-c.json', '0'],
+    ['run-d.json', '[]'],
+    ['run-e.json', '{"version":1}'],
+    ['run-f.json', '{"version":1,"runId":"run-f"}'],
+    ['run-g.json', 'not json at all'],
+  ]
+
+  test('the reconciliation reports every one of them as uncertain and leaves the bytes alone', () => {
+    const directory = leaseDirectoryForTest()
+    for (const [name, content] of invalidRecords) {
+      writeFileSync(join(directory, name), content)
+    }
+    const reconciliation = reconcileLeases({
+      directory,
+      runId: 'run-new',
+      identity: disposableIdentity(),
+      now: 10_000_000_000,
+    })
+    // Every record is reported, and every one of them is uncertain.
+    expect(reconciliation.found).toHaveLength(invalidRecords.length)
+    expect(reconciliation.found.every((record) => record.state === LEASE_STATE.uncertain)).toBe(
+      true
+    )
+    // None of them was treated as an absence, and none of them was rewritten.
+    for (const [name, content] of invalidRecords) {
+      expect(readFileSync(join(directory, name), 'utf8')).toBe(content)
+    }
+    // And they are not leases: the model does not understand them.
+    expect(listLeases(directory)).toEqual([])
+  })
+})

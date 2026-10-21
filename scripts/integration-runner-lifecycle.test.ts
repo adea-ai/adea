@@ -43,6 +43,8 @@ function exercise(options: {
   inventory?: boolean
   sharedClaimRefused?: string
   leaseRefused?: string
+  releaseRefused?: string
+  releaseThrows?: boolean
   removalUnconfirmed?: boolean
 }) {
   const child = `
@@ -228,6 +230,9 @@ function exercise(options: {
           // with, exactly as the model does.
           if (token !== '3f2a1b0c-1111-4222-8333-444455556666')
             return { released: false, reason: 'the release presented no valid token' }
+          if (options.releaseThrows) throw new Error('synthetic release failure')
+          if (options.releaseRefused)
+            return { released: false, reason: 'synthetic release refusal' }
           return { released: true }
         },
         processIsAlive() { return true },
@@ -1550,4 +1555,22 @@ test('a refused per-run lease releases the shared claim with the token it was is
   // The refusal that stopped the run is the one that is reported, and the
   // release did not add a failure of its own.
   expect(result.errors.filter((message) => message.includes('was not released'))).toEqual([])
+})
+
+test('a refused release is reported and the original refusal is what stops the run', () => {
+  const result = exercise({ success: true, leaseRefused: 'uncertain', releaseRefused: 'synthetic' })
+  // The refusal that stopped the run is the one the run reports.
+  expect(result.failure).toContain('the integration resource is not available: uncertain')
+  // The cleanup failure is reported on its own, and it does not replace that
+  // refusal.
+  expect(result.errors.some((message) => message.includes('was not released'))).toBe(true)
+  expect(result.failure).not.toContain('synthetic release refusal')
+})
+
+test('a thrown release is reported and the original refusal still stops the run', () => {
+  const result = exercise({ success: true, leaseRefused: 'uncertain', releaseThrows: true })
+  // A throw from the cleanup does not become the run's outcome.
+  expect(result.failure).toContain('the integration resource is not available: uncertain')
+  expect(result.errors.some((message) => message.includes('could not be released'))).toBe(true)
+  expect(result.failure).not.toContain('synthetic release failure')
 })

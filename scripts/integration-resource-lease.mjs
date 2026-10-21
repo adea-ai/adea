@@ -395,11 +395,21 @@ export function scanLeases(directory) {
   }
   for (const name of names) {
     if (!name.endsWith('.json')) continue
+    let parsed = null
     try {
-      leases.push(JSON.parse(readFileSync(join(directory, name), 'utf8')))
+      parsed = JSON.parse(readFileSync(join(directory, name), 'utf8'))
     } catch {
       unreadable.push(name)
+      continue
     }
+    if (!isLeaseRecord(parsed)) {
+      // The record parses into something this model does not understand. It is
+      // not a lease, and it is not an absence either: it is evidence whose
+      // ownership is unknown. The bytes on disk are left exactly as they are.
+      unreadable.push(name)
+      continue
+    }
+    leases.push(parsed)
   }
   return { leases, unreadable }
 }
@@ -528,7 +538,14 @@ export function isValidToken(token) {
  * processes that share a run id never write over each other's record.
  */
 function acquireLock({ directory, resourceKey, runId, identity, owner, now, isProcessAlive }) {
-  mkdirSync(claimsDirectory(directory), { recursive: true })
+  try {
+    mkdirSync(claimsDirectory(directory), { recursive: true })
+  } catch {
+    // The claims directory could not be created, so no lock can be taken. That
+    // is a refusal with a reason, not a failure that replaces whatever outcome
+    // the caller already has.
+    return { acquired: false, reason: CLEANUP_REFUSAL.uncertain }
+  }
   const path = lockPath(directory, resourceKey)
   const record = {
     version: CLAIM_VERSION,
@@ -1340,6 +1357,10 @@ export function pruneSettledLeases({
   now = Date.now,
   retentionMs = DEFAULT_LEASE_RETENTION_MS,
   isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
+  // A seam for the interleaving regression: it runs after a settled record has
+  // been read and before it is moved aside, so a test can let a restarting run
+  // write its own record over it in between.
+  afterLeaseRead = null,
 } = {}) {
   // The clock is a function, and it is called. A clock that is not callable, or
   // that answers something that is not a time, and a bound that is not a
@@ -1354,8 +1375,49 @@ export function pruneSettledLeases({
     if (classifyLease(lease, { isProcessAlive }) !== LEASE_STATE.settled) continue
     const settledAt = lease.updatedAt ?? lease.createdAt ?? 0
     if (!Number.isFinite(settledAt) || clock - settledAt < retentionMs) continue
+    const path = leasePath(directory, lease.runId)
+    // The record is moved aside before it is removed, and the moved file is
+    // compared with the one that was read. A run that is restarting with the
+    // same identity writes its own record over this one; if that happened
+    // between the read and the move, what is moved aside is the new record,
+    // and it is put back rather than deleted. A record that cannot be
+    // established is preserved, because a bound on the evidence is better than
+    // losing the evidence.
+    let raw = null
     try {
-      rmSync(leasePath(directory, lease.runId), { force: true })
+      raw = readFileSync(path, 'utf8')
+    } catch {
+      continue
+    }
+    if (typeof afterLeaseRead === 'function') {
+      afterLeaseRead({ runId: lease.runId, raw })
+    }
+    const aside = `${path}.pruned-${uniqueToken()}`
+    try {
+      renameSync(path, aside)
+    } catch {
+      continue
+    }
+    let moved = null
+    try {
+      moved = readFileSync(aside, 'utf8')
+    } catch {
+      moved = null
+    }
+    if (moved !== raw) {
+      // The record was replaced under the pruner. It is put back with a link,
+      // which refuses to replace a record that is already there, and nothing
+      // is deleted.
+      try {
+        linkSync(aside, path)
+        rmSync(aside, { force: true })
+      } catch {
+        // The record stays where it is, and the evidence of it is kept.
+      }
+      continue
+    }
+    try {
+      rmSync(aside, { force: true })
       pruned.push(lease.runId)
     } catch {
       // A record that cannot be pruned is kept: a bound on the evidence is

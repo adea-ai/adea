@@ -90,8 +90,11 @@ so a claim and a release cannot interleave.
 The claim is also released when the run's own record is refused, because then
 the run owns nothing and must not leave a claim behind. That release presents
 the token the claim was issued with, like every other release. A release that
-fails is reported, and it does not replace the refusal that stopped the run:
-the refusal is why the run stops, and a claim left behind is evidence of it.
+fails — whether it reports a refusal or throws — is reported on its own, and it
+does not replace the refusal that stopped the run: the refusal is why the run
+stops, and a claim left behind is evidence of it. A lock that cannot be created
+at all is a refusal with a reason, never a failure that replaces the outcome
+the run already had.
 
 A release proves that it is the holder, and only the token does that: a
 process id can be recycled, and a run id is not a process identity. The
@@ -228,6 +231,19 @@ bound named by `ADEA_INTEGRATION_LEASE_RETENTION_MS`. A record left by a dead
 run is evidence of a resource that still exists, and the lane reports it and
 leaves it alone. The pruning touches the lane's own records and never a Docker
 resource.
+
+The pruning never deletes a record it cannot still prove is the one it read.
+The record is moved aside before it is removed and the moved file is compared
+with the one that was read: a run that is restarting with the same identity
+writes its own record over the settled one, and if that happened in between,
+the record that is moved aside is the new one, and it is put back rather than
+deleted. A record that cannot be established is preserved, because a bound on
+the evidence is better than losing the evidence.
+
+A record that parses into something this model does not understand — nothing,
+false, zero, an array, an object without its shape — is not a lease, and it is
+not an absence either. The reconciliation reports it as uncertain and leaves
+its bytes exactly as they are.
 
 A lease records an identity, not a password. A caller-supplied target is named
 by its endpoint alone.
