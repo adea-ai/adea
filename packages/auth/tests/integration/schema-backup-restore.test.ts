@@ -343,16 +343,103 @@ async function closeOwnedPool(pool: { end: () => Promise<void> }): Promise<strin
 }
 
 /**
- * Closes every pool this file still owns. Every close is attempted, even when
- * one of them rejects, and the failures are reported.
+ * The outcome of the owned pool closes: the pools that closed, the pools whose
+ * close rejected, and the pools whose close did not settle. A pool is named by
+ * its position in the ownership, never by its connection string, so a report
+ * carries no credential.
  */
-export async function closeOwnedPools(): Promise<string[]> {
+export type OwnedPoolCloseResult = {
+  closed: number
+  failures: string[]
+  unsettled: string[]
+}
+
+/**
+ * Closes every pool this file still owns.
+ *
+ * Every attempt starts before any of them is waited for, and every attempt is
+ * bounded on its own. A close that never settles therefore cannot keep the
+ * other pools from being attempted, and it cannot hold the cleanup: it is
+ * reported as unsettled, the pool stays owned, and the cleanup refuses to drop
+ * a database while a close of this file is unconfirmed.
+ */
+export async function closeOwnedPools(boundMs = CONNECT_TIMEOUT_MS): Promise<OwnedPoolCloseResult> {
+  const pools = [...ownedPools]
+  const attempts = pools.map(async (pool, index) => {
+    try {
+      await withDeadline(pool.end(), boundMs)
+      ownedPools.delete(pool)
+      return { index, state: 'closed' as const }
+    } catch (error) {
+      if (error instanceof CleanupTimeoutError) {
+        return { index, state: 'unsettled' as const }
+      }
+      return {
+        index,
+        state: 'failed' as const,
+        failure: error instanceof Error ? error.message : 'unexpected non-error failure',
+      }
+    }
+  })
+  const outcomes = await Promise.all(attempts)
   const failures: string[] = []
-  for (const pool of ownedPools) {
-    const failure = await closeOwnedPool(pool)
-    if (failure) failures.push(failure)
+  const unsettled: string[] = []
+  let closed = 0
+  for (const outcome of outcomes) {
+    if (outcome.state === 'closed') {
+      closed += 1
+      continue
+    }
+    if (outcome.state === 'unsettled') {
+      unsettled.push(`owned pool ${outcome.index} did not settle within ${boundMs} ms`)
+      continue
+    }
+    failures.push(`owned pool ${outcome.index}: ${outcome.failure}`)
   }
-  return failures
+  return { closed, failures, unsettled }
+}
+
+/**
+ * The outcome of the cleanup: the stages that failed, the stages that were
+ * refused because a pool close is unconfirmed, and the pools that did not
+ * settle.
+ */
+export type OwnedCleanupOutcome = {
+  failures: string[]
+  refused: string[]
+  unsettled: string[]
+}
+
+/**
+ * Runs the cleanup of this run.
+ *
+ * The owned pools are closed first. The databases are dropped and the shared
+ * pool is reset only when every owned pool close is confirmed: a close that is
+ * unconfirmed means an operation of this file may still be running on the
+ * target, and a force drop under it would destroy that operation's evidence.
+ * The stages that touch nothing but this process always run, and the outcome
+ * reports every refusal, so the run cannot report a clean completion while a
+ * pool close remains unconfirmed.
+ */
+export async function runOwnedCleanup(options: {
+  closeOwnedPools: () => Promise<OwnedPoolCloseResult>
+  destructive: readonly CleanupStep[]
+  local: readonly CleanupStep[]
+}): Promise<OwnedCleanupOutcome> {
+  const close = await options.closeOwnedPools()
+  const failures = [...close.failures]
+  const unsettled = [...close.unsettled]
+  const refused: string[] = []
+  const confirmed = close.unsettled.length === 0 && close.failures.length === 0
+  if (!confirmed) {
+    refused.push(
+      `the owned pool closes are not confirmed (${close.unsettled.length} unsettled, ${close.failures.length} failed): the databases are not dropped and the shared pool is not reset`
+    )
+  }
+  const stages = [...options.local, ...(confirmed ? options.destructive : [])]
+  const stageOutcome = await runCleanups(stages)
+  failures.push(...stageOutcome.failures)
+  return { failures, refused, unsettled }
 }
 
 /** The admin connection, derived from the validated target like every other one. */
@@ -429,6 +516,30 @@ export type CleanupOutcome = Readonly<{
   failures: readonly string[]
   unsettled: readonly string[]
 }>
+
+/**
+ * The error a bounded operation raises when it does not settle in time. The work
+ * itself is not cancelled: the caller reports the operation as unconfirmed.
+ */
+class CleanupTimeoutError extends Error {
+  constructor(readonly boundMs: number) {
+    super(`timed out after ${boundMs} ms`)
+    this.name = 'CleanupTimeoutError'
+  }
+}
+
+/**
+ * Resolves or rejects with the work, or rejects once the deadline passes. The
+ * work is not cancelled, so a caller that needs the work to stop has to cancel
+ * it itself.
+ */
+function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new CleanupTimeoutError(ms)), ms)
+  })
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer))
+}
 
 /** Waits for the given time without holding the process open. */
 function delay(ms: number): Promise<void> {
@@ -1044,18 +1155,66 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
     ownedPools.add(rejecting)
     ownedPools.add(accepting)
     expect(ownedPoolCount()).toBe(2)
-    const failures = await closeOwnedPools()
+    const outcome = await closeOwnedPools()
     expect(closed).toEqual(['rejecting', 'accepting'])
-    expect(failures).toEqual(['boom'])
+    expect(outcome.failures).toEqual(['owned pool 0: boom'])
+    expect(outcome.unsettled).toEqual([])
+    expect(outcome.closed).toBe(1)
     // The pool whose close failed is still owned, so the owner's cleanup tries it
     // again; the pool that closed is forgotten.
     expect(ownedPoolCount()).toBe(1)
     const second = await closeOwnedPools()
-    expect(second).toEqual(['boom'])
+    expect(second.failures).toEqual(['owned pool 0: boom'])
     expect(ownedPoolCount()).toBe(1)
     // The rejecting pool is dropped from the ownership, so the file leaves no
     // pool behind.
     ownedPools.delete(rejecting)
+    expect(ownedPoolCount()).toBe(0)
+  }, 10_000)
+
+  test('a never-settling owned pool does not hold the other closes, and the cleanup refuses to drop', async () => {
+    // A close that never settles must not keep the other pools from being
+    // closed, and the cleanup must not drop a database while a close of this
+    // file is unconfirmed. The first pool's close never settles; the second
+    // one's close is observed.
+    const closed: string[] = []
+    const never = { end: () => new Promise<void>(() => {}) }
+    const second = {
+      end: async () => {
+        closed.push('second')
+      },
+    }
+    ownedPools.add(never)
+    ownedPools.add(second)
+    let dropped = false
+    const outcome = await runOwnedCleanup({
+      closeOwnedPools: () => closeOwnedPools(50),
+      destructive: [
+        [
+          'drop the restored database',
+          async () => {
+            dropped = true
+          },
+        ],
+      ],
+      local: [],
+    })
+    // The second close was attempted, even though the first one never settled.
+    expect(closed).toEqual(['second'])
+    // The first close is reported as unsettled, and its pool stays owned.
+    expect(outcome.unsettled).toHaveLength(1)
+    expect(outcome.unsettled[0]).toContain('did not settle')
+    expect(ownedPoolCount()).toBe(1)
+    // The destructive stage did not run: no database is dropped and the shared
+    // pool is not reset while a close of this file is unconfirmed, and the
+    // cleanup refuses to report a clean completion.
+    expect(dropped).toBe(false)
+    expect(outcome.refused).toHaveLength(1)
+    expect(outcome.refused[0]).toContain('the databases are not dropped')
+    expect(outcome.failures).toEqual([])
+    // The file leaves no pool behind.
+    ownedPools.delete(never)
+    ownedPools.delete(second)
     expect(ownedPoolCount()).toBe(0)
   }, 10_000)
 
@@ -1098,22 +1257,16 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
   }, BEFORE_ALL_BUDGET_MS)
 
   afterAll(async () => {
-    // Every stage is individually bounded and settled before the next one runs,
-    // so a stage that stalls is cancelled and confirmed stopped before a pool is
-    // closed or a connection is reset.
-    const steps: CleanupStep[] = [
+    // The owned pools are closed first, and the databases are dropped and the
+    // shared pool is reset only when every close is confirmed. A close that is
+    // unconfirmed means an operation of this file may still be running on the
+    // target, and a force drop under it would destroy that operation's
+    // evidence. Every stage is individually bounded and settled before the next
+    // one runs.
+    const local: CleanupStep[] = [
       ['reap live tool processes', reapLiveChildren, undefined, CLEANUP_REAP_BUDGET_MS],
-      [
-        'close the pools this file owns',
-        async () => {
-          const failures = await closeOwnedPools()
-          if (failures.length > 0) {
-            throw new Error(failures.join('; '))
-          }
-        },
-        undefined,
-        CLEANUP_OWNED_POOLS_BUDGET_MS,
-      ],
+    ]
+    const destructive: CleanupStep[] = [
       ownStatementStage(
         'drop the restored database',
         `DROP DATABASE IF EXISTS "${restoredDatabase}" WITH (FORCE)`
@@ -1127,7 +1280,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
     ]
     if (admin) {
       const pool = admin
-      steps.push([
+      destructive.push([
         'close the admin pool',
         async () => {
           // The admin pool is shared: it carries the statement that proves the
@@ -1144,22 +1297,23 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
     }
     if (workDirectory) {
       const directory = workDirectory
-      steps.push([
+      local.push([
         'remove the work directory',
         async () => rmSync(directory, { recursive: true, force: true }),
         undefined,
         CLEANUP_WORK_DIRECTORY_BUDGET_MS,
       ])
     }
-    const outcome = await runCleanups(steps)
+    const outcome = await runOwnedCleanup({
+      closeOwnedPools: () => closeOwnedPools(),
+      destructive,
+      local,
+    })
     admin = undefined
     workDirectory = undefined
-    const problems = [...outcome.failures]
+    const problems = [...outcome.failures, ...outcome.refused, ...outcome.unsettled]
     if (ownedPoolCount() > 0) {
       problems.push(`${ownedPoolCount()} pools this file owns are still open`)
-    }
-    for (const label of outcome.unsettled) {
-      problems.push(`${label}: did not settle within ${CLEANUP_SETTLE_MS} ms`)
     }
     if (problems.length > 0) throw new Error(`cleanup did not finish: ${problems.join('; ')}`)
   }, AFTER_ALL_BUDGET_MS)
@@ -1721,8 +1875,9 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
 
       // Every pool is still owned, and the owner's cleanup closes all of them.
       expect(ownedPoolCount()).toBe(2)
-      const failures = await closeOwnedPools()
-      expect(failures).toEqual([])
+      const close = await closeOwnedPools()
+      expect(close.failures).toEqual([])
+      expect(close.unsettled).toEqual([])
       expect(sourcePool.ended).toBe(true)
       expect(prefixPool.ended).toBe(true)
       expect(sourcePool.totalCount).toBe(0)
