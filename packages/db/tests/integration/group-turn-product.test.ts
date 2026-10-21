@@ -919,7 +919,11 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
       .from(schema.leadTurnRuntime)
       .where(eq(schema.leadTurnRuntime.intentId, intentId))
     const messages = await connection.db
-      .select({ id: schema.messages.id })
+      .select({
+        id: schema.messages.id,
+        senderKind: schema.messages.senderKind,
+        senderAgentId: schema.messages.senderAgentId,
+      })
       .from(schema.messages)
       .where(eq(schema.messages.channelId, f.channelId))
     return { messages, runtime }
@@ -1072,10 +1076,67 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
           reason: 'publication_binding_mismatch',
         })
         // Nothing entered the group, and the job survived the hold.
-        expect((await publicationState(f, intentId)).messages).toHaveLength(1)
+        const state = await publicationState(f, intentId)
+        expect(state.messages).toHaveLength(1)
+        // The hold keeps the result out of the group and says nothing about
+        // the independently owned job: it is neither cancelled nor reassigned.
+        expect(state.runtime?.state).toBe('completed')
+        expect(state.runtime?.publishedMessageId).toBeNull()
       }
     }
   )
+
+  /**
+   * The second disagreement the reader names: two claims on one intent that
+   * retained DIFFERENT revisions of the same grant id.
+   *
+   * A roster rewrite that re-issues a grant also bumps the channel version,
+   * and the intent reuse path refuses a dispatch whose channel version moved
+   * (`assertPinned`), so the product does not mint this state on its own. It
+   * is still a state a claim table can hold — one claim written under a
+   * revision beside another written under a newer one — and the reader must
+   * not resolve the late result under either of them: the authorizing grant is
+   * unproven, so the result is held exactly as a missing binding is.
+   *
+   * The case pins the reader's contract — every claim is read, and a
+   * disagreement holds — rather than the order an unordered lookup happens to
+   * return: a disagreement means at most one of the two claims could
+   * authorize the result on its own, so which claim a single-row reader picked
+   * decides whether it published. The outcome under this reader does not
+   * depend on that order.
+   */
+  T('claims that share one intent and disagree on the grant revision are held', async () => {
+    const f = await fixture()
+    const { intentId, turns } = await claimsSharingOneIntent(f, [1, 2])
+    // The later claim was admitted under a newer revision of the same grant.
+    await connection.db
+      .update(schema.addressedAgentTurns)
+      .set({ authRevision: 2 })
+      .where(eq(schema.addressedAgentTurns.id, turns[1]!.id))
+    const rows = await connection.db
+      .select({
+        authGrantId: schema.addressedAgentTurns.authGrantId,
+        authRevision: schema.addressedAgentTurns.authRevision,
+        intentId: schema.addressedAgentTurns.intentId,
+      })
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.channelId, f.channelId))
+    // Two claims, one intent, one grant id, two revisions: the disagreement.
+    expect(rows).toHaveLength(2)
+    expect(new Set(rows.map((row) => row.intentId)).size).toBe(1)
+    expect(new Set(rows.map((row) => row.authGrantId)).size).toBe(1)
+    expect(new Set(rows.map((row) => row.authRevision)).size).toBe(2)
+    const publish = await complete(f, intentId)
+    await expect(publish()).rejects.toMatchObject({
+      name: 'GroupPublicationHoldError',
+      reason: 'publication_binding_mismatch',
+    })
+    const state = await publicationState(f, intentId)
+    // Nothing entered the group, and the job survived the hold.
+    expect(state.messages).toHaveLength(1)
+    expect(state.runtime?.state).toBe('completed')
+    expect(state.runtime?.publishedMessageId).toBeNull()
+  })
 
   T('claims that share one intent and agree on the binding publish normally', async () => {
     const f = await fixture()
@@ -1089,7 +1150,12 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
     const publish = await complete(f, intentId)
     const messageId = await publish()
     expect(messageId).toBeString()
-    expect((await publicationState(f, intentId)).messages).toHaveLength(2)
+    const state = await publicationState(f, intentId)
+    expect(state.messages).toHaveLength(2)
+    // The publisher is the Agent the intent pins, never whichever claim a
+    // lookup happened to read.
+    const published = state.messages.find((message) => message.id === messageId)
+    expect(published).toMatchObject({ senderKind: 'agent', senderAgentId: f.lead.id })
   })
 
   T(
