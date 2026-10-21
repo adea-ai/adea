@@ -7,12 +7,17 @@
  * declaration that does not have this shape.
  */
 
-/** One candidate production target. A pinned field must match the live read. */
+/**
+ * One candidate production target.
+ *
+ * The identity is required: a target that names no project and no service does
+ * not say which deployment a plan meant. A pinned field must match the live read.
+ */
 export interface ProductionTargetDeclaration {
-  /** The Railway project identifier, when the repository records one. */
-  project?: string
-  /** The Railway service identifier, when the repository records one. */
-  service?: string
+  /** The Railway project identifier the target lives in. */
+  project: string
+  /** The Railway service identifier the target is. */
+  service: string
   /** The environment the target runs in, when the repository records one. */
   environment?: string
 }

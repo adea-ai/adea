@@ -11,6 +11,14 @@
 // plan, and the reads the plan needs are named here so that a caller knows
 // exactly what it is being asked for.
 //
+// The normalization boundary. The provider's own JSON is not what this module
+// reads. The runner normalizes it into the shape named in LIVE_READS - a
+// `status` read carries a `targets` array and a `deployment` object, a
+// `deployments` read carries a `deployments` array - and this module refuses a
+// payload that is not that shape rather than reading a field that is not there.
+// A provider payload that reaches the plan unnormalized is a refusal, never a
+// plan on fields the plan did not understand.
+//
 // Every refusal carries a fixed code, one sentence that says what was refused
 // and the evidence it was refused on. The evidence is hashed, so a receipt can
 // name the refusal it saw without repeating the whole payload, and the same
@@ -30,26 +38,42 @@ export const REFUSAL_CODES = Object.freeze({
   sourceInvalid: 'RAILWAY_PRODUCTION_SOURCE_INVALID',
   targetMissing: 'RAILWAY_PRODUCTION_TARGET_MISSING',
   targetAmbiguous: 'RAILWAY_PRODUCTION_TARGET_AMBIGUOUS',
+  targetIdentityMissing: 'RAILWAY_PRODUCTION_TARGET_IDENTITY_MISSING',
   targetContradictory: 'RAILWAY_PRODUCTION_TARGET_CONTRADICTORY',
   metadataMissing: 'RAILWAY_PRODUCTION_METADATA_MISSING',
   metadataContradictory: 'RAILWAY_PRODUCTION_METADATA_CONTRADICTORY',
   historyMissing: 'RAILWAY_PRODUCTION_HISTORY_MISSING',
   historyUnhealthy: 'RAILWAY_PRODUCTION_HISTORY_UNHEALTHY',
+  historyUnbound: 'RAILWAY_PRODUCTION_HISTORY_UNBOUND',
+  historyContradictory: 'RAILWAY_PRODUCTION_HISTORY_CONTRADICTORY',
   commandFailed: 'RAILWAY_PRODUCTION_COMMAND_FAILED',
   commandTimedOut: 'RAILWAY_PRODUCTION_COMMAND_TIMED_OUT',
   commandRunnerUnavailable: 'RAILWAY_PRODUCTION_COMMAND_RUNNER_UNAVAILABLE',
   readUnparsable: 'RAILWAY_PRODUCTION_READ_UNPARSABLE',
+  readUnnormalized: 'RAILWAY_PRODUCTION_READ_UNNORMALIZED',
 })
 
-/** The live reads the plan needs, and the command each one describes. */
+/**
+ * The fields that carry a target's provider identity.
+ *
+ * An environment is not an identity: one environment holds many services, and a
+ * plan that names only an environment cannot say which service it means. A
+ * target that names no project and no service is not a target the plan can act
+ * on, and neither is a deployment history that is not bound to one.
+ */
+export const IDENTITY_FIELDS = Object.freeze(['project', 'service'])
+
+/** The live reads the plan needs, the command each one describes and the shape it reads. */
 export const LIVE_READS = Object.freeze({
   status: Object.freeze({
     kind: 'status',
     command: Object.freeze(['railway', 'status', '--json']),
+    containers: Object.freeze(['targets', 'deployment']),
   }),
   deployments: Object.freeze({
     kind: 'deployments',
     command: Object.freeze(['railway', 'deployment', 'list', '--json']),
+    containers: Object.freeze(['deployments']),
   }),
 })
 
@@ -162,10 +186,13 @@ function validateDeclaration(source) {
     if (!target || typeof target !== 'object' || Array.isArray(target)) {
       return { field: 'targets', reason: 'a candidate target is not an object' }
     }
-    for (const key of ['project', 'service', 'environment']) {
-      if (target[key] !== undefined && typeof target[key] !== 'string') {
-        return { field: `targets.${key}`, reason: 'it is not a string' }
+    for (const key of IDENTITY_FIELDS) {
+      if (typeof target[key] !== 'string' || target[key].length === 0) {
+        return { field: `targets.${key}`, reason: 'it is not a non-empty string' }
       }
+    }
+    if (target.environment !== undefined && typeof target.environment !== 'string') {
+      return { field: 'targets.environment', reason: 'it is not a string' }
     }
   }
   if (!Array.isArray(source.requiredMetadata)) {
@@ -239,7 +266,23 @@ function readLive(run, kind) {
     }
   }
   try {
-    return { payload: JSON.parse(result.stdout ?? ''), refusal: null }
+    const payload = JSON.parse(result.stdout ?? '')
+    const problems = normalizationProblems(kind, payload)
+    if (problems.length > 0) {
+      return {
+        payload: null,
+        refusal: refusal(
+          REFUSAL_CODES.readUnnormalized,
+          'the live read is not the normalized read the plan reads',
+          {
+            kind,
+            command: [...request.command],
+            problems,
+          }
+        ),
+      }
+    }
+    return { payload, refusal: null }
   } catch {
     return {
       payload: null,
@@ -252,28 +295,124 @@ function readLive(run, kind) {
   }
 }
 
-/** The candidate targets a live read named, or none when it named none. */
-function observedTargets(payload) {
-  const targets = payload?.targets
-  return Array.isArray(targets)
-    ? targets.filter((target) => target && typeof target === 'object')
-    : []
+/**
+ * The problems that stop a payload from being the normalized read the plan reads.
+ *
+ * The runner owns the mapping from the provider's own JSON into this shape. The
+ * plan checks only that the shape is there: the containers each read carries,
+ * the type of each container and that every entry in a list is an object. What a
+ * container holds is a rule of the plan, not of the shape.
+ */
+function normalizationProblems(kind, payload) {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return [{ field: 'the read', reason: 'it is not an object' }]
+  }
+  const problems = []
+  for (const container of LIVE_READS[kind].containers) {
+    const value = payload[container]
+    if (value === undefined) {
+      problems.push({ field: container, reason: 'it is not present' })
+      continue
+    }
+    if (container === 'deployment') {
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        problems.push({ field: container, reason: 'it is not an object' })
+      }
+      continue
+    }
+    if (!Array.isArray(value)) {
+      problems.push({ field: container, reason: 'it is not an array' })
+      continue
+    }
+    value.forEach((entry, index) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        problems.push({ field: `${container}[${index}]`, reason: 'it is not an object' })
+      }
+    })
+  }
+  return problems
 }
 
-/** The deployment metadata a live read published, or none when it published none. */
+/**
+ * The concrete provider identity of a target or a deployment, or none.
+ *
+ * The identity is the project and the service together: one of them alone does
+ * not say which deployment was read.
+ */
+function providerIdentity(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const identity = {}
+  for (const field of IDENTITY_FIELDS) {
+    const name = value[field]
+    if (typeof name !== 'string' || name.length === 0) return null
+    identity[field] = name
+  }
+  return identity
+}
+
+/**
+ * The candidate targets a live read named.
+ *
+ * The shape of the read has already been checked, so the container is an array
+ * of objects and the plan does not have to defend against anything else.
+ */
+function observedTargets(payload) {
+  return payload.targets
+}
+
+/** The deployment metadata a live read published. */
 function observedDeployment(payload) {
-  const deployment = payload?.deployment
-  return deployment && typeof deployment === 'object' && !Array.isArray(deployment)
-    ? deployment
-    : {}
+  return payload.deployment
 }
 
 /** The deployment history a live read published, newest first. */
 function observedHistory(payload) {
-  const deployments = payload?.deployments
-  return Array.isArray(deployments)
-    ? deployments.filter((deployment) => deployment && typeof deployment === 'object')
-    : []
+  return payload.deployments
+}
+
+/**
+ * The ways a deployment history fails to be the history of the target that was read.
+ *
+ * Every deployment in the history names the project and the service it belongs
+ * to, so the history can be checked against the target it claims to be. A
+ * deployment that names no identity is unbound: the history cannot be tied to
+ * the target at all. A deployment that names another project or another service
+ * belongs to another target, so the history is not this target's history.
+ */
+function historyBinding(history, identity) {
+  const problems = []
+  history.forEach((deployment, index) => {
+    const bound = providerIdentity(deployment)
+    if (!bound) {
+      problems.push({
+        mismatch: false,
+        evidence: {
+          id: deployment.id ?? null,
+          index,
+          reason: 'the deployment names no project and service',
+          observed: Object.fromEntries(
+            IDENTITY_FIELDS.map((field) => [field, deployment[field] ?? null])
+          ),
+        },
+      })
+      return
+    }
+    for (const field of IDENTITY_FIELDS) {
+      if (bound[field] !== identity[field]) {
+        problems.push({
+          mismatch: true,
+          evidence: {
+            expected: identity[field],
+            field,
+            id: deployment.id ?? null,
+            index,
+            observed: bound[field],
+          },
+        })
+      }
+    }
+  })
+  return problems
 }
 
 /** The fields a declaration pins, and the values it pins them to. */
@@ -386,6 +525,24 @@ export function planProductionDeployment({ source, root = repositoryRoot(), run 
     target = targets[0]
   }
 
+  // An environment is not an identity. A target that names no project and no
+  // service cannot be the target the plan acts on, however healthy the
+  // deployment behind it is.
+  if (target && !providerIdentity(target)) {
+    refusals.push(
+      refusal(
+        REFUSAL_CODES.targetIdentityMissing,
+        'the live target does not name a concrete project and service',
+        {
+          fields: [...IDENTITY_FIELDS],
+          observed: Object.fromEntries(
+            IDENTITY_FIELDS.map((field) => [field, target[field] ?? null])
+          ),
+        }
+      )
+    )
+  }
+
   if (target && declaration) {
     const candidate = declaration.targets.length === 1 ? declaration.targets[0] : null
     if (candidate) {
@@ -457,6 +614,24 @@ export function planProductionDeployment({ source, root = repositoryRoot(), run 
     )
   }
   const newest = history[0] ?? null
+  const identity = target ? providerIdentity(target) : null
+  if (identity) {
+    for (const problem of historyBinding(history, identity)) {
+      refusals.push(
+        problem.mismatch
+          ? refusal(
+              REFUSAL_CODES.historyContradictory,
+              'the deployment history names a target other than the one that was read',
+              problem.evidence
+            )
+          : refusal(
+              REFUSAL_CODES.historyUnbound,
+              'the deployment history does not bind every deployment to the target that was read',
+              problem.evidence
+            )
+      )
+    }
+  }
   if (newest && !HEALTHY_DEPLOYMENT_STATUSES.includes(newest.status)) {
     refusals.push(
       refusal(REFUSAL_CODES.historyUnhealthy, 'the newest deployment is not in service', {
