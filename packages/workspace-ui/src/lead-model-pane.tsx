@@ -49,7 +49,13 @@ type ModelOption = Readonly<{
   value: string
   label: string
   choice: ApiModelChoice
+  /** A saved default whose connection can no longer be chosen: shown, never offered. */
+  disabled?: boolean
 }>
+
+const sameChoice = (option: ModelOption, choice: ApiModelChoice) =>
+  option.choice.connectionRef === choice.connectionRef &&
+  option.choice.providerModel === choice.providerModel
 
 export default function LeadModelPane(props: { client?: AgentHqApiClient; workspaceId: string }) {
   const scope = createMemo(() =>
@@ -153,7 +159,7 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
     if (configured()?.availability !== 'available') return 'Model settings unavailable'
     const choice = configured()?.defaults?.[role]
     if (!choice) return 'No model selected'
-    return 'Saved model unavailable'
+    return 'Saved model connection unavailable'
   }
   // Only an active connection's ready models can become a default.
   const options = (): ModelOption[] =>
@@ -171,14 +177,35 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
             },
           }))
       )
+  // A saved default keeps naming its model after the connection is revoked or the
+  // model stops being ready, so the row still reads it; only a connection missing
+  // from the inventory reads as unavailable.
+  const savedOption = (role: ApiModelRole): ModelOption | undefined => {
+    const choice = configured()?.defaults?.[role]
+    if (!choice) return undefined
+    const connection = inventory()?.connections.find(
+      (item) => item.connectionRef === choice.connectionRef
+    )
+    if (!connection?.models.some((model) => model.providerModel === choice.providerModel))
+      return undefined
+    return {
+      value: `${choice.connectionRef}\u0000${choice.providerModel}`,
+      label: `${connection.provider} · ${choice.providerModel}`,
+      choice,
+      disabled: true,
+    }
+  }
+  const rowOptions = (role: ApiModelRole): ModelOption[] => {
+    const saved = savedOption(role)
+    const eligible = options()
+    return saved && !eligible.some((option) => sameChoice(option, saved.choice))
+      ? [...eligible, saved]
+      : eligible
+  }
   const selectedOption = (role: ApiModelRole) => {
     const choice = configured()?.defaults?.[role]
     if (!choice) return undefined
-    return options().find(
-      (option) =>
-        option.choice.connectionRef === choice.connectionRef &&
-        option.choice.providerModel === choice.providerModel
-    )
+    return rowOptions(role).find((option) => sameChoice(option, choice))
   }
   return (
     <SettingsSection
@@ -255,10 +282,12 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
           <ModelDefaultRow
             label={label}
             help={help}
-            options={options()}
+            options={rowOptions(role)}
             selected={selectedOption(role)}
             placeholder={defaultLabel(role)}
-            disabled={!canManage() || save.isPending}
+            // Not disabled while a save is in flight: the trigger keeps focus, so Escape
+            // still reaches the dialog. setDefault ignores a second choice until it settles.
+            disabled={!canManage()}
             onSelect={(option) => void setDefault(role, option.choice)}
           />
         )}
@@ -347,9 +376,15 @@ function ModelDefaultRow(props: {
       <Select<ModelOption>
         options={[...props.options]}
         value={props.selected}
-        onChange={(option) => option && props.onSelect(option)}
+        // A refreshed option list re-reports the current selection; only a real
+        // change to an offered model is a save.
+        onChange={(option) => {
+          if (option && !option.disabled && option.value !== props.selected?.value)
+            props.onSelect(option)
+        }}
         optionValue="value"
         optionTextValue="label"
+        optionDisabled="disabled"
         placeholder={props.placeholder}
         disabled={props.disabled}
         itemComponent={(item) => (

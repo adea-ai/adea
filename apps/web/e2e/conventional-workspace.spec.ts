@@ -3129,7 +3129,7 @@ test('the top-bar switcher opens the Settings Workspaces sections for the select
   await page.keyboard.press('ArrowDown')
   await expect(tablist.getByRole('tab', { name: 'Memory', exact: true })).toBeFocused()
   await expect(page).toHaveURL(/#settings\/workspace-memory$/)
-  await page.keyboard.press('ArrowDown')
+  // Skills moved to the Plugins dialog, so Connections now follows Memory.
   await page.keyboard.press('ArrowDown')
   await expect(tablist.getByRole('tab', { name: 'Connections', exact: true })).toBeFocused()
   await expect(page).toHaveURL(/#settings\/workspace-connections$/)

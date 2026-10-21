@@ -56,10 +56,10 @@ export function WorkspaceIdentitySettings(props: {
 
   const status = () =>
     ({
-      idle: '',
+      idle: editable() ? 'Changes save as you make them.' : '',
       saving: 'Saving…',
-      saved: 'Saved',
-      conflict: 'Changed elsewhere. Showing the latest; try again.',
+      saved: 'Saved.',
+      conflict: 'This workspace changed elsewhere. The latest settings are shown; try again.',
       error: 'Could not save.',
     })[state()]
 

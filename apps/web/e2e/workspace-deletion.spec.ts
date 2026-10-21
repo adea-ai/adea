@@ -31,10 +31,11 @@ test('active deletion is unavailable and cannot invoke the mutation; default mar
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect(page.locator('#harness-root')).not.toHaveAttribute('data-delete-calls')
   await expect(settings.locator('[data-workspace-icon="box"] svg')).toHaveCount(2)
-  await settings.getByRole('textbox', { name: 'Workspace emoji' }).fill('📦')
-  await settings.getByRole('textbox', { name: 'Workspace emoji' }).blur()
+  await settings.getByRole('button', { name: /^Workspace icon:/ }).click()
+  await page.getByRole('radio', { name: 'Rocket', exact: true }).press('Space')
   await expect(settings.locator('[data-workspace-icon="box"] svg')).toHaveCount(0)
-  await settings.getByRole('button', { name: 'Use workspace icon', exact: true }).click()
+  await settings.getByRole('button', { name: /^Workspace icon:/ }).click()
+  await page.getByRole('radio', { name: /^Box/ }).press('Space')
   await expect(settings.locator('[data-workspace-icon="box"] svg')).toHaveCount(2)
 })
 
@@ -74,13 +75,13 @@ test('personal Home remains protected after renaming and changing its icon', asy
     exact: true,
   })
   await renamed.getByRole('button', { name: /^Workspace icon:/ }).click()
-  await page.getByRole('radio', { name: 'Rocket', exact: true }).check({ force: true })
+  await page.getByRole('radio', { name: 'Rocket', exact: true }).press('Space')
   await expect(renamed.locator('[data-workspace-icon="home"] svg')).toHaveCount(0)
   await expect(renamed.getByRole('button', { name: 'Delete workspace', exact: true })).toHaveCount(
     0
   )
   await renamed.getByRole('button', { name: /^Workspace icon:/ }).click()
-  await page.getByRole('radio', { name: /^Home/ }).check({ force: true })
+  await page.getByRole('radio', { name: /^Home/ }).press('Space')
   await expect(renamed.locator('[data-workspace-icon="home"] svg')).toHaveCount(2)
   await expect(page.locator('#harness-root')).not.toHaveAttribute('data-delete-calls')
 })
