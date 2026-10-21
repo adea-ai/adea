@@ -124,14 +124,14 @@ edit those files.
 
 ### 3b. CI and release lane (F)
 
-| File                                                                                                                                     | Active coupling                                                                                                                                                                    | Scoped action                                                                                                                                      |
-| ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.github/workflows/neon_workflow.yml`                                                                                                    | The whole workflow: it creates an isolated hosted branch, proves the key-discovery endpoint, migrates the branch and deletes it. It is the last active provider integration in CI. | Remove the workflow, or replace the branch proof with the disposable PostgreSQL proof the repository already carries.                              |
-| `.github/workflows/cloudflare-db-migrate.yml`                                                                                            | The header names the provider and the production branch.                                                                                                                           | Reword the header. The workflow itself only needs `DATABASE_MIGRATION_URL`.                                                                        |
-| `scripts/neon-branch-resolution.test.ts`, `scripts/neon-workflow-lifecycle.test.ts`, `scripts/neon-workflow-disposable-postgres.test.ts` | Test the shipped workflow's shape and its cleanup resolver.                                                                                                                        | Follow the workflow removal.                                                                                                                       |
-| `scripts/test-target-guard.mjs`, `scripts/test-target-guard.test.ts`                                                                     | The CI-ephemeral host allow-list is keyed on the hosts that workflow emits, and `NEON_AUTH_BASE_URL` is the one remote value it admits.                                            | Remove the CI-host allow-list **after** the workflow is gone. Removing it earlier would widen what a test lane may reach, which weakens the guard. |
-| `scripts/test-suite-boundary.test.ts`                                                                                                    | Asserts the workflow's job names and the `Migrate Neon Branch` gate.                                                                                                               | Follow the workflow removal.                                                                                                                       |
-| `apps/web/start/acceptance-hosted.mjs`                                                                                                   | The hosted acceptance harness runs against that branch.                                                                                                                            | Repoint it at the Railway target or the disposable proof.                                                                                          |
+| File                                                                                                                                     | Active coupling                                                                                                                                                                     | Scoped action                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `.github/workflows/neon_workflow.yml`                                                                                                    | The whole workflow: it created an isolated hosted branch, proved the key-discovery endpoint, migrated the branch and deleted it. It was the last active provider integration in CI. | **Removed by #1516 (merged 2026-10-20T18:04:26Z)**, which replaced the hosted branch proof with the provider-free disposable loopback proof. The file is not in the tree. |
+| `.github/workflows/cloudflare-db-migrate.yml`                                                                                            | The header named the provider and the production branch.                                                                                                                            | **Reworded by #1516**; the header names no provider and the workflow itself only needs `DATABASE_MIGRATION_URL`.                                                          |
+| `scripts/neon-branch-resolution.test.ts`, `scripts/neon-workflow-lifecycle.test.ts`, `scripts/neon-workflow-disposable-postgres.test.ts` | Tested the shipped workflow's shape and its cleanup resolver.                                                                                                                       | **Removed by #1516** with the workflow.                                                                                                                                   |
+| `scripts/test-target-guard.mjs`, `scripts/test-target-guard.test.ts`                                                                     | The CI-ephemeral host allow-list was keyed on the hosts that workflow emitted, and `NEON_AUTH_BASE_URL` was the one remote value it admitted.                                       | **Removed by #1516** after the workflow was gone. The guard now admits only the exact hosts a caller names itself.                                                        |
+| `scripts/test-suite-boundary.test.ts`                                                                                                    | Asserted the workflow's job names and the `Migrate Neon Branch` gate.                                                                                                               | **The workflow's job names and gate are gone with #1516.** The file still names the auth lane's `neon-driver` test, which the auth lane owns.                             |
+| `apps/web/start/acceptance-hosted.mjs`                                                                                                   | The hosted acceptance harness runs against that branch.                                                                                                                             | Repoint it at the Railway target or the disposable proof.                                                                                                                 |
 
 ### 3c. Other owners
 
@@ -205,11 +205,14 @@ either: the account schema has no Hyperdrive group, and the account-level Worker
 dataset answers HTTP 500. Both negative results are recorded in the measurement file.
 
 The Railway read reached one project, `control-plane`, which is the Control Plane service's own
-infrastructure with its own runbooks. Its production Postgres service reports zero CPU and memory
-over the last hour, and its API service reports zero requests over the last hour. **No Railway
-service for the Adea auth database appears in that project**, and this credential reaches no other
-Railway project or workspace. Whether the auth target exists elsewhere is not established by this
-read.
+infrastructure with its own runbooks. Over the read window its production Postgres service reported
+zero CPU and memory, and its API service reported zero requests. **Those zeros are a timestamped
+observation of one read of one project, not evidence about what exists.** A service that reported
+zero usage in that window may be idle, may not have been reached by the query, or may not be visible
+to this credential, and the same zeros say nothing about whether a production PostgreSQL instance
+exists for the auth database. The read saw no service for the auth database in that project, and
+this credential reaches no other Railway project or workspace. **Whether a production PostgreSQL
+instance for the auth database exists is not established by this read, in either direction.**
 
 ## 7. Bounded efficiency changes
 
@@ -274,8 +277,12 @@ machine and the local test lanes actually reach.
 | `packages/db/src/config.ts`             | The connection rules.                                                                                                | None: the statement mode is not decided by a hostname. |
 | `scripts/database-config.mjs`           | The deploy-time configuration check.                                                                                 | None: the comparison names no provider.                |
 
-The one provider-dependent path left in the repository is the pull-request CI
-workflow, which is not a local surface and is the CI lane's to remove.
+The pull-request CI workflow that was the one provider-dependent path left in the
+repository was removed by #1516 (merged 2026-10-20T18:04:26Z) and replaced with
+the provider-free disposable loopback proof. The provider-dependent paths that
+remain are the auth package's legacy reader, driver, client SDK dependency and
+persisted provider label, which are the auth lane's to remove and are listed
+below.
 
 A developer machine therefore needs a PostgreSQL server, not that provider. The
 container image is digest-pinned and the registry fallback is already handled
@@ -332,11 +339,23 @@ None of this is performed or authorized by this lane.
 | 7   | Verify the bindings resolved, then observe        | After the deploy, confirm the Worker resolves each of the four bindings — a failing resolution is silent by construction — and then record sign-in, refresh, logout and revocation outcomes, the verification deliveries, the Workers CPU-overrun counter, and the request and subrequest counts.                                                                                                                                                                       | Live observation.                                            |
 | 8   | Retire the legacy bindings                        | Delete `AGENT_HQ_NEON_PRODUCTION_DATABASE_URL`, `AGENT_HQ_NEON_PRODUCTION_AUTH_BASE_URL` and `AGENT_HQ_WORKER_AUTH_COOKIE_SECRET` from the store, once the observation window is clean.                                                                                                                                                                                                                                                                                 | A credential deletion.                                       |
 
-**Cache-disabled routing for authentication, session and permission reads is a prerequisite of the
-cutover and is not satisfied by this pull request.** The live pooler has query caching enabled; the
-cache lives on the Cloudflare binding, outside this repository, and root owns it. It has to be
-disabled, or the pooler that serves those reads has to be one without it, before the cutover is
-accepted.
+**Two prerequisites of the runtime Railway bindings are separate from this pull request, and
+neither is established by it.** The bindings this pull request deploys resolve lazily, per request,
+and a record that does not resolve surfaces at request time rather than failing the deployment, so
+nothing in the repository validates them. Two things have to hold before those bindings are
+trusted, and this pull request establishes neither:
+
+1. **A prepared target that has been verified.** The Railway database and the auth database, the
+   four Secrets Store records and the target itself have to exist and be read back, answered on the
+   runtime and migration roles, and checked for the `app` and `auth` schemas and their tables.
+   That is steps 1 to 4 above, and this pull request performs none of it.
+2. **Cache-disabled routing for authentication, session and permission reads.** The live pooler has
+   query caching enabled; the cache lives on the Cloudflare binding, outside this repository, and
+   root owns it. It has to be disabled, or the pooler that serves those reads has to be one without
+   it, before the cutover is accepted.
+
+**This pull request does not activate those bindings, does not deploy, does not provision, and does
+not mutate Railway or production, and it makes no claim that either prerequisite is satisfied.**
 
 **Not required, and deliberately not done:** deleting, dropping, truncating or altering any provider
 branch, database, role or table. The legacy environment is retained untouched as an accountability
@@ -356,7 +375,7 @@ paths.
 | Pull request     | Owner              | Change to `scripts/database-config.mjs`                                                                                                                                                                                                                                                                     |
 | ---------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | #1515 (this one) | H (this lane)      | Removes the provider-named endpoint rules and the host-name normalisation with them. Identifies the PostgreSQL instance by its host, its port and its database name, and requires the runtime, migration and unpooled connections to agree on all three. No name is rewritten and no lookalike is forgiven. |
-| #1516            | F (CI and release) | Removes the same provider-named endpoint rules and renames the normalisation helper, keeping it. Replaces the hosted branch workflow with a provider-free disposable loopback proof.                                                                                                                        |
+| #1516            | F (CI and release) | Removed the same provider-named endpoint rules, renamed the normalisation helper and **merged on 2026-10-20T18:04:26Z**; it replaced the hosted branch workflow with a provider-free disposable loopback proof.                                                                                             |
 
 **The overlap and its resolution.** Two revisions of this lane's rule have been reviewed. The first
 compared the literal host, which broke the still-active hosted branch lane deterministically:
@@ -369,18 +388,17 @@ lookalike — `evil-pooler.example.test` and `evil.example.test` were accepted a
 The third revision removes the forgiveness. The instance is identified by the host, the port and the
 database name, all three exactly, and two host names are never equal by resemblance.
 
-**The merge precondition.** The exact rule refuses the hosted branch lane's two-endpoint shape, so
-that lane's health probe fails while the workflow still exists. #1516 removes the workflow and
-replaces it with the provider-free disposable loopback proof, which addresses one instance through
-one host and one port through all three variables and which the exact rule accepts. **#1516, or at
-least its removal of the hosted branch workflow, has to be merged before or together with this
-pull request.** Merging this one first leaves the pull-request database lane red on `main` until
-#1516 lands. That ordering is root's to decide; this lane does not edit the CI lane's files.
+**The merge precondition is discharged.** The exact rule refuses the hosted branch lane's two-endpoint
+shape, so that lane's health probe failed while the workflow still existed. #1516 removed the
+workflow and replaced it with the provider-free disposable loopback proof, which addresses one
+instance through one host and one port through all three variables and which the exact rule
+accepts. **#1516 was merged on 2026-10-20T18:04:26Z, before this pull request**, so the
+precondition no longer holds and the pull-request database lane is not waiting on it.
 
-At integration, this lane's version of `scripts/database-config.mjs` **supersedes** #1516's: the
-provider-named rules are removed in both, and #1516's copy of the normalisation helper is not
-taken, because a host-name rewrite is the defect being fixed. This lane owns the path; #1516's owner
-is asked to take this lane's version of the file at integration and to keep #1516's CI replacement.
+The two versions of `scripts/database-config.mjs` have therefore already been reconciled on
+`main`: the provider-named rules are removed in both, and the host-name rewrite this lane removed is
+not present, because a host-name rewrite is the defect being fixed. What #1516 brought to `main` is
+its CI replacement, the provider-free disposable loopback proof.
 
 **The health gate is not weakened.** The comparison is strictly stronger than the one it replaces:
 the original code never compared the runtime and migration hosts at all, and this lane's rule
@@ -409,8 +427,10 @@ middle of a label, the marker twice, and the marker on an unrelated name.
   counters. The routes for those were tried and are recorded as negative results.
 - It does not establish that the CPU-overrun fix holds at the 2026-10-15 to 2026-10-17 traffic
   level. The overrun-free days are also the low-traffic days.
-- It does not establish that a Railway service for the auth database exists. The reachable Railway
-  project holds none, and the credential reaches no other project.
+- It does not establish that a production PostgreSQL instance for the auth database exists, or that
+  none exists. The zero-metric record of the reachable Railway project is a timestamped observation
+  of one read, not a statement about what is deployed. The read saw no service for the auth
+  database in the reachable project, and the credential reaches no other project.
 - It does not complete the wider database migration. It covers this repository's application
   database and its auth configuration. The Control Plane service carries its own Railway
   configuration and runbooks in its own repository.
