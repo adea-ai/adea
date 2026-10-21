@@ -470,6 +470,10 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
     const renamer = createDatabase(renameUrl.toString())
     const revoker2 = createDatabase(revokeUrl.toString())
     const release = Promise.withResolvers<void>()
+    // The parker's own barrier: it resolves only once the parker provably holds
+    // the event-sequence lock, and it rejects with the parker's own failure so
+    // the barrier can never hang on an acquisition that did not happen.
+    const acquired = Promise.withResolvers<void>()
     let parker: Promise<unknown> | undefined
     let rename: Promise<unknown> | undefined
     let revocation: Promise<boolean> | undefined
@@ -479,15 +483,33 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
       // Parking the workspace's event sequence row holds the rename after it
       // has taken both fences and applied its write, without committing it.
       parker = connection.db.transaction(async (transaction) => {
-        await lockWorkspaceEventSequence(transaction, workspace.id)
+        try {
+          await lockWorkspaceEventSequence(transaction, workspace.id)
+        } catch (error) {
+          // The acquisition failed, so the rename must not start on the
+          // assumption that the lock is held.
+          acquired.reject(error)
+          throw error
+        }
+        acquired.resolve()
         await release.promise
       })
-      void parker.catch(() => undefined)
+      // Any other failure of the parker must settle the barrier too, so the
+      // await below can never hang on an acquisition that did not happen.
+      void parker.catch((error: unknown) => {
+        acquired.reject(error)
+      })
+      // The rename may only start once the parker provably holds the lock. The
+      // two connections are independent, so starting the rename first could
+      // let it take the sequence row itself and never block on the parker.
+      await acquired.promise
       rename = updateWorkspace(renamer.db, workspace.id, concurrent.principal, {
         expectedVersion: workspace.version,
         update: { name: 'Renamed while in flight' },
       })
       void rename.catch(() => undefined)
+      // The rename is now blocked on the parked sequence row, which it only
+      // reaches after it holds the workspace and membership fences.
       const renamePid = await waitForLockedBackend(`${label}-rename`)
       revocation = removeWorkspaceMembership(revoker2.db, workspace.id, concurrent.principal)
       void revocation.catch(() => undefined)
