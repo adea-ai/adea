@@ -53,11 +53,17 @@ const HEAVY_SCALE_CHANNELS = 157
  *
  * Every channel fixture id below is therefore scoped to this run's marker, and each fixture gets
  * its own index inside that id, so two fixtures of one run cannot share a primary key either. The
- * two ids the file used before are kept here as the regression's subject: this run has to survive
- * finding them still in the database, because that is the condition a leftover row creates.
+ * three id families the file used before are kept here as the regression's subject: this run has to
+ * survive finding them still in the database, because that is the condition a leftover row creates.
+ *
+ * The three families are the ones the file used before the repair: the late-project channel, the
+ * participant-boundary channel, and the heavy visible scale range. The scale range wrote one id
+ * per row, so a leftover row carries whichever member of the range it was, and the first member is
+ * the one planted below.
  */
 const LEGACY_LATE_PROJECT_CHANNEL_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 const LEGACY_BOUNDARY_CHANNEL_ID = '00000000-0000-4000-8000-000000000000'
+const LEGACY_SCALE_CHANNEL_ID = '00000000-0000-4000-8000-000000000001'
 
 /**
  * The identifier shape the file's fixtures have always had, with the run marker in place of the
@@ -635,10 +641,16 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     // a global primary key, so a leftover row with one of those ids is what makes the next run
     // fail with `23505 duplicate channels_pkey` before it asserts anything.
     //
+    // All three fixed families are planted, one row each: the late-project channel, the
+    // participant-boundary channel, and one member of the heavy visible scale range. The recorded
+    // lane failure named the first of them, but the defect was a family, so the regression covers
+    // the family and not only the member the receipt happened to carry.
+    //
     // The leftover rows are participant-only channels: the collision is on the primary key alone,
     // and a participant-only channel with no participants is invisible to every other assertion in
     // this file, so the leftovers cannot perturb the cases that follow. The insert tolerates a
     // leftover that is already there, because "already there" is the condition under test.
+    expect(LEGACY_SCALE_CHANNEL_ID).toMatch(/^00000000-0000-4000-8000-[0-9]{12}$/)
     await db
       .insert(channels)
       .values([
@@ -662,21 +674,55 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
           visibility: 'participants' as const,
           workspaceId: workspaceId!,
         },
+        {
+          id: LEGACY_SCALE_CHANNEL_ID,
+          idempotencyKey: `portable-channel-legacy-scale-${run}`,
+          agentId: agentIds[0]!,
+          kind: 'direct_agent' as const,
+          sortOrder: 10_002,
+          title: 'Leftover scale channel',
+          visibility: 'participants' as const,
+          workspaceId: workspaceId!,
+        },
       ])
       .onConflictDoNothing()
 
+    // The planted condition is real, not merely tolerated: all three leftover rows are present.
+    const leftovers = await db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(
+        inArray(channels.id, [
+          LEGACY_LATE_PROJECT_CHANNEL_ID,
+          LEGACY_BOUNDARY_CHANNEL_ID,
+          LEGACY_SCALE_CHANNEL_ID,
+        ])
+      )
+    expect(leftovers.map(({ id }) => id).toSorted()).toEqual(
+      [
+        LEGACY_LATE_PROJECT_CHANNEL_ID,
+        LEGACY_BOUNDARY_CHANNEL_ID,
+        LEGACY_SCALE_CHANNEL_ID,
+      ].toSorted()
+    )
+
     // Every fixture id this run creates is scoped to this run, so none of them is a fixed id an
     // earlier or concurrent run could have left behind. The run marker is in the id, which is what
-    // makes it this run's own.
+    // makes it this run's own. The scale family is covered at both of its ends, because that is
+    // where a collision with a fixed member of the old family would be most likely.
+    const legacyIds = [
+      LEGACY_LATE_PROJECT_CHANNEL_ID,
+      LEGACY_BOUNDARY_CHANNEL_ID,
+      LEGACY_SCALE_CHANNEL_ID,
+    ]
     const productionIds = [
       lateProjectChannelId(),
       participantBoundaryChannelId(),
       heavyVisibleChannelId(0),
-      heavyVisibleChannelId(1),
+      heavyVisibleChannelId(HEAVY_SCALE_CHANNELS - 1),
     ]
     for (const id of productionIds) expect(id).toContain(run)
-    expect(productionIds).not.toContain(LEGACY_LATE_PROJECT_CHANNEL_ID)
-    expect(productionIds).not.toContain(LEGACY_BOUNDARY_CHANNEL_ID)
+    for (const legacyId of legacyIds) expect(productionIds).not.toContain(legacyId)
     expect(new Set(productionIds).size).toBe(productionIds.length)
 
     // And a run-scoped id inserts cleanly while the leftover rows are present. The probe keeps the
@@ -684,12 +730,13 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     // one of them needs.
     const probeId = runScopedLowChannelId(900)
     expect(probeId).toContain(run)
+    expect(legacyIds).not.toContain(probeId)
     await db.insert(channels).values({
       id: probeId,
       idempotencyKey: `portable-channel-run-scoped-probe-${run}`,
       agentId: agentIds[0]!,
       kind: 'direct_agent' as const,
-      sortOrder: 10_002,
+      sortOrder: 10_003,
       title: 'Run-scoped probe channel',
       visibility: 'participants' as const,
       workspaceId: workspaceId!,
