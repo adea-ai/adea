@@ -24,7 +24,7 @@
 // The qualification is conditional on the pinned client and the pinned toolchain being present, and it is
 // skipped visibly without them, exactly as the transfer qualification does. It changes no release or CI gate,
 // reads no credential, and creates no Cloudflare resource.
-import { describe, expect, test } from 'bun:test'
+import { afterAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import {
@@ -74,6 +74,13 @@ function runWrapper(root: string, cacheHome: string, extraEnv: Record<string, st
   return { status: child.status, output, hits: parsed.hits, total: parsed.total }
 }
 
+/** Every checkout this file creates, so a failing case cannot leave one behind. */
+const created: { path: string; remove: () => void }[] = []
+
+afterAll(() => {
+  for (const entry of created) entry.remove()
+})
+
 function disposableCheckout(name: string): { path: string; remove: () => void } {
   const base = mkdtempSync(join(tmpdir(), `adea-cache-${name}-`))
   const path = join(base, 'checkout')
@@ -90,13 +97,15 @@ function disposableCheckout(name: string): { path: string; remove: () => void } 
     encoding: 'utf8',
   }).stdout.trim()
   appendFileSync(isAbsolute(exclude) ? exclude : join(repoRoot, exclude), 'node_modules\n')
-  return {
+  const entry = {
     path,
     remove: () => {
       rmSync(base, { recursive: true, force: true })
       spawnSync('git', ['-C', repoRoot, 'worktree', 'prune'], { encoding: 'utf8' })
     },
   }
+  created.push(entry)
+  return entry
 }
 
 function disposableCacheHome(name: string): string {
