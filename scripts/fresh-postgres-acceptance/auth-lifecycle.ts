@@ -268,9 +268,20 @@ export async function runFreshAuthAcceptance(
     recovery.concurrentResetStatuses.every((status) => status >= 200),
     'every raced redemption must have returned a real status'
   )
-  assert.ok(
-    recovery.concurrentResetRedemptions >= 1,
-    'the raced reset token must have been redeemed at least once'
+  assert.equal(
+    recovery.concurrentResetRedemptions,
+    1,
+    'exactly one redemption of the raced reset token may succeed'
+  )
+  assert.equal(
+    recovery.concurrentResetStatuses.filter((status) => status === 200).length,
+    1,
+    'the raced reset token must have exactly one successful redemption'
+  )
+  assert.equal(
+    recovery.concurrentResetStatuses.filter((status) => status === 400).length,
+    1,
+    'the other redemption of the raced reset token must be refused'
   )
   assert.equal(recovery.concurrentVerificationStatuses.length, 2)
   assert.ok(

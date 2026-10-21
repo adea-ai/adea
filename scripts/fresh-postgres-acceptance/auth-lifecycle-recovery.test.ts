@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { test } from 'bun:test'
 
 import {
+  assertRefusedWith,
   carriesNoSecret,
   runAuthLifecycleRecovery,
   runConcurrently,
@@ -87,8 +88,9 @@ test.skipIf(process.env.FRESH_AUTH_ACCEPTANCE !== '1' && !process.env.FRESH_AUTH
     assert.equal(receipt.restartContinues, true)
     assert.equal(receipt.sessionRevocationConsistent, true)
     assert.equal(receipt.concurrentResetStatuses.length, 2)
-    assert.ok(receipt.concurrentResetStatuses.every((status) => status >= 200))
-    assert.ok(receipt.concurrentResetRedemptions >= 1)
+    assert.equal(receipt.concurrentResetRedemptions, 1)
+    assert.equal(receipt.concurrentResetStatuses.filter((status) => status === 200).length, 1)
+    assert.equal(receipt.concurrentResetStatuses.filter((status) => status === 400).length, 1)
     assert.equal(receipt.concurrentVerificationStatuses.length, 2)
     assert.ok(receipt.concurrentVerificationStatuses.every((status) => status >= 200))
     assert.ok(receipt.concurrentVerificationStatuses.some((status) => status === 200))
@@ -104,6 +106,33 @@ test.skipIf(process.env.FRESH_AUTH_ACCEPTANCE !== '1' && !process.env.FRESH_AUTH
   },
   30_000
 )
+
+test('a refusal that answers a different status or code is not the expected refusal', () => {
+  // The pinned refusal is exact. A different status, a different code or a
+  // missing code fails the assertion, and a server error can never stand in for
+  // the refusal the provider promises.
+  assert.doesNotThrow(() =>
+    assertRefusedWith(
+      { code: 'PASSWORD_TOO_SHORT', status: 400 },
+      { code: 'PASSWORD_TOO_SHORT', status: 400 }
+    )
+  )
+  assert.throws(() =>
+    assertRefusedWith(
+      { code: 'PASSWORD_TOO_SHORT', status: 500 },
+      { code: 'PASSWORD_TOO_SHORT', status: 400 }
+    )
+  )
+  assert.throws(() =>
+    assertRefusedWith(
+      { code: 'SOMETHING_ELSE', status: 400 },
+      { code: 'PASSWORD_TOO_SHORT', status: 400 }
+    )
+  )
+  assert.throws(() =>
+    assertRefusedWith({ status: 400 }, { code: 'PASSWORD_TOO_SHORT', status: 400 })
+  )
+})
 
 test('a concurrent run reports the outcome of every operation, including a refused one', async () => {
   const outcomes = await runConcurrently([

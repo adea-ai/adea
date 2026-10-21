@@ -155,6 +155,28 @@ async function outcomeOf(
 }
 
 /**
+ * Asserts that a refusal is the refusal the provider promises: the exact status
+ * and the exact code. A different status, a different code or a missing code
+ * fails the assertion, so a refusal cannot pass as the expected refusal for the
+ * wrong reason, and a server error can never stand in for a refusal.
+ */
+export function assertRefusedWith(
+  outcome: { code?: string; status: number },
+  expected: { code: string; status: number }
+): void {
+  assert.equal(
+    outcome.status,
+    expected.status,
+    `the refusal must answer ${expected.status}, not ${outcome.status}`
+  )
+  assert.equal(
+    outcome.code,
+    expected.code,
+    `the refusal must answer ${expected.code}, not ${outcome.code ?? 'no code'}`
+  )
+}
+
+/**
  * The failure-recovery journey. It uses synthetic accounts only and never
  * touches a real mail transport.
  */
@@ -240,7 +262,10 @@ export async function runAuthLifecycleRecovery(
       password: refusedPassword,
     })
   )
-  assert.notEqual(refused.status, 200, 'a signup the provider refuses must not be accepted')
+  // The refusal is pinned: the provider answers this validation with this
+  // status and this code, and a different status or a different code fails the
+  // assertion.
+  assertRefusedWith(refused, { code: 'PASSWORD_TOO_SHORT', status: 400 })
   assert.ok(
     carriesNoSecret(refused.text, [refusedPassword]),
     'a refused signup must not echo the password it was sent with'
@@ -463,9 +488,13 @@ export async function runAuthLifecycleRecovery(
         token: racedReset.token,
       }).then(outcomeOf),
   ])
+  // The outcomes keep the order of the requests that produced them, so each
+  // raced redemption stays mapped to the password it carried.
+  const redemptionPasswords = [replacement, racedReplayPassword] as const
   const redemptionOutcomes = redemptions
     .filter((outcome) => outcome.ok)
     .map((outcome) => outcome.value as { code?: string; status: number; text: string })
+  assert.equal(redemptionOutcomes.length, 2, 'both redemptions must have answered')
   const concurrentResetStatuses = redemptionOutcomes.map((outcome) => outcome.status)
   const concurrentResetRedemptions = redemptionOutcomes.filter(
     (outcome) => outcome.status === 200
@@ -473,12 +502,17 @@ export async function runAuthLifecycleRecovery(
   // A reset token is single use: exactly one of the two redemptions may succeed
   // and the other must be refused. If the provider ever lets both through, this
   // assertion fails and the race is reported rather than relaxed.
-  const winners = redemptionOutcomes.filter((outcome) => outcome.status === 200)
-  const losers = redemptionOutcomes.filter((outcome) => outcome.status !== 200)
-  assert.equal(winners.length, 1, 'exactly one redemption of the raced reset token may succeed')
-  assert.equal(losers.length, 1, 'the other redemption of the raced token must be refused')
-  assert.equal(losers[0]!.status, 400, 'the refused redemption must be a refusal')
-  assert.equal(losers[0]!.code, 'INVALID_TOKEN', 'the refused redemption must name the token')
+  const winnerIndex = redemptionOutcomes.findIndex((outcome) => outcome.status === 200)
+  const loserIndex = redemptionOutcomes.findIndex((outcome) => outcome.status !== 200)
+  assert.equal(
+    concurrentResetRedemptions,
+    1,
+    'exactly one redemption of the raced reset token may succeed'
+  )
+  assert.ok(winnerIndex >= 0, 'one redemption of the raced token must have succeeded')
+  assert.ok(loserIndex >= 0, 'the other redemption of the raced token must have been refused')
+  // The refused redemption is a refusal, never a server error.
+  assertRefusedWith(redemptionOutcomes[loserIndex]!, { code: 'INVALID_TOKEN', status: 400 })
   for (const outcome of redemptionOutcomes) {
     assert.ok(
       carriesNoSecret(outcome.text, [racedReset.token, replacement, racedReplayPassword]),
@@ -498,41 +532,43 @@ export async function runAuthLifecycleRecovery(
     carriesNoSecret(replayedRefusal.text, [racedReset.token, racedReplayPassword]),
     'a refused reset must not echo the token or the password it was sent with'
   )
-  // The password that is current is one the race set, and the sessions the
-  // successful redemption revoked are gone.
-  const racedPasswords = [replacement, racedReplayPassword]
-  const current = [] as string[]
-  for (const candidate of racedPasswords) {
-    const signIn = await outcomeOf(
-      await thirdRequest('/sign-in/email', { email: third, password: candidate })
-    )
-    if (signIn.status !== 200) continue
-    current.push(candidate)
-    // The probe's own session is closed again, so the session count still
-    // describes the race and not the probe.
-    const probeCookie = signIn.cookies
-    if (probeCookie) {
-      await thirdRequest('/sign-out', {}, probeCookie)
-    }
-  }
-  assert.equal(
-    current.length,
-    1,
-    'exactly one of the raced passwords must be in force after the race'
+  // Each raced request stays mapped to the password it carried: the password of
+  // the successful redemption authenticates, and the password of the refused one
+  // is refused with the sign-in refusal, never with a server error.
+  const winnerPassword = redemptionPasswords[winnerIndex]!
+  const loserPassword = redemptionPasswords[loserIndex]!
+  const winnerSignIn = await outcomeOf(
+    await thirdRequest('/sign-in/email', { email: third, password: winnerPassword })
   )
-  assert.equal(await store.sessionCount(third), 0, 'the probes must not leave a session')
-  const rejected = await thirdRequest('/sign-in/email', {
-    email: third,
-    password: 'unused synthetic raced password check',
-  })
-  assert.equal(rejected.status, 401, 'a password the race did not set must not sign in')
+  assert.equal(
+    winnerSignIn.status,
+    200,
+    'the password of the successful redemption must authenticate'
+  )
+  // The check's own session is closed again, so the session count still
+  // describes the race and not the check.
+  const winnerCookie = winnerSignIn.cookies
+  if (winnerCookie) {
+    await thirdRequest('/sign-out', {}, winnerCookie)
+  }
+  const loserSignIn = await outcomeOf(
+    await thirdRequest('/sign-in/email', { email: third, password: loserPassword })
+  )
+  assert.equal(
+    loserSignIn.status,
+    401,
+    'the password of the refused redemption must not authenticate'
+  )
+  assert.equal(await store.sessionCount(third), 0, 'the sign-in checks must not leave a session')
 
   // 7. A revocation is consistent: the original first session is revoked by its
   //    own logout, and the original second session keeps working, immediately
   //    after the logout and after the logout is replayed.
   const sessions = await runConcurrently([
-    () => thirdRequest('/sign-in/email', { email: third, password: current[0]! }).then(outcomeOf),
-    () => thirdRequest('/sign-in/email', { email: third, password: current[0]! }).then(outcomeOf),
+    () =>
+      thirdRequest('/sign-in/email', { email: third, password: winnerPassword }).then(outcomeOf),
+    () =>
+      thirdRequest('/sign-in/email', { email: third, password: winnerPassword }).then(outcomeOf),
   ])
   const sessionCookies = sessions
     .filter((outcome) => outcome.ok)
