@@ -85,11 +85,16 @@ run treats the resource as claimed.
 
 A claim that cannot be read is uncertain, and an uncertain claim is never
 taken. The claim is released with the cleanup, under the same exclusive lock,
-so a claim and a release cannot interleave. The release checks the record's
-token and not the run id or the process id: a process id can be recycled, and
-a run id is not a process identity, so only the token says that a record
-belongs to the holder that took it. A claim that cannot be released is
-reported rather than hidden.
+so a claim and a release cannot interleave.
+
+A release proves that it is the holder, and only the token does that: a
+process id can be recycled, and a run id is not a process identity. The
+release must present a valid token, and the record must carry a valid token,
+and the two must match. A release that presents no token, an empty token, a
+token that is not one this model issued, or a token that does not match the
+record removes nothing — including a release by the same run against the same
+identity, and a release against a record written before tokens existed. A
+claim that cannot be released is reported rather than hidden.
 
 ## The liveness of an owner
 

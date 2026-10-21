@@ -1077,7 +1077,7 @@ describe('the shared-resource claim', () => {
 
   test('a claim is released only by the run that holds it', () => {
     const directory = leaseDirectoryForTest()
-    claimSharedResource({
+    const claim = claimSharedResource({
       directory,
       resourceKey: identity.label,
       runId: 'run-a',
@@ -1085,11 +1085,13 @@ describe('the shared-resource claim', () => {
       owner,
       isProcessAlive: () => true,
     })
+    expect(claim.decision).toBe('granted')
     const foreign = releaseSharedResource({
       directory,
       resourceKey: identity.label,
       runId: 'run-b',
       identity,
+      token: claim.claim?.token,
     })
     expect(foreign.released).toBe(false)
     const released = releaseSharedResource({
@@ -1097,8 +1099,91 @@ describe('the shared-resource claim', () => {
       resourceKey: identity.label,
       runId: 'run-a',
       identity,
+      token: claim.claim?.token,
     })
     expect(released.released).toBe(true)
+  })
+
+  test('a release that presents no token removes nothing, whoever asks', () => {
+    const directory = leaseDirectoryForTest()
+    const claim = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-a',
+      identity,
+      owner,
+      isProcessAlive: () => true,
+    })
+    expect(claim.decision).toBe('granted')
+    const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
+    // The same run and the same identity, with no token at all: the run id is
+    // not a process identity, so this proves nothing.
+    for (const token of [undefined, '', 'not-a-token', 'run-a']) {
+      const released = releaseSharedResource({
+        directory,
+        resourceKey: identity.label,
+        runId: 'run-a',
+        identity,
+        token,
+      })
+      expect(released.released).toBe(false)
+      expect(released.reason).toContain('no valid token')
+      // The claim is exactly as it was.
+      expect(JSON.parse(readFileSync(claimFile, 'utf8')).token).toBe(claim.claim?.token)
+    }
+  })
+
+  test('a release that presents the wrong token leaves the claim alone', () => {
+    const directory = leaseDirectoryForTest()
+    const claim = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-a',
+      identity,
+      owner,
+      isProcessAlive: () => true,
+    })
+    expect(claim.decision).toBe('granted')
+    const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
+    const released = releaseSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-a',
+      identity,
+      token: '2e99c7a1-0000-4000-8000-000000000000',
+    })
+    expect(released.released).toBe(false)
+    expect(released.reason).toContain('not taken by this holder')
+    expect(JSON.parse(readFileSync(claimFile, 'utf8')).token).toBe(claim.claim?.token)
+  })
+
+  test('a claim that carries no token is not released', () => {
+    const directory = leaseDirectoryForTest()
+    mkdirSync(join(directory, 'claims'), { recursive: true })
+    const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
+    // A record written before this model issued tokens carries none.
+    writeFileSync(
+      claimFile,
+      `${JSON.stringify({
+        version: 1,
+        resourceKey: identity.label,
+        runId: 'run-a',
+        identity,
+        owner: { pid: 4242, hostname: 'synthetic-host', startedAt: null },
+        createdAt: 0,
+      })}\n`
+    )
+    const released = releaseSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-a',
+      identity,
+      token: '2e99c7a1-0000-4000-8000-000000000000',
+    })
+    expect(released.released).toBe(false)
+    expect(released.reason).toContain('no valid token')
+    // The record is left exactly as it was.
+    expect(JSON.parse(readFileSync(claimFile, 'utf8')).runId).toBe('run-a')
   })
 
   test('a claim record that cannot be understood is uncertain', () => {

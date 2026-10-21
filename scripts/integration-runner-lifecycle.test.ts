@@ -216,12 +216,17 @@ function exercise(options: {
               runId,
               identity,
               owner: { pid: 123, hostname: 'synthetic-host', startedAt: null },
+              token: '3f2a1b0c-1111-4222-8333-444455556666',
               createdAt: 0,
             },
           }
         },
-        releaseSharedResource({ resourceKey, runId }) {
-          calls.push(['shared-release', resourceKey])
+        releaseSharedResource({ resourceKey, runId, token }) {
+          calls.push(['shared-release', resourceKey, token ?? 'none'])
+          // The release proves the holder with the token the claim was issued
+          // with, exactly as the model does.
+          if (token !== '3f2a1b0c-1111-4222-8333-444455556666')
+            return { released: false, reason: 'the release presented no valid token' }
           return { released: true }
         },
         processIsAlive() { return true },
@@ -1517,4 +1522,15 @@ test('a removal whose absence could not be confirmed is not reported as removed'
   expect(receipt?.removed).toEqual([])
   expect(receipt?.unknown.length).toBeGreaterThan(0)
   expect(receipt?.errors.length).toBeGreaterThan(0)
+})
+
+test('the release presents the token the claim was issued with', () => {
+  const result = exercise({ success: true })
+  const release = result.calls.find((call) => call[0] === 'shared-release')
+  expect(release).toBeDefined()
+  expect(release?.[2]).toBe('3f2a1b0c-1111-4222-8333-444455556666')
+  // The claim was not left behind, and the lane did not report a failure over
+  // the release.
+  expect(result.failure).toBeUndefined()
+  expect(result.receipts.at(-1)?.errors).toEqual([])
 })

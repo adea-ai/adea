@@ -106,6 +106,11 @@ export const DISK_PRESSURE = {
 /** How long a settled lease record is kept before the lane prunes it. */
 export const DEFAULT_LEASE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000
 
+/**
+ * The shape of a token. Only this model issues one.
+ */
+const TOKEN_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu
+
 /** The claim record's version. A record of another version is not understood. */
 export const CLAIM_VERSION = 1
 
@@ -502,6 +507,17 @@ function uniqueToken() {
 }
 
 /**
+ * Whether a value is a token this model issued.
+ *
+ * A token is a UUID, and only this model produces one. A value that is
+ * absent, empty, or not a token at all is not a proof of anything, so a
+ * release that carries one removes nothing.
+ */
+export function isValidToken(token) {
+  return typeof token === 'string' && TOKEN_PATTERN.test(token)
+}
+
+/**
  * Takes the lock that serialises the claim and the release of one resource.
  *
  * The lock is taken with an exclusive create, so exactly one process holds it.
@@ -836,8 +852,15 @@ export function releaseSharedResource({ directory, resourceKey, runId, identity,
       return { released: false, reason: 'the claim names another identity' }
     }
     // The record's token is what says the claim is this holder's. A run id is
-    // not a process identity, and a process id can be recycled.
-    if (token !== undefined && existing.token !== token) {
+    // not a process identity, and a process id can be recycled, so a release
+    // that presents no valid token proves nothing and removes nothing.
+    if (!isValidToken(token)) {
+      return { released: false, reason: 'the release presented no valid token' }
+    }
+    if (!isValidToken(existing.token)) {
+      return { released: false, reason: 'the claim carries no valid token to match' }
+    }
+    if (existing.token !== token) {
       return { released: false, reason: 'the claim was not taken by this holder' }
     }
     try {
