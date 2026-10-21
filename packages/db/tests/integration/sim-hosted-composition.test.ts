@@ -102,6 +102,8 @@ describe.skipIf(!connectionUrl)(
       policy: (scope: { workspaceId: string; surface: string }) => unknown
       principal?: (request: Request) => unknown
       objects?: Record<string, { body: string; contentType: string }>
+      /** When set, the private storage fails instead of answering. */
+      readerFails?: boolean
     }) {
       const reads: { key: string; context: { workspaceId: string; surface: string } }[] = []
       const contexts: { workspaceId: string; surface: string }[] = []
@@ -109,6 +111,7 @@ describe.skipIf(!connectionUrl)(
         location: 'agent-sim-export',
         read: async (request) => {
           reads.push({ key: request.key, context: contexts[contexts.length - 1]! })
+          if (options.readerFails) throw new Error('the private storage is unavailable')
           return options.objects?.[request.key] ?? null
         },
       })
@@ -423,11 +426,65 @@ describe.skipIf(!connectionUrl)(
       )
       expect(answer.status).toBe(200)
       expect(await answer.json()).toEqual({ status: 'unavailable', reason: 'not_configured' })
+      // A launch issues a code; it does not mint a session. So the durable
+      // evidence that nothing was issued is the launch code, and the session
+      // rows are checked as well so that a stray issuance of either fails.
+      const codes = await connection.db
+        .select()
+        .from(simLaunchCodes)
+        .where(eq(simLaunchCodes.workspaceId, workspaceId))
+      expect(codes).toHaveLength(0)
       const rows = await connection.db
         .select()
         .from(simSessions)
         .where(eq(simSessions.workspaceId, workspaceId))
       expect(rows).toHaveLength(0)
+    })
+
+    test('unreadable private bytes are not an entitlement denial, and they expose no bytes', async () => {
+      const workspaceId = `ws-${unique()}`
+      createdWorkspaces.add(workspaceId)
+      const now = Date.now()
+      const { api } = issuer({ now: () => now, policy: entitled })
+
+      // A real entitled session, so the request is allowed past the entitlement
+      // gate and reaches the private storage at all.
+      const granted = (await (
+        await api.launch(
+          post(`${parentOrigin}/api/sim/launch`, launchBody(workspaceId), parentOrigin)
+        )
+      ).json()) as { code: string }
+      const minted = replica({ now: () => now, policy: entitled, objects: {} })
+      const exchanged = await minted.host(
+        post(`${simOrigin}/session`, { schemaVersion: 1, code: granted.code, bridgeId }, simOrigin)
+      )
+      const cookie = cookieValue(exchanged.headers.get('set-cookie')!)
+
+      // The object is absent. The read is answered, the reader was consulted,
+      // and the answer is not the entitlement denial.
+      const missing = replica({ now: () => now, policy: entitled, objects: {} })
+      const absent = await missing.host(get(`${simOrigin}/assets/agent-sim/engine.js`, cookie))
+      expect(absent.status).toBe(404)
+      expect(absent.status).not.toBe(403)
+      expect(await absent.text()).toBe('')
+      expect(missing.reads).toHaveLength(1)
+
+      // The storage itself fails. The service is unavailable, and that is not
+      // the entitlement denial either.
+      const failing = replica({ now: () => now, policy: entitled, readerFails: true })
+      const broken = await failing.host(get(`${simOrigin}/assets/agent-sim/engine.js`, cookie))
+      expect(broken.status).toBe(503)
+      expect(broken.status).not.toBe(403)
+      expect(await broken.text()).toBe('')
+      expect(failing.reads).toHaveLength(1)
+
+      // An unentitled workspace is denied before the private storage is asked
+      // at all, so the denial is not one of the two unreadable answers.
+      const denied = replica({ now: () => now, policy: () => 'not_entitled' })
+      const refused = await denied.host(get(`${simOrigin}/assets/agent-sim/engine.js`, cookie))
+      expect(refused.status).toBe(403)
+      expect(await refused.text()).toBe('')
+      expect(denied.reads).toHaveLength(0)
     })
 
     test('the stored session row carries the workspace and the surface the code was bound to', async () => {
