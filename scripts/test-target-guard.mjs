@@ -1,12 +1,19 @@
 // Fail-closed targets for tests and dev probes.
 //
-// A test run must reach only local services (loopback Postgres and web servers)
-// or the throwaway Neon branch CI creates for the pull request. A database URL
-// or base URL inherited from a developer's shell or an agent's environment can
-// point at production; nothing in the test lanes may then run against it
-// silently. Everything that is not provably local or CI-ephemeral is refused
-// unless the caller names the exact host in ADEA_ALLOW_REMOTE_TEST_TARGET, and
-// the production hosts are refused even then.
+// A test run must reach only local services (loopback Postgres and web servers).
+// A database URL or base URL inherited from a developer's shell or an agent's
+// environment can point at production; nothing in the test lanes may then run
+// against it silently. Everything that is not provably local is refused unless
+// the caller names the exact host in ADEA_ALLOW_REMOTE_TEST_TARGET, and the
+// production hosts are refused even then.
+//
+// The pull-request database lane proves a disposable loopback instance and
+// nothing else, so no CI lane supplies a remote database host: there is no
+// ephemeral branch, no provider API and no CI-provided host allowlist.
+//
+// A developer may still name one exact host in ADEA_ALLOW_REMOTE_TEST_TARGET,
+// exactly as before this change, and that host is then accepted. A production
+// host is never accepted, however it is named.
 //
 // Errors name the variable and the host, never the credentials in the URL.
 
@@ -19,20 +26,21 @@ export const DATABASE_TARGET_VARIABLES = [
 ]
 
 /**
- * Variables that point a suite or probe at an already-running server. The
- * Neon Auth URL is the one remote value CI legitimately supplies: the
- * create-branch step emits it, and the workflow lists its host in
- * `ADEA_CI_AUTH_HOSTS`.
+ * Variables that point a suite or probe at an already-running server.
+ *
+ * `NEON_AUTH_BASE_URL` is the legacy Neon Auth binding the product still
+ * reads (`packages/auth/src/config.ts`). The current artifact never selects
+ * the legacy implementation, but the variable is still a credential the
+ * deployment carries, so it stays on this list: the guard refuses a hosted
+ * Neon Auth endpoint here, and refusing it is a refusal, never a dependency on
+ * a hosted Neon to exist.
  */
 export const HTTP_TARGET_VARIABLES = [
-  { name: 'PERF_BASE_URL' },
-  { name: 'ADEA_ACCEPTANCE_URL' },
-  { name: 'CONTROL_PLANE_ORIGIN' },
-  { name: 'NEON_AUTH_BASE_URL', ciHostsVariable: 'ADEA_CI_AUTH_HOSTS' },
+  'PERF_BASE_URL',
+  'ADEA_ACCEPTANCE_URL',
+  'CONTROL_PLANE_ORIGIN',
+  'NEON_AUTH_BASE_URL',
 ]
-
-/** The restricted roles the CI-created Neon branch exposes (neon_workflow.yml). */
-export const CI_EPHEMERAL_DATABASE_ROLES = ['adea_dev_app', 'adea_dev_migration']
 
 /**
  * Hosts that serve production. No allowance variable and no CI host list can
@@ -132,11 +140,9 @@ function isLocalDatabaseHost(host) {
 }
 
 /**
- * 'local' (every effective host is loopback or a unix socket), 'ci-ephemeral'
- * (every effective host is one the current create-branch step emitted, in
- * `ADEA_CI_BRANCH_HOSTS`, reached as a CI role from GitHub Actions),
- * 'production' (a known production host), or 'remote' (anything else,
- * including a value that does not parse or whose host is ambiguous).
+ * 'local' (every effective host is loopback or a unix socket), 'production'
+ * (a known production host), or 'remote' (anything else, including a value
+ * that does not parse or whose host is ambiguous).
  */
 export function classifyDatabaseTarget(value, env = process.env) {
   const target = effectiveDatabaseTarget(value, env)
@@ -145,23 +151,14 @@ export function classifyDatabaseTarget(value, env = process.env) {
   if (target.hosts.some((host) => denied.has(host))) return 'production'
   if (target.ambiguous) return 'remote'
   if (target.hosts.every(isLocalDatabaseHost)) return 'local'
-  const branchHosts = new Set(hostList(env.ADEA_CI_BRANCH_HOSTS))
-  if (
-    env.GITHUB_ACTIONS === 'true' &&
-    target.hosts.every((host) => branchHosts.has(host)) &&
-    CI_EPHEMERAL_DATABASE_ROLES.includes(target.role)
-  ) {
-    return 'ci-ephemeral'
-  }
   return 'remote'
 }
 
 /**
- * 'local' (an HTTP(S) URL on loopback), 'ci-ephemeral' (a host the current
- * workflow step emitted, listed in the variable named by `ciHostsVariable`),
- * 'production', or 'remote'.
+ * 'local' (an HTTP(S) URL on loopback), 'production' (a host this repository
+ * knows to serve production), or 'remote'.
  */
-export function classifyHttpTarget(value, env = process.env, ciHostsVariable) {
+export function classifyHttpTarget(value, env = process.env) {
   let url
   try {
     url = new URL(value)
@@ -172,13 +169,6 @@ export function classifyHttpTarget(value, env = process.env, ciHostsVariable) {
   const host = url.hostname.toLowerCase()
   if (productionHosts(env).has(host)) return 'production'
   if (isLoopbackHost(host)) return 'local'
-  if (
-    ciHostsVariable &&
-    env.GITHUB_ACTIONS === 'true' &&
-    hostList(env[ciHostsVariable]).includes(host)
-  ) {
-    return 'ci-ephemeral'
-  }
   return 'remote'
 }
 
@@ -199,23 +189,23 @@ function describeHttpHost(value) {
 }
 
 /**
- * Throws when a configured test target is neither local nor CI-ephemeral, or
- * is a production host. A remote target is accepted only when every host it
- * reaches is named in ADEA_ALLOW_REMOTE_TEST_TARGET (comma-separated exact
- * hostnames) and none is a production host; an ambiguous database URL is never
- * accepted. Unset variables are fine: tests that need one fail on their own.
+ * Throws when a configured test target is not local, or is a production host.
+ * A remote target is accepted only when every host it reaches is named in
+ * ADEA_ALLOW_REMOTE_TEST_TARGET (comma-separated exact hostnames) and none is
+ * a production host; an ambiguous database URL is never accepted. Unset
+ * variables are fine: tests that need one fail on their own.
  */
 export function assertLocalTestTargets(env = process.env) {
   const allowedHosts = new Set(hostList(env.ADEA_ALLOW_REMOTE_TEST_TARGET))
   const refused = []
-  const check = (name, kind, ciHostsVariable) => {
+  const check = (name, kind) => {
     const value = env[name]
     if (!value) return
     const database = kind === 'database'
     const classification = database
       ? classifyDatabaseTarget(value, env)
-      : classifyHttpTarget(value, env, ciHostsVariable)
-    if (classification === 'local' || classification === 'ci-ephemeral') return
+      : classifyHttpTarget(value, env)
+    if (classification === 'local') return
     const label = database ? describeDatabaseHost(value, env) : describeHttpHost(value)
     if (classification === 'production') {
       refused.push(`${name} (production host ${label}; no override)`)
@@ -229,13 +219,11 @@ export function assertLocalTestTargets(env = process.env) {
     refused.push(`${name} (host ${label})`)
   }
   for (const name of DATABASE_TARGET_VARIABLES) check(name, 'database')
-  for (const { name, ciHostsVariable } of HTTP_TARGET_VARIABLES) {
-    check(name, 'http', ciHostsVariable)
-  }
+  for (const name of HTTP_TARGET_VARIABLES) check(name, 'http')
   if (refused.length > 0) {
     throw new Error(
       `Refusing to run tests against a non-local target: ${refused.join(', ')}. ` +
-        'Tests use loopback services or the CI-created Neon branch. To target another host on purpose, ' +
+        'Tests use loopback services only. To target another host on purpose, ' +
         'name that exact host in ADEA_ALLOW_REMOTE_TEST_TARGET; production hosts are never accepted.'
     )
   }

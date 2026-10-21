@@ -15,13 +15,12 @@ import {
 import { useWorkspaceState } from '@adea-ai/state'
 import type { ChannelSummary } from '@adea-ai/types'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
-import { createMemo, createSignal, lazy, Show, Suspense, type JSX } from 'solid-js'
+import { createMemo, createSignal, lazy, Show, Suspense } from 'solid-js'
 
 import {
   ConversationsSection,
   GlobalQuickActions,
   readStateHasUnread,
-  type AccountConversationInboxContext,
 } from './workspace-nav-sidebar'
 import { createClientRequestId } from './request-id'
 import { projectWorkspaceNavigation } from './workspace-model'
@@ -50,8 +49,6 @@ export type WorkspaceGlobalNavProps = Readonly<{
   selectedChannelId?: string | null
   onOpenAgents: () => void
   onOpenConversation: (channelId: string) => void
-  /** Account-wide conversations rendered inside this existing section. */
-  accountInbox?: (context: AccountConversationInboxContext) => JSX.Element
   portalMount?: HTMLElement
   tooltips?: boolean
 }>
@@ -129,7 +126,6 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
         createDisabled={!workspaceId()}
         directChannels={navigation().directAgentChannels}
         groupChannels={navigation().groupChannels}
-        accountInbox={props.accountInbox}
         readState={settledData(readState)?.readState ?? []}
         selectedChannelId={props.selectedChannelId ?? null}
         onArchive={(channel) => {
@@ -144,7 +140,7 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
             setError('Conversation link could not be copied.')
           )
         }}
-        onCreateGroup={() => setCreating(true)}
+        onCreateConversation={() => setCreating(true)}
         onIntent={prefetch}
         onOpenAgents={() => props.onOpenAgents()}
         onRename={setRenaming}
@@ -177,6 +173,7 @@ export function WorkspaceConversations(props: WorkspaceGlobalNavProps) {
             agents={settledData(agents) ?? []}
             busy={createGroup.isPending}
             client={props.client}
+            leadAgentId={(settledData(agents) ?? []).find((agent) => agent.isWorkspaceLead)?.id}
             currentUserId={settledData(bootstrap)?.principal.userId}
             onClose={() => setCreating(false)}
             workspaceId={workspaceId() ?? ''}

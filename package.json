@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.98.0",
+  "version": "0.99.0",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -52,7 +52,7 @@
     "test:browser:desktop-client": "bunx playwright install --with-deps chromium && bun apps/desktop/scripts/client.mjs && node scripts/check-desktop-client-browser.mjs"
   },
   "devDependencies": {
-    "@adea-ai/ui": "0.142.4",
+    "@adea-ai/ui": "0.144.0",
     "@babel/core": "^8.0.6",
     "@babel/preset-typescript": "^8.0.1",
     "@playwright/test": "^1.63.0",

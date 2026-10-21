@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/db",
-  "version": "0.98.0",
+  "version": "0.99.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -18,7 +18,7 @@
   },
   "scripts": {
     "lint": "oxlint",
-    "build": "tsc -p tsconfig.json",
+    "build": "rm -rf dist && tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "typecheck": "bun check -p tsconfig.json",
     "test": "bun test tests/unit",

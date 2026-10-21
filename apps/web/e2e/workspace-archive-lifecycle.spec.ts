@@ -42,12 +42,13 @@ function workspaceIds(result: ApiResult): string[] {
   return (result.body as { id: string }[]).map(({ id }) => id)
 }
 
-/** Opens a workspace the way a person does: from the sidebar, then its General settings. */
+/** Opens a workspace the way a person does: from the top bar's switcher, then its General settings. */
 async function openWorkspaceSettings(page: Page, name: string) {
-  await page.getByRole('button', { name, exact: true }).click()
+  await page.getByRole('button', { name: /^Switch workspace, current:/ }).click()
+  await page.getByRole('menuitemradio', { name: new RegExp(`^${name}(?: |$)`) }).click()
   await expect(page.getByRole('heading', { name, level: 1 })).toBeVisible({ timeout: 60_000 })
   await page.evaluate(() => {
-    window.location.hash = 'workspace-settings/general'
+    window.location.hash = 'settings/workspace-general'
   })
 }
 
@@ -106,7 +107,7 @@ test('an optional workspace archives from the real shell, is found after a reloa
   // A reload finds the archived workspace in the owner's durable list from Home's settings.
   await page.reload()
   await page.evaluate(() => {
-    window.location.hash = 'workspace-settings/general'
+    window.location.hash = 'settings/workspace-general'
   })
   const reopenRow = page.getByRole('button', { name: `Reopen ${workspaceName}`, exact: true })
   await expect(reopenRow).toBeVisible({ timeout: 60_000 })
@@ -154,13 +155,14 @@ for (const view of ['Virtual view', 'Dev view'] as const) {
     await expect(page.getByRole('heading', { name: 'Home', level: 1 })).toBeVisible({
       timeout: 60_000,
     })
-    await page.getByRole('button', { name: workspaceName, exact: true }).click()
+    await page.getByRole('button', { name: /^Switch workspace, current:/ }).click()
+    await page.getByRole('menuitemradio', { name: new RegExp(`^${workspaceName}(?: |$)`) }).click()
     await expect(page.getByRole('heading', { name: workspaceName, level: 1 })).toBeVisible({
       timeout: 60_000,
     })
     await page.getByRole('button', { name: view, exact: true }).click()
     await page.evaluate(() => {
-      window.location.hash = 'workspace-settings/general'
+      window.location.hash = 'settings/workspace-general'
     })
 
     const archiveRow = page.getByRole('button', { name: 'Archive workspace', exact: true })

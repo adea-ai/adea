@@ -156,7 +156,7 @@ export function ConnectionsPane(props: { service?: WorkspaceConnectionsService }
         <>
           <SettingsSection
             title="Git hosting"
-            description="The credential clone, fetch, push, and pull requests use for each host in this workspace."
+            help="The credential used to clone, fetch, push and open pull requests."
           >
             <For each={gitHostingRows(ready().snapshot)}>
               {(row) => (
@@ -174,7 +174,7 @@ export function ConnectionsPane(props: { service?: WorkspaceConnectionsService }
           </SettingsSection>
           <SettingsSection
             title="Harness accounts"
-            description="The account or API key each harness uses when it launches in this workspace."
+            help="The account or API key each harness uses in this workspace."
           >
             <Show
               when={harnessAccountRows(ready().snapshot).length > 0}
@@ -215,7 +215,7 @@ export function ConnectionsPane(props: { service?: WorkspaceConnectionsService }
                         label={`New ${row.displayName} account`}
                         description={
                           row.accountCredentials.length > 0
-                            ? 'Name the account and choose the vaulted API key it uses.'
+                            ? undefined
                             : `No ready API key for ${row.displayName} is in this device’s vault yet.`
                         }
                       >

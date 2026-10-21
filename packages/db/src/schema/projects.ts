@@ -40,6 +40,8 @@ export const projects = appSchema.table(
       .references(() => workspaces.id, { onDelete: 'cascade' }),
     name: text('name').notNull(),
     iconKey: text('icon_key').notNull(),
+    /** A theme accent id painting the project's icon, or null to inherit the workspace accent. */
+    accent: text('accent'),
     sourceKind: text('source_kind', { enum: PROJECT_SOURCE_KINDS }).default('none').notNull(),
     sortOrder: integer('sort_order').default(0).notNull(),
     lifecycleState: projectLifecycleState('lifecycle_state').default('active').notNull(),
@@ -64,6 +66,10 @@ export const projects = appSchema.table(
     ),
     check('projects_name_nonempty', sql`length(btrim(${table.name})) > 0`),
     check('projects_icon_key_nonempty', sql`length(btrim(${table.iconKey})) > 0`),
+    check(
+      'projects_accent_valid',
+      sql`${table.accent} is null or ${table.accent} in ('violet', 'blue', 'green', 'amber', 'cyan', 'pink')`
+    ),
     check('projects_sort_order_nonnegative', sql`${table.sortOrder} >= 0`),
     check('projects_version_positive', sql`${table.version} > 0`),
     check('projects_source_kind_valid', sql`${table.sourceKind} in ('none', 'repository')`),

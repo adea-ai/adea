@@ -20,7 +20,7 @@ async function openArchiveHarness(
       body: '<html><body><div id="harness-root"></div></body></html>',
     })
   )
-  await page.goto(`${path}#workspace-settings/general`)
+  await page.goto(`${path}#settings/workspace-general`)
   await page.locator('#harness-root').evaluate(
     (element, entries) => {
       for (const [name, value] of entries) element.setAttribute(name, value)
@@ -152,6 +152,8 @@ test('an archived workspace stays listed after the panel closes and reopens from
   await expect(archivedToast(page)).toBeVisible()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Open settings fixture' }).click()
+  // Settings opens on Account; the archived list is on the workspace's General section.
+  await page.getByRole('tab', { name: 'General', exact: true }).click()
   await expect(reopenRow(page, 'Settings harness')).toBeVisible()
   await reopenRow(page, 'Settings harness').click()
   await expect(page.getByRole('status', { name: 'Archived workspaces status' })).toHaveText(

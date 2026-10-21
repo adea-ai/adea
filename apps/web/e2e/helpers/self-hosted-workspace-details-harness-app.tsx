@@ -2,7 +2,7 @@ import '../../src/start/globals.css'
 import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
 import { workspaceQueryOptions } from '@adea-ai/data'
 import { QueryClient, QueryClientProvider } from '@tanstack/solid-query'
-import { WorkspaceDetailsDialog } from '@adea-ai/workspace-ui/workspace-details-dialog'
+import { WorkspaceSettingsDialog } from '@adea-ai/workspace-ui/workspace-settings'
 import { createSignal } from 'solid-js'
 import { render } from 'solid-js/web'
 import type { WorkspaceSummary } from '@adea-ai/types'
@@ -106,11 +106,18 @@ render(
   () => (
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <WorkspaceDetailsDialog
+        <WorkspaceSettingsDialog
+          accountAuthenticated={principal() !== null}
+          accountLabel="Account"
           accountPrincipalId={principal}
+          agents={[]}
+          busy={false}
           open
           client={client()}
           onClose={() => undefined}
+          onOpenAgents={() => undefined}
+          onSignIn={() => undefined}
+          onSignOut={() => undefined}
           workspace={workspaceFor(workspaceId())}
         />
       </QueryClientProvider>

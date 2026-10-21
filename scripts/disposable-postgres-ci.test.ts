@@ -3,8 +3,12 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { inspectDatabaseConfiguration } from './database-config.mjs'
+import { assertDatabaseProof, recoveryArtifact } from './fresh-postgres-acceptance/recovery.mjs'
+import { classifyDisposableProofEvidence } from './fresh-postgres-acceptance/evidence.mjs'
+import { SELF_HOSTED_AUTH_LIFECYCLE_TEST } from './self-hosted-auth-lifecycle'
 import {
   BACKUP_RESTORE_TEST,
+  buildDisposableProofReceipt,
   backupRestoreEnvironment,
   backupRestoreUrl,
   containerRemovalCommand,
@@ -19,6 +23,7 @@ import {
   attachOwnedContainerCleanup,
   authMigrationUrl,
   disposableStartScript,
+  failureEvidence,
   plaintextUrl,
   proofEnvironment,
   redactSecrets,
@@ -42,16 +47,56 @@ const options: DisposableProofOptions = {
   authBaseUrl: 'https://adea-ci.example.test',
   authSecret: 'adea-ci-disposable-auth-secret-0123456789abcdef',
   authTrustedOrigin: 'https://adea-ci.example.test',
+  checkout: {
+    sha: '0123456789abcdef0123456789abcdef01234567',
+    dirty: false,
+    source: 'test/branch',
+  },
+  module: {
+    sha: '0123456789abcdef0123456789abcdef01234567',
+    dirty: false,
+    source: 'test/branch',
+  },
+  // The harness stands in for the proof, so the receipt it produces says so.
+  // A mocked run is never recorded as a real database proof.
+  evidence: 'simulated',
 }
 
 type Fake = {
   readonly deps: DisposableProofDependencies
   readonly state: {
-    commands: { command: string; args: readonly string[] }[]
+    commands: {
+      command: string
+      args: readonly string[]
+      environment: Record<string, string | undefined>
+    }[]
     queries: { url: string; statement: string }[]
     authCalls: Record<string, string | undefined>[]
     created: { name: string; password: string; image: string; startScript: string }[]
     removed: string[]
+  }
+}
+
+/**
+ * A command that fails one suite and lets the other one pass.
+ *
+ * The disposable proof runs more than one suite, so a case that fails one of
+ * them has to let the others pass, or the case proves the wrong thing.
+ */
+function failingSuite(input: {
+  readonly suite: string
+  readonly status?: number
+  readonly stderr: string
+}) {
+  return (command: string, args: readonly string[]) => {
+    if (args.includes(input.suite)) {
+      return { status: input.status ?? 0, stdout: '', stderr: input.stderr }
+    }
+    const pass =
+      args.includes(BACKUP_RESTORE_TEST) || args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST)
+        ? '\n 1 pass\n 0 fail\n'
+        : ''
+    return { status: 0, stdout: '', stderr: pass }
   }
 }
 
@@ -94,10 +139,14 @@ function fake(overrides: Partial<DisposableProofDependencies> = {}): Fake {
       }
       return { applied: false, before: { add: [], create: [] } }
     },
-    command: (command, args) => {
-      state.commands.push({ command, args })
-      // The backup and restore test reports its summary on stderr, as bun does.
-      const summary = args.includes(BACKUP_RESTORE_TEST) ? '\n 1 pass\n 0 fail\n' : ''
+    command: (command, args, environment) => {
+      state.commands.push({ command, args, environment })
+      // The backup and restore test and the auth lifecycle report their summary
+      // on stderr, as bun does.
+      const summary =
+        args.includes(BACKUP_RESTORE_TEST) || args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST)
+          ? '\n 1 pass\n 0 fail\n'
+          : ''
       return { status: 0, stdout: '', stderr: summary }
     },
     query: async (url, statement) => {
@@ -132,6 +181,10 @@ describe('the disposable PostgreSQL proof', () => {
     const receipt = await runDisposablePostgresProof(deps, options)
 
     expect(receipt.status).toBe('passed')
+    expect(receipt.proofKind).toBe('disposable-postgres-proof')
+    expect(receipt.evidence).toBe('simulated')
+    expect(receipt.checkout).toEqual(options.checkout)
+    expect(receipt.module).toEqual(options.module)
     expect(receipt.database).toBe(PROOF_DATABASE)
     expect(receipt.roles).toEqual({
       runtime: CANONICAL_RUNTIME_ROLE,
@@ -159,6 +212,7 @@ describe('the disposable PostgreSQL proof', () => {
       '--no-env-file run --cwd packages/db db:check',
       '--no-env-file run --cwd packages/db db:verify',
       '--no-env-file --conditions=react-server test packages/db/tests/integration/migrations.test.ts',
+      `--no-env-file test --conditions=react-server ${SELF_HOSTED_AUTH_LIFECYCLE_TEST}`,
       `--no-env-file test ${BACKUP_RESTORE_TEST}`,
     ])
     // The hosted lane asserts the URL is present between the verifier and the
@@ -249,17 +303,200 @@ describe('the disposable PostgreSQL proof', () => {
     expect(backup?.args).toEqual(['--no-env-file', 'test', BACKUP_RESTORE_TEST])
   })
 
-  test('fails the lane when the backup and restore test fails', async () => {
+  test('proves the self-hosted auth lifecycle on the owned certificate-verified instance', async () => {
+    const { deps, state } = fake()
+    const receipt = await runDisposablePostgresProof(deps, options)
+
+    const lifecycle = state.commands.find((entry) =>
+      entry.args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST)
+    )
+    expect(lifecycle).toBeDefined()
+    expect(lifecycle?.command).toBe('bun')
+
+    // The lifecycle runs against the owned instance, over the connection that
+    // is verified with that instance's own certificate.
+    const environment = lifecycle?.environment ?? {}
+    const url = new URL(environment.AUTH_POSTGRES_TEST_URL ?? '')
+    expect(url.hostname).toBe(LOOPBACK_HOST)
+    expect(url.pathname).toBe(`/${PROOF_DATABASE}`)
+    expect(url.searchParams.get('sslmode')).toBe('verify-full')
+    expect(url.searchParams.get('sslrootcert')).toBeTruthy()
+
+    // The suite runs in a minimal environment, so nothing else can change what
+    // the lifecycle proves.
+    expect(
+      Object.keys(environment).every((name) =>
+        ['AUTH_POSTGRES_TEST_URL', 'PATH', 'TMPDIR', 'LANG'].includes(name)
+      )
+    ).toBe(true)
+    expect(environment.AUTH_POSTGRES_TEST_URL).toBeTruthy()
+
+    // The receipt says that the lifecycle was proved and names the suite.
+    expect(receipt.authLifecycle).toEqual({
+      proved: true,
+      suite: SELF_HOSTED_AUTH_LIFECYCLE_TEST,
+    })
+  })
+
+  test('fails the lane when the auth lifecycle suite fails', async () => {
     const { deps } = fake({
       command: (command, args) => ({
-        status: args.includes(BACKUP_RESTORE_TEST) ? 1 : 0,
+        status: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST) ? 1 : 0,
         stdout: '',
-        stderr: args.includes(BACKUP_RESTORE_TEST) ? ' 0 pass\n 1 fail\n' : '',
+        stderr: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST) ? ' 0 pass\n 1 fail\n' : '',
+      }),
+    })
+    await expect(runDisposablePostgresProof(deps, options)).rejects.toThrow(
+      /self-hosted auth lifecycle test failed with exit code 1/
+    )
+  })
+
+  test('fails the lane when the auth lifecycle suite skipped a case', async () => {
+    const { deps } = fake({
+      command: (command, args) => ({
+        status: 0,
+        stdout: '',
+        stderr: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST) ? ' 1 pass\n 0 fail\n 1 skip\n' : '',
+      }),
+    })
+    await expect(runDisposablePostgresProof(deps, options)).rejects.toThrow(
+      /skipped a case; a skipped run is not a proof/
+    )
+  })
+
+  test('fails the lane when the auth lifecycle suite reported no passing case', async () => {
+    const { deps } = fake({
+      command: (command, args) => ({
+        status: 0,
+        stdout: '',
+        stderr: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST) ? ' 0 pass\n 0 fail\n' : '',
+      }),
+    })
+    await expect(runDisposablePostgresProof(deps, options)).rejects.toThrow(
+      /did not run to completion; a skipped run is not a proof/
+    )
+  })
+
+  test('a failed auth lifecycle reports no credential', async () => {
+    const { deps, state } = fake({
+      command: (command, args) => ({
+        status: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST) ? 1 : 0,
+        stdout: '',
+        stderr: args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST)
+          ? `error: could not connect to postgresql://postgres:${state.created[0]?.password ?? ''}@127.0.0.1/${PROOF_DATABASE}`
+          : '',
+      }),
+    })
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
+    )
+    const password = state.created[0]?.password ?? ''
+    expect(password).not.toBe('')
+    expect(failure).toContain('could not connect')
+    expect(failure).not.toContain(password)
+  })
+
+  test('fails the lane when the backup and restore test fails', async () => {
+    const { deps } = fake({
+      command: failingSuite({
+        suite: BACKUP_RESTORE_TEST,
+        status: 1,
+        stderr: ' 0 pass\n 1 fail\n',
       }),
     })
     await expect(runDisposablePostgresProof(deps, options)).rejects.toThrow(
       /backup and restore test failed with exit code 1/
     )
+  })
+
+  test('a failed backup and restore run reports the failing line, not the header', async () => {
+    const { deps } = fake({
+      command: failingSuite({
+        suite: BACKUP_RESTORE_TEST,
+        status: 1,
+        stderr: [
+          'bun test v1.4.2',
+          '(pass) loopback target guard > refuses a remote host [0.23ms]',
+          '(fail) schema backup and restore > the restored rows differ',
+          'error: expect(received).toEqual(expected)',
+        ].join('\n'),
+      }),
+    })
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
+    )
+    expect(failure).toContain('the restored rows differ')
+    expect(failure).not.toContain('refuses a remote host')
+  })
+
+  test('a failed backup and restore run never carries a secret out of the proof', async () => {
+    const { deps, state } = fake({
+      command: (command, args) => {
+        if (args.includes(BACKUP_RESTORE_TEST)) {
+          return {
+            status: 1,
+            stdout: '',
+            stderr: `(fail) the dump failed for postgresql://postgres:${state.created[0]?.password ?? ''}@127.0.0.1/app`,
+          }
+        }
+        const pass =
+          args.includes(BACKUP_RESTORE_TEST) || args.includes(SELF_HOSTED_AUTH_LIFECYCLE_TEST)
+            ? '\n 1 pass\n 0 fail\n'
+            : ''
+        return { status: 0, stdout: '', stderr: pass }
+      },
+    })
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
+    )
+    const password = state.created[0]?.password ?? ''
+    expect(password).not.toBe('')
+    expect(failure).toContain('the dump failed')
+    expect(failure).not.toContain(password)
+  })
+
+  test('the failure evidence keeps the failing lines and redacts every secret', () => {
+    const output = [
+      'bun test v1.4.2',
+      '(pass) a passing test [0.1ms]',
+      '(fail) the failing test',
+      'error: could not connect to postgresql://postgres:hunter2@127.0.0.1/app',
+    ].join('\n')
+    const evidence = failureEvidence(output, ['hunter2'])
+    expect(evidence).toContain('the failing test')
+    expect(evidence).toContain('could not connect')
+    expect(evidence).not.toContain('a passing test')
+    expect(evidence).not.toContain('hunter2')
+    expect(evidence).toContain('[redacted]')
+  })
+
+  test('a secret that crosses the evidence boundary never leaves a fragment behind', async () => {
+    const { deps, state } = fake({
+      command: (command, args) => {
+        if (args.includes(BACKUP_RESTORE_TEST)) {
+          return { status: 0, stdout: '', stderr: '\n 1 pass\n 0 fail\n' }
+        }
+        const password = state.created[0]?.password ?? ''
+        // The failing line is long enough that the secret starts before the
+        // 2000 character boundary of the evidence and ends after it, so a
+        // truncation that ran before the redaction would keep a prefix of it.
+        const filler = 'x'.repeat(1930)
+        return {
+          status: 1,
+          stdout: '',
+          stderr: `(fail) the migration check failed: ${filler} ${password} tail\n`,
+        }
+      },
+    })
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
+    )
+    const password = state.created[0]?.password ?? ''
+    expect(password).not.toBe('')
+    expect(failure).toContain('the migration check failed')
+    expect(failure).not.toContain(password)
+    expect(failure).not.toContain(password.slice(0, 12))
+    expect(failure).toContain('[redacted]')
   })
 
   test('fails the lane when the backup and restore test passes nothing', async () => {
@@ -275,6 +512,45 @@ describe('the disposable PostgreSQL proof', () => {
         /did not run to completion; a skipped run is not a proof/
       )
     }
+  })
+
+  test('the producer and the consumer agree on a real receipt', () => {
+    // The run here is mocked, so the receipt the harness produces says so and
+    // the recovery procedure refuses it. A real run is the one that states a
+    // real class, and the receipt it produces is the one the recovery
+    // procedure consumes.
+    const realOptions: DisposableProofOptions = {
+      ...options,
+      evidence: classifyDisposableProofEvidence({}),
+    }
+    expect(realOptions.evidence).toBe('local-disposable')
+    expect(classifyDisposableProofEvidence({ GITHUB_ACTIONS: 'true' })).toBe('ci')
+
+    const receipt = buildDisposableProofReceipt({
+      tls: { serverSsl: 'on', sessionEncrypted: true, plaintextSessionEncrypted: false },
+      checks: [
+        { command: 'bun', args: ['--no-env-file', 'run', '--cwd', 'packages/db', 'db:check'] },
+      ],
+      auth: { applied: true, created: ['user'], replayApplied: false, schema: 'auth_ci' },
+      options: realOptions,
+    })
+    // The consumer accepts the receipt the producer builds.
+    expect(() => assertDatabaseProof(receipt)).not.toThrow()
+    const artifact = recoveryArtifact(receipt)
+    expect(artifact.commit).toBe(realOptions.checkout.sha)
+    expect(artifact.proofKind).toBe('disposable-postgres-proof')
+    expect(artifact.evidence).toBe('local-disposable')
+    expect(artifact.proved.some((entry: string) => entry.includes('backup restores'))).toBe(true)
+  })
+
+  test('a mocked proof receipt is refused by the recovery procedure', async () => {
+    const { deps } = fake()
+    const receipt = await runDisposablePostgresProof(deps, options)
+    // The receipt the harness produced says that it is simulated.
+    expect(receipt.evidence).toBe('simulated')
+    // The recovery procedure refuses it, so a mocked run is never counted as
+    // a real database proof.
+    expect(() => recoveryArtifact(receipt)).toThrow(/simulated result does not prove a database/)
   })
 
   test('refuses to run without a container runtime', async () => {
@@ -293,8 +569,8 @@ describe('the disposable PostgreSQL proof', () => {
 
   test('fails the lane when a migration check fails, and still removes the container', async () => {
     const { deps, state } = fake({
-      command: (command, args) => {
-        state.commands.push({ command, args })
+      command: (command, args, environment) => {
+        state.commands.push({ command, args, environment })
         return { status: 1, stdout: '', stderr: '' }
       },
     })
@@ -330,11 +606,11 @@ describe('the disposable PostgreSQL proof', () => {
         return { status: 1, stdout: '', stderr: `failed with ${password}` }
       },
     })
-    const failure = await runDisposablePostgresProof(deps, options).catch(
-      (error: unknown) => error as Error
+    const failure = await runDisposablePostgresProof(deps, options).catch((error: unknown) =>
+      String(error)
     )
-    expect(failure.message).not.toContain(state.created[0]?.password ?? 'unset')
-    expect(failure.message).toContain('[redacted]')
+    expect(failure).not.toContain(state.created[0]?.password ?? 'unset')
+    expect(failure).toContain('[redacted]')
   })
 
   test('refuses roles that are not the canonical ones', async () => {

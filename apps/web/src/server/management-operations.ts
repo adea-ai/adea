@@ -114,7 +114,12 @@ export type ManagementExecutors = Readonly<{
     workspaceId: string,
     projectId: string,
     principal: UserPrincipalRef,
-    input: Readonly<{ iconKey?: string; name?: string; sourceKind?: ProjectSourceKind }>,
+    input: Readonly<{
+      accent?: ProjectSummary['accent']
+      iconKey?: string
+      name?: string
+      sourceKind?: ProjectSourceKind
+    }>,
     assertEffectCurrent: ManagementEffectAssertion
   ): Promise<ProjectSummary>
   updateWorkspace(
@@ -191,6 +196,7 @@ export type ManagementOperations = Readonly<{
   ): Promise<ManagementOutcome<readonly ProjectSummary[]>>
   projectUpdate(
     input: Readonly<{
+      accent?: ProjectSummary['accent']
       iconKey?: string
       name?: string
       principal: UserPrincipalRef
@@ -348,6 +354,7 @@ export function createManagementOperations(
           input.projectId,
           input.principal,
           {
+            ...(input.accent !== undefined ? { accent: input.accent } : {}),
             ...(input.iconKey !== undefined ? { iconKey: input.iconKey } : {}),
             ...(input.name !== undefined ? { name: input.name } : {}),
             ...(input.sourceKind !== undefined ? { sourceKind: input.sourceKind } : {}),

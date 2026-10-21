@@ -24,7 +24,7 @@ declare const __ADEA_DESKTOP_COMPONENTS__: boolean
 const nativeDiagnosticsEnabled =
   typeof __ADEA_DESKTOP_COMPONENTS__ === 'undefined' || __ADEA_DESKTOP_COMPONENTS__
 
-const DESCRIPTION = 'Registered devices and self-hosted runtimes for this workspace.'
+const HELP = 'Devices and self-hosted runtimes registered to this workspace.'
 
 export default function RuntimeNodesPane(props: {
   client?: AgentHqApiClient
@@ -48,7 +48,7 @@ export default function RuntimeNodesPane(props: {
         when={scope()}
         keyed
         fallback={
-          <SettingsSection title="Execution hosts" description={DESCRIPTION}>
+          <SettingsSection title="Execution hosts" help={HELP}>
             <EmptyDescription role="status">
               Execution hosts are unavailable in this view.
             </EmptyDescription>
@@ -76,7 +76,7 @@ function RuntimeNodesContent(props: { client: AgentHqApiClient; workspaceId: str
   const selectedNode = () => inventory()?.nodes.find((node) => node.id === selectedId())
   return (
     <>
-      <SettingsSection title="Execution hosts" description={DESCRIPTION} bodyLayout="content">
+      <SettingsSection title="Execution hosts" help={HELP} bodyLayout="content">
         <div class="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
@@ -185,7 +185,7 @@ function RuntimeConnectionsContent(props: {
     <>
       <SettingsSection
         title={`Runtimes on ${props.node.displayName}`}
-        description="Inspect host health, runtime connections, and access requirements. Availability is checked again when you start work."
+        help="Host health, runtime connections and access requirements. Availability is checked again when work starts."
         bodyLayout="content"
       >
         <div class="flex flex-wrap items-center gap-2">

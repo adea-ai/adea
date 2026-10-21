@@ -1,10 +1,8 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
 import {
   settledData,
-  useAccountSummaryQuery,
   useArchiveProjectMutation,
   useCreateProjectMutation,
-  useCreateWorkspaceMutation,
   useDeleteProjectMutation,
   useProjectListQuery,
   useTaskListQuery,
@@ -16,19 +14,16 @@ import type {
   DevWorkspaceNavHost,
 } from '@adea-ai/dev-view/chat'
 import type { TaskLifecycleState, WorkspaceSummary } from '@adea-ai/types'
-import type { WorkspaceRunSummaryItem } from '@adea-ai/types/dev-runtime'
 import { createMemo, type Accessor } from 'solid-js'
 
 export type { DevGlobalNavContext, DevGlobalNavSlots, DevWorkspaceNavHost }
 
-/** The icon a project created from Dev starts with; Chat's project settings change it. */
-const DEV_PROJECT_ICON_KEY = 'engineering'
+/** The icon a new project starts with; its settings change it. */
+const NEW_PROJECT_ICON_KEY = 'folder'
 
 export type DevWorkspaceNavHostOptions = Readonly<{
   client: AgentHqApiClient
   activeWorkspace: Accessor<WorkspaceSummary | undefined>
-  /** The signed-in owner's facts for the creation draft; undefined for guests and unknown identities. */
-  creationContext?: Accessor<NonNullable<DevWorkspaceNavHost['creationContext']> | undefined>
   /**
    * Whether a Dev sidebar is rendered. The host lives at the navigation level
    * for every view, so its cloud queries subscribe only while a sidebar reads
@@ -38,10 +33,6 @@ export type DevWorkspaceNavHostOptions = Readonly<{
    */
   active?: Accessor<boolean>
   workspaces: Accessor<readonly WorkspaceSummary[]>
-  switchToWorkspace: (workspace: WorkspaceSummary) => unknown
-  openWorkspaceSettings?: () => void
-  /** The desktop `dev.summary.workspaces` counts; absent on the web lane. */
-  devSummary?: Accessor<readonly WorkspaceRunSummaryItem[] | undefined>
   /** Agents, Mark all read and Conversations, the same sections Chat shows. */
   globalNav?: DevGlobalNavSlots
 }>
@@ -51,10 +42,9 @@ function requestId(): string {
 }
 
 /**
- * The cloud side of the Dev sidebar (ADR 0011): the member's workspaces, the
- * active workspace's project list and task lifecycles, the account summary
- * and the desktop run summary, plus the cloud project and workspace
- * mutations. The queries share their cache entries with Chat and Virtual, so
+ * The cloud side of the Dev sidebar (ADR 0011): the active workspace's project
+ * list and task lifecycles plus the cloud project mutations. Switching and
+ * creating workspaces belong to the top bar. The queries share their cache entries with Chat and Virtual, so
  * switching views reuses them. Every field is a getter so the sidebar tracks
  * the queries reactively.
  */
@@ -65,8 +55,6 @@ export function createDevWorkspaceNavHost(
   const queriedWorkspaceId = () => (options.active?.() === false ? undefined : workspaceId())
   const projectsQuery = useProjectListQuery(options.client, queriedWorkspaceId)
   const tasksQuery = useTaskListQuery(options.client, queriedWorkspaceId)
-  const accountSummary = useAccountSummaryQuery(options.client)
-  const createWorkspace = useCreateWorkspaceMutation(options.client)
   const createProject = useCreateProjectMutation(options.client, () => workspaceId() ?? '')
   const updateProject = useUpdateProjectMutation(options.client, () => workspaceId() ?? '')
   const archiveProject = useArchiveProjectMutation(options.client, () => workspaceId() ?? '')
@@ -81,6 +69,7 @@ export function createDevWorkspaceNavHost(
         name: project.name,
         sortOrder: project.sortOrder,
         iconKey: project.iconKey,
+        accent: project.accent,
         sourceKind: project.sourceKind,
       }))
   })
@@ -109,9 +98,6 @@ export function createDevWorkspaceNavHost(
     get activeWorkspaceName() {
       return options.activeWorkspace()?.name
     },
-    get creationContext() {
-      return options.creationContext?.()
-    },
     get workspaces() {
       return workspaces()
     },
@@ -121,27 +107,6 @@ export function createDevWorkspaceNavHost(
     get taskStates() {
       return taskStates()
     },
-    get accountSummary() {
-      return settledData(accountSummary)?.workspaces
-    },
-    get devSummary() {
-      return options.devSummary?.()
-    },
-    onSwitchWorkspace: (id) => {
-      const workspace = options.workspaces().find((candidate) => candidate.id === id)
-      if (workspace) void options.switchToWorkspace(workspace)
-    },
-    onCreateWorkspace: async (name) => {
-      const result = await createWorkspace.mutateAsync({
-        idempotencyKey: requestId(),
-        name,
-        scene: 'home',
-      })
-      await options.switchToWorkspace(result.workspace)
-    },
-    get onOpenWorkspaceSettings() {
-      return options.openWorkspaceSettings
-    },
     onCreateProject: async (name) => {
       // A client id makes a replayed create idempotent and is the id the
       // local repository binding is keyed by.
@@ -149,13 +114,13 @@ export function createDevWorkspaceNavHost(
       const result = await createProject.mutateAsync({
         id,
         name,
-        iconKey: DEV_PROJECT_ICON_KEY,
+        iconKey: NEW_PROJECT_ICON_KEY,
         sourceKind: 'none',
       })
       return result.project.id
     },
-    onRenameProject: async (projectId, name) => {
-      await updateProject.mutateAsync({ projectId, update: { name } })
+    onUpdateProject: async (projectId, update) => {
+      await updateProject.mutateAsync({ projectId, update })
     },
     onSetProjectSource: async (projectId, sourceKind) => {
       await updateProject.mutateAsync({ projectId, update: { sourceKind } })
