@@ -11,9 +11,12 @@
  *   mints, substitutes or elevates a principal, and it never decides who may
  *   act: group-management authority is the store's rule, and the command does
  *   not widen it.
- * - The group and the participant are the exact ones the command names. A
- *   command that names a different group, or a participant that is not a
- *   participant, authorizes nothing.
+ * - The group and the participant are the exact ones the command names, and a
+ *   command that names another group is refused. The command does not decide
+ *   whether that participant is a live member of the workspace, and it does not
+ *   decide whether the window is honoured: the store persists the grant, and a
+ *   share takes effect only where the reader already holds a valid admission
+ *   and the grant window is effective.
  * - Every timestamp the command writes is the server's own. A caller supplies
  *   a window, never an instant: the issue instant and the expiry are both
  *   derived from the server's clock, so a grant can never be backdated.
@@ -82,10 +85,11 @@ export type GroupGrantRevokeCommand = GroupGrantCommandTarget &
 /**
  * Share earlier material with one exact participant.
  *
- * The scope is explicit: `earlier_history` shares the material before the
- * participant's join point, `earlier_summary` shares only the summary. A
+ * The scope is explicit: `earlier_history` authorizes the material before the
+ * participant's join point, `earlier_summary` authorizes only the summary. A
  * command that names neither is refused, and one scope never implies the
- * other.
+ * other. Issuing the share admits nobody: it takes effect only where that
+ * participant already holds a valid admission.
  */
 export type GroupGrantShareCommand = GroupGrantCommandTarget &
   Readonly<{
@@ -141,9 +145,45 @@ function readParticipant(value: unknown): ConversationParticipantRef | null {
   return null
 }
 
-function serverNow(dependencies: GroupGrantCommandDependencies): Date {
-  const now = dependencies.now?.()
-  return now instanceof Date && !Number.isNaN(now.getTime()) ? now : new Date()
+/**
+ * The server's own clock.
+ *
+ * A clock that fails, or that hands back an instant the calendar cannot
+ * represent, leaves the command without a trustworthy timestamp. The command
+ * then refuses: it never writes an instant of its own making in place of the
+ * server's.
+ */
+function serverNow(dependencies: GroupGrantCommandDependencies): Date | null {
+  if (!dependencies.now) {
+    const wall = new Date()
+    return Number.isNaN(wall.getTime()) ? null : wall
+  }
+  let now: Date
+  try {
+    now = dependencies.now()
+  } catch {
+    return null
+  }
+  return now instanceof Date && !Number.isNaN(now.getTime()) ? now : null
+}
+
+/**
+ * The expiry the server writes for a share.
+ *
+ * A duration the calendar cannot represent is refused rather than serialized:
+ * `toISOString` throws outside the representable range, and that throw must
+ * never escape as a crash instead of the documented refusal. The refusal
+ * happens before the store is called, so an unrepresentable window never
+ * reaches a grant row.
+ */
+function shareExpiry(
+  issuedAt: Date,
+  expiresInMs: number | null
+): Readonly<{ expiresAt: string | null }> | null {
+  if (expiresInMs === null) return { expiresAt: null }
+  const expiry = new Date(issuedAt.getTime() + expiresInMs)
+  if (Number.isNaN(expiry.getTime())) return null
+  return { expiresAt: expiry.toISOString() }
 }
 
 /**
@@ -167,6 +207,9 @@ export async function revokeGroupGrantCommand(
     !GROUP_GRANT_KINDS.includes(command.kind)
   )
     return UNAVAILABLE
+  const revokedAt = serverNow(dependencies)
+  // A clock that failed leaves the command without a trustworthy instant.
+  if (!revokedAt) return UNAVAILABLE
   try {
     const revoked = await dependencies.operations.revokeGroupGrant(
       dependencies.database,
@@ -176,7 +219,7 @@ export async function revokeGroupGrantCommand(
       {
         grantId: command.grantId,
         kind: command.kind,
-        revokedAt: serverNow(dependencies).toISOString(),
+        revokedAt: revokedAt.toISOString(),
       }
     )
     return Object.freeze({ ok: true, revoked: revoked.revoked })
@@ -190,9 +233,11 @@ export async function revokeGroupGrantCommand(
  * Share earlier material with one exact participant of one exact group.
  *
  * The issue instant and the expiry are the server's own, so a grant can never
- * be backdated and its window cannot be widened by the caller. The scope is
- * explicit: an earlier-history share and an earlier-summary share are
- * separately grantable and one never implies the other.
+ * be backdated and its window cannot be widened by the caller. A window the
+ * calendar cannot represent, and a clock that failed, are refused before the
+ * store is called. The scope is explicit: an earlier-history share and an
+ * earlier-summary share are separately grantable and one never implies the
+ * other.
  */
 export async function shareGroupHistoryCommand(
   command: GroupGrantShareCommand,
@@ -212,11 +257,13 @@ export async function shareGroupHistoryCommand(
   )
     return UNAVAILABLE
   const issuedAt = serverNow(dependencies)
+  if (!issuedAt) return UNAVAILABLE
+  const expiry = shareExpiry(issuedAt, command.expiresInMs)
+  // A window the calendar cannot represent is refused before the store is
+  // called, so no grant row ever carries an instant nobody can read.
+  if (!expiry) return UNAVAILABLE
   const grant: GroupSharingGrant = Object.freeze({
-    expiresAt:
-      command.expiresInMs === null
-        ? null
-        : new Date(issuedAt.getTime() + command.expiresInMs).toISOString(),
+    expiresAt: expiry.expiresAt,
     grantId: command.grantId,
     groupId: command.groupId,
     issuedAt: issuedAt.toISOString(),

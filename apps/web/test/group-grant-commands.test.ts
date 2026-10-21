@@ -10,6 +10,11 @@
 // reports `revoked: false` for a grant that is already revoked, a share keeps the stored row
 // unless the revision is higher, and every refusal is the store's own refusal.
 //
+// The stand-in deliberately does not model a participant's live workspace membership, and it
+// does not honour a grant window: the store's share path does not verify those either. The
+// share persists a grant; it takes effect only where the reader already holds a valid
+// admission, which the read policy decides.
+//
 // The read that proves a revocation took effect is the product's own policy
 // (`decideGroupHistoryRead`), not a model of it: a revoked sharing grant must deny the
 // earlier-history read at once.
@@ -62,6 +67,8 @@ type StoredGrant = {
 
 type Store = {
   channels: Set<string>
+  /** Every call the commands made into the store, so a refusal can be shown to have made none. */
+  calls: string[]
   grants: StoredGrant[]
   memberships: Map<string, 'owner' | 'admin' | 'member'>
   /** The independently owned job a revocation must leave alone. */
@@ -79,6 +86,7 @@ function channelKey(workspaceId: string, channelId: string) {
 /** A store that enforces the same rules the exported store behaviour enforces. */
 function createStore(): Store {
   return {
+    calls: [],
     channels: new Set([channelKey(WORKSPACE, GROUP), channelKey(OTHER_WORKSPACE, OTHER_GROUP)]),
     grants: [
       {
@@ -119,6 +127,7 @@ function createStore(): Store {
 function createOperations(store: Store): GroupGrantOperations {
   return {
     revokeGroupGrant: async (_database, workspaceId, channelId, principal, input) => {
+      store.calls.push('revokeGroupGrant')
       const role = store.memberships.get(membershipKey(workspaceId, principal.userId))
       if (role !== 'owner' && role !== 'admin') throw new Error('Channel unavailable')
       if (!store.channels.has(channelKey(workspaceId, channelId)))
@@ -137,6 +146,7 @@ function createOperations(store: Store): GroupGrantOperations {
       return { revoked: true }
     },
     shareGroupHistory: async (_database, workspaceId, channelId, principal, grant) => {
+      store.calls.push('shareGroupHistory')
       if (grant.groupId !== channelId) throw new Error('Invalid group request')
       const role = store.memberships.get(membershipKey(workspaceId, principal.userId))
       if (role !== 'owner' && role !== 'admin') throw new Error('Channel unavailable')
@@ -417,6 +427,113 @@ describe('group grant commands (#1178)', () => {
       revision: 5,
       scope: 'earlier_summary',
     })
+  })
+
+  test('a missing, invalid or overflowing duration is refused before the store is called', async () => {
+    const store = createStore()
+    const base = {
+      grantId: 'gra_share_duration',
+      groupId: GROUP,
+      participant: MEMBER,
+      revision: 1,
+      scope: 'earlier_history' as GroupSharingScope,
+      workspaceId: WORKSPACE,
+    }
+    for (const expiresInMs of [
+      undefined,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      -1,
+      1.5,
+      Number.MAX_SAFE_INTEGER,
+    ]) {
+      const outcome = await shareGroupHistoryCommand(
+        { ...base, expiresInMs: expiresInMs as number | null },
+        dependencies(store, OWNER)
+      )
+      // The same refusal as every other failure, and never a rejection.
+      expect(outcome).toEqual({ code: 'group_grant_unavailable', ok: false })
+    }
+    // A window the calendar cannot represent never reaches a grant row.
+    expect(store.calls).toEqual([])
+    expect(store.grants.some((grant) => grant.grantId === 'gra_share_duration')).toBe(false)
+  })
+
+  test('a valid finite duration is shared with the server own expiry', async () => {
+    const store = createStore()
+    const outcome = await shareGroupHistoryCommand(
+      {
+        expiresInMs: 90_000,
+        grantId: 'gra_share_finite',
+        groupId: GROUP,
+        participant: MEMBER,
+        revision: 1,
+        scope: 'earlier_history',
+        workspaceId: WORKSPACE,
+      },
+      dependencies(store, OWNER)
+    )
+    expect(outcome).toEqual({ ok: true })
+    expect(store.calls).toEqual(['shareGroupHistory'])
+    expect(store.grants.find((grant) => grant.grantId === 'gra_share_finite')).toMatchObject({
+      expiresAt: '2026-10-08T12:01:30.000Z',
+      issuedAt: '2026-10-08T12:00:00.000Z',
+    })
+  })
+
+  test('a share that never expires is a valid window, not a missing one', async () => {
+    const store = createStore()
+    const outcome = await shareGroupHistoryCommand(
+      {
+        expiresInMs: null,
+        grantId: 'gra_share_never',
+        groupId: GROUP,
+        participant: MEMBER,
+        revision: 1,
+        scope: 'earlier_history',
+        workspaceId: WORKSPACE,
+      },
+      dependencies(store, OWNER)
+    )
+    expect(outcome).toEqual({ ok: true })
+    expect(store.grants.find((grant) => grant.grantId === 'gra_share_never')).toMatchObject({
+      expiresAt: null,
+      issuedAt: '2026-10-08T12:00:00.000Z',
+    })
+  })
+
+  test('a clock that failed refuses the command instead of writing an instant of its own', async () => {
+    const store = createStore()
+    const command = {
+      expiresInMs: 60_000,
+      grantId: 'gra_share_clock',
+      groupId: GROUP,
+      participant: MEMBER,
+      revision: 1,
+      scope: 'earlier_history' as GroupSharingScope,
+      workspaceId: WORKSPACE,
+    }
+    const thrown = await shareGroupHistoryCommand(
+      command,
+      dependencies(store, OWNER, () => {
+        throw new Error('the clock is unavailable')
+      })
+    )
+    expect(thrown).toEqual({ code: 'group_grant_unavailable', ok: false })
+    const invalid = await shareGroupHistoryCommand(
+      command,
+      dependencies(store, OWNER, () => new Date(Number.NaN))
+    )
+    expect(invalid).toEqual({ code: 'group_grant_unavailable', ok: false })
+    // The revocation path takes the same clock, and refuses the same way.
+    const revoke = await revokeGroupGrantCommand(
+      { grantId: 'gra_member', groupId: GROUP, kind: 'audience', workspaceId: WORKSPACE },
+      dependencies(store, OWNER, () => {
+        throw new Error('the clock is unavailable')
+      })
+    )
+    expect(revoke).toEqual({ code: 'group_grant_unavailable', ok: false })
+    expect(store.calls).toEqual([])
   })
 
   test('a malformed command is refused before the store is touched', async () => {
