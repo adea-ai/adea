@@ -115,7 +115,7 @@ const navigation = projectWorkspaceNavigation(
 const source = () =>
   buildWorkspaceNavSource({
     activeWorkspaceId: 'work',
-    workspaces: [workspace('home', 1, 'Home'), workspace('work', 0, 'Work')],
+    activeWorkspace: workspace('work', 0, 'Work'),
     navigation,
     tasks: [
       task('linked', { lifecycleState: 'in_review', title: 'Fix the login bug', updatedAt: at(9) }),
@@ -124,51 +124,44 @@ const source = () =>
       task('elsewhere', { projectId: 'ops', lifecycleState: 'queued' }),
     ],
     readState: [readState('web-design', 4), readState('web-main', 0, true)],
-    accountSummary: {
-      workspaces: [
-        { workspaceId: 'home', unreadChannels: 3, mentions: 1 },
-        { workspaceId: 'work', unreadChannels: 2, mentions: 2 },
-      ],
-    },
   })
 
 describe('buildWorkspaceNavSource', () => {
-  test('only the active workspace carries projects, in the member order', () => {
+  test('the tree holds the active workspace alone, with its projects in order', () => {
     const { tree } = source()
     expect(tree.activeWorkspaceId).toBe('work')
-    const home = tree.workspaces.find(({ id }) => id === 'home')!
-    const work = tree.workspaces.find(({ id }) => id === 'work')!
-    expect(home.projects).toBeUndefined()
+    expect(tree.workspaces.map(({ id }) => id)).toEqual(['work'])
+    const work = tree.workspaces[0]!
     expect(work.projects?.map(({ id }) => id)).toEqual(['web', 'ops'])
     expect(work.accent).toBe('violet')
     expect(work.projects?.[0]?.source).toBe('local_repo')
   })
 
-  test('collapsed workspaces read unread channels and mentions from the account summary', () => {
-    const home = source().tree.workspaces.find(({ id }) => id === 'home')!
-    expect(home.summary).toEqual({ running: 0, needsYou: 0, unread: 3, mentions: 1 })
-  })
-
-  test('"Needs you" totals mentions across every workspace', () => {
-    expect(source().tree.needsYou).toBe(3)
-  })
-
-  test('the dev summary seam adds running and input-needing counts', () => {
+  test('a project carries its own icon and optional colour override', () => {
     const { tree } = buildWorkspaceNavSource({
       activeWorkspaceId: 'work',
-      workspaces: [workspace('home', 1), workspace('work', 0)],
+      activeWorkspace: workspace('work', 0, 'Work'),
+      navigation: projectWorkspaceNavigation(
+        [{ ...project('web', 1), iconKey: 'rocket', accent: 'green' }, project('ops', 2)],
+        []
+      ),
+      tasks: [],
+      readState: [],
+    })
+    const [web, ops] = tree.workspaces[0]!.projects!
+    expect(web).toMatchObject({ iconKey: 'rocket', accent: 'green' })
+    // No override: the project inherits the workspace or app accent.
+    expect(ops?.accent ?? null).toBeNull()
+  })
+
+  test('there is no tree without an active workspace summary', () => {
+    const { tree } = buildWorkspaceNavSource({
+      activeWorkspaceId: 'work',
       navigation,
       tasks: [],
       readState: [],
-      devSummary: [{ workspaceId: 'home', running: 2, needsInput: 1 }],
     })
-    expect(tree.workspaces.find(({ id }) => id === 'home')!.summary).toEqual({
-      running: 2,
-      needsYou: 1,
-      unread: 0,
-      mentions: 0,
-    })
-    expect(tree.needsYou).toBe(1)
+    expect(tree.workspaces).toEqual([])
   })
 
   test('the primary channel is the default leaf, then channels and tasks most recent first', () => {
@@ -183,7 +176,7 @@ describe('buildWorkspaceNavSource', () => {
 
   test('a task linked to a channel is one leaf with the task title and status', () => {
     const { tree, targets } = source()
-    const leaf = tree.workspaces[1]!.projects![0]!.leaves.find(({ id }) => id === 'web-bug')!
+    const leaf = tree.workspaces[0]!.projects![0]!.leaves.find(({ id }) => id === 'web-bug')!
     expect(leaf).toMatchObject({
       taskId: 'linked',
       title: 'Fix the login bug',
@@ -197,7 +190,7 @@ describe('buildWorkspaceNavSource', () => {
 
   test('closed tasks leave the tree and channel-less tasks open as tasks', () => {
     const { tree, targets } = source()
-    const leafIds = tree.workspaces[1]!.projects!.flatMap(({ leaves }) =>
+    const leafIds = tree.workspaces[0]!.projects!.flatMap(({ leaves }) =>
       leaves.map(({ id }) => id)
     )
     expect(leafIds).not.toContain('done')
@@ -206,7 +199,7 @@ describe('buildWorkspaceNavSource', () => {
   })
 
   test('unread activity is a count on the leaf, never a status', () => {
-    const web = source().tree.workspaces[1]!.projects![0]!
+    const web = source().tree.workspaces[0]!.projects![0]!
     const design = web.leaves.find(({ id }) => id === 'web-design')!
     expect(design.unread).toEqual({ count: 4, marked: false })
     expect(design.status).toBe('idle')
@@ -217,24 +210,11 @@ describe('buildWorkspaceNavSource', () => {
   })
 
   test('channel leaves count their agent participants; channel-less tasks do not know', () => {
-    const web = source().tree.workspaces[1]!.projects![0]!
+    const web = source().tree.workspaces[0]!.projects![0]!
     const leaf = (id: string) => web.leaves.find((candidate) => candidate.id === id)!
     expect(leaf('web-design').agentCount).toBe(2)
     expect(leaf('web-main').agentCount).toBe(0)
     expect(leaf('open').agentCount).toBeUndefined()
-  })
-
-  test('the active workspace is listed even when the member list lacks it', () => {
-    const { tree } = buildWorkspaceNavSource({
-      activeWorkspaceId: 'temp',
-      activeWorkspace: workspace('temp', 9, 'Temporary'),
-      workspaces: [],
-      navigation,
-      tasks: [],
-      readState: [],
-    })
-    expect(tree.workspaces.map(({ id }) => id)).toEqual(['temp'])
-    expect(tree.needsYou).toBe(0)
   })
 })
 
@@ -247,7 +227,7 @@ describe('cloud menus and status', () => {
   })
 
   test('the default leaf only copies its link; other leaves rename, copy and archive', () => {
-    const [web] = source().tree.workspaces[1]!.projects!
+    const [web] = source().tree.workspaces[0]!.projects!
     expect(cloudLeafMenu(web!.leaves[0]!).map(({ id }) => id)).toEqual(['copy-link'])
     expect(cloudLeafMenu(web!.leaves[1]!).map(({ id }) => id)).toEqual([
       'rename',
@@ -256,12 +236,10 @@ describe('cloud menus and status', () => {
     ])
   })
 
-  test('Share is offered only when the host can share', () => {
+  test('Share is offered only when the host can share; renaming lives in project settings', () => {
     const adapter = createViewAdapter('chat')
-    const [web] = source().tree.workspaces[1]!.projects!
+    const [web] = source().tree.workspaces[0]!.projects!
     expect(cloudProjectMenu(adapter, web!, { share: false }).map(({ id }) => id)).toEqual([
-      'rename',
-      'settings',
       'archive',
       'delete',
     ])

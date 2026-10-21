@@ -1,42 +1,12 @@
-import {
-  isWorkspaceAccent,
-  workspaceAccentIds,
-  type WorkspaceAccentId,
-  type WorkspaceSummary,
-  type WorkspaceUpdate,
-} from '@adea-ai/types'
-import { accentPresets } from '@adea-ai/ui/lib/accent-presets'
+import { isWorkspaceAccent, type WorkspaceSummary, type WorkspaceUpdate } from '@adea-ai/types'
 import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
-import { cn } from '@adea-ai/app-ui/lib/utils'
-import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
+import { AccentPicker } from '@adea-ai/ui/components/composites/accent-picker'
 import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
-import { Button } from '@adea-ai/ui/components/ui/button'
+import { IconPickerDropdown, isShellIconKey } from '@adea-ai/ui/components/composites/icon-picker'
 import { Input } from '@adea-ai/ui/components/ui/input'
-import { Label } from '@adea-ai/ui/components/ui/label'
-import { RadioGroup, RadioGroupItem } from '@adea-ai/ui/components/ui/radio-group'
+import { ToggleGroup, ToggleGroupItem } from '@adea-ai/ui/components/ui/toggle-group'
 import { Text } from '@adea-ai/ui/components/ui/typography'
-import type { JSX } from 'solid-js'
-import { createEffect, createSignal, For, Show } from 'solid-js'
-
-const ACCENT_LABELS: Record<WorkspaceAccentId, string> = {
-  amber: 'Amber',
-  blue: 'Blue',
-  cyan: 'Cyan',
-  green: 'Green',
-  pink: 'Pink',
-  violet: 'Violet',
-}
-
-/** A single emoji grapheme, or `undefined` for anything else. */
-export function emojiLogoValue(value: string): string | undefined {
-  const trimmed = value.trim()
-  if (!trimmed || trimmed.length > 16) return undefined
-  const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(trimmed)]
-  if (graphemes.length !== 1) return undefined
-  return /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator})/u.test(trimmed)
-    ? trimmed
-    : undefined
-}
+import { createEffect, createSignal } from 'solid-js'
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'conflict' | 'error'
 
@@ -50,16 +20,18 @@ export function WorkspaceIdentitySettings(props: {
   workspace: WorkspaceSummary
 }) {
   const [name, setName] = createSignal(props.workspace.name)
-  const [emoji, setEmoji] = createSignal(
-    props.workspace.logo.kind === 'emoji' ? props.workspace.logo.value : ''
-  )
   const [state, setState] = createSignal<SaveState>('idle')
-  createEffect(() => {
-    setName(props.workspace.name)
-    setEmoji(props.workspace.logo.kind === 'emoji' ? props.workspace.logo.value : '')
-  })
+  createEffect(() => setName(props.workspace.name))
 
   const defaultIcon = () => (props.workspace.isPersonal ? ('home' as const) : ('box' as const))
+  // The picker shows the stored icon key; an unrecognised key (or an emoji set
+  // before the dropdown existed) checks nothing rather than a wrong glyph.
+  const pickedIconKey = () => {
+    const logo = props.workspace.logo
+    if (logo.kind === 'icon') return isShellIconKey(logo.value) ? logo.value : undefined
+    if (logo.kind === 'home' || logo.kind === 'box') return logo.kind
+    return undefined
+  }
   const editable = () => Boolean(props.onUpdate)
   const save = async (update: WorkspaceUpdate) => {
     if (!props.onUpdate) return
@@ -81,34 +53,19 @@ export function WorkspaceIdentitySettings(props: {
     }
     if (next !== props.workspace.name) void save({ name: next })
   }
-  const commitEmoji = () => {
-    const value = emoji().trim()
-    if (!value) {
-      if (props.workspace.logo.kind === 'emoji') void save({ logo: { kind: defaultIcon() } })
-      return
-    }
-    const valid = emojiLogoValue(value)
-    if (!valid) {
-      setState('error')
-      return
-    }
-    if (props.workspace.logo.kind !== 'emoji' || props.workspace.logo.value !== valid)
-      void save({ logo: { kind: 'emoji', value: valid } })
-  }
 
-  // Idle, an editable form says how saving works: there is no Save button.
   const status = () =>
     ({
       idle: editable() ? 'Changes save as you make them.' : '',
       saving: 'Saving…',
       saved: 'Saved.',
       conflict: 'This workspace changed elsewhere. The latest settings are shown; try again.',
-      error: 'Could not save. Use one emoji or clear it for the workspace icon.',
+      error: 'Could not save.',
     })[state()]
 
   return (
     <>
-      <SettingsRow label="Name" description="Shown in the sidebar and the top bar.">
+      <SettingsRow label="Name" help="Shown in the sidebar and the top bar.">
         <Input
           aria-label="Workspace name"
           value={name()}
@@ -125,66 +82,56 @@ export function WorkspaceIdentitySettings(props: {
           }}
         />
       </SettingsRow>
-      <SettingsRow label="Mark" description="One emoji, or blank for the workspace icon.">
-        <div class="workspace-identity-settings__mark">
-          <WorkspaceIdentityMark
-            accent={props.workspace.accent}
-            logo={props.workspace.logo}
-            name={props.workspace.name}
-            size="md"
-          />
-          <Input
-            aria-label="Workspace emoji"
-            value={emoji()}
-            maxLength={16}
-            placeholder="Workspace icon"
-            disabled={!editable()}
-            onInput={(event) => setEmoji(event.currentTarget.value)}
-            onBlur={commitEmoji}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') event.currentTarget.blur()
-            }}
-          />
-          <Show when={props.workspace.logo.kind === 'emoji'}>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              disabled={!editable()}
-              onClick={() => {
-                setEmoji('')
-                void save({ logo: { kind: defaultIcon() } })
-              }}
-            >
-              Use workspace icon
-            </Button>
-          </Show>
-        </div>
-      </SettingsRow>
-      <SettingsRow
-        label="Accent"
-        description="Colours the app while this workspace is active, and its mark everywhere."
-      >
-        <AccentSwatches
-          selected={props.workspace.accent ?? 'theme'}
+      <SettingsRow label="Icon">
+        <IconPickerDropdown
+          label="Workspace icon"
+          value={pickedIconKey()}
+          defaultKey={defaultIcon()}
           disabled={!editable()}
-          onSelect={(value) =>
+          trigger={
+            <WorkspaceIdentityMark
+              accent={props.workspace.accent}
+              logo={props.workspace.logo}
+              name={props.workspace.name}
+              size="md"
+            />
+          }
+          onValueChange={(key) =>
             void save({
-              accent: value === 'theme' ? null : isWorkspaceAccent(value) ? value : null,
+              logo: key === defaultIcon() ? { kind: defaultIcon() } : { kind: 'icon', value: key },
+            })
+          }
+          image={props.workspace.logo.kind === 'image' ? props.workspace.logo.value : undefined}
+          onImageChange={(image) =>
+            void save({
+              logo: image ? { kind: 'image', value: image } : { kind: defaultIcon() },
             })
           }
         />
       </SettingsRow>
-      <SettingsRow label="Virtual world" description="The world the Virtual view opens in.">
-        <RadioGroup
+      <SettingsRow label="Accent" help="Colours the app while this workspace is active.">
+        <AccentPicker
+          label="Workspace accent"
+          inheritLabel="Inherit (default)"
+          value={props.workspace.accent ?? null}
+          disabled={!editable()}
+          onValueChange={(value) =>
+            void save({ accent: value && isWorkspaceAccent(value) ? value : null })
+          }
+        />
+      </SettingsRow>
+      <SettingsRow label="Virtual world" help="The world the Virtual view opens in.">
+        <ToggleGroup
           aria-label="Virtual world"
           value={props.workspace.scene}
           disabled={!editable()}
-          onChange={(value) => void save({ scene: value === 'work' ? 'work' : 'home' })}
+          onChange={(value: string | null) => {
+            if (value === 'home' || value === 'work') void save({ scene: value })
+          }}
         >
-          <RadioGroupItem value="home" label="Home" />
-          <RadioGroupItem value="work" label="Work" />
-        </RadioGroup>
+          <ToggleGroupItem value="home">Home</ToggleGroupItem>
+          <ToggleGroupItem value="work">Work</ToggleGroupItem>
+        </ToggleGroup>
       </SettingsRow>
       <Text
         variant="caption"
@@ -198,128 +145,4 @@ export function WorkspaceIdentitySettings(props: {
       </Text>
     </>
   )
-}
-
-/**
- * The workspace accent picker, drawn as the same swatch grid the appearance
- * editor's AccentChoices composes from the published RadioGroup primitives:
- * one round swatch per accent painted with the catalogue's light/dark pair
- * value, selection carried by the checked ring. It differs from the global
- * grid in exactly one entry — a leading "Theme default" swatch (the
- * workspace's `null` accent), painted with the inherited primary so it shows
- * the accent the workspace would keep. Keyboard semantics are the
- * RadioGroup's: roving focus, arrow keys, Space to select.
- */
-function AccentSwatches(props: {
-  selected: string
-  disabled?: boolean
-  onSelect: (value: string) => void
-}) {
-  const theme = useOptionalTheme()
-  const appearance = (): 'light' | 'dark' => {
-    return theme?.variant().appearance === 'light' ? 'light' : 'dark'
-  }
-  const choices = (): { id: string; label: string; fill: JSX.Element }[] => [
-    {
-      id: 'theme',
-      label: 'Theme default',
-      fill: <span class="block size-full rounded-full bg-primary" />,
-    },
-    ...workspaceAccentIds.map((id) => {
-      const preset = accentPresets.find((entry) => entry.id === id)
-      const fill: JSX.Element = preset ? (
-        <svg class="size-full" viewBox="0 0 16 16" aria-hidden="true">
-          <circle
-            cx="8"
-            cy="8"
-            r="8"
-            fill={appearance() === 'light' ? preset.light : preset.dark}
-          />
-        </svg>
-      ) : (
-        <span class="block size-full rounded-full bg-muted-foreground/40" />
-      )
-      return { id, label: ACCENT_LABELS[id], fill }
-    }),
-  ]
-  // A custom accent is any stored accent that is not a preset id (a stored hex colour).
-  const customValue = () =>
-    isWorkspaceAccent(props.selected) &&
-    !(workspaceAccentIds as readonly string[]).includes(props.selected)
-      ? props.selected
-      : undefined
-  let colorPicker: HTMLInputElement | undefined
-  return (
-    <div class="flex flex-wrap items-center gap-2">
-      <RadioGroup
-        aria-label="Workspace accent"
-        value={props.selected}
-        disabled={props.disabled}
-        class="grid-cols-7"
-        data-accent-grid=""
-        onChange={(value) => props.onSelect(value)}
-      >
-        <For each={choices()}>
-          {(option) => (
-            <div class="rounded-full focus-within:ring-3 focus-within:ring-ring/50">
-              {/* The card is the control's published Label (associated by the
-                deterministic item/input id pair), so clicking anywhere on the
-                swatch selects the accent; the hidden radio control keeps the
-                group keyboard-driven and the wrapper carries its focus ring. */}
-              <RadioGroupItem
-                id={`workspace-accent-${option.id}`}
-                value={option.id}
-                controlClass="sr-only"
-              >
-                <Label for={`workspace-accent-${option.id}-input`} class="w-full">
-                  <span
-                    class={cn('block size-7 cursor-pointer rounded-full border p-0.5', {
-                      'border-primary ring-1 ring-primary': props.selected === option.id,
-                    })}
-                  >
-                    {option.fill}
-                  </span>
-                  <span class="sr-only">{option.label}</span>
-                </Label>
-              </RadioGroupItem>
-            </div>
-          )}
-        </For>
-      </RadioGroup>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={props.disabled}
-        aria-pressed={customValue() !== undefined}
-        onClick={() => colorPicker?.click()}
-      >
-        <Show when={customValue()}>
-          {(hex) => (
-            <svg aria-hidden="true" data-custom-accent-swatch="" class="size-3" viewBox="0 0 16 16">
-              <circle cx="8" cy="8" r="8" fill={hex()} />
-            </svg>
-          )}
-        </Show>
-        Custom
-      </Button>
-      <Input
-        ref={(element) => {
-          colorPicker = element
-        }}
-        type="color"
-        class="sr-only"
-        tabIndex={-1}
-        aria-label="Custom accent color"
-        value={customValue() ?? defaultCustomValue(appearance())}
-        disabled={props.disabled}
-        onChange={(event) => props.onSelect(event.currentTarget.value.toLowerCase())}
-      />
-    </div>
-  )
-}
-
-/** A custom accent starts from the theme's blue until the person picks a colour. */
-function defaultCustomValue(appearance: 'light' | 'dark'): string | undefined {
-  const blue = accentPresets.find((entry) => entry.id === 'blue')
-  return appearance === 'light' ? blue?.light : blue?.dark
 }

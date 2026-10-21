@@ -1,6 +1,7 @@
 import { describe, expect, spyOn, test } from 'bun:test'
 
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -15,13 +16,33 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as childProcess from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 
-import { distManifest, matchesPattern, parseArgs, parseVpOutput } from './vite-plus-proof.mjs'
+import {
+  clearOwnedOutputs,
+  compareManifests,
+  distManifest,
+  expectedSummary,
+  graphExpectation,
+  matchesPattern,
+  ownedOutputManifest,
+  ownedOutputs,
+  parseArgs,
+  parseVpOutput,
+  recordedManifest,
+} from './vite-plus-proof.mjs'
+import { expectedId } from './orch-toolchain.mjs'
 
-const cold = 'a'.repeat(64)
+const repoRoot = resolve(import.meta.dir, '..')
+const coldManifest = 'a'.repeat(64)
 
 const miss =
   "$ ORCH_TOOLCHAIN=linux-x64.node22.bun1.4.0-abc env -u FORCE_COLOR bun run --cwd packages/types build ○ cache miss: env 'ORCH_TOOLCHAIN' changed, executing"
+
+// Every fixture is built from the graph, so a graph that gains or loses a task
+// moves the fixtures with it and no expectation is ever a number written down.
+const expectation = graphExpectation(repoRoot, expectedId(repoRoot))
+const tasks = expectation.cacheableTasks
 
 describe('parseVpOutput', () => {
   test('reads the summary, the misses and the toolchain id', () => {
@@ -39,6 +60,47 @@ describe('parseVpOutput', () => {
   })
 })
 
+describe('graphExpectation', () => {
+  test("the cacheable count is the graph's own, never a constant", () => {
+    expect(expectation.cacheableTasks).toBe(expectation.taskNames.length)
+    expect(expectation.cacheableTasks).toBeGreaterThan(0)
+    expect(expectation.totalTasks).toBeGreaterThanOrEqual(expectation.cacheableTasks)
+    // Every named task is a build task of the graph.
+    expect(expectation.taskNames.every((name) => name.startsWith('orch:'))).toBe(true)
+  })
+
+  test("the expected summary names the graph's count", () => {
+    expect(expectedSummary(expectation)).toBe(`${tasks}/${tasks} cache hit`)
+  })
+
+  test('a workspace that gains a build script changes the expectation', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'adea-proof-graph-'))
+    try {
+      for (const [name, scripts] of [
+        ['alpha', { build: 'tsc' }],
+        ['beta', {}],
+      ]) {
+        mkdirSync(join(fixture, 'packages', name), { recursive: true })
+        writeFileSync(
+          join(fixture, 'packages', name, 'package.json'),
+          JSON.stringify({ name: `@fixture/${name}`, scripts })
+        )
+      }
+      const withoutBuild = graphExpectation(fixture, 'fixture-toolchain')
+      expect(withoutBuild.cacheableTasks).toBe(1)
+      expect(withoutBuild.taskNames).toEqual(['orch:alpha:build'])
+      // The same graph with one more build script has one more cacheable task.
+      writeFileSync(
+        join(fixture, 'packages', 'beta', 'package.json'),
+        JSON.stringify({ name: '@fixture/beta', scripts: { build: 'tsc' } })
+      )
+      expect(graphExpectation(fixture, 'fixture-toolchain').cacheableTasks).toBe(2)
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('matchesPattern', () => {
   test('cold allows no hit and warm needs every task to hit', () => {
     expect(matchesPattern({ hits: 0, total: 15, missed: [], toolchain: null }, 'cold')).toBe(true)
@@ -51,6 +113,33 @@ describe('matchesPattern', () => {
     expect(matchesPattern({ hits: 0, total: 0, missed: [], toolchain: null }, 'cold')).toBe(false)
     expect(matchesPattern({ hits: 0, total: 0, missed: [], toolchain: null }, 'warm')).toBe(false)
   })
+
+  test('an expectation makes the run report the graph it ran', () => {
+    const graph = { cacheableTasks: 15, totalTasks: 15, taskNames: [] }
+    // A run that reports fewer tasks than the graph is not the graph under qualification.
+    expect(
+      matchesPattern({ hits: 15, total: 15, missed: [], toolchain: null }, 'warm', graph)
+    ).toBe(true)
+    expect(
+      matchesPattern({ hits: 14, total: 14, missed: [], toolchain: null }, 'warm', graph)
+    ).toBe(false)
+    expect(matchesPattern({ hits: 0, total: 14, missed: [], toolchain: null }, 'cold', graph)).toBe(
+      false
+    )
+  })
+
+  test('a partial restore is told apart from a complete one', () => {
+    const graph = { cacheableTasks: 15, totalTasks: 15, taskNames: [] }
+    expect(
+      matchesPattern({ hits: 9, total: 15, missed: [], toolchain: null }, 'partial', graph)
+    ).toBe(true)
+    expect(
+      matchesPattern({ hits: 0, total: 15, missed: [], toolchain: null }, 'partial', graph)
+    ).toBe(false)
+    expect(
+      matchesPattern({ hits: 15, total: 15, missed: [], toolchain: null }, 'partial', graph)
+    ).toBe(false)
+  })
 })
 
 describe('parseArgs', () => {
@@ -59,17 +148,35 @@ describe('parseArgs', () => {
       wanted: 'cold',
       manifest: null,
       fresh: true,
+      pass: null,
+      log: null,
+      printExpectation: false,
+      printManifest: false,
+      clearOutputs: false,
+      compare: null,
     })
-    expect(parseArgs([])).toEqual({ wanted: null, manifest: null, fresh: false })
+    expect(parseArgs([])).toEqual({
+      wanted: null,
+      manifest: null,
+      fresh: false,
+      pass: null,
+      log: null,
+      printExpectation: false,
+      printManifest: false,
+      clearOutputs: false,
+      compare: null,
+    })
   })
 
   test('a warm run must name the cold manifest', () => {
     expect(() => parseArgs(['--fresh', '--expect', 'warm'])).toThrow('requires --expect-manifest')
-    expect(parseArgs(['--expect', 'warm', '--expect-manifest', cold]).manifest).toBe(cold)
+    expect(parseArgs(['--expect', 'warm', '--expect-manifest', coldManifest]).manifest).toBe(
+      coldManifest
+    )
   })
 
   test('refuses a manifest that is not a lowercase sha256', () => {
-    for (const bad of ['', 'abc', 'A'.repeat(64), 'g'.repeat(64), `${cold}0`])
+    for (const bad of ['', 'abc', 'A'.repeat(64), 'g'.repeat(64), `${coldManifest}0`])
       expect(() => parseArgs(['--expect', 'warm', '--expect-manifest', bad])).toThrow()
     expect(() => parseArgs(['--expect', 'cold', '--expect-manifest', 'abc'])).toThrow('sha256')
   })
@@ -79,6 +186,18 @@ describe('parseArgs', () => {
     expect(() => parseArgs(['--expect', '--fresh'])).toThrow('needs a value')
     expect(() => parseArgs(['--expect', 'one-miss'])).toThrow('cold or warm')
     expect(() => parseArgs(['--self-check'])).toThrow('unknown option')
+  })
+
+  test('a checked pass needs its log, and only one expectation may be asked for', () => {
+    expect(() => parseArgs(['--check-pass', 'warm'])).toThrow('requires --log')
+    expect(() => parseArgs(['--log', 'build.log'])).toThrow('requires --check-pass')
+    expect(() => parseArgs(['--check-pass', 'half', '--log', 'build.log'])).toThrow(
+      '--check-pass must be'
+    )
+    expect(parseArgs(['--check-pass', 'warm', '--log', 'build.log']).pass).toBe('warm')
+    expect(() =>
+      parseArgs(['--check-pass', 'warm', '--log', 'b.log', '--print-expectation'])
+    ).toThrow('only one expectation')
   })
 })
 
@@ -118,17 +237,16 @@ async function proofEntry(
   args: string[],
   reply: { status: number; stdout: string; stderr: string }
 ) {
-  const root = resolve(import.meta.dir, '..')
   const script = fileURLToPath(new URL('./vite-plus-proof.mjs', import.meta.url))
   const directory = mkdtempSync(join(tmpdir(), 'adea-proof-cli-'))
-  const dist = join(root, 'packages/types/dist')
+  const dist = join(repoRoot, 'packages/types/dist')
   const existed = existsSync(dist)
   mkdirSync(dist, { recursive: true })
   const fixture = join(dist, `canvas-proof-${crypto.randomUUID()}.txt`)
   writeFileSync(fixture, 'owned unit-only proof output')
   const summary = join(directory, 'summary')
   writeFileSync(summary, '')
-  const manifest = distManifest(root)
+  const manifest = distManifest(repoRoot)
   const previous = { argv: process.argv, env: process.env, exitCode: process.exitCode }
   const command = spyOn(childProcess, 'spawnSync').mockReturnValue(reply as never)
   const output = spyOn(console, 'log').mockImplementation(() => {})
@@ -165,13 +283,17 @@ async function proofEntry(
 
 const warmReply = {
   status: 0,
-  stdout:
-    '$ ORCH_TOOLCHAIN=fixture-key env -u FORCE_COLOR bun run build\nvp run: 2/2 cache hit (100%), 2/2 successful',
+  stdout: `$ ORCH_TOOLCHAIN=fixture-key env -u FORCE_COLOR bun run build\nvp run: ${tasks}/${tasks} cache hit (100%), ${tasks}/${tasks} successful`,
   stderr: '',
 }
 const coldReply = {
   status: 0,
-  stdout: `${miss}\nvp run: 0/2 cache hit (0%), 2/2 successful`,
+  stdout: `${miss}\nvp run: 0/${tasks} cache hit (0%), ${tasks}/${tasks} successful`,
+  stderr: '',
+}
+const staleReply = {
+  status: 0,
+  stdout: `vp run: ${tasks - 1}/${tasks - 1} cache hit (100%), ${tasks - 1}/${tasks - 1} successful`,
   stderr: '',
 }
 
@@ -186,7 +308,9 @@ test('proof CLI validates fixture warm counts, output identity and workflow repo
   expect(result.output).toContain('PASS expected warm')
   expect(result.output).toContain('PASS dist manifest matches')
   expect(result.output).toContain('::group::raw vp run')
-  expect(result.summary).toContain('cache: 2/2 hit')
+  expect(result.summary).toContain(`cache: ${tasks}/${tasks} hit`)
+  // The expectation the run was judged against comes from the graph.
+  expect(result.output).toContain(`expected cache: ${tasks}/${tasks} cache hit`)
 })
 
 test('proof CLI reports cold misses and fails freshness or mismatched manifest assertions', async () => {
@@ -200,4 +324,178 @@ test('proof CLI reports cold misses and fails freshness or mismatched manifest a
   await expect(
     proofEntry([], { status: 2, stdout: '', stderr: 'fixture build failed' })
   ).rejects.toThrow('vp run orch:build failed (exit 2)')
+})
+
+test('the CLI prints the graph-derived expectation and the output manifest', async () => {
+  const printed = await proofEntry(['--print-expectation'], coldReply)
+  expect(printed.status).toBe(0)
+  expect(printed.output.trim()).toBe(`${tasks}/${tasks} cache hit`)
+  expect(printed.calls).toHaveLength(0)
+
+  const manifest = await proofEntry(['--print-manifest'], coldReply)
+  expect(manifest.status).toBe(0)
+  const lines = manifest.output.trim().split('\n')
+  // The first line is the manifest of the whole build, and every owned file
+  // follows with its own digest, so a difference can be named.
+  expect(lines[0]).toMatch(/^[0-9a-f]{64} \d+$/)
+  expect(lines.length).toBeGreaterThan(1)
+  expect(lines[1]).toMatch(/^[0-9a-f]{64} {2}\S/)
+})
+
+test('a recorded pass is checked against the graph, not against a written-down count', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'adea-proof-pass-'))
+  try {
+    const warm = join(directory, 'warm.log')
+    const stale = join(directory, 'stale.log')
+    const coldLog = join(directory, 'cold.log')
+    writeFileSync(warm, warmReply.stdout)
+    writeFileSync(stale, staleReply.stdout)
+    writeFileSync(coldLog, coldReply.stdout)
+
+    const warmResult = await proofEntry(['--check-pass', 'warm', '--log', warm], coldReply)
+    expect(warmResult.status).toBe(0)
+    expect(warmResult.output).toContain('PASS expected warm')
+
+    // A run that reports a different graph is not the graph under qualification.
+    const staleResult = await proofEntry(['--check-pass', 'warm', '--log', stale], coldReply)
+    expect(staleResult.status).toBe(1)
+    expect(staleResult.output).toContain('FAIL expected warm')
+
+    // An incomplete restore is reported, not asserted: the outputs are compared instead.
+    const observed = await proofEntry(['--check-pass', 'observed', '--log', coldLog], coldReply)
+    expect(observed.status).toBe(0)
+    expect(observed.output).toContain(`observed: 0/${tasks} of ${tasks} graph tasks`)
+    expect(observed.output).toContain('misses:')
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+/** A fixture workspace with declared build outputs and an unrelated source file. */
+function fixtureWithOutputs() {
+  const root = mkdtempSync(join(tmpdir(), 'adea-proof-owned-'))
+  mkdirSync(join(root, 'packages', 'alpha'), { recursive: true })
+  writeFileSync(
+    join(root, 'packages', 'alpha', 'package.json'),
+    JSON.stringify({ name: '@fixture/alpha', scripts: { build: 'tsc' } })
+  )
+  mkdirSync(join(root, 'packages', 'alpha', 'dist', 'nested'), { recursive: true })
+  writeFileSync(join(root, 'packages', 'alpha', 'dist', 'a.js'), 'alpha bytes')
+  writeFileSync(join(root, 'packages', 'alpha', 'dist', 'nested', 'b.js'), 'nested bytes')
+  // A file the lane does not own: it must survive every clearing.
+  writeFileSync(join(root, 'packages', 'alpha', 'src.ts'), 'source bytes')
+  return root
+}
+
+describe('the declared owned outputs', () => {
+  test('only the outputs the graph declares are owned', () => {
+    const root = fixtureWithOutputs()
+    try {
+      expect(ownedOutputs(root, 'fixture-toolchain')).toEqual(['packages/alpha/dist'])
+      const manifest = ownedOutputManifest(root, 'fixture-toolchain')
+      expect(manifest.count).toBe(2)
+      expect(manifest.outputs).toEqual(['packages/alpha/dist'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('clearing the owned outputs leaves every unrelated file alone', () => {
+    const root = fixtureWithOutputs()
+    try {
+      const removed = clearOwnedOutputs(root, 'fixture-toolchain')
+      expect(removed).toBe(2)
+      expect(existsSync(join(root, 'packages', 'alpha', 'dist', 'a.js'))).toBe(false)
+      expect(existsSync(join(root, 'packages', 'alpha', 'dist', 'nested', 'b.js'))).toBe(false)
+      // The workspace's own files are not the lane's to remove.
+      expect(existsSync(join(root, 'packages', 'alpha', 'src.ts'))).toBe(true)
+      expect(existsSync(join(root, 'packages', 'alpha', 'package.json'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('two empty manifests never pass a comparison', () => {
+    const empty = { sha: '0'.repeat(64), count: 0 }
+    const result = compareManifests(empty, { ...empty })
+    expect(result.identical).toBe(false)
+    expect(result.reason).toContain('empty manifest')
+  })
+
+  test('missing, truncated or stale restored bytes fail the comparison', () => {
+    const root = fixtureWithOutputs()
+    try {
+      const baseline = ownedOutputManifest(root, 'fixture-toolchain')
+      expect(
+        compareManifests(baseline, ownedOutputManifest(root, 'fixture-toolchain')).identical
+      ).toBe(true)
+
+      // A restored output that is missing.
+      rmSync(join(root, 'packages', 'alpha', 'dist', 'nested', 'b.js'))
+      const missing = ownedOutputManifest(root, 'fixture-toolchain')
+      expect(compareManifests(baseline, missing).identical).toBe(false)
+      writeFileSync(join(root, 'packages', 'alpha', 'dist', 'nested', 'b.js'), 'nested bytes')
+
+      // A restored output that was truncated.
+      writeFileSync(join(root, 'packages', 'alpha', 'dist', 'a.js'), 'alpha')
+      const truncated = ownedOutputManifest(root, 'fixture-toolchain')
+      expect(compareManifests(baseline, truncated).identical).toBe(false)
+      writeFileSync(join(root, 'packages', 'alpha', 'dist', 'a.js'), 'alpha bytes')
+
+      // A restored output that is stale.
+      writeFileSync(join(root, 'packages', 'alpha', 'dist', 'a.js'), 'stale bytes')
+      const stale = ownedOutputManifest(root, 'fixture-toolchain')
+      expect(compareManifests(baseline, stale).identical).toBe(false)
+      expect(compareManifests(baseline, stale).reason).toContain('the outputs differ')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+test('a manifest without outputs is refused, so two empty ones cannot pass', () => {
+  // The refusal the CLI applies to the manifest it is about to record.
+  expect(recordedManifest({ sha: '0'.repeat(64), count: 0 })).toBeNull()
+  expect(recordedManifest({ sha: 'a'.repeat(64), count: 3 })).toEqual({
+    sha: 'a'.repeat(64),
+    count: 3,
+  })
+})
+
+test('the two packages clean their own dist before compiling, so a removed source cannot survive', async () => {
+  for (const manifest of ['packages/types/package.json', 'packages/db/package.json']) {
+    const script = JSON.parse(readFileSync(join(repoRoot, manifest), 'utf8')).scripts?.build
+    expect(typeof script).toBe('string')
+    const fixture = mkdtempSync(join(tmpdir(), 'adea-proof-clean-'))
+    try {
+      // The output a module that no longer exists would have left behind.
+      mkdirSync(join(fixture, 'dist'), { recursive: true })
+      writeFileSync(
+        join(fixture, 'dist', 'removed-module.js'),
+        'the output of a module that no longer exists'
+      )
+      // A compiler that records what the dist held when it was called.
+      const bin = join(fixture, 'bin')
+      mkdirSync(bin)
+      writeFileSync(
+        join(bin, 'tsc'),
+        '#!/bin/sh\nif [ -e dist/removed-module.js ]; then echo stale-present; else echo stale-gone; fi\n'
+      )
+      chmodSync(join(bin, 'tsc'), 0o755)
+      const run = spawnSync('/bin/sh', ['-c', script], {
+        cwd: fixture,
+        env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+        encoding: 'utf8',
+      })
+      expect(run.status).toBe(0)
+      // The compiler saw a dist without the removed module's output, so the
+      // build cleaned it before it compiled.
+      expect(run.stdout).toContain('stale-gone')
+      // And it is gone afterwards, so the cache cannot capture it and a restore
+      // cannot bring it back.
+      expect(existsSync(join(fixture, 'dist', 'removed-module.js'))).toBe(false)
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  }
 })

@@ -151,11 +151,37 @@ export function isWorkspaceAccent(value: unknown): value is WorkspaceAccent {
   )
 }
 
-/** A workspace mark. `monogram` is the legacy automatic workspace icon. */
+/**
+ * A workspace mark. `monogram` is the legacy automatic workspace icon; `home`
+ * and `box` are the built-in defaults. `icon` names one of the shell's curated
+ * icons (a lowercase key; an unknown key draws the default box, so a newer
+ * client's choice never breaks an older one) and `image` is an uploaded picture
+ * stored as a small `data:image/webp|png;base64,…` URL.
+ */
 export type WorkspaceLogo =
   | Readonly<{ kind: 'monogram' }>
   | Readonly<{ kind: 'home' | 'box' }>
   | Readonly<{ kind: 'emoji'; value: string }>
+  | Readonly<{ kind: 'icon'; value: string }>
+  | Readonly<{ kind: 'image'; value: string }>
+
+/** The shape of a curated-icon key: lowercase words joined by hyphens. */
+const WORKSPACE_LOGO_ICON_KEY = /^[a-z][a-z0-9-]{0,31}$/
+/** The longest stored image mark, in characters. Matches the client's 48 KiB resize budget. */
+export const WORKSPACE_LOGO_IMAGE_MAX_LENGTH = 48 * 1024
+const WORKSPACE_LOGO_IMAGE = /^data:image\/(?:webp|png);base64,[A-Za-z0-9+/]+={0,2}$/
+
+export function isWorkspaceLogoIconKey(value: unknown): value is string {
+  return typeof value === 'string' && WORKSPACE_LOGO_ICON_KEY.test(value)
+}
+
+export function isWorkspaceLogoImage(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= WORKSPACE_LOGO_IMAGE_MAX_LENGTH &&
+    WORKSPACE_LOGO_IMAGE.test(value)
+  )
+}
 
 export type WorkspaceSummary = {
   /** Presentation capability only; permanent deletion rechecks ownership on the server. */
@@ -202,6 +228,11 @@ export type ProjectVisibility = 'workspace' | 'members'
 export type ProjectMemberRole = 'viewer' | 'editor'
 
 export type ProjectSummary = Readonly<{
+  /**
+   * The accent the project's icon paints with: a theme accent id, or null to
+   * inherit the workspace (and so the app) accent.
+   */
+  accent: WorkspaceAccentId | null
   createdAt: string
   iconKey: string
   id: string

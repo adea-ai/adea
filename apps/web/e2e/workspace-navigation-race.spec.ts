@@ -9,7 +9,7 @@ import { stripWorkspaceDeepLinkSearch } from '../src/lib/workspace-search'
 // failure: overlapping navigate calls replace the search with the value of
 // whichever commits last, so a stale deep-link strip issued as a value would
 // drop `app=kanban`; the functional updater used by consumeDeepLink strips the
-// latest search and preserves the switch. Unlike account-directory-ui.spec.ts
+// latest search and preserves the switch. Unlike account-directory-auth.spec.ts
 // this lane injects nothing into the app request path; it only exercises the
 // router instance already loaded by the dev server.
 // ---------------------------------------------------------------------------

@@ -54,8 +54,8 @@ import {
 type Notice = Readonly<{ tone: 'alert' | 'status'; text: string }>
 
 const CLOUD_TITLE = 'Cloud'
-const CLOUD_DESCRIPTION =
-  'Connector credentials cloud agents use in this workspace, kept in the Control Plane vault. A secret is sent once and never shown again.'
+const CLOUD_HELP =
+  'Connector credentials cloud agents use, kept in the Control Plane vault. A secret is sent once and never shown again.'
 
 export default function CloudConnectionsPane(props: {
   client?: AgentHqApiClient
@@ -65,7 +65,7 @@ export default function CloudConnectionsPane(props: {
     <Show
       when={props.client}
       fallback={
-        <SettingsSection title={CLOUD_TITLE} description={CLOUD_DESCRIPTION}>
+        <SettingsSection title={CLOUD_TITLE} help={CLOUD_HELP}>
           <EmptyDescription role="status">
             Cloud connections are unavailable in this view.
           </EmptyDescription>
@@ -182,7 +182,7 @@ function CloudConnectionsContent(props: { client: AgentHqApiClient; workspaceId:
     <>
       <SettingsSection
         title={CLOUD_TITLE}
-        description={CLOUD_DESCRIPTION}
+        help={CLOUD_HELP}
         action={
           <Show when={canManage() && !adding()}>
             <Button
@@ -243,7 +243,7 @@ function CloudConnectionsContent(props: { client: AgentHqApiClient; workspaceId:
         >
           <SettingsSection
             title="Add a cloud connection"
-            description="The secret goes to the vault once. Adea keeps only the connection's id, provider and status."
+            help="The secret goes to the vault once. Adea keeps only the connection's id, provider and status."
           >
             <SettingsField label="Provider" htmlFor="cloud-connection-provider">
               <Input
@@ -392,7 +392,7 @@ function ConnectionRow(props: {
           <SettingsRow
             orientation="vertical"
             label={`New ${props.connection.provider} secret`}
-            description="Stores the new secret as the next revision of this connection."
+            help="Stores the new secret as the next revision of this connection."
           >
             <div class="flex items-center gap-2">
               <Input

@@ -270,15 +270,18 @@ test('missing desktop bridge degrades private health and System Settings actions
   expect(errors).toEqual([])
 })
 
-test('app Settings no longer lists the workspace-scoped sections', async ({ page }) => {
+test('Settings holds a Workspaces group between Account and Workflows', async ({ page }) => {
   const errors = await openSettingsHarness(page)
-  const dialog = page.getByRole('dialog', { name: 'Settings' })
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true })
   const tablist = dialog.getByRole('tablist', { name: 'Settings sections' })
   await expect(tablist.getByRole('tab')).toHaveText(
     settingsSections.map((section) => settingsSectionLabels[section])
   )
-  for (const moved of ['Workspace', 'Memory', 'Skills', 'Connections'])
-    await expect(tablist.getByRole('tab', { name: moved, exact: true })).toHaveCount(0)
+  const labels = await tablist.getByRole('tab').allTextContents()
+  expect(labels.indexOf('Your workspaces')).toBeGreaterThan(labels.indexOf('Appearance'))
+  expect(labels.indexOf('Your workspaces')).toBeLessThan(labels.indexOf('Agents'))
+  for (const group of ['Account', 'Workspaces', 'Workflows', 'Data & access'])
+    await expect(tablist.getByText(group, { exact: true }).first()).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -296,7 +299,7 @@ async function openWorkspaceSettingsHarness(
       body: '<html><body><div id="harness-root"></div></body></html>',
     })
   )
-  await page.goto(`${path}#workspace-settings/${section}`)
+  await page.goto(`${path}#settings/workspace-${section}`)
   if (readOnly)
     await page
       .locator('#harness-root')
@@ -314,13 +317,10 @@ test('every workspace settings section renders standalone and keeps its deep lin
   page,
 }) => {
   const errors = await openWorkspaceSettingsHarness(page, 'general')
-  const dialog = page.getByRole('dialog', { name: 'Settings harness workspace settings' })
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true })
   await expect(dialog).toBeVisible()
-  const tablist = dialog.getByRole('tablist', { name: 'Workspace settings sections' })
+  const tablist = dialog.getByRole('tablist', { name: 'Settings sections' })
   await expect(tablist).toHaveAttribute('aria-orientation', 'vertical')
-  await expect(tablist.getByRole('tab')).toHaveText(
-    workspaceSettingsSections.map((section) => workspaceSettingsSectionLabels[section])
-  )
   for (const section of [...workspaceSettingsSections, ...workspaceSettingsSections.toReversed()]) {
     const tab = tablist.getByRole('tab', {
       name: workspaceSettingsSectionLabels[section],
@@ -328,9 +328,9 @@ test('every workspace settings section renders standalone and keeps its deep lin
     })
     await tab.click()
     await expect(tab).toHaveAttribute('aria-selected', 'true')
-    await expect(page.locator(`#workspace-settings-panel-${section}`)).toBeVisible()
-    await expect(tab).toHaveAttribute('aria-controls', `workspace-settings-panel-${section}`)
-    await expect(page.locator(`#workspace-settings-panel-${section}`)).toHaveAttribute(
+    await expect(page.locator(`#settings-panel-workspace-${section}`)).toBeVisible()
+    await expect(tab).toHaveAttribute('aria-controls', `settings-panel-workspace-${section}`)
+    await expect(page.locator(`#settings-panel-workspace-${section}`)).toHaveAttribute(
       'aria-labelledby',
       (await tab.getAttribute('id'))!
     )
@@ -341,16 +341,16 @@ test('every workspace settings section renders standalone and keeps its deep lin
         exact: true,
       })
     ).toBeVisible()
-    await expect(page).toHaveURL(new RegExp(`#workspace-settings/${section}$`))
+    await expect(page).toHaveURL(new RegExp(`#settings/workspace-${section}$`))
     expect(errors).toEqual([])
   }
   await tablist.getByRole('tab', { name: 'General', exact: true }).focus()
   await page.keyboard.press('ArrowDown')
   await expect(tablist.getByRole('tab', { name: 'Memory', exact: true })).toBeFocused()
   await page.keyboard.press('End')
-  await expect(tablist.getByRole('tab', { name: 'Connections', exact: true })).toBeFocused()
+  await expect(tablist.getByRole('tab', { name: 'Permissions', exact: true })).toBeFocused()
   await page.keyboard.press('Home')
-  await expect(tablist.getByRole('tab', { name: 'General', exact: true })).toBeFocused()
+  await expect(tablist.getByRole('tab', { name: 'Account & app', exact: true })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
   expect(new URL(page.url()).hash).toBe('')
@@ -359,60 +359,56 @@ test('every workspace settings section renders standalone and keeps its deep lin
 
 test('General saves workspace identity changes as they are made', async ({ page }) => {
   const errors = await openWorkspaceSettingsHarness(page, 'general')
-  await expect(
-    page.getByRole('dialog', { name: 'Settings harness workspace settings' })
-  ).toBeVisible()
-  const panel = page.locator('#workspace-settings-panel-general')
+  await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toBeVisible()
+  const panel = page.locator('#settings-panel-workspace-general')
   await expect(panel.getByRole('status', { name: 'Workspace identity save status' })).toHaveText(
     'Changes save as you make them.'
   )
-  await expect(panel.getByRole('status', { name: 'Workspace order position' })).toHaveText(
-    'Position 1 of 2'
-  )
+  // Order lives in the workspace menu, not in settings.
+  await expect(panel.getByText('Workspace order')).toHaveCount(0)
   const name = panel.getByRole('textbox', { name: 'Workspace name' })
   await name.fill('Renamed harness')
   await name.press('Enter')
   await expect(panel.getByRole('status', { name: 'Workspace identity save status' })).toHaveText(
     'Saved.'
   )
-  // The title follows the saved name.
-  await expect(
-    page.getByRole('dialog', { name: 'Renamed harness workspace settings' })
-  ).toBeVisible()
-  await panel.getByText('Home', { exact: true }).click()
+  // The target banner follows the saved name.
+  await expect(page.getByText('Settings for Renamed harness', { exact: true })).toBeVisible()
+  await panel
+    .getByRole('group', { name: 'Virtual world' })
+    .getByRole('button', { name: 'Home', exact: true })
+    .click()
   await expect
     .poll(async () =>
       JSON.parse((await page.locator('#harness-root').getAttribute('data-workspace')) ?? '{}')
     )
     .toMatchObject({ name: 'Renamed harness', scene: 'home', version: 3 })
 
-  // A custom colour saves as lowercase #rrggbb and shows on the Custom button;
-  // choosing a preset afterwards replaces it.
-  const custom = panel.getByRole('button', { name: 'Custom', exact: true })
-  await expect(custom).toHaveAttribute('aria-pressed', 'false')
-  await panel.locator('input[type="color"]').fill('#2563eb')
+  // The first swatch is "Inherit (default)" and starts checked; a preset
+  // replaces it and choosing Inherit again clears the override.
+  const accent = panel.getByRole('radiogroup', { name: 'Workspace accent' })
+  await expect(accent.getByRole('radio', { name: 'Inherit (default)' })).toBeChecked()
+  await accent.getByRole('radio', { name: 'Violet' }).press('Space')
   await expect
     .poll(async () =>
       JSON.parse((await page.locator('#harness-root').getAttribute('data-workspace')) ?? '{}')
     )
-    .toMatchObject({ accent: '#2563eb', version: 4 })
-  await expect(custom).toHaveAttribute('aria-pressed', 'true')
-  await expect(panel.locator('[data-custom-accent-swatch]')).toBeVisible()
-  await panel.getByRole('radio', { name: 'Violet', exact: true }).check({ force: true })
+    .toMatchObject({ accent: 'violet', version: 4 })
+  await accent.getByRole('radio', { name: 'Inherit (default)' }).press('Space')
   await expect
     .poll(async () =>
       JSON.parse((await page.locator('#harness-root').getAttribute('data-workspace')) ?? '{}')
     )
-    .toMatchObject({ accent: 'violet', version: 5 })
-  await expect(custom).toHaveAttribute('aria-pressed', 'false')
+    .toMatchObject({ accent: null, version: 5 })
   expect(errors).toEqual([])
 })
 
 test('a host without workspace updates renders General read-only', async ({ page }) => {
   const errors = await openWorkspaceSettingsHarness(page, 'general', true)
-  const panel = page.locator('#workspace-settings-panel-general')
+  const panel = page.locator('#settings-panel-workspace-general')
   await expect(panel.getByRole('textbox', { name: 'Workspace name' })).toBeDisabled()
   await expect(panel.getByText('Changes save as you make them.')).toHaveCount(0)
+  await expect(panel.getByRole('group', { name: 'Virtual world' })).toBeVisible()
   expect(errors).toEqual([])
 })
 
@@ -433,10 +429,15 @@ async function openControlPlaneHarness(
       body: '<html><body><div id="harness-root"></div></body></html>',
     })
   )
-  await page.goto(`${path}#workspace-settings/${section}`)
-  await page
-    .locator('#harness-root')
-    .evaluate((element, value) => element.setAttribute('data-control-plane', value), mode)
+  await page.goto(`${path}#settings/workspace-${section === 'skills' ? 'connections' : section}`)
+  await page.locator('#harness-root').evaluate(
+    (element, [value, skills]) => {
+      element.setAttribute('data-control-plane', value!)
+      // Skills lives in the Plugins dialog, not in a Settings section.
+      if (skills) element.setAttribute('data-plugins-skills', '')
+    },
+    [mode, section === 'skills' ? 'skills' : ''] as const
+  )
   await page.evaluate(
     async (url) => {
       await import(url)
@@ -444,6 +445,13 @@ async function openControlPlaneHarness(
     '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-settings-harness-app.tsx')
   )
   return errors
+}
+
+/** The Skills tab of the Plugins dialog, where a workspace's skills are managed. */
+async function openSkillsTab(page: Page) {
+  const dialog = page.getByRole('dialog', { name: 'Plugins', exact: true })
+  await dialog.getByRole('tab', { name: 'Skills', exact: true }).click()
+  return dialog
 }
 
 async function recordedRequests(page: Page) {
@@ -456,7 +464,7 @@ test('Skills lists workspace and read-only system skills and deprecates after co
   page,
 }) => {
   const errors = await openControlPlaneHarness(page, 'scoped', 'skills')
-  const panel = page.locator('#workspace-settings-panel-skills')
+  const panel = await openSkillsTab(page)
   await expect(panel.getByText('Release notes')).toBeVisible()
   await expect(panel.getByText('This workspace · 1.0.0 · revision 2')).toBeVisible()
   await expect(panel.getByText('Code review')).toBeVisible()
@@ -489,7 +497,7 @@ test('Cloud connections adds a connection with a write-only secret, rotates and 
   page,
 }) => {
   const errors = await openControlPlaneHarness(page, 'scoped', 'connections')
-  const panel = page.locator('#workspace-settings-panel-connections')
+  const panel = page.locator('#settings-panel-workspace-connections')
   await expect(panel.getByRole('heading', { name: 'Cloud' })).toBeVisible()
   await expect(panel.getByText('connector:github · revision 1 · added 2026-10-06')).toBeVisible()
 
@@ -516,7 +524,7 @@ test('Cloud connections adds a connection with a write-only secret, rotates and 
   })
 
   await panel.getByRole('button', { name: 'Rotate the github secret' }).click()
-  await panel.getByLabel('New github secret').fill(`${CLOUD_SECRET_CANARY}-2`)
+  await panel.getByRole('textbox', { name: 'New github secret' }).fill(`${CLOUD_SECRET_CANARY}-2`)
   await panel.getByRole('button', { name: 'Rotate secret' }).click()
   await expect(
     panel.getByRole('status').filter({ hasText: 'github secret rotated.' })
@@ -535,19 +543,20 @@ test('Cloud connections adds a connection with a write-only secret, rotates and 
   expect(errors).toEqual([])
 })
 
-test('an unconfigured deployment explains why Skills and cloud connections are unavailable', async ({
+test('an unconfigured deployment explains why cloud connections are unavailable', async ({
   page,
 }) => {
   const errors = await openControlPlaneHarness(page, 'unavailable', 'connections')
-  const connections = page.locator('#workspace-settings-panel-connections')
+  const connections = page.locator('#settings-panel-workspace-connections')
   await expect(connections.getByText(/The Control Plane is unavailable right now/u)).toBeVisible()
   await expect(connections.getByRole('button', { name: 'Add cloud connection…' })).toHaveCount(0)
-  await page.getByRole('tab', { name: 'Skills', exact: true }).click()
-  await expect(
-    page
-      .locator('#workspace-settings-panel-skills')
-      .getByText(/The Control Plane is unavailable right now/u)
-  ).toHaveCount(2)
+  expect(errors).toEqual([])
+})
+
+test('an unconfigured deployment explains why Skills are unavailable', async ({ page }) => {
+  const errors = await openControlPlaneHarness(page, 'unavailable', 'skills')
+  const skills = await openSkillsTab(page)
+  await expect(skills.getByText(/The Control Plane is unavailable right now/u)).toHaveCount(2)
   expect(errors).toEqual([])
 })
 
@@ -608,7 +617,7 @@ test('settings headers and notes keep the shared palette and sized marks', async
 
 test('publish form textareas honor their rows contract', async ({ page }) => {
   const errors = await openControlPlaneHarness(page, 'scoped', 'skills')
-  const panel = page.locator('#workspace-settings-panel-skills')
+  const panel = await openSkillsTab(page)
   await expect(panel.getByRole('button', { name: 'Publish a skill…' })).toBeVisible()
   await panel.getByRole('button', { name: 'Publish a skill…' }).click()
   const manifestLocator = panel.locator('#skills-publish-manifest')
@@ -648,7 +657,7 @@ test('opening another workspace settings section resets its panel scroll positio
 }) => {
   await page.setViewportSize({ width: 390, height: 540 })
   const errors = await openControlPlaneHarness(page, 'scoped', 'connections')
-  const dialog = page.getByRole('dialog', { name: 'Settings harness workspace settings' })
+  const dialog = page.getByRole('dialog', { name: 'Settings', exact: true })
   const scrollport = dialog.locator('.conventional-settings-panel')
   await expect
     .poll(() => scrollport.evaluate((element) => element.scrollHeight - element.clientHeight))
@@ -658,7 +667,7 @@ test('opening another workspace settings section resets its panel scroll positio
   })
   await expect.poll(() => scrollport.evaluate((element) => element.scrollTop)).toBe(100)
   await dialog.getByRole('tab', { name: 'General', exact: true }).click()
-  await expect(page.locator('#workspace-settings-panel-general')).toBeVisible()
+  await expect(page.locator('#settings-panel-workspace-general')).toBeVisible()
   await expect.poll(() => scrollport.evaluate((element) => element.scrollTop)).toBe(0)
   await expect(dialog.getByRole('heading', { name: 'General', exact: true })).toBeInViewport({
     ratio: 0.99,

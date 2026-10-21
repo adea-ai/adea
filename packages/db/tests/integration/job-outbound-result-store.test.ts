@@ -3304,6 +3304,13 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     expect(await privateHint()).toBe(true)
   })
 
+  // This test builds a hidden run of 210 real publications and then measures every surface twice,
+  // so it is deliberately longer than Bun's ordinary five-second per-test budget. Measured against
+  // a disposable PostgreSQL 18, it needs 9,590ms inside this file and 16,539ms when it runs alone
+  // against a cold database; the next slowest test in this file needs 3,451ms. The deadline below
+  // is this test's own measured budget. Nothing else changes: the publication volume, the exact
+  // counts, the authority and hidden-history refusals and the page-bounded statement-growth bound
+  // are all still asserted as they were.
   test('a large hidden run is gated in pages: counts stay exact, and statements grow with pages, not publications', async () => {
     const f = await fixture({ complete: false })
     const reader = f.recipient.principal
@@ -3379,7 +3386,7 @@ describe.skipIf(!url)('job outbound publication and release on real data', () =>
     const hidden = await measureSurfaces(f)
     for (const surface of Object.keys(baseline) as (keyof typeof baseline)[])
       expect(hidden[surface] - baseline[surface]).toBeLessThanOrEqual(gates * STATEMENTS_PER_GATE)
-  })
+  }, 60_000)
 
   // ─── Memory-derived results (#1217) ────────────────────────────────────────────
   // The producer declares the memory behind a summary. The product cannot inspect a summary, so

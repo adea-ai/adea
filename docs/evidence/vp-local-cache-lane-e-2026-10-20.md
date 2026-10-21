@@ -241,26 +241,182 @@ rather than taken here.
 | concurrency  | the lock and the directory creation are proved under contention, and the never-overlap assertion is kept                                                   | the key is per run, so two runs never write the same entry                                                               | one deadline and one signal cover the publication, the lookup and the reads                                         |
 | platform     | the key names the platform and the architecture                                                                                                            | the key names `${{ runner.os }}` and `${{ runner.arch }}`                                                                | a cross-platform entry is refused                                                                                   |
 
+### 4.6 The current-head local cache qualification
+
+The qualification below was measured at the published head `a5f2245a634f7b87d537eef952b17668007ed4f3`, with three
+**independent worktrees** of this repository at that commit, each with its own checkout path and its own
+`bun install --frozen-lockfile`. The task is `orch:types:build` of the real graph - a portable output, so a replay can
+be compared byte for byte. The cache home is a directory of its own, outside every checkout.
+
+| Worktree | State              | Mode      | Directory                                                          |
+| -------- | ------------------ | --------- | ------------------------------------------------------------------ |
+| A        | clean              | `clean`   | `<home>/repo-<git common dir>/head-a5f2245a6.../<environment key>` |
+| B        | clean              | `clean`   | **the same directory as A**                                        |
+| D        | one untracked file | `working` | `<home>/checkout-<checkout path>/state-changed/<environment key>`  |
+
+**Independent clean-worktree reuse.** A ran first and was cold; B, a separate checkout at the same commit, reused
+A's entry:
+
+| Run                                   | Plan the wrapper printed                                                | Hit     | Exit |
+| ------------------------------------- | ----------------------------------------------------------------------- | ------- | ---- |
+| A, the first clean worktree           | `clean cache (clean checkout, shared by the repository at this commit)` | 0/1     | 0    |
+| B, the second clean worktree          | `clean cache (clean checkout, shared by the repository at this commit)` | **1/1** | 0    |
+| B again, after the dirty worktree ran | `clean cache (clean checkout, shared by the repository at this commit)` | **1/1** | 0    |
+
+The two worktrees' `packages/types/dist` trees are the same bytes: 586 files each, the same sha256 over the file
+list and their contents, `44c050b902e7db82333c23338b052091af04e71dfd017a7eeab21c3f5cc9949a`. The shared directory is
+outside every checkout.
+
+**Dirty-state isolation.** D carries one untracked file, so it selects a directory of its own and never the shared
+one:
+
+| Run                          | Plan the wrapper printed                           | Hit | Directory |
+| ---------------------------- | -------------------------------------------------- | --- | --------- |
+| D, the dirty worktree, first | `working cache (local changes or untracked files)` | 0/1 | its own   |
+| D, the dirty worktree, again | `working cache (local changes or untracked files)` | 1/1 | its own   |
+
+D's first run was a miss while the clean worktree's entry existed and was being reused, so D did not see the shared
+entry; D's second run hit its own. The shared entry was untouched by both dirty runs: B still hit it afterwards. The
+two directories each hold their own task cache, and the dirty one is a different path.
+
+**Concurrent lock behavior at this head.** The file the concurrency measurement used is byte-identical to the file at
+this head, so the measurement in section 2.6 is the measurement of this head and was not repeated:
+
+```console
+$ shasum -a 256 scripts/vp-local-run.mjs
+051facd3436b5e9f58927bd93b35087c6d555abc66337c496329314fcf638811  scripts/vp-local-run.mjs
+$ git log --oneline 6bf18976b..HEAD -- scripts/vp-local-run.mjs
+(no output: the file has not changed since the measured commit)
+```
+
+The lock's own suite at this head is **67 pass, 0 fail** (295 assertions), and it includes the thirteen tests that
+start child processes: twelve children contending on one directory, six children running the wrapper itself against
+one shared cache home, and the group cases. The never-overlap assertion is asserted in full in each of them.
+
+**What this qualification is not.** It is one task of the real graph, on one machine, with a cache home of its own. The
+whole-graph reuse of an earlier head is the receipt in `docs/vite-plus-proof.md` (the writer and reader pair at
+`0a18eff`), and the hosted graph receipts there are at the heads they name. Nothing here claims a hosted run, a
+production timing, or a graph-wide result.
+
+### 4.7 The successor qualification: the real graph at the current main
+
+The qualification in 4.6 covers one package task at a head that has since been merged into main. This one covers the
+**real graph** at the main that is current now, and the two isolation dimensions 4.6 does not cover: a **tracked**
+modification, and a **different build-relevant environment** at the same commit.
+
+Four independent worktrees of this repository at `d55f485000e294db511fd70fd412c568ca7c46fe` (the tip of `origin/main`
+when this was measured), each with its own checkout path and its own `bun install --frozen-lockfile`, and a cache home of
+its own outside every checkout. The task is `orch:build`: 15 cacheable tasks, 17 tasks successful.
+
+| Run                                      | Directory the wrapper selected                        | Hit       | Tasks | Exit |
+| ---------------------------------------- | ----------------------------------------------------- | --------- | ----- | ---- |
+| A, the first clean worktree              | `repo-<git common dir>/head-d55f48500.../4dc7a7cb...` | 0/15      | 17/17 | 0    |
+| B, the second clean worktree             | the same directory                                    | **14/15** | 17/17 | 0    |
+| B again, after the other runs            | the same directory                                    | **15/15** | 17/17 | 0    |
+| D, a tracked modification                | `checkout-<checkout path>/state-changed/4dc7a7cb...`  | 0/15      | 17/17 | 0    |
+| B again, after the dirty run             | the same directory                                    | **15/15** | 17/17 | 0    |
+| E, a clean worktree, another environment | `repo-<git common dir>/head-d55f48500.../fb6fdefc...` | 0/15      | 17/17 | 0    |
+| B again, after the other environment     | the same directory                                    | **15/15** | 17/17 | 0    |
+
+**Independent clean-worktree reuse on the real graph.** The second clean worktree reused the shared entries: 14 of the
+15 cacheable tasks hit. The single miss is the one the design names: `apps/web build` is the only task whose output
+embeds the absolute path of the checkout that built it, so it is keyed per checkout and is rebuilt under the second
+worktree's own path. The **14 portable packages' `dist` trees are the same bytes** in both worktrees, and `apps/web` is
+the only package that differs. After the second run, its own web-build entry exists, and the next run of B is 15/15.
+
+**Dirty-state isolation, by a tracked modification.** 4.6 isolated a checkout by an untracked file; this one changes a
+tracked file. The worktree selected a directory of its own, `checkout-<path>/state-changed/...`, and was a **miss while
+the shared entry existed and was being reused** - it never saw the shared entries. The shared entry was untouched: B hit
+15/15 afterwards.
+
+**Environment-key isolation.** A clean worktree at the _same commit_ with one more build-relevant variable
+(`VITE_QUALIFICATION_PROBE`) selected a _different_ directory under the same commit - `fb6fdefc...` instead of
+`4dc7a7cb...` - and was a miss, while the plain environment's directory kept its entry (B hit 15/15 afterwards). The
+environment key, not only the commit, is what separates the entries.
+
+**The concurrency measurement was not repeated.** The file it used is byte-identical to the file in current `main`:
+
+```console
+$ git show origin/main:scripts/vp-local-run.mjs | shasum -a 256
+051facd3436b5e9f58927bd93b35087c6d555abc66337c496329314fcf638811  -
+```
+
+so the 10,500-run measurement in section 2.6 already describes the lock code this main runs, and the current-head
+suite holds the child-process proofs.
+
+**What this qualification is not.** It is one machine, one cache home and no hosted runner. It claims nothing about
+timings under load, nothing about a hosted restore, and nothing about a cutover.
+
+### 4.8 The hosted proof for the current graph
+
+The lane's own hosted lane (`.github/workflows/vite-plus-proof.yml`, the opt-in, non-required Vite+ Cache Proof) ran the
+production graph twice on GitHub-hosted runners, on the proof branch `claude/project-thread-bdfpdv`. Both runs are
+push-triggered, and both pushed commits are **empty**: the tree they executed is
+`cf4da7d7d9244a64cb44fca7a27361ecbb934f67`, the graph of `d55f485000e294db511fd70fd412c568ca7c46fe`, and the five
+graph inputs the cache key hashes are byte-identical between the two proof commits and the current `main`:
+`package.json` `89de57e9`, `bun.lock` `efe36254`, `bunfig.toml` `672a310b`, `vite.config.ts` `70e01c50`, `.mise.toml`
+`292f9ff9`. The pinned runtime was Code Foundry `v1.48.1` at `e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d`.
+
+**The cold run** - <https://github.com/adea-ai/adea/actions/runs/39493260628>, commit
+`5e7e14aabd148fb6d7e5bbe9f47ee8590a129f92`:
+
+- `vite-plus proof (orch:build): 0/15 cache hit`, and the pattern check `PASS expected cold`;
+- 1,907 dist files across 15 workspaces;
+- manifest sha256 `ac0dfaf2b5cb9e1099443045151f9948a7e3e6c3ac643cc4bada8dc9505863bc`;
+- the save step succeeded, and the read-only cache listing shows the entry it wrote: id `9240042876`, 4,499,100 bytes,
+  ref `refs/heads/claude/project-thread-bdfpdv`, key ending `39493260628-1`.
+
+**The warm run** - <https://github.com/adea-ai/adea/actions/runs/39495222084>, commit
+`0186c951bacc745ab54f42190e6a3be231735536`:
+
+- the run completed successfully and every step succeeded, including `Vite+ orch:build (restored task cache)`;
+- the commit's trailers were `vp-proof-expect: warm` and `vp-proof-manifest:
+ac0dfaf2b5cb9e1099443045151f9948a7e3e6c3ac643cc4bada8dc9505863bc` (read back with the lane's own extraction), so the
+  pinned proof script asserted both the hit pattern and the manifest, and it exits non-zero unless each holds: the
+  successful step is the evidence that every cacheable task hit and that the restored outputs produced the cold run's
+  manifest exactly;
+- root's read of the run log reports 15 output-replay cache hits, zero cache-miss lines, and a 9.8 MB task cache on the
+  runner;
+- the read-only cache listing shows the warm run's own saved entry - id `9240629990`, 4,489,589 bytes, the same ref, key
+  ending `39495222084-1` - and its dependency and vite-config hashes are the cold entry's, which is why it restored that
+  entry rather than another one.
+
+**What is not recorded here.** The warm run's own emitted-file count is not in the evidence readable without admin
+rights (the run log needs them and the workflow uploads no artifact), so no count is stated for the warm run; the count
+above is the cold run's. The manifest _equality_ is evidenced by the proof step's success under the pinned script, not by a
+file count. There was exactly one warm run, and no second warm repeat is implied. The 9.8 MB is the runner-local task
+cache size from the log; the 4,499,100 and 4,489,589 bytes are the compressed Actions cache archives - two different
+measurements of two different things.
+
+**What this proof is and is not.** It is the repository's own opt-in, non-required lane: it holds `permissions: contents:
+read`, it deploys and publishes nothing, it writes exactly one thing (the Actions cache entry), and it runs on hosted
+`ubuntu-latest` runners, where a fresh workspace is what makes the restore a restore. It proves that the current graph's
+task cache saves on a trusted push and is restored on a fresh hosted runner with the identical outputs. It says nothing
+about timings, nothing about a cutover, and nothing about the local cache of section 4.7, which is a separate
+measurement on a separate machine with its own cache home.
+
 ## 5. What was run
 
-Host: macOS 14 (darwin-arm64), Node 24.21.0 and Bun 1.4.3 from the repository's pinned toolchain, on the branch
-`fix/vp-local-cache-lock-release-race`: `6bf18976b` (the repair), `4233d83dd` (the reconciliation), `c0138550a` (the
-no-Neon proof) and `15f64d5db` (the child-process timeouts), plus this receipt.
+Host: macOS 14 (darwin-arm64), Node 24.21.0 and Bun 1.4.3 from the repository's pinned toolchain. The numbers
+below were measured on the cache and tooling branch `fix/vp-local-cache-lock-release-race` at `15f64d5db` and
+`a5f2245a6` (the repair, the reconciliation, the no-Neon proof and the child-process timeouts); the successor
+qualification in section 4.7 was measured at the current main `d55f485000e294db511fd70fd412c568ca7c46fe`.
 
-| Command                                                                                                   | Result                                                                                                                                                                         |
-| --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `bun test scripts/vp-local-run.test.ts`                                                                   | **67 pass, 0 fail**, 295 assertions                                                                                                                                            |
-| `bun test scripts/toolchain-pin.test.ts`                                                                  | **10 pass, 0 fail**, 81 assertions                                                                                                                                             |
-| `bun test scripts/no-neon-cache-scope.test.ts`                                                            | **10 pass, 0 fail**, 510 assertions                                                                                                                                            |
-| `bun test scripts/vp-local-run.test.ts scripts/toolchain-pin.test.ts scripts/no-neon-cache-scope.test.ts` | **87 pass, 0 fail**, 886 assertions                                                                                                                                            |
-| `bun test scripts/*.test.ts` (the root scripts lane)                                                      | **1,009 pass, 0 fail**, 10,174 assertions, 77 files (one re-run: a five-second timeout in `scripts/evidence-manifest.test.ts`, another lane's test, which passes in isolation) |
-| `bun run test:coverage` (the aggregate coverage lane)                                                     | **2,096 pass, 0 fail**, 20,013 assertions, 154 files; 98.36% functions and 97.97% lines against the 80% goal; `scripts/vp-local-run.mjs` at 92.86% functions and 96.38% lines  |
-| `vp run orch:test` (the aggregate unit lane)                                                              | **32/32 tasks successful**, 0 failing tests                                                                                                                                    |
-| `bun run build`                                                                                           | **17/17 tasks successful**                                                                                                                                                     |
-| `bun run format:check`                                                                                    | clean over 2,914 files                                                                                                                                                         |
-| `bunx oxlint --deny-warnings`                                                                             | exit 0, no warning and no error                                                                                                                                                |
-| `bun run typecheck` (the pre-commit gate)                                                                 | **33/33 tasks successful**, no type errors in 324 files                                                                                                                        |
-| `bun test scripts/docs-boundary.test.ts`                                                                  | **4 pass, 0 fail**                                                                                                                                                             |
+| Command                                                                                                                                                                                 | Result                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bun test scripts/vp-local-run.test.ts`                                                                                                                                                 | **67 pass, 0 fail**, 295 assertions                                                                                                                                            |
+| `bun test scripts/toolchain-pin.test.ts`                                                                                                                                                | **10 pass, 0 fail**, 81 assertions                                                                                                                                             |
+| `bun test scripts/no-neon-cache-scope.test.ts`                                                                                                                                          | **10 pass, 0 fail**, 510 assertions                                                                                                                                            |
+| `bun test scripts/vp-local-run.test.ts scripts/toolchain-pin.test.ts scripts/no-neon-cache-scope.test.ts`                                                                               | **87 pass, 0 fail**, 886 assertions                                                                                                                                            |
+| `bun test scripts/vp-local-run.test.ts scripts/toolchain-pin.test.ts scripts/no-neon-cache-scope.test.ts scripts/docs-boundary.test.ts scripts/no-neon-ci.test.ts` (at the merged head) | **107 pass, 0 fail**, 1,119 assertions                                                                                                                                         |
+| `bun test scripts/*.test.ts` (the root scripts lane)                                                                                                                                    | **1,009 pass, 0 fail**, 10,174 assertions, 77 files (one re-run: a five-second timeout in `scripts/evidence-manifest.test.ts`, another lane's test, which passes in isolation) |
+| `bun run test:coverage` (the aggregate coverage lane)                                                                                                                                   | **2,096 pass, 0 fail**, 20,013 assertions, 154 files; 98.36% functions and 97.97% lines against the 80% goal; `scripts/vp-local-run.mjs` at 92.86% functions and 96.38% lines  |
+| `vp run orch:test` (the aggregate unit lane)                                                                                                                                            | **32/32 tasks successful**, 0 failing tests                                                                                                                                    |
+| `bun run build`                                                                                                                                                                         | **17/17 tasks successful**                                                                                                                                                     |
+| `bun run format:check`                                                                                                                                                                  | clean over 2,914 files                                                                                                                                                         |
+| `bunx oxlint --deny-warnings`                                                                                                                                                           | exit 0, no warning and no error                                                                                                                                                |
+| `bun run typecheck` (the pre-commit gate)                                                                                                                                               | **33/33 tasks successful**, no type errors in 324 files                                                                                                                        |
+| `bun test scripts/docs-boundary.test.ts`                                                                                                                                                | **4 pass, 0 fail**                                                                                                                                                             |
 
 Each new regression was run against the module as it was, and fails there:
 

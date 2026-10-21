@@ -166,7 +166,7 @@ export function SelfHostedConnectionPanel(props: SelfHostedPanelProps) {
     <div class="flex flex-col gap-2" data-testid="self-hosted-panel">
       <SettingsSection
         title="Self-hosted hosts"
-        description="Servers you control that run work for this workspace. A host’s status here never changes which conversation history you can read."
+        help="Servers you control that run work for this workspace. A host’s status never changes which conversation history you can read."
         bodyLayout="content"
         action={
           <Button
