@@ -95,6 +95,40 @@ channel; driving a native window needs an accessibility grant this
 environment does not have. The UI rows are therefore _installed-app-origin_
 evidence, and every row records which of the two it is.
 
+### The requirement this lane serves, and the gates it does not close
+
+This lane is one input to a **joined** acceptance that is qualified elsewhere:
+the unified workspace and project tree (#1048) and the legacy-audience
+quarantine (#1222) each carry their own qualification, and the joined
+acceptance of the two is a separate gate that this lane does not close.
+Nothing here changes an acceptance criterion, an issue's verification state,
+or either of those qualifications.
+
+The other separate gates this lane does not close are recorded in §6 and in
+§7's routing table: permanent LaunchServices registration, the native
+folder-picker and Accessibility grant, and keychain access. The lane's own
+entry point was not executed for this revision, and the previous installed run
+does not certify the repaired behaviour or the current packaged build (§4).
+
+### The visual lane, and this lane's files
+
+The repository's `Visual gate` picks its pixel suites by path, and `scripts/`
+is one of that lane's inputs, so **this lane's files make the visual gate
+apply**: both the workspace suite and the chat suite run for this pull
+request. The change touches no rendered surface — no `apps/web/` path, no
+`packages/` path, no lockfile and no configuration — so the committed
+`-darwin` and `-linux` baselines must not change. A refresh here would be a
+regression, not a fix, and the repository's own rule is explicit: baselines
+are refreshed when a UI change moves pixels, and never by hand.
+
+The gate could not be exercised on the workstation that produced this
+revision. The Cloudflare Vite plugin's worker does not start there — the
+plugin's export-types fetch is refused while `workerd` itself serves
+correctly — and the same failure reproduces in an unrelated checkout at a
+different commit, so it is an environment condition and not a property of this
+change. The CI `Visual gate` remains the authority for the pixel result, and
+the `-darwin` side of it is unverified on this workstation.
+
 ## 3. Environment
 
 | Fact                     | Value                                                                                                                                                                                                |
@@ -288,8 +322,8 @@ application down.
 The failure is not weakened: no content becomes readable, and the reason the
 boot reports is a fixed, secret-free string.
 
-**Proof**: `bun test tests/boot-credential-store.test.ts` (apps/desktop) — 11
-cases, 0 failures, 31 assertions. §21 records the two defects the publication
+**Proof**: `bun test tests/boot-credential-store.test.ts` (apps/desktop) — 12
+cases, 0 failures, 36 assertions. §21 records the two defects the publication
 review found in this decision, and the repair.
 
 ## 6. The blocked boundary — recorded, not passed
@@ -376,7 +410,7 @@ installed application reports that state instead of pretending to work.
 | `bun run --cwd packages/db db:migrate`                                                   | 60 migrations applied and verified                                                                                                              |
 | `bun run --cwd apps/web dev` (no provider endpoint configured)                           | local cloud on `http://localhost:3000`; server log contains no `neon`                                                                           |
 | `bun scripts/installed-app-acceptance.ts --app-bundle … --artifact … --profile-parent …` | **21 passed, 1 failed, 22 rows** (row 6, §6.2) — the run predates the safety repair of §13, and the entry point was not executed again after it |
-| `bun test tests/boot-credential-store.test.ts` (apps/desktop)                            | 11 pass, 0 fail, 31 assertions                                                                                                                  |
+| `bun test tests/boot-credential-store.test.ts` (apps/desktop)                            | 12 pass, 0 fail, 36 assertions                                                                                                                  |
 | `bun test scripts/installed-app-acceptance.test.ts`                                      | 74 pass, 0 fail, 288 assertions (59 pass / 168 assertions at the published head `a18e35ff`)                                                     |
 | `bun test scripts/installed-app-acceptance-evidence.test.ts`                             | 6 pass, 0 fail, 161 assertions                                                                                                                  |
 | `bun check -p shell/tsconfig.json` (apps/desktop)                                        | no type errors in 229 files — re-checked for this revision with `tsc --noEmit -p shell/tsconfig.json`, exit 0, no diagnostics                   |
@@ -439,10 +473,14 @@ folded into the local one.
 pushed, the pull request is not marked ready, nothing is merged, no issue is
 closed, and no native acceptance is claimed for any part of it. The
 publication review that prompted these revisions found two source defects,
-three evidence defects and one harness defect open; the evidence defects and
-the harness defect are addressed here, and the two source defects are not:
-the boot's legacy credential path and the vault's integrity classification
-belong to the Dev Runtime lane that owns them.
+three evidence defects and one harness defect open. **All six are addressed
+here**: the three evidence defects and the harness defect in the lane's own
+evidence and harness (§7, §9), and the two source defects — the boot's legacy
+credential path, and the integrity fault the resolver used to relabel — in the
+shell's own boot-time credential store, which this lane wrote (§10, §21). What
+the vault itself owns is unchanged, and this lane did not touch it: the vault's
+own failure classification and its ten-second credential write remain the Dev
+Runtime lane's (§7).
 
 The push itself is blocked in this environment: `gh` is not logged in, the
 macOS credential helper has no GitHub credential, and no token is present in
@@ -988,7 +1026,7 @@ still never answers "absent".
 ### The focused tests
 
 `apps/desktop/tests/boot-credential-store.test.ts` grew from 7 cases to
-**11 (31 assertions)**, all with injected fakes and no credential store of any
+**12 (36 assertions)**, all with injected fakes and no credential store of any
 kind:
 
 - **it is the boot's own failure, so the boot degrades instead of dying** — a
@@ -999,10 +1037,17 @@ kind:
 - **a store that answers still answers through the reported store**;
 - **two key stores that disagree fail loudly, with the vault's own diagnosis**
   — the fault is not the boot's unavailability, so the boot does not degrade
-  on it.
+  on it;
+- **the store the resolver returns does not relabel an integrity fault
+  either** — the same rule at the other boundary: the store the boot keeps
+  reports a refusal with the boot's fixed reason, and it must not rewrite a
+  fault that is not a refusal, or the boot would relabel an integrity fault as
+  an absent store exactly where the operator has to read it.
 
 The three new behavioural cases fail against the pre-fix resolver and pass
-against the repair.
+against the repair; the fourth (the reported store's pass-through) fails
+against a resolver that translated every typed fault, which is the defect the
+repair removed.
 
 ### What was not changed
 

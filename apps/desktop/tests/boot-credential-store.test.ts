@@ -70,6 +70,17 @@ function legacyStoreWithKey(encoded: string): VaultKeyStore {
   }
 }
 
+/** A legacy store whose key is corrupt: an integrity fault, not a refusal. */
+function corruptLegacyStore(): VaultKeyStore {
+  return {
+    get: () => {
+      throw new DevAuthorityError('corrupt_state', 'vault key has an unexpected size')
+    },
+    set: () => {},
+    delete: () => {},
+  }
+}
+
 describe('the unavailable credential store fails closed', () => {
   test('a read throws instead of answering that the key is absent', () => {
     const store = createUnavailableVaultKeyStore()
@@ -230,6 +241,29 @@ describe('an integrity fault is not the store being unable to answer', () => {
     expect((thrown as DevAuthorityError).message).toBe('vault key stores disagree')
     // It is not the boot's own unavailability, so the boot does not degrade on
     // it and the shell keeps failing loudly.
+    expect(isUnavailableCredentialStoreError(thrown)).toBe(false)
+  })
+
+  test('the store the resolver returns does not relabel an integrity fault either', async () => {
+    // The same rule at the other boundary. The store the boot keeps reports a
+    // refusal with the boot's fixed reason, so the boot can degrade on it; if
+    // it also rewrote a fault that is not a refusal, the boot would relabel an
+    // integrity fault as an absent store exactly where the operator has to
+    // read it.
+    const resolved = await resolveBootCredentialStore({
+      legacyStore: corruptLegacyStore(),
+      runtimeVersion: '1.3.0',
+    })
+    expect(resolved.degraded).toBe(false)
+    let thrown: unknown
+    try {
+      resolved.store.get('com.adea.desktop.dev-runtime', 'master-key-v1')
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(DevAuthorityError)
+    expect((thrown as DevAuthorityError).code).toBe('corrupt_state')
+    expect((thrown as DevAuthorityError).message).toBe('vault key has an unexpected size')
     expect(isUnavailableCredentialStoreError(thrown)).toBe(false)
   })
 })
