@@ -113,8 +113,9 @@ test('moving a workspace saves the whole order and the menu follows it', async (
   await dialog.getByRole('button', { name: 'Move Beta up' }).click()
   await expect(dialog.getByRole('status')).toHaveText('Moved Beta to position 2 of 3.')
   expect(saved).toEqual([['ws-home', 'ws-beta', 'ws-alpha']])
-  // Focus stays on the control that was used.
-  await expect(dialog.getByRole('button', { name: 'Move Beta up' })).toBeFocused()
+  // Focus stays on the moved row: Beta now sits under the pinned workspace, so its
+  // Move up is unavailable and focus lands on the Move down beside it.
+  await expect(dialog.getByRole('button', { name: 'Move Beta down' })).toBeFocused()
 
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
@@ -143,6 +144,6 @@ test('a rejected save shows an error and keeps the order', async ({ page }) => {
   await dialog.getByRole('button', { name: 'Move Beta up' }).click()
   await expect(dialog.getByRole('alert')).toHaveText('Could not save the order. Try again.')
   await expect(dialog.getByRole('listitem').first()).toContainText('Home')
-  await dialog.getByRole('button', { name: 'Done' }).click()
+  await dialog.getByRole('button', { name: 'Dismiss' }).click()
   expect(await menuOrder(page)).toEqual(['Home', 'Alpha', 'Beta'])
 })
