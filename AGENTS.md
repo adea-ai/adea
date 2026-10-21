@@ -41,20 +41,20 @@ This core verification does not change the repository's CI runtime pin.
 Adea's web app uses Solid, TanStack Start and Vite. Start with the existing
 module-spec router and shared UI guidance below when changing those subsystems.
 
-| Area                            | Entry points                                                                                                                 |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| Web routes and request handling | `apps/web/src/start/routes`, `apps/web/src/server`                                                                           |
-| Sessions and authorization      | `packages/auth`, `apps/web/src/server/workspace-authorization.ts`                                                            |
-| Durable data and migrations     | `packages/db/src/schema/index.ts`, `packages/db/drizzle`, `packages/db/drizzle.config.ts`                                    |
-| Shared UI and app composition   | `packages/ui`, [shared UI design reference](docs/guides/shared-ui-design-reference.md)                                       |
-| Desktop shell                   | `apps/desktop`, [desktop README](apps/desktop/README.md)                                                                     |
-| CI and validation               | `.github/code-foundry.yml`, `.github/workflows/validation.yml`, `.github/workflows/review-policy.yml`                        |
-| Database and deployment CI      | `.github/workflows/neon_workflow.yml`, `.github/workflows/cloudflare-db-migrate.yml`, `.github/workflows/tanstack-start.yml` |
+| Area                            | Entry points                                                                                                                  |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Web routes and request handling | `apps/web/src/start/routes`, `apps/web/src/server`                                                                            |
+| Sessions and authorization      | `packages/auth`, `apps/web/src/server/workspace-authorization.ts`                                                             |
+| Durable data and migrations     | `packages/db/src/schema/index.ts`, `packages/db/drizzle`, `packages/db/drizzle.config.ts`                                     |
+| Shared UI and app composition   | `packages/ui`, [shared UI design reference](docs/guides/shared-ui-design-reference.md)                                        |
+| Desktop shell                   | `apps/desktop`, [desktop README](apps/desktop/README.md)                                                                      |
+| CI and validation               | `.github/code-foundry.yml`, `.github/workflows/validation.yml`, `.github/workflows/review-policy.yml`                         |
+| Database and deployment CI      | `.github/workflows/database-proof.yml`, `.github/workflows/cloudflare-db-migrate.yml`, `.github/workflows/tanstack-start.yml` |
 
 ## Adea commands
 
 Run from the repository root unless a package directory is specified.
-`package.json` pins Bun 1.4.0; `bun.lock` owns dependency resolution.
+`package.json` pins Bun 1.4.3; `bun.lock` owns dependency resolution.
 
 | Task                                 | Command                                                                        |
 | ------------------------------------ | ------------------------------------------------------------------------------ |

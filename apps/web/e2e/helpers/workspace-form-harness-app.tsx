@@ -5,7 +5,7 @@ import { AboutDialog } from '@adea-ai/ui/components/composites/about-dialog'
 import {
   CreateGroupDialog,
   CreateProjectDialog,
-  EditProjectDialog,
+  ProjectSettingsDialog,
   RenameConversationDialog,
 } from '../../../../packages/workspace-ui/src/create-workspace-dialogs'
 import { Button } from '@adea-ai/ui/components/ui/button'
@@ -30,15 +30,13 @@ function Harness() {
       <Input aria-label="Shared input reference" value="Reference" />
       <output aria-label="Requests">{JSON.stringify(calls())}</output>
       <Show when={kind() === 'project'}>
-        <CreateProjectDialog open busy={false} template="home" onClose={close} onCreate={save} />
+        <CreateProjectDialog open busy={false} onClose={close} onCreate={save} />
       </Show>
       <Show when={kind() === 'edit'}>
-        <EditProjectDialog
+        <ProjectSettingsDialog
           open
           busy={false}
-          initialName="Study"
-          initialIconKey="study"
-          projectName="Study"
+          initial={{ accent: null, iconKey: 'study', name: 'Study' }}
           onClose={close}
           onSave={save}
         />

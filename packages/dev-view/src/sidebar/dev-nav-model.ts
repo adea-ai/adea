@@ -21,11 +21,15 @@
  * - Leaf status is observed on the harness runs of the leaf's sessions
  *   (`leafActivity`); an idle leaf linked to a cloud task in review is
  *   `in_review`. Diff counts come from `dev.worktree.diffSummary`.
- * - Collapsed workspaces read the cloud account summary and the desktop
- *   `dev.summary.workspaces` counts; "Needs you" sums mentions and
- *   input-needing runs across every workspace.
+ * - The tree holds the selected workspace alone: the sidebar never lists the
+ *   member's other workspaces or their counts (the top bar's switcher does).
  */
-import type { TaskLifecycleState, WorkspaceAccent, WorkspaceLogo } from '@adea-ai/types'
+import type {
+  TaskLifecycleState,
+  WorkspaceAccent,
+  WorkspaceAccentId,
+  WorkspaceLogo,
+} from '@adea-ai/types'
 import type { HarnessRun, WorktreeKind } from '@adea-ai/types/dev-runtime'
 import {
   sortProjectLeaves,
@@ -62,6 +66,7 @@ export type DevNavCloudProject = Readonly<{
   name: string
   sortOrder: number
   iconKey?: string
+  accent?: WorkspaceAccentId | null
   sourceKind?: 'none' | 'repository'
 }>
 
@@ -123,21 +128,9 @@ export type DevNavBinding = Readonly<{
 
 export type DevNavRun = Pick<HarnessRun, 'runtimeSessionId' | 'state'>
 
-export type DevNavAccountSummary = Readonly<{
-  workspaceId: string
-  unreadChannels: number
-  mentions: number
-}>
-
-export type DevNavDevSummary = Readonly<{
-  workspaceId: string
-  running: number
-  needsInput: number
-}>
-
 export type DevNavInput = Readonly<{
   activeWorkspaceId: string
-  /** Every workspace the member belongs to; the active one is added when missing. */
+  /** The workspaces the host knows; only the active one is projected. */
   workspaces: readonly DevNavWorkspaceInput[]
   /** The active workspace's name when the list does not carry it. */
   activeWorkspaceName?: string
@@ -149,8 +142,6 @@ export type DevNavInput = Readonly<{
   diffs?: ReadonlyMap<string, Readonly<{ added: number; removed: number }>>
   /** Cloud task lifecycle by task id, for linked worktrees in review. */
   taskStates?: ReadonlyMap<string, TaskLifecycleState>
-  accountSummary?: readonly DevNavAccountSummary[]
-  devSummary?: readonly DevNavDevSummary[]
 }>
 
 /** What selecting a leaf opens: its worktree and the live sessions bound to it. */
@@ -308,6 +299,7 @@ export function buildDevNavSource(input: DevNavInput): DevNavSource {
       id,
       name,
       ...(cloud?.iconKey ? { iconKey: cloud.iconKey } : {}),
+      ...(cloud?.accent !== undefined ? { accent: cloud.accent } : {}),
       source: binding ? (binding.source ?? 'local_repo') : 'none',
       sortOrder,
       leaves: binding
@@ -330,48 +322,27 @@ export function buildDevNavSource(input: DevNavInput): DevNavSource {
     )
   }
 
-  const accountById = new Map(
-    (input.accountSummary ?? []).map((summary) => [summary.workspaceId, summary])
-  )
-  const devById = new Map((input.devSummary ?? []).map((summary) => [summary.workspaceId, summary]))
-  const memberWorkspaces = input.workspaces.some(({ id }) => id === input.activeWorkspaceId)
-    ? input.workspaces
-    : [
-        ...input.workspaces,
-        {
-          id: input.activeWorkspaceId,
-          name: input.activeWorkspaceName ?? 'Workspace',
-          logo: { kind: 'monogram' } as const,
-          accent: null,
-          sortOrder: input.workspaces.length,
-        },
-      ]
-
-  let needsYou = 0
-  const workspaces: NavWorkspace[] = memberWorkspaces.map((workspace) => {
-    const account = accountById.get(workspace.id)
-    const dev = devById.get(workspace.id)
-    const mentions = account?.mentions ?? 0
-    const needsInput = dev?.needsInput ?? 0
-    needsYou += mentions + needsInput
-    return {
-      id: workspace.id,
-      name: workspace.name,
-      logo: workspace.logo,
-      accent: workspace.accent,
-      sortOrder: workspace.sortOrder,
-      summary: {
-        running: dev?.running ?? 0,
-        needsYou: needsInput,
-        unread: account?.unreadChannels ?? 0,
-        mentions,
-      },
-      ...(workspace.id === input.activeWorkspaceId ? { projects } : {}),
-    }
-  })
+  const known = input.workspaces.find(({ id }) => id === input.activeWorkspaceId)
+  const active: DevNavWorkspaceInput = known ?? {
+    id: input.activeWorkspaceId,
+    name: input.activeWorkspaceName ?? 'Workspace',
+    logo: { kind: 'monogram' },
+    accent: null,
+    sortOrder: input.workspaces.length,
+  }
+  const workspaces: NavWorkspace[] = [
+    {
+      id: active.id,
+      name: active.name,
+      logo: active.logo,
+      accent: active.accent,
+      sortOrder: active.sortOrder,
+      projects,
+    },
+  ]
 
   return {
-    tree: { activeWorkspaceId: input.activeWorkspaceId, workspaces, needsYou },
+    tree: { activeWorkspaceId: input.activeWorkspaceId, workspaces },
     targets,
     projects: entries,
     hiddenBindingIds,

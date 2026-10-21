@@ -9,6 +9,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@adea-ai/ui/components/ui/alert-dialog'
+import type { AgentHqApiClient } from '@adea-ai/api-client'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
@@ -39,10 +40,22 @@ import {
 } from '@adea-ai/ui/components/ui/empty'
 import { Checkbox } from '@adea-ai/ui/components/ui/checkbox'
 import { Blocks, Check, ChevronDown, ChevronUp, Filter, ShieldCheck } from 'lucide-solid'
-import { createEffect, createMemo, createSignal, For, onCleanup, Show } from 'solid-js'
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  For,
+  lazy,
+  onCleanup,
+  Show,
+  Suspense,
+} from 'solid-js'
 
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { PluginLogo } from './plugin-logo'
+
+// The Skills tab loads with its tab, never with the catalog.
+const SkillsPane = lazy(() => import('./skills-pane'))
 import type { WorkspaceAppActivation, WorkspacePlugin, WorkspacePluginsProvider } from './platform'
 import { workspaceAppActivation } from './platform'
 import type { RailItem, RailPreferencesV1 } from './rail-preferences'
@@ -54,7 +67,7 @@ import {
   type WorkspacePluginFilter,
 } from './plugins'
 
-type PluginTab = 'marketplace' | 'navigation' | 'yours'
+type PluginTab = 'marketplace' | 'navigation' | 'skills' | 'yours'
 
 function toCatalogEntry(plugin: WorkspacePlugin): CatalogBrowserEntry<WorkspacePlugin> {
   return {
@@ -486,6 +499,8 @@ export function PluginsDialog(props: {
   open: boolean
   provider?: WorkspacePluginsProvider
   navigation?: AppLibraryNavigation
+  /** The workspace's skills, managed in the Skills tab. Absent without an Adea session. */
+  skills?: { client?: AgentHqApiClient; workspaceId: string }
 }) {
   const [plugins, setPlugins] = createSignal<readonly WorkspacePlugin[]>([])
   const [filterOpen, setFilterOpen] = createSignal(false)
@@ -519,7 +534,7 @@ export function PluginsDialog(props: {
   // the memo stays total without leaking the navigation value into the filter.
   const browserTab = (): 'marketplace' | 'yours' => {
     const current = tab()
-    return current === 'navigation' ? 'marketplace' : current
+    return current === 'navigation' || current === 'skills' ? 'marketplace' : current
   }
   const visible = createMemo(() =>
     filterWorkspacePlugins(plugins(), browserTab(), query(), activeFilter())
@@ -544,6 +559,7 @@ export function PluginsDialog(props: {
   const tabs = (): readonly CatalogBrowserTab[] => [
     { id: 'marketplace', label: 'Discover' },
     { id: 'yours', label: 'Installed' },
+    ...(props.skills ? [{ id: 'skills', label: 'Skills', kind: 'supplemental' as const }] : []),
     ...(props.navigation
       ? [
           {
@@ -707,6 +723,14 @@ export function PluginsDialog(props: {
           value === 'navigation' ? (
             <Show when={props.navigation} fallback={<NavigationMissing />}>
               {(navigation) => <NavigationPanel navigation={navigation()} />}
+            </Show>
+          ) : value === 'skills' ? (
+            <Show when={props.skills}>
+              {(skills) => (
+                <Suspense fallback={<p role="status">Loading skills…</p>}>
+                  <SkillsPane client={skills().client} workspaceId={skills().workspaceId} />
+                </Suspense>
+              )}
             </Show>
           ) : undefined
         }

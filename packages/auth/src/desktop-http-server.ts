@@ -63,6 +63,61 @@ export function parseDesktopAuthorizationRequest(request: Request) {
   })
 }
 
+/**
+ * Read the exchange body from the raw request stream.
+ *
+ * Content-Length is only a claim: it may be absent or understated, so the bytes that
+ * actually arrive decide admission. A declared length over the limit is refused before
+ * any byte of the body is read. Otherwise the stream is read chunk by chunk, and the
+ * first chunk that carries the running total past the limit cancels the stream, so an
+ * oversized body is never buffered whole and never reaches the JSON parser.
+ */
+async function readBoundedExchangeBody(request: Request): Promise<string> {
+  const claimed = request.headers.get('content-length')
+  if (claimed !== null) {
+    const declaredLength = Number(claimed)
+    if (
+      !Number.isFinite(declaredLength) ||
+      declaredLength < 0 ||
+      declaredLength > MAX_EXCHANGE_BODY_BYTES
+    ) {
+      throw new Error('Desktop exchange body is invalid')
+    }
+  }
+  const body = request.body
+  if (!body) throw new Error('Desktop exchange body is invalid')
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const next = await reader.read()
+      if (next.done) break
+      total += next.value.byteLength
+      if (total > MAX_EXCHANGE_BODY_BYTES) {
+        await reader.cancel()
+        throw new Error('Desktop exchange body is invalid')
+      }
+      chunks.push(next.value)
+    }
+  } catch (error) {
+    throw new Error('Desktop exchange body is invalid', { cause: error })
+  } finally {
+    reader.releaseLock()
+  }
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch (error) {
+    throw new Error('Desktop exchange body is invalid', { cause: error })
+  }
+}
+
 export async function parseDesktopExchangeRequest(
   request: Request,
   trustedOrigins: readonly string[]
@@ -71,14 +126,7 @@ export async function parseDesktopExchangeRequest(
   if (request.headers.get('content-type')?.split(';', 1)[0]?.trim() !== 'application/json') {
     throw new Error('Desktop exchange content type is invalid')
   }
-  const declaredLength = Number(request.headers.get('content-length') ?? '0')
-  if (!Number.isFinite(declaredLength) || declaredLength > MAX_EXCHANGE_BODY_BYTES) {
-    throw new Error('Desktop exchange body is invalid')
-  }
-  const rawBody = await request.text()
-  if (new TextEncoder().encode(rawBody).byteLength > MAX_EXCHANGE_BODY_BYTES) {
-    throw new Error('Desktop exchange body is invalid')
-  }
+  const rawBody = await readBoundedExchangeBody(request)
 
   let value: unknown
   try {

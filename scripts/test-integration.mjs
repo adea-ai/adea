@@ -17,6 +17,7 @@ import {
   captureProvisioningDatabaseUrlVariable,
   startCaptureProvisioning,
 } from './capture-provisioning.mjs'
+import { proveSelfHostedAuthLifecycle } from './self-hosted-auth-lifecycle.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -37,6 +38,20 @@ const localDatabaseEnvironment = {
   DATABASE_URL_UNPOOLED: `postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:${localPostgresPort}/agent_hq?sslmode=disable`,
   DATABASE_MIGRATION_URL: `postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:${localPostgresPort}/agent_hq?sslmode=disable`,
 }
+
+// The self-hosted auth lifecycle is proven against the instance this lane
+// owns. The suite skips itself when this variable is absent, and a skipped
+// suite is not a proof, so the runner supplies the variable to the run that
+// proves the lifecycle.
+//
+// The variable is deliberately NOT part of the sweep's environment. The
+// administrative URL below is a plain loopback connection, and the
+// backup-and-restore suite that shares this variable requires a
+// certificate-verified TLS connection with the instance's own pinned
+// certificate, which a Compose instance does not have. The lifecycle suite
+// needs no TLS; the sweep must not be handed a URL that another suite would
+// refuse.
+const localAuthDatabaseUrl = `postgresql://agent_hq_local_admin:agent_hq_local_admin@127.0.0.1:${localPostgresPort}/agent_hq?sslmode=disable`
 
 // ADEA_INTEGRATION_SHARD=<index>/<total> runs one explicit slice of the package suites, so a lane
 // can split them across independent databases. Unset runs everything, route flow included. The
@@ -150,6 +165,12 @@ try {
   run('bun', ['run', '--cwd', 'packages/remote-content', 'build'], process.env)
   run('bun', ['run', '--cwd', 'packages/types', 'build'], process.env)
   run('bun', ['run', '--cwd', 'packages/auth', 'build'], process.env)
+  // The joined Sim acceptance imports the hosted service's server modules, and those import the
+  // compiled Sim bridge. The spatial package's export map names its compiled entry, so a clean
+  // checkout has to build the spatial package before the suites run or the import cannot resolve
+  // and the joined acceptance never runs. Like the builds above, this keeps integration runnable
+  // independently from a workspace-wide `vp run` build.
+  run('bun', ['run', '--cwd', 'packages/spatial', 'build'], process.env)
   // API regression cases exercise the production server handler through the
   // compiled database entry, with the explicit server-only runtime condition.
   run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
@@ -167,7 +188,7 @@ try {
 
   run('node', ['scripts/database-health.mjs'], environment)
   run('bun', ['run', '--cwd', 'packages/db', 'db:verify'], environment)
-  // Remote Neon branches serve 50-150ms roundtrips (vs sub-millisecond local
+  // A remote database serves 50-150ms roundtrips (vs sub-millisecond local
   // Postgres) and the heavier integration cases issue hundreds of queries in
   // sequence. Measured: `read-state-search.test.ts` issues ~270 sequential
   // round-trips for a single test, so at the documented 50-150ms range that
@@ -181,6 +202,40 @@ try {
   const timeoutMs = remoteTarget
     ? Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 120_000)
     : Number(process.env.ADEA_INTEGRATION_TIMEOUT_MS ?? 30_000)
+  // The self-hosted auth lifecycle is proven here, against the real instance
+  // this lane owns: the suite signs a user up, reads the session back, revokes
+  // it and proves the persisted session is gone. The suite skips itself when
+  // the variable is absent, so a run that skipped is refused rather than
+  // reported as a pass.
+  //
+  // An explicit target owns no loopback instance, so the lifecycle is not
+  // proven there. That is stated rather than hidden: this lane did not prove
+  // the lifecycle, and it does not claim it.
+  if (usesExplicitDatabase) {
+    console.warn(
+      'the self-hosted auth lifecycle was not proven: this run uses an explicit target and owns no loopback instance'
+    )
+  } else {
+    proveSelfHostedAuthLifecycle(
+      (name, args, commandEnvironment) => {
+        const result = spawnSync(name, [...args], {
+          cwd: root,
+          encoding: 'utf8',
+          env: commandEnvironment,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: Math.max(timeoutMs, 120_000),
+        })
+        if (result.error) throw result.error
+        return {
+          status: result.status ?? 1,
+          stdout: result.stdout ?? '',
+          stderr: result.stderr ?? '',
+        }
+      },
+      { databaseUrl: localAuthDatabaseUrl }
+    )
+    console.log('the self-hosted auth lifecycle was proven against the local instance')
+  }
   // Test-only provisioning for the capture proofs, independent of DATABASE_URL
   // (see startCaptureProvisioning). Without docker the proofs skip cleanly;
   // with docker a failed provisioning fails the lane instead of silently

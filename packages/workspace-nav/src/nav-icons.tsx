@@ -1,19 +1,11 @@
 import { cn } from '@adea-ai/app-ui/lib/utils'
-import {
-  Circle,
-  CircleAlert,
-  Cloud,
-  DoorOpen,
-  Folder,
-  FolderGit2,
-  GitPullRequest,
-  Hash,
-  LoaderCircle,
-} from 'lucide-solid'
-import { Match, Switch } from 'solid-js'
+import { paintWorkspaceAccent } from '@adea-ai/app-ui/components/workspace-accent'
+import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
+import { Circle, CircleAlert, GitPullRequest, LoaderCircle } from 'lucide-solid'
+import { createEffect, createSignal, Match, Switch } from 'solid-js'
 
-import type { NavProjectIcon } from './adapters'
 import { leafStatusLabel, type LeafStatus } from './model'
+import { ProjectIcon } from './project-icon'
 
 /**
  * A leaf's status as a glyph plus its words. The glyph is decorative; the
@@ -45,24 +37,21 @@ export function LeafStatusIcon(props: { status: LeafStatus; class?: string }) {
   )
 }
 
-export function ProjectIcon(props: { icon: NavProjectIcon }) {
+/**
+ * A project row's icon. The project's own accent, when it has one, paints the
+ * glyph; otherwise the glyph keeps the row's muted tone and the workspace
+ * accent that surrounds the tree.
+ */
+export function ProjectGlyph(props: { iconKey?: string; accent?: string | null }) {
+  const theme = useOptionalTheme()
+  const [host, setHost] = createSignal<HTMLSpanElement>()
+  createEffect(() => {
+    const element = host()
+    if (element) paintWorkspaceAccent(element, props.accent ?? null, theme)
+  })
   return (
-    <Switch>
-      <Match when={props.icon === 'git-folder'}>
-        <FolderGit2 aria-hidden="true" />
-      </Match>
-      <Match when={props.icon === 'folder'}>
-        <Folder aria-hidden="true" />
-      </Match>
-      <Match when={props.icon === 'cloud'}>
-        <Cloud aria-hidden="true" />
-      </Match>
-      <Match when={props.icon === 'door'}>
-        <DoorOpen aria-hidden="true" />
-      </Match>
-      <Match when={props.icon === 'hash'}>
-        <Hash aria-hidden="true" />
-      </Match>
-    </Switch>
+    <span ref={setHost} class={cn('flex', props.accent && 'text-primary')}>
+      <ProjectIcon iconKey={props.iconKey} />
+    </span>
   )
 }

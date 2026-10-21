@@ -242,7 +242,7 @@ conversation history remains available. Local-only body content keeps its own
 unavailable state; neither content state is derived from the execution-host
 observation.
 
-Workspace details › Connections › Execution hosts exposes this read model as a
+Settings › Connections › Execution hosts exposes this read model as a
 read-only inspector. Hosts are listed through the existing authorized identity
 route; the typed client keeps only display, version, registration and proof
 fields in its inventory projection, excluding keys and arbitrary trust metadata.
@@ -262,7 +262,7 @@ can downgrade revoked/stale/unknown registration; discovery is never admission.
 
 ### Local native-session diagnostic
 
-In the desktop app, `Workspace details → Connections → Native session inventory`
+In the desktop app, `Settings → Connections → Native session inventory`
 is an explicit,
 on-demand diagnostic for this desktop. It is available independently of cloud
 registration and the Execution hosts list, including when no host is registered
