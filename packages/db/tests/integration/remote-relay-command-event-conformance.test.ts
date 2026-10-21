@@ -27,16 +27,26 @@
 
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { eq } from 'drizzle-orm'
+import { eq, isTable } from 'drizzle-orm'
 import { getTableConfig } from 'drizzle-orm/pg-core'
 import { getTableColumns } from 'drizzle-orm/utils'
 import { generateRemoteCommandKeyPair, sealRemoteContent } from '@adea-ai/remote-content'
 import {
   decideExecutionLocation,
+  decideExecutionProfileAdmission,
+  executionLocationBlockers,
+  executionProfileBlockers,
   resolveExecutionRetry,
+  type AgentExecutionIdentity,
+  type AgentProfileExecutionReadModel,
   type ExecutionLocationAttempt,
   type ExecutionLocationAttemptScope,
+  type ExecutionLocationBlocker,
   type ExecutionLocationPolicyInput,
+  type ExecutionLocationProvenance,
+  type ExecutionProfilePin,
+  type ExecutionProfileState,
+  type RuntimeNodeExecutionIdentity,
   type RuntimeNodeExecutionReadModel,
 } from '@adea-ai/types'
 import { runtimeNodePullMessage } from '@adea-ai/types/runtime-node-delivery'
@@ -53,12 +63,14 @@ import { createTemporaryUserSession } from '../../src/identity'
 import { archiveProject, createProject } from '../../src/projects'
 import { pullRuntimeNodeCommand } from '../../src/runtime-node-delivery'
 import { createRuntimeNodeChallenge, registerRuntimeNode } from '../../src/runtime-nodes'
+import * as schemaIndex from '../../src/schema'
 import {
   agents,
   commandOutbox,
   eventInbox,
   projects,
   runtimeNodeDeliveryRequests,
+  runtimeNodes,
   taskExecutionAttempts,
   taskSubmissions,
   tasks,
@@ -873,6 +885,11 @@ describe.skipIf(!url)('remote relay command/event contract conformance', () => {
       }
       const attempt: ExecutionLocationAttempt = {
         attempt: 2,
+        profile: {
+          id: 'prf_0000000000000000000000001',
+          revision: 0,
+          version: 'pfv_0000000000000000000000001',
+        },
         scope,
         selectedLocation: { kind: 'remote_host', runtimeNodeId: 'node-a' },
       }
@@ -952,11 +969,13 @@ describe.skipIf(!url)('remote relay command/event contract conformance', () => {
         })
       ).toMatchObject({ change: 'reroute_authorization_invalid', ok: false })
 
-      // A sticky retry keeps the attempt's location and advances the attempt.
+      // A sticky retry keeps the attempt's location and profile pin, and
+      // advances the attempt.
       expect(resolveExecutionRetry({ attempt, policy })).toMatchObject({
+        admission: { provenance: 'sticky_retry' },
+        attempt: { attempt: 3, profile: attempt.profile },
         change: 'sticky_retry',
         ok: true,
-        attempt: { attempt: 3 },
       })
     })
 
@@ -1214,6 +1233,368 @@ describe.skipIf(!url)('remote relay command/event contract conformance', () => {
       const config = getTableConfig(eventInbox)
       expect(config.checks).toHaveLength(0)
       expect(f.workspace.id).toBeTruthy()
+    })
+  })
+
+  /**
+   * The execution-admission authority transfer (main `beb62c2b0`, #1544) added
+   * an immutable profile pin on every attempt, a provenance on every decision,
+   * the runtime-connection read model and the Agent-profile read model.
+   *
+   * The contract owner's own unit suite (`packages/types/tests/execution-location.test.ts`)
+   * already proves the pure decisions, including every connection blocked state
+   * and every profile state. The cases below therefore do not repeat those
+   * decisions: they prove what only the durable store can show — that the
+   * durable relay rows and the transferred contract name the same identities,
+   * the same pins and the same attempt vocabulary, and where the durable store
+   * still cannot express what the contract now requires.
+   */
+  describe('the transferred execution-admission contract', () => {
+    const attemptScope: ExecutionLocationAttemptScope = {
+      accountId: 'account-1',
+      actorId: 'actor-1',
+      taskId: 'task-1',
+      workspaceId: 'workspace-1',
+    }
+    const admissionPolicy: ExecutionLocationPolicyInput = {
+      dataAvailability: {
+        channelMessageMetadata: 'available',
+        localOnlyContent: 'available',
+        synchronizedHistory: 'available',
+      },
+      localRuntimeNodeId: 'node-local',
+      nodes: [
+        {
+          availability: 'available',
+          capabilities: [],
+          displayName: 'Node A',
+          id: 'node-a',
+          kind: 'remote_host',
+          observedAt: '2026-10-21T10:00:00.000Z',
+          proofAt: '2026-10-21T10:00:00.000Z',
+        },
+      ],
+      now: '2026-10-21T10:00:10.000Z',
+      requiredCapabilities: [],
+    }
+
+    test('the durable node and Agent identities are the contract identities, and the relay scope is the same namespace', async () => {
+      const f = await relayFixture()
+      await f.submit()
+      const [nodeRow] = await connection.db
+        .select({
+          id: runtimeNodes.id,
+          kind: runtimeNodes.kind,
+          ref: runtimeNodes.controlPlaneRuntimeNodeRefId,
+        })
+        .from(runtimeNodes)
+        .where(eq(runtimeNodes.id, f.node.id))
+      const [agentRow] = await connection.db
+        .select({ id: agents.id, ref: agents.controlPlaneAgentId })
+        .from(agents)
+        .where(eq(agents.id, f.agent.id))
+
+      const nodeIdentity: RuntimeNodeExecutionIdentity = {
+        controlPlaneRuntimeNodeRefId: nodeRow!.ref,
+        id: nodeRow!.id,
+        kind: nodeRow!.kind,
+      }
+      const agentIdentity: AgentExecutionIdentity = {
+        controlPlaneAgentId: agentRow!.ref,
+        id: agentRow!.id,
+      }
+      expect(nodeIdentity.controlPlaneRuntimeNodeRefId).toMatch(/^rnr_[0-9A-HJKMNP-TV-Z]{26}$/)
+      expect(agentIdentity.controlPlaneAgentId).toMatch(/^agt_[0-9A-HJKMNP-TV-Z]{26}$/)
+      // The identity is exactly the durable join key and its public reference:
+      // no display name, platform, key or transport variant.
+      expect(Object.keys(nodeIdentity).toSorted()).toEqual([
+        'controlPlaneRuntimeNodeRefId',
+        'id',
+        'kind',
+      ])
+      expect(nodeIdentity).not.toHaveProperty('displayName')
+      expect(nodeIdentity).not.toHaveProperty('platform')
+
+      // The queued relay command carries the very same references, so the
+      // command scope, the durable rows and the contract are one namespace.
+      const scope = (await readOutbox(f)).payload.controlPlane as Record<string, string>
+      expect(scope.runtimeNodeRefId).toBe(nodeIdentity.controlPlaneRuntimeNodeRefId)
+      expect(scope.agentId).toBe(agentIdentity.controlPlaneAgentId)
+      expect(scope.workspaceId).not.toBe(f.workspace.id)
+    })
+
+    test('the attempt profile pin is the submission durable snapshot, and a moved pin is refused', async () => {
+      const f = await relayFixture()
+      const submission = await f.submit()
+      const [row] = await connection.db
+        .select({
+          id: taskSubmissions.profileId,
+          revision: taskSubmissions.profileRevision,
+          version: taskSubmissions.profileVersion,
+        })
+        .from(taskSubmissions)
+        .where(eq(taskSubmissions.id, submission.id))
+
+      const pin: ExecutionProfilePin = {
+        id: row!.id,
+        revision: row!.revision,
+        version: row!.version,
+      }
+      expect(pin).toEqual({ id: profile.id, revision: profile.revision, version: profile.version })
+      const attempt: ExecutionLocationAttempt = {
+        attempt: 1,
+        profile: pin,
+        scope: attemptScope,
+        selectedLocation: { kind: 'remote_host', runtimeNodeId: 'node-a' },
+      }
+
+      // The retry keeps the pinned profile version: a newer one is never
+      // substituted for the version the submission was authorized against.
+      expect(resolveExecutionRetry({ attempt, policy: admissionPolicy })).toMatchObject({
+        attempt: { attempt: 2, profile: pin },
+        change: 'sticky_retry',
+        ok: true,
+      })
+
+      // A different pin is refused, and the refusal names both pins.
+      expect(
+        resolveExecutionRetry({
+          attempt,
+          policy: admissionPolicy,
+          requestedProfile: { ...pin, revision: pin.revision + 1 },
+        })
+      ).toMatchObject({
+        change: 'profile_pin_changed',
+        ok: false,
+        previousProfile: pin,
+        requestedProfile: { ...pin, revision: pin.revision + 1 },
+      })
+    })
+
+    test('the durable attempt ledger cannot express the transferred attempt shape', async () => {
+      const config = getTableConfig(taskExecutionAttempts)
+      const columns = config.columns.map((column) => column.name)
+      // The transferred contract binds an immutable profile pin to every
+      // attempt. The durable attempt ledger has no column for one.
+      expect(columns).not.toContain('profile_id')
+      expect(columns).not.toContain('profile_version')
+      expect(columns).not.toContain('profile_revision')
+      expect(columns).toContain('attempt')
+      expect(columns).toContain('location_kind')
+
+      const attempt: ExecutionLocationAttempt = {
+        attempt: 1,
+        profile: {
+          id: 'prf_0000000000000000000000001',
+          revision: 0,
+          version: 'pfv_0000000000000000000000001',
+        },
+        scope: attemptScope,
+        selectedLocation: { kind: 'remote_host', runtimeNodeId: 'node-a' },
+      }
+      // A malformed pin is refused with the contract's own typed refusal.
+      expect(
+        resolveExecutionRetry({
+          attempt: { ...attempt, profile: { id: '', revision: -1, version: '' } },
+          policy: admissionPolicy,
+        })
+      ).toMatchObject({ change: 'attempt_invalid', ok: false })
+      // An attempt with no pin at all is never silently accepted. The type
+      // system refuses to build one, so this is the untyped path; it is
+      // recorded as an observation for the contract owner, not an endorsement.
+      expect(() =>
+        resolveExecutionRetry({
+          attempt: { ...attempt, profile: undefined as never },
+          policy: admissionPolicy,
+        })
+      ).toThrow()
+    })
+
+    test('the transferred connection states have no durable source', async () => {
+      const f = await relayFixture()
+      await f.submit()
+      const tables = Object.entries(schemaIndex)
+        .filter(([, value]) => isTable(value))
+        .map(([name]) => name)
+      // The transfer models a runtime connection; the durable store has no
+      // table for one, so no connection observation can reach this lane.
+      expect(tables.filter((name) => /connection/i.test(name))).toEqual([])
+      // The connection-level blocked states are part of the contract's
+      // vocabulary even though nothing durable can produce them yet.
+      for (const blocker of [
+        'connection_unavailable',
+        'connection_stale',
+        'provider_auth_required',
+        'provider_auth_expired',
+        'transport_unavailable',
+        'grant_missing',
+        'grant_revoked',
+        'entitlement_denied',
+      ] as readonly ExecutionLocationBlocker[])
+        expect(executionLocationBlockers).toContain(blocker)
+
+      // The released command carries the node, project, Task, Agent and
+      // workspace references and nothing connection-shaped.
+      const released = await f.pull()
+      expect(Object.keys(released!.controlPlane).toSorted()).toEqual([
+        'agentId',
+        'projectId',
+        'runtimeNodeRefId',
+        'taskId',
+        'workspaceId',
+      ])
+      expect(
+        getTableConfig(taskExecutionAttempts).columns.map((column) => column.name)
+      ).not.toContain('runtime_connection_id')
+    })
+
+    test('the contract attempt-change vocabulary is the durable attempt ledger vocabulary', async () => {
+      const f = await relayFixture()
+      const changeColumn = getTableConfig(taskExecutionAttempts).columns.find(
+        (column) => column.name === 'change'
+      )
+      const durableChanges = (
+        changeColumn as unknown as {
+          enumValues: readonly ('initial' | 'sticky_retry' | 'authorized_reroute')[]
+        }
+      ).enumValues
+      expect(durableChanges).toEqual(['initial', 'sticky_retry', 'authorized_reroute'])
+
+      // The contract's provenance vocabulary maps onto the durable change
+      // vocabulary, totally: `satisfies` fails to compile if the contract
+      // gains a provenance value this mapping does not cover.
+      const provenanceToChange = {
+        authorized_reroute: 'authorized_reroute',
+        default_local: 'initial',
+        explicit_selection: 'initial',
+        sticky_retry: 'sticky_retry',
+      } as const satisfies Record<ExecutionLocationProvenance, string>
+      expect(Object.keys(provenanceToChange).toSorted()).toEqual([
+        'authorized_reroute',
+        'default_local',
+        'explicit_selection',
+        'sticky_retry',
+      ])
+      expect([...new Set(Object.values(provenanceToChange))].toSorted()).toEqual(
+        [...durableChanges].toSorted()
+      )
+
+      // The durable ledger accepts every one of those changes.
+      const provenanceOrder: readonly ExecutionLocationProvenance[] = [
+        'default_local',
+        'explicit_selection',
+        'sticky_retry',
+        'authorized_reroute',
+      ]
+      expect(Object.keys(provenanceToChange).toSorted()).toEqual([...provenanceOrder].toSorted())
+      for (const [index, provenance] of provenanceOrder.entries()) {
+        await connection.db.insert(taskExecutionAttempts).values({
+          attempt: index + 1,
+          change: provenanceToChange[provenance],
+          locationKind: 'remote_host',
+          runtimeNodeId: f.node.id,
+          taskId: f.task.id,
+          workspaceId: f.workspace.id,
+        })
+      }
+      const stored = await connection.db
+        .select()
+        .from(taskExecutionAttempts)
+        .where(eq(taskExecutionAttempts.taskId, f.task.id))
+        .orderBy(taskExecutionAttempts.attempt)
+      expect(stored.map((row) => row.attempt)).toEqual([1, 2, 3, 4])
+      const expectedChanges: ('initial' | 'sticky_retry' | 'authorized_reroute')[] = [
+        'initial',
+        'initial',
+        'sticky_retry',
+        'authorized_reroute',
+      ]
+      expect(stored.map((row) => row.change)).toEqual(expectedChanges)
+      // A change outside the durable vocabulary is refused by the store.
+      await expect(
+        connection.db
+          .insert(taskExecutionAttempts)
+          .values({
+            attempt: 5,
+            change: 'rerouted' as never,
+            locationKind: 'remote_host',
+            runtimeNodeId: f.node.id,
+            taskId: f.task.id,
+            workspaceId: f.workspace.id,
+          })
+          .execute()
+      ).rejects.toThrow()
+    })
+
+    test('the durable Agent row carries exactly the pin, and the read model carries no free-form column', async () => {
+      const f = await relayFixture()
+      await connection.db
+        .update(agents)
+        .set({
+          presentationMetadata: { PRIVATE_PRESENTATION_CANARY: 'PRIVATE_PRESENTATION_CANARY' },
+        })
+        .where(eq(agents.id, f.agent.id))
+      const [row] = await connection.db
+        .select({
+          id: agents.id,
+          pinId: agents.profileId,
+          pinRevision: agents.profileRevision,
+          pinState: agents.profileState,
+          pinVersion: agents.profileVersion,
+          ref: agents.controlPlaneAgentId,
+        })
+        .from(agents)
+        .where(eq(agents.id, f.agent.id))
+
+      // The durable profile columns are exactly the contract's pin, and the
+      // stored state vocabulary stays a subset of the read-time one.
+      const pin: ExecutionProfilePin = {
+        id: row!.pinId,
+        revision: row!.pinRevision,
+        version: row!.pinVersion,
+      }
+      expect(Object.keys(pin).toSorted()).toEqual(['id', 'revision', 'version'])
+      const storedStates = (
+        getTableConfig(agents).columns.find(
+          (column) => column.name === 'profile_state'
+        ) as unknown as {
+          enumValues: readonly string[]
+        }
+      ).enumValues
+      expect(storedStates).toEqual(['available', 'deprecated', 'missing'])
+      // A read-time state the store never persists stays out of the durable
+      // vocabulary: the stored one is a strict subset of the read-time one.
+      expect(storedStates).not.toContain('revoked')
+      expect(storedStates).not.toContain('unapproved')
+      // Every stored state is a state the read-time contract understands, so
+      // the durable vocabulary is inside the contract's.
+      const identity: AgentExecutionIdentity = { controlPlaneAgentId: row!.ref, id: row!.id }
+      for (const state of storedStates) {
+        const decision = decideExecutionProfileAdmission({
+          identity,
+          pin,
+          state: state as ExecutionProfileState,
+        })
+        expect(decision).toBeDefined()
+        expect(['execute', 'block']).toContain(decision.action)
+      }
+      // The profile vocabulary and the location vocabulary stay separate
+      // authorities: neither names the other's states.
+      expect(executionProfileBlockers).not.toContain('location_missing')
+      expect(executionLocationBlockers).not.toContain('profile_missing')
+
+      // The read model the contract defines carries the pin and the identity
+      // and nothing else: the durable row's free-form presentation column
+      // never reaches it.
+      const model: AgentProfileExecutionReadModel = {
+        identity,
+        pin,
+        state: row!.pinState as ExecutionProfileState,
+      }
+      expect(model.pin).toEqual(pin)
+      expect(JSON.stringify(model)).not.toContain('PRIVATE_')
+      expect(model).not.toHaveProperty('presentationMetadata')
+      expect(model).not.toHaveProperty('profileState')
     })
   })
 })
