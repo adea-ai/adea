@@ -2,7 +2,11 @@ import { describe, expect, test } from 'bun:test'
 import type { SimEntitlementVerdict } from '@adea-ai/spatial/sim-bridge'
 import { createSimHost, type SimAssetContext, type SimTrustedSession } from '../src/server/sim-host'
 import { createSimPrivateAssetReader } from '../src/server/sim-private-assets'
-import { createSyntheticPrivateStore } from './fixtures/sim-private-assets/synthetic-store'
+import {
+  createSyntheticPrivateStore,
+  syntheticBodies,
+  syntheticOutOfContractBodies,
+} from './fixtures/sim-private-assets/synthetic-store'
 
 // Fakes only: the session store, entitlement and private storage are all in-memory functions here.
 type Options = Parameters<typeof createSimHost>[0]
@@ -312,6 +316,41 @@ describe('the private-asset gate as the approved composition wires it', () => {
     const broken = await malformed.get('/assets/agent-sim/engine.js')
     expect(broken.status).toBe(503)
     expect(await broken.text()).toBe('')
+  })
+
+  test('a body that is not a body is refused by the gate, and no bytes are served', async () => {
+    // The platform coerces a number, a boolean, a plain object or an array into a string and
+    // serves it, so an adapter that answers with one of them would look like it had served an
+    // asset. The gate serves no asset at all instead, and says so with a 503.
+    for (const { name, body } of syntheticOutOfContractBodies()) {
+      const f = composed({
+        answer: () => ({ body, contentType: 'text/javascript' }),
+      })
+      const response = await f.get('/assets/agent-sim/engine.js')
+      expect({ name, status: response.status }).toEqual({ name, status: 503 })
+      expect({ name, bytes: await response.text() }).toEqual({ name, bytes: '' })
+      expect({ name, contentType: response.headers.get('content-type') }).toEqual({
+        name,
+        contentType: null,
+      })
+    }
+  })
+
+  test('every body the platform accepts is served with its bytes', async () => {
+    // The declared contract is `BodyInit`, and every variant of it is still a body: a string, a
+    // buffer source, a blob, a form, a URL search params or a stream.
+    for (const { name, body, bytes } of syntheticBodies()) {
+      const f = composed({
+        answer: () => ({ body, contentType: 'text/javascript' }),
+      })
+      const response = await f.get('/assets/agent-sim/engine.js')
+      expect({ name, status: response.status }).toEqual({ name, status: 200 })
+      // A form is encoded by the platform, so its bytes are carried inside the encoded body.
+      expect({ name, carries: (await response.text()).includes(bytes) }).toEqual({
+        name,
+        carries: true,
+      })
+    }
   })
 
   test('a private answer never becomes a redirect and never carries an address', async () => {

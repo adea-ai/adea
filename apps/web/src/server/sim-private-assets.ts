@@ -55,6 +55,25 @@ export function simPrivateAssetKey(path: string): string | null {
 }
 
 /**
+ * True when the value is a body the platform accepts.
+ *
+ * The declared contract is `BodyInit`: a string, a buffer source, a blob, a
+ * form, a URL search params or a stream. A number, a boolean, a plain object
+ * or an array is not a body: the platform coerces one of them into a string
+ * and serves it, so a broken adapter would look like a served asset.
+ */
+function isBodyInit(body: unknown): body is BodyInit {
+  if (typeof body === 'string') return true
+  if (body instanceof ArrayBuffer) return true
+  if (ArrayBuffer.isView(body)) return true
+  if (typeof Blob !== 'undefined' && body instanceof Blob) return true
+  if (typeof FormData !== 'undefined' && body instanceof FormData) return true
+  if (typeof URLSearchParams !== 'undefined' && body instanceof URLSearchParams) return true
+  if (typeof ReadableStream !== 'undefined' && body instanceof ReadableStream) return true
+  return false
+}
+
+/**
  * The object the reader hands back: the bytes and their type, and nothing else.
  *
  * A storage adapter may answer with more than the contract declares — a signed
@@ -64,7 +83,9 @@ export function simPrivateAssetKey(path: string): string | null {
  * An answer that is not an object with a body and a content type is a fault of
  * the storage adapter, not an absent object, so it is reported as one: the
  * caller serves no asset at all rather than an empty one that looks like a
- * success.
+ * success. The body has to be one the platform accepts as a body, so an
+ * adapter that answers with a number, a boolean or a plain object is a fault
+ * too rather than something the platform would quietly coerce into bytes.
  */
 function privateAsset(asset: SimPrivateAsset): SimPrivateAsset {
   if (!asset || typeof asset !== 'object' || Array.isArray(asset)) {
@@ -73,10 +94,14 @@ function privateAsset(asset: SimPrivateAsset): SimPrivateAsset {
   if (typeof asset.contentType !== 'string' || asset.contentType.length === 0) {
     throw new Error('the private asset store answered without a content type')
   }
-  if (asset.body === undefined || asset.body === null) {
+  const body: unknown = asset.body
+  if (body === undefined || body === null) {
     throw new Error('the private asset store answered without a body')
   }
-  return { body: asset.body, contentType: asset.contentType }
+  if (!isBodyInit(body)) {
+    throw new Error('the private asset store answered with a value that is not a body')
+  }
+  return { body, contentType: asset.contentType }
 }
 
 /**

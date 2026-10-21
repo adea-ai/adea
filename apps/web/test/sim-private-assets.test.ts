@@ -5,7 +5,11 @@ import {
   simPrivateAssetKey,
   SIM_PRIVATE_ASSET_LOCATION,
 } from '../src/server/sim-private-assets'
-import { createSyntheticPrivateStore } from './fixtures/sim-private-assets/synthetic-store'
+import {
+  createSyntheticPrivateStore,
+  syntheticBodies,
+  syntheticOutOfContractBodies,
+} from './fixtures/sim-private-assets/synthetic-store'
 
 // The named private location: the rules that keep a private object behind the session gate and
 // out of any public alias.
@@ -174,6 +178,40 @@ describe('the private reader', () => {
         read: async () => answer as never,
       })
       await expect(reader('engine.js')).rejects.toThrow()
+    }
+  })
+
+  test('a store that answers with a value that is not a body is reported as a failure', async () => {
+    // The platform coerces a number, a boolean, a plain object or an array into a string and
+    // serves it, so an answer that is not a body would look like a served asset. The reader
+    // refuses it instead.
+    for (const { name, body } of syntheticOutOfContractBodies()) {
+      const reader = createSimPrivateAssetReader({
+        location: 'agent-sim-export',
+        read: async () => ({ body, contentType: 'text/javascript' }) as never,
+      })
+      await expect(reader('engine.js')).rejects.toThrow(
+        name === 'null' || name === 'undefined'
+          ? 'answered without a body'
+          : 'answered with a value that is not a body'
+      )
+    }
+  })
+
+  test('every body the platform accepts is served as it was held', async () => {
+    // The declared contract is `BodyInit`, and every variant of it is still a body: a string, a
+    // buffer source, a blob, a form, a URL search params or a stream.
+    for (const { name, body } of syntheticBodies()) {
+      const reader = createSimPrivateAssetReader({
+        location: 'agent-sim-export',
+        read: async () => ({ body, contentType: 'text/javascript' }) as never,
+      })
+      const asset = await reader('engine.js')
+      expect({ name, contentType: asset?.contentType }).toEqual({
+        name,
+        contentType: 'text/javascript',
+      })
+      expect({ name, body: asset?.body }).toEqual({ name, body })
     }
   })
 
