@@ -23,7 +23,7 @@ import {
   workspaceMemberships,
   workspaces,
 } from '../../src/schema'
-import { createWorkspaceWithOwner } from '../../src/workspaces'
+import { createWorkspaceWithOwner, ensureBootstrapWorkspaces } from '../../src/workspaces'
 
 const connectionUrl = process.env.DATABASE_URL
 
@@ -319,6 +319,43 @@ describe.skipIf(!connectionUrl)('structural workspace lead', () => {
     })
 
     await cleanup([workspace.id], [owner.principal.userId])
+  })
+
+  test("the protected Home's structural lead is provisioned once and stays setup-blocked", async () => {
+    const owner = await temporarySession('lead-home-owner')
+    const [home] = await ensureBootstrapWorkspaces(connection.db, owner.principal)
+    // Home starts with no lead at all: the bootstrap never provisions one, and
+    // it never copies one from anywhere.
+    expect(await getWorkspaceLeadForUser(connection.db, home!.id, owner.principal)).toBeNull()
+    expect(
+      await connection.db.select().from(agents).where(eq(agents.workspaceId, home!.id))
+    ).toHaveLength(0)
+
+    const lead = await ensureWorkspaceLead(connection.db, home!.id, owner.principal)
+    // The structural lead is identity only. It is pinned to the unconfigured
+    // profile, so it reads as setup-blocked until an approved profile and an
+    // eligible funding source are chosen. No model is called to create it.
+    expect(lead).toMatchObject({
+      isWorkspaceLead: true,
+      lifecycleState: 'active',
+      profile: {
+        id: 'workspace-lead-unconfigured',
+        state: 'missing',
+        version: 'unconfigured',
+      },
+      workspaceId: home!.id,
+    })
+    expect(lead.projectId).toBeUndefined()
+    expect(lead.roleSummary).toBe('Coordinates work in this workspace')
+
+    // Provisioning twice returns the same lead: there is never a second
+    // structural identity for the workspace.
+    expect(await ensureWorkspaceLead(connection.db, home!.id, owner.principal)).toEqual(lead)
+    expect(
+      await connection.db.select().from(agents).where(eq(agents.workspaceId, home!.id))
+    ).toHaveLength(1)
+
+    await cleanup([home!.id], [owner.principal.userId])
   })
 
   test('leaves custom Agent identity, pins, placement, and attribution intact through lead provisioning and edits', async () => {
