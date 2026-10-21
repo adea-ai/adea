@@ -13,17 +13,43 @@ import { SettingsRow, SettingsSection } from '@adea-ai/ui/components/composites/
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@adea-ai/ui/components/ui/select'
 import { createMemo, createSignal, For, Show } from 'solid-js'
 import { createClientRequestId } from './request-id'
 import { projectModelReadiness } from './lead-model-state'
 import { markWorkspaceLeadChanged } from './workspace-lead-revision'
 import { WorkspaceLeadStatus } from './workspace-lead-status'
 
-const roles: readonly { role: ApiModelRole; label: string }[] = [
-  { role: 'lead', label: 'Workspace lead' },
-  { role: 'child', label: 'Delegated agents' },
-  { role: 'direct', label: 'Direct sessions' },
+const roles: readonly { role: ApiModelRole; label: string; help: string }[] = [
+  {
+    role: 'lead',
+    label: 'Workspace Lead',
+    help: 'The model the workspace lead agent runs on. A saved default does not authorize spending: each lead turn still needs a current payer disclosure.',
+  },
+  {
+    role: 'child',
+    label: 'Workspace Threads',
+    help: 'The model for agents the lead delegates to in workspace threads.',
+  },
+  {
+    role: 'direct',
+    label: 'Direct Sessions',
+    help: 'The initial model for new direct sessions. Existing sessions keep their model, and a model chosen for one session overrides this.',
+  },
 ]
+
+/** One model a default can be set to: an active connection's ready model. */
+type ModelOption = Readonly<{
+  value: string
+  label: string
+  choice: ApiModelChoice
+}>
 
 export default function LeadModelPane(props: { client?: AgentHqApiClient; workspaceId: string }) {
   const scope = createMemo(() =>
@@ -34,10 +60,7 @@ export default function LeadModelPane(props: { client?: AgentHqApiClient; worksp
       when={scope()}
       keyed
       fallback={
-        <SettingsSection
-          title="Agent models"
-          description="Choose model defaults for this workspace."
-        >
+        <SettingsSection title="Agent models" description="Default models for this workspace.">
           <EmptyDescription role="status">
             Model setup is unavailable in this view. Your drafts and direct sessions remain
             available.
@@ -130,17 +153,37 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
     if (configured()?.availability !== 'available') return 'Model settings unavailable'
     const choice = configured()?.defaults?.[role]
     if (!choice) return 'No model selected'
-    const connection = inventory()?.connections.find(
-      (item) => item.connectionRef === choice.connectionRef
+    return 'Saved model unavailable'
+  }
+  // Only an active connection's ready models can become a default.
+  const options = (): ModelOption[] =>
+    (inventory()?.connections ?? [])
+      .filter((connection) => connection.status === 'active')
+      .flatMap((connection) =>
+        connection.models
+          .filter((model) => projectModelReadiness(model.readiness).ready)
+          .map((model) => ({
+            value: `${connection.connectionRef}\u0000${model.providerModel}`,
+            label: `${connection.provider} · ${model.providerModel}`,
+            choice: {
+              connectionRef: connection.connectionRef,
+              providerModel: model.providerModel,
+            },
+          }))
+      )
+  const selectedOption = (role: ApiModelRole) => {
+    const choice = configured()?.defaults?.[role]
+    if (!choice) return undefined
+    return options().find(
+      (option) =>
+        option.choice.connectionRef === choice.connectionRef &&
+        option.choice.providerModel === choice.providerModel
     )
-    return connection
-      ? `${connection.provider} · ${choice.providerModel}`
-      : 'Saved model connection unavailable'
   }
   return (
     <SettingsSection
       title="Agent models"
-      description="Set separate defaults for the workspace lead, delegated agents and direct sessions. Credentials are managed in Connections; connector credentials alone do not establish model readiness."
+      description="Default models for this workspace. Credentials are managed in Connections."
       bodyLayout="content"
     >
       <WorkspaceLeadStatus client={props.client} workspaceId={props.workspaceId} />
@@ -183,7 +226,7 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
           {(credential) => (
             <SettingsRow
               label={`Review ${credential.provider} for model use`}
-              description="The server checks provider account, model and grant eligibility. An existing connector credential alone does not qualify a model."
+              help="The server checks provider account, model and grant eligibility. A connector credential alone does not qualify a model."
             >
               <Button
                 size="sm"
@@ -208,19 +251,16 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
         </For>
       </Show>
       <For each={roles}>
-        {({ role, label }) => (
-          <SettingsRow
+        {({ role, label, help }) => (
+          <ModelDefaultRow
             label={label}
-            description={
-              role === 'direct'
-                ? `${defaultLabel(role)} · Initial model for new direct conversations only. Existing sessions keep their model, and a model chosen for one session overrides this.`
-                : defaultLabel(role)
-            }
-          >
-            <Badge variant="outline">
-              {configured()?.defaults?.[role] ? 'Selected' : 'Not configured'}
-            </Badge>
-          </SettingsRow>
+            help={help}
+            options={options()}
+            selected={selectedOption(role)}
+            placeholder={defaultLabel(role)}
+            disabled={!canManage() || save.isPending}
+            onSelect={(option) => void setDefault(role, option.choice)}
+          />
         )}
       </For>
       <Show
@@ -233,86 +273,94 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
       </Show>
       <For each={inventory()?.connections ?? []}>
         {(connection) => (
-          <For each={connection.models}>
-            {(model) => {
-              const readiness = () => projectModelReadiness(model.readiness)
-              return (
-                <SettingsRow
-                  label={`${connection.provider} · ${model.providerModel}`}
-                  description={`Account: ${connection.accountRef} · Authentication: ${connection.authKind} · Funding: ${connection.fundingSource} · Location: ${inventory()?.target?.location ?? 'unavailable'}`}
-                >
-                  <div class="flex flex-col gap-2">
+          <SettingsRow
+            label={`${connection.provider} · ${connection.accountRef}`}
+            help={`Authentication: ${connection.authKind} · Funding: ${connection.fundingSource} · Location: ${inventory()?.target?.location ?? 'unavailable'}`}
+          >
+            <div class="flex flex-wrap items-center gap-2">
+              <For each={connection.models}>
+                {(model) => {
+                  const readiness = () => projectModelReadiness(model.readiness)
+                  return (
                     <Badge
                       variant={
                         readiness().ready && connection.status === 'active'
                           ? 'secondary'
                           : 'outline'
                       }
+                      title={readiness().ready ? undefined : readiness().remedy?.message}
                     >
+                      {model.providerModel}
                       {connection.status === 'revoked'
-                        ? 'Revoked'
+                        ? ' · Revoked'
                         : readiness().ready
-                          ? 'Eligible model'
-                          : 'Setup required'}
+                          ? ''
+                          : ' · Setup required'}
                     </Badge>
-                    <Show when={!readiness().ready}>
-                      <EmptyDescription>{readiness().remedy?.message}</EmptyDescription>
-                    </Show>
-                    <div class="flex flex-wrap items-center gap-2">
-                      <For each={roles}>
-                        {({ role, label }) => (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={
-                              !canManage() ||
-                              save.isPending ||
-                              connection.status !== 'active' ||
-                              !readiness().ready
-                            }
-                            onClick={() =>
-                              void setDefault(role, {
-                                connectionRef: connection.connectionRef,
-                                providerModel: model.providerModel,
-                              })
-                            }
-                          >
-                            Use for {label.toLocaleLowerCase()}
-                          </Button>
-                        )}
-                      </For>
-                      <Show when={canManage() && connection.status === 'active'}>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={register.isPending || disconnect.isPending}
-                          onClick={() =>
-                            void manageConnection(
-                              () =>
-                                disconnect.mutateAsync({
-                                  connectionRef: connection.connectionRef,
-                                  expectedRevision: connection.revision,
-                                  idempotencyKey: createClientRequestId(),
-                                }),
-                              'Model connection revoked. Existing drafts and direct sessions are preserved.'
-                            )
-                          }
-                        >
-                          Revoke model connection
-                        </Button>
-                      </Show>
-                    </div>
-                  </div>
-                </SettingsRow>
-              )
-            }}
-          </For>
+                  )
+                }}
+              </For>
+              <Show when={canManage() && connection.status === 'active'}>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={register.isPending || disconnect.isPending}
+                  onClick={() =>
+                    void manageConnection(
+                      () =>
+                        disconnect.mutateAsync({
+                          connectionRef: connection.connectionRef,
+                          expectedRevision: connection.revision,
+                          idempotencyKey: createClientRequestId(),
+                        }),
+                      'Model connection revoked. Existing drafts and direct sessions are preserved.'
+                    )
+                  }
+                >
+                  Revoke model connection
+                </Button>
+              </Show>
+            </div>
+          </SettingsRow>
         )}
       </For>
-      <EmptyDescription>
-        A saved default does not authorize spending. Each lead turn requires a current payer
-        disclosure before model work starts.
-      </EmptyDescription>
     </SettingsSection>
+  )
+}
+
+/**
+ * One default-model row: a labelled Select over the eligible models. The shared
+ * Select does not read the row's field context, so the visible label names the
+ * trigger through `aria-labelledby`.
+ */
+function ModelDefaultRow(props: {
+  label: string
+  help: string
+  options: readonly ModelOption[]
+  selected: ModelOption | undefined
+  placeholder: string
+  disabled: boolean
+  onSelect: (option: ModelOption) => void
+}) {
+  return (
+    <SettingsRow label={props.label} help={props.help} data-slot="model-default-row">
+      <Select<ModelOption>
+        options={[...props.options]}
+        value={props.selected}
+        onChange={(option) => option && props.onSelect(option)}
+        optionValue="value"
+        optionTextValue="label"
+        placeholder={props.placeholder}
+        disabled={props.disabled}
+        itemComponent={(item) => (
+          <SelectItem item={item.item}>{item.item.rawValue.label}</SelectItem>
+        )}
+      >
+        <SelectTrigger class="w-64" aria-label={props.label}>
+          <SelectValue<ModelOption>>{(state) => state.selectedOption().label}</SelectValue>
+        </SelectTrigger>
+        <SelectContent />
+      </Select>
+    </SettingsRow>
   )
 }

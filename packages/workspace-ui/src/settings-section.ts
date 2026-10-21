@@ -6,7 +6,7 @@ import {
 /**
  * The Settings dialog's sections. App-wide and account settings come first;
  * the Workspaces group holds the directory of the member's workspaces and the
- * selected workspace's own settings (identity, Memory, Skills, Connections),
+ * selected workspace's own settings (identity, Memory, Connections),
  * which used to live in a separate dialog. Which settings apply to the
  * account, the workspace, a project or the device is unchanged: only where
  * they are reached moved.
@@ -17,7 +17,6 @@ export const settingsSections = [
   'workspaces',
   'workspace-general',
   'workspace-memory',
-  'workspace-skills',
   'workspace-connections',
   'agents',
   'input-notifications',
@@ -32,7 +31,6 @@ export type SettingsSection = (typeof settingsSections)[number]
 export const workspaceScopedSettingsSections = {
   'workspace-general': 'general',
   'workspace-memory': 'memory',
-  'workspace-skills': 'skills',
   'workspace-connections': 'connections',
 } as const satisfies Readonly<Record<string, WorkspaceSettingsSection>>
 
@@ -48,13 +46,7 @@ export const settingsSectionGroups = [
   { label: 'Account', items: ['account', 'appearance'] },
   {
     label: 'Workspaces',
-    items: [
-      'workspaces',
-      'workspace-general',
-      'workspace-memory',
-      'workspace-skills',
-      'workspace-connections',
-    ],
+    items: ['workspaces', 'workspace-general', 'workspace-memory', 'workspace-connections'],
   },
   { label: 'Workflows', items: ['agents', 'input-notifications'] },
   { label: 'Data & access', items: ['privacy-data', 'integrations', 'permissions'] },
@@ -74,7 +66,6 @@ export const settingsSectionLabels: Readonly<Record<SettingsSection, string>> = 
   workspaces: 'Your workspaces',
   'workspace-general': 'General',
   'workspace-memory': 'Memory',
-  'workspace-skills': 'Skills',
   'workspace-connections': 'Connections',
 }
 
@@ -88,7 +79,7 @@ export function settingsSectionForWorkspaceSection(
 /**
  * The section a hash addresses. `#settings/<section>` is canonical; the retired
  * `#workspace-settings/<section>` links and the older `#settings/workspace|
- * memory|skills|connections` links land on the matching Workspaces section.
+ * memory|connections` links land on the matching Workspaces section.
  */
 export function settingsSectionFromHash(hash: string): SettingsSection {
   const workspaceSection = workspaceSettingsSectionFromHash(hash)

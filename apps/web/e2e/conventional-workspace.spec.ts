@@ -3074,12 +3074,7 @@ for (const { width, fontSize } of [
     await expect(workspacesTab).toBeFocused()
     await expect(workspacesTab).toHaveAttribute('aria-selected', 'true')
     await expect(page).toHaveURL(/#settings\/workspaces$/)
-    for (const section of [
-      'workspace-general',
-      'workspace-memory',
-      'workspace-skills',
-      'workspace-connections',
-    ]) {
+    for (const section of ['workspace-general', 'workspace-memory', 'workspace-connections']) {
       await page.keyboard.press('ArrowDown')
       await expect(page).toHaveURL(new RegExp(`#settings/${section}$`))
     }
@@ -3149,7 +3144,6 @@ test('the top-bar switcher opens the Settings Workspaces sections for the select
 for (const [legacy, section, tab] of [
   ['workspace', 'workspace-general', 'General'],
   ['memory', 'workspace-memory', 'Memory'],
-  ['skills', 'workspace-skills', 'Skills'],
   ['connections', 'workspace-connections', 'Connections'],
   ['workspace-settings/general', 'workspace-general', 'General'],
 ] as const) {
