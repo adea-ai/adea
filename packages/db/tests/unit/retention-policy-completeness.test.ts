@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   CLEANUP_COVERAGE_KINDS,
   evaluateRetentionDeletion,
+  parseRetentionCoverageInventory,
   parseRetentionPeriods,
   retentionCategoryRule,
   RETENTION_CATEGORIES,
@@ -19,6 +20,7 @@ import {
   type RetentionEvaluationInput,
   type TrustedCleanupExecutor,
 } from '../../src/retention-policy'
+import { runRetentionCleanupExecutor } from '../../src/retention-cleanup-executor'
 
 /**
  * The per-category policy contract of M18.02 (#1221).
@@ -27,8 +29,9 @@ import {
  * each names the stores whose cleanup must be evidenced before its deletion may
  * be reported complete, and the reviewed set is pinned here so that any change
  * to it is an explicit, reviewable diff rather than a silent edit of a data
- * table. The proof is pure: subjects, executors, periods and the clock are
- * disposable fixtures, and no database, executor, deletion or store is involved.
+ * table. The proof is offline: subjects, executors, periods and the clock are
+ * disposable fixtures. No database, store, deletion or receipt is involved, and
+ * the executor is only asked to refuse before it would reach one.
  */
 
 /** The reviewed per-category policy, stated independently of the implementation. */
@@ -54,6 +57,25 @@ const REQUEST = 'fixture-policy-request'
 const TRUSTED: ReadonlyMap<string, TrustedCleanupExecutor> = new Map([
   [EXECUTOR, { authorizedFrom: ANCHOR, authorizedUntil: null, revokedAt: null }],
 ])
+
+/**
+ * Names that resolve through the prototype chain of an ordinary object. None of
+ * them is a category, and none of them may stand in for a policy.
+ */
+const INHERITED_PROPERTY_NAMES = [
+  '__proto__',
+  '__defineGetter__',
+  '__defineSetter__',
+  '__lookupGetter__',
+  '__lookupSetter__',
+  'constructor',
+  'hasOwnProperty',
+  'isPrototypeOf',
+  'propertyIsEnumerable',
+  'toLocaleString',
+  'toString',
+  'valueOf',
+] as const
 
 const EXPIRED_PERIODS = parseRetentionPeriods(
   Object.fromEntries(RETENTION_CATEGORIES.map((category) => [category, 30]))
@@ -171,6 +193,61 @@ describe('the retention policy set is total over the categories', () => {
     expect(() => retentionCategoryRule('')).toThrow(RetentionPolicyError)
   })
 
+  test('an inherited property name is refused with a typed code, never a non-policy', () => {
+    // The policy table is an ordinary object, so these names resolve to an object
+    // or a function through the prototype chain. None of them is a policy.
+    for (const name of INHERITED_PROPERTY_NAMES) {
+      let raised: unknown
+      try {
+        retentionCategoryRule(name)
+      } catch (error) {
+        raised = error
+      }
+      expect(raised).toBeInstanceOf(RetentionPolicyError)
+      expect((raised as RetentionPolicyError).code).toBe('invalid_candidate')
+    }
+  })
+
+  test('the coverage inventory parser refuses an inherited property name with a typed code', () => {
+    for (const name of INHERITED_PROPERTY_NAMES) {
+      let raised: unknown
+      try {
+        parseRetentionCoverageInventory({}, name as never)
+      } catch (error) {
+        raised = error
+      }
+      expect(raised).toBeInstanceOf(RetentionPolicyError)
+      expect((raised as RetentionPolicyError).code).toBe('invalid_candidate')
+    }
+  })
+
+  test('the evaluation refuses an inherited category name with a typed code', () => {
+    for (const name of INHERITED_PROPERTY_NAMES) {
+      let raised: unknown
+      try {
+        evaluateRetentionDeletion(
+          inputFor('messages', { candidate: { ...candidate('messages'), category: name as never } })
+        )
+      } catch (error) {
+        raised = error
+      }
+      expect(raised).toBeInstanceOf(RetentionPolicyError)
+      expect((raised as RetentionPolicyError).code).toBe('invalid_candidate')
+    }
+  })
+
+  test('an inherited period is not a stated period', () => {
+    const inherited = Object.create({ messages: 30 }) as RetentionPeriods
+    let raised: unknown
+    try {
+      evaluateRetentionDeletion(inputFor('messages', { periods: inherited }))
+    } catch (error) {
+      raised = error
+    }
+    expect(raised).toBeInstanceOf(RetentionPolicyError)
+    expect((raised as RetentionPolicyError).code).toBe('invalid_periods')
+  })
+
   test('a malformed evaluation input is refused with a typed code, never a crash', () => {
     const cases: ReadonlyArray<Readonly<{ input: unknown; code: string }>> = [
       {
@@ -193,6 +270,33 @@ describe('the retention policy set is total over the categories', () => {
       }
       expect(raised).toBeInstanceOf(RetentionPolicyError)
       expect((raised as RetentionPolicyError).code).toBe(code)
+    }
+  })
+})
+
+describe('the cleanup executor refuses an undefined policy before it reaches a store', () => {
+  test('an inherited category name is refused with a typed code, without a database', async () => {
+    for (const name of INHERITED_PROPERTY_NAMES) {
+      let raised: unknown
+      try {
+        // The database is a stub the executor never reaches: it refuses the
+        // category before it looks at a store, a subject or a transaction.
+        await runRetentionCleanupExecutor({} as never, {
+          anchorAt: ANCHOR,
+          category: name as never,
+          coverageInventory: {},
+          executorId: EXECUTOR,
+          reconciliationOpen: false,
+          stores: [],
+          subjectId: SUBJECT,
+          submit: async () => {},
+          workspaceId: '00000000-0000-4000-8000-000000000000',
+        })
+      } catch (error) {
+        raised = error
+      }
+      expect(raised).toBeInstanceOf(RetentionPolicyError)
+      expect((raised as RetentionPolicyError).code).toBe('invalid_candidate')
     }
   })
 })

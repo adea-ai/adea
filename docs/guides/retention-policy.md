@@ -46,6 +46,21 @@ is `invalid_receipt`, a non-map executor set or a non-object input is
 non-object candidate is `invalid_candidate`. The durable gate maps every
 `RetentionPolicyError` to its own typed `invalid_input` refusal.
 
+Membership is checked as an own property of the policy table before the lookup.
+The table is an ordinary object, so an inherited name such as `__proto__`,
+`constructor` or `toString` would otherwise resolve to an object or a function
+that is not a policy, and the caller would dereference a missing
+`requiredCoverage` instead of reading a typed refusal. The resolver, the
+coverage inventory parser and the cleanup executor all refuse such a name with
+`invalid_candidate`; the regression for it lives in
+`packages/db/tests/unit/retention-policy-completeness.test.ts`.
+
+A period is read the same way, as an own property of the period set. A period
+inherited from a prototype is not a decision the caller stated, so it is
+refused with `invalid_periods` rather than standing in for a stated period. A
+category without a stated period is not configured, and the status view reports
+it as unset rather than configured.
+
 ## Periods and holds
 
 - Every period is `null` (unset) until approved. An unset period refuses deletion

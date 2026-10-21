@@ -101,8 +101,15 @@ export const RETENTION_COVERAGE_RULES: Readonly<Record<RetentionCategory, Retent
  * category resolves to exactly one rule, and a category without a rule is not a
  * policy. Such a category is refused with a typed code, never defaulted and never
  * dereferenced, so an undefined rule cannot crash the gate into an untyped error.
+ *
+ * Membership is checked as an own property of the policy table before the lookup.
+ * The table is an ordinary object, so an inherited name such as `__proto__`,
+ * `constructor` or `toString` would otherwise resolve to an object or a function
+ * that is not a policy, and the caller would dereference a missing
+ * `requiredCoverage` instead of reading a typed refusal.
  */
 export function retentionCategoryRule(category: string): RetentionRule {
+  if (!Object.hasOwn(RETENTION_COVERAGE_RULES, category)) fail('invalid_candidate')
   const rule = (RETENTION_COVERAGE_RULES as Readonly<Record<string, RetentionRule | undefined>>)[
     category
   ]
@@ -561,6 +568,10 @@ export function evaluateRetentionDeletion(input: RetentionEvaluationInput): Rete
   const candidate = parseCandidate(input.candidate)
   const nowMs = timestampMs(input.now, 'invalid_candidate')
   const anchorMs = timestampMs(candidate.anchorAt, 'invalid_candidate')
+  // The period is read as an own property: a period inherited from a prototype is
+  // configuration the caller did not state, and it must not stand in for an unset
+  // or absent one.
+  if (!Object.hasOwn(input.periods, candidate.category)) fail('invalid_periods')
   const period = input.periods[candidate.category]
   if (period === null) return { outcome: 'refused', reason: 'policy_unset' }
   if (!isPeriodDays(period)) fail('invalid_periods')
