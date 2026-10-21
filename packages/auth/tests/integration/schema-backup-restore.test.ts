@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Pool } from 'pg'
@@ -31,10 +31,17 @@ import { Pool } from 'pg'
 // The objects are not only compared, they are exercised. The restored target
 // refuses a second write to a rollback fence's attribution, which is the
 // trigger's own refusal, and it refuses a second admission for the same target
-// context, which is the unique index's own refusal. The restored target is
-// also accepted by the database package's own migration-history preflight
-// before its ledger is altered, so the proof shows a restored target that the
-// product's own tooling accepts, not only one that a comparison accepts.
+// context, which is the unique index's own refusal.
+//
+// The comparison is the FIRST thing the proof does with the restored target,
+// before any migration verifier runs. The database package's own verifier
+// migrates a target whose ledger is behind, so a restore that carried an older
+// state would be repaired by it and would then compare equal to a complete
+// one. The proof therefore reads the raw restored document first, compares that
+// raw document with the source, and only then runs the verifier and proves that
+// the verifier changed nothing. The regression below carries a target that
+// really is a historical prefix: the raw comparison refuses it, and the
+// verifier repairs it, which is exactly why the order matters.
 //
 // The fixture the behaviour proof owns lives in the restored target only and is
 // removed again before the comparison that follows, so the restored target is
@@ -74,39 +81,69 @@ const TLS_MODES = new Set(['require', 'verify-ca', 'verify-full'])
 const ROUTING_ENVIRONMENT_NAMES = ['PGHOST', 'PGHOSTADDR', 'PGSERVICE', 'PGSERVICEFILE']
 const TOOL_ENVIRONMENT_NAMES = ['PATH', 'HOME', 'TMPDIR', 'LANG']
 
-// Every operation has a bounded budget. The test's own deadline is the sum of
-// those budgets, so it can only fire after every bounded step has finished. The
-// disposable proof runs this file under a 600000 ms spawnSync ceiling
-// (scripts/disposable-postgres-cli.ts), which kills the whole run at that point, so
-// the budgets below must fit inside it with a margin. A real run takes seconds.
+// Every operation has a bounded budget, and every budget below is the sum of
+// the operations its phase can run: the child processes it can start, the
+// statements it can send and the connections it can open. The disposable proof
+// runs this file under a 600000 ms spawnSync ceiling
+// (scripts/disposable-postgres-cli.ts), which kills the whole run at that point,
+// so the phases must fit inside it with a margin. A real run takes seconds.
+//
+// The per-operation bounds are the measured ones, and they are bounds and not
+// predictions: the slowest child process this file starts finished in about
+// half a second, a statement finishes in milliseconds against the server's own
+// statement bound, and a connection to the loopback instance is established in
+// milliseconds. The bounds stay well above those measurements, and no ceiling
+// was raised to make a phase fit.
 const OUTER_COMMAND_CEILING_MS = 600_000
 const OUTER_MARGIN_MS = 15_000
-const TOOL_TIMEOUT_MS = 30_000
+const TOOL_TIMEOUT_MS = 10_000
 const DB_QUERY_TIMEOUT_MS = 5_000
+const CONNECT_TIMEOUT_MS = 5_000
 const CLEANUP_TIMEOUT_MS = 10_000
-const CLEANUP_STEPS = 5
-// The body tests: the dump and restore test, the application-schema test and the
-// restored-behaviour test. Pg_dump, pg_restore, the two initializer runs, the
-// migration verifier and the positive preflight are each a bounded child
-// process; the forty-three statements are the bounded queries the body runs.
-const BODY_TOOL_CALLS = 6
-const BODY_DB_QUERIES = 43
-// The body tests' own deadline: the sum of their bounded steps, so it can only
-// fire after every bounded step has finished. The cleanup steps are not part of
-// it: they run in `afterAll`, under the after-all budget below, and counting
-// them here as well counted the same work twice.
-const TEST_BUDGET_MS = BODY_TOOL_CALLS * TOOL_TIMEOUT_MS + BODY_DB_QUERIES * DB_QUERY_TIMEOUT_MS
-// The restored-behaviour test's own deadline: one verifier child and the five
-// statements of the behaviour proof. Its steps are inside the body's budget
-// above, so the worst case below does not count them twice.
-const RESTORED_BEHAVIOUR_BUDGET_MS = 1 * TOOL_TIMEOUT_MS + 5 * DB_QUERY_TIMEOUT_MS
-const BEFORE_ALL_BUDGET_MS = 2 * DB_QUERY_TIMEOUT_MS + 10_000
-const AFTER_ALL_BUDGET_MS = CLEANUP_STEPS * CLEANUP_TIMEOUT_MS + 5_000
-// The blocked-lock test: an admin DDL, the holder's lock, and one cleanup statement.
-const BLOCKED_TEST_BUDGET_MS = 60_000
+// The grace an abandoned cleanup stage is given to stop before the next stage
+// runs. It is short: the stage was cancelled, so the work is already ending.
+const CLEANUP_SETTLE_MS = 1_000
+// The before-all phase: one admin connection, then the schema, the restore
+// database and the two seed inserts.
+const BEFORE_ALL_BUDGET_MS = CONNECT_TIMEOUT_MS + 4 * DB_QUERY_TIMEOUT_MS
+// The dump and restore phase: three snapshot connections, thirty-five
+// statements and four child processes (the initializer twice, pg_dump and
+// pg_restore).
+const DUMP_RESTORE_BUDGET_MS =
+  3 * CONNECT_TIMEOUT_MS + 35 * DB_QUERY_TIMEOUT_MS + 4 * TOOL_TIMEOUT_MS
+// The restored-behaviour phase: one connection and five statements.
+const RESTORED_BEHAVIOUR_BUDGET_MS = CONNECT_TIMEOUT_MS + 5 * DB_QUERY_TIMEOUT_MS
+// The application-document phase: four connections, three statements and two
+// child processes (the migration verifier twice: once for the restored target
+// and once for the target whose ledger was altered).
+const APPLICATION_DOCUMENT_BUDGET_MS =
+  4 * CONNECT_TIMEOUT_MS + 3 * DB_QUERY_TIMEOUT_MS + 2 * TOOL_TIMEOUT_MS
+// The historical-prefix phase: two connections, six statements and two child
+// processes (the prefix runner and the migration verifier).
+const HISTORICAL_PREFIX_BUDGET_MS =
+  2 * CONNECT_TIMEOUT_MS + 6 * DB_QUERY_TIMEOUT_MS + 2 * TOOL_TIMEOUT_MS
+// The blocked-lock phase: one connection and eight statements.
+const BLOCKED_TEST_BUDGET_MS = CONNECT_TIMEOUT_MS + 8 * DB_QUERY_TIMEOUT_MS
+// The cleanup stages, each individually bounded and settled before the next one
+// runs: the reap of the child processes, five statements on their own
+// connections, the statement that proves the seeded rows are gone on the admin
+// connection, the close of the admin pool and the removal of the work
+// directory.
+const CLEANUP_STAGE_BUDGET_MS = CONNECT_TIMEOUT_MS + DB_QUERY_TIMEOUT_MS
+const CLEANUP_PROVE_BUDGET_MS = DB_QUERY_TIMEOUT_MS
+const CLEANUP_REAP_BUDGET_MS = TOOL_TIMEOUT_MS
+const CLEANUP_POOL_BUDGET_MS = CONNECT_TIMEOUT_MS
+const CLEANUP_WORK_DIRECTORY_BUDGET_MS = TOOL_TIMEOUT_MS
+const AFTER_ALL_BUDGET_MS =
+  CLEANUP_REAP_BUDGET_MS +
+  5 * CLEANUP_STAGE_BUDGET_MS +
+  CLEANUP_PROVE_BUDGET_MS +
+  CLEANUP_POOL_BUDGET_MS +
+  CLEANUP_WORK_DIRECTORY_BUDGET_MS
 // The loopback guard and the stalled-child tests, all of which finish in seconds.
 const UNCONDITIONAL_BUDGET_MS = 30_000
 const RUNNER = join(import.meta.dir, 'schema-init-runner.ts')
+const PREFIX_RUNNER = join(import.meta.dir, 'schema-prefix-runner.ts')
 
 // Server-side bounds on every connection this test derives, including the ones the
 // auth initializer opens for itself, so a stalled server cannot hold a client.
@@ -120,8 +157,12 @@ const SERVER_BOUNDS = [
   `-c lock_timeout=${SERVER_LOCK_TIMEOUT_MS}`,
   '-c idle_in_transaction_session_timeout=30000',
 ].join(' ')
-const CONNECT_TIMEOUT_SECONDS = 10
-const POOL_OPTIONS = { connectionTimeoutMillis: 10_000, max: 1, query_timeout: DB_QUERY_TIMEOUT_MS }
+const CONNECT_TIMEOUT_SECONDS = CONNECT_TIMEOUT_MS / 1_000
+const POOL_OPTIONS = {
+  connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+  max: 1,
+  query_timeout: DB_QUERY_TIMEOUT_MS,
+}
 type InitializerResult = {
   applied: boolean
   before: { add: string[]; create: string[] }
@@ -131,6 +172,11 @@ type InitializerResult = {
 const suffix = crypto.randomUUID().replaceAll('-', '')
 const schema = `auth_bkp_${suffix}`
 const restoredDatabase = `auth_bkp_restore_${suffix}`
+/**
+ * The database the historical-prefix regression owns: it carries the migration
+ * chain's prefix, not a restore. It is created and dropped inside that test.
+ */
+const prefixDatabase = `auth_bkp_prefix_${suffix}`
 /**
  * The application schema the disposable lane migrates into the same instance
  * before this file runs. Its ledger (`app.__drizzle_migrations`) is the target
@@ -274,31 +320,68 @@ async function runTool(command: string[]): Promise<{ code: number; stderr: strin
   return { code: result.code, stderr: result.stderr }
 }
 
-/** Resolves or rejects with the work, or rejects once the deadline passes. */
-function withDeadline<T>(work: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`timed out after ${ms} ms`)), ms)
+/**
+ * One cleanup step: a label, the work it does, the callback that stops it when
+ * the work can be stopped, and the budget the step is bounded by.
+ */
+export type CleanupStep = readonly [
+  label: string,
+  run: () => Promise<unknown>,
+  cancel?: () => void,
+  budgetMs?: number,
+]
+
+/** Waits for the given time without holding the process open. */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
   })
-  return Promise.race([work, deadline]).finally(() => clearTimeout(timer))
 }
 
 /**
  * Attempts every cleanup step, even after one fails or stalls. Returns one line
  * per failed step, so the caller reports all of them and loses none.
+ *
+ * A step that stalls at its bound is abandoned, cancelled and confirmed
+ * stopped before the next step runs: a pool is never closed and no connection
+ * is reset while an operation of this file is still running on it. A step that
+ * cannot be cancelled is still given the settle grace, and the next step runs
+ * either way.
  */
 export async function runCleanups(
-  steps: ReadonlyArray<readonly [string, () => Promise<unknown>]>,
+  steps: ReadonlyArray<CleanupStep>,
   timeoutMs = CLEANUP_TIMEOUT_MS
 ): Promise<string[]> {
   const failures: string[] = []
-  for (const [label, step] of steps) {
-    try {
-      await withDeadline(Promise.resolve().then(step), timeoutMs)
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : 'unexpected non-error failure'
-      failures.push(`${label}: ${reason}`)
+  for (const [label, step, cancel, budgetMs] of steps) {
+    const bound = budgetMs ?? timeoutMs
+    let reason: string | undefined
+    const work = Promise.resolve()
+      .then(step)
+      .then(
+        () => undefined,
+        (error: unknown) => {
+          reason = error instanceof Error ? error.message : 'unexpected non-error failure'
+        }
+      )
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const abandoned = new Promise<'abandoned'>((resolve) => {
+      timer = setTimeout(() => resolve('abandoned'), bound)
+    })
+    const outcome = await Promise.race([work.then(() => 'settled' as const), abandoned])
+    clearTimeout(timer)
+    if (outcome === 'settled') {
+      if (reason !== undefined) failures.push(`${label}: ${reason}`)
+      continue
     }
+    failures.push(`${label}: timed out after ${bound} ms`)
+    try {
+      cancel?.()
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : 'unexpected non-error failure'
+      failures.push(`${label}: cancelling it failed: ${detail}`)
+    }
+    await Promise.race([work, delay(CLEANUP_SETTLE_MS)])
   }
   return failures
 }
@@ -306,14 +389,20 @@ export async function runCleanups(
 /**
  * One cleanup statement on its own connection, so an earlier step that stalled
  * cannot hold the connection a later step needs. The server's statement bound
- * ends any stalled statement before the step's own deadline.
+ * ends any stalled statement before the step's own deadline, and the cancel
+ * callback ends the connection, so an abandoned statement leaves nothing
+ * running.
  */
-async function runOwnStatement(sql: string): Promise<void> {
+async function runOwnStatement(sql: string, cancel?: { end?: () => void }): Promise<void> {
   const pool = poolFor(adminUrl())
+  const client = await pool.connect()
+  if (cancel) cancel.end = () => client.release(true)
   try {
-    await pool.query(sql)
+    await client.query(sql)
   } finally {
+    client.release()
     await pool.end().catch(() => undefined)
+    if (cancel) cancel.end = undefined
   }
 }
 
@@ -351,6 +440,54 @@ async function reapLiveChildren(): Promise<void> {
   })
   await Promise.all(reaped)
   liveChildren.clear()
+}
+
+/**
+ * How many migrations the chain held before the rollback fence's own migration.
+ * A database that carried only those migrations is a valid historical prefix:
+ * the database package's own preflight accepts such a ledger, and its own
+ * migrator moves that database forward.
+ */
+function prefixMigrationCount(): number {
+  const journal = JSON.parse(readFileSync(join(migrationFolder, 'meta/_journal.json'), 'utf8')) as {
+    entries: ReadonlyArray<{ tag: string }>
+  }
+  const fence = journal.entries.findIndex((entry) => entry.tag === '0054_lead_turn_rollback_fence')
+  if (fence < 1) {
+    throw new Error('the migration chain does not hold the rollback fence migration')
+  }
+  return fence
+}
+
+/**
+ * The prefix runner, in its own child process, under a deadline. It applies the
+ * chain's prefix to one database the way it was applied then. It never decides
+ * what that database is: the database package's own preflight and migrator do.
+ */
+async function runPrefixRunner(
+  database: string,
+  count: number
+): Promise<{ applied: number; migrations: string[] }> {
+  const result = await runBounded(
+    [process.execPath, '--no-env-file', PREFIX_RUNNER],
+    TOOL_TIMEOUT_MS,
+    {
+      ...toolEnvironment(),
+      AUTH_MIGRATION_DATABASE_URL: urlFor(target!, database),
+      AUTH_MIGRATION_SCHEMA: applicationSchema,
+      AUTH_PREFIX_MIGRATION_COUNT: String(count),
+      AUTH_PREFIX_MIGRATION_FOLDER: migrationFolder,
+    }
+  )
+  if (result.timedOut) {
+    throw new Error(`the prefix runner exceeded ${TOOL_TIMEOUT_MS} ms and was killed`)
+  }
+  if (result.code !== 0) {
+    throw new Error(
+      `the prefix runner failed with exit code ${result.code}: ${result.stderr.trim().slice(0, 500)}`
+    )
+  }
+  return JSON.parse(result.stdout) as { applied: number; migrations: string[] }
 }
 
 async function tablesIn(schemaName: string): Promise<string[]> {
@@ -520,38 +657,72 @@ async function applicationDocument(url: string): Promise<unknown> {
  * The two synthetic rows this run owns in the application schema: a user and
  * the workspace that names it. Both carry this run's own identifiers, so the
  * cleanup removes exactly what this run created and nothing else.
+ *
+ * The rows are written to one database at a time, on a pool of its own, so the
+ * same rows can be written to the source and to a target that carries an older
+ * state, and so the comparison between the two is about the schema and the
+ * ledger rather than about the rows.
  */
-async function seedApplicationRows(): Promise<void> {
-  await admin!.query(
-    `INSERT INTO ${applicationSchema}.users (id, display_name) VALUES ($1::uuid, $2)`,
-    [seededUserId, `Restore Proof User ${suffix}`]
-  )
-  await admin!.query(
-    `INSERT INTO ${applicationSchema}.workspaces (id, name, owner_user_id, idempotency_key)
-     VALUES ($1::uuid, $2, $3::uuid, $4)`,
-    [seededWorkspaceId, `Restore Proof Workspace ${suffix}`, seededUserId, seededIdempotencyKey]
-  )
+async function seedApplicationRows(url: string): Promise<void> {
+  const pool = poolFor(url)
+  try {
+    await pool.query(
+      `INSERT INTO ${applicationSchema}.users (id, display_name) VALUES ($1::uuid, $2)`,
+      [seededUserId, `Restore Proof User ${suffix}`]
+    )
+    await pool.query(
+      `INSERT INTO ${applicationSchema}.workspaces (id, name, owner_user_id, idempotency_key)
+       VALUES ($1::uuid, $2, $3::uuid, $4)`,
+      [seededWorkspaceId, `Restore Proof Workspace ${suffix}`, seededUserId, seededIdempotencyKey]
+    )
+  } finally {
+    await pool.end()
+  }
 }
 
 /**
- * Removes the seeded rows and proves they are gone. The workspace goes first,
- * because the user is its owner. The statement is idempotent, so a run whose
- * seeding failed part way still removes exactly what it created.
+ * One cleanup stage that runs a single statement on its own connection. The
+ * stage is cancelled by ending that connection, so an abandoned statement
+ * leaves nothing running on the instance.
  */
-async function removeSeededApplicationRows(): Promise<void> {
-  await runOwnStatement(
-    `DELETE FROM ${applicationSchema}.workspaces WHERE id = '${seededWorkspaceId}'::uuid`
-  )
-  await runOwnStatement(`DELETE FROM ${applicationSchema}.users WHERE id = '${seededUserId}'::uuid`)
-  const remaining = await admin!.query(
-    `SELECT (SELECT count(*)::int FROM ${applicationSchema}.users WHERE id = $1::uuid) AS users,
-            (SELECT count(*)::int FROM ${applicationSchema}.workspaces WHERE id = $2::uuid) AS workspaces`,
-    [seededUserId, seededWorkspaceId]
-  )
-  const row = remaining.rows[0] as { users: number; workspaces: number } | undefined
-  if (!row || row.users !== 0 || row.workspaces !== 0) {
-    throw new Error('the seeded application rows were not removed')
-  }
+function ownStatementStage(label: string, sql: string): CleanupStep {
+  const cancel: { end?: () => void } = {}
+  return [label, () => runOwnStatement(sql, cancel), () => cancel.end?.(), CLEANUP_STAGE_BUDGET_MS]
+}
+
+/**
+ * The cleanup stages that remove the seeded rows. The workspace goes first,
+ * because the user is its owner, and each statement is its own stage on its own
+ * connection, so a stage that stalls cannot hold the connection a later stage
+ * needs. The last stage proves the rows are gone on the admin connection.
+ */
+function seededRowCleanupSteps(): CleanupStep[] {
+  return [
+    ownStatementStage(
+      'remove the seeded workspace',
+      `DELETE FROM ${applicationSchema}.workspaces WHERE id = '${seededWorkspaceId}'::uuid`
+    ),
+    ownStatementStage(
+      'remove the seeded user',
+      `DELETE FROM ${applicationSchema}.users WHERE id = '${seededUserId}'::uuid`
+    ),
+    [
+      'prove the seeded application rows are gone',
+      async () => {
+        const remaining = await admin!.query(
+          `SELECT (SELECT count(*)::int FROM ${applicationSchema}.users WHERE id = $1::uuid) AS users,
+                  (SELECT count(*)::int FROM ${applicationSchema}.workspaces WHERE id = $2::uuid) AS workspaces`,
+          [seededUserId, seededWorkspaceId]
+        )
+        const row = remaining.rows[0] as { users: number; workspaces: number } | undefined
+        if (!row || row.users !== 0 || row.workspaces !== 0) {
+          throw new Error('the seeded application rows were not removed')
+        }
+      },
+      undefined,
+      CLEANUP_PROVE_BUDGET_MS,
+    ],
+  ]
 }
 
 // Everything a restore must reproduce: column definitions, row counts and every row.
@@ -674,11 +845,14 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
 
   test('the bounded budgets fit inside the outer command ceiling, with a margin', () => {
     // The disposable CLI kills the whole run at its ceiling, before cleanup can finish,
-    // so every budget that can run in one file must fit under it. The body's budget
-    // already covers the restored-behaviour test's steps, so they are not added here.
+    // so every budget that can run in one file must fit under it. Every phase is
+    // counted by the operations it can run, so nothing is left out of the sum.
     const worstCase =
       BEFORE_ALL_BUDGET_MS +
-      TEST_BUDGET_MS +
+      DUMP_RESTORE_BUDGET_MS +
+      RESTORED_BEHAVIOUR_BUDGET_MS +
+      APPLICATION_DOCUMENT_BUDGET_MS +
+      HISTORICAL_PREFIX_BUDGET_MS +
       BLOCKED_TEST_BUDGET_MS +
       AFTER_ALL_BUDGET_MS +
       UNCONDITIONAL_BUDGET_MS
@@ -708,6 +882,51 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
     expect(failures).toHaveLength(1)
     expect(failures[0]).toContain('stalled: timed out after 50 ms')
   }, 10_000)
+
+  test('a delayed cleanup query is cancelled and settled before the pools are reset', async () => {
+    // A stage whose work is delayed past its bound: the stage is abandoned at the
+    // bound, the cancel ends the work it started, and the next stage only runs
+    // once the abandoned work has stopped. Nothing of this file is still running
+    // when a pool is reset.
+    let running = 0
+    let cancelled = false
+    let end: (() => void) | undefined
+    const delayed: CleanupStep = [
+      'delayed query',
+      () =>
+        new Promise<void>((resolve) => {
+          running += 1
+          const timer = setTimeout(() => {
+            running -= 1
+            resolve()
+          }, 30_000)
+          end = () => {
+            clearTimeout(timer)
+            running -= 1
+            cancelled = true
+            resolve()
+          }
+        }),
+      () => end?.(),
+    ]
+    const observed: string[] = []
+    const failures = await runCleanups(
+      [
+        delayed,
+        [
+          'reset the pools',
+          async () => {
+            observed.push(`running=${running}`)
+          },
+        ],
+      ],
+      50
+    )
+    expect(failures).toHaveLength(1)
+    expect(failures[0]).toContain('delayed query: timed out after 50 ms')
+    expect(cancelled).toBe(true)
+    expect(observed).toEqual(['running=0'])
+  }, 10_000)
 })
 
 describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic data)', () => {
@@ -725,28 +944,37 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
     admin = poolFor(adminUrl())
     await admin.query(`CREATE SCHEMA "${schema}"`)
     await admin.query(`CREATE DATABASE "${restoredDatabase}"`)
-    await seedApplicationRows()
+    await seedApplicationRows(adminUrl())
   }, BEFORE_ALL_BUDGET_MS)
 
   afterAll(async () => {
-    const steps: Array<readonly [string, () => Promise<unknown>]> = [
-      ['reap live tool processes', reapLiveChildren],
-      [
-        'drop restored database',
-        () => runOwnStatement(`DROP DATABASE IF EXISTS "${restoredDatabase}" WITH (FORCE)`),
-      ],
-      ['drop schema', () => runOwnStatement(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`)],
-      ['remove seeded application rows', removeSeededApplicationRows],
+    // Every stage is individually bounded and settled before the next one runs,
+    // so a stage that stalls is cancelled and confirmed stopped before a pool is
+    // closed or a connection is reset.
+    const steps: CleanupStep[] = [
+      ['reap live tool processes', reapLiveChildren, undefined, CLEANUP_REAP_BUDGET_MS],
+      ownStatementStage(
+        'drop the restored database',
+        `DROP DATABASE IF EXISTS "${restoredDatabase}" WITH (FORCE)`
+      ),
+      ownStatementStage(
+        'drop the historical prefix database',
+        `DROP DATABASE IF EXISTS "${prefixDatabase}" WITH (FORCE)`
+      ),
+      ownStatementStage('drop the schema', `DROP SCHEMA IF EXISTS "${schema}" CASCADE`),
+      ...seededRowCleanupSteps(),
     ]
     if (admin) {
       const pool = admin
-      steps.push(['close admin pool', () => pool.end()])
+      steps.push(['close the admin pool', () => pool.end(), undefined, CLEANUP_POOL_BUDGET_MS])
     }
     if (workDirectory) {
       const directory = workDirectory
       steps.push([
-        'remove work directory',
+        'remove the work directory',
         async () => rmSync(directory, { recursive: true, force: true }),
+        undefined,
+        CLEANUP_WORK_DIRECTORY_BUDGET_MS,
       ])
     }
     const failures = await runCleanups(steps)
@@ -833,24 +1061,16 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       expect(after.counts).toEqual(source.counts)
       expect(await tablesIn(schema)).toEqual(expectedTables)
     },
-    TEST_BUDGET_MS
+    DUMP_RESTORE_BUDGET_MS
   )
 
   test(
-    'the restored target is accepted by the migration preflight, and keeps the fence immutable and one admission per target',
+    'the restored target keeps the fence immutable and one admission per target',
     async () => {
       const validated = target!
       const restoredConnection = urlFor(validated, restoredDatabase)
 
-      // 1. The positive preflight: the restored target is one the database package
-      //    itself accepts. The ledger the restore carried is the source's ledger, so
-      //    the preflight passes, and the verifier's own rerun changes nothing.
-      const verified = await runMigrationVerifier(restoredDatabase)
-      expect(verified.code).toBe(0)
-      expect(verified.stdout).toContain('Migration verification passed')
-      expect(verified.stderr).not.toContain('Migration history preflight failed')
-
-      // 2. The fixture this proof owns inside the restored target: one agent, one
+      // 1. The fixture this proof owns inside the restored target: one agent, one
       //    group channel, two messages and one admission that names a target
       //    context. Every identifier is this run's own, and the whole fixture is
       //    removed again below, so the restored target is left exactly as the
@@ -918,7 +1138,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         )
         expect(inserted.rows[0]?.intents).toBe(1)
 
-        // 3. The fence is set the way the product sets it: one statement that writes
+        // 2. The fence is set the way the product sets it: one statement that writes
         //    the whole attribution at once. The restored target accepts it, so the
         //    guard it carries is the one the source schema has.
         const fenced = await pool.query(
@@ -933,7 +1153,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         )
         expect(fenced.rowCount).toBe(1)
 
-        // 4. The attribution is immutable: a second write is refused, and the refusal
+        // 3. The attribution is immutable: a second write is refused, and the refusal
         //    is the trigger's own (a check violation with the trigger's message), not
         //    a constraint's.
         const refusedChange = await pool
@@ -953,7 +1173,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
           'rollback fence attribution is immutable'
         )
 
-        // 5. One admission per target context: a second admission for the same target
+        // 4. One admission per target context: a second admission for the same target
         //    is refused by the unique index, in the restored target.
         const refusedDuplicate = await pool
           .query(
@@ -990,7 +1210,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         expect((refusedDuplicate as { code?: string }).code).toBe('23505')
         expect((refusedDuplicate as Error).message).toContain('lead_turn_intents_target_unique')
 
-        // 6. The fixture is removed again, and the fence it carried is still the
+        // 5. The fixture is removed again, and the fence it carried is still the
         //    fence the refused write could not change.
         const removed = await pool.query(
           `WITH removed_intent AS (
@@ -1025,9 +1245,17 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       const sourceConnection = urlFor(validated, validated.pathname.slice(1))
       const restoredConnection = urlFor(validated, restoredDatabase)
 
+      // The phases the proof runs against the restored target, in the order it runs
+      // them. The raw comparison has to come first: the database package's own
+      // verifier migrates a target whose ledger is behind, so a comparison that
+      // ran after it would compare a repaired target and pass a restore that was
+      // never complete.
+      const phases: string[] = []
+
       // 1. The source application schema, as one document: every table with its exact row
       //    count, every column, the seeded rows, the schema objects and the migration
       //    ledger.
+      phases.push('source document')
       const source = (await applicationDocument(sourceConnection)) as {
         columns?: unknown[]
         constraints?: unknown[]
@@ -1071,13 +1299,44 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         seededIdempotencyKey,
       ])
 
-      // 2. The restored application schema is the same document: the same tables with the
+      // 2. The raw restored application schema, read before any migration verifier
+      //    runs. It is the same document as the source: the same tables with the
       //    same row counts, the same columns, the same seeded rows, the same schema
-      //    objects and the same ledger.
+      //    objects and the same ledger. This is the comparison that decides the
+      //    proof.
+      phases.push('raw restored document')
       const restored = await applicationDocument(restoredConnection)
       expect(restored).toEqual(source)
 
-      // 3. A target whose ledger was altered is refused by the database package's own
+      // 3. The restored target is accepted by the database package's own migration
+      //    verifier, which is the real mechanism: the ledger the restore carried is
+      //    the source's ledger, so the preflight passes and the verifier's own
+      //    rerun changes nothing.
+      phases.push('migration verifier')
+      const verified = await runMigrationVerifier(restoredDatabase)
+      expect(verified.code).toBe(0)
+      expect(verified.stdout).toContain('Migration verification passed')
+      expect(verified.stderr).not.toContain('Migration history preflight failed')
+
+      // 4. The verifier changed nothing: the restored target still carries the raw
+      //    document the comparison above decided on. A verifier that had repaired
+      //    the target would show here, and the proof's verdict would already have
+      //    been decided on the raw document.
+      phases.push('restored document after the verifier')
+      const afterVerifier = await applicationDocument(restoredConnection)
+      expect(afterVerifier).toEqual(restored)
+      expect(afterVerifier).toEqual(source)
+      // The order is the requirement: the raw comparison comes before the
+      // verifier, and the verifier is followed by the check that it changed
+      // nothing.
+      expect(phases).toEqual([
+        'source document',
+        'raw restored document',
+        'migration verifier',
+        'restored document after the verifier',
+      ])
+
+      // 5. A target whose ledger was altered is refused by the database package's own
       //    migration-history preflight. The ledger is the identity the current schema
       //    exposes, so this is the existing rejection, not an invented contract.
       const tamperPool = poolFor(restoredConnection)
@@ -1094,7 +1353,62 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       expect(refused.code).not.toBe(0)
       expect(refused.stderr).toContain('Migration history preflight failed')
     },
-    TEST_BUDGET_MS
+    APPLICATION_DOCUMENT_BUDGET_MS
+  )
+
+  test(
+    'a restore that carried a historical prefix is refused by the raw comparison, and the verifier would repair it',
+    async () => {
+      const validated = target!
+      const sourceConnection = urlFor(validated, validated.pathname.slice(1))
+      const prefixConnection = urlFor(validated, prefixDatabase)
+      const source = await applicationDocument(sourceConnection)
+      const count = prefixMigrationCount()
+
+      // 1. A database that carries the chain's prefix: the migrations before the
+      //    rollback fence's own migration, applied the way they were applied then.
+      //    The prefix runner never decides what that database is; the database
+      //    package's own preflight decides that below.
+      await admin!.query(`CREATE DATABASE "${prefixDatabase}"`)
+      try {
+        const applied = await runPrefixRunner(prefixDatabase, count)
+        expect(applied.applied).toBe(count)
+
+        // 2. The same seeded rows the source carries, so the comparison below is
+        //    about the schema and the ledger and not about the rows.
+        await seedApplicationRows(prefixConnection)
+
+        // 3. The prefix target's raw document is not the source's document: the
+        //    fence's trigger is missing and the ledger is shorter. This is the
+        //    comparison the proof runs first, and it is what refuses a restore
+        //    that carried an older state.
+        const prefixDocument = (await applicationDocument(prefixConnection)) as {
+          ledger?: unknown[]
+          triggers?: unknown[]
+        } | null
+        expect(prefixDocument).not.toBeNull()
+        expect(prefixDocument).not.toEqual(source)
+        expect(JSON.stringify(prefixDocument?.triggers ?? [])).not.toContain(
+          'lead_turn_intents_rollback_fence_immutable'
+        )
+        expect(prefixDocument?.ledger?.length ?? 0).toBe(count)
+
+        // 4. The database package's own verifier accepts that prefix: it is a
+        //    valid historical prefix, not a broken target, and its migrator moves
+        //    the database forward. A comparison that ran after the verifier would
+        //    therefore compare a repaired database and pass a restore that was
+        //    never complete. The raw comparison above is what refuses it, and the
+        //    proof's verdict is taken from that comparison.
+        const repaired = await runMigrationVerifier(prefixDatabase)
+        expect(repaired.code).toBe(0)
+        expect(repaired.stderr).not.toContain('Migration history preflight failed')
+        const afterRepair = await applicationDocument(prefixConnection)
+        expect(afterRepair).toEqual(source)
+      } finally {
+        await runOwnStatement(`DROP DATABASE IF EXISTS "${prefixDatabase}" WITH (FORCE)`)
+      }
+    },
+    HISTORICAL_PREFIX_BUDGET_MS
   )
 
   test(
