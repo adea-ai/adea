@@ -11,7 +11,7 @@ import {
   revokeGroupGrant,
   setGroupChannelParticipantsWithGrants,
 } from '../../src/group-channels'
-import { loadAddressedTurns } from '../../src/group-turn-coordinator'
+import { claimAddressedTurn, loadAddressedTurns } from '../../src/group-turn-coordinator'
 import {
   addressGroupTurn,
   cancelGroupTurn,
@@ -1156,6 +1156,65 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
     // lookup happened to read.
     const published = state.messages.find((message) => message.id === messageId)
     expect(published).toMatchObject({ senderKind: 'agent', senderAgentId: f.lead.id })
+  })
+
+  /**
+   * A retry must not re-bind the work to a newer grant revision.
+   *
+   * The claim is the record of what admitted the work. When the Agent is
+   * removed and added again, its grant id is the same and its revision is
+   * new, so a retry that re-read the roster would re-bind the old work to
+   * the new revision and quietly authorize it under authority it never had.
+   * The duplicate claim converges on the retained row instead, and the
+   * retained binding stays the one the work was admitted under — which is
+   * what keeps the late result held.
+   */
+  T('a retry keeps the grant revision the work was admitted under', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    const intentId = turn.leadTurnIntentId!
+    // The runtime is prepared while the admission still holds; the roster
+    // moves underneath it afterwards.
+    const publish = await complete(f, intentId)
+    // The Agent is removed and added again: same grant id, new revision.
+    await removeThenReaddLead(f)
+    // A retry of the SAME dispatch revision converges on the retained claim.
+    const retry = await claimAddressedTurn(
+      connection.db,
+      f.workspace.id,
+      f.owner,
+      {
+        addressedBy: f.owner,
+        agentId: f.lead.id,
+        channelId: f.channelId,
+        dispatchRevision: 1,
+        triggerMessageId: f.trigger.id,
+      },
+      { now: NOW }
+    )
+    expect(retry.status).toBe('duplicate')
+    expect(retry.turn.id).toBe(turn.id)
+    // The regrant really moved the revision: the Agent's current admission
+    // is revision 2 now, so the retained revision 1 is the only thing that
+    // keeps the late result held.
+    const [current] = await connection.db
+      .select({ revision: schema.groupEnlistmentGrants.revision })
+      .from(schema.groupEnlistmentGrants)
+      .where(eq(schema.groupEnlistmentGrants.grantId, 'gra_lead'))
+    expect(current?.revision).toBe(2)
+    // The retained binding is still the revision the work was admitted
+    // under, never the new one.
+    expect(await retainedBinding(f, turn.id)).toEqual({
+      authGrantId: 'gra_lead',
+      authRevision: 1,
+    })
+    // And the late result stays held: the retained binding no longer names
+    // the Agent's current admission.
+    await expect(publish()).rejects.toMatchObject({
+      name: 'GroupPublicationHoldError',
+      reason: 'publication_binding_mismatch',
+    })
+    expect((await publicationState(f, intentId)).messages).toHaveLength(1)
   })
 
   T(
