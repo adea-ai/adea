@@ -807,16 +807,30 @@ boundary nor changes the behaviour these proofs observe. The branch is deliberat
 a rebase would rewrite the published head of the pull request and need a force push, which is not
 authorized here, and the three paths need no change to sit on the new main.
 
-The pull request is #1549. Its published head is now
-`7afd68613d4e3d70401c2e74a144ed8ce97636ff`, which is this branch's own head: the branch's four
-commits — the fixture repair, the residual acceptance's first and second rounds, and the type-check
-provenance record — are all on the pull request. The read-only fetch in the first phase found the
-pull request one commit behind the branch, with that commit unpublished because no authorized
-publishing route existed then; the normal publisher has since carried it, and the continuation
-re-read the ref to confirm the state rather than repeat the first phase's account of it. The
-pull-request ref is read only through a read-only fetch with the credential helper disabled and the
-terminal prompt disabled, so no credential is read, created or used; nothing was pushed, and no
-issue was closed.
+The pull request is #1549. Its published head is `7afd68613d4e3d70401c2e74a144ed8ce97636ff`, read
+again in this phase through a read-only fetch with the credential helper disabled and the terminal
+prompt disabled. That head carries the branch's first four commits — the fixture repair, the
+residual acceptance's first and second rounds, and the type-check provenance record. This branch's
+head is **three commits ahead** of it, and the relationship is a fast-forward:
+`git merge-base --is-ancestor origin/pr-1549 HEAD` succeeds, and the three commits to be published
+are the second phase's evidence repair, this phase's three-family regression, and this phase's
+record of the publication attempt. No history rewrite is involved, and no rebase was performed.
+
+**The publication was attempted and could not be completed here.** The ordinary authenticated routes
+were tried in turn and each one failed for want of a credential, not for want of a fast-forward:
+
+| Route                                                                          | Result                                                                                                                                                                     |
+| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `git push origin HEAD:refs/heads/codex/f3w4-adea-20261021` over HTTPS          | `fatal: could not read Username for 'https://github.com': terminal prompts disabled`                                                                                       |
+| the same push with the repository's configured `credential.helper=osxkeychain` | the same failure: the login keychain holds no `github.com` entry, in any of the spellings `github.com`, `https://github.com`, `git:https://github.com` or `git:github.com` |
+| `git push --dry-run git@github.com:adea-ai/adea.git …` over SSH                | `fatal: Could not read from remote repository.` — there is no SSH key in this environment and `ssh -T git@github.com` answers `Permission denied (publickey)`              |
+| `gh auth status`                                                               | `You are not logged into any GitHub hosts.` — the GitHub CLI has no auth store here, and `gh auth token` finds no token                                                    |
+
+No credential was created, no interactive login was used, no auth store was read, and no
+unauthenticated `gh` call was made. The three commits therefore stay local, and the pull request
+keeps its published head. The update the publisher needs is an ordinary fast-forward push of this
+branch's head to `codex/f3w4-adea-20261021`, with auto-merge left off, the draft left as a draft,
+and no issue closed.
 
 ## Boundary compliance
 
@@ -844,6 +858,18 @@ Held and recorded:
   helper disabled and the terminal prompt disabled. It pushed nothing, created no credential, used
   no interactive login, made no unauthenticated `gh` call, marked nothing ready, merged nothing and
   closed no issue.
+- This phase added a third task-owned disposable instance of its own, `f3w4-qual2-postgres-…` on
+  `127.0.0.1:55445`, with the repository's own role boundary and migrations, and removed it by name
+  with its volume at the end of the round. It re-read the pull request's head through a read-only
+  fetch, and it attempted the ordinary authenticated push on the three routes the environment offers
+  — HTTPS with and without the configured keychain helper, and SSH — and each one failed for want
+  of a credential. No credential was created, no auth store was read, no interactive login was used,
+  no `gh` write was made, the draft was not marked ready, nothing was merged and no issue was
+  closed.
+- The generated `apps/web/cloudflare-env.d.ts` is gitignored and was left byte-identical, at sha256
+  `9b5e7188…`, 623,606 bytes. The generator was run into a scratch path outside the checkout, and
+  the repository's own hook ran its `cf-typegen` step against the worktree's existing body, which
+  the tool reused and left untouched. No other ignored output was modified.
 
 ## Publication
 
@@ -875,16 +901,21 @@ assertions**, the five neighbouring portable integration files at **50 tests and
 and the bounded reproduction of the lane collision as the five rows of the two tables above (the
 three steps A, B and C and the two controls C0 and C3).
 
-Before the continuation's evidence repair, the pull request's published head was this branch's head.
-The branch's head is now one commit ahead of it, and that one commit is a documentation-only change
-to this file. It needs the normal publisher's ordinary push, with no history rewrite. Nothing in
-this branch is published by the continuation: no credential was created or read, no interactive login
-was used, no unauthenticated `gh` call was made, the draft was not marked ready, and no issue was
-closed. The draft, once the publisher carries the one commit, is this branch and the three paths
-above, with this document as the pull-request body, auto-merge left off, and no issue closed.
+Before the second phase's evidence repair, the pull request's published head was this branch's head.
+The branch's head is now **three commits** ahead of it: the second phase's documentation-only
+evidence repair, this phase's three-family regression with its matching evidence corrections, and
+this phase's record of the publication attempt. The
+relationship is a fast-forward and it needs the normal publisher's ordinary push, with no history
+rewrite. Nothing in this branch is published by this work: no credential was created or read, no
+interactive login was used, no unauthenticated `gh` call was made, the draft was not marked ready,
+and no issue was closed. The draft, once the publisher carries the three commits, is this branch and
+the three paths above, with this document as the pull-request body, auto-merge left off, and no
+issue closed.
 
 Both gates that stood in front of that draft are now closed: the bounded reproduction ran on a
 task-owned disposable database with the results recorded above, and the commit carries exactly the
 three admitted paths and nothing else. The continuation re-ran the bounded reproduction on a second
 task-owned disposable instance and reproduced the same three steps and both controls (Q4, Q9, Q10,
-Q11 and Q12), so that gate is closed twice over, on two independent instances.
+Q11 and Q12), so that gate is closed twice over, on two independent instances. This phase closed it
+a third time, on a third instance, with the seed extended to the third fixed-identifier family, and
+the pre-repair fixture now fails on one member of every family (Q14, Q15, Q16).
