@@ -18,8 +18,10 @@ import commandVector from '../../fixtures/remote-content-envelope-v1.json'
 import resultVector from '../../fixtures/remote-result-cross-runtime-v1.json'
 
 /**
- * The checked-in result vector holds ciphertext only, so the plaintext it
- * protects lives here, in the test, and never in the fixture.
+ * The checked-in result vector carries no plaintext, so the plaintext it
+ * protects lives here, in the test, and never in the fixture. Its key material
+ * is public synthetic interoperability material, deliberately reproducible
+ * from the fixture, and not a secret.
  */
 const RESULT_PLAINTEXT = 'cross-runtime return result canary'
 const REVOKED_PLAINTEXT = 'revoked epoch return result canary'
@@ -287,8 +289,11 @@ describe('cross-runtime remote content vectors', () => {
     expect(Object.hasOwn(resultVector.active, 'plaintext')).toBe(false)
     expect(Object.hasOwn(resultVector.revoked, 'plaintext')).toBe(false)
 
-    // The fixture carries the derived public key only: the unwrapped private
-    // material behind the return epoch never appears in it.
+    // The fixture carries the recipient's public key and the public synthetic
+    // derivation input it was produced from, so the epoch's private key is
+    // deliberately re-derivable by anyone reading the file. What never appears
+    // is the unwrapped private key itself. That is a property of a public test
+    // vector, not a confidentiality property.
     const hpke = new CipherSuite({
       kem: new DhkemX25519HkdfSha256(),
       kdf: new HkdfSha256(),
@@ -298,5 +303,9 @@ describe('cross-runtime remote content vectors', () => {
     const pkcs8 = toBase64Url(await crypto.subtle.exportKey('pkcs8', derived.privateKey))
     expect(resultText).not.toContain(pkcs8)
     expect(resultText).not.toContain(pkcs8.slice(0, 24))
+    // The derivation input is checked in on purpose: the fixture is labelled
+    // public synthetic interoperability material, not a confidential store.
+    expect(resultText).toContain(resultVector.active.recipientIkm)
+    expect(resultText).toContain(resultVector.active.ephemeralIkm)
   })
 })

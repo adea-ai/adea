@@ -1,7 +1,8 @@
 {
   "vector": "remote-result-cross-runtime-v1",
   "keyPurpose": "return",
-  "description": "Synthetic request-bound return envelopes for cross-runtime qualification. Ciphertext only: the fixture holds no plaintext and no private key material, and it is not a production key.",
+  "keyMaterial": "public synthetic interoperability test material",
+  "description": "Synthetic request-bound return envelopes for cross-runtime qualification. The fixture holds no plaintext, but it does hold public synthetic key material: the recipientIkm and ephemeralIkm derivation inputs, from which a reader can re-derive this vector's deterministic test keys. Those inputs are checked in deliberately, so this fixture is interoperability evidence between runtimes and is not relay or cloud confidentiality evidence. It is not a production key.",
   "active": {
     "label": "active epoch",
     "recipientIkm": "synthetic client return key material for cross-runtime vector 0001",
