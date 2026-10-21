@@ -14,25 +14,25 @@ into one bundle.
 
 ## 1. The candidate under test
 
-| Fact                                                | Value                                                                                            |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Candidate's integration base `main`                 | `333b948d4c5fba1f88d98d764c075b790be6ee22` (unchanged since the first run)                       |
-| This lane's branch                                  | `test/installed-desktop-ui-acceptance-20261020`                                                  |
-| Pull request base (current `main`)                  | `1098c658300beec7e49f1a2143aabd971aefbcfe` (the base moved forward from `333b948d4`)             |
-| Published head (the pull request)                   | `a18e35ff2e213133480811435b47107a68c6e2b3` — 13 commits on that base                             |
-| Local head (this record's continuation)             | `90e19c632ac67227ce5b3a5501d93d52dce1938d` — two commits after the published head, unpublished   |
-| B — CI, no vendor dependency                        | `codex/20261020-ci-release-w7` @ `fcb20c08bafad0940330dd5728175a52f334beb3` (#1516, draft)       |
-| C — provider coupling removed                       | `codex/20261020-efficiency-audit-w8` @ `7fa24f2ee991d672cb6ed1373b63f125a6e206e1` (#1515, draft) |
-| D — Railway qualification lane                      | `feat/railway-postgres-qualification-lane-a` @ `82addf079` (#1514, draft)                        |
-| Integration candidate (local only, never published) | `integration/cp1048-g-20261020` @ `49cb6e19c`                                                    |
-| Bundle                                              | `apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app`                                          |
-| Bundle identity                                     | `Adea-dev` 0.98.0, channel `dev`, identifier `dev.adea.desktop`                                  |
-| Runtime                                             | Electrobun **2.0.4**, bundled CEF, bundled Bun 1.4.0, `defaultRenderer: native`                  |
-| Declared URL scheme                                 | `adea` (`CFBundleURLTypes` → `CFBundleURLSchemes`)                                               |
-| Recorded build target                               | `{"mode":"local","cloudOrigin":"http://localhost:3000"}`                                         |
-| Shell entry digest (sha256)                         | `38b4dae799e6a14740f2ed13f7da6a02e655f5d4e02288f5e73225e47fe31b6e`                               |
-| Build target record digest (sha256)                 | `f4f73f77f565d7d3c4029e23de0b4d0fd6a997786986f01ef9a5a07c938f444e`                               |
-| Version identity digest (sha256)                    | `f82b5e671ad33ec0efbb65231030646858b10a748adb82de733fa8945e1e268b`                               |
+| Fact                                                | Value                                                                                                                                                    |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidate's integration base `main`                 | `333b948d4c5fba1f88d98d764c075b790be6ee22` (unchanged since the first run)                                                                               |
+| This lane's branch                                  | `test/installed-desktop-ui-acceptance-20261020`                                                                                                          |
+| Pull request base (current `main`)                  | `1098c658300beec7e49f1a2143aabd971aefbcfe` (the base moved forward from `333b948d4`)                                                                     |
+| Published head (the pull request)                   | `a18e35ff2e213133480811435b47107a68c6e2b3` — 13 commits on that base                                                                                     |
+| Local head (this record's continuation)             | the published head plus four local commits — the teardown repair, the drain repair, the evidence reconciliation and the row-log repair — all unpublished |
+| B — CI, no vendor dependency                        | `codex/20261020-ci-release-w7` @ `fcb20c08bafad0940330dd5728175a52f334beb3` (#1516, draft)                                                               |
+| C — provider coupling removed                       | `codex/20261020-efficiency-audit-w8` @ `7fa24f2ee991d672cb6ed1373b63f125a6e206e1` (#1515, draft)                                                         |
+| D — Railway qualification lane                      | `feat/railway-postgres-qualification-lane-a` @ `82addf079` (#1514, draft)                                                                                |
+| Integration candidate (local only, never published) | `integration/cp1048-g-20261020` @ `49cb6e19c`                                                                                                            |
+| Bundle                                              | `apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app`                                                                                                  |
+| Bundle identity                                     | `Adea-dev` 0.98.0, channel `dev`, identifier `dev.adea.desktop`                                                                                          |
+| Runtime                                             | Electrobun **2.0.4**, bundled CEF, bundled Bun 1.4.0, `defaultRenderer: native`                                                                          |
+| Declared URL scheme                                 | `adea` (`CFBundleURLTypes` → `CFBundleURLSchemes`)                                                                                                       |
+| Recorded build target                               | `{"mode":"local","cloudOrigin":"http://localhost:3000"}`                                                                                                 |
+| Shell entry digest (sha256)                         | `38b4dae799e6a14740f2ed13f7da6a02e655f5d4e02288f5e73225e47fe31b6e`                                                                                       |
+| Build target record digest (sha256)                 | `f4f73f77f565d7d3c4029e23de0b4d0fd6a997786986f01ef9a5a07c938f444e`                                                                                       |
+| Version identity digest (sha256)                    | `f82b5e671ad33ec0efbb65231030646858b10a748adb82de733fa8945e1e268b`                                                                                       |
 
 The candidate is the **local** target, not a release build: a release build
 needs Apple signing and notarization, which this lane does not do and is not
@@ -356,7 +356,7 @@ installed application reports that state instead of pretending to work.
 | `bun run --cwd apps/web dev` (no provider endpoint configured)                           | local cloud on `http://localhost:3000`; server log contains no `neon`                                                                           |
 | `bun scripts/installed-app-acceptance.ts --app-bundle … --artifact … --profile-parent …` | **21 passed, 1 failed, 22 rows** (row 6, §6.2) — the run predates the safety repair of §13, and the entry point was not executed again after it |
 | `bun test tests/boot-credential-store.test.ts` (apps/desktop)                            | 7 pass, 0 fail, 15 assertions                                                                                                                   |
-| `bun test scripts/installed-app-acceptance.test.ts`                                      | 73 pass, 0 fail, 210 assertions (59 pass / 168 assertions at the published head `a18e35ff`)                                                     |
+| `bun test scripts/installed-app-acceptance.test.ts`                                      | 74 pass, 0 fail, 288 assertions (59 pass / 168 assertions at the published head `a18e35ff`)                                                     |
 | `bun check -p shell/tsconfig.json` (apps/desktop)                                        | no type errors in 229 files — re-checked for this revision with `tsc --noEmit -p shell/tsconfig.json`, exit 0, no diagnostics                   |
 | pre-commit hook (`vp run orch:typecheck`)                                                | 33/33 successful, no type errors in 324 files                                                                                                   |
 | `bunx oxlint --deny-warnings` on the changed files                                       | exit 0                                                                                                                                          |
@@ -404,21 +404,21 @@ the head of the open pull request, and that head is on the remote:
 to it. The published head is **13 commits** on the pull request's current
 base, `1098c658300beec7e49f1a2143aabd971aefbcfe`.
 
-Everything after the published head is **local and unpublished**: the two
-commits that repair the teardown and the drain verdict, and the evidence
-repair this record now carries. The local head is
-`90e19c632ac67227ce5b3a5501d93d52dce1938d`, and the published head is not an
-ancestor of it — the two lines have shared no ancestor since `1001f8fa`, the
-point at which the repairs branched off, so the published scope was never
-folded into the local one.
+Everything after the published head is **local and unpublished**: four
+commits — the teardown repair (`e7f7e2704`), the drain repair (`90e19c63`),
+the evidence reconciliation (`a2ce5140f`) and this record's row-log repair.
+The published head is not an ancestor of the local head — the two lines have
+shared no ancestor since `1001f8fa`, the point at which the repairs branched
+off, so the published scope was never folded into the local one.
 
 **The publication hold on this pull request is in force.** Nothing here is
 pushed, the pull request is not marked ready, nothing is merged, no issue is
 closed, and no native acceptance is claimed for any part of it. The
-publication review that prompted this revision found two source defects and
-three evidence defects open; the evidence defects are addressed here, and the
-two source defects are not: the boot's legacy credential path and the vault's
-integrity classification belong to the Dev Runtime lane that owns them.
+publication review that prompted these revisions found two source defects,
+three evidence defects and one harness defect open; the evidence defects and
+the harness defect are addressed here, and the two source defects are not:
+the boot's legacy credential path and the vault's integrity classification
+belong to the Dev Runtime lane that owns them.
 
 The push itself is blocked in this environment: `gh` is not logged in, the
 macOS credential helper has no GitHub credential, and no token is present in
@@ -866,3 +866,53 @@ destroyed before it ended, a stream that closes before it ends, and a stream
 that fails — whose fixed reason carries no error text. The existing timeout
 case is retained, and a failing stream is shown to reach the verdict through
 the teardown.
+
+## 20. The row-log repair — the lane's own report is not a test runner's verdict
+
+The publication review of this pull request found one source-owned defect in
+the lane's own harness. It is corrected here; the shipped product is
+untouched, and no row, gate or claim in this record changes.
+
+### The defect
+
+`runInstalledAppAcceptance` prints one line per row while it runs, and the
+lane's own tests run the lane. The line opened with the bare token `FAIL`
+for a failed row and with `PEND` for a pending one:
+
+```
+FAIL installed-bundle-identity: the installed bundle does not declare the URL scheme
+PEND  installed-application-serves-its-own-client: not launched: …
+```
+
+That is the shape a Jest or Vitest reporter prints for a failing test, and
+the shape a CI log scanner greps for. The rows came from the negative case
+that proves the lane refuses to launch without a proved isolation contract,
+so the suite itself passed — 73 pass, 0 fail — while its own output read as a
+failure. A reader, and every log scanner, was told the opposite of the truth.
+
+### The repair
+
+The row log is namespaced and is spelled with the row vocabulary the artifact
+already uses (`pass`, `pending`, `fail`), so no line can be read as a verdict:
+
+```
+installed-app acceptance: row fail    installed-bundle-identity: the installed bundle does not declare the URL scheme
+installed-app acceptance: row pending installed-application-serves-its-own-client: not launched: …
+```
+
+The log is not silenced: every row's outcome is still reported, the row order
+is unchanged, and the artifact the run writes is unchanged.
+
+### The focused test
+
+`scripts/installed-app-acceptance.test.ts` gained one case; the suite grew
+from 73 cases to **74 (288 assertions)**:
+
+- **the lane's own row log is not a test runner's verdict** — the harness's
+  `console.log` is captured while the refusal case runs, and no printed line
+  may open with the bare token `FAIL` or with Bun's `(fail)`; a line that
+  names one of the run's rows must be one of the lane's own namespaced row
+  lines; and the failing row and the pending rows must still be reported.
+
+The case fails against the pre-fix row log and passes against the repair, so
+the row log cannot drift back into a runner's verdict shape.

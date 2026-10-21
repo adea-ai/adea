@@ -502,6 +502,59 @@ describe('the lane may not launch into the real user profile', () => {
   })
 })
 
+describe("the lane's own row log is not a test runner's verdict", () => {
+  const realRoot = '/Users/operator/Library/Application Support/dev.adea.desktop'
+
+  test('no row line can be read as a failing test', async () => {
+    // The lane prints one line per row while it runs, and the lane's own
+    // tests run the lane. A line that opens with the bare token `FAIL` is
+    // read as a failing test by every CI log scanner, so the row log must
+    // never look like a verdict.
+    const printed: string[] = []
+    const original = console.log
+    console.log = (...args: unknown[]) => {
+      printed.push(args.map((value) => String(value)).join(' '))
+    }
+    try {
+      const run = await runInstalledAppAcceptance({
+        bundle: '/nonexistent/Adea-dev.app',
+        profile: resolveAcceptanceProfile('/tmp/adea-acceptance-row-log'),
+        isolationEvidence: {
+          profilePath: `${realRoot}/dev/CEF`,
+          realRoot,
+        },
+        launch: () => {
+          throw new Error('the lane must not launch without a proved isolation route')
+        },
+        fetchFromApp: async () => ({ status: 0, body: '' }),
+      })
+      const rowIds = run.checks.map((row) => row.id)
+      expect(printed.length).toBeGreaterThan(0)
+      for (const line of printed) {
+        // Neither the shape a Jest/Vitest reporter prints nor the shape Bun
+        // prints may appear: these are the lane's own rows, not a verdict.
+        expect(/^\s*FAIL\b/.test(line)).toBe(false)
+        expect(line.startsWith('(fail)')).toBe(false)
+        // A line that names one of the run's rows is one of the lane's own
+        // namespaced row lines.
+        if (rowIds.some((id) => line.includes(id))) {
+          expect(line.startsWith('installed-app acceptance: row ')).toBe(true)
+        }
+      }
+      // The log is not silenced: the failing row and the pending rows are
+      // still reported, under the lane's own namespace.
+      expect(
+        printed.some(
+          (line) => line.includes('row fail') && line.includes('installed-bundle-identity')
+        )
+      ).toBe(true)
+      expect(printed.some((line) => line.includes('row pending'))).toBe(true)
+    } finally {
+      console.log = original
+    }
+  })
+})
+
 describe('an unproved observation cannot pass', () => {
   test('an empty socket discovery is pending, not a pass', () => {
     const observation = assessSocketObservation([])

@@ -1319,8 +1319,14 @@ export async function runInstalledAppAcceptance(dependencies: {
   let competingCopies: string[] = []
   const add = (check: AcceptanceCheck) => {
     checks.push(check)
-    const label = check.status === 'pass' ? 'ok  ' : check.status === 'pending' ? 'PEND ' : 'FAIL'
-    console.log(`${label} ${check.id}: ${check.actual}`)
+    // The row log is this lane's own report, not a test runner's verdict. A
+    // line that opens with the bare token `FAIL` is read as a failing test by
+    // every CI log scanner, and these rows are printed while the lane's own
+    // tests run — so the status is namespaced and spelled with the same
+    // vocabulary the artifact uses, and no line can be mistaken for a verdict.
+    console.log(
+      `installed-app acceptance: row ${check.status.padEnd(7)} ${check.id}: ${check.actual}`
+    )
   }
   const profile = dependencies.profile
   // One ledger for the whole run: every launch reports its failures here, and
