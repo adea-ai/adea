@@ -1,3 +1,4 @@
+import { workspaceRolePermissions } from '@adea-ai/auth/authorization'
 import type {
   PrincipalRef,
   UserPrincipalRef,
@@ -50,9 +51,16 @@ function workspaceSummary(
   sortOrder: number,
   userId: string
 ): WorkspaceSummary {
+  const owned = row.ownerUserId === userId
+  // An archived workspace keeps its history, links, jobs and artifacts, but it
+  // is no longer an archive or a deletion target: archive is not erasure, and
+  // permanent deletion stays blocked before a server-owned cleanup verifier
+  // exists. A pending deletion is already past the point where a second
+  // request could start one.
+  const lifecycleOpen = !row.deletedAt && !row.deletionRequestedAt
   return Object.freeze({
-    canDelete: row.ownerUserId === userId && !isPersonalWorkspace(row),
-    canArchive: row.ownerUserId === userId && !isPersonalWorkspace(row),
+    canDelete: owned && !isPersonalWorkspace(row) && lifecycleOpen,
+    canArchive: owned && !isPersonalWorkspace(row) && lifecycleOpen,
     isPersonal: row.isPersonal && row.ownerUserId === userId,
     ...(row.deletionRequestedAt ? { deletionPending: true } : {}),
     accent: (row.accent as WorkspaceAccent | null) ?? null,
@@ -200,6 +208,18 @@ export async function createWorkspaceWithOwner(
 
 const legacyPersonalKeys = ['default-home', 'default']
 
+/**
+ * The personal root's stable creation key.
+ *
+ * A bootstrap that is replayed — the client retried, the request was
+ * duplicated, or the driver replayed the transaction after a serialization
+ * failure — must converge on the same Home instead of minting a second one.
+ * A stable key makes the personal root's creation idempotent for its owner,
+ * and the `personal:` prefix stays reserved: the create route refuses it, so
+ * a caller can never claim the root's identity for itself.
+ */
+export const personalRootIdempotencyKey = 'personal:home'
+
 function isPersonalWorkspace(
   row: Pick<typeof workspaces.$inferSelect, 'isPersonal' | 'idempotencyKey'>
 ): boolean {
@@ -275,6 +295,10 @@ async function workspacesForUser(
  * Exactly one persistent personal/root workspace per owner. Only stable legacy
  * seed markers are promoted. Ambiguous claimed workspaces are retained and a
  * new root is added; Home/Work names alone never identify a personal workspace.
+ *
+ * The bootstrap is replay-safe: it converges on one Home row, repairs a missing
+ * owner membership, and never creates a second personal root for the same
+ * owner. A replay returns the same Home the first call created.
  */
 export async function ensureBootstrapWorkspaces(
   database: AgentHqDatabase,
@@ -287,35 +311,43 @@ export async function ensureBootstrapWorkspaces(
       .where(eq(users.id, owner.userId))
       .for('update')
     const personal = await personalWorkspaceInTransaction(transaction, owner.userId)
-    if (!personal)
-      await createWorkspaceWithOwnerInTransaction(
-        transaction,
-        {
-          idempotencyKey: `personal:${crypto.randomUUID()}`,
-          name: 'Home',
-          scene: 'home',
-          owner,
-        },
-        true
-      )
-    else {
-      // Repair a missing owner membership without moving an existing one.
-      await transaction
-        .insert(workspaceMemberships)
-        .values({
-          role: 'owner',
-          userId: owner.userId,
-          workspaceId: personal.id,
-          sortOrder: await nextWorkspaceSortOrder(transaction, owner.userId),
-        })
-        .onConflictDoNothing({
-          target: [workspaceMemberships.workspaceId, workspaceMemberships.userId],
-        })
-    }
+    const root = personal
+      ? personal
+      : (
+          await createWorkspaceWithOwnerInTransaction(
+            transaction,
+            {
+              idempotencyKey: personalRootIdempotencyKey,
+              name: 'Home',
+              scene: 'home',
+              owner,
+            },
+            true
+          )
+        ).workspace
+    // The owner membership is the root's authority. A replayed bootstrap that
+    // found the row already present must still repair it, or the Home would be
+    // invisible to its own owner.
+    await transaction
+      .insert(workspaceMemberships)
+      .values({
+        role: 'owner',
+        userId: owner.userId,
+        workspaceId: root.id,
+        sortOrder: await nextWorkspaceSortOrder(transaction, owner.userId),
+      })
+      .onConflictDoNothing({
+        target: [workspaceMemberships.workspaceId, workspaceMemberships.userId],
+      })
     const rows = await workspacesForUser(transaction, owner)
-    return rows.map(({ sortOrder, workspace }) =>
+    const summaries = rows.map(({ sortOrder, workspace }) =>
       workspaceSummary(workspace, sortOrder, owner.userId)
     )
+    // Fail closed: a bootstrap that cannot show exactly one protected personal
+    // root has not provisioned Home, and must not pass a list that omits it.
+    if (summaries.filter((summary) => summary.isPersonal).length !== 1)
+      throw new Error('Workspace personal root unavailable')
+    return summaries
   })
 }
 
@@ -716,6 +748,17 @@ export async function deleteWorkspace(
   })
 }
 
+/**
+ * Archives one optional workspace.
+ *
+ * Archive is not erasure. The workspace row, its memberships, its history,
+ * its links, its linked jobs and its artifacts are all retained; only the
+ * workspace's visibility changes. New work in an archived workspace is refused
+ * by the resources that check the workspace's lifecycle, and permanent
+ * deletion stays blocked until a server-owned cleanup verifier exists.
+ *
+ * The personal root is never archived.
+ */
 export async function archiveWorkspace(
   database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
@@ -727,6 +770,7 @@ export async function archiveWorkspace(
         ownerUserId: workspaces.ownerUserId,
         isPersonal: workspaces.isPersonal,
         idempotencyKey: workspaces.idempotencyKey,
+        deletionRequestedAt: workspaces.deletionRequestedAt,
       })
       .from(workspaces)
       .where(
@@ -739,6 +783,9 @@ export async function archiveWorkspace(
       .limit(1)
     if (!workspace) throw new Error('Workspace unavailable')
     if (isPersonalWorkspace(workspace)) throw new WorkspacePersonalProtectedError()
+    // A workspace whose deletion is already pending is past the archive
+    // boundary; archiving it would present two competing lifecycle endings.
+    if (workspace.deletionRequestedAt) throw new Error('Workspace unavailable')
 
     const now = new Date()
     await transaction
@@ -798,9 +845,14 @@ export async function reopenWorkspace(
 }
 
 /**
- * Applies a versioned update to a live workspace the caller is a member of.
+ * Applies a versioned update to a live workspace the caller may rename.
  * The caller's authorization (`workspace.update`) is checked by the route; a
  * stale `expectedVersion` raises `WorkspaceVersionConflictError`.
+ *
+ * The rename is scope-aware and presentation-only: only a role that grants
+ * `workspace.update` may rename the workspace, the change never touches the
+ * workspace's identity, its memberships or its content, and an archived
+ * workspace is never renamed.
  */
 export async function updateWorkspace(
   database: AgentHqDatabase | AgentHqTransaction,
@@ -810,7 +862,10 @@ export async function updateWorkspace(
 ): Promise<WorkspaceSummary> {
   return database.transaction(async (transaction) => {
     const [membership] = await transaction
-      .select({ sortOrder: workspaceMemberships.sortOrder })
+      .select({
+        role: workspaceMemberships.role,
+        sortOrder: workspaceMemberships.sortOrder,
+      })
       .from(workspaceMemberships)
       .innerJoin(workspaces, eq(workspaceMemberships.workspaceId, workspaces.id))
       .where(
@@ -823,6 +878,15 @@ export async function updateWorkspace(
       )
       .limit(1)
     if (!membership) throw new Error('Workspace unavailable')
+    // Membership alone is not authority to rename. The same role matrix the
+    // management gateway applies decides here, so a direct database caller
+    // cannot reach past it.
+    if (
+      !new Set<WorkspacePermission>(workspaceRolePermissions[membership.role]).has(
+        'workspace.update'
+      )
+    )
+      throw new Error('Workspace unavailable')
 
     const { update } = input
     const [workspace] = await transaction

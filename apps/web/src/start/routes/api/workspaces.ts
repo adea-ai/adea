@@ -46,12 +46,18 @@ async function post(request: Request) {
   } catch {
     return workspaceInvalidRequestResponse(request)
   }
+  // A JSON `null`, an array or a scalar body is not a workspace request. It is
+  // refused as an invalid request, never read as an empty object.
+  if (body === null || typeof body !== 'object' || Array.isArray(body))
+    return workspaceInvalidRequestResponse(request)
   const candidate = body as Record<string, unknown>
   const name = typeof candidate.name === 'string' ? candidate.name.trim() : ''
   const scene = candidate.scene === undefined ? 'home' : candidate.scene
   if (
     !idempotencyKey ||
     idempotencyKey.length > 128 ||
+    // The personal root's own creation key is reserved: a caller may never
+    // claim the protected Home's identity for a workspace of its own.
     idempotencyKey.startsWith('personal:') ||
     ['default', 'default-home', 'default-work'].includes(idempotencyKey) ||
     !name ||

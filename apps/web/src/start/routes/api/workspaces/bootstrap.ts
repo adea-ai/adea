@@ -24,11 +24,29 @@ async function post(request: Request) {
   const authorization = await authorizeWorkspace(resolution.principal, 'workspace.create', null)
   if (!authorization.allowed) return workspaceUnavailableResponse(request)
 
-  const workspaces = await ensureBootstrapWorkspaces(applicationDatabase(), resolution.principal)
+  // The bootstrap is replay-safe: a repeated call for the same principal
+  // converges on the same protected Home instead of minting a second one.
+  let workspaces: Awaited<ReturnType<typeof ensureBootstrapWorkspaces>>
+  try {
+    workspaces = await ensureBootstrapWorkspaces(applicationDatabase(), resolution.principal)
+  } catch (error) {
+    // A bootstrap that cannot establish exactly one protected personal root has
+    // not provisioned Home. Fail closed instead of handing back a session whose
+    // workspace list omits it.
+    if (error instanceof Error && error.message === 'Workspace personal root unavailable')
+      return workspaceUnavailableResponse(request)
+    throw error
+  }
   const displayName = await getUserDisplayName(applicationDatabase(), resolution.principal)
 
+  // Home is the caller's own protected personal root. It is the only workspace
+  // this entry may activate: any other workspace in the list is shared with
+  // the caller and is never their active workspace.
+  const personalRoots = workspaces.filter((workspace) => workspace.isPersonal)
+  if (personalRoots.length !== 1) return workspaceUnavailableResponse(request)
+
   const payload: ApiWorkspaceBootstrapResponse = {
-    activeWorkspace: workspaces.find((workspace) => workspace.isPersonal) ?? workspaces[0] ?? null,
+    activeWorkspace: personalRoots[0] ?? null,
     principal: {
       ...(displayName ? { displayName } : {}),
       temporary: resolution.temporary,

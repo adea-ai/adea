@@ -1,7 +1,13 @@
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope } from '../../../../server/request-scope'
 import type { ApiWorkspaceResponse, ApiWorkspaceUpdateResponse } from '@adea-ai/api-client'
-import { getWorkspaceForUser, listAgentsForUser, listTasksForUser } from '@adea-ai/db'
+import {
+  getWorkspaceForUser,
+  getWorkspaceLeadForUser,
+  listAgentsForUser,
+  listTasksForUser,
+} from '@adea-ai/db'
+import type { AgentSummary } from '@adea-ai/types'
 
 import { applicationDatabase } from '../../../../server/database'
 import {
@@ -37,13 +43,20 @@ async function get(request: Request, { params }: { params: { workspaceId: string
   )
   if (!workspace) return workspaceUnavailableResponse(request)
 
-  const [agents, tasks] = await Promise.all([
+  const [agents, lead, tasks] = await Promise.all([
     listAgentsForUser(applicationDatabase(), workspaceId, resolution.principal),
+    // The structural lead's own record, read under the caller's workspace
+    // membership: the lead is visible to workspace members and to no one
+    // else. The roster above carries active agents only, so a lead that
+    // exists but is not active would be indistinguishable from no lead at
+    // all, and the readiness projection needs that difference.
+    getWorkspaceLeadForUser(applicationDatabase(), workspaceId, resolution.principal),
     listTasksForUser(applicationDatabase(), workspaceId, resolution.principal),
   ])
-  const response: ApiWorkspaceResponse = {
+  const response: ApiWorkspaceResponse & { lead: AgentSummary | null } = {
     workspace,
     agents,
+    lead,
     tasks,
   }
 

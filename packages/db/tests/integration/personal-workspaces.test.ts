@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq, inArray, sql } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { readFileSync } from 'node:fs'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import {
@@ -9,14 +9,17 @@ import {
   createUserWithAuthIdentity,
 } from '../../src/identity'
 import {
+  addWorkspaceMembership,
   archiveWorkspace,
   beginWorkspaceDeletion,
   createWorkspaceWithOwner,
   deleteWorkspace,
   ensureBootstrapWorkspaces,
   getWorkspaceForUser,
+  listArchivedWorkspacesForOwner,
   listWorkspacesForUser,
   reorderWorkspaces,
+  reopenWorkspace,
   updateWorkspace,
   workspaceDeletionState,
 } from '../../src/workspaces'
@@ -254,6 +257,179 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
     expect(await workspaceDeletionState(connection.db, updated.id, principal)).toBeNull()
     expect(await getWorkspaceForUser(connection.db, updated.id, principal)).toEqual(updated)
     expect(await ensureBootstrapWorkspaces(connection.db, principal)).toEqual([updated])
+  })
+
+  test('a replayed bootstrap converges on one Home and repairs a missing owner membership', async () => {
+    const { principal } = await guest()
+    const first = await ensureBootstrapWorkspaces(connection.db, principal)
+    expect(first.filter((workspace) => workspace.isPersonal)).toHaveLength(1)
+
+    // A replay is the same bootstrap, asked twice: it converges on the same
+    // Home rather than minting a second one.
+    const replay = await ensureBootstrapWorkspaces(connection.db, principal)
+    expect(replay).toEqual(first)
+
+    const personalRows = () =>
+      connection.db
+        .select({ idempotencyKey: workspaces.idempotencyKey })
+        .from(workspaces)
+        .where(and(eq(workspaces.ownerUserId, principal.userId), eq(workspaces.isPersonal, true)))
+    const rows = await personalRows()
+    expect(rows).toHaveLength(1)
+    // The root's creation key is stable, so a replayed or retried creation
+    // resolves to the same row instead of another Home.
+    expect(rows[0]?.idempotencyKey).toBe('personal:home')
+
+    // A lost owner membership is the one way the root could become invisible
+    // to its own owner. The next bootstrap repairs it.
+    const home = first.find((workspace) => workspace.isPersonal)!
+    await connection.db
+      .delete(workspaceMemberships)
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, home.id),
+          eq(workspaceMemberships.userId, principal.userId)
+        )
+      )
+    expect(await listWorkspacesForUser(connection.db, principal)).toEqual([])
+    const repaired = await ensureBootstrapWorkspaces(connection.db, principal)
+    expect(repaired.map((workspace) => workspace.id)).toEqual(
+      first.map((workspace) => workspace.id)
+    )
+    expect(repaired.find((workspace) => workspace.isPersonal)?.id).toBe(home.id)
+    expect(await personalRows()).toHaveLength(1)
+  })
+
+  test('concurrent bootstraps for one owner still leave exactly one personal root', async () => {
+    const { principal } = await guest()
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => ensureBootstrapWorkspaces(connection.db, principal))
+    )
+    for (const result of results) expect(result).toEqual(results[0])
+    expect(
+      results[0]!.filter((workspace) => workspace.isPersonal).map((workspace) => workspace.id)
+    ).toHaveLength(1)
+    const roots = await connection.db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(and(eq(workspaces.ownerUserId, principal.userId), eq(workspaces.isPersonal, true)))
+    expect(roots).toHaveLength(1)
+  })
+
+  test('a rename is scope-aware and presentation-only', async () => {
+    const owner = await guest()
+    const member = await guest()
+    const admin = await guest()
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'Rename scope',
+      owner: owner.principal,
+    })
+    await addWorkspaceMembership(connection.db, workspace.id, member.principal, 'member')
+    await addWorkspaceMembership(connection.db, workspace.id, admin.principal, 'admin')
+
+    // Membership alone is not authority to rename: the same role matrix the
+    // route applies decides here too.
+    await expect(
+      updateWorkspace(connection.db, workspace.id, member.principal, {
+        expectedVersion: workspace.version,
+        update: { name: 'Member rename' },
+      })
+    ).rejects.toThrow('Workspace unavailable')
+    expect((await getWorkspaceForUser(connection.db, workspace.id, owner.principal))?.name).toBe(
+      'Rename scope'
+    )
+
+    // A stale revision conflicts instead of overwriting the current name.
+    await expect(
+      updateWorkspace(connection.db, workspace.id, owner.principal, {
+        expectedVersion: workspace.version + 5,
+        update: { name: 'Stale rename' },
+      })
+    ).rejects.toThrow('Workspace version conflict')
+
+    const renamed = await updateWorkspace(connection.db, workspace.id, owner.principal, {
+      expectedVersion: workspace.version,
+      update: { name: 'Renamed' },
+    })
+    expect(renamed).toMatchObject({
+      id: workspace.id,
+      name: 'Renamed',
+      version: workspace.version + 1,
+    })
+
+    // An admin shares the update authority; a rename still changes nothing
+    // but presentation. The lifecycle capabilities stay with the owner.
+    const adminRenamed = await updateWorkspace(connection.db, workspace.id, admin.principal, {
+      expectedVersion: renamed.version,
+      update: { name: 'Admin renamed' },
+    })
+    expect(adminRenamed).toMatchObject({
+      id: workspace.id,
+      name: 'Admin renamed',
+      canArchive: false,
+      canDelete: false,
+    })
+    expect(
+      (
+        await connection.db
+          .select()
+          .from(workspaceMemberships)
+          .where(eq(workspaceMemberships.workspaceId, workspace.id))
+      ).length
+    ).toBe(3)
+  })
+
+  test('an archived workspace offers neither archive nor deletion; reopening restores both', async () => {
+    const { principal } = await guest()
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'Archive capability',
+      owner: principal,
+    })
+    expect(workspace).toMatchObject({ canArchive: true, canDelete: true })
+
+    await archiveWorkspace(connection.db, workspace.id, principal)
+    const archived = (await listArchivedWorkspacesForOwner(connection.db, principal)).find(
+      (candidate) => candidate.id === workspace.id
+    )
+    // Archive is not erasure: the row, its history and its links stay, but
+    // the workspace is no longer an archive or a deletion target.
+    expect(archived).toMatchObject({ id: workspace.id, canArchive: false, canDelete: false })
+    expect(
+      await connection.db.select().from(workspaces).where(eq(workspaces.id, workspace.id))
+    ).toHaveLength(1)
+    expect(
+      await connection.db
+        .select()
+        .from(workspaceMemberships)
+        .where(eq(workspaceMemberships.workspaceId, workspace.id))
+    ).toHaveLength(1)
+
+    const reopened = await reopenWorkspace(connection.db, workspace.id, principal)
+    expect(reopened).toMatchObject({ id: workspace.id, canArchive: true, canDelete: true })
+    expect(await listArchivedWorkspacesForOwner(connection.db, principal)).toEqual([])
+  })
+
+  test('the personal root keeps its identity through a rename and never offers archive or deletion', async () => {
+    const { principal } = await guest()
+    const [home] = await ensureBootstrapWorkspaces(connection.db, principal)
+    const renamed = await updateWorkspace(connection.db, home!.id, principal, {
+      expectedVersion: home!.version,
+      update: { name: 'Studio' },
+    })
+    expect(renamed).toMatchObject({
+      id: home!.id,
+      name: 'Studio',
+      isPersonal: true,
+      canArchive: false,
+      canDelete: false,
+    })
+    const roots = await connection.db
+      .select({ id: workspaces.id, isPersonal: workspaces.isPersonal })
+      .from(workspaces)
+      .where(and(eq(workspaces.ownerUserId, principal.userId), eq(workspaces.isPersonal, true)))
+    expect(roots).toEqual([{ id: home!.id, isPersonal: true }])
   })
 
   test('legacy migration preserves renamed/custom Home, Work, memberships, order and project IDs', async () => {
