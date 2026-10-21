@@ -47,6 +47,7 @@ const stepNamed = (job: Job, name: string) => {
 describe('the database proof lane proves only a disposable local instance', () => {
   test('it runs one disposable proof and its own fail-closed gate', () => {
     expect(Object.keys(jobs).toSorted()).toEqual([
+      'built_worker_desktop_auth_proof',
       'disposable_postgres_gate',
       'disposable_postgres_proof',
       'fresh_account_acceptance_proof',
@@ -432,21 +433,25 @@ describe('the fresh-account acceptance job wires the acceptance lane into CI', (
     )
   })
 
-  test('the fail-closed aggregate covers the fresh-account acceptance result', () => {
+  test('the fail-closed aggregate covers every disposable proof', () => {
     const gate = jobs.disposable_postgres_gate!
     // The aggregate's own check name and threshold are unchanged; it now also
-    // requires the fresh-account acceptance result.
+    // requires the fresh-account acceptance result and the built-Worker desktop
+    // auth result.
     expect(gate.name).toBe('Prove Disposable PostgreSQL')
     expect(gate['timeout-minutes']).toBe(5)
     expect([...(gate.needs as string[])]).toEqual([
       'disposable_postgres_proof',
       'fresh_account_acceptance_proof',
+      'built_worker_desktop_auth_proof',
     ])
     const check = stepNamed(gate, 'Require the disposable proof to succeed')
     expect(check.run).toContain('test "$PROOF_RESULT" = success')
     expect(check.run).toContain('test "$ACCEPTANCE_RESULT" = success')
+    expect(check.run).toContain('test "$WORKER_RESULT" = success')
     expect(check.env?.PROOF_RESULT).toBe('${{ needs.disposable_postgres_proof.result }}')
     expect(check.env?.ACCEPTANCE_RESULT).toBe('${{ needs.fresh_account_acceptance_proof.result }}')
+    expect(check.env?.WORKER_RESULT).toBe('${{ needs.built_worker_desktop_auth_proof.result }}')
   })
 
   test('the job removes nothing and reaches no hosted database', () => {
@@ -456,5 +461,115 @@ describe('the fresh-account acceptance job wires the acceptance lane into CI', (
     expect(body).not.toContain('docker rm')
     expect(body).not.toContain('prune')
     expect(body).not.toContain('docker system')
+  })
+})
+
+describe('the built-Worker desktop auth job wires the qualification into CI', () => {
+  const worker = jobs.built_worker_desktop_auth_proof!
+
+  test('it is the qualification’s own job, with the same draft filter as the proof', () => {
+    expect(worker.name).toBe('Built Worker desktop auth proof')
+    expect(worker.permissions).toEqual({ contents: 'read' })
+    expect(worker.if).toContain('github.event.pull_request.draft == false')
+    // The qualification builds the web application itself, and its own build
+    // budget is thirty minutes, so the job needs more room than that.
+    expect(worker['timeout-minutes']).toBe(45)
+  })
+
+  test('it checks out the exact head and requires the receipt to name it', () => {
+    const checkout = stepNamed(worker, 'Checkout pull request')
+    expect(checkout.with?.ref).toBe('${{ github.event.pull_request.head.sha }}')
+    expect(checkout.with?.['persist-credentials']).toBe(false)
+    expect(worker.env?.EXPECTED_HEAD).toBe('${{ github.event.pull_request.head.sha }}')
+    const gate = stepNamed(worker, 'Gate and publish the acceptance receipt')
+    expect(gate.run).toContain('"$EXPECTED_HEAD"')
+  })
+
+  test('it runs the qualification unchanged, with the pinned toolchain', () => {
+    const run = stepNamed(worker, 'Run the built-Worker desktop auth qualification')
+    expect(run.run).toContain('bun scripts/built-worker-desktop-auth-cli.ts')
+    // The receipt goes outside the checkout, so the tree the receipt names is
+    // still the clean tree the run happened in.
+    expect(run.run).toContain('$RUNNER_TEMP/built-worker-desktop-auth.out')
+    const bun = stepNamed(worker, 'Install Bun')
+    expect(bun.with?.['bun-version']).toBe('1.4.3')
+    const node = stepNamed(worker, 'Install the repository Node runtime')
+    expect(node.with?.['node-version']).toBe('24.21.0')
+    expect(stepNamed(worker, 'Install dependencies').run).toBe('bun install --frozen-lockfile')
+    expect(stepNamed(worker, 'Build the workspace packages the web build imports').run).toBe(
+      'bun run build:web-deps'
+    )
+  })
+
+  test('it installs the same PostgreSQL 18 client tools the proof job uses', () => {
+    const proof = jobs.disposable_postgres_proof!
+    const install = stepNamed(worker, 'Install the PostgreSQL 18 client tools')
+    expect(install.run).toBe(stepNamed(proof, 'Install the PostgreSQL 18 client tools').run)
+    expect(install.run).toContain('postgresql-client-18')
+    const check = stepNamed(worker, 'Check the PostgreSQL 18 client tools')
+    expect(check.run).toContain('/usr/lib/postgresql/18/bin/pg_dump --version')
+    expect(check.run).toContain('/usr/lib/postgresql/18/bin/pg_restore --version')
+  })
+
+  test('a failed or a missing proof publishes no receipt', () => {
+    const body = JSON.stringify(worker)
+    expect(body).not.toContain('continue-on-error')
+    // The publish step and the gate have no condition of their own, so a failed
+    // or a skipped qualification publishes nothing.
+    expect(stepNamed(worker, 'Publish the acceptance receipt').if).toBeUndefined()
+    expect(stepNamed(worker, 'Gate and publish the acceptance receipt').if).toBeUndefined()
+    const upload = stepNamed(worker, 'Publish the acceptance receipt')
+    expect(upload.uses).toBe('actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a')
+    expect(upload.with?.['if-no-files-found']).toBe('error')
+    expect(upload.with?.name).toBe('built-worker-desktop-auth-receipt')
+  })
+
+  test('the leak check reports newly observed resources and removes nothing', () => {
+    const step = stepNamed(worker, 'Require no newly observed container to remain')
+    expect(step.if).toBe('always()')
+    expect(step.run).toContain('docker ps -a')
+    expect(step.run).toContain("'{{.ID}}'")
+    expect(step.run).toContain('comm -13')
+    expect(step.run).toContain('newly observed container resources')
+    expect(step.run).not.toContain('docker rm')
+    expect(step.run).not.toContain('prune')
+    expect(step.run).not.toContain('docker system')
+    // The snapshot is taken before the qualification runs.
+    const names = worker.steps.map((candidate: { name?: string }) => candidate.name)
+    expect(names.indexOf('Record the containers the runner has')).toBeLessThan(
+      names.indexOf('Run the built-Worker desktop auth qualification')
+    )
+  })
+
+  test('the gate it calls is the CI gate this lane owns', () => {
+    const gate = readFileSync(resolve(root, 'scripts/ci-built-worker-desktop-auth.mjs'), 'utf8')
+    expect(gate).toContain('assertBuiltWorkerReceipt')
+    expect(gate).toContain('does not name the exact head the job checked out')
+    expect(gate).toContain('did not clean up after itself')
+    // The gate is a Node program, like the fresh-account gate, and it reads
+    // the shared provenance contract rather than restating it. It does not
+    // claim a runtime it is not run with.
+    expect(gate).toContain("from './fresh-postgres-acceptance/provenance.mjs'")
+    expect(gate).not.toContain('The gate runs with Bun')
+    const step = stepNamed(worker, 'Gate and publish the acceptance receipt')
+    expect(step.run).toContain('node scripts/ci-built-worker-desktop-auth.mjs')
+  })
+
+  test('the gate it calls counts the assertions instead of believing them', () => {
+    const gate = readFileSync(resolve(root, 'scripts/ci-built-worker-desktop-auth.mjs'), 'utf8')
+    // A receipt that carries no assertion cannot claim that it passed some.
+    expect(gate).toContain('carries no assertion list')
+    expect(gate).toContain('carries no assertion')
+    // The assertions have to have the shape the contract declares.
+    expect(gate).toContain('without a name')
+    expect(gate).toContain('without a result')
+    expect(gate).toContain('without a detail')
+    expect(gate).toContain('without a usable attempt count')
+    expect(gate).toContain('without an outcome')
+    // The counts have to be the numbers the assertions say.
+    expect(gate).toContain('does not carry integer assertion counters')
+    expect(gate).toContain('counters do not match the assertions it carries')
+    // The artifact has to name the build it proved.
+    expect(gate).toContain('no usable artifact digest')
   })
 })
