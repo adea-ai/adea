@@ -96,34 +96,48 @@ const TOOL_ENVIRONMENT_NAMES = ['PATH', 'HOME', 'TMPDIR', 'LANG']
 // was raised to make a phase fit.
 const OUTER_COMMAND_CEILING_MS = 600_000
 const OUTER_MARGIN_MS = 15_000
-const TOOL_TIMEOUT_MS = 10_000
+// The bound of a child process that starts, does one thing and ends. Measured,
+// the initializer, pg_dump, pg_restore and the migration verifier each finished
+// in a fraction of a second.
+const TOOL_TIMEOUT_MS = 5_000
+// The bound of the prefix runner, which applies the migration chain's prefix.
+// Measured, it finished in about a second and a half.
+const PREFIX_TOOL_TIMEOUT_MS = 10_000
 const DB_QUERY_TIMEOUT_MS = 5_000
 const CONNECT_TIMEOUT_MS = 5_000
 const CLEANUP_TIMEOUT_MS = 10_000
 // The grace an abandoned cleanup stage is given to stop before the next stage
 // runs. It is short: the stage was cancelled, so the work is already ending.
 const CLEANUP_SETTLE_MS = 1_000
-// The before-all phase: one admin connection, then the schema, the restore
-// database and the two seed inserts.
-const BEFORE_ALL_BUDGET_MS = CONNECT_TIMEOUT_MS + 4 * DB_QUERY_TIMEOUT_MS
-// The dump and restore phase: three snapshot connections, thirty-five
-// statements and four child processes (the initializer twice, pg_dump and
-// pg_restore).
+// The before-all phase: the admin connection, the connection the seed rows are
+// written on, then the schema, the restore database and the two seed inserts.
+const BEFORE_ALL_BUDGET_MS = 2 * CONNECT_TIMEOUT_MS + 4 * DB_QUERY_TIMEOUT_MS
+// The dump and restore phase: two snapshot connections (the source and the
+// restored target, the latter read twice), thirty-five statements and four child
+// processes (the initializer twice, pg_dump and pg_restore).
 const DUMP_RESTORE_BUDGET_MS =
-  3 * CONNECT_TIMEOUT_MS + 35 * DB_QUERY_TIMEOUT_MS + 4 * TOOL_TIMEOUT_MS
+  2 * CONNECT_TIMEOUT_MS + 35 * DB_QUERY_TIMEOUT_MS + 4 * TOOL_TIMEOUT_MS
 // The restored-behaviour phase: one connection and five statements.
 const RESTORED_BEHAVIOUR_BUDGET_MS = CONNECT_TIMEOUT_MS + 5 * DB_QUERY_TIMEOUT_MS
-// The application-document phase: four connections, three statements and two
-// child processes (the migration verifier twice: once for the restored target
-// and once for the target whose ledger was altered).
+// The application-document phase: two connections, four statements (the source
+// document, the raw restored document, the document after the verifier and the
+// altered ledger) and two child processes (the migration verifier twice: once
+// for the restored target and once for the target whose ledger was altered).
 const APPLICATION_DOCUMENT_BUDGET_MS =
-  4 * CONNECT_TIMEOUT_MS + 3 * DB_QUERY_TIMEOUT_MS + 2 * TOOL_TIMEOUT_MS
-// The historical-prefix phase: two connections, six statements and two child
+  2 * CONNECT_TIMEOUT_MS + 4 * DB_QUERY_TIMEOUT_MS + 2 * TOOL_TIMEOUT_MS
+// The historical-prefix phase: four connections (the source document, the
+// seeded rows, the prefix document read twice and the drop's own connection),
+// seven statements (the source document, the create, the two seed inserts, the
+// prefix document, the document after the repair and the drop) and two child
 // processes (the prefix runner and the migration verifier).
 const HISTORICAL_PREFIX_BUDGET_MS =
-  2 * CONNECT_TIMEOUT_MS + 6 * DB_QUERY_TIMEOUT_MS + 2 * TOOL_TIMEOUT_MS
-// The blocked-lock phase: one connection and eight statements.
-const BLOCKED_TEST_BUDGET_MS = CONNECT_TIMEOUT_MS + 8 * DB_QUERY_TIMEOUT_MS
+  4 * CONNECT_TIMEOUT_MS + 7 * DB_QUERY_TIMEOUT_MS + PREFIX_TOOL_TIMEOUT_MS + TOOL_TIMEOUT_MS
+// The blocked-lock phase: three connections (the holder of the lock and the two
+// own-statement calls) and eight statements.
+const BLOCKED_TEST_BUDGET_MS = 3 * CONNECT_TIMEOUT_MS + 8 * DB_QUERY_TIMEOUT_MS
+// The cleanup-lifecycle phase: one connection, one statement and the settle
+// grace the abandoned statement is given.
+const CLEANUP_LIFECYCLE_BUDGET_MS = CONNECT_TIMEOUT_MS + DB_QUERY_TIMEOUT_MS + CLEANUP_SETTLE_MS
 // The cleanup stages, each individually bounded and settled before the next one
 // runs: the reap of the child processes, five statements on their own
 // connections, the statement that proves the seeded rows are gone on the admin
@@ -134,13 +148,19 @@ const CLEANUP_PROVE_BUDGET_MS = DB_QUERY_TIMEOUT_MS
 const CLEANUP_REAP_BUDGET_MS = TOOL_TIMEOUT_MS
 const CLEANUP_POOL_BUDGET_MS = CONNECT_TIMEOUT_MS
 const CLEANUP_WORK_DIRECTORY_BUDGET_MS = TOOL_TIMEOUT_MS
+// The number of cleanup stages, and therefore the settle grace every stage can
+// spend when it is abandoned and cannot be stopped.
+const CLEANUP_STAGES = 9
 const AFTER_ALL_BUDGET_MS =
   CLEANUP_REAP_BUDGET_MS +
   5 * CLEANUP_STAGE_BUDGET_MS +
   CLEANUP_PROVE_BUDGET_MS +
   CLEANUP_POOL_BUDGET_MS +
-  CLEANUP_WORK_DIRECTORY_BUDGET_MS
-// The loopback guard and the stalled-child tests, all of which finish in seconds.
+  CLEANUP_WORK_DIRECTORY_BUDGET_MS +
+  CLEANUP_STAGES * CLEANUP_SETTLE_MS
+// The loopback guard and the stalled-child tests, all of which finish in seconds:
+// the URL cases, the two bounded child processes, the bounded cleanup stages and
+// the one connection that is refused.
 const UNCONDITIONAL_BUDGET_MS = 30_000
 const RUNNER = join(import.meta.dir, 'schema-init-runner.ts')
 const PREFIX_RUNNER = join(import.meta.dir, 'schema-prefix-runner.ts')
@@ -331,6 +351,16 @@ export type CleanupStep = readonly [
   budgetMs?: number,
 ]
 
+/**
+ * What the cleanup did: the stages that failed, and the stages that were
+ * abandoned and could not be confirmed stopped. A stage in `unsettled` may still
+ * be running, so a shared pool it uses must not be closed.
+ */
+export type CleanupOutcome = Readonly<{
+  failures: readonly string[]
+  unsettled: readonly string[]
+}>
+
 /** Waits for the given time without holding the process open. */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -339,20 +369,20 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * Attempts every cleanup step, even after one fails or stalls. Returns one line
- * per failed step, so the caller reports all of them and loses none.
+ * Attempts every cleanup step, even after one fails or stalls. Returns the
+ * stages that failed and the stages that could not be confirmed stopped.
  *
- * A step that stalls at its bound is abandoned, cancelled and confirmed
- * stopped before the next step runs: a pool is never closed and no connection
- * is reset while an operation of this file is still running on it. A step that
- * cannot be cancelled is still given the settle grace, and the next step runs
- * either way.
+ * A step that stalls at its bound is abandoned and cancelled. The step is then
+ * given the settle grace to stop, and the outcome says plainly whether it
+ * stopped: a stage that is still running when the next stage starts is
+ * reported as unsettled, and a shared pool it uses must not be closed.
  */
 export async function runCleanups(
   steps: ReadonlyArray<CleanupStep>,
   timeoutMs = CLEANUP_TIMEOUT_MS
-): Promise<string[]> {
+): Promise<CleanupOutcome> {
   const failures: string[] = []
+  const unsettled: string[] = []
   for (const [label, step, cancel, budgetMs] of steps) {
     const bound = budgetMs ?? timeoutMs
     let reason: string | undefined
@@ -381,9 +411,24 @@ export async function runCleanups(
       const detail = error instanceof Error ? error.message : 'unexpected non-error failure'
       failures.push(`${label}: cancelling it failed: ${detail}`)
     }
-    await Promise.race([work, delay(CLEANUP_SETTLE_MS)])
+    const confirmation = await Promise.race([
+      work.then(() => 'settled' as const),
+      delay(CLEANUP_SETTLE_MS).then(() => 'unsettled' as const),
+    ])
+    if (confirmation === 'unsettled') unsettled.push(label)
   }
-  return failures
+  return { failures, unsettled }
+}
+
+/**
+ * The lifecycle of one cleanup statement, observed rather than assumed: the
+ * connection was released exactly once, and the pool was ended even when the
+ * connection could not be established.
+ */
+export type OwnStatementLifecycle = {
+  cancel?: () => void
+  released: number
+  torndown: boolean
 }
 
 /**
@@ -392,17 +437,38 @@ export async function runCleanups(
  * ends any stalled statement before the step's own deadline, and the cancel
  * callback ends the connection, so an abandoned statement leaves nothing
  * running.
+ *
+ * The connection is released at most once: a released client is never released
+ * again, because a second release is an error that would skip the teardown. The
+ * pool is ended whatever happens, including when the connection could not be
+ * established at all.
  */
-async function runOwnStatement(sql: string, cancel?: { end?: () => void }): Promise<void> {
-  const pool = poolFor(adminUrl())
-  const client = await pool.connect()
-  if (cancel) cancel.end = () => client.release(true)
+async function runOwnStatement(
+  sql: string,
+  lifecycle?: OwnStatementLifecycle,
+  url: string = adminUrl()
+): Promise<void> {
+  const pool = poolFor(url)
   try {
-    await client.query(sql)
+    const client = await pool.connect()
+    let released = false
+    const release = (failure?: Error) => {
+      if (released) return
+      released = true
+      if (lifecycle) lifecycle.released += 1
+      client.release(failure)
+    }
+    if (lifecycle) {
+      lifecycle.cancel = () => release(new Error('the cleanup stage was abandoned'))
+    }
+    try {
+      await client.query(sql)
+    } finally {
+      release()
+    }
   } finally {
-    client.release()
     await pool.end().catch(() => undefined)
-    if (cancel) cancel.end = undefined
+    if (lifecycle) lifecycle.torndown = true
   }
 }
 
@@ -643,14 +709,14 @@ SELECT jsonb_build_object(
     FROM ${applicationSchema}.workspaces w)
 ) AS document`
 
-async function applicationDocument(url: string): Promise<unknown> {
-  const pool = poolFor(url)
-  try {
-    const result = await pool.query(APPLICATION_DOCUMENT_SQL, [applicationSchema])
-    return result.rows[0]?.document ?? null
-  } finally {
-    await pool.end()
-  }
+/**
+ * The application schema as one document, read on one pool. The pool belongs to
+ * the caller, so the connections this file opens are counted once and shared
+ * between the reads of the same target.
+ */
+async function applicationDocument(pool: Pool): Promise<unknown> {
+  const result = await pool.query(APPLICATION_DOCUMENT_SQL, [applicationSchema])
+  return result.rows[0]?.document ?? null
 }
 
 /**
@@ -686,8 +752,13 @@ async function seedApplicationRows(url: string): Promise<void> {
  * leaves nothing running on the instance.
  */
 function ownStatementStage(label: string, sql: string): CleanupStep {
-  const cancel: { end?: () => void } = {}
-  return [label, () => runOwnStatement(sql, cancel), () => cancel.end?.(), CLEANUP_STAGE_BUDGET_MS]
+  const lifecycle: OwnStatementLifecycle = { released: 0, torndown: false }
+  return [
+    label,
+    () => runOwnStatement(sql, lifecycle),
+    () => lifecycle.cancel?.(),
+    CLEANUP_STAGE_BUDGET_MS,
+  ]
 }
 
 /**
@@ -726,37 +797,33 @@ function seededRowCleanupSteps(): CleanupStep[] {
 }
 
 // Everything a restore must reproduce: column definitions, row counts and every row.
-async function snapshotOf(url: string, schemaName: string) {
-  const pool = poolFor(url)
-  try {
-    const columns = await pool.query(
-      `SELECT table_name, column_name, data_type, is_nullable
-       FROM information_schema.columns WHERE table_schema = $1
-       ORDER BY table_name, ordinal_position`,
-      [schemaName]
+// The pool belongs to the caller, so the reads of the same target share it.
+async function snapshotOf(pool: Pool, schemaName: string) {
+  const columns = await pool.query(
+    `SELECT table_name, column_name, data_type, is_nullable
+     FROM information_schema.columns WHERE table_schema = $1
+     ORDER BY table_name, ordinal_position`,
+    [schemaName]
+  )
+  const counts: Record<string, number> = {}
+  const rows: Record<string, unknown[]> = {}
+  for (const table of expectedTables) {
+    const count = await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM "${schemaName}"."${table}"`
     )
-    const counts: Record<string, number> = {}
-    const rows: Record<string, unknown[]> = {}
-    for (const table of expectedTables) {
-      const count = await pool.query<{ n: number }>(
-        `SELECT count(*)::int AS n FROM "${schemaName}"."${table}"`
-      )
-      counts[table] = count.rows[0]?.n ?? -1
-      rows[table] = (await pool.query(`SELECT * FROM "${schemaName}"."${table}" ORDER BY id`)).rows
-    }
-    const tables = await pool.query<{ table_name: string }>(
-      `SELECT table_name FROM information_schema.tables
-       WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`,
-      [schemaName]
-    )
-    return {
-      columns: columns.rows,
-      counts,
-      rows,
-      tables: tables.rows.map((row) => row.table_name),
-    }
-  } finally {
-    await pool.end()
+    counts[table] = count.rows[0]?.n ?? -1
+    rows[table] = (await pool.query(`SELECT * FROM "${schemaName}"."${table}" ORDER BY id`)).rows
+  }
+  const tables = await pool.query<{ table_name: string }>(
+    `SELECT table_name FROM information_schema.tables
+     WHERE table_schema = $1 AND table_type = 'BASE TABLE' ORDER BY table_name`,
+    [schemaName]
+  )
+  return {
+    columns: columns.rows,
+    counts,
+    rows,
+    tables: tables.rows.map((row) => row.table_name),
   }
 }
 
@@ -806,7 +873,7 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
 
   test('a failing cleanup step does not stop the others, and its failure is reported', async () => {
     const ran: string[] = []
-    const failures = await runCleanups([
+    const outcome = await runCleanups([
       [
         'first',
         async () => {
@@ -821,7 +888,8 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
       ],
     ])
     expect(ran).toEqual(['second'])
-    expect(failures).toEqual(['first: boom'])
+    expect(outcome.failures).toEqual(['first: boom'])
+    expect(outcome.unsettled).toEqual([])
   })
 
   test('the auth initializer is killed at its deadline when the server never answers', async () => {
@@ -854,6 +922,7 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
       APPLICATION_DOCUMENT_BUDGET_MS +
       HISTORICAL_PREFIX_BUDGET_MS +
       BLOCKED_TEST_BUDGET_MS +
+      CLEANUP_LIFECYCLE_BUDGET_MS +
       AFTER_ALL_BUDGET_MS +
       UNCONDITIONAL_BUDGET_MS
     expect(worstCase).toBeLessThanOrEqual(OUTER_COMMAND_CEILING_MS - OUTER_MARGIN_MS)
@@ -866,7 +935,7 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
 
   test('a stalled cleanup step is abandoned at its deadline and the next one still runs', async () => {
     const ran: string[] = []
-    const failures = await runCleanups(
+    const outcome = await runCleanups(
       [
         ['stalled', () => new Promise(() => {})],
         [
@@ -879,53 +948,30 @@ describe('loopback target guard and bounded cleanup (no database needed)', () =>
       50
     )
     expect(ran).toEqual(['after'])
-    expect(failures).toHaveLength(1)
-    expect(failures[0]).toContain('stalled: timed out after 50 ms')
+    expect(outcome.failures).toHaveLength(1)
+    expect(outcome.failures[0]).toContain('stalled: timed out after 50 ms')
+    // The stalled stage never stopped, and the outcome says so: a shared pool it
+    // uses must not be closed while it may still be running.
+    expect(outcome.unsettled).toEqual(['stalled'])
   }, 10_000)
 
-  test('a delayed cleanup query is cancelled and settled before the pools are reset', async () => {
-    // A stage whose work is delayed past its bound: the stage is abandoned at the
-    // bound, the cancel ends the work it started, and the next stage only runs
-    // once the abandoned work has stopped. Nothing of this file is still running
-    // when a pool is reset.
-    let running = 0
-    let cancelled = false
-    let end: (() => void) | undefined
-    const delayed: CleanupStep = [
-      'delayed query',
-      () =>
-        new Promise<void>((resolve) => {
-          running += 1
-          const timer = setTimeout(() => {
-            running -= 1
-            resolve()
-          }, 30_000)
-          end = () => {
-            clearTimeout(timer)
-            running -= 1
-            cancelled = true
-            resolve()
-          }
-        }),
-      () => end?.(),
-    ]
-    const observed: string[] = []
-    const failures = await runCleanups(
+  test('a cleanup statement whose connection cannot be established still tears its pool down', async () => {
+    // A real client lifecycle, on a target that refuses the connection. The
+    // connection was never acquired, so nothing is released, and the pool is
+    // ended anyway: the teardown is not skipped when the connection fails.
+    const lifecycle: OwnStatementLifecycle = { released: 0, torndown: false }
+    const unreachable = urlFor(loopbackTargetOf('postgresql://u:p@127.0.0.1:1/db'), 'db')
+    const outcome = await runCleanups([
       [
-        delayed,
-        [
-          'reset the pools',
-          async () => {
-            observed.push(`running=${running}`)
-          },
-        ],
+        'unreachable statement',
+        () => runOwnStatement('SELECT 1', lifecycle, unreachable),
+        () => lifecycle.cancel?.(),
       ],
-      50
-    )
-    expect(failures).toHaveLength(1)
-    expect(failures[0]).toContain('delayed query: timed out after 50 ms')
-    expect(cancelled).toBe(true)
-    expect(observed).toEqual(['running=0'])
+    ])
+    expect(outcome.failures).toHaveLength(1)
+    expect(outcome.unsettled).toEqual([])
+    expect(lifecycle.released).toBe(0)
+    expect(lifecycle.torndown).toBe(true)
   }, 10_000)
 })
 
@@ -966,7 +1012,20 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
     ]
     if (admin) {
       const pool = admin
-      steps.push(['close the admin pool', () => pool.end(), undefined, CLEANUP_POOL_BUDGET_MS])
+      steps.push([
+        'close the admin pool',
+        async () => {
+          // The admin pool is shared: it carries the statement that proves the
+          // seeded rows are gone. It is not closed while that statement is still
+          // running on it, because closing it would reset a live connection.
+          if (pool.idleCount < pool.totalCount) {
+            throw new Error('the admin pool still has an operation in flight')
+          }
+          await pool.end()
+        },
+        undefined,
+        CLEANUP_POOL_BUDGET_MS,
+      ])
     }
     if (workDirectory) {
       const directory = workDirectory
@@ -977,10 +1036,14 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         CLEANUP_WORK_DIRECTORY_BUDGET_MS,
       ])
     }
-    const failures = await runCleanups(steps)
+    const outcome = await runCleanups(steps)
     admin = undefined
     workDirectory = undefined
-    if (failures.length > 0) throw new Error(`cleanup did not finish: ${failures.join('; ')}`)
+    const problems = [...outcome.failures]
+    for (const label of outcome.unsettled) {
+      problems.push(`${label}: did not settle within ${CLEANUP_SETTLE_MS} ms`)
+    }
+    if (problems.length > 0) throw new Error(`cleanup did not finish: ${problems.join('; ')}`)
   }, AFTER_ALL_BUDGET_MS)
 
   test(
@@ -990,6 +1053,10 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       const sourceConnection = urlFor(validated, validated.pathname.slice(1))
       const sourceSearchPath = urlFor(validated, validated.pathname.slice(1), schema)
       const restoredConnection = urlFor(validated, restoredDatabase)
+      // Two connections for the whole phase: the source is read once and the
+      // restored target is read twice, on the pool of its own target.
+      const sourcePool = poolFor(sourceConnection)
+      const restoredPool = poolFor(restoredConnection)
 
       // 1. Create the schema with the explicit initializer, then fill it with synthetic rows.
       const applied = await runInitializer('apply', sourceSearchPath)
@@ -1017,7 +1084,8 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
        VALUES ('synthetic-verification-1', 'synthetic-1@example.test', 'synthetic-value-1', $1, $1, $1)`,
         [at]
       )
-      const source = await snapshotOf(sourceConnection, schema)
+      const source = await snapshotOf(sourcePool, schema)
+      await sourcePool.end()
       expect(source.tables).toEqual(expectedTables)
       expect(source.counts).toEqual({ account: 1, session: 1, user: 2, verification: 1 })
 
@@ -1047,7 +1115,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       expect({ code: restored.code }).toEqual({ code: 0 })
 
       // 3. The restored schema matches the source exactly: tables, columns, counts and rows.
-      const copy = await snapshotOf(restoredConnection, schema)
+      const copy = await snapshotOf(restoredPool, schema)
       expect(copy.tables).toEqual(source.tables)
       expect(copy.columns).toEqual(source.columns)
       expect(copy.counts).toEqual(source.counts)
@@ -1057,7 +1125,8 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       const planned = await runInitializer('plan', urlFor(validated, restoredDatabase, schema))
       expect(planned.applied).toBe(false)
       expect(planned.before).toEqual({ add: [], create: [] })
-      const after = await snapshotOf(restoredConnection, schema)
+      const after = await snapshotOf(restoredPool, schema)
+      await restoredPool.end()
       expect(after.counts).toEqual(source.counts)
       expect(await tablesIn(schema)).toEqual(expectedTables)
     },
@@ -1244,6 +1313,10 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       const validated = target!
       const sourceConnection = urlFor(validated, validated.pathname.slice(1))
       const restoredConnection = urlFor(validated, restoredDatabase)
+      // Two connections for the whole phase: the source is read once and the
+      // restored target is read three times, on the pool of its own target.
+      const sourcePool = poolFor(sourceConnection)
+      const restoredPool = poolFor(restoredConnection)
 
       // The phases the proof runs against the restored target, in the order it runs
       // them. The raw comparison has to come first: the database package's own
@@ -1256,7 +1329,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       //    count, every column, the seeded rows, the schema objects and the migration
       //    ledger.
       phases.push('source document')
-      const source = (await applicationDocument(sourceConnection)) as {
+      const source = (await applicationDocument(sourcePool)) as {
         columns?: unknown[]
         constraints?: unknown[]
         functions?: unknown[]
@@ -1305,7 +1378,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       //    objects and the same ledger. This is the comparison that decides the
       //    proof.
       phases.push('raw restored document')
-      const restored = await applicationDocument(restoredConnection)
+      const restored = await applicationDocument(restoredPool)
       expect(restored).toEqual(source)
 
       // 3. The restored target is accepted by the database package's own migration
@@ -1323,7 +1396,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       //    the target would show here, and the proof's verdict would already have
       //    been decided on the raw document.
       phases.push('restored document after the verifier')
-      const afterVerifier = await applicationDocument(restoredConnection)
+      const afterVerifier = await applicationDocument(restoredPool)
       expect(afterVerifier).toEqual(restored)
       expect(afterVerifier).toEqual(source)
       // The order is the requirement: the raw comparison comes before the
@@ -1339,16 +1412,13 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       // 5. A target whose ledger was altered is refused by the database package's own
       //    migration-history preflight. The ledger is the identity the current schema
       //    exposes, so this is the existing rejection, not an invented contract.
-      const tamperPool = poolFor(restoredConnection)
-      try {
-        await tamperPool.query(
-          `UPDATE ${applicationLedger} SET hash = $1
-           WHERE id = (SELECT min(id) FROM ${applicationLedger})`,
-          ['tampered-target-identity']
-        )
-      } finally {
-        await tamperPool.end()
-      }
+      await restoredPool.query(
+        `UPDATE ${applicationLedger} SET hash = $1
+         WHERE id = (SELECT min(id) FROM ${applicationLedger})`,
+        ['tampered-target-identity']
+      )
+      await sourcePool.end()
+      await restoredPool.end()
       const refused = await runMigrationVerifier(restoredDatabase)
       expect(refused.code).not.toBe(0)
       expect(refused.stderr).toContain('Migration history preflight failed')
@@ -1362,7 +1432,12 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
       const validated = target!
       const sourceConnection = urlFor(validated, validated.pathname.slice(1))
       const prefixConnection = urlFor(validated, prefixDatabase)
-      const source = await applicationDocument(sourceConnection)
+      // Three connections for the phase: the source document, the prefix target
+      // (read twice) and the connection the seed rows are written on. The drop
+      // runs on its own connection, as every cleanup statement does.
+      const sourcePool = poolFor(sourceConnection)
+      const prefixPool = poolFor(prefixConnection)
+      const source = await applicationDocument(sourcePool)
       const count = prefixMigrationCount()
 
       // 1. A database that carries the chain's prefix: the migrations before the
@@ -1382,7 +1457,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         //    fence's trigger is missing and the ledger is shorter. This is the
         //    comparison the proof runs first, and it is what refuses a restore
         //    that carried an older state.
-        const prefixDocument = (await applicationDocument(prefixConnection)) as {
+        const prefixDocument = (await applicationDocument(prefixPool)) as {
           ledger?: unknown[]
           triggers?: unknown[]
         } | null
@@ -1402,13 +1477,42 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
         const repaired = await runMigrationVerifier(prefixDatabase)
         expect(repaired.code).toBe(0)
         expect(repaired.stderr).not.toContain('Migration history preflight failed')
-        const afterRepair = await applicationDocument(prefixConnection)
+        const afterRepair = await applicationDocument(prefixPool)
         expect(afterRepair).toEqual(source)
       } finally {
+        await sourcePool.end()
+        await prefixPool.end()
         await runOwnStatement(`DROP DATABASE IF EXISTS "${prefixDatabase}" WITH (FORCE)`)
       }
     },
     HISTORICAL_PREFIX_BUDGET_MS
+  )
+
+  test(
+    'a delayed cleanup statement is cancelled, released once and torn down',
+    async () => {
+      // A real client, on a statement the server keeps running. The stage is
+      // abandoned at its bound, the cancel ends the connection, and the stage is
+      // reported as settled because the work did stop. The client is released
+      // exactly once: a second release is an error that would skip the teardown.
+      const lifecycle: OwnStatementLifecycle = { released: 0, torndown: false }
+      const outcome = await runCleanups(
+        [
+          [
+            'delayed statement',
+            () => runOwnStatement('SELECT pg_sleep(30)', lifecycle),
+            () => lifecycle.cancel?.(),
+          ],
+        ],
+        1_000
+      )
+      expect(outcome.failures).toHaveLength(1)
+      expect(outcome.failures[0]).toContain('delayed statement: timed out after 1000 ms')
+      expect(outcome.unsettled).toEqual([])
+      expect(lifecycle.released).toBe(1)
+      expect(lifecycle.torndown).toBe(true)
+    },
+    CLEANUP_LIFECYCLE_BUDGET_MS
   )
 
   test(
