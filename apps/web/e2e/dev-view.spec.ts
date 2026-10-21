@@ -377,7 +377,7 @@ async function expectDevTopbarBoundary(page: Page, width: number) {
 
   const title = page.locator('[data-topbar-title]')
   await title.evaluate((element) => {
-    // The slot shows Workspace › Project › branch breadcrumbs when Dev has a
+    // The slot shows Project › branch breadcrumbs when Dev has a
     // selection; lengthen the current crumb so clipping is exercised inside
     // the breadcrumb row, or the plain title when there is none.
     const target = element.querySelector('[aria-current="page"]') ?? element
@@ -407,15 +407,14 @@ for (const width of [768, 1024, 1440]) {
   })
 }
 
-test('Dev title slot shows Workspace › Project › branch with the branch in mono', async ({
-  page,
-}) => {
+test('Dev title slot shows Project › branch with the branch in mono', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved')
   await expectDevToolbarHost(page, 1280)
   const crumbs = page.locator('[data-topbar-title]').getByRole('navigation', { name: 'Breadcrumb' })
-  await expect(crumbs.getByRole('listitem')).toHaveCount(3)
-  await expect(crumbs.getByRole('listitem').nth(1)).toHaveText('Project: Example project')
+  // The workspace is named by the top bar's switcher, not by a crumb.
+  await expect(crumbs.getByRole('listitem')).toHaveCount(2)
+  await expect(crumbs.getByRole('listitem').nth(0)).toHaveText('Project: Example project')
   const branch = crumbs.locator('[aria-current="page"]')
   await expect(branch).toHaveText('Worktree: feature/example')
   await expect(branch.locator('code')).toHaveText('feature/example')
@@ -427,7 +426,7 @@ test('Dev title slot shows Workspace › Project › branch with the branch in m
     'feature/runtime'
   ).click()
   await expect(branch).toHaveText('Worktree: feature/runtime')
-  await expect(crumbs.getByRole('listitem').nth(1)).toHaveText('Project: Runtime tools')
+  await expect(crumbs.getByRole('listitem').nth(0)).toHaveText('Project: Runtime tools')
 })
 
 test('Dev top-bar actions preserve clear boundaries with 200% text sizing', async ({ page }) => {
@@ -707,20 +706,20 @@ test('the Dev sidebar carries the global Agents, Conversations and archive secti
   await expect(sidebar.getByRole('button', { name: 'Agents', exact: true })).toBeVisible()
   await expect(sidebar.getByRole('button', { name: 'Mark all read' })).toBeVisible()
   await expect(sidebar.getByRole('region', { name: 'Conversations' })).toBeVisible()
-  await expect(sidebar.getByRole('button', { name: 'Create group conversation' })).toBeVisible()
+  await expect(sidebar.getByRole('button', { name: 'New conversation' })).toBeVisible()
   // Agents opens the Chat Agents surface.
   await sidebar.getByRole('button', { name: 'Agents', exact: true }).click()
   await expect(page).toHaveURL(/view=chat/)
 })
 
-test('the project + names a new branch for a new worktree', async ({ page }) => {
+test('the project + names a new branch for a new session worktree', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/?view=dev&devE2e=preserved')
   const sidebar = page.getByRole('complementary', { name: 'Workspace navigation' })
   const project = devProjectRow(sidebar, 'Example project')
   await expect(project).toBeVisible({ timeout: 30_000 })
   await project.hover()
-  await project.getByRole('button', { name: 'New worktree in Example project' }).click()
+  await project.getByRole('button', { name: 'New session in Example project' }).click()
   const dialog = page.getByRole('dialog', { name: 'New worktree in Example project' })
   await expect(dialog).toBeVisible()
   await expect(dialog).toContainText('Creates a branch from main')

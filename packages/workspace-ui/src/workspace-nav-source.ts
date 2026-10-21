@@ -1,5 +1,4 @@
 import type {
-  AccountSummary,
   ChannelReadStateSummary,
   ChannelSummary,
   ProjectSummary,
@@ -24,8 +23,8 @@ import type { ProjectNavigationItem, WorkspaceNavigation } from './workspace-mod
  * Workspace › Project › Leaf tree (ADR 0011). Pure data: the sidebar component
  * feeds it query results and renders the result with `WorkspaceNav`.
  *
- * - Workspaces come in the member's own order with their name, logo and
- *   accent. Only the active workspace carries projects.
+ * - The tree holds the active workspace alone, with its name, logo, accent and
+ *   projects: the sidebar never lists the member's other workspaces.
  * - A project's primary channel is its default leaf (`checkout` kind), which
  *   the Chat and Virtual adapters label with the project's name.
  * - The project's other channels and its open tasks are `task` leaves. A task
@@ -36,20 +35,7 @@ import type { ProjectNavigationItem, WorkspaceNavigation } from './workspace-mod
  * - Channel leaves carry their agent participant count (the Virtual desk
  *   meta). Projects carry no room name yet: the cloud has no field for one,
  *   so Virtual labels rooms with the project name.
- * - Collapsed workspaces read the cloud account summary (unread channels and
- *   mentions). The desktop Dev summary arrives through `devSummary` once that
- *   source ships; until then running and needs-input counts are zero.
  */
-
-/**
- * The desktop cross-workspace Dev summary (`dev.summary.workspaces`, ADR 0011).
- * It is not available in the web lane; hosts that have it pass it in.
- */
-export type DevWorkspaceSummary = Readonly<{
-  workspaceId: string
-  running: number
-  needsInput: number
-}>
 
 /** What selecting a leaf opens: a channel (optionally carrying its task) or a channel-less task. */
 export type NavLeafTarget =
@@ -58,14 +44,10 @@ export type NavLeafTarget =
 
 export type WorkspaceNavSourceInput = Readonly<{
   activeWorkspaceId: string
-  /** Every workspace the member belongs to; the active one is added when missing. */
-  workspaces: readonly WorkspaceSummary[]
   activeWorkspace?: WorkspaceSummary
   navigation: WorkspaceNavigation
   tasks: readonly TaskSummary[]
   readState: readonly ChannelReadStateSummary[]
-  accountSummary?: AccountSummary
-  devSummary?: readonly DevWorkspaceSummary[]
 }>
 
 export type WorkspaceNavSource = Readonly<{
@@ -193,49 +175,29 @@ export function buildWorkspaceNavSource(input: WorkspaceNavSourceInput): Workspa
       id: item.project.id,
       name: item.project.name,
       iconKey: item.project.iconKey,
+      accent: item.project.accent,
       source: item.project.sourceKind === 'repository' ? 'local_repo' : 'none',
       sortOrder: item.project.sortOrder,
       leaves: projectLeaves(item, openTasks, readState, targets),
     }
   })
 
-  const accountById = new Map(
-    (input.accountSummary?.workspaces ?? []).map((summary) => [summary.workspaceId, summary])
-  )
-  const devById = new Map((input.devSummary ?? []).map((summary) => [summary.workspaceId, summary]))
-
-  const memberWorkspaces =
-    input.activeWorkspace && !input.workspaces.some(({ id }) => id === input.activeWorkspace!.id)
-      ? [...input.workspaces, input.activeWorkspace]
-      : input.workspaces
-
-  let needsYou = 0
-  const workspaces: NavWorkspace[] = memberWorkspaces.map((workspace) => {
-    const account = accountById.get(workspace.id)
-    const dev = devById.get(workspace.id)
-    const mentions = account?.mentions ?? 0
-    const needsInput = dev?.needsInput ?? 0
-    needsYou += mentions + needsInput
-    const active = workspace.id === input.activeWorkspaceId
-    return {
-      id: workspace.id,
-      name: workspace.name,
-      logo: workspace.logo,
-      accent: workspace.accent,
-      sortOrder: workspace.sortOrder,
-      ...(workspace.isPersonal ? { isHome: true } : {}),
-      summary: {
-        running: dev?.running ?? 0,
-        needsYou: needsInput,
-        unread: account?.unreadChannels ?? 0,
-        mentions,
-      },
-      ...(active ? { projects } : {}),
-    }
-  })
+  const workspaces: NavWorkspace[] = input.activeWorkspace
+    ? [
+        {
+          id: input.activeWorkspace.id,
+          name: input.activeWorkspace.name,
+          logo: input.activeWorkspace.logo,
+          accent: input.activeWorkspace.accent,
+          sortOrder: input.activeWorkspace.sortOrder,
+          ...(input.activeWorkspace.isPersonal ? { isHome: true } : {}),
+          projects,
+        },
+      ]
+    : []
 
   return {
-    tree: { activeWorkspaceId: input.activeWorkspaceId, workspaces, needsYou },
+    tree: { activeWorkspaceId: input.activeWorkspaceId, workspaces },
     targets,
     projects: projectsById,
   }

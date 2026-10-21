@@ -55,3 +55,12 @@ export function workspaceSettingsSectionFromHash(
 export function workspaceSettingsHash(section: WorkspaceSettingsSection) {
   return `${workspaceSettingsHashPrefix}/${section}`
 }
+
+/**
+ * True for any hash that opens the Settings dialog: the canonical
+ * `#settings/<section>` or a retired `#workspace-settings/<section>` link.
+ * Kept here so the navigation entry reads it without the Settings tables.
+ */
+export function isSettingsHash(hash: string): boolean {
+  return hash.startsWith('#settings') || hash.startsWith(workspaceSettingsHashPrefix)
+}

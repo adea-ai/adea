@@ -28,8 +28,10 @@ test('creation fields retain the published control appearance across themes and 
   page,
 }) => {
   await page.getByRole('button', { name: 'Open project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create Project', exact: true })
-  const field = dialog.getByLabel('Project name', { exact: true })
+  const dialog = page.getByRole('dialog', { name: 'Add project', exact: true })
+  const field = dialog.getByLabel('Name', { exact: true })
+  // The name field takes focus on open; compare its resting appearance.
+  await field.evaluate((element) => (element as HTMLInputElement).blur())
   const reference = page.getByRole('textbox', {
     name: 'Shared input reference',
     includeHidden: true,
@@ -78,21 +80,23 @@ test('project form keeps native validation, submitted data, retry and async clos
   page,
 }) => {
   await page.getByRole('button', { name: 'Open project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create Project', exact: true })
+  const dialog = page.getByRole('dialog', { name: 'Add project', exact: true })
   await expect(page.locator('#harness-root')).not.toHaveAttribute('aria-hidden', 'true')
-  await dialog.getByRole('button', { name: 'Create Project', exact: true }).click()
+  // An empty name cannot be submitted: the action stays disabled.
+  await expect(dialog.getByRole('button', { name: 'Add project', exact: true })).toBeDisabled()
   await expect(page.getByLabel('Requests')).toHaveText('[]')
-  await dialog.getByLabel('Project name', { exact: true }).fill('New project')
-  await dialog.getByLabel('Icon key', { exact: true }).fill('study')
-  await dialog.getByRole('button', { name: 'Create Project', exact: true }).click()
+  await dialog.getByLabel('Name', { exact: true }).fill('New project')
+  await dialog.getByRole('button', { name: 'Add project', exact: true }).click()
   await expect(dialog.getByRole('alert')).toHaveText(
-    'Project could not be created. Check the fields and retry.'
+    'Project could not be added. Check the fields and retry.'
   )
-  await expect(page.getByLabel('Requests')).toHaveText('[{"iconKey":"study","name":"New project"}]')
-  await expect(dialog.getByLabel('Project name', { exact: true })).toHaveValue('New project')
+  await expect(page.getByLabel('Requests')).toHaveText(
+    '[{"accent":null,"iconKey":"folder","name":"New project"}]'
+  )
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('New project')
   // Change the scripted service result without interacting with inert background UI.
   await page.evaluate(() => (document.querySelector('#allow-success') as HTMLButtonElement).click())
-  await dialog.getByRole('button', { name: 'Create Project', exact: true }).click()
+  await dialog.getByRole('button', { name: 'Add project', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.locator('#harness-root')).not.toHaveAttribute('inert', '')
   await expect(page.locator('#harness-root')).not.toHaveAttribute('aria-hidden', 'true')
@@ -105,7 +109,7 @@ test('shared project modal dismisses and reopens without stale background contai
 }) => {
   const opener = page.getByRole('button', { name: 'Open project', exact: true })
   await opener.click()
-  const dialog = page.getByRole('dialog', { name: 'Create Project', exact: true })
+  const dialog = page.getByRole('dialog', { name: 'Add project', exact: true })
   await expect(dialog).toBeVisible()
   await expect(page.locator('#harness-root')).toHaveAttribute('inert', '')
   await dialog.getByRole('button', { name: 'Close', exact: true }).click()
@@ -128,7 +132,7 @@ test('shared project modal keeps its content and close action contained in a nar
 }) => {
   await page.setViewportSize({ width: 320, height: 568 })
   await page.getByRole('button', { name: 'Open project', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Create Project', exact: true })
+  const dialog = page.getByRole('dialog', { name: 'Add project', exact: true })
   await expect(dialog).toBeVisible()
   await expect(dialog).toHaveCSS('overflow', 'auto')
   const positioner = dialog.locator('xpath=..')
@@ -205,9 +209,9 @@ test('edit, rename and group forms retain initial values and native label associ
 }) => {
   await page.getByRole('button', { name: 'Allow success', exact: true }).click()
   await page.getByRole('button', { name: 'Open edit', exact: true }).click()
-  let dialog = page.getByRole('dialog', { name: 'Edit Study', exact: true })
-  await expect(dialog.getByLabel('Project name', { exact: true })).toHaveValue('Study')
-  await dialog.getByLabel('Project name', { exact: true }).fill('Renamed project')
+  let dialog = page.getByRole('dialog', { name: 'Study settings', exact: true })
+  await expect(dialog.getByLabel('Name', { exact: true })).toHaveValue('Study')
+  await dialog.getByLabel('Name', { exact: true }).fill('Renamed project')
   await dialog.getByRole('button', { name: 'Save changes', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await page.getByRole('button', { name: 'Open rename', exact: true }).click()
@@ -217,12 +221,12 @@ test('edit, rename and group forms retain initial values and native label associ
   await dialog.getByRole('button', { name: 'Save title', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await page.getByRole('button', { name: 'Open group', exact: true }).click()
-  dialog = page.getByRole('dialog', { name: 'New group conversation', exact: true })
+  dialog = page.getByRole('dialog', { name: 'New conversation', exact: true })
   await dialog.getByLabel('Conversation name').fill('Team')
   await dialog.getByRole('button', { name: 'Create conversation', exact: true }).click()
   await expect(dialog).toHaveCount(0)
   await expect(page.getByLabel('Requests')).toHaveText(
-    '[{"iconKey":"study","name":"Renamed project"},"New title","Team"]'
+    '[{"accent":null,"iconKey":"study","name":"Renamed project"},"New title","Team"]'
   )
 })
 

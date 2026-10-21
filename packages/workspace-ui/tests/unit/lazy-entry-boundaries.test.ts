@@ -73,7 +73,7 @@ function expectDisjoint(entry: string, forbidden: readonly string[]) {
 
 test('the retired shared Control Plane settings entry stays retired', () => {
   expect(existsSync(join(src, 'control-plane-settings.ts'))).toBe(false)
-  for (const module of ['conversation-surface', 'workspace-details-dialog']) {
+  for (const module of ['conversation-surface', 'workspace-settings-panels']) {
     expect(dynamicImports(module)).not.toContain('control-plane-settings')
     expect(staticImports(module)).not.toContain('control-plane-settings')
   }
@@ -107,7 +107,7 @@ test('host and model panes reach neither the catalog panes nor Lead chat', () =>
 })
 
 test('workspace Connections wires the local session inventory action to the signed runtime provider', () => {
-  const dialog = readFileSync(sourceFile('workspace-details-dialog'), 'utf8')
+  const dialog = readFileSync(sourceFile('workspace-settings-panels'), 'utf8')
   const pane = readFileSync(sourceFile('runtime-nodes-pane'), 'utf8')
   const diagnostic = readFileSync(sourceFile('native-session-inventory-diagnostic'), 'utf8')
 
@@ -124,8 +124,8 @@ test('workspace Connections wires the local session inventory action to the sign
   expect(diagnostic).not.toContain('@adea-ai/db')
 })
 
-test('the conversation surface and settings dialog load every entry on demand', () => {
-  for (const host of ['conversation-surface', 'workspace-details-dialog']) {
+test('the conversation surface and workspace settings panels load every entry on demand', () => {
+  for (const host of ['conversation-surface', 'workspace-settings-panels']) {
     const closure = staticClosure(host)
     expect(entries.filter((entry) => closure.has(entry))).toEqual([])
     expect(
@@ -133,7 +133,7 @@ test('the conversation surface and settings dialog load every entry on demand', 
     ).toEqual([])
   }
   expect(dynamicImports('conversation-surface')).toEqual(expect.arrayContaining(['lead-chat']))
-  expect(dynamicImports('workspace-details-dialog')).toEqual(
+  expect(dynamicImports('workspace-settings-panels')).toEqual(
     expect.arrayContaining(['control-plane-catalog', 'control-plane-hosts'])
   )
 })

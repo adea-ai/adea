@@ -61,6 +61,7 @@ describe.skipIf(!connectionUrl)('project persistence and isolation', () => {
     })
     expect(engineering.sourceKind).toBe('repository')
     expect(Object.keys(engineering).toSorted()).toEqual([
+      'accent',
       'createdAt',
       'iconKey',
       'id',

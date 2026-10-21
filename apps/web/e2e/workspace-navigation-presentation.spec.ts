@@ -351,7 +351,7 @@ const mountProductionDev = async (page: Page, options?: { noDesktop?: boolean })
 /** The workspace header's "New project": names the cloud project, then lands
  *  on the repository step whose authorize pane offers the path input. */
 const openNewProjectDialog = async (page: Page) => {
-  await page.getByRole('button', { name: 'New project in Workspace' }).click()
+  await page.getByRole('button', { name: 'Add project' }).first().click()
   const dialog = page.getByRole('dialog', { name: 'New project in Workspace' })
   await dialog.getByRole('textbox', { name: 'Project name' }).fill('Cloud project')
   await dialog.getByRole('button', { name: 'Create project', exact: true }).click()

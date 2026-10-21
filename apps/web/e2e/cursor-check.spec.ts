@@ -7,7 +7,7 @@ test('interactive controls show the pointer cursor', async ({ page }) => {
   await page.goto('/?view=chat')
   // The sidebar's always-visible group-by control opens a radio menu.
   const groupBy = page
-    .getByRole('navigation', { name: 'Workspaces' })
+    .getByRole('navigation', { name: 'Projects' })
     .getByRole('button', { name: /^Group by/ })
   await expect(groupBy).toBeVisible({ timeout: 60_000 })
 
