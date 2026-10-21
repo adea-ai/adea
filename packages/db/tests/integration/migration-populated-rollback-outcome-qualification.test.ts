@@ -169,6 +169,178 @@ async function adminExecute(statement: string): Promise<void> {
   }
 }
 
+/**
+ * What this run knows about one planned database name.
+ *
+ * `created` is the only state that permits a drop, and it is reached only when the server
+ * confirmed the creation. A refused creation created nothing, so this run owns nothing and must
+ * not drop that name. An unresolved creation leaves the question open — the statement may or may
+ * not have committed — so this run cannot prove it owns the database and must not drop it either.
+ * The planned name and its prefix are never ownership evidence.
+ */
+type DatabaseCreationState = 'not_attempted' | 'created' | 'refused' | 'unresolved' | 'dropped'
+
+type DatabaseOwnership = { name: string; state: DatabaseCreationState }
+
+/** The ownership record of every planned database name in this run. */
+type OwnershipLedger = Map<string, DatabaseCreationState>
+
+/** The ownership record of every planned name, in the shape the cleanup reads. */
+function ownershipRecords(ledger: OwnershipLedger): DatabaseOwnership[] {
+  return Array.from(ledger, ([name, state]) => ({ name, state }))
+}
+
+/**
+ * The outcome of one `CREATE DATABASE`, read from the error it raised.
+ *
+ * A SQLSTATE is a definite answer from the server: the statement ran and the database was not
+ * created. Every other failure — a dropped connection, a timeout, an error shape this file does
+ * not recognise — leaves the outcome unknown, and an unknown outcome is never read as "not
+ * created".
+ */
+function classifyDatabaseCreation(error: unknown): 'refused' | 'unresolved' {
+  const code = (error as { code?: unknown } | null | undefined)?.code
+  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? 'refused' : 'unresolved'
+}
+
+/**
+ * Run one `CREATE DATABASE` and record what it proved.
+ *
+ * The state is recorded before a failure propagates, so a creation whose outcome is unknown is
+ * still recorded as unknown when the cleanup runs. A failure therefore never leaves the ledger
+ * claiming a database this run did not create.
+ */
+async function createOwnedDatabase(
+  ownership: OwnershipLedger,
+  name: string,
+  create: () => Promise<void>
+): Promise<void> {
+  try {
+    await create()
+  } catch (error) {
+    ownership.set(name, classifyDatabaseCreation(error))
+    throw error
+  }
+  ownership.set(name, 'created')
+}
+
+/**
+ * Drop one database this run owns.
+ *
+ * The ownership record decides, not the name: a name this run never confirmed creating is refused
+ * here exactly as it is refused in the cleanup, so a mis-planned name can never reach a drop.
+ */
+async function dropOwnedDatabase(
+  ownership: OwnershipLedger,
+  name: string,
+  drop: () => Promise<void>
+): Promise<void> {
+  if (ownership.get(name) !== 'created') {
+    throw new Error(`Refusing to drop "${name}": this run did not confirm creating it`)
+  }
+  await drop()
+  ownership.set(name, 'dropped')
+}
+
+type CleanupDecision = {
+  /** The names this run may drop: only a confirmed creation. */
+  drop: string[]
+  /** The names whose creation outcome this run could not resolve. */
+  unresolved: string[]
+  /** The names this run does not own: never attempted, refused, or already dropped. */
+  notOwned: string[]
+}
+
+/**
+ * Which planned names this run may drop.
+ *
+ * The decision is made from the ownership record alone. A name is droppable only when the server
+ * confirmed that this run created it.
+ */
+function decideDatabaseCleanup(ownership: readonly DatabaseOwnership[]): CleanupDecision {
+  const decision: CleanupDecision = { drop: [], unresolved: [], notOwned: [] }
+  for (const entry of ownership) {
+    if (entry.state === 'created') decision.drop.push(entry.name)
+    else if (entry.state === 'unresolved') decision.unresolved.push(entry.name)
+    else decision.notOwned.push(entry.name)
+  }
+  return decision
+}
+
+type DatabaseCleanupOutcome = {
+  /** The names this run dropped. */
+  dropped: string[]
+  /** The names whose drop failed, with the error it raised. */
+  failed: { name: string; error: unknown }[]
+  /** The names whose creation outcome is unresolved: never attempted, and reported. */
+  unresolved: string[]
+  /** The names this run does not own. */
+  notOwned: string[]
+}
+
+/**
+ * Drop the databases this run confirmed creating, and nothing else.
+ *
+ * Every attempted drop runs even when an earlier one failed, and the failures are collected
+ * rather than swallowed. A name this run could not confirm creating is never attempted: it is
+ * reported as unresolved so an operator can look at it, and it is never dropped on the strength
+ * of its name or its prefix.
+ */
+async function disposeOwnedDatabases(
+  ownership: readonly DatabaseOwnership[],
+  drop: (name: string) => Promise<void>
+): Promise<DatabaseCleanupOutcome> {
+  const decision = decideDatabaseCleanup(ownership)
+  const outcome: DatabaseCleanupOutcome = {
+    dropped: [],
+    failed: [],
+    unresolved: decision.unresolved,
+    notOwned: decision.notOwned,
+  }
+  for (const name of decision.drop) {
+    try {
+      await drop(name)
+      outcome.dropped.push(name)
+    } catch (error) {
+      outcome.failed.push({ name, error })
+    }
+  }
+  return outcome
+}
+
+/**
+ * The cleanup has to be able to fail.
+ *
+ * A drop that failed leaves a database behind, and an unresolved creation leaves an open question
+ * about one. Neither is a clean cleanup, so neither passes silently.
+ */
+function assertDatabaseCleanupComplete(outcome: DatabaseCleanupOutcome): void {
+  const failures: unknown[] = outcome.failed.map((entry) => entry.error)
+  const summary: string[] = []
+  if (outcome.failed.length > 0) {
+    const message = `the disposable databases could not be dropped: ${outcome.failed
+      .map((entry) => entry.name)
+      .join(', ')}`
+    summary.push(message)
+    failures.push(new Error(message))
+  }
+  if (outcome.unresolved.length > 0) {
+    const message = `the creation outcome of ${outcome.unresolved.join(
+      ', '
+    )} is unresolved; this run cannot prove it owns them and did not drop them`
+    summary.push(message)
+    failures.push(new Error(message))
+  }
+  if (failures.length > 0) {
+    // The summary is in the message as well as in the collected errors, so a log line alone says
+    // what was left behind.
+    throw new AggregateError(
+      failures,
+      `the disposable cleanup did not finish: ${summary.join('; ')}`
+    )
+  }
+}
+
 type Principal = Awaited<ReturnType<typeof createTemporaryUserSession>>['principal']
 
 type LedgerRow = { id: number; hash: string; created_at: string }
@@ -631,9 +803,14 @@ async function executeScenario() {
   const image = `${IMAGE_PREFIX}${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`
   assertScratch(scratch)
   assertImage(image)
+  // The planned names are recorded as unattempted. Ownership is recorded only when the server
+  // confirms the creation, so the cleanup never infers ownership from a name or a prefix.
+  ownership.set(scratch, 'not_attempted')
+  ownership.set(image, 'not_attempted')
+  await createOwnedDatabase(ownership, scratch, () => adminExecute(`create database "${scratch}"`))
+  // The scratch database is owned now, and only now: the cleanup drops it by name, and that drop
+  // is allowed because the server confirmed this run created it.
   resources.scratch = scratch
-  resources.image = image
-  await adminExecute(`create database "${scratch}"`)
 
   const connect = async (): Promise<DatabaseConnection> => {
     const connection = createDatabase(urlForDatabase(scratch), { maxConnections: 1 })
@@ -666,7 +843,9 @@ async function executeScenario() {
   // carries no role or privilege model.
   await connection.close()
   resources.connection = undefined
-  await adminExecute(`create database "${image}" template "${scratch}"`)
+  await createOwnedDatabase(ownership, image, () =>
+    adminExecute(`create database "${image}" template "${scratch}"`)
+  )
   connection = await connect()
 
   // The cutover: the remaining journal entries, applied unchanged.
@@ -813,8 +992,12 @@ async function executeScenario() {
   // The point-in-time rollback: the pre-cutover image is restored over the cut-over database.
   await connection.close()
   resources.connection = undefined
-  await adminExecute(`drop database "${scratch}" with (force)`)
-  await adminExecute(`create database "${scratch}" template "${image}"`)
+  await dropOwnedDatabase(ownership, scratch, () =>
+    adminExecute(`drop database "${scratch}" with (force)`)
+  )
+  await createOwnedDatabase(ownership, scratch, () =>
+    adminExecute(`create database "${scratch}" template "${image}"`)
+  )
   connection = await connect()
 
   // The restored state is read before anything could repair it.
@@ -912,7 +1095,13 @@ async function executeScenario() {
   }
 }
 
-const resources: RehearsalResources & { image?: string } = {}
+const resources: RehearsalResources = {}
+/**
+ * The ownership record of this run. The names are planned here; ownership is recorded
+ * only when the server confirms a creation, and the cleanup drops only what this run
+ * confirmed it created.
+ */
+const ownership: OwnershipLedger = new Map()
 let scenario: Promise<Scenario> | undefined
 
 function runScenario(): Promise<Scenario> {
@@ -931,21 +1120,18 @@ describe.skipIf(!provisioningUrl && !inCi)(
       const pending = scenario
       scenario = undefined
       if (pending) await pending.catch(() => undefined)
-      const image = resources.image
-      await disposeRehearsal(resources, async (database) => {
-        const failures: unknown[] = []
-        for (const name of [database, ...(image ? [image] : [])]) {
-          try {
-            if (name.startsWith(IMAGE_PREFIX)) assertImage(name)
-            else assertScratch(name)
-            await adminExecute(`drop database if exists "${name}" with (force)`)
-          } catch (error) {
-            failures.push(error)
-          }
-        }
-        if (failures.length > 0) {
-          throw new AggregateError(failures, 'the disposable databases could not be dropped')
-        }
+      await disposeRehearsal(resources, async () => {
+        // The names to drop come from the ownership record, not from the planned names: a
+        // database this run could not confirm creating is never dropped, and an unresolved
+        // creation is reported instead of being resolved by a drop.
+        const outcome = await disposeOwnedDatabases(ownershipRecords(ownership), async (name) => {
+          // A second guard on an already-owned name: the prefix is checked, never used as the
+          // reason to drop.
+          if (name.startsWith(IMAGE_PREFIX)) assertImage(name)
+          else assertScratch(name)
+          await adminExecute(`drop database if exists "${name}" with (force)`)
+        })
+        assertDatabaseCleanupComplete(outcome)
       })
     }, 300_000)
 
@@ -1232,6 +1418,172 @@ describe.skipIf(!provisioningUrl && !inCi)(
     })
   }
 )
+
+/**
+ * The fault injection is a fake, not a database: the ownership tests drive the ownership record
+ * and the cleanup with the exact failures the server can raise, and assert what the cleanup does
+ * with each of them. Nothing here touches a real instance, so the proof of the ownership rule
+ * runs wherever the suite runs.
+ */
+function serverError(code: string, message: string): Error & { code: string } {
+  return Object.assign(new Error(message), { code })
+}
+
+/** A drop that records every name it was asked to drop. */
+function recordingDrop() {
+  const attempted: string[] = []
+  return {
+    attempted,
+    drop: async (name: string) => {
+      attempted.push(name)
+    },
+  }
+}
+
+describe('the disposable database ownership boundary (no database needed)', () => {
+  test('a refused creation is never dropped, because the run created nothing', async () => {
+    const { attempted, drop } = recordingDrop()
+    const outcome = await disposeOwnedDatabases(
+      [{ name: 'rollback_1220_target_refused', state: 'refused' }],
+      drop
+    )
+    expect(attempted).toEqual([])
+    expect(outcome.dropped).toEqual([])
+    expect(outcome.unresolved).toEqual([])
+    expect(outcome.notOwned).toEqual(['rollback_1220_target_refused'])
+  })
+
+  test('an unresolved creation is never dropped, and it stays unresolved', async () => {
+    const { attempted, drop } = recordingDrop()
+    const outcome = await disposeOwnedDatabases(
+      [{ name: 'rollback_1220_image_unresolved', state: 'unresolved' }],
+      drop
+    )
+    // The name is not attempted, and it is reported rather than resolved by a drop.
+    expect(attempted).toEqual([])
+    expect(outcome.dropped).toEqual([])
+    expect(outcome.unresolved).toEqual(['rollback_1220_image_unresolved'])
+    expect(outcome.notOwned).toEqual([])
+    // An unresolved creation is not a clean cleanup: the cleanup fails instead of passing.
+    expect(() => assertDatabaseCleanupComplete(outcome)).toThrow(/unresolved/)
+  })
+
+  test('a confirmed creation is dropped, and a database this run already dropped is not dropped again', async () => {
+    const { attempted, drop } = recordingDrop()
+    const outcome = await disposeOwnedDatabases(
+      [
+        { name: 'rollback_1220_target_owned', state: 'created' },
+        { name: 'rollback_1220_image_already_dropped', state: 'dropped' },
+        { name: 'rollback_1220_target_never_attempted', state: 'not_attempted' },
+      ],
+      drop
+    )
+    expect(attempted).toEqual(['rollback_1220_target_owned'])
+    expect(outcome.dropped).toEqual(['rollback_1220_target_owned'])
+    expect(outcome.unresolved).toEqual([])
+    expect(outcome.notOwned).toEqual([
+      'rollback_1220_image_already_dropped',
+      'rollback_1220_target_never_attempted',
+    ])
+  })
+
+  test('cleanup errors aggregate, and every attempted drop still runs', async () => {
+    const attempted: string[] = []
+    const outcome = await disposeOwnedDatabases(
+      [
+        { name: 'rollback_1220_target_first', state: 'created' },
+        { name: 'rollback_1220_image_second', state: 'created' },
+        { name: 'rollback_1220_target_third', state: 'created' },
+        { name: 'rollback_1220_image_unresolved', state: 'unresolved' },
+      ],
+      async (name) => {
+        attempted.push(name)
+        if (name === 'rollback_1220_target_first') throw new Error('the first drop failed')
+      }
+    )
+    // Every owned name was attempted, in order, even though the first one failed.
+    expect(attempted).toEqual([
+      'rollback_1220_target_first',
+      'rollback_1220_image_second',
+      'rollback_1220_target_third',
+    ])
+    expect(outcome.dropped).toEqual(['rollback_1220_image_second', 'rollback_1220_target_third'])
+    expect(outcome.failed.map((entry) => entry.name)).toEqual(['rollback_1220_target_first'])
+    // The unresolved name was never attempted, and it is still reported.
+    expect(outcome.unresolved).toEqual(['rollback_1220_image_unresolved'])
+    // The cleanup fails, and the failure carries the error and the unresolved name.
+    let thrown: unknown
+    try {
+      assertDatabaseCleanupComplete(outcome)
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(AggregateError)
+    const aggregate = thrown as AggregateError
+    expect(aggregate.errors).toHaveLength(3)
+    expect(aggregate.errors.map((error) => error.message)).toEqual([
+      'the first drop failed',
+      'the disposable databases could not be dropped: rollback_1220_target_first',
+      'the creation outcome of rollback_1220_image_unresolved is unresolved; this run cannot prove it owns them and did not drop them',
+    ])
+  })
+
+  test('a server refusal is a refusal, and any other failure is unresolved', () => {
+    // A SQLSTATE is the server's own answer: the statement ran and the database was not created.
+    expect(classifyDatabaseCreation(serverError('42P04', 'database already exists'))).toBe(
+      'refused'
+    )
+    expect(classifyDatabaseCreation(serverError('42501', 'permission denied'))).toBe('refused')
+    // A lost connection, a timeout and an unknown error shape leave the outcome open.
+    expect(classifyDatabaseCreation(new Error('Connection terminated unexpectedly'))).toBe(
+      'unresolved'
+    )
+    expect(
+      classifyDatabaseCreation(Object.assign(new Error('refused'), { code: 'ECONNREFUSED' }))
+    ).toBe('unresolved')
+    expect(classifyDatabaseCreation('a thrown string')).toBe('unresolved')
+    expect(classifyDatabaseCreation(undefined)).toBe('unresolved')
+  })
+
+  test('the ownership record is written before the failure propagates', async () => {
+    const refused: OwnershipLedger = new Map([['rollback_1220_target_refused', 'not_attempted']])
+    await expect(
+      createOwnedDatabase(refused, 'rollback_1220_target_refused', async () => {
+        throw serverError('42P04', 'database already exists')
+      })
+    ).rejects.toThrow(/already exists/)
+    expect(refused.get('rollback_1220_target_refused')).toBe('refused')
+
+    const unresolved: OwnershipLedger = new Map([
+      ['rollback_1220_image_unresolved', 'not_attempted'],
+    ])
+    await expect(
+      createOwnedDatabase(unresolved, 'rollback_1220_image_unresolved', async () => {
+        throw new Error('Connection terminated unexpectedly')
+      })
+    ).rejects.toThrow(/Connection terminated/)
+    expect(unresolved.get('rollback_1220_image_unresolved')).toBe('unresolved')
+
+    const created: OwnershipLedger = new Map([['rollback_1220_target_owned', 'not_attempted']])
+    await createOwnedDatabase(created, 'rollback_1220_target_owned', async () => undefined)
+    expect(created.get('rollback_1220_target_owned')).toBe('created')
+  })
+
+  test('a name this run never confirmed is refused as a drop target', async () => {
+    const ledger: OwnershipLedger = new Map([
+      ['rollback_1220_target_never_attempted', 'not_attempted'],
+    ])
+    await expect(
+      dropOwnedDatabase(ledger, 'rollback_1220_target_never_attempted', async () => undefined)
+    ).rejects.toThrow(/did not confirm creating it/)
+    // The refused drop changed nothing.
+    expect(ledger.get('rollback_1220_target_never_attempted')).toBe('not_attempted')
+
+    const owned: OwnershipLedger = new Map([['rollback_1220_target_owned', 'created']])
+    await dropOwnedDatabase(owned, 'rollback_1220_target_owned', async () => undefined)
+    expect(owned.get('rollback_1220_target_owned')).toBe('dropped')
+  })
+})
 
 describe('the rollback qualification boundary (no database needed)', () => {
   test('an inherited target that is not a loopback address is refused', () => {
