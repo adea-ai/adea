@@ -17,6 +17,11 @@ const child = (n: number) => ({
   revision: 1,
   outcome: { state: 'completed' as const, publication: { status: 'published' as const } },
 })
+const childAt = (n: number, acceptedAt: string) => ({
+  ...child(n),
+  acceptedAt,
+  updatedAt: acceptedAt,
+})
 const available = (
   children: readonly ApiLeadTurnChild[],
   totalChildren: number,
@@ -143,4 +148,97 @@ test('wrong dispatch and failed reads never become an empty complete set', async
     availability: 'unavailable',
     reasonCode: 'ADMISSION_SERVICE_UNAVAILABLE',
   })
+})
+
+test('children accepted at the same instant are ordered by the instant, not by its spelling', async () => {
+  // The control plane orders children by the instant they were accepted and by
+  // delegation id within one instant. The same instant spelled with a
+  // different precision is still the same instant, so a complete page must not
+  // read as a regression.
+  const first = childAt(1, '2026-10-20T01:00:00Z')
+  const second = childAt(2, '2026-10-20T01:00:00.000Z')
+  const port = reader([available([first, second], 2)])
+  const result = await readLeadChildObservations(port as never, workspaceId, intentId, dispatchId)
+  expect(result).toMatchObject({ availability: 'available', totalChildren: 2, complete: true })
+  if (result.availability === 'available')
+    expect(result.children.map((item) => item.delegationId)).toEqual([
+      first.delegationId,
+      second.delegationId,
+    ])
+})
+
+test('the control plane reason for an unavailable read is not replaced by an invalid response', async () => {
+  // A lead that was never dispatched answers with no dispatch and its own
+  // reason. That is not an unusable response, and the mounted chat has to say
+  // which one it was.
+  const notDispatched = reader([
+    {
+      leadTurn: { intentId },
+      childObservations: {
+        availability: 'unavailable' as const,
+        reasonCode: 'NOT_DISPATCHED' as const,
+      },
+    },
+  ])
+  expect(
+    await readLeadChildObservations(notDispatched as never, workspaceId, intentId, dispatchId)
+  ).toEqual({ availability: 'unavailable', reasonCode: 'NOT_DISPATCHED' })
+})
+
+test('the bounded read stops at its page cap and reports a partial read', async () => {
+  const pages = []
+  for (let n = 0; n < 20; n++) {
+    const item = childAt(n, `2026-10-20T01:00:${String(n).padStart(2, '0')}Z`)
+    pages.push(available([item], 20, item))
+  }
+  const port = reader(pages)
+  const result = await readLeadChildObservations(port as never, workspaceId, intentId, dispatchId)
+  expect(port.count).toBe(16)
+  expect(result).toMatchObject({ availability: 'available', totalChildren: 20, complete: false })
+})
+
+test('an unbounded role or failure code is not carried into the mounted evidence', async () => {
+  const unbounded = {
+    ...child(1),
+    role: `research${'er'.repeat(500)}`,
+    outcome: {
+      state: 'failed' as const,
+      failureCode: `E_${'X'.repeat(500)}`,
+      publication: { status: 'published' as const },
+    },
+  }
+  const result = await readLeadChildObservations(
+    reader([available([unbounded], 1)]) as never,
+    workspaceId,
+    intentId,
+    dispatchId
+  )
+  expect(result).toMatchObject({ availability: 'available', complete: true })
+  if (result.availability === 'available') {
+    expect(result.children[0]!.role).toBe('unknown')
+    expect(result.children[0]!.outcome).toEqual({ state: 'failed', publication: 'published' })
+  }
+})
+
+test('a bounded failure code is carried into the mounted evidence', async () => {
+  const bounded = {
+    ...child(1),
+    outcome: {
+      state: 'failed' as const,
+      failureCode: 'PROVIDER_FAILED',
+      publication: { status: 'published' as const },
+    },
+  }
+  const result = await readLeadChildObservations(
+    reader([available([bounded], 1)]) as never,
+    workspaceId,
+    intentId,
+    dispatchId
+  )
+  if (result.availability === 'available')
+    expect(result.children[0]!.outcome).toEqual({
+      state: 'failed',
+      failureCode: 'PROVIDER_FAILED',
+      publication: 'published',
+    })
 })

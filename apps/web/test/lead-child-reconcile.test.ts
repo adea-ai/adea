@@ -95,3 +95,56 @@ test('credential verifier failure discloses no private error and never publishes
   expect(await response.text()).not.toContain('private trust')
   expect(publishes).toBe(0)
 })
+
+test('a JSON media type is accepted however it is spelled', async () => {
+  // A retained control-plane wake may name a charset or use a different case
+  // for the media type. A parameter on a correct media type does not change
+  // what the body is, so the wake must still be read.
+  for (const contentType of [
+    'application/json',
+    'application/json; charset=utf-8',
+    'application/json;charset=UTF-8',
+    'Application/JSON',
+    'application/json ; charset=utf-8',
+  ]) {
+    let publishes = 0
+    const handler = createLeadChildReconcileHandler({
+      verify: async () => true,
+      current: async () => ({ workspaceId: 'adea-workspace', intentId, userId: 'actor' }),
+      publish: async () => {
+        publishes++
+      },
+    })
+    const response = await handler(
+      new Request('https://adea.example/api/internal/pi-durable/child-receipt/reconcile', {
+        method: 'POST',
+        headers: { 'content-type': contentType },
+        body: JSON.stringify(selectors),
+      })
+    )
+    expect(response.status).toBe(204)
+    expect(publishes).toBe(1)
+  }
+})
+
+test('a body that is not JSON is refused before any publication', async () => {
+  for (const contentType of ['text/plain', 'application/x-www-form-urlencoded', '']) {
+    let publishes = 0
+    const handler = createLeadChildReconcileHandler({
+      verify: async () => true,
+      current: async () => ({ workspaceId: 'adea-workspace', intentId, userId: 'actor' }),
+      publish: async () => {
+        publishes++
+      },
+    })
+    const response = await handler(
+      new Request('https://adea.example/api/internal/pi-durable/child-receipt/reconcile', {
+        method: 'POST',
+        headers: contentType ? { 'content-type': contentType } : {},
+        body: JSON.stringify(selectors),
+      })
+    )
+    expect(response.status).toBe(404)
+    expect(publishes).toBe(0)
+  }
+})

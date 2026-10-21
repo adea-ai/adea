@@ -260,6 +260,9 @@ export function createLeadTurnProduct(
         }
         if (page.complete) {
           if (seen.size !== totalChildren) throw new Error('CHILD_PUBLICATION_CHANGED')
+          // `published` counts the children this delivery committed, including a
+          // child whose receipt already existed and was replayed. It is not a
+          // count of newly created timeline messages.
           return { published }
         }
         if (

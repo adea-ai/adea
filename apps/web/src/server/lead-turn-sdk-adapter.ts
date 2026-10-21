@@ -1,5 +1,10 @@
 import type { ApiLeadTurnChildrenQuery } from '@adea-ai/api-client'
 import type { LeadChildTerminalEvidence } from '@adea-ai/db'
+import {
+  isRetainedChildFailureCode,
+  isRetainedChildRole,
+  isRetainedChildTerminalState,
+} from '@adea-ai/types'
 import type {
   LeadPreparedSelection,
   LeadRuntimeAdapter,
@@ -221,12 +226,23 @@ export function createLeadTurnSdkAdapter(
                 /[\p{Cc}\p{Cf}]/u.test(conclusion))
             )
               throw new Error('RUNTIME_RESPONSE_INVALID')
+            // The control plane owns these strings, so the boundary checks them
+            // here rather than letting an unbounded role or failure code reach
+            // a surface or a receipt. The grammar is the shared one the
+            // publication transaction also enforces, so a value that is
+            // publishable is exactly a value that is displayable.
+            if (
+              !isRetainedChildTerminalState(value.state) ||
+              !isRetainedChildRole(value.role) ||
+              (value.failureCode !== undefined && !isRetainedChildFailureCode(value.failureCode))
+            )
+              throw new Error('RUNTIME_RESPONSE_INVALID')
             return {
               delegationId: value.delegationId as string,
               childExecutionId: value.childExecutionId as string,
               childAttemptId: value.childAttemptId as string,
               role: value.role as string,
-              state: value.state as LeadChildTerminalEvidence['state'],
+              state: value.state,
               ...(value.resultRef ? { resultRef: value.resultRef as string } : {}),
               ...(conclusion ? { conclusion: conclusion as string } : {}),
               ...(value.failureCode ? { failureCode: value.failureCode as string } : {}),

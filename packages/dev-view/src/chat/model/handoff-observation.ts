@@ -13,6 +13,11 @@
 // observation supplied every target-aware control stays unavailable and says
 // why, and the presentation completes the moment a producer lands.
 import type { RuntimeEvent } from '@adea-ai/types/dev-runtime'
+import {
+  isRetainedChildFailureCode,
+  isRetainedChildRole,
+  retainedChildUnknownRole,
+} from '@adea-ai/types'
 
 /**
  * An observation of where a handed-off turn actually executes. Only
@@ -371,7 +376,13 @@ function qualifiersOf(child: HandoffObservedChild): readonly string[] {
         ? 'control plane outcome publication pending'
         : 'control plane outcome published'
     )
-    if (child.outcome.failureCode !== undefined)
+    // A control-plane failure code is shown only when it is a bounded value.
+    // The surface reports what the control plane said; it does not repeat an
+    // unbounded or control-bearing string it cannot vouch for.
+    if (
+      child.outcome.failureCode !== undefined &&
+      isRetainedChildFailureCode(child.outcome.failureCode)
+    )
       qualifiers.push(`failure code ${child.outcome.failureCode}`)
   }
   return qualifiers
@@ -394,7 +405,7 @@ export function deriveChildEvidence(
     return { kind: 'unavailable', summary: UNAVAILABLE_REASONS[observations.reasonCode] }
   const rows = observations.children.map((child) => ({
     delegationId: child.delegationId,
-    role: child.role,
+    role: isRetainedChildRole(child.role) ? child.role : retainedChildUnknownRole,
     stateText: stateText(child),
     qualifiers: qualifiersOf(child),
     updatedAt: child.updatedAt,

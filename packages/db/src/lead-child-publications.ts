@@ -1,8 +1,13 @@
-import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
+import {
+  isRetainedChildFailureCode,
+  isRetainedChildRole,
+  isRetainedChildTerminalState,
+} from '@adea-ai/types'
 import type { UserPrincipalRef } from '@adea-ai/types'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { createRuntimeResultMessage } from './conversations'
+import { leadChildOutcomeDigest } from './lead-child-outcome-digest'
 import { assertLeadTurnNotFenced } from './lead-turn-rollback'
 import type { LeadTurnRuntimeBinding } from './lead-turn-runtime'
 import { withAuthorizedLeadTurn } from './lead-turns'
@@ -13,7 +18,6 @@ const childId = /^dlg_[0-9A-HJKMNP-TV-Z]{26}$/
 const executionId = /^exe_[0-9A-HJKMNP-TV-Z]{26}$/
 const attemptId = /^att_[0-9A-HJKMNP-TV-Z]{26}$/
 const artifactId = /^art_[0-9A-HJKMNP-TV-Z]{26}$/
-const role = /^[A-Za-z0-9._:/-]{1,256}$/
 
 /** Authenticated CP J1 terminal evidence, never a browser-supplied result or artifact read grant. */
 export type LeadChildTerminalEvidence = Readonly<{
@@ -33,9 +37,9 @@ function validated(evidence: LeadChildTerminalEvidence): LeadChildTerminalEviden
     !childId.test(evidence.delegationId) ||
     !executionId.test(evidence.childExecutionId) ||
     !attemptId.test(evidence.childAttemptId) ||
-    !role.test(evidence.role) ||
+    !isRetainedChildRole(evidence.role) ||
     evidence.publication !== 'published' ||
-    !['completed', 'failed', 'cancelled'].includes(evidence.state) ||
+    !isRetainedChildTerminalState(evidence.state) ||
     (evidence.state === 'completed'
       ? !evidence.resultRef ||
         !artifactId.test(evidence.resultRef) ||
@@ -49,7 +53,7 @@ function validated(evidence: LeadChildTerminalEvidence): LeadChildTerminalEviden
         evidence.conclusion !== evidence.conclusion.trim() ||
         /[\p{Cc}\p{Cf}]/u.test(evidence.conclusion))) ||
     (evidence.failureCode !== undefined &&
-      (evidence.state !== 'failed' || !role.test(evidence.failureCode)))
+      (evidence.state !== 'failed' || !isRetainedChildFailureCode(evidence.failureCode)))
   )
     throw new Error('CHILD_PUBLICATION_WITHHELD')
   return evidence
@@ -105,9 +109,7 @@ export function publishLeadChildTerminal(
           throw new Error('CHILD_PUBLICATION_WITHHELD')
         await assertLeadTurnNotFenced(publicationTx, admitted.id, 'share')
         await assertCurrentGrant(publicationTx)
-        const digest = createHash('sha256')
-          .update(JSON.stringify({ binding, evidence }))
-          .digest('hex')
+        const digest = leadChildOutcomeDigest(binding, evidence)
         const [existing] = await publicationTx
           .select()
           .from(leadChildPublications)

@@ -147,10 +147,86 @@ test('child terminal publisher accepts only the exact current parent and delegat
     { conclusion: 'hidden\u202evalue' },
     { conclusion: ' padded ' },
     { state: 'failed' },
+    { state: 'running' },
+    { state: 'awaiting_input' },
+    { state: 'manual_intervention' },
+    { role: 'research reviewer' },
+    { role: 'researcher\u202E' },
+    { role: 'x'.repeat(257) },
   ]) {
     response = { data: { publication: { ...publication, ...changed } } }
     await expect(
       adapter.childPublicationCurrent!(authority, binding, selection.preparationRef, delegationId)
+    ).rejects.toThrow('RUNTIME_RESPONSE_INVALID')
+  }
+})
+
+test('a child terminal publication accepts only the bounded values the product may publish', async () => {
+  const binding = {
+    schemaVersion: 'pi-lead-dispatch/v1' as const,
+    intentId: authority.intentId,
+    dispatchId: `dispatch_${'a'.repeat(32)}`,
+    executionId: selection.executionId,
+    attemptId: selection.attemptId,
+    runtimeSessionId: `ses_${'0'.repeat(26)}`,
+  }
+  const delegationId = `dlg_${'1'.repeat(26)}`
+  const base = {
+    ...binding,
+    schemaVersion: 'pi-child-publication/v1',
+    workspaceId: authority.controlPlaneWorkspaceId,
+    intentId: authority.intentId,
+    canonicalActorPrincipalId: authority.originalActorRef,
+    delegationId,
+    childExecutionId: `exe_${'1'.repeat(26)}`,
+    childAttemptId: `att_${'1'.repeat(26)}`,
+    role: 'researcher',
+    state: 'failed',
+    authorityRevision: 1,
+    expiresAt: '2100-01-01T00:00:00Z',
+  }
+  const respond = (publication: Record<string, unknown>) => {
+    let response: unknown = { data: { publication } }
+    const adapter = createLeadTurnSdkAdapter({
+      workspaceId: authority.controlPlaneWorkspaceId,
+      dispatch: async () => ({}),
+      status: async () => ({}),
+      progress: async () => ({}),
+      cancel: async () => ({}),
+      async childPublicationCurrent() {
+        return response
+      },
+    })
+    return {
+      adapter,
+      set: (value: unknown) => {
+        response = value
+      },
+    }
+  }
+  const port = respond(base)
+  // A readable failure code is a bounded value, so it is accepted: the surface
+  // may show it and the product may publish it.
+  port.set({ data: { publication: { ...base, failureCode: 'provider failed' } } })
+  expect(
+    await port.adapter.childPublicationCurrent!(
+      authority,
+      binding,
+      selection.preparationRef,
+      delegationId
+    )
+  ).toMatchObject({ state: 'failed', failureCode: 'provider failed' })
+  // A failure code that is not bounded is refused at the boundary, so no
+  // unbounded value can reach a surface or a receipt.
+  for (const failureCode of ['failed\u202E', 'failed\u0007', 'x'.repeat(129)]) {
+    port.set({ data: { publication: { ...base, failureCode } } })
+    await expect(
+      port.adapter.childPublicationCurrent!(
+        authority,
+        binding,
+        selection.preparationRef,
+        delegationId
+      )
     ).rejects.toThrow('RUNTIME_RESPONSE_INVALID')
   }
 })

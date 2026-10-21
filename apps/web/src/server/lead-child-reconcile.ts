@@ -22,8 +22,18 @@ const unavailable = (status = 404) =>
     { status, headers: { 'cache-control': 'private, no-store' } }
   )
 
+/**
+ * JSON media type, compared on the media type alone. A retained control-plane
+ * wake may name its charset or use a different case for the type, and a
+ * parameter on a correct media type does not change what the body is.
+ */
+function isJsonContentType(value: string | null): boolean {
+  if (value === null) return false
+  return value.split(';')[0]!.trim().toLowerCase() === 'application/json'
+}
+
 async function selectors(request: Request) {
-  if (request.method !== 'POST' || request.headers.get('content-type') !== 'application/json')
+  if (request.method !== 'POST' || !isJsonContentType(request.headers.get('content-type')))
     return undefined
   const reader = request.body?.getReader()
   if (!reader) return undefined
