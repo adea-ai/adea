@@ -589,6 +589,12 @@ export function claimSharedResource({
     try {
       writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`)
       linkSync(temporary, path)
+      try {
+        rmSync(temporary, { force: true })
+      } catch {
+        // The claim is durable through the link; the temporary record beside it
+        // is not part of it.
+      }
       return { decision: 'granted', claim: record }
     } catch (error) {
       try {
