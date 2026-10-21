@@ -55,9 +55,9 @@ function workspaceSummary(
   // An archived workspace keeps its history, links, jobs and artifacts, but it
   // is no longer an archive or a deletion target: archive is not erasure, and
   // permanent deletion stays blocked before a server-owned cleanup verifier
-  // exists. A pending deletion is already past the point where a second
-  // request could start one.
-  const lifecycleOpen = !row.deletedAt && !row.deletionRequestedAt
+  // exists. A pending deletion keeps its own notice, so it is not folded into
+  // the capability flags.
+  const lifecycleOpen = !row.deletedAt
   return Object.freeze({
     canDelete: owned && !isPersonalWorkspace(row) && lifecycleOpen,
     canArchive: owned && !isPersonalWorkspace(row) && lifecycleOpen,
@@ -119,6 +119,21 @@ type WorkspaceCreationInput = Readonly<{
   scene?: WorkspaceSceneId
 }>
 
+/**
+ * The bootstrap could not establish exactly one protected personal root.
+ *
+ * The root's identity is the protected `isPersonal` column, never a name, a
+ * logo or a creation key. When the bootstrap cannot show exactly one of them
+ * it fails closed with this error instead of handing back a workspace list
+ * that omits Home or that adopts a row which was never a root.
+ */
+export class WorkspacePersonalRootUnavailableError extends Error {
+  constructor() {
+    super('Workspace personal root unavailable')
+    this.name = 'WorkspacePersonalRootUnavailableError'
+  }
+}
+
 async function createWorkspaceWithOwnerInTransaction(
   transaction: AgentHqTransaction,
   input: WorkspaceCreationInput,
@@ -131,17 +146,22 @@ async function createWorkspaceWithOwnerInTransaction(
     .from(users)
     .where(eq(users.id, input.owner.userId))
     .for('update')
-  const [deleted] = await transaction
-    .select({ id: workspaceDeletions.workspaceId })
-    .from(workspaceDeletions)
-    .where(
-      and(
-        eq(workspaceDeletions.ownerUserId, input.owner.userId),
-        eq(workspaceDeletions.idempotencyKey, input.idempotencyKey)
+  // The personal root is protected from deletion, so a deletion receipt can
+  // never be its proof. Refusing Home on a receipt would strand the owner
+  // with no root at all.
+  if (!isPersonal) {
+    const [deleted] = await transaction
+      .select({ id: workspaceDeletions.workspaceId })
+      .from(workspaceDeletions)
+      .where(
+        and(
+          eq(workspaceDeletions.ownerUserId, input.owner.userId),
+          eq(workspaceDeletions.idempotencyKey, input.idempotencyKey)
+        )
       )
-    )
-    .limit(1)
-  if (deleted) throw new Error('Workspace creation conflict')
+      .limit(1)
+    if (deleted) throw new Error('Workspace creation conflict')
+  }
   const [createdWorkspace] = await transaction
     .insert(workspaces)
     .values({
@@ -168,6 +188,11 @@ async function createWorkspaceWithOwnerInTransaction(
       )
       .limit(1)
     if (!existingWorkspace) throw new Error('Workspace creation conflict')
+    // The personal root is adopted only when the row really is a root. A row
+    // that merely holds the root's reserved creation key is never promoted
+    // into one, and never stands in for one.
+    if (isPersonal && !existingWorkspace.isPersonal)
+      throw new WorkspacePersonalRootUnavailableError()
     return Object.freeze({
       created: false,
       workspace: workspaceSummary(
@@ -346,7 +371,7 @@ export async function ensureBootstrapWorkspaces(
     // Fail closed: a bootstrap that cannot show exactly one protected personal
     // root has not provisioned Home, and must not pass a list that omits it.
     if (summaries.filter((summary) => summary.isPersonal).length !== 1)
-      throw new Error('Workspace personal root unavailable')
+      throw new WorkspacePersonalRootUnavailableError()
     return summaries
   })
 }

@@ -32,8 +32,9 @@ async function post(request: Request) {
   } catch (error) {
     // A bootstrap that cannot establish exactly one protected personal root has
     // not provisioned Home. Fail closed instead of handing back a session whose
-    // workspace list omits it.
-    if (error instanceof Error && error.message === 'Workspace personal root unavailable')
+    // workspace list omits it. The refusal is matched on the error's name, the
+    // way the management gateway projects its refusals.
+    if (error instanceof Error && error.name === 'WorkspacePersonalRootUnavailableError')
       return workspaceUnavailableResponse(request)
     throw error
   }
@@ -42,11 +43,8 @@ async function post(request: Request) {
   // Home is the caller's own protected personal root. It is the only workspace
   // this entry may activate: any other workspace in the list is shared with
   // the caller and is never their active workspace.
-  const personalRoots = workspaces.filter((workspace) => workspace.isPersonal)
-  if (personalRoots.length !== 1) return workspaceUnavailableResponse(request)
-
   const payload: ApiWorkspaceBootstrapResponse = {
-    activeWorkspace: personalRoots[0] ?? null,
+    activeWorkspace: workspaces.find((workspace) => workspace.isPersonal) ?? null,
     principal: {
       ...(displayName ? { displayName } : {}),
       temporary: resolution.temporary,

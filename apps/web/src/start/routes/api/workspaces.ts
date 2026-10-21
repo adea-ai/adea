@@ -67,7 +67,16 @@ async function post(request: Request) {
     return workspaceInvalidRequestResponse(request)
   }
 
-  await ensureBootstrapWorkspaces(applicationDatabase(), resolution.principal)
+  // The caller gets a protected Home before an optional workspace, so the
+  // bootstrap runs first. A bootstrap that cannot establish one fails closed
+  // instead of creating a workspace for a caller without a root.
+  try {
+    await ensureBootstrapWorkspaces(applicationDatabase(), resolution.principal)
+  } catch (error) {
+    if (error instanceof Error && error.name === 'WorkspacePersonalRootUnavailableError')
+      return workspaceUnavailableResponse(request)
+    throw error
+  }
   const created = await createWorkspaceWithOwner(applicationDatabase(), {
     idempotencyKey,
     name,

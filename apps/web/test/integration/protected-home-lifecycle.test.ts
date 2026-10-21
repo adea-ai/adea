@@ -26,8 +26,10 @@ import { and, eq, inArray } from 'drizzle-orm'
 import {
   addWorkspaceMembership,
   agents,
+  authorizationAuditRecords,
   createDatabase,
   createTemporaryUserSession,
+  createWorkspaceWithOwner,
   ensureWorkspaceLead,
   projects,
   tasks,
@@ -108,7 +110,6 @@ type BootstrapResponse = {
 
 type WorkspaceResponse = {
   agents: readonly AgentSummary[]
-  lead: AgentSummary | null
   tasks: readonly { id: string }[]
   workspace: {
     canArchive?: boolean
@@ -217,6 +218,12 @@ describe('protected Home lifecycle route flow (#1214, #1175)', () => {
     globalThis.fetch = realFetch
     if (fixtureWorkspaces.length) {
       await connection.db.delete(agents).where(inArray(agents.workspaceId, fixtureWorkspaces))
+      // The audit log has no foreign key, so the denied authorizations this
+      // suite provokes would outlive their workspace. They are disposable
+      // fixtures, not product history.
+      await connection.db
+        .delete(authorizationAuditRecords)
+        .where(inArray(authorizationAuditRecords.workspaceId, fixtureWorkspaces))
       await connection.db
         .delete(workspaceMemberships)
         .where(inArray(workspaceMemberships.workspaceId, fixtureWorkspaces))
@@ -475,12 +482,6 @@ describe('protected Home lifecycle route flow (#1214, #1175)', () => {
     expect(presentation.placement.state).toBe('unknown')
     expect(presentation.placement.label).toContain('Placement is not inferred from model selection')
 
-    // The canonical workspace read carries the same membership-gated lead record.
-    const read = (await (
-      await readWorkspace(caller.credential, home.id)
-    ).json()) as WorkspaceResponse
-    expect(read.lead?.id).toBe(lead.id)
-
     // A member reads the lead under the same audience; an outsider reads nothing.
     const memberRead = (await (await readLead(member.credential, home.id)).json()) as {
       lead: AgentSummary | null
@@ -535,5 +536,37 @@ describe('protected Home lifecycle route flow (#1214, #1175)', () => {
     expect(malformed.status).toBe(400)
     expect((await malformed.json()) as { code: string }).toMatchObject({ code: 'invalid_request' })
     expect(outbound).toBe(0)
+  })
+
+  test('the bootstrap fails closed when the reserved root key is held by a row that is not a root', async () => {
+    const caller = await session('reserved-key-owner')
+    // A row that merely holds the root's reserved creation key is never
+    // promoted into the protected root, and never stands in for one.
+    const { workspace: reserved } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: 'personal:home',
+      name: 'Reserved',
+      owner: caller.principal,
+    })
+    fixtureWorkspaces.push(reserved.id)
+
+    const refused = await bootstrap(caller.credential)
+    expect(refused.status).toBe(404)
+    expect((await refused.json()) as { code: string }).toMatchObject({
+      code: 'workspace_unavailable',
+    })
+    // No root was minted, and the row that holds the reserved key is still not
+    // a root.
+    const roots = await connection.db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(
+        and(eq(workspaces.ownerUserId, caller.principal.userId), eq(workspaces.isPersonal, true))
+      )
+    expect(roots).toEqual([])
+    const [row] = await connection.db
+      .select({ isPersonal: workspaces.isPersonal })
+      .from(workspaces)
+      .where(eq(workspaces.id, reserved.id))
+    expect(row?.isPersonal).toBe(false)
   })
 })

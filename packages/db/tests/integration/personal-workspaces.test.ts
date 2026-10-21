@@ -316,6 +316,33 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
     expect(roots).toHaveLength(1)
   })
 
+  test('the personal root is never adopted from a row that merely holds its reserved key', async () => {
+    const { principal } = await guest()
+    // The route reserves the `personal:` prefix, so only an internal caller can
+    // put an ordinary workspace on the root's creation key.
+    const { workspace: reserved } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: 'personal:home',
+      name: 'Reserved',
+      owner: principal,
+    })
+    expect(reserved.isPersonal).toBe(false)
+
+    // The bootstrap refuses rather than adopting a row that was never a root.
+    await expect(ensureBootstrapWorkspaces(connection.db, principal)).rejects.toThrow(
+      'Workspace personal root unavailable'
+    )
+    const roots = await connection.db
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(and(eq(workspaces.ownerUserId, principal.userId), eq(workspaces.isPersonal, true)))
+    expect(roots).toEqual([])
+    const [row] = await connection.db
+      .select({ isPersonal: workspaces.isPersonal })
+      .from(workspaces)
+      .where(eq(workspaces.id, reserved.id))
+    expect(row?.isPersonal).toBe(false)
+  })
+
   test('a rename is scope-aware and presentation-only', async () => {
     const owner = await guest()
     const member = await guest()
