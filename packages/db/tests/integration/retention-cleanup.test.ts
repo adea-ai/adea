@@ -630,6 +630,12 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
     ).toBe('receipt_untrusted')
   })
 
+  // This test waits for a real authority to expire, so it is deliberately longer than Bun's
+  // ordinary five-second per-test budget: the granted lifetime is 5,000ms and the wait runs to
+  // the granted expiry plus 200ms. Measured against a disposable PostgreSQL, the test needs
+  // 5,321ms, so the default budget cut it off 320ms short and it failed without ever reaching
+  // its assertions. The deadline below is this test's own measured budget; every other test in
+  // the file keeps the default.
   test('expiry is judged on the database clock: authority and receipts stop counting', async () => {
     const { node, owner, workspace } = await fixture('expiry')
     const subject = crypto.randomUUID()
@@ -682,7 +688,7 @@ describe.skipIf(!connectionUrl)('Retention cleanup authority', () => {
         })
       )
     ).toBe('authorization_not_current')
-  })
+  }, 30_000)
 
   test('a hold blocks verified cleanup until an admin releases it', async () => {
     const { admin, node, owner, workspace } = await fixture('hold')

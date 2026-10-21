@@ -192,4 +192,6 @@ negative) does not cover. Cold run 39022055258 saved (0/15, 1792 files, same sha
 inputs contain no `vite-temp` path.
 
 The earlier warm runs above are failures, not proof. A warm run passes only with 15/15 hits on a fresh runner and the cold run's
-manifest; the result for the current graph is recorded on the pull request.
+manifest; the result for the current graph is recorded in
+[the lane E cache and tooling receipt](evidence/vp-local-cache-lane-e-2026-10-20.md), in the section that holds the hosted
+proof for the current graph.
