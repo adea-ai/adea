@@ -241,7 +241,7 @@ export type PortableWorkspaceRole = (typeof portableWorkspaceRoles)[number]
 export type PortableWorkspace = Readonly<{
   accent: 'amber' | 'blue' | 'cyan' | 'green' | 'pink' | 'violet' | null
   createdAt: string
-  logoKind: 'box' | 'emoji' | 'home' | 'monogram'
+  logoKind: 'box' | 'emoji' | 'home' | 'icon' | 'monogram'
   logoValue: string | null
   name: string
   scene: 'home' | 'work'
@@ -673,8 +673,8 @@ const workspaceSpec = {
     values: ['amber', 'blue', 'cyan', 'green', 'pink', 'violet'],
   },
   createdAt: timestamp,
-  logoKind: { kind: 'enum', values: ['box', 'emoji', 'home', 'monogram'] },
-  logoValue: { kind: 'text', max: 16, nullable: true },
+  logoKind: { kind: 'enum', values: ['box', 'emoji', 'home', 'icon', 'monogram'] },
+  logoValue: { kind: 'text', max: 32, nullable: true },
   name,
   scene: { kind: 'enum', values: ['home', 'work'] },
   updatedAt: timestamp,

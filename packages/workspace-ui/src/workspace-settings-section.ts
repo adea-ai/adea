@@ -6,14 +6,13 @@
  * The per-workspace settings dialog's sections, deep-linked as
  * `#workspace-settings/<section>`.
  */
-export const workspaceSettingsSections = ['general', 'memory', 'skills', 'connections'] as const
+export const workspaceSettingsSections = ['general', 'memory', 'connections'] as const
 
 export type WorkspaceSettingsSection = (typeof workspaceSettingsSections)[number]
 
 export const workspaceSettingsSectionLabels: Readonly<Record<WorkspaceSettingsSection, string>> = {
   general: 'General',
   memory: 'Memory',
-  skills: 'Skills',
   connections: 'Connections',
 }
 
@@ -26,14 +25,13 @@ export const workspaceSettingsHashPrefix = '#workspace-settings'
 const legacyWorkspaceSettingsSections: Readonly<Record<string, WorkspaceSettingsSection>> = {
   workspace: 'general',
   memory: 'memory',
-  skills: 'skills',
   connections: 'connections',
 }
 
 /**
  * The workspace settings section a hash addresses: `#workspace-settings/<section>`
  * (an unknown section falls back to General), or one of the retired
- * `#settings/workspace|memory|skills|connections` links. `undefined` when the
+ * `#settings/workspace|memory|connections` links. `undefined` when the
  * hash is not a workspace settings link at all.
  */
 export function workspaceSettingsSectionFromHash(
@@ -54,4 +52,13 @@ export function workspaceSettingsSectionFromHash(
 /** The canonical deep link for one workspace settings section. */
 export function workspaceSettingsHash(section: WorkspaceSettingsSection) {
   return `${workspaceSettingsHashPrefix}/${section}`
+}
+
+/**
+ * True for any hash that opens the Settings dialog: the canonical
+ * `#settings/<section>` or a retired `#workspace-settings/<section>` link.
+ * Kept here so the navigation entry reads it without the Settings tables.
+ */
+export function isSettingsHash(hash: string): boolean {
+  return hash.startsWith('#settings') || hash.startsWith(workspaceSettingsHashPrefix)
 }

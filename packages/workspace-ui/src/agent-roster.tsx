@@ -1,6 +1,6 @@
 import type { AgentSummary, ProjectSummary } from '@adea-ai/types'
 import { Bot, MessageCircle, Pencil, Plus, X } from 'lucide-solid'
-import { createMemo, createSignal, For, Show, untrack, type Accessor, type JSX } from 'solid-js'
+import { createMemo, createSignal, For, Show, type Accessor, type JSX } from 'solid-js'
 
 import { AgentStatus } from './agent-status'
 import { agentProfileActionNotice } from './agent-profile-notice'
@@ -57,7 +57,6 @@ type Props = Readonly<{
    * Supplemental account-wide durable identities, mounted below this
    * workspace's canonical roster in the existing Agents view.
    */
-  accountDirectory?: (context: { agents: Accessor<readonly AgentSummary[]> }) => JSX.Element
   /** Lead setup status, placed inside the directory's padding under the header. */
   leadStatus?: JSX.Element
   agents: readonly AgentSummary[]
@@ -227,13 +226,6 @@ export function AgentRoster(props: Props) {
       onCustomize={setEditingAgent}
     />
   )
-  // Mount the account directory once for this roster lifetime. Its local data
-  // arrives as an accessor, so refetches update the mounted directory without
-  // replacing its query observers or focused controls.
-  const accountDirectoryContent = props.accountDirectory
-    ? untrack(() => props.accountDirectory!({ agents: () => props.agents }))
-    : undefined
-
   return (
     <section class="conventional-directory" aria-labelledby="agent-roster-title">
       <header class="conventional-surface-header">
@@ -307,7 +299,6 @@ export function AgentRoster(props: Props) {
           detail="Create a durable Agent identity, then start a direct conversation."
         />
       </Show>
-      {accountDirectoryContent}
     </section>
   )
 }

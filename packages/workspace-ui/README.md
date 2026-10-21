@@ -139,7 +139,7 @@ Catalog availability does not imply runtime health or execution activity.
 
 ## Execution host inventory
 
-Workspace details › Connections lazily loads a read-only execution-host
+Settings › Workspaces › Connections lazily loads a read-only execution-host
 inspector. Registration/proof, reported Control Plane node health, individual
 connection health, freshness, grants, entitlement, compatibility and capabilities
 stay separate. Observations age without network polling; refresh and committed
@@ -158,14 +158,13 @@ The mounted role-choice fixture uses scripted metadata/message HTTP; it is disti
 Workspace General distinguishes the caller's stable personal root from additional
 workspaces. The root keeps editable identity controls and explains persistence;
 it never renders Delete workspace, even with a stale `canDelete` capability.
-Home defaults to a home icon; additional workspace marks default to a box. Emoji
-marks and workspace ordering remain user choices. The shared sidebar's existing
+Home defaults to a home icon; additional workspace marks default to a box, and
+the icon is chosen from a dropdown. The shared sidebar's existing
 inline New workspace field creates additional workspaces without account bindings.
 
-Workspace General includes Move up/Move down controls for every workspace,
-including the personal root. Ordering persists for the current member and never
-changes another member's list. Failures keep the prior position and show retry
-guidance. The active workspace stays selected after an order change.
+Workspace General no longer carries ordering controls. The per-member order is
+still served by the reorder route and the database, but no settings control
+changes it.
 
 Active permanent workspace deletion is explicitly unavailable until a server-owned
 cleanup-completion verifier exists. General shows its availability notice and a
