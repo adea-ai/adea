@@ -45,6 +45,55 @@ const HIDDEN_CHANNELS = 64
 const HEAVY_PARTICIPANTS = 64
 const HEAVY_SCALE_CHANNELS = 157
 
+/**
+ * `channels.id` is a global primary key, not a per-workspace one, so a fixture that reuses a fixed
+ * id collides with the row an interrupted or concurrent run left behind in the same database. A
+ * run of this file that was interrupted before its cleanup, or two runs of this file against one
+ * shared lane database, both produce exactly that: `23505 duplicate channels_pkey`.
+ *
+ * Every channel fixture id below is therefore scoped to this run's marker, and each fixture gets
+ * its own index inside that id, so two fixtures of one run cannot share a primary key either. The
+ * two ids the file used before are kept here as the regression's subject: this run has to survive
+ * finding them still in the database, because that is the condition a leftover row creates.
+ */
+const LEGACY_LATE_PROJECT_CHANNEL_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+const LEGACY_BOUNDARY_CHANNEL_ID = '00000000-0000-4000-8000-000000000000'
+
+/**
+ * The identifier shape the file's fixtures have always had, with the run marker in place of the
+ * constant part and the fixture's own index in the last group. The shape is not cosmetic: the
+ * channel page cursor is the channel id and the participant reads are ordered by channel id, so
+ * the *order* of these identifiers decides which channels a reader meets first, where the
+ * participant-row bound splits a batch, and which page first exceeds that bound. The low family
+ * keeps the leading `00000000` group and the high family the trailing `ffffffff` group for exactly
+ * that reason.
+ */
+const runScopedLowChannelId = (index: number) =>
+  `00000000-4${index.toString(16).padStart(3, '0')}-8000-0000-${run}`
+
+const runScopedHighChannelId = () => `ffffffff-ffff-4fff-8fff-${run}`
+
+/**
+ * The late-project channel of the mid-export case, scoped to this run. It keeps the highest
+ * identifier of the workspace, the position it has always had.
+ */
+const lateProjectChannelId = () => runScopedHighChannelId()
+
+/**
+ * The participant-boundary channel of the 10,000-participant case, scoped to this run. It keeps
+ * the lowest identifier of the workspace, the position it has always had: the export has to meet
+ * that channel on its first page to refuse on the participant bound before it reads any
+ * participant row.
+ */
+const participantBoundaryChannelId = () => runScopedLowChannelId(0)
+
+/**
+ * The heavy visible scale channel of the given index, scoped to this run. The scale rows keep the
+ * lowest identifiers of the workspace and their order among themselves, so the participant-row
+ * bound still splits a page at the same place.
+ */
+const heavyVisibleChannelId = (index: number) => runScopedLowChannelId(index + 1)
+
 type QueryTrace = {
   channelPageReads: number
   channelIdSnapshotReads: number
@@ -580,6 +629,80 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     }
   })
 
+  test("this run's channel fixtures cannot collide with the fixed rows an earlier run left behind", async () => {
+    // Reproduce the historical condition exactly: the rows the previous fixed channel ids left in
+    // the lane database are still present when this run creates its own fixtures. `channels.id` is
+    // a global primary key, so a leftover row with one of those ids is what makes the next run
+    // fail with `23505 duplicate channels_pkey` before it asserts anything.
+    //
+    // The leftover rows are participant-only channels: the collision is on the primary key alone,
+    // and a participant-only channel with no participants is invisible to every other assertion in
+    // this file, so the leftovers cannot perturb the cases that follow. The insert tolerates a
+    // leftover that is already there, because "already there" is the condition under test.
+    await db
+      .insert(channels)
+      .values([
+        {
+          id: LEGACY_LATE_PROJECT_CHANNEL_ID,
+          idempotencyKey: `portable-channel-legacy-late-project-${run}`,
+          agentId: agentIds[0]!,
+          kind: 'direct_agent' as const,
+          sortOrder: 10_000,
+          title: 'Leftover late-project channel',
+          visibility: 'participants' as const,
+          workspaceId: workspaceId!,
+        },
+        {
+          id: LEGACY_BOUNDARY_CHANNEL_ID,
+          idempotencyKey: `portable-channel-legacy-boundary-${run}`,
+          agentId: agentIds[0]!,
+          kind: 'direct_agent' as const,
+          sortOrder: 10_001,
+          title: 'Leftover boundary channel',
+          visibility: 'participants' as const,
+          workspaceId: workspaceId!,
+        },
+      ])
+      .onConflictDoNothing()
+
+    // Every fixture id this run creates is scoped to this run, so none of them is a fixed id an
+    // earlier or concurrent run could have left behind. The run marker is in the id, which is what
+    // makes it this run's own.
+    const productionIds = [
+      lateProjectChannelId(),
+      participantBoundaryChannelId(),
+      heavyVisibleChannelId(0),
+      heavyVisibleChannelId(1),
+    ]
+    for (const id of productionIds) expect(id).toContain(run)
+    expect(productionIds).not.toContain(LEGACY_LATE_PROJECT_CHANNEL_ID)
+    expect(productionIds).not.toContain(LEGACY_BOUNDARY_CHANNEL_ID)
+    expect(new Set(productionIds).size).toBe(productionIds.length)
+
+    // And a run-scoped id inserts cleanly while the leftover rows are present. The probe keeps the
+    // low family's shape but takes an index no case below uses, so it never takes an identifier
+    // one of them needs.
+    const probeId = runScopedLowChannelId(900)
+    expect(probeId).toContain(run)
+    await db.insert(channels).values({
+      id: probeId,
+      idempotencyKey: `portable-channel-run-scoped-probe-${run}`,
+      agentId: agentIds[0]!,
+      kind: 'direct_agent' as const,
+      sortOrder: 10_002,
+      title: 'Run-scoped probe channel',
+      visibility: 'participants' as const,
+      workspaceId: workspaceId!,
+    })
+    const rows = await db
+      .select({ id: channels.id })
+      .from(channels)
+      .where(inArray(channels.id, [probeId, LEGACY_LATE_PROJECT_CHANNEL_ID]))
+    expect(rows.map(({ id }) => id).toSorted()).toEqual(
+      [probeId, LEGACY_LATE_PROJECT_CHANNEL_ID].toSorted()
+    )
+  })
+
   test('mid-export project grants cannot expand channel or participant reads past the snapshot', async () => {
     const reader = await createTemporaryUserSession(db, {
       credentialDigest: `portable-channel-reader-${run}`,
@@ -612,7 +735,7 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
       'members'
     )
 
-    const newlyVisibleChannelId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const newlyVisibleChannelId = lateProjectChannelId()
     await db.insert(channels).values({
       id: newlyVisibleChannelId,
       idempotencyKey: `portable-channel-late-project-${run}`,
@@ -747,7 +870,7 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
 
     const heavyVisibleIds = Array.from(
       { length: Math.min(HEAVY_SCALE_CHANNELS, visibleToAdd) },
-      (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`
+      (_, index) => heavyVisibleChannelId(index)
     )
     const visibleRows = Array.from({ length: visibleToAdd }, (_, index) => ({
       id: heavyVisibleIds[index] ?? randomUUID(),
@@ -934,7 +1057,7 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     expect(channelToReplace).toBeDefined()
     await db.delete(channels).where(eq(channels.id, channelToReplace!.id))
 
-    const boundaryChannelId = '00000000-0000-4000-8000-000000000000'
+    const boundaryChannelId = participantBoundaryChannelId()
     await db.insert(channels).values({
       id: boundaryChannelId,
       idempotencyKey: `portable-channel-participant-bound-${run}`,
