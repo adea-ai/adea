@@ -170,28 +170,6 @@
 [data-global-rail][data-collapsed='true'] [data-global-rail-content] {
   padding-block-start: 0.125rem;
 }
-/* The static product mark keeps the former switcher row's height. */
-.global-rail__mark {
-  display: flex;
-  height: var(--rail-item-height);
-  align-items: center;
-  justify-content: center;
-}
-
-/*
- * The search entry advertises its chord as outlined key caps under the icon
- * (shared KbdChord); the row above stays a standard rail item.
- */
-.global-rail__search-item {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-[data-global-rail-search-keys] {
-  justify-content: center;
-  padding-block-end: 0.25rem;
-}
 
 /*
  * A rail hover tip must never float above an open menu: the workspace and
