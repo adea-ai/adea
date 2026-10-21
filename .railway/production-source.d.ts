@@ -24,13 +24,21 @@ export interface ProductionTargetDeclaration {
 
 /** The repository's declaration of its production source. */
 export interface ProductionSourceDeclaration {
+  /**
+   * Whether this repository has configured a production identity.
+   *
+   * It has not. While this is false the declaration names no target and the
+   * plan refuses without making a live read, because there is no declared
+   * target for a read to agree with.
+   */
+  configured: boolean
   /** The environment production traffic runs in. */
   environment: string
   /** The candidate production targets. One is a plan; more than one is ambiguous. */
   targets: ProductionTargetDeclaration[]
   /** The deployment metadata every production deployment must publish. */
   requiredMetadata: string[]
-  /** The metadata values this repository pins, by field. */
+  /** The metadata values the repository pins, by field. */
   pinnedMetadata: Record<string, string>
 }
 

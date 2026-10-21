@@ -15,37 +15,54 @@ describes only the plan that says which production target the repository believe
 ## The declaration
 
 `.railway/production-source.js` is the repository's declaration of its production source, and
-`.railway/production-source.d.ts` is its type. The declaration records four things:
+`.railway/production-source.d.ts` is its type. The declaration records five things:
 
 | Field              | What it states                                                                        |
 | ------------------ | ------------------------------------------------------------------------------------- |
+| `configured`       | whether this repository has configured a production identity                          |
 | `environment`      | the environment production traffic runs in                                            |
 | `targets`          | the candidate production targets; one is a plan, none is a refusal, more is ambiguous |
 | `requiredMetadata` | the deployment metadata every production deployment must publish                      |
 | `pinnedMetadata`   | the metadata values the repository pins, by field                                     |
 
-The declaration pins the provider identity of the production target: every candidate names the
-Railway **project** and the Railway **service** it means, and a candidate that names neither is
-not shaped as a declaration and is refused.
+**The production identity is not configured in this repository, and the declaration says so
+rather than guessing one.** `configured` is `false`, no target is named, and the plan refuses with
+`RAILWAY_PRODUCTION_SOURCE_UNCONFIGURED` — before making any live read, because there is no
+declared target for a read to agree with.
 
-An environment is not an identity. One environment holds many services, so a declaration that
-named only an environment could not say which service a plan meant, and a live read that named
-only an environment could have been planned against any service in it. The identity is recorded
-here as **deployment configuration**, which is exactly what it is: the rule in
-[Diagram sources](../architecture/diagram-sources.md) holds — a provider resource name is
-deployment configuration and not a domain identifier — and this declaration records deployment
-configuration deliberately, so that the live read has something concrete to agree with.
+That is the honest state, and the repository's own documents say why:
 
-The identity in the declaration is the identity the repository _believes_. It is not verified
-here: this plan reaches no provider and reads no console. It is a pin, and the plan treats it as
-one. A live read that names another project or another service is a refusal
-(`RAILWAY_PRODUCTION_TARGET_CONTRADICTORY`), so a wrong identity in the declaration can stop a
-plan but can never let one through.
+- a Railway project and service are provider configuration rather than domain identifiers, and
+  this repository does not record them ([Diagram sources](../architecture/diagram-sources.md));
+- [Railway cost week](railway-cost-week-plan.md) records that whether a Railway deployment of
+  the auth service exists is **not established**;
+- [Railway cutover checklist](railway-cutover-checklist.md) records that this repository holds no
+  live deployment inventory.
 
-What the repository records beyond the identity is the shape of a production deployment, not the
-identifiers of one. A release, an image digest, a region or a promotion time belongs in the
-receipt of the change that produced it, not in the source tree, so `pinnedMetadata` is empty
-today.
+So a declaration naming a project or a service would be a claim the repository cannot stand
+behind, and a plan that agreed with a claim would be worth nothing. Nothing can be planned until
+an owner who can see the Railway console records the identity.
+
+The machinery that checks a recorded identity is already in place, and the offline suite
+exercises it:
+
+| Rule                                    | What it refuses                                                                                        |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| a candidate names a project and service | a candidate that names neither is not shaped as a declaration                                          |
+| the live target matches the candidate   | a live target that names another project or service is a contradiction                                 |
+| the history is bound to that target     | a deployment that names no identity is unbound; one naming another target is not this target's history |
+
+An environment alone is not an identity. One environment holds many services, so a declaration
+that named only an environment could not say which service a plan meant, and a live read that
+named only an environment could have been planned against any service in it. When the identity is
+recorded it will be recorded as **deployment configuration**, which is exactly what it is: the
+rule in [Diagram sources](../architecture/diagram-sources.md) holds — a provider resource name is
+deployment configuration and not a domain identifier — and the plan will treat the recorded value
+as a pin, refusing a live read that disagrees with it.
+
+What the repository records today is the shape of a production deployment, not the identifiers of
+one. A release, an image digest, a region or a promotion time belongs in the receipt of the
+change that produced it, not in the source tree, so `pinnedMetadata` is empty today.
 
 ## The live reads
 
@@ -91,19 +108,24 @@ itself.** The boundary is explicit and it is enforced:
 
 This is why the offline fixtures in `scripts/railway-production-plan.test.ts` are **normalized
 fixtures**. They are not captured Railway CLI output and they are not a claim about the
-provider's schema: nothing here proves what `railway status --json` actually prints. They prove
-what the plan does with a read that has been normalized into the documented shape, and the
-boundary above is what stops an unnormalized provider payload from being read as one. Validating
-the adapter against an authoritative provider schema is a separate piece of work that would need
-a recorded provider capture; this document does not claim it.
+provider's schema: nothing here proves what `railway status --json` actually prints. The identity
+values in them are **placeholders** — `example-project` and `example-service` — because the
+repository has configured no production identity and a fixture that looked like a recorded one
+would suggest otherwise. They prove what the plan does with a read that has been normalized into
+the documented shape, and the boundary above is what stops an unnormalized provider payload from
+being read as one. Validating the adapter against an authoritative provider schema is a separate
+piece of work that would need a recorded provider capture; this document does not claim it.
 
 The reads are JSON, and the plan refuses a read it cannot parse rather than plan on a payload
 it did not understand. A status read answers with the candidate targets and the deployment
-metadata; a deployments read answers with the deployment history, newest first:
+metadata; a deployments read answers with the deployment history, newest first. The identity
+values below are placeholders:
 
 ```json
 {
-  "targets": [{ "project": "adea", "service": "auth", "environment": "production" }],
+  "targets": [
+    { "project": "example-project", "service": "example-service", "environment": "production" }
+  ],
   "deployment": {
     "release": "v0.99.0-dev.488",
     "imageDigest": "sha256:…",
@@ -118,8 +140,8 @@ metadata; a deployments read answers with the deployment history, newest first:
   "deployments": [
     {
       "id": "d_2",
-      "project": "adea",
-      "service": "auth",
+      "project": "example-project",
+      "service": "example-service",
       "status": "success",
       "createdAt": "2026-10-20T00:00:00Z"
     }
@@ -143,6 +165,7 @@ it was refused on:
 | ----------------------------------------------- | ------------------------------------------------------------- |
 | `RAILWAY_PRODUCTION_SOURCE_UNREADABLE`          | the repository declares no production source that can be read |
 | `RAILWAY_PRODUCTION_SOURCE_INVALID`             | the declaration is not shaped as a declaration                |
+| `RAILWAY_PRODUCTION_SOURCE_UNCONFIGURED`        | the repository has configured no production identity          |
 | `RAILWAY_PRODUCTION_TARGET_MISSING`             | no production target is named                                 |
 | `RAILWAY_PRODUCTION_TARGET_AMBIGUOUS`           | more than one production target is named                      |
 | `RAILWAY_PRODUCTION_TARGET_IDENTITY_MISSING`    | the live target names no project and no service               |
@@ -184,25 +207,31 @@ canonical coverage lane discovers: `bun run test:coverage` runs `bun test … sc
 --coverage`, so the file is selected by the normal CI selection with no lane-specific
 configuration and no separate registration.
 
-They cover the planned path, an ambiguous declaration and an ambiguous live read, a missing
-target, a contradictory target, a target outside the production environment, a target that
-names no project and no service, a declaration whose target names neither, a history that
-binds no deployment to the target, a history that belongs to another project and a history that
-belongs to another service, missing and contradictory deployment metadata, a stopped, an errored
-and an empty history, a failed command, a timed-out command, a runner that throws, a read that
-is not JSON, a read that is not the normalized read the plan reads, a plan without a runner, a
-declaration that is not shaped as one, and the determinism of the plan and of the evidence
+They cover the planned path, a declaration that has not configured a production identity, a
+declaration whose configured flag is not a boolean, an ambiguous declaration and an ambiguous live
+read, a missing target, a contradictory target, a target outside the production environment, a
+target that names no project and no service, a declaration whose target names neither, a history
+that binds no deployment to the target, a history that belongs to another project and a history
+that belongs to another service, missing and contradictory deployment metadata, a stopped, an
+errored and an empty history, a failed command, a timed-out command, a runner that throws, a read
+that is not JSON, a read that is not the normalized read the plan reads, a plan without a runner,
+a declaration that is not shaped as one, and the determinism of the plan and of the evidence
 digest.
+
+The shipped declaration is covered as well, and it is covered as what it is: the repository has
+configured no production identity, so the plan against the repository's own declaration refuses
+and makes no live read.
 
 ## What this plan does not establish
 
 - It does not establish that the Railway production deployment exists, is healthy or is the
   one the repository means. It establishes only that the declaration and the live read agree.
-- It does not establish that the project and service the declaration names are the right ones.
-  It establishes that the live read agrees with the declaration; only an owner who can see the
-  provider can establish that the declaration names the production target at all.
+- It does not establish the production identity, because the repository has not configured one.
+  It establishes that the declaration says so, and it refuses rather than planning against a
+  guessed identity. Only an owner who can see the provider can record the identity.
 - It does not establish what the provider's own JSON looks like. It establishes that the reads
-  it is given are the normalized shape documented above.
+  it is given are the normalized shape documented above, and its fixtures are normalized
+  fixtures with placeholder identity values.
 - It does not establish a cutover, a rollback, a promotion or a recovery. Those are separate
   approved changes with their own receipts.
 - It does not establish what the deployment metadata says about the running release beyond

@@ -52,17 +52,28 @@ function planFor(input: PlanInput): Plan {
   return planProductionDeployment(input) as Plan
 }
 
-/** The declaration the tests plan against: one production target that names the
- * project and the service it means, and the metadata every production
- * deployment must publish. */
+/**
+ * The declaration the tests plan against.
+ *
+ * The identity values are placeholders. They are not the repository's
+ * production identity — the repository has not configured one — and they are
+ * not a claim about the provider's schema. They are the concrete values a
+ * configured declaration has to carry, so that the machinery that checks a
+ * recorded identity can be exercised offline.
+ */
 const declaration = {
+  configured: true,
   environment: 'production',
-  targets: [{ project: 'adea', service: 'auth', environment: 'production' }],
+  targets: [{ project: 'example-project', service: 'example-service', environment: 'production' }],
   requiredMetadata: ['release', 'imageDigest', 'region', 'promotedAt'],
   pinnedMetadata: {},
 }
 
-const observedTarget = { project: 'adea', service: 'auth', environment: 'production' }
+const observedTarget = {
+  project: 'example-project',
+  service: 'example-service',
+  environment: 'production',
+}
 
 const observedDeployment = {
   release: 'v0.99.0-dev.488',
@@ -115,8 +126,8 @@ function deployment(
   return {
     createdAt: '2026-10-20T00:00:00Z',
     id,
-    project: 'adea',
-    service: 'auth',
+    project: 'example-project',
+    service: 'example-service',
     status,
     ...overrides,
   }
@@ -197,8 +208,12 @@ describe('the Railway production source plan', () => {
       source: {
         ...declaration,
         targets: [
-          { project: 'adea', service: 'auth', environment: 'production' },
-          { project: 'adea', service: 'web', environment: 'production' },
+          { project: 'example-project', service: 'example-service', environment: 'production' },
+          {
+            project: 'example-project',
+            service: 'example-other-service',
+            environment: 'production',
+          },
         ],
       },
       run: fakeRunner(healthyReads()),
@@ -235,7 +250,10 @@ describe('the Railway production source plan', () => {
   test('refuses a live read that names more than one production target', () => {
     const reads = healthyReads()
     reads.status = read({
-      targets: [observedTarget, { project: 'adea', service: 'web', environment: 'production' }],
+      targets: [
+        observedTarget,
+        { project: 'example-project', service: 'example-other-service', environment: 'production' },
+      ],
       deployment: observedDeployment,
     })
 
@@ -260,7 +278,9 @@ describe('the Railway production source plan', () => {
   test('refuses a live target that contradicts the declared target', () => {
     const reads = healthyReads()
     reads.status = read({
-      targets: [{ project: 'adea', service: 'web', environment: 'production' }],
+      targets: [
+        { project: 'example-project', service: 'example-other-service', environment: 'production' },
+      ],
       deployment: observedDeployment,
     })
 
@@ -270,14 +290,14 @@ describe('the Railway production source plan', () => {
     expect(codes(plan)).toContain(REFUSAL_CODES.targetContradictory)
     const refusal = refusalFor(plan, REFUSAL_CODES.targetContradictory)
     expect(refusal.evidence.field).toBe('service')
-    expect(refusal.evidence.expected).toBe('auth')
-    expect(refusal.evidence.observed).toBe('web')
+    expect(refusal.evidence.expected).toBe('example-service')
+    expect(refusal.evidence.observed).toBe('example-other-service')
   })
 
   test('refuses a live target outside the declared production environment', () => {
     const reads = healthyReads()
     reads.status = read({
-      targets: [{ project: 'adea', service: 'auth', environment: 'staging' }],
+      targets: [{ project: 'example-project', service: 'example-service', environment: 'staging' }],
       deployment: observedDeployment,
     })
 
@@ -285,7 +305,10 @@ describe('the Railway production source plan', () => {
       // The candidate pins the project and the service, and both agree. The
       // environment is the declaration's own rule, and the live target is not
       // in it, so the refusal comes from the rule and not from the candidate.
-      source: { ...declaration, targets: [{ project: 'adea', service: 'auth' }] },
+      source: {
+        ...declaration,
+        targets: [{ project: 'example-project', service: 'example-service' }],
+      },
       run: fakeRunner(reads),
     })
 
@@ -349,7 +372,7 @@ describe('the Railway production source plan', () => {
   test('refuses a deployment history that belongs to another target', () => {
     const reads = healthyReads()
     reads.deployments = read({
-      deployments: [deployment('d_2', 'success', { service: 'web' })],
+      deployments: [deployment('d_2', 'success', { service: 'example-other-service' })],
     })
 
     const plan = planFor({ source: declaration, run: fakeRunner(reads) })
@@ -358,17 +381,17 @@ describe('the Railway production source plan', () => {
     expect(codes(plan)).toContain(REFUSAL_CODES.historyContradictory)
     const refusal = refusalFor(plan, REFUSAL_CODES.historyContradictory)
     expect(refusal.evidence).toMatchObject({
-      expected: 'auth',
+      expected: 'example-service',
       field: 'service',
       id: 'd_2',
-      observed: 'web',
+      observed: 'example-other-service',
     })
   })
 
   test('refuses a deployment history bound to another project', () => {
     const reads = healthyReads()
     reads.deployments = read({
-      deployments: [deployment('d_2', 'success', { project: 'other' })],
+      deployments: [deployment('d_2', 'success', { project: 'example-other-project' })],
     })
 
     const plan = planFor({ source: declaration, run: fakeRunner(reads) })
@@ -377,9 +400,9 @@ describe('the Railway production source plan', () => {
     expect(codes(plan)).toContain(REFUSAL_CODES.historyContradictory)
     const refusal = refusalFor(plan, REFUSAL_CODES.historyContradictory)
     expect(refusal.evidence).toMatchObject({
-      expected: 'adea',
+      expected: 'example-project',
       field: 'project',
-      observed: 'other',
+      observed: 'example-other-project',
     })
   })
 
@@ -504,7 +527,7 @@ describe('the Railway production source plan', () => {
 
   test('refuses a live read that is not the normalized read the plan reads', () => {
     const reads = healthyReads()
-    reads.status = read({ project: 'adea', service: 'auth' })
+    reads.status = read({ project: 'example-project', service: 'example-service' })
 
     const plan = planFor({ source: declaration, run: fakeRunner(reads) })
 
@@ -548,7 +571,7 @@ describe('the Railway production source plan', () => {
 
   test('refuses a declaration that is not shaped as one', () => {
     const plan = planFor({
-      source: { environment: 'production', targets: 'auth' },
+      source: { configured: true, environment: 'production', targets: 'not-a-target' },
       run: fakeRunner(healthyReads()),
     })
 
@@ -571,7 +594,7 @@ describe('the Railway production source plan', () => {
 
   test('refuses a declaration whose candidate target is not an object', () => {
     const plan = planFor({
-      source: { ...declaration, targets: ['auth'] },
+      source: { ...declaration, targets: ['example-service'] },
       run: fakeRunner(healthyReads()),
     })
 
@@ -582,7 +605,10 @@ describe('the Railway production source plan', () => {
 
   test('refuses a declaration whose candidate environment is not a string', () => {
     const plan = planFor({
-      source: { ...declaration, targets: [{ project: 'adea', service: 'auth', environment: 1 }] },
+      source: {
+        ...declaration,
+        targets: [{ project: 'example-project', service: 'example-service', environment: 1 }],
+      },
       run: fakeRunner(healthyReads()),
     })
 
@@ -652,7 +678,7 @@ describe('the Railway production source plan', () => {
 
   test('refuses a live read whose target is not an object', () => {
     const reads = healthyReads()
-    reads.status = read({ targets: ['auth'], deployment: observedDeployment })
+    reads.status = read({ targets: ['example-service'], deployment: observedDeployment })
 
     const plan = planFor({ source: declaration, run: fakeRunner(reads) })
 
@@ -725,7 +751,7 @@ describe('the Railway production source plan', () => {
 
   test('refuses a declaration on disk whose pinned metadata is not an object', () => {
     const directory = repositoryDeclaring(
-      "module.exports = { productionSource: { environment: 'production', targets: [{ project: 'adea', service: 'auth' }], requiredMetadata: [], pinnedMetadata: 'none' } }\n"
+      "module.exports = { productionSource: { configured: true, environment: 'production', targets: [{ project: 'example-project', service: 'example-service' }], requiredMetadata: [], pinnedMetadata: 'none' } }\n"
     )
     try {
       const declarationRead = readProductionSource(directory)
@@ -749,27 +775,48 @@ describe('the Railway production source plan', () => {
     expect(plan.refusals[0].evidence.field).toBe('pinnedMetadata')
   })
 
-  test('reads the repository’s own declaration and plans against it', () => {
+  test('reads the repository’s own declaration, which is explicitly unconfigured', () => {
     const declarationRead = readProductionSource(root)
 
     expect(declarationRead.refusal).toBeNull()
     expect(declarationRead.source.environment).toBe('production')
-    expect(declarationRead.source.targets).toHaveLength(1)
     expect(declarationRead.source.requiredMetadata).toContain('imageDigest')
     expect(declarationRead.source.pinnedMetadata).toEqual({})
 
-    // The shipped declaration names a concrete identity: an environment alone
-    // is not an identity, and a declaration that named only one could be
-    // planned against any service in that environment.
-    const target = declarationRead.source.targets[0]
-    expect(typeof target.project).toBe('string')
-    expect(target.project.length).toBeGreaterThan(0)
-    expect(typeof target.service).toBe('string')
-    expect(target.service.length).toBeGreaterThan(0)
-    expect(target.environment).toBe('production')
+    // The repository has not configured a production identity, and the
+    // declaration says so rather than guessing one: it names no target, and it
+    // does not claim that a Railway project or service is known.
+    expect(declarationRead.source.configured).toBe(false)
+    expect(declarationRead.source.targets).toEqual([])
 
-    const plan = planFor({ root, run: fakeRunner(healthyReads()) })
-    expect(plan.verdict).toBe('planned')
+    // So the plan is fail-closed: it refuses, and it makes no live read at
+    // all, because there is no declared target for a read to agree with.
+    const run = fakeRunner(healthyReads())
+    const plan = planFor({ root, run })
+
+    expect(plan.verdict).toBe('refused')
+    expect(codes(plan)).toEqual([REFUSAL_CODES.sourceUnconfigured])
+    expect(run.calls).toEqual([])
+  })
+
+  test('refuses a declaration that has not configured a production identity', () => {
+    const run = fakeRunner(healthyReads())
+    const plan = planFor({ source: { ...declaration, configured: false }, run })
+
+    expect(plan.verdict).toBe('refused')
+    expect(codes(plan)).toEqual([REFUSAL_CODES.sourceUnconfigured])
+    expect(run.calls).toEqual([])
+  })
+
+  test('refuses a declaration whose configured flag is not a boolean', () => {
+    const plan = planFor({
+      source: { ...declaration, configured: 'yes' },
+      run: fakeRunner(healthyReads()),
+    })
+
+    expect(plan.verdict).toBe('refused')
+    expect(codes(plan)).toEqual([REFUSAL_CODES.sourceInvalid])
+    expect(plan.refusals[0].evidence.field).toBe('configured')
   })
 
   test('the same input always produces the same plan and the same evidence', () => {

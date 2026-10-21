@@ -19,6 +19,11 @@
 // A provider payload that reaches the plan unnormalized is a refusal, never a
 // plan on fields the plan did not understand.
 //
+// A declaration that has not configured a production identity is refused too,
+// and it is refused before any read is made: the repository does not know its
+// production source, and a read cannot supply an identity the repository
+// declined to record.
+//
 // Every refusal carries a fixed code, one sentence that says what was refused
 // and the evidence it was refused on. The evidence is hashed, so a receipt can
 // name the refusal it saw without repeating the whole payload, and the same
@@ -36,6 +41,7 @@ export const PRODUCTION_SOURCE_PATH = '.railway/production-source.js'
 export const REFUSAL_CODES = Object.freeze({
   sourceUnreadable: 'RAILWAY_PRODUCTION_SOURCE_UNREADABLE',
   sourceInvalid: 'RAILWAY_PRODUCTION_SOURCE_INVALID',
+  sourceUnconfigured: 'RAILWAY_PRODUCTION_SOURCE_UNCONFIGURED',
   targetMissing: 'RAILWAY_PRODUCTION_TARGET_MISSING',
   targetAmbiguous: 'RAILWAY_PRODUCTION_TARGET_AMBIGUOUS',
   targetIdentityMissing: 'RAILWAY_PRODUCTION_TARGET_IDENTITY_MISSING',
@@ -178,6 +184,9 @@ function validateDeclaration(source) {
   }
   if (typeof source.environment !== 'string' || source.environment.length === 0) {
     return { field: 'environment', reason: 'it is not a non-empty string' }
+  }
+  if (typeof source.configured !== 'boolean') {
+    return { field: 'configured', reason: 'it is not a boolean' }
   }
   if (!Array.isArray(source.targets)) {
     return { field: 'targets', reason: 'it is not an array' }
@@ -463,6 +472,26 @@ export function planProductionDeployment({ source, root = repositoryRoot(), run 
       )
       return finish(null, null, null, null, refusals)
     }
+  }
+
+  // A declaration that has not configured an identity has nothing for a live
+  // read to agree with. The plan refuses here, before any read is made: the
+  // honest answer is that this repository does not know its production
+  // source, and a read cannot supply an identity the repository declined to
+  // record.
+  if (declaration && declaration.configured === false) {
+    refusals.push(
+      refusal(
+        REFUSAL_CODES.sourceUnconfigured,
+        'the repository has not configured a production identity, so there is nothing to plan against',
+        {
+          path: PRODUCTION_SOURCE_PATH,
+          environment: declaration.environment ?? null,
+          targets: declaration.targets?.length ?? 0,
+        }
+      )
+    )
+    return finish(declaration, null, null, null, refusals)
   }
 
   if (!run) {
