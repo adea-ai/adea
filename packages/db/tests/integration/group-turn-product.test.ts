@@ -1196,11 +1196,18 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
     expect(retry.turn.id).toBe(turn.id)
     // The regrant really moved the revision: the Agent's current admission
     // is revision 2 now, so the retained revision 1 is the only thing that
-    // keeps the late result held.
+    // keeps the late result held. The grant is read for THIS fixture's
+    // channel and workspace: other fixtures own grants with the same id.
     const [current] = await connection.db
       .select({ revision: schema.groupEnlistmentGrants.revision })
       .from(schema.groupEnlistmentGrants)
-      .where(eq(schema.groupEnlistmentGrants.grantId, 'gra_lead'))
+      .where(
+        and(
+          eq(schema.groupEnlistmentGrants.workspaceId, f.workspace.id),
+          eq(schema.groupEnlistmentGrants.channelId, f.channelId),
+          eq(schema.groupEnlistmentGrants.grantId, 'gra_lead')
+        )
+      )
     expect(current?.revision).toBe(2)
     // The retained binding is still the revision the work was admitted
     // under, never the new one.
