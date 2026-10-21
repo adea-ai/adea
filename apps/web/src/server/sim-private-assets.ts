@@ -21,6 +21,15 @@ import type { SimPrivateAsset } from './sim-host'
 /** A plain private location name. Anything else is refused and no object is read. */
 export const SIM_PRIVATE_ASSET_LOCATION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
+/**
+ * A percent escape that turns a key into a path.
+ *
+ * A storage adapter builds a URL or a file path out of the key, and both decode
+ * it. An encoded separator, dot or NUL in the key is therefore a path in
+ * disguise, and it is refused here rather than left to the adapter.
+ */
+const PERCENT_ESCAPE_PATH = /%(?:2e|2f|5c|00)/iu
+
 export type SimPrivateAssetRequest = Readonly<{ location: string; key: string }>
 
 /** Reads one object from the named private location, or null when it is absent. */
@@ -32,15 +41,42 @@ export type SimPrivateAssetReader = (path: string) => Promise<SimPrivateAsset | 
 
 /**
  * The storage key for a request path, or null when the path could leave the location. An absolute
- * path, a backslash, a NUL, an empty segment and a `.` or `..` segment are all refused. The host
- * applies the same rules before it reaches the reader; this is the second, independent check.
+ * path, a backslash, a NUL, an empty segment and a `.` or `..` segment are all refused, and so is a
+ * key that carries a percent escape a storage adapter would decode into a path. The host applies
+ * the same rules before it reaches the reader; this is the second, independent check.
  */
 export function simPrivateAssetKey(path: string): string | null {
   if (typeof path !== 'string' || path.length === 0) return null
   if (path.startsWith('/') || path.includes('\\') || path.includes('\0')) return null
+  if (PERCENT_ESCAPE_PATH.test(path)) return null
   const parts = path.split('/')
   if (parts.some((part) => part === '' || part === '.' || part === '..')) return null
   return parts.join('/')
+}
+
+/**
+ * The object the reader hands back: the bytes and their type, and nothing else.
+ *
+ * A storage adapter may answer with more than the contract declares — a signed
+ * URL, a location, a redirect. The reader hands back only the bytes and their
+ * type, so this service cannot offer a second route to a private object.
+ *
+ * An answer that is not an object with a body and a content type is a fault of
+ * the storage adapter, not an absent object, so it is reported as one: the
+ * caller serves no asset at all rather than an empty one that looks like a
+ * success.
+ */
+function privateAsset(asset: SimPrivateAsset): SimPrivateAsset {
+  if (!asset || typeof asset !== 'object' || Array.isArray(asset)) {
+    throw new Error('the private asset store answered with something that is not an object')
+  }
+  if (typeof asset.contentType !== 'string' || asset.contentType.length === 0) {
+    throw new Error('the private asset store answered without a content type')
+  }
+  if (asset.body === undefined || asset.body === null) {
+    throw new Error('the private asset store answered without a body')
+  }
+  return { body: asset.body, contentType: asset.contentType }
 }
 
 /**
@@ -50,6 +86,10 @@ export function simPrivateAssetKey(path: string): string | null {
  * The reader is the request-side half of the gate: it keeps the key inside the named location and
  * returns bytes. The storage-side half — the access control list that makes the location private,
  * and the absence of a public alias for it — belongs to the deployment.
+ *
+ * The reader answers with the object, with null when the object is absent, and with a failure when
+ * the storage adapter breaks its own contract. It never answers with a location, a URL or a
+ * redirect, so the service offers no second route to a private object.
  */
 export function createSimPrivateAssetReader(options: {
   /** The named private location that holds the engine export. */
@@ -63,6 +103,8 @@ export function createSimPrivateAssetReader(options: {
     if (!usable) return null
     const key = simPrivateAssetKey(path)
     if (!key) return null
-    return options.read({ location, key })
+    const asset = await options.read({ location, key })
+    if (asset === null || asset === undefined) return null
+    return privateAsset(asset)
   }
 }
