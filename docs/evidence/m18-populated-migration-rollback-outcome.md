@@ -13,15 +13,16 @@ is **not** declared safe by this record.
 
 ## Provenance
 
-| Item                                                    | Value                                                                                                                                                                |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Branch                                                  | `codex/f3w3-migration-rollback-qualification-20261021`                                                                                                               |
-| Base                                                    | `origin/main` at `12a1830c4115eb46503a79aa0701452ac12ec695` (`fix(workspaces): recover from a reorder conflict and keep a save from being overwritten (#1542)`)      |
-| Qualification                                           | `packages/db/tests/integration/migration-populated-rollback-outcome-qualification.test.ts` (new, test-only)                                                          |
-| This record                                             | `docs/evidence/m18-populated-migration-rollback-outcome.md` (new)                                                                                                    |
-| Production code, schema, migrations, snapshots, journal | unchanged                                                                                                                                                            |
-| Other repository paths                                  | unchanged                                                                                                                                                            |
-| Follow-up                                               | The same-owner cleanup-ownership repair on the same two paths, against draft pull request [#1545](https://github.com/adea-ai/adea/pull/1545) (draft, auto-merge off) |
+| Item                                                    | Value                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Branch                                                  | `codex/f3w3-migration-rollback-qualification-20261021`                                                                                                                                                                                                               |
+| Base                                                    | `origin/main` at `12a1830c4115eb46503a79aa0701452ac12ec695` (`fix(workspaces): recover from a reorder conflict and keep a save from being overwritten (#1542)`)                                                                                                      |
+| Qualification                                           | `packages/db/tests/integration/migration-populated-rollback-outcome-qualification.test.ts` (new, test-only)                                                                                                                                                          |
+| This record                                             | `docs/evidence/m18-populated-migration-rollback-outcome.md` (new)                                                                                                                                                                                                    |
+| Production code, schema, migrations, snapshots, journal | unchanged                                                                                                                                                                                                                                                            |
+| Other repository paths                                  | unchanged                                                                                                                                                                                                                                                            |
+| Follow-up                                               | The same-owner cleanup-ownership repair on the same two paths, against draft pull request [#1545](https://github.com/adea-ai/adea/pull/1545) (draft, auto-merge off)                                                                                                 |
+| Review round                                            | Root's exact-head review of `8ef6e286dc1b40ea142d5b3057255c7a3e6a7c7d`: the teardown now reports the ownership ledger even when the scratch was never confirmed, and a `CREATE DATABASE` outcome is classified fail-closed. Same two paths, same draft pull request. |
 
 The delivered slices this qualification reconciles with, all already merged into `origin/main` at
 the base above:
@@ -114,13 +115,17 @@ cleanup attempts every step and reports the failures together.
 | the forward-only recovery re-applies the cutover without loss and invents no fence                                     | The recovered ledger is the 61 current migrations; the population is unchanged; the fence columns are back and null.                                                                                                                                                                                     | Covered, integration        |
 | the quarantine provenance is re-established after the rollback, for the same principals                                | The source digest is the same digest; the same principals are quarantined for the same reasons; the derived authority names the same principals and grants.                                                                                                                                              | Covered, integration        |
 | the cohort must be fenced again after the rollback, and the dispositions are the same                                  | The fence did not survive the restore, so the cohort has to be fenced again; the evidence did survive it, so the classification is the same one.                                                                                                                                                         | Covered, integration        |
-| a refused creation is never dropped, because the run created nothing                                                   | The teardown never attempts a drop for a name the server refused to create.                                                                                                                                                                                                                              | Covered, unit (no database) |
+| a refused creation is never dropped, because the run created nothing                                                   | The teardown never attempts a drop for a name the server refused to create, and the refused name is reported by name rather than folded into the names the run never tried.                                                                                                                              | Covered, unit (no database) |
 | an unresolved creation is never dropped, and it stays unresolved                                                       | The teardown never attempts a drop for a name whose creation outcome is unknown, the name is reported, and the cleanup fails instead of passing.                                                                                                                                                         | Covered, unit (no database) |
 | a confirmed creation is dropped, and a database this run already dropped is not dropped again                          | Only a confirmed creation is dropped; a name this run already dropped and a name it never attempted are both left alone.                                                                                                                                                                                 | Covered, unit (no database) |
 | cleanup errors aggregate, and every attempted drop still runs                                                          | Every owned name is attempted in order even when an earlier drop fails, and the failure and the unresolved name are both reported.                                                                                                                                                                       | Covered, unit (no database) |
-| a server refusal is a refusal, and any other failure is unresolved                                                     | A SQLSTATE classifies as a refusal; a lost connection, a timeout and an unknown error shape classify as unresolved.                                                                                                                                                                                      | Covered, unit (no database) |
+| a server refusal is a refusal, and any other failure is unresolved                                                     | Only `3D000`, `42501`, `42601` and `42P04` classify as a refusal. `08007` and `40003`, every other SQLSTATE, and every other error shape classify as unresolved.                                                                                                                                         | Covered, unit (no database) |
 | the ownership record is written before the failure propagates                                                          | The record holds the confirmed outcome before the error leaves the creation helper, so a failed creation is never recorded as a creation.                                                                                                                                                                | Covered, unit (no database) |
 | a name this run never confirmed is refused as a drop target                                                            | The in-scenario drop refuses a name that is not a confirmed creation and changes nothing.                                                                                                                                                                                                                | Covered, unit (no database) |
+| the teardown closes the connection and reports a refused first CREATE by name, and drops nothing                       | With the scratch never confirmed, the teardown still closes the connection, never attempts a drop, and reports the refused name by name.                                                                                                                                                                 | Covered, unit (no database) |
+| the teardown reports an unresolved first CREATE by name, and drops nothing                                             | With the scratch never confirmed, the teardown still closes the connection, never attempts a drop, and reports the unresolved name by name.                                                                                                                                                              | Covered, unit (no database) |
+| the teardown drops the databases this run confirmed creating, and only those                                           | The teardown drops exactly the confirmed creations and leaves a refused name alone.                                                                                                                                                                                                                      | Covered, unit (no database) |
+| the teardown aggregates a failed drop with the names it could not resolve                                              | Every confirmed creation is attempted, and the failed drop and the unresolved name are reported together rather than one hiding the other.                                                                                                                                                               | Covered, unit (no database) |
 
 ## The rollback outcome
 
@@ -212,24 +217,71 @@ Ownership is now a record, not a name:
 
 ### The fault injection
 
-Seven deterministic tests, in the `the disposable database ownership boundary (no database needed)`
-block, drive the ownership record and the cleanup with the exact failures the server can raise.
-They use a fake drop and a fake `CREATE`, so they need no instance and run wherever the suite
-runs — including in a lane that never provisions a database.
+Eleven deterministic tests, in the `the disposable database ownership boundary (no database needed)`
+block, drive the ownership record, the cleanup and the teardown with the exact failures the server
+can raise. They use a fake drop and a fake `CREATE`, so they need no instance and run wherever the
+suite runs — including in a lane that never provisions a database.
 
-| Test                                                                                          | Claim                                                                                                                                |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| a refused creation is never dropped, because the run created nothing                          | the drop is never attempted for a `refused` name                                                                                     |
-| an unresolved creation is never dropped, and it stays unresolved                              | the drop is never attempted for an `unresolved` name, the name is reported, and the cleanup fails instead of passing                 |
-| a confirmed creation is dropped, and a database this run already dropped is not dropped again | only a `created` name is dropped; `dropped` and `not_attempted` names are left alone                                                 |
-| cleanup errors aggregate, and every attempted drop still runs                                 | every owned name is attempted in order, the successful drops still happen, and the failure and the unresolved name are both reported |
-| a server refusal is a refusal, and any other failure is unresolved                            | a SQLSTATE classifies as a refusal; a lost connection, a timeout and an unknown error shape classify as unresolved                   |
-| the ownership record is written before the failure propagates                                 | the record holds `refused` / `unresolved` / `created` exactly as the outcome was, before the error leaves the helper                 |
-| a name this run never confirmed is refused as a drop target                                   | the in-scenario drop refuses a name that is not `created` and changes nothing                                                        |
+| Test                                                                                             | Claim                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| a refused creation is never dropped, because the run created nothing                             | the drop is never attempted for a `refused` name, and the refused name is reported by name                                                     |
+| an unresolved creation is never dropped, and it stays unresolved                                 | the drop is never attempted for an `unresolved` name, the name is reported, and the cleanup fails instead of passing                           |
+| a confirmed creation is dropped, and a database this run already dropped is not dropped again    | only a `created` name is dropped; `dropped` and `not_attempted` names are left alone                                                           |
+| cleanup errors aggregate, and every attempted drop still runs                                    | every owned name is attempted in order, the successful drops still happen, and the failure and the unresolved name are both reported           |
+| a server refusal is a refusal, and any other failure is unresolved                               | only the four justified codes classify as a refusal; `08007`, `40003`, every other SQLSTATE and every other error shape classify as unresolved |
+| the ownership record is written before the failure propagates                                    | the record holds `refused` / `unresolved` / `created` exactly as the outcome was, before the error leaves the helper                           |
+| a name this run never confirmed is refused as a drop target                                      | the in-scenario drop refuses a name that is not a confirmed creation and changes nothing                                                       |
+| the teardown closes the connection and reports a refused first CREATE by name, and drops nothing | with the scratch never confirmed, the teardown still closes the connection, never attempts a drop, and names the refused database              |
+| the teardown reports an unresolved first CREATE by name, and drops nothing                       | with the scratch never confirmed, the teardown still closes the connection, never attempts a drop, and names the unresolved database           |
+| the teardown drops the databases this run confirmed creating, and only those                     | the teardown drops exactly the confirmed creations and leaves a refused name alone                                                             |
+| the teardown aggregates a failed drop with the names it could not resolve                        | every confirmed creation is attempted, and the failed drop and the unresolved name are reported together                                       |
 
-The seven run in the ordinary lane, where no database is provisioned at all: with
-`MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL` absent and `CI` unset, the file runs **9 pass, 0 fail,
+The eleven run in the ordinary lane, where no database is provisioned at all: with
+`MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL` absent and `CI` unset, the file runs **13 pass, 0 fail,
 15 skipped** — the 15 skipped are the database-backed cases, and a skip is not a proof of them.
+
+### The review round on `8ef6e286d`
+
+Root reviewed the published repair commit and found two bounded harness issues that were still open
+in it. Both are fixed here, in the same file, and neither is a production issue.
+
+**1. The teardown now reports the ledger even when the scratch was never confirmed.** The teardown
+ran its ownership-ledger reporting inside the shared disposal's drop step, and that step only runs
+when the shared disposal holds a scratch name. The scratch name is only recorded once the server
+confirmed the creation, so a run whose **first** `CREATE DATABASE` was refused or never settled
+never reported that name at all: the failure was visible, but the name the run had planned was not,
+and the cleanup looked clean. The teardown is now its own step, `disposeScenarioResources`, which
+evaluates the ledger **always**:
+
+- the shared disposal still closes the connection and removes the temporary migrations folder, and
+  it is given a drop step that does nothing, because the drop set belongs to the ledger;
+- the ledger is evaluated after that, whether or not anything was confirmed, and its failures are
+  collected together with the shared disposal's own failures, so one failed step does not hide the
+  next;
+- a **refused** creation is now reported by name as well as an unresolved one. A refusal is a
+  definite answer — the server rejected the statement, so this run created nothing — but the name
+  is one this run does not own, and saying so by name is what makes the cleanup honest. Both a
+  refusal and an unresolved outcome fail the cleanup, because neither leaves a provably clean state
+  behind;
+- no unowned database is ever dropped: only a confirmed creation reaches a drop, in the teardown
+  and in the point-in-time rollback inside the scenario alike.
+
+**2. `CREATE DATABASE` outcomes are classified fail-closed.** The first repair read any
+five-character SQLSTATE as a definite refusal. That is too wide: `08007` (connection failure) and
+`40003` (statement completion unknown) mean the server may have **committed** the statement before
+the client lost the answer, so neither is a refusal, and an unrecognised code or an unrecognised
+error shape is unknown as well. The refusal set is now narrow and justified — `3D000`
+(invalid_catalog_name), `42501` (insufficient_privilege), `42601` (syntax_error) and `42P04`
+(duplicate_database): the four cases where the statement was rejected and created nothing.
+Everything else is unresolved.
+
+The safety property does not depend on that classification at all: **only a confirmed success is
+ever droppable**, so a mis-classified outcome still cannot reach a drop. The classification decides
+only what the cleanup _reports_ — a definite refusal or an open question — never what it destroys.
+
+Neither issue was ever observed live: no duplicate name collided, no database outside this run's
+own throwaway instance was dropped, and no statement's outcome was ever lost. They are harness
+edges, found by review, and **no live exploit and no production defect is claimed**.
 
 ## What this qualification does not establish
 
@@ -282,15 +334,15 @@ rather than `node`.
 
 | Command                                                                                                                                                                                                                                            | Result                                                    |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `bun scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test packages/db/tests/integration/migration-populated-rollback-outcome-qualification.test.ts`                                                                     | **22 pass, 0 fail, 524 expect() calls**, 19.21 s, exit 0  |
-| `bun scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test packages/db/tests/integration/migration-cutover-client-surface-equality.test.ts packages/db/tests/integration/migration-cutover-rehearsal.test.ts`            | **29 pass, 0 fail, 339 expect() calls**, 32.97 s, exit 0  |
+| `bun scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test packages/db/tests/integration/migration-populated-rollback-outcome-qualification.test.ts`                                                                     | **26 pass, 0 fail, 545 expect() calls**, 4.54 s, exit 0   |
+| `bun scripts/run-with-capture-provisioning.mjs -- bun --conditions=react-server test packages/db/tests/integration/migration-cutover-client-surface-equality.test.ts packages/db/tests/integration/migration-cutover-rehearsal.test.ts`            | **29 pass, 0 fail, 339 expect() calls**, 5.33 s, exit 0   |
 | `bun x tsc --noEmit -p packages/db/tsconfig.json` (after `bun run --cwd packages/types build`, `bun run --cwd packages/remote-content build`, `bun run --cwd packages/auth build`)                                                                 | clean, exit 0                                             |
 | `bun x tsc --ignoreConfig --noEmit --skipLibCheck --module preserve --moduleResolution bundler --target esnext --strict --jsx preserve --types bun-types packages/db/tests/integration/migration-populated-rollback-outcome-qualification.test.ts` | clean, exit 0                                             |
 | `bun x oxlint --deny-warnings`                                                                                                                                                                                                                     | exit 0                                                    |
 | `bun x oxfmt --check .`                                                                                                                                                                                                                            | `All matched files use the correct format.`, exit 0       |
 | `bun test scripts/docs-boundary.test.ts`                                                                                                                                                                                                           | 4 pass, 0 fail, 15 expect() calls, exit 0                 |
-| `env -u CI -u MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL bun --conditions=react-server test packages/db/tests/integration/migration-populated-rollback-outcome-qualification.test.ts` (no instance provisioned)                                       | **9 pass, 0 fail, 15 skipped**, exit 0                    |
-| `bun test packages/db/tests/unit`                                                                                                                                                                                                                  | 706 pass, **1 fail**, 8043 expect() calls, 4.01 s, exit 1 |
+| `env -u CI -u MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL bun --conditions=react-server test packages/db/tests/integration/migration-populated-rollback-outcome-qualification.test.ts` (no instance provisioned)                                       | **13 pass, 0 fail, 15 skipped**, exit 0                   |
+| `bun test packages/db/tests/unit`                                                                                                                                                                                                                  | 706 pass, **1 fail**, 8043 expect() calls, 2.57 s, exit 1 |
 
 The second row is the compatibility check on the shared tooling this qualification builds on: the
 #1241 cutover rehearsal and the #1530 client-surface proof still pass against the same fixtures,
@@ -308,8 +360,8 @@ capture URL, so it was run against a throwaway instance that the repository's ow
 runner (`bun src/verify-migrations.ts`, `Migration verification passed (61 applied migration(s))`),
 with `DATABASE_URL` pointed at that instance. The wrapper that did this was a throwaway script
 outside the repository and is not part of this change. Result: **18 pass, 0 fail, 81 expect()
-calls**, 6.78 s, exit 0, with `--timeout 60000`. The same file at the **default** 5 s timeout
-passed **18 pass, 0 fail** as well, 5.88 s, on the repaired tree.
+calls**, 2.52 s, exit 0, with `--timeout 60000`. The same file at the **default** 5 s timeout
+passed **18 pass, 0 fail** as well, 4.09 s, on the repaired tree.
 
 Earlier, while the shared machine was under heavy load (load averages 57–91 with several lanes
 running), the same default-timeout run reported **15 pass, 3 fail**, exit 1, and all three

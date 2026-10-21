@@ -191,16 +191,33 @@ function ownershipRecords(ledger: OwnershipLedger): DatabaseOwnership[] {
 }
 
 /**
+ * The SQLSTATEs that mean the server rejected the statement and created nothing.
+ *
+ * A refusal is a definite answer: the statement ran, the server rejected it, and no database came
+ * into existence because of it. The set is deliberately narrow, because the alternative reading is
+ * not safe: a class 08 connection failure (`08007`) and `40003` (statement completion unknown)
+ * mean the opposite — the server may have committed the statement before the client lost the
+ * answer — and an unrecognised SQLSTATE or an unrecognised error shape is unknown as well. An
+ * unknown outcome is never read as a refusal, and a refusal is never read as a creation: only a
+ * confirmed success is ever droppable.
+ */
+const DEFINITE_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  '3D000', // invalid_catalog_name: the name is not one this server can create
+  '42501', // insufficient_privilege: the privilege check refused the statement
+  '42601', // syntax_error: the parser rejected the statement, so it never ran
+  '42P04', // duplicate_database: the name already existed, so this run created nothing
+])
+
+/**
  * The outcome of one `CREATE DATABASE`, read from the error it raised.
  *
- * A SQLSTATE is a definite answer from the server: the statement ran and the database was not
- * created. Every other failure — a dropped connection, a timeout, an error shape this file does
- * not recognise — leaves the outcome unknown, and an unknown outcome is never read as "not
- * created".
+ * Only the codes in `DEFINITE_REFUSAL_CODES` are a refusal. Every other failure — `08007`,
+ * `40003`, any other SQLSTATE, any other error shape — is unresolved, and an unresolved outcome is
+ * never read as "not created".
  */
 function classifyDatabaseCreation(error: unknown): 'refused' | 'unresolved' {
   const code = (error as { code?: unknown } | null | undefined)?.code
-  return typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code) ? 'refused' : 'unresolved'
+  return typeof code === 'string' && DEFINITE_REFUSAL_CODES.has(code) ? 'refused' : 'unresolved'
 }
 
 /**
@@ -245,9 +262,11 @@ async function dropOwnedDatabase(
 type CleanupDecision = {
   /** The names this run may drop: only a confirmed creation. */
   drop: string[]
+  /** The names whose creation the server refused: this run created nothing. */
+  refused: string[]
   /** The names whose creation outcome this run could not resolve. */
   unresolved: string[]
-  /** The names this run does not own: never attempted, refused, or already dropped. */
+  /** The names this run never tried, or already dropped. */
   notOwned: string[]
 }
 
@@ -258,9 +277,10 @@ type CleanupDecision = {
  * confirmed that this run created it.
  */
 function decideDatabaseCleanup(ownership: readonly DatabaseOwnership[]): CleanupDecision {
-  const decision: CleanupDecision = { drop: [], unresolved: [], notOwned: [] }
+  const decision: CleanupDecision = { drop: [], refused: [], unresolved: [], notOwned: [] }
   for (const entry of ownership) {
     if (entry.state === 'created') decision.drop.push(entry.name)
+    else if (entry.state === 'refused') decision.refused.push(entry.name)
     else if (entry.state === 'unresolved') decision.unresolved.push(entry.name)
     else decision.notOwned.push(entry.name)
   }
@@ -272,9 +292,11 @@ type DatabaseCleanupOutcome = {
   dropped: string[]
   /** The names whose drop failed, with the error it raised. */
   failed: { name: string; error: unknown }[]
+  /** The names whose creation the server refused: never attempted, and reported by name. */
+  refused: string[]
   /** The names whose creation outcome is unresolved: never attempted, and reported. */
   unresolved: string[]
-  /** The names this run does not own. */
+  /** The names this run never tried, or already dropped. */
   notOwned: string[]
 }
 
@@ -294,6 +316,7 @@ async function disposeOwnedDatabases(
   const outcome: DatabaseCleanupOutcome = {
     dropped: [],
     failed: [],
+    refused: decision.refused,
     unresolved: decision.unresolved,
     notOwned: decision.notOwned,
   }
@@ -309,10 +332,50 @@ async function disposeOwnedDatabases(
 }
 
 /**
+ * The teardown of this proof.
+ *
+ * The ownership ledger is evaluated **always**, whether or not a database was ever confirmed: a
+ * run whose first `CREATE DATABASE` was refused or never settled must still report that name, and
+ * must still leave it alone. Only a confirmed creation is ever dropped, so a name this run did
+ * not create cannot reach a drop here.
+ *
+ * The shared disposal closes the scenario connection and removes the temporary migrations folder.
+ * The databases are the ledger's business, so the shared disposal is given a drop step that does
+ * nothing: the drop set is decided here, from the record, and never from a planned name.
+ *
+ * Every failure is collected, so one failed step does not hide the next.
+ */
+async function disposeScenarioResources(
+  resources: RehearsalResources,
+  ownership: readonly DatabaseOwnership[],
+  drop: (name: string) => Promise<void>
+): Promise<void> {
+  const failures: unknown[] = []
+  try {
+    await disposeRehearsal(resources, async () => undefined)
+  } catch (error) {
+    failures.push(error)
+  }
+  const outcome = await disposeOwnedDatabases(ownership, drop)
+  try {
+    assertDatabaseCleanupComplete(outcome)
+  } catch (error) {
+    // The collected failures are flattened, so the report names each one instead of nesting an
+    // aggregate inside an aggregate.
+    if (error instanceof AggregateError) failures.push(...error.errors)
+    else failures.push(error)
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'the disposable cleanup did not finish')
+  }
+}
+
+/**
  * The cleanup has to be able to fail.
  *
- * A drop that failed leaves a database behind, and an unresolved creation leaves an open question
- * about one. Neither is a clean cleanup, so neither passes silently.
+ * A drop that failed leaves a database behind, a refused creation leaves a name this run did not
+ * create, and an unresolved creation leaves an open question about one. None of the three is a
+ * clean cleanup, so none of them passes silently, and each is reported by name.
  */
 function assertDatabaseCleanupComplete(outcome: DatabaseCleanupOutcome): void {
   const failures: unknown[] = outcome.failed.map((entry) => entry.error)
@@ -321,6 +384,13 @@ function assertDatabaseCleanupComplete(outcome: DatabaseCleanupOutcome): void {
     const message = `the disposable databases could not be dropped: ${outcome.failed
       .map((entry) => entry.name)
       .join(', ')}`
+    summary.push(message)
+    failures.push(new Error(message))
+  }
+  if (outcome.refused.length > 0) {
+    const message = `the creation of ${outcome.refused.join(
+      ', '
+    )} was refused; this run created nothing and did not drop them`
     summary.push(message)
     failures.push(new Error(message))
   }
@@ -1120,18 +1190,14 @@ describe.skipIf(!provisioningUrl && !inCi)(
       const pending = scenario
       scenario = undefined
       if (pending) await pending.catch(() => undefined)
-      await disposeRehearsal(resources, async () => {
-        // The names to drop come from the ownership record, not from the planned names: a
-        // database this run could not confirm creating is never dropped, and an unresolved
-        // creation is reported instead of being resolved by a drop.
-        const outcome = await disposeOwnedDatabases(ownershipRecords(ownership), async (name) => {
-          // A second guard on an already-owned name: the prefix is checked, never used as the
-          // reason to drop.
-          if (name.startsWith(IMAGE_PREFIX)) assertImage(name)
-          else assertScratch(name)
-          await adminExecute(`drop database if exists "${name}" with (force)`)
-        })
-        assertDatabaseCleanupComplete(outcome)
+      // The teardown evaluates the ownership ledger even when the scratch was never confirmed,
+      // so a refused or never-settled first CREATE is reported by name and is never dropped.
+      await disposeScenarioResources(resources, ownershipRecords(ownership), async (name) => {
+        // A second guard on an already-owned name: the prefix is checked, never used as the
+        // reason to drop.
+        if (name.startsWith(IMAGE_PREFIX)) assertImage(name)
+        else assertScratch(name)
+        await adminExecute(`drop database if exists "${name}" with (force)`)
       })
     }, 300_000)
 
@@ -1450,7 +1516,12 @@ describe('the disposable database ownership boundary (no database needed)', () =
     expect(attempted).toEqual([])
     expect(outcome.dropped).toEqual([])
     expect(outcome.unresolved).toEqual([])
-    expect(outcome.notOwned).toEqual(['rollback_1220_target_refused'])
+    // The refused name is reported by name rather than folded into the names this run never
+    // tried: the run did try, and the server said no.
+    expect(outcome.refused).toEqual(['rollback_1220_target_refused'])
+    expect(outcome.notOwned).toEqual([])
+    // And the report names it, so a refused creation is never a clean cleanup.
+    expect(() => assertDatabaseCleanupComplete(outcome)).toThrow(/rollback_1220_target_refused/)
   })
 
   test('an unresolved creation is never dropped, and it stays unresolved', async () => {
@@ -1529,12 +1600,20 @@ describe('the disposable database ownership boundary (no database needed)', () =
   })
 
   test('a server refusal is a refusal, and any other failure is unresolved', () => {
-    // A SQLSTATE is the server's own answer: the statement ran and the database was not created.
-    expect(classifyDatabaseCreation(serverError('42P04', 'database already exists'))).toBe(
-      'refused'
-    )
-    expect(classifyDatabaseCreation(serverError('42501', 'permission denied'))).toBe('refused')
-    // A lost connection, a timeout and an unknown error shape leave the outcome open.
+    // Only the codes that mean the statement was rejected and created nothing are refusals.
+    for (const code of ['42P04', '42501', '3D000', '42601']) {
+      expect(classifyDatabaseCreation(serverError(code, 'the statement was refused'))).toBe(
+        'refused'
+      )
+    }
+    // A connection failure and an unknown completion mean the server may have committed the
+    // statement before the client lost the answer: the outcome is unknown, not a refusal.
+    for (const code of ['08007', '40003', '53200', '57P01']) {
+      expect(classifyDatabaseCreation(serverError(code, 'the outcome is unknown'))).toBe(
+        'unresolved'
+      )
+    }
+    // A lost connection, a timeout and an unknown error shape leave the outcome open too.
     expect(classifyDatabaseCreation(new Error('Connection terminated unexpectedly'))).toBe(
       'unresolved'
     )
@@ -1567,6 +1646,134 @@ describe('the disposable database ownership boundary (no database needed)', () =
     const created: OwnershipLedger = new Map([['rollback_1220_target_owned', 'not_attempted']])
     await createOwnedDatabase(created, 'rollback_1220_target_owned', async () => undefined)
     expect(created.get('rollback_1220_target_owned')).toBe('created')
+  })
+
+  test('the teardown closes the connection and reports a refused first CREATE by name, and drops nothing', async () => {
+    const attempted: string[] = []
+    let closed = 0
+    // The scratch was never confirmed: the resource bag never learned the name, exactly as it
+    // would be after a refused first CREATE.
+    const teardownResources: RehearsalResources = {
+      connection: {
+        close: async () => {
+          closed += 1
+        },
+      },
+    }
+    let thrown: unknown
+    try {
+      await disposeScenarioResources(
+        teardownResources,
+        [{ name: 'rollback_1220_target_refused', state: 'refused' }],
+        async (name) => {
+          attempted.push(name)
+        }
+      )
+    } catch (error) {
+      thrown = error
+    }
+    // The connection is still closed, and the unowned name is never dropped.
+    expect(closed).toBe(1)
+    expect(attempted).toEqual([])
+    // The refused name is reported by name, even though the scratch was never confirmed.
+    expect(thrown).toBeInstanceOf(AggregateError)
+    const aggregate = thrown as AggregateError
+    expect(aggregate.errors.map((error) => (error as Error).message)).toContain(
+      'the creation of rollback_1220_target_refused was refused; this run created nothing and did not drop them'
+    )
+  })
+
+  test('the teardown reports an unresolved first CREATE by name, and drops nothing', async () => {
+    const attempted: string[] = []
+    let closed = 0
+    const teardownResources: RehearsalResources = {
+      connection: {
+        close: async () => {
+          closed += 1
+        },
+      },
+    }
+    let thrown: unknown
+    try {
+      await disposeScenarioResources(
+        teardownResources,
+        [{ name: 'rollback_1220_target_unresolved', state: 'unresolved' }],
+        async (name) => {
+          attempted.push(name)
+        }
+      )
+    } catch (error) {
+      thrown = error
+    }
+    expect(closed).toBe(1)
+    expect(attempted).toEqual([])
+    expect(thrown).toBeInstanceOf(AggregateError)
+    const aggregate = thrown as AggregateError
+    expect(aggregate.errors.map((error) => (error as Error).message)).toContain(
+      'the creation outcome of rollback_1220_target_unresolved is unresolved; this run cannot prove it owns them and did not drop them'
+    )
+  })
+
+  test('the teardown drops the databases this run confirmed creating, and only those', async () => {
+    const attempted: string[] = []
+    let closed = 0
+    const teardownResources: RehearsalResources = {
+      connection: {
+        close: async () => {
+          closed += 1
+        },
+      },
+      scratch: 'rollback_1220_target_owned',
+    }
+    await disposeScenarioResources(
+      teardownResources,
+      [
+        { name: 'rollback_1220_target_owned', state: 'created' },
+        { name: 'rollback_1220_image_owned', state: 'created' },
+        { name: 'rollback_1220_target_refused', state: 'refused' },
+      ],
+      async (name) => {
+        attempted.push(name)
+      }
+    ).catch(() => undefined)
+    expect(closed).toBe(1)
+    // The two confirmed creations are dropped; the refused one is not.
+    expect(attempted.toSorted()).toEqual([
+      'rollback_1220_image_owned',
+      'rollback_1220_target_owned',
+    ])
+  })
+
+  test('the teardown aggregates a failed drop with the names it could not resolve', async () => {
+    const attempted: string[] = []
+    const teardownResources: RehearsalResources = {}
+    let thrown: unknown
+    try {
+      await disposeScenarioResources(
+        teardownResources,
+        [
+          { name: 'rollback_1220_target_first', state: 'created' },
+          { name: 'rollback_1220_image_second', state: 'created' },
+          { name: 'rollback_1220_target_unresolved', state: 'unresolved' },
+        ],
+        async (name) => {
+          attempted.push(name)
+          if (name === 'rollback_1220_target_first') throw new Error('the first drop failed')
+        }
+      )
+    } catch (error) {
+      thrown = error
+    }
+    // Every confirmed creation is attempted, even though the first one failed.
+    expect(attempted).toEqual(['rollback_1220_target_first', 'rollback_1220_image_second'])
+    // The failure and the unresolved name are reported together, and neither is swallowed.
+    expect(thrown).toBeInstanceOf(AggregateError)
+    const aggregate = thrown as AggregateError
+    expect(aggregate.errors.map((error) => (error as Error).message)).toEqual([
+      'the first drop failed',
+      'the disposable databases could not be dropped: rollback_1220_target_first',
+      'the creation outcome of rollback_1220_target_unresolved is unresolved; this run cannot prove it owns them and did not drop them',
+    ])
   })
 
   test('a name this run never confirmed is refused as a drop target', async () => {
