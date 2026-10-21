@@ -324,3 +324,152 @@ test('workspace reorder updates both list caches without changing the explicit a
     activeWorkspace: reordered[0],
   })
 })
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => (resolve = done))
+  return { promise, resolve }
+}
+
+describe('workspace reorder recovery and ordering', () => {
+  const home = { ...workspace, id: 'home', isPersonal: true, canDelete: false }
+  const first = { ...workspace, id: 'first', sortOrder: 1 }
+  const second = { ...workspace, id: 'second', sortOrder: 2 }
+  const saved = [
+    { ...home, sortOrder: 0 },
+    { ...second, sortOrder: 1 },
+    { ...first, sortOrder: 2 },
+  ]
+  const seed = () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(workspaceQueryKeys.list, [home, first, second])
+    queryClient.setQueryData(workspaceQueryKeys.bootstrap, bootstrap([home, first, second]))
+    return queryClient
+  }
+
+  test('a list fetch that began before the save cannot put the old order back', async () => {
+    const queryClient = seed()
+    const stale = deferred<(typeof home)[]>()
+    const api = client({
+      listWorkspaces: () => stale.promise,
+      reorderWorkspaces: async () => saved,
+    })
+    const inFlight = queryClient
+      .fetchQuery({ ...workspaceQueryOptions.list(api), staleTime: 0 })
+      .catch(() => undefined)
+
+    const options = workspaceMutationOptions.reorder(api, queryClient)
+    await options.onMutate()
+    await options.onSuccess(await options.mutationFn(['second', 'first']))
+    stale.resolve([home, first, second])
+    await inFlight
+
+    expect(queryClient.getQueryData(workspaceQueryKeys.list)).toEqual(saved)
+  })
+
+  test('a list fetch that began while the save was in flight cannot put the old order back', async () => {
+    const queryClient = seed()
+    const stale = deferred<(typeof home)[]>()
+    const api = client({
+      listWorkspaces: () => stale.promise,
+      reorderWorkspaces: async () => saved,
+    })
+    const options = workspaceMutationOptions.reorder(api, queryClient)
+    await options.onMutate()
+    const result = await options.mutationFn(['second', 'first'])
+    const inFlight = queryClient
+      .fetchQuery({ ...workspaceQueryOptions.list(api), staleTime: 0 })
+      .catch(() => undefined)
+    await options.onSuccess(result)
+    stale.resolve([home, first, second])
+    await inFlight
+
+    expect(queryClient.getQueryData(workspaceQueryKeys.list)).toEqual(saved)
+  })
+
+  test('a membership conflict refreshes the list and bootstrap before the failure is reported', async () => {
+    const queryClient = seed()
+    const added = { ...workspace, id: 'added', sortOrder: 3 }
+    const live = [home, first, second, added]
+    const calls: string[] = []
+    const api = client({
+      bootstrapWorkspace: async () => {
+        calls.push('bootstrap')
+        return bootstrap(live)
+      },
+      listWorkspaces: async () => {
+        calls.push('list')
+        return live
+      },
+    })
+    const options = workspaceMutationOptions.reorder(api, queryClient)
+
+    await options.onError(Object.assign(new Error('conflict'), { status: 409 }))
+
+    expect(calls.toSorted()).toEqual(['bootstrap', 'list'])
+    expect(queryClient.getQueryData(workspaceQueryKeys.list)).toEqual(live)
+    expect(
+      queryClient.getQueryData<ReturnType<typeof bootstrap>>(workspaceQueryKeys.bootstrap)
+        ?.workspaces
+    ).toEqual(live)
+  })
+
+  test('a conflict refresh is not satisfied by membership reads that began during the failed save', async () => {
+    const queryClient = seed()
+    const added = { ...workspace, id: 'added', sortOrder: 3 }
+    const live = [home, first, second, added]
+    const staleList = deferred<(typeof home)[]>()
+    const staleBootstrap = deferred<ReturnType<typeof bootstrap>>()
+    const started = { list: 0, bootstrap: 0 }
+    const api = client({
+      listWorkspaces: async () => {
+        started.list += 1
+        return started.list === 1 ? staleList.promise : live
+      },
+      bootstrapWorkspace: async () => {
+        started.bootstrap += 1
+        return started.bootstrap === 1 ? staleBootstrap.promise : bootstrap(live)
+      },
+    })
+    const options = workspaceMutationOptions.reorder(api, queryClient)
+
+    await options.onMutate()
+    // Reads that start after onMutate and are still pending when the save fails.
+    const reads = Promise.allSettled([
+      queryClient.fetchQuery({ ...workspaceQueryOptions.list(api), staleTime: 0 }),
+      queryClient.fetchQuery({ ...workspaceQueryOptions.bootstrap(api), staleTime: 0 }),
+    ])
+    expect(started).toEqual({ list: 1, bootstrap: 1 })
+
+    const reported = options.onError(Object.assign(new Error('conflict'), { status: 409 }))
+    staleList.resolve([home, first, second])
+    staleBootstrap.resolve(bootstrap([home, first, second]))
+    await reported
+    await reads
+
+    // A fresh read of each was started, not the stale one reused.
+    expect(started).toEqual({ list: 2, bootstrap: 2 })
+    expect(queryClient.getQueryData(workspaceQueryKeys.list)).toEqual(live)
+    expect(
+      queryClient.getQueryData<ReturnType<typeof bootstrap>>(workspaceQueryKeys.bootstrap)
+        ?.workspaces
+    ).toEqual(live)
+  })
+
+  test('other failures leave the cached membership alone', async () => {
+    const queryClient = seed()
+    let fetched = 0
+    const api = client({
+      listWorkspaces: async () => {
+        fetched += 1
+        return [home]
+      },
+    })
+    const options = workspaceMutationOptions.reorder(api, queryClient)
+
+    await options.onError(Object.assign(new Error('unavailable'), { status: 503 }))
+
+    expect(fetched).toBe(0)
+    expect(queryClient.getQueryData(workspaceQueryKeys.list)).toEqual([home, first, second])
+  })
+})

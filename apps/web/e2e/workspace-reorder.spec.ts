@@ -25,9 +25,13 @@ const initial = [
   workspace('ws-beta', 'Beta', 2),
 ]
 
+// A small stand-in for the server's list: the bootstrap, the list and the reorder
+// route all read and write the same membership, and a reorder is refused with a
+// 409 when its ids are not exactly the live ones, like `reorderWorkspaces`.
 async function mockWorkspaces(page: Page) {
   const saved: string[][] = []
-  let current = initial
+  const server = { workspaces: [...initial] }
+  const listRequests = { count: 0 }
   await page.addInitScript(() => {
     if (!sessionStorage.getItem('adea:e2e-initialized')) {
       localStorage.clear()
@@ -45,18 +49,33 @@ async function mockWorkspaces(page: Page) {
       json: {
         activeWorkspace: initial[1],
         principal: { temporary: true, userId: 'reorder-e2e-user' },
-        workspaces: current,
+        workspaces: server.workspaces,
       },
     })
   )
+  await page.route(/\/api\/workspaces(\?.*)?$/, (route) => {
+    if (route.request().method() !== 'GET') return route.fallback()
+    listRequests.count += 1
+    return route.fulfill({ contentType: 'application/json', json: server.workspaces })
+  })
   await page.route('**/api/workspaces/reorder', async (route) => {
     const body = route.request().postDataJSON() as { workspaceIds: string[] }
     saved.push(body.workspaceIds)
-    current = body.workspaceIds.map((id, index) => ({
-      ...initial.find((item) => item.id === id)!,
+    const live = new Set(server.workspaces.map((item) => item.id))
+    if (body.workspaceIds.length !== live.size || body.workspaceIds.some((id) => !live.has(id)))
+      return route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        json: {
+          code: 'workspace_order_conflict',
+          message: 'Your workspace list changed. Refresh it and try again.',
+        },
+      })
+    server.workspaces = body.workspaceIds.map((id, index) => ({
+      ...server.workspaces.find((item) => item.id === id)!,
       sortOrder: index,
     }))
-    await route.fulfill({ contentType: 'application/json', json: current })
+    await route.fulfill({ contentType: 'application/json', json: server.workspaces })
   })
   await page.route('**/api/v1/workspaces/**', async (route) => {
     const url = new URL(route.request().url())
@@ -76,7 +95,7 @@ async function mockWorkspaces(page: Page) {
       })
     return route.fulfill({ contentType: 'application/json', json: [] })
   })
-  return saved
+  return { saved, server, listRequests }
 }
 
 const switcher = (page: Page) => page.getByRole('button', { name: /^Switch workspace, current:/ })
@@ -91,7 +110,7 @@ const menuOrder = async (page: Page) => {
 }
 
 test('moving a workspace saves the whole order and the menu follows it', async ({ page }) => {
-  const saved = await mockWorkspaces(page)
+  const { saved } = await mockWorkspaces(page)
   await page.goto('/', { timeout: 60_000 })
   await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible({
     timeout: 60_000,
@@ -122,17 +141,10 @@ test('moving a workspace saves the whole order and the menu follows it', async (
   expect(await menuOrder(page)).toEqual(['Home', 'Beta', 'Alpha'])
 })
 
-test('a rejected save shows an error and keeps the order', async ({ page }) => {
+test('a failed save shows an error and keeps the order', async ({ page }) => {
   await mockWorkspaces(page)
   await page.route('**/api/workspaces/reorder', (route) =>
-    route.fulfill({
-      status: 409,
-      contentType: 'application/json',
-      json: {
-        code: 'workspace_order_conflict',
-        message: 'Your workspace list changed. Refresh it and try again.',
-      },
-    })
+    route.fulfill({ status: 503, contentType: 'application/json', json: { code: 'unavailable' } })
   )
   await page.goto('/', { timeout: 60_000 })
   await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible({
@@ -146,4 +158,39 @@ test('a rejected save shows an error and keeps the order', async ({ page }) => {
   await expect(dialog.getByRole('listitem').first()).toContainText('Home')
   await dialog.getByRole('button', { name: 'Dismiss' }).click()
   expect(await menuOrder(page)).toEqual(['Home', 'Alpha', 'Beta'])
+})
+
+test('a stale reorder is refused, the membership refreshes, and the retry succeeds', async ({
+  page,
+}) => {
+  const { saved, server, listRequests } = await mockWorkspaces(page)
+  await page.goto('/', { timeout: 60_000 })
+  await expect(page.getByRole('navigation', { name: 'Global navigation' })).toBeVisible({
+    timeout: 60_000,
+  })
+  await switcher(page).click()
+  await page.getByRole('menuitem', { name: 'Reorder workspaces…' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Reorder workspaces' })
+  await expect(dialog.getByRole('listitem')).toHaveCount(3)
+
+  // Another device adds a workspace; this window has not heard about it yet.
+  server.workspaces = [...server.workspaces, workspace('ws-gamma', 'Gamma', 3)]
+  const listFetchesBefore = listRequests.count
+
+  await dialog.getByRole('button', { name: 'Move Beta up' }).click()
+  await expect(dialog.getByRole('alert')).toHaveText('Could not save the order. Try again.')
+  // The 409 refreshed the membership before the failure was reported.
+  await expect(dialog.getByRole('listitem')).toHaveCount(4)
+  await expect(dialog.getByRole('listitem').nth(3)).toContainText('Gamma')
+  expect(listRequests.count).toBeGreaterThan(listFetchesBefore)
+  expect(saved).toEqual([['ws-home', 'ws-beta', 'ws-alpha']])
+
+  await dialog.getByRole('button', { name: 'Move Beta up' }).click()
+  await expect(dialog.getByRole('status')).toHaveText('Moved Beta to position 2 of 4.')
+  await expect(dialog.getByRole('alert')).toHaveCount(0)
+  // The retry sent the refreshed set, Gamma included, not the stale three.
+  expect(saved).toEqual([
+    ['ws-home', 'ws-beta', 'ws-alpha'],
+    ['ws-home', 'ws-beta', 'ws-alpha', 'ws-gamma'],
+  ])
 })
