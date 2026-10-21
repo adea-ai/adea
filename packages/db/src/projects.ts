@@ -29,6 +29,8 @@ type ProjectCreateInput = Readonly<{
 }>
 
 type ProjectUpdateInput = Readonly<{
+  /** A theme accent id, or null to inherit the workspace accent. */
+  accent?: ProjectSummary['accent']
   iconKey?: string
   name?: string
   sourceKind?: ProjectSourceKind
@@ -208,6 +210,7 @@ export async function updateProject(
     const [updated] = await transaction
       .update(projects)
       .set({
+        ...(input.accent !== undefined ? { accent: input.accent } : {}),
         ...(input.iconKey !== undefined ? { iconKey: input.iconKey.trim() } : {}),
         ...(input.name !== undefined ? { name: input.name.trim() } : {}),
         ...(input.sourceKind !== undefined ? { sourceKind: input.sourceKind } : {}),

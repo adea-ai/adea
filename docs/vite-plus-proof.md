@@ -74,6 +74,14 @@ Changing any of them selects another directory, so the run starts cold and leave
 back to the first state replays its entries (A, B, A hits). Vite Task still fingerprints the files, declared variables and
 `ORCH_TOOLCHAIN` of each task, so the directory only decides which entries are visible.
 
+One platform never reads another platform's entries. The local environment key names the platform and the architecture, so
+a macOS run and a Linux run of the same commit select different directories. The Actions task-cache key names the runner's
+operating system and architecture (`${{ runner.os }}` and `${{ runner.arch }}`), so a hosted run never restores another
+platform's archive. The shared R2 transport refuses a cross-platform entry for the same reason: the platform is part of the
+toolchain identity its envelope carries, so an entry written on one platform is rejected on another rather than replayed.
+That refusal is measured in
+[the cross-machine and cross-platform transfer qualification](evidence/vp-r2-cache-transfer-qualification-2026-10-19.md).
+
 Sharing across checkouts is limited to outputs that are portable. `apps/web build` is the only task whose output embeds the
 absolute path of the checkout that built it (`dist/server/wrangler.json`, `dist/server/index.js`, and the TanStack Start
 manifest, whose file name is a hash of its content). Its cached command therefore carries `ORCH_CHECKOUT`, a hash of the
@@ -85,6 +93,10 @@ Each directory is created only after its components pass `ensurePrivateDirectory
 writable by group or others (sticky directories excepted), no component below it may be a symbolic link, owned by another
 user, or writable by group or others, and the directory must be its own real path. A directory that fails these checks
 is not used.
+
+Two runs that start at the same time can reach the same missing component. The one that creates it wins the race, and
+the other uses the directory the winner made and judges it by what it is, exactly as it judges a directory that was
+already there. A concurrent first use therefore does not push a run off the shared cache.
 
 Locking (`withLock`). A run takes `<directory>.lock`, published atomically, and records the process group it started at
 `<directory>.lock.run`.
@@ -102,6 +114,10 @@ Locking (`withLock`). A run takes `<directory>.lock`, published atomically, and 
   An empty lock file is refused at once; it is not read as owner 0.
 - Every wait is bounded by the lock timeout (60 minutes). A process group that a dead owner recorded keeps the lock held
   until the group has gone.
+- A lock that is released while another run is reading it is absent to that reader, not a failure. The reader waits for the
+  lock again. The lock file's existence is what excludes a second holder, so a reader that finds the file gone waits rather
+  than runs, and the run that created the lock is the only one that may hold it. The same holds for a run record that is
+  released while it is read: the owner it describes is judged by its process, not by a file that is no longer there.
 
 After the lock is acquired, the directory is planned again under the lock. If the commit, the cleanliness or the directory
 changed while the run waited, nothing is launched against the shared directory: the run goes through bypass.
@@ -176,4 +192,6 @@ negative) does not cover. Cold run 39022055258 saved (0/15, 1792 files, same sha
 inputs contain no `vite-temp` path.
 
 The earlier warm runs above are failures, not proof. A warm run passes only with 15/15 hits on a fresh runner and the cold run's
-manifest; the result for the current graph is recorded on the pull request.
+manifest; the result for the current graph is recorded in
+[the lane E cache and tooling receipt](evidence/vp-local-cache-lane-e-2026-10-20.md), in the section that holds the hosted
+proof for the current graph.

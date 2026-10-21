@@ -1,19 +1,18 @@
 // A bounded, database-only CI proof over a disposable PostgreSQL instance.
 //
-// This lane is additive. The hosted Neon branch, its Neon Auth JWKS proof, the
-// `Migrate Neon Branch` gate and every existing secret stay exactly as they are.
-// This module adds a second, database-only proof over a loopback-only,
-// digest-pinned PostgreSQL container that the lane creates, proves against and
-// removes.
+// This lane is additive. It provisions its own loopback-only, digest-pinned
+// PostgreSQL container, proves against it and removes it. Every other job,
+// gate, secret and target in the repository is outside this lane and is left
+// exactly as it is.
 //
-// The proof keeps the hosted lane's ordering for the checks the two share: the
-// role probe, the Drizzle journal check, the migration verifier, the
-// `DATABASE_URL` presence check and the migration integration test run in the
-// same sequence against the same three canonical URLs. It adds what a
-// disposable instance can prove that a hosted branch was never asked for: an
-// encrypted connection the server itself reports, the canonical
-// runtime/migration role boundary, and the merged auth schema initializer
-// applying once and replaying as a no-op.
+// The proof keeps the ordering the shared checks already have: the role probe,
+// the Drizzle journal check, the migration verifier, the `DATABASE_URL`
+// presence check and the migration integration test run in the same sequence
+// against the same three canonical URLs. It adds what a disposable instance
+// can prove that a hosted branch was never asked for: an encrypted connection
+// the server itself reports, the canonical runtime/migration role boundary,
+// and the merged auth schema initializer applying once and replaying as a
+// no-op.
 //
 // Every database step here is provider-neutral. The module holds no credential,
 // no hosted endpoint and no production target: it starts a container on the
@@ -24,6 +23,11 @@ import { randomBytes } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+import {
+  SELF_HOSTED_AUTH_LIFECYCLE_TEST,
+  proveSelfHostedAuthLifecycle,
+} from './self-hosted-auth-lifecycle'
 
 /** The canonical migration role the repository's canonical boundary fixture uses. */
 export const CANONICAL_MIGRATION_ROLE = 'agent_hq_local_migration'
@@ -179,9 +183,80 @@ export type DisposableProofReceipt = {
     readonly replayApplied: boolean
     readonly schema: string
   }
+  /**
+   * The self-hosted auth lifecycle, proved against the same owned instance.
+   *
+   * The suite is named so the receipt says what ran, and a run that skipped
+   * or reported no passing case never reaches a receipt at all.
+   */
+  readonly authLifecycle: {
+    readonly proved: true
+    readonly suite: string
+  }
+  /** The kind of proof this receipt is. */
+  readonly proofKind: 'disposable-postgres-proof'
+  /**
+   * The class of this run's evidence. It is stated by the caller, which knows
+   * whether it provisioned a real instance, and a mocked run states that it
+   * is simulated.
+   */
+  readonly evidence: 'local-disposable' | 'ci' | 'simulated'
+  /**
+   * The provenance of the checkout that produced this receipt: the exact
+   * commit, whether the tree was clean and the source it was made from. A
+   * receipt without it cannot name a reproducible artifact.
+   */
+  readonly checkout: {
+    readonly sha: string
+    readonly dirty: boolean | null
+    readonly source: string
+  }
+  /**
+   * The provenance of the tree the proof code came from. The proof runs the
+   * code of the checkout it provisions, so this is the same tree, and the
+   * recovery procedure reads both.
+   */
+  readonly module: {
+    readonly sha: string
+    readonly dirty: boolean | null
+    readonly source: string
+  }
 }
 
 /** The options the proof runs with. */
+/**
+ * Builds the receipt of a disposable PostgreSQL proof.
+ *
+ * The builder is exported so the receipt the proof publishes and the receipt
+ * the recovery procedure consumes are built by the same code, and a test can
+ * check that one satisfies the other.
+ */
+export function buildDisposableProofReceipt(input: {
+  readonly tls: DisposableProofReceipt['tls']
+  readonly checks: readonly ProofCommandRecord[]
+  readonly auth: {
+    readonly applied: boolean
+    readonly created: readonly string[]
+    readonly replayApplied: boolean
+    readonly schema: string
+  }
+  readonly options: DisposableProofOptions
+}): DisposableProofReceipt {
+  return {
+    status: 'passed',
+    database: PROOF_DATABASE,
+    roles: { runtime: CANONICAL_RUNTIME_ROLE, migration: CANONICAL_MIGRATION_ROLE },
+    tls: input.tls,
+    migrations: { checks: input.checks },
+    proofKind: 'disposable-postgres-proof',
+    evidence: input.options.evidence,
+    checkout: input.options.checkout,
+    module: input.options.module,
+    auth: input.auth,
+    authLifecycle: { proved: true, suite: SELF_HOSTED_AUTH_LIFECYCLE_TEST },
+  }
+}
+
 export type DisposableProofOptions = {
   /** The digest-pinned image the disposable instance runs. */
   readonly image: string
@@ -193,6 +268,30 @@ export type DisposableProofOptions = {
   readonly authSecret: string
   /** The trusted origin the auth initializer validates. */
   readonly authTrustedOrigin: string
+  /**
+   * The provenance of the checkout the proof provisions and runs in. It is
+   * read by the caller from the checkout itself, and the receipt carries it.
+   */
+  readonly checkout: {
+    readonly sha: string
+    readonly dirty: boolean | null
+    readonly source: string
+  }
+  /**
+   * The provenance of the tree the proof code came from.
+   */
+  readonly module: {
+    readonly sha: string
+    readonly dirty: boolean | null
+    readonly source: string
+  }
+  /**
+   * The class of this run's evidence. The caller states it, because the
+   * caller knows whether it provisioned a real instance. The mocked harness
+   * states `simulated`, so a mocked run is never recorded as a real database
+   * proof.
+   */
+  readonly evidence: 'local-disposable' | 'ci' | 'simulated'
 }
 
 /** How long the instance may take to accept connections. */
@@ -626,7 +725,7 @@ export async function runDisposablePostgresProof(
     const environment = proofEnvironment(provisioned)
     const tls = await proveServerSideTls(dependencies, provisioned)
     await proveRoleBoundary(dependencies, provisioned, options)
-    const checks = await runOrderedMigrationChecks(dependencies, environment)
+    const checks = await runOrderedMigrationChecks(dependencies, environment, secrets)
     await proveRuntimeDml(dependencies, provisioned)
     const auth = await proveAuthSchemaInitialization(dependencies, provisioned, options, {
       authMigrationUrl: authMigrationUrl(
@@ -635,21 +734,20 @@ export async function runDisposablePostgresProof(
         options.authSchema
       ),
     })
-    await proveBackupRestore(dependencies, { adminUrl, certificatePath })
+    await proveAuthLifecycle(dependencies, { adminUrl, certificatePath })
+    await proveBackupRestore(dependencies, { adminUrl, certificatePath }, secrets)
 
-    receipt = {
-      status: 'passed',
-      database: PROOF_DATABASE,
-      roles: { runtime: CANONICAL_RUNTIME_ROLE, migration: CANONICAL_MIGRATION_ROLE },
+    receipt = buildDisposableProofReceipt({
       tls,
-      migrations: { checks },
+      checks,
       auth: {
         applied: auth.applied,
         created: auth.created,
         replayApplied: auth.replayApplied,
         schema: options.authSchema,
       },
-    }
+      options,
+    })
   } catch (error) {
     bodyError = error
   }
@@ -790,7 +888,8 @@ async function expectRefused(
  */
 async function runOrderedMigrationChecks(
   dependencies: DisposableProofDependencies,
-  environment: Record<string, string | undefined>
+  environment: Record<string, string | undefined>,
+  secrets: readonly string[] = []
 ): Promise<ProofCommandRecord[]> {
   const records: ProofCommandRecord[] = []
   for (const step of PROOF_MIGRATION_STEPS) {
@@ -802,9 +901,11 @@ async function runOrderedMigrationChecks(
     }
     const result = dependencies.command(step.command, step.args, environment)
     if (result.status !== 0) {
-      // The output is carried so the failure says what went wrong. The caller
-      // redacts every secret before the message leaves the proof.
-      const detail = result.stderr.trim().slice(0, 500)
+      // The failing lines are carried so the failure says what went wrong. The
+      // secrets are redacted inside the evidence, before it is truncated, so a
+      // secret that crosses the truncation boundary cannot leave a fragment
+      // behind that the caller's own redaction would not match.
+      const detail = failureEvidence(`${result.stdout}\n${result.stderr}`, secrets)
       throw new Error(
         `${step.command} ${step.args.join(' ')} failed with exit code ${result.status}${detail ? `: ${detail}` : ''}`
       )
@@ -860,6 +961,17 @@ export const BACKUP_RESTORE_TEST = 'packages/auth/tests/integration/schema-backu
  * there, and touches no other database.
  */
 export function backupRestoreUrl(adminUrl: string, certificatePath: string): string {
+  return certificateVerifiedDatabaseUrl(adminUrl, certificatePath)
+}
+
+/**
+ * The URL of the owned proof database, verified with the instance's own
+ * certificate.
+ *
+ * Every proof that runs against the instance uses this URL, so every one of
+ * them runs against the same instance over the same verified connection.
+ */
+export function certificateVerifiedDatabaseUrl(adminUrl: string, certificatePath: string): string {
   const url = new URL(adminUrl)
   url.pathname = `/${PROOF_DATABASE}`
   url.search = ''
@@ -882,12 +994,60 @@ export function backupRestoreEnvironment(
 }
 
 /**
+ * The failure evidence of a command that did not pass.
+ *
+ * The first lines of a test run are its header and its passing tests, so
+ * keeping them hides the failure. The failing lines are kept instead.
+ *
+ * Every secret is redacted **before** the evidence is truncated. A truncation
+ * that cuts a secret leaves a fragment of it, and a fragment is not the secret
+ * the caller's own redaction looks for, so the order matters.
+ */
+export function failureEvidence(output: string, secrets: readonly string[] = []): string {
+  const lines = String(output ?? '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+  const failing = lines.filter((line) =>
+    /\(fail\)|\(todo\)|error:|assertionerror|expected|received|exception/i.test(line)
+  )
+  const chosen = (failing.length > 0 ? failing : lines.slice(-5)).slice(0, 20)
+  return redactSecrets(chosen.join('\n'), secrets).slice(0, 2000)
+}
+
+/**
+ * Proves the self-hosted auth lifecycle against the same owned instance.
+ *
+ * The lifecycle signs a user up, reads the session back, revokes it and proves
+ * the persisted session is gone. The suite skips itself when its variable is
+ * absent, so the qualification that runs it refuses a run that skipped or that
+ * reported no passing case: a skipped run is not a proof.
+ *
+ * The instance is the one this proof owns, and the connection is verified with
+ * that instance's own certificate, so the lifecycle is proved against the same
+ * certificate-verified disposable instance as everything else in this proof.
+ */
+async function proveAuthLifecycle(
+  dependencies: DisposableProofDependencies,
+  input: { readonly adminUrl: string; readonly certificatePath: string }
+): Promise<void> {
+  const databaseUrl = certificateVerifiedDatabaseUrl(input.adminUrl, input.certificatePath)
+  assertLoopbackTlsUrl(databaseUrl, 'AUTH_POSTGRES_TEST_URL', 'verify-full')
+  proveSelfHostedAuthLifecycle(
+    (name, args, environment) => dependencies.command(name, args, environment),
+    { databaseUrl },
+    { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR, LANG: process.env.LANG }
+  )
+}
+
+/**
  * Runs the backup and restore test on the disposable instance. A failed run fails
  * the proof, and so does a run that passed nothing: a skipped test is not a proof.
  */
 async function proveBackupRestore(
   dependencies: DisposableProofDependencies,
-  input: { readonly adminUrl: string; readonly certificatePath: string }
+  input: { readonly adminUrl: string; readonly certificatePath: string },
+  secrets: readonly string[] = []
 ): Promise<void> {
   const testUrl = backupRestoreUrl(input.adminUrl, input.certificatePath)
   assertLoopbackTlsUrl(testUrl, 'AUTH_POSTGRES_TEST_URL', 'verify-full')
@@ -898,8 +1058,9 @@ async function proveBackupRestore(
   )
   const output = `${result.stdout}\n${result.stderr}`
   if (result.status !== 0) {
+    const detail = failureEvidence(output, secrets)
     throw new Error(
-      `the backup and restore test failed with exit code ${result.status}: ${output.trim().slice(0, 500)}`
+      `the backup and restore test failed with exit code ${result.status}${detail ? `: ${detail}` : ''}`
     )
   }
   if (!/\b[1-9]\d* pass\b/.test(output) || /\b[1-9]\d* skip\b/.test(output)) {

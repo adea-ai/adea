@@ -1,4 +1,5 @@
-import type { AgentSummary, WorkspaceSummary } from '@adea-ai/types'
+import type { AgentHqApiClient } from '@adea-ai/api-client'
+import type { AgentSummary, WorkspaceSummary, WorkspaceUpdate } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
@@ -7,15 +8,21 @@ import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { Switch } from '@adea-ai/ui/components/ui/switch'
 import { SettingsNavigation, SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { Tabs, TabsContent } from '@adea-ai/ui/components/ui/tabs'
+import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
 import {
   Bell,
   Bot,
+  Boxes,
+  Brain,
   Database,
   EyeOff,
   Link2,
+  LockKeyhole,
   Mic,
   MonitorCog,
+  Settings2,
   ShieldCheck,
+  Sparkles,
   UserRound,
 } from 'lucide-solid'
 import {
@@ -43,16 +50,25 @@ import {
 } from './platform'
 import type { MacPermissionsPageService } from '@adea-ai/dev-view/permissions'
 import {
+  isWorkspaceScopedSection,
   settingsSectionFromHash,
   settingsSectionGroups,
+  settingsSectionHash,
   settingsSectionLabels,
   settingsSections,
+  workspaceScopedSettingsSections,
   type SettingsSection,
+  type WorkspaceScopedSettingsSection,
 } from './settings-section'
+import { isSettingsHash } from './workspace-settings-section'
+import {
+  WorkspaceSettingsSectionBody,
+  workspaceSectionDescription,
+} from './workspace-settings-panels'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
-import { Heading } from '@adea-ai/ui/components/ui/typography'
+import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
 
 const sectionIcons = {
   account: UserRound,
@@ -62,6 +78,11 @@ const sectionIcons = {
   'privacy-data': EyeOff,
   integrations: Link2,
   permissions: ShieldCheck,
+  workspaces: Boxes,
+  'workspace-general': Settings2,
+  'workspace-memory': Brain,
+  'workspace-skills': Sparkles,
+  'workspace-connections': LockKeyhole,
 } satisfies Record<SettingsSection, typeof UserRound>
 
 // One active panel shares its header and tab semantics across all settings sections.
@@ -74,6 +95,12 @@ const sectionDescriptions: Record<SettingsSection, string> = {
     'Understand what this device can access without exposing cryptographic internals.',
   integrations: 'Control Plane-owned descriptors, not a second plugin system.',
   permissions: 'macOS capabilities this app is granted, with the system panes that control them.',
+  workspaces: 'Pick the workspace you are working in, add another, or open one to customize it.',
+  // The four workspace sections take their description from the selected workspace.
+  'workspace-general': '',
+  'workspace-memory': '',
+  'workspace-skills': '',
+  'workspace-connections': '',
 }
 
 // Lazy: the permissions pane (and its dev-view chunk) loads only when the
@@ -87,6 +114,100 @@ const PermissionsPane = lazy(() =>
 // DOM, whichever side of the open/close race a scroll event lands on.
 function appearanceMenuOpen() {
   return Boolean(document.querySelector('[data-appearance-editor] [role="menu"]'))
+}
+
+/** Names the workspace a workspace-scoped section is configuring, with a way to pick another. */
+function WorkspaceTarget(props: { workspace: WorkspaceSummary; onChange: () => void }) {
+  return (
+    <div
+      class="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2"
+      data-slot="settings-workspace-target"
+    >
+      <WorkspaceIdentityMark
+        accent={props.workspace.accent}
+        logo={props.workspace.logo}
+        name={props.workspace.name}
+        size="sm"
+      />
+      <span class="min-w-0 flex-1 truncate">
+        <Text as="span" variant="label">
+          Settings for {props.workspace.name}
+        </Text>
+      </span>
+      <Button type="button" variant="outline" size="sm" onClick={() => props.onChange()}>
+        Change workspace
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * The directory of the member's workspaces: which one the app is showing, a
+ * way to switch or add one, and a shortcut into a workspace's own settings.
+ * Switching only changes what the window looks at; nothing is moved or restarted.
+ */
+function WorkspaceDirectory(props: {
+  current: WorkspaceSummary
+  workspaces: readonly WorkspaceSummary[]
+  onCreate?: () => void
+  onCustomize: (workspace: WorkspaceSummary) => void
+  onSwitch?: (workspace: WorkspaceSummary) => void | Promise<unknown>
+}) {
+  return (
+    <>
+      <ul class="flex flex-col gap-2" aria-label="Workspaces">
+        <For each={props.workspaces}>
+          {(workspace) => (
+            <li data-workspace-id={workspace.id}>
+              <SettingsRow
+                label={workspace.name}
+                description={[
+                  workspace.id === props.current.id ? 'Current workspace' : undefined,
+                  workspace.isPersonal ? 'Home' : undefined,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              >
+                <div class="flex items-center gap-2">
+                  <WorkspaceIdentityMark
+                    accent={workspace.accent}
+                    logo={workspace.logo}
+                    name={workspace.name}
+                    size="sm"
+                  />
+                  <Show when={workspace.id !== props.current.id && props.onSwitch}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      aria-label={`Open ${workspace.name}`}
+                      onClick={() => void props.onSwitch?.(workspace)}
+                    >
+                      Open
+                    </Button>
+                  </Show>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    aria-label={`Customize ${workspace.name}`}
+                    onClick={() => props.onCustomize(workspace)}
+                  >
+                    Customize
+                  </Button>
+                </div>
+              </SettingsRow>
+            </li>
+          )}
+        </For>
+      </ul>
+      <Show when={props.onCreate}>
+        <Button type="button" onClick={() => props.onCreate?.()}>
+          New workspace
+        </Button>
+      </Show>
+    </>
+  )
 }
 
 export function WorkspaceSettingsDialog(props: {
@@ -118,7 +239,23 @@ export function WorkspaceSettingsDialog(props: {
    * pane's honest typed-unavailable states. */
   permissionsService?: MacPermissionsPageService
   services?: WorkspacePlatformServices
+  /** The workspace the workspace-scoped sections configure: the one the app is showing. */
   workspace: WorkspaceSummary
+  /** Every workspace the member belongs to, in their own order. */
+  workspaces?: readonly WorkspaceSummary[]
+  /** Make a workspace the one the app shows; settings then target it. */
+  onSwitchWorkspace?: (workspace: WorkspaceSummary) => void | Promise<unknown>
+  /** Open the host's create-workspace dialog. */
+  onCreateWorkspace?: () => void
+  /** The Adea API client for the Control Plane-backed workspace sections. */
+  client?: AgentHqApiClient
+  accountPrincipalId?: () => string | null | undefined
+  onReorderWorkspaces?: (workspaceIds: readonly string[]) => Promise<void>
+  onUpdateWorkspace?: (
+    update: WorkspaceUpdate & Readonly<{ expectedVersion: number }>
+  ) => Promise<void>
+  /** Takes the user into a workspace they just restored; true once it is open. */
+  onOpenWorkspace?: (workspaceId: string) => Promise<boolean>
 }) {
   const themeContext = useOptionalTheme()
   const [section, setSection] = createSignal<SettingsSection>('account')
@@ -192,6 +329,9 @@ export function WorkspaceSettingsDialog(props: {
     if (!props.open) return
     const next = settingsSectionFromHash(window.location.hash)
     setSection(next)
+    // A retired workspace-settings link lands on the canonical Settings hash.
+    const canonical = settingsSectionHash(next)
+    if (window.location.hash !== canonical) window.history.replaceState(null, '', canonical)
     let active = true
     void props.services?.settings
       ?.load()
@@ -228,11 +368,11 @@ export function WorkspaceSettingsDialog(props: {
     // whole workspace down — observed as the dialog dismissing when the
     // already-selected tab trigger is clicked (#601). Only write the deep link
     // when it actually changes.
-    const nextHash = `#settings/${next}`
+    const nextHash = settingsSectionHash(next)
     if (window.location.hash !== nextHash) window.history.replaceState(null, '', nextHash)
   }
   const close = () => {
-    if (window.location.hash.startsWith('#settings'))
+    if (isSettingsHash(window.location.hash))
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
     props.onClose()
   }
@@ -347,7 +487,14 @@ export function WorkspaceSettingsDialog(props: {
                       <Heading as="h3" size="card">
                         {settingsSectionLabels[panelSection]}
                       </Heading>
-                      <p>{sectionDescriptions[panelSection]}</p>
+                      <p>
+                        {isWorkspaceScopedSection(panelSection)
+                          ? workspaceSectionDescription(
+                              workspaceScopedSettingsSections[panelSection],
+                              props.workspace.name
+                            )
+                          : sectionDescriptions[panelSection]}
+                      </p>
                     </div>
                   </header>
                 </Show>
@@ -565,6 +712,47 @@ export function WorkspaceSettingsDialog(props: {
                 </Show>
                 <Show when={panelSection === 'permissions'}>
                   <PermissionsPane service={props.permissionsService} />
+                </Show>
+                <Show when={panelSection === 'workspaces'}>
+                  <WorkspaceDirectory
+                    current={props.workspace}
+                    workspaces={props.workspaces ?? [props.workspace]}
+                    onCreate={props.onCreateWorkspace}
+                    onCustomize={(workspace) => {
+                      void Promise.resolve(
+                        workspace.id === props.workspace.id
+                          ? undefined
+                          : props.onSwitchWorkspace?.(workspace)
+                      ).then(() => selectSection('workspace-general'))
+                    }}
+                    onSwitch={props.onSwitchWorkspace}
+                  />
+                </Show>
+                <Show when={isWorkspaceScopedSection(panelSection) && panelSection}>
+                  {(scoped) => (
+                    <>
+                      <WorkspaceTarget
+                        workspace={props.workspace}
+                        onChange={() => selectSection('workspaces')}
+                      />
+                      <WorkspaceSettingsSectionBody
+                        accountPrincipalId={props.accountPrincipalId}
+                        client={props.client}
+                        open={props.open}
+                        section={
+                          workspaceScopedSettingsSections[
+                            scoped() as WorkspaceScopedSettingsSection
+                          ]
+                        }
+                        onOpenWorkspace={props.onOpenWorkspace}
+                        onReorderWorkspaces={props.onReorderWorkspaces}
+                        onUpdateWorkspace={props.onUpdateWorkspace}
+                        services={props.services}
+                        workspace={props.workspace}
+                        workspaceOrder={props.workspaces}
+                      />
+                    </>
+                  )}
                 </Show>
               </div>
             </TabsContent>

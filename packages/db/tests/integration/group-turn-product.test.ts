@@ -501,9 +501,14 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
       const first = await address(f, f.helper.id, 1)
       const second = await address(f, f.helper.id, 2)
       const third = await address(f, f.helper.id, 3)
-      const tiedFirstId = 'ffffffff-ffff-4fff-8fff-fffffffffff3'
-      const tiedSecondId = '00000000-0000-4000-8000-000000000001'
-      const tiedThirdId = '00000000-0000-4000-8000-000000000002'
+      // The three rewritten primary keys are run-unique, so the case is
+      // repeatable in a database that still holds the rows an earlier
+      // execution left behind. Their relative order is unchanged: the first row
+      // sorts after the tied pair by id, and the tied pair sorts by id.
+      const unique = crypto.randomUUID().replaceAll('-', '').slice(0, 11)
+      const tiedFirstId = `ffffffff-ffff-4fff-8fff-${unique}3`
+      const tiedSecondId = `00000000-0000-4000-8000-${unique}1`
+      const tiedThirdId = `00000000-0000-4000-8000-${unique}2`
 
       // All three JS Dates round to the same millisecond. PostgreSQL still orders the first row before
       // the tied pair by its microseconds, then orders the tied pair by UUID.

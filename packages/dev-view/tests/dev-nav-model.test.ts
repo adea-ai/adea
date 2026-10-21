@@ -337,7 +337,7 @@ describe('Dev NavTree builder: diff batching', () => {
 })
 
 describe('Dev NavTree builder: workspaces', () => {
-  test('collapsed workspaces read cloud and desktop counts; needs you sums both', () => {
+  test('the tree holds only the active workspace, never the others', () => {
     const source = buildDevNavSource(
       input({
         workspaces: [
@@ -350,17 +350,10 @@ describe('Dev NavTree builder: workspaces', () => {
             sortOrder: 1,
           },
         ],
-        accountSummary: [{ workspaceId: 'other', unreadChannels: 4, mentions: 2 }],
-        devSummary: [
-          { workspaceId: 'other', running: 3, needsInput: 1 },
-          { workspaceId: WORKSPACE, running: 1, needsInput: 2 },
-        ],
       })
     )
-    const other = source.tree.workspaces.find((workspace) => workspace.id === 'other')!
-    expect(other.summary).toEqual({ running: 3, needsYou: 1, unread: 4, mentions: 2 })
-    expect(other.projects).toBeUndefined()
-    expect(source.tree.needsYou).toBe(5)
+    expect(source.tree.workspaces.map((workspace) => workspace.id)).toEqual([WORKSPACE])
+    expect(source.tree.activeWorkspaceId).toBe(WORKSPACE)
   })
 
   test('the active workspace is added when the member list does not carry it', () => {
@@ -394,15 +387,16 @@ describe('Dev NavTree stabilization', () => {
     expect(stabilizeNavTree(first, buildTree())).toBe(first)
   })
 
-  test('a counts-only change keeps the active workspace mounted', () => {
-    const first = buildTree()
+  test('a renamed workspace keeps its projects mounted', () => {
+    const first = buildTree({ activeWorkspaceName: 'Before', workspaces: [] })
     const next = stabilizeNavTree(
       first,
-      buildTree({ devSummary: [{ workspaceId: WORKSPACE, running: 2, needsInput: 1 }] })
+      buildTree({ activeWorkspaceName: 'After', workspaces: [] })
     )
     expect(next).not.toBe(first)
-    expect(next.needsYou).toBe(1)
-    expect(next.workspaces[0]).toBe(first.workspaces[0])
+    expect(next.workspaces[0]).not.toBe(first.workspaces[0])
+    expect(next.workspaces[0]!.projects).toEqual(first.workspaces[0]!.projects)
+    expect(next.workspaces[0]!.projects![0]).toBe(first.workspaces[0]!.projects![0])
   })
 
   test('a changed leaf replaces only its own project and leaf', () => {

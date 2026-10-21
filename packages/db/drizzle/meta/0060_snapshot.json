@@ -1,5 +1,5 @@
 {
-  "id": "297095cb-13a9-42a2-8803-04e867867bad",
+  "id": "040c16fa-d7d4-48c4-b781-2048e54aacfd",
   "prevId": "da025f8b-3329-43b5-879c-1be7e5f955e5",
   "version": "7",
   "dialect": "postgresql",
@@ -4095,105 +4095,6 @@
       },
       "isRLSEnabled": false
     },
-    "app.lead_child_publications": {
-      "name": "lead_child_publications",
-      "schema": "app",
-      "columns": {
-        "intent_id": {
-          "name": "intent_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "delegation_id": {
-          "name": "delegation_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "child_execution_id": {
-          "name": "child_execution_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "child_attempt_id": {
-          "name": "child_attempt_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "outcome_digest": {
-          "name": "outcome_digest",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "message_id": {
-          "name": "message_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "published_at": {
-          "name": "published_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "lead_child_publications_intent_id_lead_turn_intents_id_fk": {
-          "name": "lead_child_publications_intent_id_lead_turn_intents_id_fk",
-          "tableFrom": "lead_child_publications",
-          "tableTo": "lead_turn_intents",
-          "schemaTo": "app",
-          "columnsFrom": ["intent_id"],
-          "columnsTo": ["id"],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "lead_child_publications_message_id_messages_id_fk": {
-          "name": "lead_child_publications_message_id_messages_id_fk",
-          "tableFrom": "lead_child_publications",
-          "tableTo": "messages",
-          "schemaTo": "app",
-          "columnsFrom": ["message_id"],
-          "columnsTo": ["id"],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "lead_child_publications_intent_id_delegation_id_pk": {
-          "name": "lead_child_publications_intent_id_delegation_id_pk",
-          "columns": ["intent_id", "delegation_id"]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "lead_child_publications_delegation_valid": {
-          "name": "lead_child_publications_delegation_valid",
-          "value": "\"app\".\"lead_child_publications\".\"delegation_id\" ~ '^dlg_[0-9A-HJKMNP-TV-Z]{26}$'"
-        },
-        "lead_child_publications_execution_valid": {
-          "name": "lead_child_publications_execution_valid",
-          "value": "\"app\".\"lead_child_publications\".\"child_execution_id\" ~ '^exe_[0-9A-HJKMNP-TV-Z]{26}$'"
-        },
-        "lead_child_publications_attempt_valid": {
-          "name": "lead_child_publications_attempt_valid",
-          "value": "\"app\".\"lead_child_publications\".\"child_attempt_id\" ~ '^att_[0-9A-HJKMNP-TV-Z]{26}$'"
-        },
-        "lead_child_publications_digest_valid": {
-          "name": "lead_child_publications_digest_valid",
-          "value": "\"app\".\"lead_child_publications\".\"outcome_digest\" ~ '^[a-f0-9]{64}$'"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "app.lead_turn_intents": {
       "name": "lead_turn_intents",
       "schema": "app",
@@ -5935,6 +5836,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "accent": {
+          "name": "accent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "source_kind": {
           "name": "source_kind",
           "type": "text",
@@ -6110,6 +6017,10 @@
         "projects_icon_key_nonempty": {
           "name": "projects_icon_key_nonempty",
           "value": "length(btrim(\"app\".\"projects\".\"icon_key\")) > 0"
+        },
+        "projects_accent_valid": {
+          "name": "projects_accent_valid",
+          "value": "\"app\".\"projects\".\"accent\" is null or \"app\".\"projects\".\"accent\" in ('violet', 'blue', 'green', 'amber', 'cyan', 'pink')"
         },
         "projects_sort_order_nonnegative": {
           "name": "projects_sort_order_nonnegative",
@@ -10313,7 +10224,7 @@
         },
         "workspaces_logo_valid": {
           "name": "workspaces_logo_valid",
-          "value": "(\"app\".\"workspaces\".\"logo_kind\" in ('monogram', 'home', 'box') and \"app\".\"workspaces\".\"logo_value\" is null) or (\"app\".\"workspaces\".\"logo_kind\" = 'emoji' and length(\"app\".\"workspaces\".\"logo_value\") between 1 and 16)"
+          "value": "(\"app\".\"workspaces\".\"logo_kind\" in ('monogram', 'home', 'box') and \"app\".\"workspaces\".\"logo_value\" is null) or (\"app\".\"workspaces\".\"logo_kind\" = 'emoji' and length(\"app\".\"workspaces\".\"logo_value\") between 1 and 16) or (\"app\".\"workspaces\".\"logo_kind\" = 'icon' and \"app\".\"workspaces\".\"logo_value\" ~ '^[a-z][a-z0-9-]{0,31}$') or (\"app\".\"workspaces\".\"logo_kind\" = 'image' and length(\"app\".\"workspaces\".\"logo_value\") <= 49152 and \"app\".\"workspaces\".\"logo_value\" ~ '^data:image/(webp|png)\\x3bbase64,[A-Za-z0-9+/]+={0,2}$')"
         },
         "workspaces_version_positive": {
           "name": "workspaces_version_positive",

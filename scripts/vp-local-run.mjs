@@ -28,6 +28,10 @@
 // `<directory>.lock.reclaim` mutex, which is never broken by age or guessed ownership: if it is held, the wait is bounded
 // and the run fails with a message naming it. Malformed, symlinked or foreign lock files are never deleted.
 //
+// A lock that is released while another run is reading it is absent to that reader, not a failure: the reader waits for
+// the lock again. The lock file's existence is what excludes a second holder, so a reader that finds it gone waits rather
+// than runs, and a run that created the lock itself is the only one that may hold it.
+//
 // After the lock is acquired, `runUnderLock` plans the directory again. A checkout can change during a long wait, so if its
 // commit, cleanliness or cache directory no longer matches the plan, nothing is launched against the shared directory.
 import { execFileSync, spawn } from 'node:child_process'
@@ -245,8 +249,12 @@ function checkAncestors(home, uid) {
  * Creates `directory` under `home`. Every ancestor of the home must be a real directory that is not writable by others
  * (sticky directories excepted); the home and everything below it must be real directories owned by the current user,
  * not writable by group or others; and the directory must be its own real path. Existing directories are never changed.
+ *
+ * Two runs that start at the same time can reach the same missing component. The one that creates it wins the race and
+ * the other finds it there, so the loser of the race uses the directory the winner made and judges it by what it is.
+ * `beforeCreate` is a test seam that runs after a component has been found missing and before it is created.
  */
-export function ensurePrivateDirectory(home, directory) {
+export function ensurePrivateDirectory(home, directory, { beforeCreate } = {}) {
   if (!isAbsolute(home) || !isAbsolute(directory))
     throw new CacheRefusal('cache home and directory must be absolute')
   const inside = relative(home, directory)
@@ -264,8 +272,15 @@ export function ensurePrivateDirectory(home, directory) {
     if (part) current = join(current, part)
     let stats = lstatOrNull(current)
     if (stats === null) {
-      mkdirSync(current, { mode: 0o700 })
-      stats = lstatSync(current)
+      beforeCreate?.(current)
+      try {
+        mkdirSync(current, { mode: 0o700 })
+      } catch (error) {
+        // Another run created it first. It is judged by what it is, not by which run made it.
+        if (error.code !== 'EEXIST') throw error
+      }
+      stats = lstatOrNull(current)
+      if (stats === null) throw new CacheRefusal(`${current} could not be created`)
     }
     assertOwned(current, stats, uid)
   }
@@ -320,23 +335,36 @@ function replace(path, content) {
   renameSync(staging, path)
 }
 
-/** The content of a regular file, `null` when absent. A symbolic link or other non-file is refused, never followed. */
-function readRegular(path) {
+/**
+ * The content of a regular file, `null` when absent. A symbolic link or other non-file is refused, never followed.
+ *
+ * The check and the read are two operations, and the file can disappear between them: the owner of a lock removes it
+ * when its run ends, and a reader that is looking at it then reads a file that is no longer there. That is the file
+ * being absent, not a failure, so the read reports `null` and the caller waits for the lock again. The check is what
+ * refuses a symbolic link before it is followed, so it stays in front of the read.
+ */
+function readRegular(path, beforeRead) {
   const stats = lstatOrNull(path)
   if (stats === null) return null
   if (!stats.isFile()) throw new LockRefused(`${path} is not a regular file`)
-  return readFileSync(path, 'utf8')
+  beforeRead?.(path)
+  try {
+    return readFileSync(path, 'utf8')
+  } catch (error) {
+    if (error.code === 'ENOENT') return null
+    throw error
+  }
 }
 
 /**
  * Whether the lock's owner is gone. `live` = the owner process runs, or a process group it recorded is still running;
  * `dead` = neither; a malformed lock or run record is refused rather than judged.
  */
-function ownerState(lock, content) {
+function ownerState(lock, content, hooks = {}) {
   const owner = parseToken(content)
   if (owner === null) throw new LockRefused(`${lock} is not a recognised lock record`)
   if (alive(owner.pid)) return { state: 'live', owner }
-  const run = readRegular(`${lock}.run`)
+  const run = readRegular(`${lock}.run`, hooks.beforeRead)
   if (run === null) return { state: 'dead', owner }
   const record = parseToken(run)
   if (record === null) throw new LockRefused(`${lock}.run is not a recognised run record`)
@@ -354,17 +382,17 @@ async function reclaimDead(lock, observed, owner, hooks) {
   if (!tryCreate(mutex, mine)) return false
   try {
     await hooks.reclaimLocked?.()
-    if (readRegular(lock) !== observed) return false
-    if (ownerState(lock, observed).state !== 'dead') return false
+    if (readRegular(lock, hooks.beforeRead) !== observed) return false
+    if (ownerState(lock, observed, hooks).state !== 'dead') return false
     // The stale lock still excludes every successor, so its run record is removed first: no successor can register
     // a new run record that this removal could then take away. The lock goes last.
-    const run = readRegular(`${lock}.run`)
+    const run = readRegular(`${lock}.run`, hooks.beforeRead)
     if (run !== null && parseToken(run)?.uuid === owner.uuid) rmSync(`${lock}.run`, { force: true })
     await hooks.reclaimRunRemoved?.()
     rmSync(lock, { force: true })
     return true
   } finally {
-    if (readRegular(mutex) === mine) rmSync(mutex, { force: true })
+    if (readRegular(mutex, hooks.beforeRead) === mine) rmSync(mutex, { force: true })
   }
 }
 
@@ -373,10 +401,10 @@ async function reclaimDead(lock, observed, owner, hooks) {
  * lock is left in place: the next run finds its owner dead, sees the group still running, and waits. A malformed or foreign
  * file is left alone too.
  */
-function release(lock, run, mine, uuid) {
+function release(lock, run, mine, uuid, hooks = {}) {
   try {
-    if (readRegular(lock) !== mine) return
-    const record = parseToken(readRegular(run) ?? '')
+    if (readRegular(lock, hooks.beforeRead) !== mine) return
+    const record = parseToken(readRegular(run, hooks.beforeRead) ?? '')
     if (record !== null && record.uuid === uuid && groupAlive(record.pid)) return
     if (record !== null && record.uuid === uuid) rmSync(run, { force: true })
     rmSync(lock, { force: true })
@@ -392,7 +420,8 @@ function release(lock, run, mine, uuid) {
  * Every wait is bounded by `timeoutMs`. Malformed, symlinked or foreign lock files raise `LockRefused` and are never deleted.
  * `hooks.staleObserved` runs after a dead owner was read and before the reclaim; `hooks.reclaimLocked` runs while a reclaimer
  * holds the reclaim mutex; `hooks.reclaimRunRemoved` runs after a stale run record is removed and before the stale lock is.
- * Tests use them to force interleavings.
+ * `hooks.beforeRead` runs after a lock or run record has been checked and before it is read, so a test can remove it in
+ * that window and prove what the run does when the file it was reading is released. Tests use them to force interleavings.
  */
 export async function withLock(
   directory,
@@ -410,9 +439,9 @@ export async function withLock(
     if (tryCreate(lock, mine)) break
     if (Date.now() >= deadline)
       throw new Error(`timed out waiting for the cache lock ${lock} (${waiting})`)
-    const observed = readRegular(lock)
+    const observed = readRegular(lock, hooks.beforeRead)
     if (observed === null) continue
-    const { state, owner } = ownerState(lock, observed)
+    const { state, owner } = ownerState(lock, observed, hooks)
     if (state === 'dead') {
       await hooks.staleObserved?.()
       if (await reclaimDead(lock, observed, owner, hooks)) continue
@@ -426,19 +455,19 @@ export async function withLock(
   // describe a group that is still running. It is preserved, never overwritten, and nothing is run.
   let leftover
   try {
-    leftover = readRegular(run)
+    leftover = readRegular(run, hooks.beforeRead)
   } catch (error) {
-    if (readRegular(lock) === mine) rmSync(lock, { force: true })
+    if (readRegular(lock, hooks.beforeRead) === mine) rmSync(lock, { force: true })
     throw error
   }
   if (leftover !== null) {
-    if (readRegular(lock) === mine) rmSync(lock, { force: true })
+    if (readRegular(lock, hooks.beforeRead) === mine) rmSync(lock, { force: true })
     throw new LockRefused(`${run} is left from an earlier run; it is kept and nothing was run`)
   }
   try {
     return await work((pid) => replace(run, `${pid}\n${uuid}`))
   } finally {
-    release(lock, run, mine, uuid)
+    release(lock, run, mine, uuid, hooks)
   }
 }
 

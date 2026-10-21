@@ -421,7 +421,7 @@ test('the self-hosted surface stays isolated from the inventory pane and the det
     'self-hosted-setup-guide.tsx',
   ]) {
     const code = readFileSync(join(src, module), 'utf8')
-    for (const forbidden of ['runtime-nodes-pane', 'workspace-details-dialog', 'platform'])
+    for (const forbidden of ['runtime-nodes-pane', 'workspace-settings-panels', 'platform'])
       expect(code).not.toMatch(new RegExp(`from '\\./${forbidden}'`))
   }
 })

@@ -31,31 +31,25 @@ const ids = (items: readonly { id: string }[]) => items.map((item) => item.id)
 describe('dev adapter', () => {
   const dev = createViewAdapter('dev')
 
-  test('nouns, icons and labels', () => {
+  test('nouns and labels', () => {
     expect(dev.nouns).toEqual({ project: 'Project', leaf: 'worktree' })
     expect(dev.showCheckoutRow).toBe(true)
-    expect([dev.projectIcon(repo), dev.projectIcon(notes), dev.projectIcon(remote)]).toEqual([
-      'git-folder',
-      'folder',
-      'cloud',
-    ])
     expect(dev.leafLabel(worktree)).toEqual({ text: 'sidebar-ux-redesign', mono: true })
     expect(dev.leafSecondary(worktree)).toBe('Redesign the sidebar')
     expect(dev.leafLabel(titleOnly)).toEqual({ text: 'Redesign the sidebar', mono: false })
     expect(dev.leafSecondary(titleOnly)).toBeUndefined()
   })
 
-  test('create labels follow the repository binding', () => {
-    expect(dev.createLeafLabel(repo)).toBe('New worktree')
-    expect(dev.createLeafLabel(remote)).toBe('New worktree')
+  test('every project adds a session, with or without a repository', () => {
+    expect(dev.createLeafLabel(repo)).toBe('New session')
+    expect(dev.createLeafLabel(remote)).toBe('New session')
     expect(dev.createLeafLabel(notes)).toBe('New session')
-    expect(dev.createProjectLabel).toBe('New project')
+    expect(dev.createProjectLabel).toBe('Add project')
   })
 
   test('menus', () => {
+    // Renaming and the rest live in the project's settings dialog.
     expect(dev.projectMenu(repo)).toEqual([
-      { id: 'rename', label: 'Rename' },
-      { id: 'settings', label: 'Project settings' },
       { id: 'share', label: 'Share' },
       { id: 'archive', label: 'Archive' },
       { id: 'delete', label: 'Delete', destructive: true, separatorBefore: true },
@@ -90,11 +84,9 @@ describe('chat and virtual adapters', () => {
   const chat = createViewAdapter('chat')
   const virtual = createViewAdapter('virtual')
 
-  test('nouns and icons', () => {
+  test('nouns', () => {
     expect(chat.nouns).toEqual({ project: 'Project', leaf: 'task' })
     expect(virtual.nouns).toEqual({ project: 'Room', leaf: 'desk' })
-    expect(chat.projectIcon(repo)).toBe('hash')
-    expect(virtual.projectIcon(repo)).toBe('door')
     expect(chat.showCheckoutRow).toBe(false)
     expect(virtual.showCheckoutRow).toBe(false)
   })
@@ -108,11 +100,11 @@ describe('chat and virtual adapters', () => {
   })
 
   test('create labels and menus', () => {
-    expect(chat.createLeafLabel(repo)).toBe('New task')
+    expect(chat.createLeafLabel(repo)).toBe('New session')
     expect(virtual.createLeafLabel(repo)).toBe('New desk')
-    expect(chat.createProjectLabel).toBe('New project')
-    expect(virtual.createProjectLabel).toBe('New room')
-    expect(virtual.projectMenu(repo)[1]).toEqual({ id: 'settings', label: 'Room settings' })
+    expect(chat.createProjectLabel).toBe('Add project')
+    expect(virtual.createProjectLabel).toBe('Add room')
+    expect(ids(virtual.projectMenu(repo))).toEqual(['share', 'archive', 'delete'])
     expect(ids(chat.leafMenu(worktree))).toEqual([
       'rename',
       'copy-link',

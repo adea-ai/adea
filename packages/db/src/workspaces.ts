@@ -34,14 +34,15 @@ export type WorkspaceMembershipRecord = Readonly<{
 }>
 
 function workspaceLogo(row: typeof workspaces.$inferSelect): WorkspaceLogo {
-  return row.logoKind === 'emoji' && row.logoValue
-    ? Object.freeze({ kind: 'emoji', value: row.logoValue })
-    : Object.freeze({
-        kind:
-          row.logoKind === 'home' || (row.logoKind === 'monogram' && row.isPersonal)
-            ? 'home'
-            : 'box',
-      })
+  if (
+    (row.logoKind === 'emoji' || row.logoKind === 'icon' || row.logoKind === 'image') &&
+    row.logoValue
+  )
+    return Object.freeze({ kind: row.logoKind, value: row.logoValue })
+  return Object.freeze({
+    kind:
+      row.logoKind === 'home' || (row.logoKind === 'monogram' && row.isPersonal) ? 'home' : 'box',
+  })
 }
 
 function workspaceSummary(
@@ -833,7 +834,7 @@ export async function updateWorkspace(
         ...(update.logo !== undefined
           ? {
               logoKind: update.logo.kind,
-              logoValue: update.logo.kind === 'emoji' ? update.logo.value : null,
+              logoValue: 'value' in update.logo ? update.logo.value : null,
             }
           : {}),
         updatedAt: new Date(),

@@ -10,6 +10,7 @@ import { projects } from './schema'
 
 export function projectSummary(row: typeof projects.$inferSelect): ProjectSummary {
   return Object.freeze({
+    accent: row.accent as ProjectSummary['accent'],
     createdAt: row.createdAt.toISOString(),
     iconKey: row.iconKey,
     id: row.id,

@@ -1,5 +1,7 @@
 import {
   isWorkspaceAccent,
+  isWorkspaceLogoIconKey,
+  isWorkspaceLogoImage,
   type WorkspaceAccent,
   type WorkspaceLogo,
   type WorkspaceSceneId,
@@ -26,6 +28,10 @@ function parseLogo(value: unknown): WorkspaceLogo | null {
     Object.keys(value).length === 1
   )
     return { kind: value.kind }
+  if (value.kind === 'icon' && Object.keys(value).length === 2)
+    return isWorkspaceLogoIconKey(value.value) ? { kind: 'icon', value: value.value } : null
+  if (value.kind === 'image' && Object.keys(value).length === 2)
+    return isWorkspaceLogoImage(value.value) ? { kind: 'image', value: value.value } : null
   if (value.kind !== 'emoji' || Object.keys(value).length !== 2) return null
   const emoji = value.value
   if (typeof emoji !== 'string' || emoji.length === 0 || emoji.length > 16) return null

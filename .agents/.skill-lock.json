@@ -32,7 +32,6 @@
     "threejs-postprocessing",
     "threejs-shaders",
     "threejs-textures",
-    "turborepo",
     "typescript-advanced-types",
     "verification-before-completion"
   ]

@@ -425,8 +425,15 @@
     {
       "idx": 60,
       "version": "7",
-      "when": 1792508924517,
-      "tag": "0060_tricky_spectrum",
+      "when": 1792518522107,
+      "tag": "0060_workspace_project_marks",
+      "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1792555029619,
+      "tag": "0061_tricky_spectrum",
       "breakpoints": true
     }
   ]

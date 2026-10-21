@@ -2,6 +2,9 @@ import { useRouter } from '@tanstack/solid-router'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
 import { TopBar, TopBarSection, TopBarTitle } from '@adea-ai/ui/components/layout/top-bar'
 import { Separator } from '@adea-ai/ui/components/ui/separator'
+import { WorkspaceSwitcher } from '@adea-ai/ui/components/composites/workspace-switcher'
+import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
+import type { WorkspaceSummary } from '@adea-ai/types'
 import { ArrowLeft, ArrowRight, Bell, PanelLeftClose, PanelLeftOpen } from 'lucide-solid'
 import type { JSX } from 'solid-js'
 import { createSignal, onCleanup, onMount, Show } from 'solid-js'
@@ -18,6 +21,13 @@ const HISTORY_KEY = 'adea:workspace-history-maximum:v1'
 /** Host navigation and native chrome around the published shared TopBar. */
 export function WorkspaceTopBar(props: {
   platform: 'desktop' | 'web'
+  /** The member's workspaces, in their own order, for the switcher beside the sidebar toggle. */
+  workspaces: readonly WorkspaceSummary[]
+  activeWorkspaceId?: string
+  onSwitchWorkspace(workspace: WorkspaceSummary): void
+  onCreateWorkspace(): void
+  /** Opens Settings on the active workspace's section. */
+  onManageWorkspace(): void
   /** The plain title, shown while the active surface supplies no breadcrumbs. */
   title: string
   /**
@@ -178,6 +188,31 @@ export function WorkspaceTopBar(props: {
               </Show>
             </ActionButton>
           </Show>
+          {/* Switching only changes what the window shows: it never restarts
+              durable agents, moves records or discards work (the host funnels it
+              through the same helper `?workspace=` links use). */}
+          <WorkspaceSwitcher
+            value={props.activeWorkspaceId}
+            workspaces={props.workspaces.map((workspace) => ({
+              id: workspace.id,
+              name: workspace.name,
+              mark: (
+                <WorkspaceIdentityMark
+                  accent={workspace.accent}
+                  logo={workspace.logo}
+                  name={workspace.name}
+                  size="xs"
+                />
+              ),
+            }))}
+            onValueChange={(id) => {
+              const workspace = props.workspaces.find((candidate) => candidate.id === id)
+              if (workspace) props.onSwitchWorkspace(workspace)
+            }}
+            onCreate={props.onCreateWorkspace}
+            onManage={props.onManageWorkspace}
+            label="Workspaces"
+          />
         </div>
         <div class="workspace-topbar__view-action-group">
           {/* The divider renders on every view so the left side of the bar has

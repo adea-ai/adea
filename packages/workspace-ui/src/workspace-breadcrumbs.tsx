@@ -1,4 +1,3 @@
-import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -33,7 +32,7 @@ export type DevBreadcrumbSelection = Readonly<{
 }>
 
 /**
- * Dev's crumbs: Workspace › Project › branch (mono). Dev is not on the shared
+ * Dev's crumbs: Project › branch (mono). Dev is not on the shared
  * sidebar tree yet, so the host projects its selection into a one-leaf tree
  * and reads it through the same `breadcrumbsFor` and Dev adapter.
  */
@@ -44,7 +43,6 @@ export function devBreadcrumbs(
   const leafId = selection?.branch ? `${selection.projectId}:checkout` : undefined
   const tree: NavTree = {
     activeWorkspaceId: workspace.id,
-    needsYou: 0,
     workspaces: [
       {
         id: workspace.id,
@@ -52,7 +50,6 @@ export function devBreadcrumbs(
         logo: workspace.logo,
         accent: workspace.accent,
         sortOrder: 0,
-        summary: { running: 0, needsYou: 0, unread: 0 },
         projects: selection
           ? [
               {
@@ -100,14 +97,15 @@ function CrumbLabel(props: { crumb: WorkspaceBreadcrumb }) {
 }
 
 /**
- * The Workspace › Project › Leaf path in the top bar's title slot (ADR 0011).
- * The last crumb is the current page; earlier crumbs open their default leaf
- * when they have one, and are plain text otherwise.
+ * The Project › Session path beside the top bar's divider. The workspace is
+ * named by the switcher, so it is not a crumb. The last crumb is the current
+ * page; earlier crumbs open their default leaf when they have one, and are
+ * plain text otherwise.
  */
 export function WorkspaceBreadcrumbs(props: { crumbs: readonly WorkspaceBreadcrumb[] }) {
   return (
     <Breadcrumb class="min-w-0">
-      <BreadcrumbList class="min-w-0 flex-nowrap justify-center overflow-hidden">
+      <BreadcrumbList class="min-w-0 flex-nowrap justify-start overflow-hidden">
         <For each={props.crumbs}>
           {(crumb, index) => (
             <>
@@ -118,18 +116,6 @@ export function WorkspaceBreadcrumbs(props: { crumbs: readonly WorkspaceBreadcru
                 class="min-w-0 shrink-3 data-[crumb=leaf]:shrink"
                 data-crumb={crumb.kind}
               >
-                <Show when={crumb.workspace}>
-                  {(identity) => (
-                    <span class="workspace-topbar__crumb-mark" aria-hidden="true">
-                      <WorkspaceIdentityMark
-                        name={crumb.label.text}
-                        logo={identity().logo}
-                        accent={identity().accent}
-                        size="xs"
-                      />
-                    </span>
-                  )}
-                </Show>
                 <Show
                   when={crumb.current || !crumb.onSelect}
                   fallback={

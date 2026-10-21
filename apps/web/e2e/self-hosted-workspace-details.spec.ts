@@ -13,7 +13,7 @@ async function open(page: Page, flags: string[] = []) {
       body: '<html><body><div id="harness-root"></div></body></html>',
     })
   )
-  await page.goto('/__self-hosted-details#workspace-settings/connections')
+  await page.goto('/__self-hosted-details#settings/workspace-connections')
   await page.locator('#harness-root').evaluate((root, names) => {
     for (const name of names) root.setAttribute(name, '')
   }, flags)
