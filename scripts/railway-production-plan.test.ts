@@ -115,8 +115,10 @@ const throwingRunner: Runner = () => {
 /**
  * One deployment of the target's history.
  *
- * Every deployment names the project and the service it belongs to: that is
- * what binds the history to the target that was read.
+ * Every deployment names the project, the service and the environment it
+ * belongs to: that is what binds the history to the target that was read. The
+ * environment is part of the binding because the same project and service
+ * exist in more than one environment.
  */
 function deployment(
   id: string,
@@ -125,6 +127,7 @@ function deployment(
 ): Record<string, unknown> {
   return {
     createdAt: '2026-10-20T00:00:00Z',
+    environment: 'production',
     id,
     project: 'example-project',
     service: 'example-service',
@@ -300,6 +303,12 @@ describe('the Railway production source plan', () => {
       targets: [{ project: 'example-project', service: 'example-service', environment: 'staging' }],
       deployment: observedDeployment,
     })
+    // The history belongs to the target that was read, so it is staged in the
+    // target's own environment. The refusal below comes from the declaration's
+    // environment rule and not from the history binding.
+    reads.deployments = read({
+      deployments: [deployment('d_2', 'success', { environment: 'staging' })],
+    })
 
     const plan = planFor({
       // The candidate pins the project and the service, and both agree. The
@@ -364,9 +373,63 @@ describe('the Railway production source plan', () => {
     expect(plan.verdict).toBe('refused')
     expect(codes(plan)).toContain(REFUSAL_CODES.historyUnbound)
     const refusal = refusalFor(plan, REFUSAL_CODES.historyUnbound)
-    expect(refusal.evidence.reason).toBe('the deployment names no project and service')
-    expect(refusal.evidence.observed).toEqual({ project: null, service: null })
+    expect(refusal.evidence.reason).toBe('the deployment names no project, service and environment')
+    expect(refusal.evidence.observed).toEqual({
+      project: null,
+      service: null,
+      environment: null,
+    })
     expect(refusal.evidence.id).toBe('d_2')
+  })
+
+  test('refuses a deployment history that names no environment', () => {
+    const reads = healthyReads()
+    reads.deployments = read({
+      deployments: [
+        {
+          createdAt: '2026-10-20T00:00:00Z',
+          id: 'd_2',
+          project: 'example-project',
+          service: 'example-service',
+          status: 'success',
+        },
+      ],
+    })
+
+    const plan = planFor({ source: declaration, run: fakeRunner(reads) })
+
+    expect(plan.verdict).toBe('refused')
+    expect(codes(plan)).toContain(REFUSAL_CODES.historyUnbound)
+    const refusal = refusalFor(plan, REFUSAL_CODES.historyUnbound)
+    expect(refusal.evidence.reason).toBe('the deployment names no project, service and environment')
+    expect(refusal.evidence.observed).toEqual({
+      project: 'example-project',
+      service: 'example-service',
+      environment: null,
+    })
+  })
+
+  test('refuses a deployment history staged in another environment', () => {
+    // The reviewed mismatch: the same project and the same service exist in
+    // more than one environment, so a history staged in another environment
+    // must not satisfy a production target. The binding carries the
+    // environment, so this history belongs to another target.
+    const reads = healthyReads()
+    reads.deployments = read({
+      deployments: [deployment('d_2', 'success', { environment: 'staging' })],
+    })
+
+    const plan = planFor({ source: declaration, run: fakeRunner(reads) })
+
+    expect(plan.verdict).toBe('refused')
+    expect(codes(plan)).toContain(REFUSAL_CODES.historyContradictory)
+    const refusal = refusalFor(plan, REFUSAL_CODES.historyContradictory)
+    expect(refusal.evidence).toMatchObject({
+      expected: 'production',
+      field: 'environment',
+      id: 'd_2',
+      observed: 'staging',
+    })
   })
 
   test('refuses a deployment history that belongs to another target', () => {

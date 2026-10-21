@@ -46,11 +46,11 @@ an owner who can see the Railway console records the identity.
 The machinery that checks a recorded identity is already in place, and the offline suite
 exercises it:
 
-| Rule                                    | What it refuses                                                                                        |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| a candidate names a project and service | a candidate that names neither is not shaped as a declaration                                          |
-| the live target matches the candidate   | a live target that names another project or service is a contradiction                                 |
-| the history is bound to that target     | a deployment that names no identity is unbound; one naming another target is not this target's history |
+| Rule                                    | What it refuses                                                                                                                                 |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| a candidate names a project and service | a candidate that names neither is not shaped as a declaration                                                                                   |
+| the live target matches the candidate   | a live target that names another project or service is a contradiction                                                                          |
+| the history is bound to that target     | a deployment that names no identity is unbound; one naming another project, another service or another environment is not this target's history |
 
 An environment alone is not an identity. One environment holds many services, so a declaration
 that named only an environment could not say which service a plan meant, and a live read that
@@ -142,6 +142,7 @@ values below are placeholders:
       "id": "d_2",
       "project": "example-project",
       "service": "example-service",
+      "environment": "production",
       "status": "success",
       "createdAt": "2026-10-20T00:00:00Z"
     }
@@ -149,12 +150,17 @@ values below are placeholders:
 }
 ```
 
-Every deployment in the history names the project and the service it belongs to. That is the
-binding: the history is only the history of the target that was read if each of its deployments
-says so. A deployment that names no identity is **unbound**
-(`RAILWAY_PRODUCTION_HISTORY_UNBOUND`) and a deployment that names another project or another
-service belongs to another target (`RAILWAY_PRODUCTION_HISTORY_CONTRADICTORY`). Either is a
-refusal, because a plan that cannot tie its history to its target has not established anything.
+Every deployment in the history names the project, the service **and the environment** it belongs
+to. That is the binding: the history is only the history of the target that was read if each of
+its deployments says so, on all three.
+
+The environment is part of the binding, not a detail of it. The same project and the same service
+exist in more than one environment, so a history staged in another environment names the same
+project and the same service and is still not the history of this target. A deployment that names
+no identity is **unbound** (`RAILWAY_PRODUCTION_HISTORY_UNBOUND`) and a deployment that names
+another project, another service or another environment belongs to another target
+(`RAILWAY_PRODUCTION_HISTORY_CONTRADICTORY`). Either is a refusal, because a plan that cannot tie
+its history to its target has not established anything.
 
 ## The refusals
 
@@ -211,8 +217,9 @@ They cover the planned path, a declaration that has not configured a production 
 declaration whose configured flag is not a boolean, an ambiguous declaration and an ambiguous live
 read, a missing target, a contradictory target, a target outside the production environment, a
 target that names no project and no service, a declaration whose target names neither, a history
-that binds no deployment to the target, a history that belongs to another project and a history
-that belongs to another service, missing and contradictory deployment metadata, a stopped, an
+that binds no deployment to the target, a history whose deployment names no environment, a history
+staged in another environment, a history that belongs to another project and a history that
+belongs to another service, missing and contradictory deployment metadata, a stopped, an
 errored and an empty history, a failed command, a timed-out command, a runner that throws, a read
 that is not JSON, a read that is not the normalized read the plan reads, a plan without a runner,
 a declaration that is not shaped as one, and the determinism of the plan and of the evidence

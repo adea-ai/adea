@@ -69,6 +69,16 @@ export const REFUSAL_CODES = Object.freeze({
  */
 export const IDENTITY_FIELDS = Object.freeze(['project', 'service'])
 
+/**
+ * The fields a deployment history binds to its target on.
+ *
+ * The project and the service say which deployment this is. The environment
+ * says which one of it is in service: the same project and service exist in
+ * more than one environment, so a history staged in another environment is not
+ * the history of this target and must never satisfy it.
+ */
+export const HISTORY_BINDING_FIELDS = Object.freeze(['project', 'service', 'environment'])
+
 /** The live reads the plan needs, the command each one describes and the shape it reads. */
 export const LIVE_READS = Object.freeze({
   status: Object.freeze({
@@ -346,12 +356,14 @@ function normalizationProblems(kind, payload) {
  * The concrete provider identity of a target or a deployment, or none.
  *
  * The identity is the project and the service together: one of them alone does
- * not say which deployment was read.
+ * not say which deployment was read. The fields it is read on are the ones
+ * asked for, because a target is identified by two of them and a deployment
+ * history is bound by three.
  */
-function providerIdentity(value) {
+function providerIdentity(value, fields = IDENTITY_FIELDS) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const identity = {}
-  for (const field of IDENTITY_FIELDS) {
+  for (const field of fields) {
     const name = value[field]
     if (typeof name !== 'string' || name.length === 0) return null
     identity[field] = name
@@ -382,31 +394,32 @@ function observedHistory(payload) {
 /**
  * The ways a deployment history fails to be the history of the target that was read.
  *
- * Every deployment in the history names the project and the service it belongs
- * to, so the history can be checked against the target it claims to be. A
- * deployment that names no identity is unbound: the history cannot be tied to
- * the target at all. A deployment that names another project or another service
- * belongs to another target, so the history is not this target's history.
+ * Every deployment in the history names the project, the service and the
+ * environment it belongs to, so the history can be checked against the target it
+ * claims to be. A deployment that names no identity is unbound: the history
+ * cannot be tied to the target at all. A deployment that names another project,
+ * another service or another environment belongs to another target, so the
+ * history is not this target's history.
  */
 function historyBinding(history, identity) {
   const problems = []
   history.forEach((deployment, index) => {
-    const bound = providerIdentity(deployment)
+    const bound = providerIdentity(deployment, HISTORY_BINDING_FIELDS)
     if (!bound) {
       problems.push({
         mismatch: false,
         evidence: {
           id: deployment.id ?? null,
           index,
-          reason: 'the deployment names no project and service',
+          reason: 'the deployment names no project, service and environment',
           observed: Object.fromEntries(
-            IDENTITY_FIELDS.map((field) => [field, deployment[field] ?? null])
+            HISTORY_BINDING_FIELDS.map((field) => [field, deployment[field] ?? null])
           ),
         },
       })
       return
     }
-    for (const field of IDENTITY_FIELDS) {
+    for (const field of HISTORY_BINDING_FIELDS) {
       if (bound[field] !== identity[field]) {
         problems.push({
           mismatch: true,
@@ -643,7 +656,25 @@ export function planProductionDeployment({ source, root = repositoryRoot(), run 
     )
   }
   const newest = history[0] ?? null
-  const identity = target ? providerIdentity(target) : null
+  // The history is bound to the target on the project, the service and the
+  // environment. The environment is part of the binding because the same
+  // project and service exist in more than one: a history staged in another
+  // environment is not the history of this target.
+  const identity = target ? providerIdentity(target, HISTORY_BINDING_FIELDS) : null
+  if (target && history.length > 0 && !identity) {
+    refusals.push(
+      refusal(
+        REFUSAL_CODES.historyUnbound,
+        'the deployment history cannot be bound to a target that does not name a project, a service and an environment',
+        {
+          missing: HISTORY_BINDING_FIELDS.filter((field) => {
+            const value = target[field]
+            return typeof value !== 'string' || value.length === 0
+          }),
+        }
+      )
+    )
+  }
   if (identity) {
     for (const problem of historyBinding(history, identity)) {
       refusals.push(
