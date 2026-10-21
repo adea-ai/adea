@@ -1,4 +1,51 @@
 {
+  "evidenceProvenance": {
+    "note": "This file is the run's own output, unchanged. This block records where it came from and what it does not cover. It was added after the run; it does not alter summary, checks, or any other run field.",
+    "runIsHistorical": true,
+    "publishedAt": "7ba2fba25",
+    "publishedAtMeaning": "The commit that added this artifact and the screenshot set. Neither has been rewritten since.",
+    "runPredates": "The safety repair of section 13 of the record, and every repair after it (sections 14 to 19). The lane's entry point was not executed again after those repairs.",
+    "runPredatesMeaning": "The current source does not produce this artifact. The current source refuses to install, register or launch, so every row that needs the running application stays pending.",
+    "artifactRows": 22,
+    "sourcePlannedRows": 26,
+    "rowsInSourceNotInArtifact": [
+      "the-installed-application-recovers-when-the-cloud-returns",
+      "the-installed-application-survives-an-unreachable-cloud",
+      "the-run-log-recorded-everything",
+      "ui-interrupted-navigation-leaves-no-half-open-view"
+    ],
+    "sourceRevisionMatch": {
+      "matches": false,
+      "detail": "No committed revision of scripts/installed-app-acceptance.ts emits exactly this row set. 08faaa567 emits 22 planned rows, but two of them are the cloud-resilience rows this artifact does not contain, and two rows this artifact does contain were not yet in that source. ab85488b3 through c445d095b emit 24 planned rows, and 1097e41fa onward emit 26. The run was therefore produced from a working state that was never committed.",
+      "nearestRevisions": [
+        {
+          "commit": "08faaa567",
+          "plannedRows": 22
+        },
+        {
+          "commit": "ab85488b3",
+          "plannedRows": 24
+        },
+        {
+          "commit": "c445d095b",
+          "plannedRows": 24
+        },
+        {
+          "commit": "1097e41fa",
+          "plannedRows": 26
+        },
+        {
+          "commit": "a18e35ff",
+          "plannedRows": 26
+        }
+      ]
+    },
+    "screenshots": {
+      "referencedByArtifact": 10,
+      "note": "The ten screenshot names are recorded in this artifact's checks. Ten files in the directory are those captures, numbered 01 to 10. One further file, earlier-capture-09-reload.png, is an earlier capture this artifact does not reference; it is kept because it is the only capture of that screen. Four earlier-capture files that were byte-identical copies of referenced files were removed, so no two files in the directory share an index."
+    },
+    "nativeAcceptance": "Not re-run for this annotation. No installed application was launched and no credential operation was issued."
+  },
   "summary": {
     "passed": 21,
     "failed": 1,

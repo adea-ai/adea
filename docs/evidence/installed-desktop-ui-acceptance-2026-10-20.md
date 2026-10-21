@@ -16,8 +16,11 @@ into one bundle.
 
 | Fact                                                | Value                                                                                            |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Base `main`                                         | `333b948d4c5fba1f88d98d764c075b790be6ee22` (unchanged since the first run)                       |
+| Candidate's integration base `main`                 | `333b948d4c5fba1f88d98d764c075b790be6ee22` (unchanged since the first run)                       |
 | This lane's branch                                  | `test/installed-desktop-ui-acceptance-20261020`                                                  |
+| Pull request base (current `main`)                  | `1098c658300beec7e49f1a2143aabd971aefbcfe` (the base moved forward from `333b948d4`)             |
+| Published head (the pull request)                   | `a18e35ff2e213133480811435b47107a68c6e2b3` — 13 commits on that base                             |
+| Local head (this record's continuation)             | `90e19c632ac67227ce5b3a5501d93d52dce1938d` — two commits after the published head, unpublished   |
 | B — CI, no vendor dependency                        | `codex/20261020-ci-release-w7` @ `fcb20c08bafad0940330dd5728175a52f334beb3` (#1516, draft)       |
 | C — provider coupling removed                       | `codex/20261020-efficiency-audit-w8` @ `7fa24f2ee991d672cb6ed1373b63f125a6e206e1` (#1515, draft) |
 | D — Railway qualification lane                      | `feat/railway-postgres-qualification-lane-a` @ `82addf079` (#1514, draft)                        |
@@ -137,14 +140,83 @@ apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app --artifact
 | 21  | `ui-no-uncaught-client-error`                                        | the client raised no uncaught error                                                                                   | the client raised no uncaught error                                                                                    | installed-app-origin | pass     |
 | 22  | `the-installed-application-relaunches-with-its-own-state`            | the application starts again and keeps its state directory, owner-only                                                | the application answered again; its state directory is `700`                                                           | installed-app        | pass     |
 
-Screenshots: every UI row that changed the screen left the screen it produced
+Screenshots: every row that asked for a capture left the screen it produced
 behind. They are committed with this record under
 [`docs/evidence/installed-desktop-ui-acceptance-2026-10-20/screenshots/`](./installed-desktop-ui-acceptance-2026-10-20/screenshots/)
-(15 files, `01-first-run.png` … `10-reload.png`), together with the run's own
-artifact — the expected/actual record of every row — under
+— eleven files, not the fifteen an earlier revision of this record claimed —
+together with the run's own artifact, the expected/actual record of every row,
+under
 [`installed-app-acceptance.json`](./installed-desktop-ui-acceptance-2026-10-20/installed-app-acceptance.json).
 The artifact is the run's own output with the lane's redaction applied to its
 two path fields; the lane now applies that redaction itself.
+
+The artifact is the index: ten of its checks name the capture they were
+answered by, and those ten names are the ten files numbered `01-first-run.png`
+through `10-reload.png`. The eleventh file,
+`earlier-capture-09-reload.png`, is a capture from an earlier run that no row
+references; it is kept because it is the only capture of the screen it shows
+(the in-flight "Opening workspace…" state), and it carries a name that cannot
+collide with a numbered capture.
+
+An earlier revision of this record stated that the directory held fifteen
+files, `01-first-run.png` … `10-reload.png`. It did not, and the fifteen were
+not one ordered capture sequence: the directory accumulates files across runs
+and each run numbers its captures from `01`, so the directory held the ten
+captures this artifact references **plus** five leftovers from an earlier
+capture. Every one of those five leftovers collided by index with a referenced
+file's index — `05`, `06`, `07`, `08` and `09` each named two different
+captures. Four of the leftovers were byte-identical copies of referenced
+files and were removed; the fifth was the only capture of its screen, so it
+was kept and renamed. No unique bytes were lost, and no two files in the
+directory share an index now.
+
+Three of the ten referenced captures are byte-identical to an earlier one, and
+that identity is itself evidence rather than duplication: the harness writes a
+capture for every row that asks for one, whether or not the screen changed.
+`05-app-library-defaults.png` and `06-app-library-optional.png` are the App
+Library screen already in `04-app-library.png`, and that one screen shows both
+facts those rows assert — Chat and Dev checked and marked "In sidebar", and
+Virtual, Kanban and Source control listed and marked "Not in sidebar".
+`09-interrupted-navigation.png` is the Dev view already in `03-dev-view.png`,
+which is the defect §15(2) found and repaired: the interrupted-navigation row
+had been answered by an ordinary navigation. This capture set predates that
+repair, and the bytes show it.
+
+### The artifact's provenance
+
+The artifact is a **historical** record. It is the output of a run made before
+the safety repair of §13, and the lane's entry point was not executed again
+after the repairs of §13 to §19, so the current source cannot produce it. The
+current source refuses to install, register or launch at all: no supported
+native profile isolation contract is in force, so every row that needs the
+running application is pending.
+
+The row sets do not match, and the difference is exact. The artifact carries
+**22** rows; the source plans **26**. The source's four rows that the artifact
+does not contain are:
+
+| Row in the source, absent from the artifact                 | Where it comes from                                                                                                                                         |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `the-installed-application-survives-an-unreachable-cloud`   | in the lane's source from its first committed revision, `08faaa567`; the run that produced the artifact was made from a working state that did not carry it |
+| `the-installed-application-recovers-when-the-cloud-returns` | as above                                                                                                                                                    |
+| `the-run-log-recorded-everything`                           | introduced by the repair of §15(1), at `1097e41fa`                                                                                                          |
+| `ui-interrupted-navigation-leaves-no-half-open-view`        | introduced by the repair of §15(2), at `1097e41fa`                                                                                                          |
+
+The last two are the rows the repairs added, and they are the reason the
+artifact's row set cannot be the current source's output.
+
+No committed revision of `scripts/installed-app-acceptance.ts` emits exactly
+the artifact's row set: `08faaa567` emits 22 planned rows but two of them are
+the cloud-resilience rows the artifact does not carry, and two rows the
+artifact does carry were not yet in that source; `ab85488b3` through
+`c445d095b` emit 24, and `1097e41fa` onward emit 26. The run was therefore
+produced from a working state that was never committed.
+
+The artifact now carries that provenance in an `evidenceProvenance` block, at
+the head of the file, so a reader who opens it alone is not left with 21
+green rows and no indication that they predate the repairs. The block is an
+annotation added after the run: `summary`, `checks` and every other run field
+are byte-for-byte what the run wrote.
 
 ### The no-provider proof (Railway-only, no Neon)
 
@@ -284,8 +356,8 @@ installed application reports that state instead of pretending to work.
 | `bun run --cwd apps/web dev` (no provider endpoint configured)                           | local cloud on `http://localhost:3000`; server log contains no `neon`                                                                           |
 | `bun scripts/installed-app-acceptance.ts --app-bundle … --artifact … --profile-parent …` | **21 passed, 1 failed, 22 rows** (row 6, §6.2) — the run predates the safety repair of §13, and the entry point was not executed again after it |
 | `bun test tests/boot-credential-store.test.ts` (apps/desktop)                            | 7 pass, 0 fail, 15 assertions                                                                                                                   |
-| `bun test scripts/installed-app-acceptance.test.ts`                                      | 11 pass, 0 fail, 22 assertions                                                                                                                  |
-| `bun check -p shell/tsconfig.json` (apps/desktop)                                        | no type errors in 229 files                                                                                                                     |
+| `bun test scripts/installed-app-acceptance.test.ts`                                      | 73 pass, 0 fail, 210 assertions (59 pass / 168 assertions at the published head `a18e35ff`)                                                     |
+| `bun check -p shell/tsconfig.json` (apps/desktop)                                        | no type errors in 229 files — re-checked for this revision with `tsc --noEmit -p shell/tsconfig.json`, exit 0, no diagnostics                   |
 | pre-commit hook (`vp run orch:typecheck`)                                                | 33/33 successful, no type errors in 324 files                                                                                                   |
 | `bunx oxlint --deny-warnings` on the changed files                                       | exit 0                                                                                                                                          |
 
@@ -322,6 +394,46 @@ lane (`scripts/installed-app-acceptance*.ts`), and this record. The held
 Railway guide/MATRIX scope, the #1497 recovery scope, the packaged-lane
 scope (PR #1509), and the auth, Sim, Pi and task-cache lanes are untouched,
 and their work was neither taken over nor duplicated.
+
+## 12. Publication
+
+The lane's branch is `test/installed-desktop-ui-acceptance-20261020`. Its
+**published** head is `a18e35ff2e213133480811435b47107a68c6e2b3`, which is
+the head of the open pull request, and that head is on the remote:
+`refs/remotes/origin/test/installed-desktop-ui-acceptance-20261020` resolves
+to it. The published head is **13 commits** on the pull request's current
+base, `1098c658300beec7e49f1a2143aabd971aefbcfe`.
+
+Everything after the published head is **local and unpublished**: the two
+commits that repair the teardown and the drain verdict, and the evidence
+repair this record now carries. The local head is
+`90e19c632ac67227ce5b3a5501d93d52dce1938d`, and the published head is not an
+ancestor of it — the two lines have shared no ancestor since `1001f8fa`, the
+point at which the repairs branched off, so the published scope was never
+folded into the local one.
+
+**The publication hold on this pull request is in force.** Nothing here is
+pushed, the pull request is not marked ready, nothing is merged, no issue is
+closed, and no native acceptance is claimed for any part of it. The
+publication review that prompted this revision found two source defects and
+three evidence defects open; the evidence defects are addressed here, and the
+two source defects are not: the boot's legacy credential path and the vault's
+integrity classification belong to the Dev Runtime lane that owns them.
+
+The push itself is blocked in this environment: `gh` is not logged in, the
+macOS credential helper has no GitHub credential, and no token is present in
+the environment or in the git configuration. The repository is readable
+anonymously (that is how this lane refreshed `main` and read the open pull
+requests), but writing to it needs an authorization this environment does not
+have, and this lane does not create credentials. The remaining mechanical
+step, needing that one missing authorization, is:
+
+```sh
+git push origin test/installed-desktop-ui-acceptance-20261020
+```
+
+which would update the existing pull request's head. The pull request already
+exists, so there is no `gh pr create` step left.
 
 ## 13. The safety repair (root-verified defects at `7ba2fba`)
 
@@ -754,21 +866,3 @@ destroyed before it ended, a stream that closes before it ends, and a stream
 that fails — whose fixed reason carries no error text. The existing timeout
 case is retained, and a failing stream is shown to reach the verdict through
 the teardown.
-
-## 12. Publication
-
-The branch is `test/installed-desktop-ui-acceptance-20261020`, three commits
-on `origin/main` `333b948d4`. **The push is blocked in this environment:** `gh` is not logged
-in, the macOS credential helper has no GitHub credential, and no token is
-present in the environment or in the git configuration. The repository is
-readable anonymously (that is how this lane refreshed `main` and read the
-open pull requests), but writing to it needs an authorization this
-environment does not have, and this lane does not create credentials.
-
-The work is therefore **complete and committed locally, not published**. The
-remaining mechanical steps, both needing that one missing authorization, are:
-
-```sh
-git push -u origin test/installed-desktop-ui-acceptance-20261020
-gh pr create --draft --base main --head test/installed-desktop-ui-acceptance-20261020
-```
