@@ -900,6 +900,7 @@ describe.skipIf(!databaseUrl)('schema backup and restore (PostgreSQL, synthetic 
                'ADMISSION_SERVICE_UNAVAILABLE',
                $9, 1, $10::uuid, 1
              )
+             RETURNING id
            )
            SELECT count(*)::int AS intents FROM inserted_intent`,
           [
