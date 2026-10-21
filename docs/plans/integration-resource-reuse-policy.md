@@ -51,16 +51,19 @@ by its endpoint alone.
 ## The shared claim
 
 A lease says what a run owns. The claim says who may use a shared resource
-right now, and it is the arbiter: one file per resource, created with an
-exclusive create, so two runs that ask at the same moment cannot both hold it.
-A scan of per-run records cannot do that, because two processes can both read
-an empty directory and then both write into it.
+right now, and it is the arbiter: one file per resource, created by linking a
+fully written record onto the claim path, so two runs that ask at the same
+moment cannot both hold it. A scan of per-run records cannot do that, because
+two processes can both read an empty directory and then both write into it.
 
 A claim whose owner is gone may be taken over, but only by a run that names the
 same resource identity, so a takeover can never point a shared resource at a
-different project. A claim that cannot be read is uncertain, and an uncertain
-claim is never taken. The claim is released with the cleanup, and a claim that
-cannot be released is reported rather than hidden.
+different project. The stale record is moved aside before it is replaced, and
+the moved file is compared with the one that was read: if they differ, another
+reclaimer wrote a live claim in between, and this one puts it back and
+refuses. A claim that cannot be read is uncertain, and an uncertain claim is
+never taken. The claim is released with the cleanup, and a claim that cannot be
+released is reported rather than hidden.
 
 ## The liveness of an owner
 
@@ -80,6 +83,41 @@ conflicting identity. A restart recovers only what it recorded: it takes back
 its own lease and its own claim, and it never takes a resource that names
 another identity, another project, or an owner it cannot prove is gone. An
 uncertain resource is left alone, and it is never recreated.
+
+A run's own record that cannot be read is not an absent record. The ownership
+of a record nobody can parse is unknown, so the run is refused rather than
+overwriting evidence it does not understand. The reconciliation reports such a
+record as uncertain.
+
+## The bound on the lane's own records
+
+The lane's records are evidence, and a bound is what keeps the evidence from
+growing without end. The bound is measured with a clock that is called: a
+record that was just settled is kept, and a settled record older than the
+bound is pruned. A clock that cannot be established, or a bound that is not a
+duration, prunes nothing. An unusable clock is not a reason to delete
+evidence.
+
+## The mode a run ended up in
+
+The mode a run asks for is not always the mode it ends up in: a run that could
+not take the shared instance takes one of its own. The record of the run says
+which mode it actually used, and the cleanup follows that record, so a run that
+fell back removes the instance it created instead of keeping an instance it
+never held.
+
+## The evidence
+
+The cleanup receipt separates the run's process from the world it left behind:
+the container, the volume, the network, the database, the isolated test data
+and the checkout are each accounted for as removed, stopped, retained, refused
+or unknown, each with the reason it ended that way.
+
+A removal counts as removed only when its absence was confirmed. A removal
+that was attempted is not a removal that happened, and an inspection that could
+not answer — a timeout, a refused call, a daemon that cannot be reached —
+leaves the state unknown rather than absent. A cleanup that could not complete
+fails the lane: a teardown that did not finish never leaves the lane green.
 
 ## What may be removed
 
@@ -142,20 +180,7 @@ before it creates anything. The floor and the requirement are named by
 `ADEA_INTEGRATION_DISK_FLOOR_BYTES` and
 `ADEA_INTEGRATION_DISK_REQUIRED_BYTES`.
 
-## The records, their bound and the restart
-
-Every run writes a lease before it creates anything. The lease names the run,
-the mode, the resources the run may use, the owner process, and the state of
-the run. The lease lives outside the checkout, in the directory named by
-`ADEA_INTEGRATION_LEASE_DIR`, or in the operating system's temporary
-directory. A run that crashes leaves its lease behind, and the evidence of
-what it owned outlives the process that wrote it.
-
-The run's own identity is the proof that a lease belongs to it. A restarted
-run may take its own lease back. Another run may not: a lease that names a
-different resource is foreign, and a lease that cannot be understood is
-uncertain. Neither is a permission, and a run that meets either one is
-refused rather than guessing.
+## The records
 
 Before the lane claims a lease it reconciles its own records: it reports what
 they say, takes back the record of a run that is restarting with the same
@@ -167,24 +192,6 @@ resource.
 
 A lease records an identity, not a password. A caller-supplied target is named
 by its endpoint alone.
-
-## The evidence
-
-The cleanup receipt separates the run's process from the run's resources. A
-child that exited is not a removed container, and a resource that was kept is
-not a failure. Every resource is accounted for as removed, stopped, retained
-or refused, each with the reason it ended that way.
-
-The receipt names the resources by kind, so a reader can tell a process exit
-from the state of the world it left behind: the container, the volume, the
-network, the database, the isolated test data inside it, and the checkout the
-run used. The checkout is named as kept, because the lane never removes a
-checkout.
-
-The receipt is written into the lease, so a later run can read what the
-earlier run did and did not remove. The lane prints the receipt's summary, and
-a cleanup that could not complete fails the run: a teardown that did not finish
-never leaves the lane green.
 
 ## Recovery
 

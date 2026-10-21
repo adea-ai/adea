@@ -50,6 +50,9 @@ import { proveSelfHostedAuthLifecycle } from './self-hosted-auth-lifecycle.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
+/** Docker's answer when a network is not there. */
+const ABSENT_NETWORK = /no such network|not found/iu
+
 // An inherited DATABASE_URL must be a local or CI-created target before anything runs.
 assertLocalTestTargets()
 const usesExplicitDatabase = Boolean(process.env.DATABASE_URL)
@@ -336,11 +339,14 @@ if (ownership === 'owned') {
   }
 }
 
-// The lease is this run's own record of what it owns.
+// The lease is this run's own record of what it owns. The mode it records is
+// the mode this run actually ended up in, which is not always the mode it
+// asked for: a run that could not take the shared instance took one of its
+// own, and the record has to say so.
 let claim = claimResource({
   directory: leaseDirectoryPath,
   runId,
-  mode: ownership === 'caller' ? 'caller' : requestedMode,
+  mode: identity.mode,
   identity,
   owner,
   isProcessAlive: ownerIsAlive,
@@ -814,10 +820,17 @@ function applyCleanupPlan(cleanupPlan) {
           spawnSync,
           timeoutMs: 30_000,
         })
+        // Only a confirmed not-found is an absence. A timeout, a refused call
+        // or a daemon that cannot answer leaves the state unknown, and an
+        // unknown state is never a confirmed removal.
         if (absent.status === 0) {
           errors.push(`the owned network is still present: ${identity.network}`)
-        } else {
+        } else if (ABSENT_NETWORK.test(absent.stderr ?? '')) {
           networkRemoved.add(identity.network)
+        } else {
+          errors.push(
+            `the absence of the owned network could not be confirmed: ${identity.network}`
+          )
         }
       }
     }
@@ -828,10 +841,26 @@ function applyCleanupPlan(cleanupPlan) {
         return { ...resource, action: 'refused', reason: 'foreign', verifiedAbsent: null }
       }
       if (resource.kind === 'network') {
-        return { ...resource, verifiedAbsent: networkRemoved.has(resource.name) }
+        return networkRemoved.has(resource.name)
+          ? { ...resource, verifiedAbsent: true }
+          : {
+              ...resource,
+              action: 'unknown',
+              reason: 'the absence could not be confirmed',
+              verifiedAbsent: null,
+            }
       }
       if (resource.kind === 'container' || resource.kind === 'volume') {
-        return { ...resource, verifiedAbsent: removal.remaining.includes(resource.name) === false }
+        // A removal that was attempted is not a removal that happened: the
+        // receipt only says removed when the absence was confirmed.
+        return removal.remaining.includes(resource.name)
+          ? {
+              ...resource,
+              action: 'unknown',
+              reason: 'the absence could not be confirmed',
+              verifiedAbsent: null,
+            }
+          : { ...resource, verifiedAbsent: true }
       }
       // The database and the isolated test data live in the volume. When the
       // volume was refused, they were not removed either, and the receipt
@@ -839,7 +868,14 @@ function applyCleanupPlan(cleanupPlan) {
       if (foreign.some((refused) => refused.kind === 'volume')) {
         return { ...resource, action: 'refused', reason: 'foreign', verifiedAbsent: null }
       }
-      return { ...resource, verifiedAbsent: removal.remaining.includes(identity.volume) === false }
+      return removal.remaining.includes(identity.volume)
+        ? {
+            ...resource,
+            action: 'unknown',
+            reason: 'the absence could not be confirmed',
+            verifiedAbsent: null,
+          }
+        : { ...resource, verifiedAbsent: true }
     })
   }
 

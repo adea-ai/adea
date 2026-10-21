@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,6 +8,7 @@ import {
   CLEANUP_DECISION,
   CLEANUP_REFUSAL,
   CLAIM_STATE,
+  scanLeases,
   DISK_PRESSURE,
   LEASE_STATE,
   RESOURCE_DISPOSITION,
@@ -29,6 +30,7 @@ import {
   listLeases,
   planCleanup,
   processIsAlive,
+  pruneSettledLeases,
   readLease,
   reconcileLeases,
   releaseLease,
@@ -62,6 +64,31 @@ afterEach(() => {
 })
 
 const owner = { pid: 4242, hostname: 'synthetic-host', startedAt: '2026-10-21T00:00:00.000Z' }
+
+/** Writes a settled lease record, the way a finished run leaves it. */
+function settledLease(directory: string, runId: string, updatedAt: number) {
+  const claim = claimResource({
+    directory,
+    runId,
+    mode: RESOURCE_MODE.disposable,
+    identity: disposableIdentity(runId, '20001'),
+    owner,
+  })
+  releaseLease({
+    directory,
+    runId,
+    receipt: cleanupReceipt({
+      lease: claim.lease,
+      decision: CLEANUP_DECISION.remove,
+      reason: 'disposable-instance-owned-by-this-run',
+      resources: [],
+      child: { status: 0, signal: null },
+    }),
+  })
+  const record = readLease(directory, runId)!
+  record.updatedAt = updatedAt
+  writeFileSync(join(directory, `${runId}.json`), JSON.stringify(record))
+}
 
 function disposableIdentity(runToken = 'syntheticrun', port = '20001') {
   return resourceIdentity({ mode: RESOURCE_MODE.disposable, runToken, port })
@@ -652,11 +679,16 @@ describe('the lease directory and the records in it', () => {
     expect(() => leasePath('/synthetic/leases', '../escape')).toThrow(/not a safe lease name/)
   })
 
-  test('a record that cannot be parsed is not a lease', () => {
+  test('a record that cannot be parsed is not an absent lease', () => {
     const directory = leaseDirectoryForTest()
     writeFileSync(join(directory, 'run-a.json'), 'not json at all')
-    expect(readLease(directory, 'run-a')).toBeNull()
+    // The record exists and cannot be read, so its ownership is unknown. It is
+    // not an absence, and it is not silently ignored.
+    expect(() => readLease(directory, 'run-a')).toThrow(/cannot be read/)
     expect(listLeases(directory)).toEqual([])
+    const scan = scanLeases(directory)
+    expect(scan.leases).toEqual([])
+    expect(scan.unreadable).toEqual(['run-a.json'])
   })
 
   test('a directory that holds nothing holds no lease', () => {
@@ -1223,4 +1255,189 @@ if (claim.decision === 'granted') setInterval(() => {}, 1000)
       restarted.kill('SIGKILL')
     }
   }, 30_000)
+})
+
+describe('the retention bound on the lane own records', () => {
+  test('a fresh settled record is kept when the production clock is used', () => {
+    const directory = leaseDirectoryForTest()
+    settledLease(directory, 'run-fresh', Date.now())
+    // The production call passes no clock. The clock is a function, and the
+    // age of a record that was just settled is not a number of milliseconds
+    // past the bound, so the record is kept.
+    expect(pruneSettledLeases({ directory })).toEqual([])
+    expect(readLease(directory, 'run-fresh')).not.toBeNull()
+  })
+
+  test('a settled record past the bound is pruned', () => {
+    const directory = leaseDirectoryForTest()
+    settledLease(directory, 'run-old', 1_000)
+    expect(pruneSettledLeases({ directory, now: () => 10_000_000, retentionMs: 1_000 })).toEqual([
+      'run-old',
+    ])
+    expect(readLease(directory, 'run-old')).toBeNull()
+  })
+
+  test('a clock that cannot be established prunes nothing', () => {
+    const directory = leaseDirectoryForTest()
+    settledLease(directory, 'run-old', 1_000)
+    expect(pruneSettledLeases({ directory, now: () => Number.NaN, retentionMs: 1_000 })).toEqual([])
+    expect(
+      pruneSettledLeases({ directory, now: 'not a clock' as never, retentionMs: 1_000 })
+    ).toEqual([])
+    expect(readLease(directory, 'run-old')).not.toBeNull()
+  })
+
+  test('a bound that is not a duration prunes nothing', () => {
+    const directory = leaseDirectoryForTest()
+    settledLease(directory, 'run-old', 1_000)
+    expect(
+      pruneSettledLeases({ directory, now: () => 10_000_000, retentionMs: Number.NaN })
+    ).toEqual([])
+    expect(pruneSettledLeases({ directory, now: () => 10_000_000, retentionMs: -1 })).toEqual([])
+    expect(readLease(directory, 'run-old')).not.toBeNull()
+  })
+})
+
+describe('the stale takeover', () => {
+  const identity = resourceIdentity({ mode: RESOURCE_MODE.reusable, runToken: 'a', port: '55432' })
+
+  test('a reclaimer that read a stale claim does not delete the live claim written since', () => {
+    const directory = leaseDirectoryForTest()
+    // The first holder's claim is left behind by a process that died.
+    claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-dead',
+      identity,
+      owner: { ...owner, pid: 4242 },
+      isProcessAlive: () => false,
+    })
+
+    // A second reclaimer finishes its takeover while the first is between its
+    // read and its own move.
+    const first = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-first',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => false,
+      afterClaimRead: () => {
+        const second = claimSharedResource({
+          directory,
+          resourceKey: identity.label,
+          runId: 'run-second',
+          identity,
+          owner: { ...owner, pid: 6161 },
+          isProcessAlive: () => false,
+        })
+        expect(second.decision).toBe('granted')
+      },
+    })
+
+    // The first reclaimer refuses, and the live claim is still there.
+    expect(first.decision).toBe('refused')
+    expect(first.reason).toBe(CLEANUP_REFUSAL.active)
+    const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
+    const held = JSON.parse(readFileSync(claimFile, 'utf8'))
+    expect(held.runId).toBe('run-second')
+  })
+
+  test('a reclaimer that reads the stale claim itself still takes it over', () => {
+    const directory = leaseDirectoryForTest()
+    claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-dead',
+      identity,
+      owner: { ...owner, pid: 4242 },
+      isProcessAlive: () => false,
+    })
+    const takeover = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-next',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => false,
+    })
+    expect(takeover.decision).toBe('granted')
+    expect(takeover.claim?.runId).toBe('run-next')
+  })
+})
+
+describe('a run own record that cannot be read', () => {
+  test('a corrupt lease is refused, not overwritten', () => {
+    const directory = leaseDirectoryForTest()
+    writeFileSync(join(directory, 'run-a.json'), 'not json at all')
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity: disposableIdentity(),
+      owner,
+    })
+    expect(claim.decision).toBe('refused')
+    expect(claim.reason).toBe(CLEANUP_REFUSAL.uncertain)
+    // The record that could not be read is still there: it was not overwritten.
+    expect(readFileSync(join(directory, 'run-a.json'), 'utf8')).toBe('not json at all')
+  })
+
+  test('the reconciliation reports a record it cannot read as uncertain', () => {
+    const directory = leaseDirectoryForTest()
+    writeFileSync(join(directory, 'run-a.json'), 'not json at all')
+    const reconciliation = reconcileLeases({
+      directory,
+      runId: 'run-b',
+      identity: disposableIdentity(),
+      now: 10_000_000_000,
+    })
+    expect(reconciliation.found).toEqual([
+      { runId: 'run-a', label: null, state: LEASE_STATE.uncertain, own: false },
+    ])
+  })
+})
+
+describe('the receipt and a removal that was not confirmed', () => {
+  test('a removal without a confirmed absence is not reported as removed', () => {
+    const directory = leaseDirectoryForTest()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity: disposableIdentity(),
+      owner,
+    })
+    const plan = planCleanup({ lease: claim.lease, startedByThisRun: true, ownerPid: owner.pid })
+    const receipt = cleanupReceipt({
+      lease: claim.lease,
+      decision: plan.decision,
+      reason: plan.reason,
+      resources: plan.resources.map((resource) => ({ ...resource, verifiedAbsent: false })),
+      child: { status: 0, signal: null },
+    })
+    expect(receipt.removed).toEqual([])
+    expect(receipt.unknown).toHaveLength(5)
+  })
+
+  test('a removal with a confirmed absence is reported as removed', () => {
+    const directory = leaseDirectoryForTest()
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity: disposableIdentity(),
+      owner,
+    })
+    const plan = planCleanup({ lease: claim.lease, startedByThisRun: true, ownerPid: owner.pid })
+    const receipt = cleanupReceipt({
+      lease: claim.lease,
+      decision: plan.decision,
+      reason: plan.reason,
+      resources: plan.resources.map((resource) => ({ ...resource, verifiedAbsent: true })),
+      child: { status: 0, signal: null },
+    })
+    expect(receipt.removed).toHaveLength(5)
+    expect(receipt.unknown).toEqual([])
+  })
 })

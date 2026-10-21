@@ -21,7 +21,15 @@
 // needs a daemon, a container or a volume to prove the model.
 
 import { hostname, tmpdir } from 'node:os'
-import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { join } from 'node:path'
 
 /** The two ways the lane may own its database instance. */
@@ -313,7 +321,14 @@ export function writeLease(directory, lease) {
   return lease
 }
 
-/** Reads one run's lease, or null when the run never wrote one. */
+/**
+ * Reads one run's lease.
+ *
+ * An absent record and a record that cannot be read are different things. An
+ * absent record is a run that never wrote one. A record that cannot be parsed
+ * is a record whose ownership is unknown, and an unknown owner is never
+ * overwritten, so the read fails loudly instead of looking like an absence.
+ */
 export function readLease(directory, runId) {
   let content
   try {
@@ -324,31 +339,41 @@ export function readLease(directory, runId) {
   }
   try {
     return JSON.parse(content)
-  } catch {
-    return null
+  } catch (error) {
+    throw new Error(`the lease for ${runId} cannot be read: ${error.message}`, { cause: error })
   }
 }
 
-/** Reads every lease in the directory. An unreadable record is not a lease. */
-export function listLeases(directory) {
+/**
+ * Reads every lease in the directory.
+ *
+ * The records that cannot be read are reported separately: they are not
+ * leases, and they are not an absence either.
+ */
+export function scanLeases(directory) {
+  const leases = []
+  const unreadable = []
   let names
   try {
     names = readdirSync(directory)
   } catch (error) {
-    if (error?.code === 'ENOENT') return []
+    if (error?.code === 'ENOENT') return { leases, unreadable }
     throw error
   }
-  const leases = []
   for (const name of names) {
     if (!name.endsWith('.json')) continue
     try {
       leases.push(JSON.parse(readFileSync(join(directory, name), 'utf8')))
     } catch {
-      // A record that cannot be parsed is not understood, and an understood
-      // record is the only basis for a cleanup decision.
+      unreadable.push(name)
     }
   }
-  return leases
+  return { leases, unreadable }
+}
+
+/** Reads every lease in the directory. An unreadable record is not a lease. */
+export function listLeases(directory) {
+  return scanLeases(directory).leases
 }
 
 /** Builds the lease one run starts with. */
@@ -473,13 +498,19 @@ export function claimSharedResource({
   owner,
   now = Date.now,
   isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
+  // A seam for the interleaving regression: it runs after a stale claim has
+  // been read and before it is moved aside, so a test can let a second
+  // reclaimer finish in between.
+  afterClaimRead = null,
 }) {
   mkdirSync(claimsDirectory(directory), { recursive: true })
   const path = claimPath(directory, resourceKey)
   for (let attempt = 0; attempt < 4; attempt++) {
+    let raw = null
     let existing = null
     try {
-      existing = JSON.parse(readFileSync(path, 'utf8'))
+      raw = readFileSync(path, 'utf8')
+      existing = JSON.parse(raw)
     } catch (error) {
       if (error?.code !== 'ENOENT') {
         // The claim is there but cannot be understood. Its owner is unknown,
@@ -499,12 +530,42 @@ export function claimSharedResource({
         // The resource belongs to another identity. It is never taken.
         return { decision: 'refused', reason: CLEANUP_REFUSAL.foreign, claim: existing }
       }
-      // The owner is gone and the identity matches. The takeover is an
-      // exclusive create, so two takeovers cannot both win it.
+      // The owner is gone and the identity matches. The stale record is moved
+      // aside before it is replaced, and the moved file is compared with the
+      // one that was read. If they differ, another reclaimer wrote a fresh
+      // claim in between, and this one puts it back and refuses: two reclaimers
+      // must never both end up holding the claim, and one of them must never
+      // delete the other's live claim.
+      if (typeof afterClaimRead === 'function') {
+        afterClaimRead({ raw, claim: existing })
+      }
+      const aside = `${path}.aside-${runId}-${attempt}`
       try {
-        rmSync(path, { force: true })
+        renameSync(path, aside)
       } catch {
-        // The exclusive create below decides who holds the claim.
+        // The claim moved or vanished under us. The next attempt reads again.
+        continue
+      }
+      let asideContent = null
+      try {
+        asideContent = readFileSync(aside, 'utf8')
+      } catch {
+        asideContent = null
+      }
+      if (asideContent !== raw) {
+        // The record that was moved was not the record that was read, so a live
+        // claim was displaced. It is put back and the claim is refused.
+        try {
+          renameSync(aside, path)
+        } catch {
+          // The claim stays where it is; the holder reads it and refuses.
+        }
+        return { decision: 'refused', reason: CLEANUP_REFUSAL.active, claim: null }
+      }
+      try {
+        rmSync(aside, { force: true })
+      } catch {
+        // The stale record is out of the claim path either way.
       }
       continue
     }
@@ -520,10 +581,22 @@ export function claimSharedResource({
       },
       createdAt: now(),
     }
+    // The record is written in full beside the claim and then linked onto it.
+    // A link is atomic and refuses an existing target, so the claim path only
+    // ever appears complete, and only one reclaimer can create it. A reader
+    // never sees a half-written record and never has to guess what it says.
+    const temporary = `${path}.${runId}.${attempt}.tmp`
     try {
-      writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx' })
+      writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`)
+      linkSync(temporary, path)
       return { decision: 'granted', claim: record }
     } catch (error) {
+      try {
+        rmSync(temporary, { force: true })
+      } catch {
+        // The temporary record is not the claim; leaving it behind is untidy
+        // but harmless.
+      }
       if (error?.code === 'EEXIST') continue
       return { decision: 'refused', reason: CLEANUP_REFUSAL.uncertain, claim: null }
     }
@@ -560,6 +633,22 @@ export function releaseSharedResource({ directory, resourceKey, runId, identity 
 }
 
 /**
+ * The marker for a lease record that exists but cannot be read.
+ */
+const UNREADABLE = Symbol('unreadable-lease')
+
+/**
+ * Reads one run's lease, or the marker when the record cannot be read.
+ */
+function readLeaseSafely(directory, runId) {
+  try {
+    return readLease(directory, runId)
+  } catch {
+    return UNREADABLE
+  }
+}
+
+/**
  * Claims the right to use one resource.
  *
  * A run that already holds a lease for this run id may take it back: that is
@@ -577,7 +666,12 @@ export function claimResource({
   now = Date.now,
   isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
 }) {
-  const existing = readLease(directory, runId)
+  const existing = readLeaseSafely(directory, runId)
+  if (existing === UNREADABLE) {
+    // The run's own record cannot be read. Its ownership is unknown, and an
+    // unknown owner is never overwritten.
+    return { decision: 'refused', reason: CLEANUP_REFUSAL.uncertain, lease: null }
+  }
   if (existing) {
     const state = classifyLease(existing, { isProcessAlive, expectedIdentity: identity })
     if (state === LEASE_STATE.foreign) {
@@ -813,10 +907,21 @@ export function cleanupReceipt({ lease, decision, reason, resources, child = nul
       ? { exited: true, status: child.status ?? null, signal: child.signal ?? null }
       : { exited: false, status: null, signal: null },
     resources: accounted,
-    removed: accounted.filter((resource) => resource.action === 'removed').map((r) => r.name),
+    // A resource counts as removed only when its absence was confirmed. A
+    // removal that was attempted is not a removal that happened.
+    removed: accounted
+      .filter((resource) => resource.action === 'removed' && resource.verifiedAbsent === true)
+      .map((r) => r.name),
     stopped: accounted.filter((resource) => resource.action === 'stopped').map((r) => r.name),
     retained: accounted.filter((resource) => resource.action === 'retained').map((r) => r.name),
     refused: accounted.filter((resource) => resource.action === 'refused').map((r) => r.name),
+    unknown: accounted
+      .filter(
+        (resource) =>
+          resource.action === 'unknown' ||
+          (resource.action === 'removed' && resource.verifiedAbsent !== true)
+      )
+      .map((r) => r.name),
     errors: [...errors],
   }
 }
@@ -829,8 +934,8 @@ export function cleanupReceipt({ lease, decision, reason, resources, child = nul
  * remove.
  */
 export function releaseLease({ directory, runId, receipt }) {
-  const existing = readLease(directory, runId)
-  if (!existing) return null
+  const existing = readLeaseSafely(directory, runId)
+  if (!existing || existing === UNREADABLE) return null
   const settled = {
     ...existing,
     state: 'released',
@@ -994,11 +1099,19 @@ export function pruneSettledLeases({
   retentionMs = DEFAULT_LEASE_RETENTION_MS,
   isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
 } = {}) {
+  // The clock is a function, and it is called. A clock that is not callable, or
+  // that answers something that is not a time, and a bound that is not a
+  // duration, leave the records alone: an unusable clock is not a reason to
+  // delete evidence.
+  const clock = typeof now === 'function' ? now() : now
+  if (!Number.isFinite(clock) || !Number.isFinite(retentionMs) || retentionMs < 0) {
+    return []
+  }
   const pruned = []
   for (const lease of listLeases(directory)) {
     if (classifyLease(lease, { isProcessAlive }) !== LEASE_STATE.settled) continue
     const settledAt = lease.updatedAt ?? lease.createdAt ?? 0
-    if (!Number.isFinite(settledAt) || now - settledAt < retentionMs) continue
+    if (!Number.isFinite(settledAt) || clock - settledAt < retentionMs) continue
     try {
       rmSync(leasePath(directory, lease.runId), { force: true })
       pruned.push(lease.runId)
@@ -1028,13 +1141,24 @@ export function reconcileLeases({
   retentionMs = DEFAULT_LEASE_RETENTION_MS,
   isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
 } = {}) {
+  const { leases, unreadable } = scanLeases(directory)
   const found = []
-  for (const lease of listLeases(directory)) {
+  for (const lease of leases) {
     found.push({
       runId: lease.runId,
       label: lease.identity?.label ?? null,
       state: classifyLease(lease, { isProcessAlive }),
       own: lease.runId === runId,
+    })
+  }
+  // A record that cannot be read is reported as uncertain. It is not an
+  // absence, and it is not touched.
+  for (const name of unreadable) {
+    found.push({
+      runId: name.replace(/\.json$/, ''),
+      label: null,
+      state: LEASE_STATE.uncertain,
+      own: false,
     })
   }
   const pruned = pruneSettledLeases({ directory, now, retentionMs, isProcessAlive })

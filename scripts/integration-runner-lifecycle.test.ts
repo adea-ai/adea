@@ -42,6 +42,7 @@ function exercise(options: {
   admissionRefused?: boolean
   inventory?: boolean
   sharedClaimRefused?: string
+  removalUnconfirmed?: boolean
 }) {
   const child = `
     import vm from 'node:vm'
@@ -197,7 +198,9 @@ function exercise(options: {
         claimSharedResource({ resourceKey, runId, identity }) {
           sharedClaims.push({ resourceKey, runId, label: identity.label })
           calls.push(['shared-claim', resourceKey])
-          if (options.sharedClaimRefused)
+          // The refusal applies to the first claim only, so the run's own
+          // fallback to an instance of its own can be exercised.
+          if (options.sharedClaimRefused && sharedClaims.length === 1)
             return { decision: 'refused', reason: options.sharedClaimRefused, claim: null }
           return {
             decision: 'granted',
@@ -276,10 +279,17 @@ function exercise(options: {
               ? { exited: true, status: child.status ?? null, signal: child.signal ?? null }
               : { exited: false, status: null, signal: null },
             resources,
-            removed: resources.filter((r) => r.action === 'removed').map((r) => r.name),
+            removed: resources
+              .filter((r) => r.action === 'removed' && r.verifiedAbsent === true)
+              .map((r) => r.name),
             stopped: resources.filter((r) => r.action === 'stopped').map((r) => r.name),
             retained: resources.filter((r) => r.action === 'retained').map((r) => r.name),
             refused: resources.filter((r) => r.action === 'refused').map((r) => r.name),
+            unknown: resources
+              .filter(
+                (r) => r.action === 'unknown' || (r.action === 'removed' && r.verifiedAbsent !== true)
+              )
+              .map((r) => r.name),
             errors: errors ?? [],
           }
           receipts.push(receipt)
@@ -303,6 +313,10 @@ function exercise(options: {
           }
           if (args[0] === 'network' && args[1] === 'inspect') {
             const name = args[args.length - 1]
+            if (options.removalUnconfirmed) {
+              // The daemon could not answer, so the state is unknown.
+              return { status: 1, stdout: '', stderr: 'cannot connect to the Docker daemon', timedOut: false }
+            }
             return removed.has(name)
               ? { status: 1, stdout: '', stderr: 'network not found', timedOut: false }
               : { status: 0, stdout: '', stderr: '', timedOut: false }
@@ -350,6 +364,17 @@ function exercise(options: {
           for (const name of volumes) {
             const state = run(['volume', 'inspect', name])
             if (!(state.status !== 0 && /no such volume/.test(state.stderr))) remaining.push(name)
+          }
+          if (options.removalUnconfirmed) {
+            // The absence could not be confirmed, so the resources are still
+            // reported as present.
+            failures.push('owned resources are still present: ' + [...containers, ...volumes].join(', '))
+            return {
+              absent: [],
+              errors: failures,
+              remaining: [...containers, ...volumes],
+              removed: [],
+            }
           }
           if (remaining.length > 0) failures.push('owned resources are still present: ' + remaining.join(', '))
           return { absent: gone, errors: failures, remaining, removed: gone }
@@ -1447,4 +1472,27 @@ test('the receipt tells a process exit from the containers, volumes, data and ch
   expect(receipt?.retained).toContain('/synthetic/checkout')
   // The child outcome is its own fact.
   expect(receipt?.child.exited).toBe(true)
+})
+
+test('a run that fell back to an instance of its own records the mode it ended up in', () => {
+  const result = exercise({ mode: 'reusable', sharedClaimRefused: 'active', success: true })
+  // The lease records the effective mode, not the mode that was asked for.
+  expect(result.claims.map((claim) => claim.mode)).toEqual(['disposable'])
+  // And the cleanup removes the instance this run created, instead of keeping
+  // the shared one for a run that never had it.
+  const receipt = result.receipts.at(-1)
+  expect(receipt?.decision).toBe('remove')
+  expect(receipt?.removed.length).toBeGreaterThan(0)
+  expect(receipt?.retained).not.toContain('agent-hq_agent-hq-postgres-data')
+})
+
+test('a removal whose absence could not be confirmed is not reported as removed', () => {
+  const result = exercise({ success: true, removalUnconfirmed: true })
+  // The lane fails, because a teardown that did not finish is not a clean one.
+  expect(result.failure).toContain('the integration resource cleanup did not complete')
+  const receipt = result.receipts.at(-1)
+  // A removal that was attempted is not a removal that happened.
+  expect(receipt?.removed).toEqual([])
+  expect(receipt?.unknown.length).toBeGreaterThan(0)
+  expect(receipt?.errors.length).toBeGreaterThan(0)
 })
