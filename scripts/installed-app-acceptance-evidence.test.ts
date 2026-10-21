@@ -19,8 +19,13 @@
 //   - every capture the artifact names exists;
 //   - no two captures in the directory share an index;
 //   - every capture in the directory is either one the artifact names or one
-//     explicitly labelled as an earlier capture.
+//     explicitly labelled as an earlier capture;
+//   - the approved captures still carry their approved bytes, so a quiet
+//     re-render cannot pass unnoticed and cannot be used to make a check pass;
+//   - the record carries the captures' base and the source surface they depend
+//     on, so a stale capture is answerable from the evidence alone.
 import { describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
@@ -36,6 +41,43 @@ const evidenceDirectory = join(
 )
 const artifactPath = join(evidenceDirectory, 'installed-app-acceptance.json')
 const screenshotDirectory = join(evidenceDirectory, 'screenshots')
+const recordPath = join(root, 'docs', 'evidence', 'installed-desktop-ui-acceptance-2026-10-20.md')
+
+/**
+ * The approved captures, by content. Each one is what the recorded run
+ * produced, so a different hash means the capture was re-rendered — which is
+ * only legitimate in a deliberate commit that updates this table too.
+ */
+const APPROVED_CAPTURES: Readonly<Record<string, string>> = {
+  '01-first-run.png': '941a3e22ab44183b4e5a233626df4dc07ffb6e880ddbc1c1e74beb235b2fde48',
+  '02-chat-view.png': '17043af7eca44c8f65e48918d3576bd0f61f215f82c8212ba239d8c861e2a079',
+  '03-dev-view.png': '42cdfd574dea834aa0c4c3ea711974a0febd605cf96ea85784931e34fbe15a38',
+  '04-app-library.png': 'c299a4d25b2c3e4e0c2a0bfd0dfe2f9582d11d875cf5da4eb99dec2654134fe5',
+  '05-app-library-defaults.png': 'c299a4d25b2c3e4e0c2a0bfd0dfe2f9582d11d875cf5da4eb99dec2654134fe5',
+  '06-app-library-optional.png': 'c299a4d25b2c3e4e0c2a0bfd0dfe2f9582d11d875cf5da4eb99dec2654134fe5',
+  '07-back-forward.png': 'fcf040732ae55f03bd889ca1aedbf487567f3a9eadaa30e71e173ccfb561ad88',
+  '08-repeated-navigation.png': 'adf24d342fd7b36b6f11cf933779a61502e4c480244d3f938b89647097732d3e',
+  '09-interrupted-navigation.png':
+    '42cdfd574dea834aa0c4c3ea711974a0febd605cf96ea85784931e34fbe15a38',
+  '10-reload.png': 'ca58e53092fb4ce019728f3a7bec97b9ce800d11fc0eb16c9a7d5cbdbdd06775',
+  'earlier-capture-09-reload.png':
+    '23200e4579aa7676db32e0d3c1b607729877613ecfe8e1487ba6dee17a87368e',
+}
+
+/** The candidate's integration base: the source the captures were taken from. */
+const CAPTURE_BASE = '333b948d4c5fba1f88d98d764c075b790be6ee22'
+
+/** The source surface the captured views are rendered by. */
+const RENDERING_SURFACE = [
+  'apps/web/src/components/workspace-entry.tsx',
+  'apps/web/src/components/workspace-navigation.tsx',
+  'apps/web/src/start/routes/index.tsx',
+  'packages/workspace-ui/src/conversation-surface.tsx',
+  'packages/workspace-ui/src/app-library-page.tsx',
+  'packages/workspace-ui/src/workspace-states.tsx',
+  'packages/dev-view/src/dev-workspace-entry.tsx',
+  'apps/web/src/lib/account-directory.ts',
+] as const
 
 /** The rows the source adds outside the two named row lists. */
 const INLINE_ROW_IDS = [
@@ -185,4 +227,37 @@ describe('the published acceptance screenshots', () => {
       for (const file of named) expect(files).toContain(file)
     }
   )
+})
+
+describe('the approved captures are pinned', () => {
+  test('every approved capture still carries its approved bytes', () => {
+    // A capture is evidence, not a baseline to refresh: each one is what the
+    // recorded run produced. A different hash means the capture was
+    // re-rendered, which is only legitimate in a deliberate commit that
+    // updates this table with it. A regeneration performed to make a check
+    // pass is a defect, and this case fails it.
+    const files = readdirSync(screenshotDirectory).filter((name) => name.endsWith('.png'))
+    for (const [name, sha256] of Object.entries(APPROVED_CAPTURES)) {
+      const file = join(screenshotDirectory, name)
+      expect(existsSync(file)).toBe(true)
+      const digest = createHash('sha256').update(readFileSync(file)).digest('hex')
+      expect(digest).toBe(sha256)
+    }
+    // A capture that is not in the approved set is a new one, and it has to
+    // be deliberate: it is named here before it can count as evidence.
+    for (const file of files) {
+      expect(Object.keys(APPROVED_CAPTURES)).toContain(file)
+    }
+  })
+
+  test("the record carries the captures' base and the surface they depend on", () => {
+    // Without these, "is the approved capture still valid?" cannot be
+    // answered from the evidence at all: a reviewer would have to guess which
+    // source produced it.
+    const record = readFileSync(recordPath, 'utf8')
+    expect(record).toContain(CAPTURE_BASE)
+    for (const path of RENDERING_SURFACE) {
+      expect(record).toContain(path)
+    }
+  })
 })

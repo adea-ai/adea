@@ -266,11 +266,71 @@ the provenance cannot drift away from the artifact it annotates:
   source's rows change;
 - every capture the artifact names exists; no two captures in the directory
   share an index; and every capture in the directory is either one the
-  artifact names or one explicitly labelled as an earlier capture.
+  artifact names or one explicitly labelled as an earlier capture;
+- every approved capture still carries its approved bytes, and a capture that
+  is not in the approved set fails — so a quiet re-render cannot pass
+  unnoticed and cannot be used to make a check pass;
+- the record carries the captures' base and the source surface they depend on,
+  so a stale capture is answerable from the evidence alone.
 
-The suite is **6 cases, 161 assertions**, and it skips when the evidence
+The suite is **8 cases, 203 assertions**, and it skips when the evidence
 directory is absent, so it is safe on a branch that does not carry this
 record.
+
+### The approved captures, and the surface they depend on
+
+The captures are **evidence, not a baseline to refresh**: each one is what the
+recorded run actually produced, on a Mac, from the candidate in §1. They are
+therefore pinned by content, so that a quiet re-render cannot pass unnoticed
+and cannot be used to make a check pass.
+
+| Capture                         | sha256                                                             | The view it shows                                                 |
+| ------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `01-first-run.png`              | `941a3e22ab44183b4e5a233626df4dc07ffb6e880ddbc1c1e74beb235b2fde48` | the guest workspace, still opening                                |
+| `02-chat-view.png`              | `17043af7eca44c8f65e48918d3576bd0f61f215f82c8212ba239d8c861e2a079` | Chat, with no conversation chosen                                 |
+| `03-dev-view.png`               | `42cdfd574dea834aa0c4c3ea711974a0febd605cf96ea85784931e34fbe15a38` | the Dev view, with the terminal panel open                        |
+| `04-app-library.png`            | `c299a4d25b2c3e4e0c2a0bfd0dfe2f9582d11d875cf5da4eb99dec2654134fe5` | the App Library, with the default and the optional destinations   |
+| `05-app-library-defaults.png`   | `c299a4d25b2c3e4e0c2a0bfd0dfe2f9582d11d875cf5da4eb99dec2654134fe5` | the same screen, already in that state                            |
+| `06-app-library-optional.png`   | `c299a4d25b2c3e4e0c2a0bfd0dfe2f9582d11d875cf5da4eb99dec2654134fe5` | the same screen, already in that state                            |
+| `07-back-forward.png`           | `fcf040732ae55f03bd889ca1aedbf487567f3a9eadaa30e71e173ccfb561ad88` | Chat, after Back and Forward                                      |
+| `08-repeated-navigation.png`    | `adf24d342fd7b36b6f11cf933779a61502e4c480244d3f938b89647097732d3e` | Chat, interrupted, offering Retry                                 |
+| `09-interrupted-navigation.png` | `42cdfd574dea834aa0c4c3ea711974a0febd605cf96ea85784931e34fbe15a38` | the Dev view, the same screen the interruption settled on         |
+| `10-reload.png`                 | `ca58e53092fb4ce019728f3a7bec97b9ce800d11fc0eb16c9a7d5cbdbdd06775` | the Dev view, after the reload                                    |
+| `earlier-capture-09-reload.png` | `23200e4579aa7676db32e0d3c1b607729877613ecfe8e1487ba6dee17a87368e` | the in-flight "Opening workspace…" state, from an earlier capture |
+
+The captures were taken from the candidate whose integration base is
+`333b948d4c5fba1f88d98d764c075b790be6ee22` (§1), so the source that produced
+them is that base plus the B/C/D heads. The surface those views are rendered
+by is:
+
+| Path                                                 | Last change at the capture's base |
+| ---------------------------------------------------- | --------------------------------- |
+| `apps/web/src/components/workspace-entry.tsx`        | 2026-10-17                        |
+| `apps/web/src/components/workspace-navigation.tsx`   | 2026-10-19                        |
+| `apps/web/src/start/routes/index.tsx`                | 2026-10-12                        |
+| `packages/workspace-ui/src/conversation-surface.tsx` | 2026-10-14                        |
+| `packages/workspace-ui/src/app-library-page.tsx`     | 2026-10-19                        |
+| `packages/workspace-ui/src/workspace-states.tsx`     | 2026-10-12                        |
+| `packages/dev-view/src/dev-workspace-entry.tsx`      | 2026-10-13                        |
+| `apps/web/src/lib/account-directory.ts`              | 2026-10-12                        |
+
+**Verified for this revision:** no commit has touched any of those paths since
+the capture's base — not the components that render the captured views, not
+the shared kit (`packages/ui/src`), not the app shell (`apps/web/src/start`),
+not the styles, and not the types. Every string the captures show is still
+the string the source renders, with its own code and wording. The approved
+captures therefore still describe what the current source renders.
+
+And **nothing in this increment moves a pixel**: the change touches no
+rendered surface at all — no `apps/web/` path, no `packages/` path, no
+lockfile and no configuration. The repository's own `Visual gate` selects both
+pixel suites for this pull request anyway, because `scripts/` is one of that
+lane's inputs, so the gate will run — against baselines that must not change.
+
+A change to any of the paths above makes the captures stale, and the repair is
+a deliberate re-capture on a Mac with the hashes here updated in the same
+commit. A regeneration performed to make a check pass is a defect, and the
+guard below fails it.
 
 ### The no-provider proof (Railway-only, no Neon)
 
@@ -412,7 +472,7 @@ installed application reports that state instead of pretending to work.
 | `bun scripts/installed-app-acceptance.ts --app-bundle … --artifact … --profile-parent …` | **21 passed, 1 failed, 22 rows** (row 6, §6.2) — the run predates the safety repair of §13, and the entry point was not executed again after it |
 | `bun test tests/boot-credential-store.test.ts` (apps/desktop)                            | 12 pass, 0 fail, 36 assertions                                                                                                                  |
 | `bun test scripts/installed-app-acceptance.test.ts`                                      | 74 pass, 0 fail, 288 assertions (59 pass / 168 assertions at the published head `a18e35ff`)                                                     |
-| `bun test scripts/installed-app-acceptance-evidence.test.ts`                             | 6 pass, 0 fail, 161 assertions                                                                                                                  |
+| `bun test scripts/installed-app-acceptance-evidence.test.ts`                             | 8 pass, 0 fail, 203 assertions                                                                                                                  |
 | `bun check -p shell/tsconfig.json` (apps/desktop)                                        | no type errors in 229 files — re-checked for this revision with `tsc --noEmit -p shell/tsconfig.json`, exit 0, no diagnostics                   |
 | pre-commit hook (`vp run orch:typecheck`)                                                | 33/33 successful, no type errors in 324 files                                                                                                   |
 | `bunx oxlint --deny-warnings` on the changed files                                       | exit 0                                                                                                                                          |
