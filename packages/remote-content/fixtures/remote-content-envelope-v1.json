@@ -1,4 +1,5 @@
 {
+  "keyPurpose": "command_encryption",
   "recipientIkm": "recipient key material for vector 0001",
   "ephemeralIkm": "ephemeral sender material for vector 0001",
   "plaintext": "cross-runtime command fixture",
