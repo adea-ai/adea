@@ -354,9 +354,18 @@ of them:
 2. **Strict TLS on the prepared target's URLs.** The Railway target is a hosted PostgreSQL
    instance, and this pull request's own validator refuses a hosted URL that does not require TLS:
    `scripts/database-config.mjs` accepts `sslmode=require`, `verify-ca` or `verify-full` for a
-   hosted target and refuses every other mode. The prepared target's runtime, migration and
-   unpooled URLs therefore have to carry a verifying TLS mode, and the health probe refuses the
-   target otherwise. This pull request supplies the rule; it prepares no target that meets it.
+   hosted target and refuses every other mode. **Those three modes are not equivalent in what they
+   establish.** `require` enforces TLS encryption but by itself does not establish certificate or
+   hostname verification; `verify-ca` validates the certificate chain; `verify-full` validates the
+   chain and the hostname. The rule requires that a TLS-requiring mode be named and does not
+   distinguish between the three, so it does not establish that the production target's
+   certificate or its hostname is verified. **Strict production certificate and hostname
+   verification therefore remains an independently checked prerequisite of the prepared target and
+   of the client that connects to it**: the prepared target's runtime, migration and unpooled URLs
+   have to name a mode that verifies the chain and the hostname, and that has to be checked against
+   the target itself rather than read off this pull request. The health probe refuses a hosted URL
+   that names no TLS-requiring mode at all. This pull request supplies the rule; it prepares no
+   target that meets it and verifies no certificate.
 3. **The production binding change.** The pooler move is a live Cloudflare setting on a production
    binding: either `adea-db` is repointed to the Railway origin as one change with the deploy, or a
    second pooler is prepared against the Railway origin and the new Worker version binds that. In
