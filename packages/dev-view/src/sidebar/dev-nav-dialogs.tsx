@@ -7,6 +7,7 @@ import '@adea-ai/app-ui/dev-view.css'
  * repository to a project. Composed only from published primitives; the
  * runtime and cloud calls arrive as callbacks.
  */
+import type { WorkspaceAccentId } from '@adea-ai/types'
 import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
 import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import {
@@ -21,14 +22,28 @@ import {
 import { Button } from '@adea-ai/ui/components/ui/button'
 import { Input } from '@adea-ai/ui/components/ui/input'
 import { Label } from '@adea-ai/ui/components/ui/label'
+import { NativeSelect } from '@adea-ai/ui/components/ui/native-select'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
 import { Tabs, TabsList, TabsTrigger } from '@adea-ai/ui/components/ui/tabs'
 import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
-import { For, Show, Suspense, createSignal, createUniqueId, lazy } from 'solid-js'
+import { For, Show, Suspense, createSignal, createUniqueId, lazy, onMount } from 'solid-js'
+
+import type { NavMenuItem, NavMenuItemId } from '@adea-ai/workspace-nav/adapters'
+import {
+  ProjectActionsSection,
+  ProjectIdentityFields,
+} from '@adea-ai/workspace-nav/project-identity-fields'
 
 import type { DevProjectNames } from '../platform'
 import { AddProjectForm } from './add-project-form'
 import { GitHubImportForm } from './github-import-form'
+import {
+  readProjectDefaults,
+  sameProjectDefault,
+  saveProjectDefaults,
+  type ProjectDefaults,
+  type ProjectDefaultsSelection,
+} from './project-defaults'
 
 const RepoRegistryPanel = lazy(() =>
   import('./repo-registry-panel').then((module) => ({ default: module.RepoRegistryPanel }))
@@ -210,6 +225,8 @@ export function DevAddRepositoryDialog(
   props: DevRepositoryFlowProps & {
     projectId: string
     projectName: string
+    /** A directory typed in project settings, filled in for the member to authorize. */
+    initialPath?: string
     onImported: () => void
     onClose: () => void
   }
@@ -228,6 +245,7 @@ export function DevAddRepositoryDialog(
           knownProjectNames={props.knownProjectNames}
           announce={props.announce}
           {...(props.pickFolder ? { pickFolder: props.pickFolder } : {})}
+          {...(props.initialPath ? { initialPath: props.initialPath } : {})}
           mintProjectId={() => props.projectId}
           onImported={() => {
             props.onImported()
@@ -363,84 +381,267 @@ export function DevNewProjectDialog(
   )
 }
 
+/** What the project settings dialog saves to the cloud project. */
+export type DevProjectIdentity = Readonly<{
+  name: string
+  iconKey: string
+  accent: WorkspaceAccentId | null
+}>
+
 /**
- * Project settings: the cloud name (when the host can rename) and the local
- * repositories the binding holds, through the repository registry.
+ * Project settings: the project's name, icon and icon colour (shared with every
+ * member), the directory it works in on this device, and the default harness
+ * and model its new sessions launch with. A new default applies to sessions
+ * started after it is saved; a session already running keeps what it started
+ * with. Harness and model default to Inherit: no project record, so the
+ * workspace and device defaults resolve as before. The local repositories bound
+ * to the project stay manageable below, followed by Share, Archive and Delete.
  */
 export function DevProjectSettingsDialog(
-  props: DevRepositoryFlowProps & {
+  props: Partial<DevRepositoryFlowProps> & {
     projectId: string
-    projectName: string
+    identity: DevProjectIdentity
+    /** The directory the project works in on this device, when a repository is bound. */
+    directory?: string
+    /** A managed clone lives with the runtime, not at a path on this device. */
+    remote?: boolean
     bound: boolean
     projectNames?: DevProjectNames
-    onRename?: (name: string) => Outcome
-    onAddRepository: () => void
+    /** Share, Archive and Delete for this project, as the host offers them. */
+    actions?: readonly NavMenuItem[]
+    onAction?: (id: NavMenuItemId) => void
+    /** Save the cloud identity; absent when the member cannot change it. */
+    onSaveIdentity?: (identity: DevProjectIdentity) => Outcome
+    /**
+     * Open the authorize-and-import flow that binds or replaces the directory:
+     * Browse opens it empty, a typed path opens it with that path filled in.
+     */
+    onChangeDirectory: (typedPath?: string) => void
     onClose: () => void
   }
 ) {
-  const [name, setName] = createSignal(props.projectName)
+  const [name, setName] = createSignal(props.identity.name)
+  const [iconKey, setIconKey] = createSignal(props.identity.iconKey)
+  const [accent, setAccent] = createSignal<WorkspaceAccentId | null>(props.identity.accent)
+  const [defaults, setDefaults] = createSignal<ProjectDefaults>()
+  const [defaultsUnavailable, setDefaultsUnavailable] = createSignal(false)
+  const [harnessId, setHarnessId] = createSignal('')
+  const [modelId, setModelId] = createSignal('')
   const [error, setError] = createSignal<string>()
   const [busy, setBusy] = createSignal(false)
-  const inputId = `dev-project-settings-${createUniqueId()}`
+  // Browse is the usual way to pick a directory; typing one is the fallback.
+  // The field shows the bound directory until the member types a different one.
+  const [typedDirectory, setTypedDirectory] = createSignal<string>()
+  const shownDirectory = () =>
+    props.remote
+      ? 'Managed clone in the remote runtime'
+      : (typedDirectory() ?? props.directory ?? '')
+  const directoryChanged = () => {
+    const typed = typedDirectory()?.trim()
+    return Boolean(typed) && typed !== props.directory
+  }
+  const harnessSelectId = `dev-project-harness-${createUniqueId()}`
+  const modelSelectId = `dev-project-model-${createUniqueId()}`
+  const directoryId = `dev-project-directory-${createUniqueId()}`
+  const runtimeReady = () => Boolean(props.scope && props.execute)
+
+  onMount(() => {
+    const { scope, execute } = props
+    if (!scope || !execute) return
+    void readProjectDefaults(execute, scope, props.projectId).then((value) => {
+      if (!value) {
+        setDefaultsUnavailable(true)
+        return
+      }
+      setDefaults(value)
+      setHarnessId(value.current?.installationId ?? '')
+      setModelId(value.current?.modelId ?? '')
+    })
+  })
+
+  const models = () => defaults()?.harnesses.find((h) => h.installationId === harnessId())?.models
+  const selection = (): ProjectDefaultsSelection | undefined =>
+    harnessId() === ''
+      ? undefined
+      : { installationId: harnessId(), ...(modelId() ? { modelId: modelId() } : {}) }
+  const identityChanged = () =>
+    name().trim() !== props.identity.name ||
+    iconKey() !== props.identity.iconKey ||
+    accent() !== props.identity.accent
+  const defaultsChanged = () =>
+    defaults() !== undefined && !sameProjectDefault(defaults()?.current, selection())
+  const dirty = () => identityChanged() || defaultsChanged()
+
+  const save = async () => {
+    if (busy() || name().trim() === '' || !dirty()) return
+    setBusy(true)
+    setError(undefined)
+    let failure: string | undefined
+    if (identityChanged() && props.onSaveIdentity)
+      failure = await props.onSaveIdentity({
+        name: name().trim(),
+        iconKey: iconKey(),
+        accent: accent(),
+      })
+    if (!failure && defaultsChanged() && props.scope && props.execute)
+      failure = await saveProjectDefaults(
+        props.execute,
+        props.scope,
+        props.projectId,
+        defaults()?.current,
+        selection()
+      )
+    setBusy(false)
+    if (failure) setError(failure)
+    else props.onClose()
+  }
+
   return (
     <ModalDialog
       open
       size="settings"
       onClose={props.onClose}
-      title={`${props.projectName} settings`}
-      description="The project's name and the local repositories bound to it on this device."
+      title={`${props.identity.name} settings`}
+      description="How this project looks, where it works on this device, and what its new sessions start with."
     >
       {/* The settings-size shell zeroes the content padding and pads only its
           header band; the body carries the shared settings-panel padding the
           workspace settings dialogs use. */}
-      <div class="conventional-settings-panel flex flex-col gap-6">
-        <Show when={props.onRename}>
-          <form
-            class="flex flex-col gap-3"
-            onSubmit={(event) => {
-              event.preventDefault()
-              const value = name().trim()
-              if (!value || busy()) return
-              setBusy(true)
-              setError(undefined)
-              void props.onRename!(value).then((failure) => {
-                setBusy(false)
-                setError(failure)
-              })
-            }}
-          >
-            <div class="flex flex-col gap-2">
-              <Label for={inputId}>Project name</Label>
+      <form
+        class="conventional-settings-panel flex flex-col gap-6"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void save()
+        }}
+      >
+        <ProjectIdentityFields
+          name={name()}
+          onNameChange={setName}
+          iconKey={iconKey()}
+          onIconKeyChange={setIconKey}
+          accent={accent()}
+          onAccentChange={(value) => setAccent(value as WorkspaceAccentId | null)}
+          nameDisabled={!props.onSaveIdentity}
+          disabled={!props.onSaveIdentity}
+        />
+        <Show when={runtimeReady()}>
+          <section class="flex flex-col gap-3" aria-label="Directory">
+            <Heading as="h3" size="subsection">
+              Directory
+            </Heading>
+            <div class="flex items-center gap-2">
               <Input
-                id={inputId}
-                value={name()}
-                maxLength={120}
-                onInput={(event) => setName(event.currentTarget.value)}
+                id={directoryId}
+                class="min-w-0 flex-1"
+                aria-label="Project directory"
+                readOnly={props.remote}
+                placeholder="No directory on this device yet"
+                value={shownDirectory()}
+                onInput={(event) => setTypedDirectory(event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && directoryChanged()) {
+                    event.preventDefault()
+                    props.onChangeDirectory(typedDirectory()?.trim())
+                  }
+                }}
               />
+              <Show when={!props.remote}>
+                <Show
+                  when={directoryChanged()}
+                  fallback={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => props.onChangeDirectory()}
+                    >
+                      {props.bound ? 'Browse…' : 'Choose…'}
+                    </Button>
+                  }
+                >
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => props.onChangeDirectory(typedDirectory()?.trim())}
+                  >
+                    Use this folder
+                  </Button>
+                  <Button type="button" variant="ghost" onClick={() => props.onChangeDirectory()}>
+                    Browse…
+                  </Button>
+                </Show>
+              </Show>
             </div>
-            <ErrorAlert message={error()} />
-            <Button type="submit" disabled={busy() || name().trim() === ''}>
-              {busy() ? 'Saving…' : 'Save name'}
-            </Button>
-          </form>
-        </Show>
-        <section class="flex flex-col gap-3" aria-label="Repositories">
-          <Heading as="h3" size="subsection">
-            Repositories
-          </Heading>
-          <Show
-            when={props.bound}
-            fallback={
-              <div class="flex flex-col gap-2">
+            <Text variant="caption" tone="muted">
+              Browse for a folder, or type its path. Either way the folder is authorized and its
+              repository imported before it replaces the directory; existing sessions keep the
+              directory they started in.
+            </Text>
+          </section>
+          <section class="flex flex-col gap-3" aria-label="Defaults for new sessions">
+            <Heading as="h3" size="subsection">
+              Defaults for new sessions
+            </Heading>
+            <Show
+              when={!defaultsUnavailable()}
+              fallback={
                 <Text variant="caption" tone="muted">
-                  No local repository is bound to this project on this device.
+                  The harness list is unavailable right now, so the defaults cannot be changed.
                 </Text>
-                <Button type="button" variant="outline" onClick={() => props.onAddRepository()}>
-                  Add repository…
-                </Button>
+              }
+            >
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="flex flex-col gap-2">
+                  <Label for={harnessSelectId}>Harness</Label>
+                  <NativeSelect
+                    id={harnessSelectId}
+                    value={harnessId()}
+                    disabled={defaults() === undefined}
+                    onChange={(event) => {
+                      setHarnessId(event.currentTarget.value)
+                      setModelId('')
+                    }}
+                    options={[
+                      { value: '', label: 'Inherit' },
+                      ...(defaults()?.harnesses ?? []).map((harness) => ({
+                        value: harness.installationId,
+                        label: harness.name,
+                      })),
+                    ]}
+                  />
+                </div>
+                <div class="flex flex-col gap-2">
+                  <Label for={modelSelectId}>Model</Label>
+                  <NativeSelect
+                    id={modelSelectId}
+                    value={modelId()}
+                    disabled={harnessId() === ''}
+                    onChange={(event) => setModelId(event.currentTarget.value)}
+                    options={[
+                      { value: '', label: 'Inherit' },
+                      ...(models() ?? []).map((model) => ({
+                        value: model.id,
+                        label: model.displayName,
+                      })),
+                    ]}
+                  />
+                </div>
               </div>
-            }
-          >
+              <Text variant="caption" tone="muted">
+                Inherit uses the workspace or device default. A change applies to new sessions only;
+                running sessions are not reconfigured.
+              </Text>
+            </Show>
+          </section>
+        </Show>
+        <ErrorAlert message={error()} />
+        <Button type="submit" disabled={busy() || name().trim() === '' || !dirty()}>
+          {busy() ? 'Saving…' : 'Save changes'}
+        </Button>
+        <Show when={runtimeReady() && props.bound}>
+          <section class="flex flex-col gap-3" aria-label="Repositories">
+            <Heading as="h3" size="subsection">
+              Repositories
+            </Heading>
             <Suspense
               fallback={
                 <Text variant="caption" tone="muted">
@@ -449,15 +650,22 @@ export function DevProjectSettingsDialog(
               }
             >
               <RepoRegistryPanel
-                scope={props.scope}
-                execute={props.execute}
-                announce={props.announce}
+                scope={props.scope!}
+                execute={props.execute!}
+                announce={props.announce ?? (() => {})}
                 projectNames={props.projectNames}
               />
             </Suspense>
-          </Show>
-        </section>
-      </div>
+          </section>
+        </Show>
+        <ProjectActionsSection
+          items={props.actions ?? []}
+          onSelect={(id) => {
+            props.onClose()
+            props.onAction?.(id)
+          }}
+        />
+      </form>
     </ModalDialog>
   )
 }

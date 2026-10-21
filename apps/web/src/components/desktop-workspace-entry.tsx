@@ -5,7 +5,6 @@
 // `WorkspaceNavigation`.
 import { createEffect, createMemo, createSignal, lazy, onCleanup, onMount, Show } from 'solid-js'
 import type { AgentHqApiClient, ApiWorkspaceDeleteResponse } from '@adea-ai/api-client'
-import type { AccountDirectoryApiClient } from '@adea-ai/api-client/account-directory'
 import type { DesktopSession } from '@adea-ai/auth/desktop'
 import { useWorkspaceState, workspaceStore } from '@adea-ai/state'
 import type {
@@ -48,7 +47,6 @@ import {
 } from '../lib/desktop-workspace-session'
 import { createDeferredPluginsProvider, WorkspaceNavigation } from './workspace-navigation'
 import { DesktopFirstRunChat } from './desktop-first-run-chat'
-import { createDevSummaryPoll } from '../lib/dev-summary-poll'
 import { createDesktopChatModelHost } from '../lib/desktop-chat-host'
 import { createSharedDevUtilityOwner } from '@adea-ai/dev-view/utility-owner'
 import type { WorkspaceShellProps } from './workspace-shell'
@@ -298,19 +296,6 @@ export function DesktopWorkspaceEntry(props: {
     return nextClient
   })
 
-  // The account-scoped directory client the global directory and inbox reads
-  // through (M11.03). The surface captures ONE instance for its lifetime, so
-  // the client re-resolves the session through the live `session` accessor on
-  // every request (see `createAccountDirectoryClient`) — a rotation or
-  // sign-out in the same workspace is honoured without a remount, unlike a
-  // snapshot binding. `undefined` before the first bootstrap lands; the
-  // surface only mounts after one.
-  const accountDirectoryClient = createMemo(() => {
-    const state = workspaceState()
-    if (!state) return undefined
-    return runtime.createAccountDirectoryClient(session, state.temporaryCredential ?? undefined)
-  })
-
   async function beginSignIn() {
     setStatus('opening')
     setMessage('Opening your system browser…')
@@ -395,7 +380,6 @@ export function DesktopWorkspaceEntry(props: {
                 appVersion={appVersion()}
                 busy={busy()}
                 client={client()!}
-                accountDirectoryClient={accountDirectoryClient}
                 accountPrincipalId={() => workspaceState()?.userId ?? null}
                 plugins={plugins}
                 characterDesigner={props.characterDesigner ?? false}
@@ -444,8 +428,6 @@ function DesktopWorkspace(props: {
   appVersion: string
   busy: boolean
   client: AgentHqApiClient
-  /** Session-bound builder for the account-wide directory surface (M11.03). */
-  accountDirectoryClient: () => AccountDirectoryApiClient | undefined
   /** The shell session's principal id, for the account cache guard (M11.03). */
   accountPrincipalId: () => string | null | undefined
   devScope: DesktopDevScopeSelector
@@ -534,8 +516,6 @@ function DesktopWorkspace(props: {
     typeof window === 'undefined' ? undefined : window.localStorage
   )
   onCleanup(() => utilityOwner.dispose())
-  // Collapsed workspace chips and "Needs you" read the desktop run counts.
-  const devSummary = createDevSummaryPoll(devRuntime)
   const services = (): WorkspacePlatformServices => ({
     account: {
       authenticated: signedIn(),
@@ -576,7 +556,6 @@ function DesktopWorkspace(props: {
         }}
         activeWorkspace={props.activeWorkspace}
         onWorkspaceDeleted={props.onWorkspaceDeleted}
-        devSummary={devSummary}
         chatEntry={(fallback, archiveAction, sidebarOpener, workspaceNav, teamChat) => (
           <DesktopFirstRunChat
             workspaceNav={workspaceNav}
@@ -604,7 +583,6 @@ function DesktopWorkspace(props: {
           />
         )}
         client={props.client}
-        accountDirectoryClient={props.accountDirectoryClient}
         accountPrincipalId={props.accountPrincipalId}
         onAuthorizeWorkspace={async (workspaceId) => {
           await localContentAuthority.authorizeWorkspace(workspaceId)

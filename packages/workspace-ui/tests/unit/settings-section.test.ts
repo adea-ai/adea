@@ -1,10 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 
 import {
+  isWorkspaceScopedSection,
   nextSettingsSection,
+  settingsSectionForWorkspaceSection,
   settingsSectionFromHash,
   settingsSectionGroups,
+  settingsSectionHash,
   settingsSections,
+  workspaceScopedSettingsSections,
   workspaceSettingsHash,
   workspaceSettingsSectionFromHash,
   workspaceSettingsSectionLabels,
@@ -15,27 +19,48 @@ describe('settings deep links and keyboard navigation', () => {
   test('accepts stable section hashes and rejects unknown sections', () => {
     expect(settingsSectionFromHash('#settings/privacy-data')).toBe('privacy-data')
     expect(settingsSectionFromHash('#settings/not-a-section')).toBe('account')
-    expect(settingsSectionFromHash('#workspace-settings/memory')).toBe('account')
+    expect(settingsSectionFromHash('#settings/workspaces')).toBe('workspaces')
+    expect(settingsSectionFromHash('#settings/workspace-skills')).toBe('workspace-skills')
   })
 
-  test('app Settings keeps no workspace-scoped section', () => {
-    for (const moved of ['workspace', 'memory', 'skills', 'connections'])
-      expect(settingsSections as readonly string[]).not.toContain(moved)
+  test('the retired workspace-settings links land on the matching Workspaces section', () => {
+    expect(settingsSectionFromHash('#workspace-settings/memory')).toBe('workspace-memory')
+    expect(settingsSectionFromHash('#workspace-settings')).toBe('workspace-general')
+    expect(settingsSectionFromHash('#settings/workspace')).toBe('workspace-general')
+    expect(settingsSectionFromHash('#settings/connections')).toBe('workspace-connections')
+    expect(settingsSectionHash('workspace-general')).toBe('#settings/workspace-general')
+  })
+
+  test('Settings holds the workspace sections between Account and Workflows', () => {
     expect(settingsSections).toEqual([
       'account',
       'appearance',
+      'workspaces',
+      'workspace-general',
+      'workspace-memory',
+      'workspace-skills',
+      'workspace-connections',
       'agents',
       'input-notifications',
       'privacy-data',
       'integrations',
       'permissions',
     ])
+    expect(Object.keys(workspaceScopedSettingsSections)).toEqual([
+      'workspace-general',
+      'workspace-memory',
+      'workspace-skills',
+      'workspace-connections',
+    ])
+    expect(isWorkspaceScopedSection('workspace-memory')).toBe(true)
+    expect(isWorkspaceScopedSection('workspaces')).toBe(false)
+    expect(settingsSectionForWorkspaceSection('skills')).toBe('workspace-skills')
   })
 
   test('wraps arrow navigation and honors Home and End', () => {
     expect(nextSettingsSection('account', 'ArrowUp')).toBe('permissions')
-    expect(nextSettingsSection('appearance', 'ArrowDown')).toBe('agents')
-    expect(nextSettingsSection('integrations', 'ArrowDown')).toBe('permissions')
+    expect(nextSettingsSection('appearance', 'ArrowDown')).toBe('workspaces')
+    expect(nextSettingsSection('workspace-connections', 'ArrowDown')).toBe('agents')
     expect(nextSettingsSection('permissions', 'ArrowDown')).toBe('account')
     expect(nextSettingsSection('agents', 'Home')).toBe('account')
     expect(nextSettingsSection('agents', 'End')).toBe('permissions')
@@ -46,6 +71,7 @@ describe('settings deep links and keyboard navigation', () => {
     expect(settingsSections).not.toContain('updates')
     expect(settingsSectionGroups.map(({ label }) => label)).toEqual([
       'Account',
+      'Workspaces',
       'Workflows',
       'Data & access',
     ])

@@ -327,6 +327,8 @@ export type ApiProjectCreateInput = Readonly<{
 }>
 
 export type ApiProjectUpdateInput = Readonly<{
+  /** A theme accent id, or null to inherit the workspace accent. */
+  accent?: ProjectSummary['accent']
   iconKey?: string
   name?: string
   sourceKind?: ProjectSourceKind

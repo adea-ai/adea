@@ -12,7 +12,7 @@ async function openInventory(page: Page, mode = 'inventory', section = 'connecti
       body: '<html><body><div id="harness-root"></div></body></html>',
     })
   )
-  await page.goto(`/__runtime-inventory#workspace-settings/${section}`)
+  await page.goto(`/__runtime-inventory#settings/workspace-${section}`)
   await page.locator('#harness-root').evaluate((root, value) => {
     root.setAttribute('data-control-plane', 'scoped')
     root.setAttribute('data-runtime-inventory', value)
@@ -109,7 +109,7 @@ for (const theme of ['light', 'dark'] as const)
       expect(
         await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
       ).toBe(true)
-      const panel = page.locator('#workspace-settings-panel-connections')
+      const panel = page.locator('#settings-panel-workspace-connections')
       expect(
         await panel.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)
       ).toBe(true)

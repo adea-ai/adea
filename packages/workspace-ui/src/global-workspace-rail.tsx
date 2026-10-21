@@ -1,14 +1,7 @@
 import type { WorkspaceSummary } from '@adea-ai/types'
 import { Separator } from '@adea-ai/ui/components/ui/separator'
-import {
-  SideRail,
-  SideRailContent,
-  SideRailFooter,
-  SideRailHeader,
-  SideRailItem,
-  SideRailSection,
-} from '@adea-ai/ui/components/layout/side-rail'
-import { Kbd, KbdGroup } from '@adea-ai/ui/components/ui/kbd'
+import { SideRailItem, SideRailSection } from '@adea-ai/ui/components/layout/side-rail'
+import { ShellRail } from '@adea-ai/ui/components/layout/shell-rail'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import {
   Code2,
@@ -18,13 +11,12 @@ import {
   Map,
   MessageSquareText,
   Plug,
-  Search,
   SquareKanban,
 } from 'lucide-solid'
 import { createEffect, createSignal, For, onCleanup } from 'solid-js'
 
 import { AccountMenu } from './account-menu'
-import { platformModifierKey, searchShortcutLabel } from './keyboard-shortcuts'
+import { platformModifierKey } from './keyboard-shortcuts'
 import type { WorkspaceView } from './workspace-view-toggle'
 import type { WorkspaceAppId } from './workspace-apps'
 
@@ -122,7 +114,6 @@ export function GlobalWorkspaceRail(props: {
   // helper the account menu and the Help Center draw from; the binding itself
   // accepts Meta and Ctrl alike (`keyshortcuts` below declares both).
   const searchModifier = platformModifierKey()
-  const searchShortcut = searchShortcutLabel()
 
   createEffect(() => {
     // Captures props.onOpenSearch from the component scope.
@@ -171,183 +162,155 @@ export function GlobalWorkspaceRail(props: {
   })
 
   return (
-    <SideRail collapsed data-global-rail="" aria-label="Global navigation">
-      <SideRailHeader data-global-rail-header="">
-        {/* The product mark, not a control: workspaces are switched from
-            the contextual sidebar's Workspaces accordion (ADR 0011). It
-            keeps the old trigger's row height so the rail rhythm holds. */}
-        <span class="global-rail__mark">
-          <WorkspaceLogo aria-hidden="true" class="size-9" />
-        </span>
-      </SideRailHeader>
-
-      <SideRailContent data-global-rail-content="">
-        <SideRailSection label="Search">
-          {/* The chord is drawn as outlined key caps under the icon — the one
-              row that advertises a shortcut — while the accessible chord stays
-              on the row itself through aria-keyshortcuts. */}
-          <div class="global-rail__search-item">
+    <ShellRail
+      data-global-rail=""
+      aria-label="Global navigation"
+      // The product mark, not a control: workspaces are switched from the top
+      // bar's switcher.
+      mark={<WorkspaceLogo aria-hidden="true" class="size-9" />}
+      onSearch={props.onOpenSearch}
+      searchLabel="Search workspace"
+      searchKeyshortcuts="Meta+K Control+K"
+      searchKeys={[searchModifier, 'K']}
+      footer={
+        <>
+          <div
+            class="global-rail__intent"
+            onPointerEnter={() => props.onPanelIntent?.('plugins')}
+            onFocusIn={() => props.onPanelIntent?.('plugins')}
+          >
             <SideRailItem
               as="button"
               type="button"
-              label="Search workspace"
-              aria-label="Search workspace"
-              shortcut={searchShortcut}
-              keyshortcuts="Meta+K Control+K"
-              onClick={props.onOpenSearch}
-            >
-              <Search aria-hidden="true" />
-            </SideRailItem>
-            {/* KbdChord draws one cap per character, so a spelled-out Ctrl
-                cannot ride it; the shared group draws one cap per entry, and
-                `platformModifierKey` picks the glyph ("⌘" or "Ctrl"). */}
-            <KbdGroup size="compact" data-global-rail-search-keys="">
-              <Kbd size="compact">{searchModifier}</Kbd>
-              <Kbd size="compact">K</Kbd>
-            </KbdGroup>
-          </div>
-        </SideRailSection>
-
-        <Separator class="my-1" />
-
-        <SideRailSection
-          label="Workspace views"
-          role="group"
-          aria-label="Workspace views"
-          data-reordering={draggingId() !== undefined || undefined}
-        >
-          <For each={props.views}>
-            {(view) => {
-              const Icon = VIEW_ICONS[view] ?? Map
-              const active = () => !props.libraryActive && props.view === view
-              const onIntent = () => {
-                if (view === 'virtual' || view === 'chat' || view === 'dev')
-                  props.onViewIntent?.(view)
+              disabled={!props.activeWorkspace}
+              label={props.activeWorkspace ? 'Plugins' : 'Plugins (select a workspace first)'}
+              aria-label="Plugins"
+              aria-description={
+                !props.activeWorkspace ? 'Select a workspace to browse plugins.' : undefined
               }
-              const rowId = `rail-view:${view}`
-              return (
-                <div
-                  class="global-rail__intent global-rail__slot"
-                  data-drop-position={dropTargetId() === view ? dropPosition() : undefined}
-                  data-drop-target={dropTargetId() === view || undefined}
-                  onPointerEnter={onIntent}
-                  onFocusIn={onIntent}
-                  onDragOver={(event) => {
-                    if (draggingId() === undefined || draggingId() === view) return
-                    event.preventDefault()
-                    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
-                    setDropTargetId(view)
-                    const rect = event.currentTarget.getBoundingClientRect()
-                    setDropPosition(event.clientY < rect.top + rect.height / 2 ? 'before' : 'after')
+              onClick={props.onOpenPlugins}
+            >
+              <Plug aria-hidden="true" />
+            </SideRailItem>
+          </div>
+          <AccountMenu
+            authenticated={props.account.authenticated}
+            busy={props.account.busy}
+            onIntent={() => {
+              // The menu is the path to settings, about, and help: warm every
+              // dialog it can open when the user reaches for it.
+              props.onPanelIntent?.('settings')
+              props.onPanelIntent?.('about')
+              props.onPanelIntent?.('help')
+            }}
+            onOpenUpdates={props.account.onOpenUpdates}
+            onOpenHelp={props.account.onOpenHelp}
+            onOpenFeedback={props.account.onOpenFeedback}
+            onOpenAbout={props.onOpenAbout}
+            onOpenSettings={props.onOpenSettings}
+            onSignIn={props.account.onSignIn}
+            onSignOut={props.account.onSignOut}
+            platform={props.account.platform}
+          />
+        </>
+      }
+    >
+      <SideRailSection
+        label="Workspace views"
+        role="group"
+        aria-label="Workspace views"
+        data-reordering={draggingId() !== undefined || undefined}
+      >
+        <For each={props.views}>
+          {(view) => {
+            const Icon = VIEW_ICONS[view] ?? Map
+            const active = () => !props.libraryActive && props.view === view
+            const onIntent = () => {
+              if (view === 'virtual' || view === 'chat' || view === 'dev')
+                props.onViewIntent?.(view)
+            }
+            const rowId = `rail-view:${view}`
+            return (
+              <div
+                class="global-rail__intent global-rail__slot"
+                data-drop-position={dropTargetId() === view ? dropPosition() : undefined}
+                data-drop-target={dropTargetId() === view || undefined}
+                onPointerEnter={onIntent}
+                onFocusIn={onIntent}
+                onDragOver={(event) => {
+                  if (draggingId() === undefined || draggingId() === view) return
+                  event.preventDefault()
+                  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+                  setDropTargetId(view)
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  setDropPosition(event.clientY < rect.top + rect.height / 2 ? 'before' : 'after')
+                }}
+                onDrop={(event) => {
+                  const dragged = draggingId()
+                  if (dragged === undefined || dragged === view || !props.reorder) return
+                  event.preventDefault()
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+                  setAnnouncement(props.reorder.onDrop(dragged, view, position))
+                  setDraggingId(undefined)
+                  setDropTargetId(undefined)
+                  setDropPosition(undefined)
+                }}
+              >
+                <SideRailItem
+                  as="button"
+                  type="button"
+                  active={active()}
+                  aria-pressed={active() || undefined}
+                  label={VIEW_LABELS[view] ?? view}
+                  aria-label={VIEW_LABELS[view] ?? view}
+                  aria-description={reorderable() ? RAIL_REORDER_HINT : undefined}
+                  data-row-id={rowId}
+                  draggable={reorderable()}
+                  onClick={() => props.onViewChange(view)}
+                  onKeyDown={(event) =>
+                    props.reorder &&
+                    railReorderKeyDown(event, rowId, (direction) =>
+                      setAnnouncement(props.reorder!.onMove(view, direction))
+                    )
+                  }
+                  onDragStart={(event) => {
+                    setDraggingId(view)
+                    setDropTargetId(undefined)
+                    setDropPosition(undefined)
+                    event.dataTransfer?.setData('text/plain', VIEW_LABELS[view] ?? view)
+                    if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
                   }}
-                  onDrop={(event) => {
-                    const dragged = draggingId()
-                    if (dragged === undefined || dragged === view || !props.reorder) return
-                    event.preventDefault()
-                    const rect = event.currentTarget.getBoundingClientRect()
-                    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
-                    setAnnouncement(props.reorder.onDrop(dragged, view, position))
+                  onDragEnd={() => {
                     setDraggingId(undefined)
                     setDropTargetId(undefined)
                     setDropPosition(undefined)
                   }}
                 >
-                  <SideRailItem
-                    as="button"
-                    type="button"
-                    active={active()}
-                    aria-pressed={active() || undefined}
-                    label={VIEW_LABELS[view] ?? view}
-                    aria-label={VIEW_LABELS[view] ?? view}
-                    aria-description={reorderable() ? RAIL_REORDER_HINT : undefined}
-                    data-row-id={rowId}
-                    draggable={reorderable()}
-                    onClick={() => props.onViewChange(view)}
-                    onKeyDown={(event) =>
-                      props.reorder &&
-                      railReorderKeyDown(event, rowId, (direction) =>
-                        setAnnouncement(props.reorder!.onMove(view, direction))
-                      )
-                    }
-                    onDragStart={(event) => {
-                      setDraggingId(view)
-                      setDropTargetId(undefined)
-                      setDropPosition(undefined)
-                      event.dataTransfer?.setData('text/plain', VIEW_LABELS[view] ?? view)
-                      if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
-                    }}
-                    onDragEnd={() => {
-                      setDraggingId(undefined)
-                      setDropTargetId(undefined)
-                      setDropPosition(undefined)
-                    }}
-                  >
-                    <Icon aria-hidden="true" />
-                  </SideRailItem>
-                </div>
-              )
-            }}
-          </For>
-          {/* App Library is the gateway to installed apps, not a workspace view;
-              the divider keeps the two groups apart like the search separator. */}
-          <Separator class="my-1" />
-          <SideRailItem
-            as="button"
-            type="button"
-            active={props.libraryActive}
-            aria-pressed={props.libraryActive || undefined}
-            label="App Library"
-            aria-label="App Library"
-            onClick={props.onOpenAppLibrary}
-          >
-            <LayoutGrid aria-hidden="true" />
-          </SideRailItem>
-        </SideRailSection>
-      </SideRailContent>
-
-      <SideRailFooter>
-        <div
-          class="global-rail__intent"
-          onPointerEnter={() => props.onPanelIntent?.('plugins')}
-          onFocusIn={() => props.onPanelIntent?.('plugins')}
-        >
-          <SideRailItem
-            as="button"
-            type="button"
-            disabled={!props.activeWorkspace}
-            label={props.activeWorkspace ? 'Plugins' : 'Plugins (select a workspace first)'}
-            aria-label="Plugins"
-            aria-description={
-              !props.activeWorkspace ? 'Select a workspace to browse plugins.' : undefined
-            }
-            onClick={props.onOpenPlugins}
-          >
-            <Plug aria-hidden="true" />
-          </SideRailItem>
-        </div>
-        <AccountMenu
-          authenticated={props.account.authenticated}
-          busy={props.account.busy}
-          onIntent={() => {
-            // The menu is the path to settings, about, and help: warm every
-            // dialog it can open when the user reaches for it.
-            props.onPanelIntent?.('settings')
-            props.onPanelIntent?.('about')
-            props.onPanelIntent?.('help')
+                  <Icon aria-hidden="true" />
+                </SideRailItem>
+              </div>
+            )
           }}
-          onOpenUpdates={props.account.onOpenUpdates}
-          onOpenHelp={props.account.onOpenHelp}
-          onOpenFeedback={props.account.onOpenFeedback}
-          onOpenAbout={props.onOpenAbout}
-          onOpenSettings={props.onOpenSettings}
-          onSignIn={props.account.onSignIn}
-          onSignOut={props.account.onSignOut}
-          platform={props.account.platform}
-        />
-      </SideRailFooter>
+        </For>
+        {/* App Library is the gateway to installed apps, not a workspace view;
+              the divider keeps the two groups apart like the search separator. */}
+        <Separator class="my-1" />
+        <SideRailItem
+          as="button"
+          type="button"
+          active={props.libraryActive}
+          aria-pressed={props.libraryActive || undefined}
+          label="App Library"
+          aria-label="App Library"
+          onClick={props.onOpenAppLibrary}
+        >
+          <LayoutGrid aria-hidden="true" />
+        </SideRailItem>
+      </SideRailSection>
       <p class="sr-only" role="status" aria-live="polite">
         {announcement()}
       </p>
-    </SideRail>
+    </ShellRail>
   )
 }
