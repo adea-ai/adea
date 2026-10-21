@@ -67,6 +67,15 @@ function receipt(overrides: Record<string, unknown> = {}) {
   }
 }
 
+/** A receipt whose built Worker carries the given artifact. */
+const receiptWithArtifact = (artifact: Record<string, unknown>) =>
+  receipt({
+    worker: {
+      ...(receipt().worker as Record<string, unknown>),
+      artifact,
+    },
+  })
+
 /** The receipt as the qualification prints it. */
 const printed = (value: Record<string, unknown> = receipt()) =>
   `${BUILT_WORKER_RECEIPT_PREFIX}${JSON.stringify(value)}\n`
@@ -133,11 +142,13 @@ describe('the built-Worker receipt gate', () => {
   })
 
   test('it refuses a run that proved nothing or that failed an assertion', () => {
+    // A run that carried no assertion proved nothing.
     expect(() =>
-      assertBuiltWorkerReceipt(receipt({ passed: 0, failed: 0 }), { expectedSha: head })
-    ).toThrow('the built-Worker qualification failed')
+      assertBuiltWorkerReceipt(receipt({ assertions: [] }), { expectedSha: head })
+    ).toThrow('carries no assertion')
+    // A run whose assertion failed is a failed run, and its counts say so.
     const failed = receipt({
-      passed: 1,
+      passed: 0,
       failed: 1,
       assertions: [
         {
@@ -152,6 +163,93 @@ describe('the built-Worker receipt gate', () => {
     expect(() => assertBuiltWorkerReceipt(failed, { expectedSha: head })).toThrow(
       'the built-Worker qualification failed'
     )
+  })
+
+  test('it refuses a receipt that carries no assertion list', () => {
+    // A receipt that says nothing about its assertions carries none, and the
+    // counts it claims cannot be read out of it.
+    const missing = receipt()
+    delete (missing as Record<string, unknown>).assertions
+    expect(() => assertBuiltWorkerReceipt(missing, { expectedSha: head })).toThrow(
+      'carries no assertion list'
+    )
+    expect(() =>
+      assertBuiltWorkerReceipt(receipt({ assertions: 'passed' }), { expectedSha: head })
+    ).toThrow('carries no assertion list')
+  })
+
+  test('it refuses a receipt that carries a malformed assertion', () => {
+    const cases: [unknown, string][] = [
+      [{ passed: true, detail: '', attempts: 1, outcomes: ['passed'] }, 'without a name'],
+      [
+        { name: 'one', passed: 'yes', detail: '', attempts: 1, outcomes: ['passed'] },
+        'without a result',
+      ],
+      [
+        { name: 'one', passed: true, detail: 42, attempts: 1, outcomes: ['passed'] },
+        'without a detail',
+      ],
+      [
+        { name: 'one', passed: true, detail: '', attempts: 'one', outcomes: ['passed'] },
+        'without a usable attempt count',
+      ],
+      [
+        { name: 'one', passed: true, detail: '', attempts: 0, outcomes: ['passed'] },
+        'without a usable attempt count',
+      ],
+      [{ name: 'one', passed: true, detail: '', attempts: 1, outcomes: [] }, 'without an outcome'],
+      [
+        { name: 'one', passed: true, detail: '', attempts: 1, outcomes: ['passed', ''] },
+        'with a malformed outcome',
+      ],
+      [
+        { name: 'one', passed: true, detail: '', attempts: 1, outcomes: 'passed' },
+        'without an outcome',
+      ],
+      ['not an assertion', 'a malformed assertion'],
+      [null, 'a malformed assertion'],
+    ]
+    for (const [assertion, message] of cases) {
+      expect(() =>
+        assertBuiltWorkerReceipt(receipt({ assertions: [assertion] }), { expectedSha: head })
+      ).toThrow(message)
+    }
+  })
+
+  test('it refuses counters that are not finite non-negative integers', () => {
+    for (const passed of [2.5, '2', Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      expect(() => assertBuiltWorkerReceipt(receipt({ passed }), { expectedSha: head })).toThrow(
+        'does not carry integer assertion counters'
+      )
+    }
+    for (const failed of [0.5, '0', Number.NaN, Number.POSITIVE_INFINITY, -1]) {
+      expect(() => assertBuiltWorkerReceipt(receipt({ failed }), { expectedSha: head })).toThrow(
+        'does not carry integer assertion counters'
+      )
+    }
+  })
+
+  test('it refuses counters that do not match the assertions the receipt carries', () => {
+    // The receipt the fixture builds carries two passing assertions.
+    expect(() => assertBuiltWorkerReceipt(receipt({ passed: 3 }), { expectedSha: head })).toThrow(
+      'counters do not match the assertions it carries'
+    )
+    expect(() => assertBuiltWorkerReceipt(receipt({ passed: 1 }), { expectedSha: head })).toThrow(
+      'counters do not match the assertions it carries'
+    )
+    expect(() => assertBuiltWorkerReceipt(receipt({ failed: 1 }), { expectedSha: head })).toThrow(
+      'counters do not match the assertions it carries'
+    )
+  })
+
+  test('it refuses a receipt that claims more passes than it demonstrates', () => {
+    // The false green this lane was repaired for: a receipt that carries no
+    // assertion and claims that it passed two.
+    expect(() =>
+      assertBuiltWorkerReceipt(receipt({ assertions: [], passed: 2, failed: 0 }), {
+        expectedSha: head,
+      })
+    ).toThrow('carries no assertion')
   })
 
   test('it refuses a receipt that names another head', () => {
@@ -220,6 +318,27 @@ describe('the built-Worker receipt gate', () => {
         { expectedSha: head }
       )
     ).toThrow('not clean')
+  })
+
+  test('it refuses a Worker whose artifact carries no usable digest', () => {
+    // The digest says which build the qualification proved. A receipt that
+    // carries none, or a malformed one, does not name an artifact at all.
+    for (const digest of [
+      undefined,
+      'not-a-digest',
+      'c'.repeat(63),
+      'c'.repeat(65),
+      'C'.repeat(64),
+      `${'c'.repeat(63)}g`,
+      42,
+    ]) {
+      expect(() =>
+        assertBuiltWorkerReceipt(
+          receiptWithArtifact({ digest, sha: head, dirty: false, verified: true }),
+          { expectedSha: head }
+        )
+      ).toThrow('no usable artifact digest')
+    }
   })
 
   test('it refuses a receipt whose cleanup did not settle', () => {
@@ -310,6 +429,60 @@ describe('the gate as the job runs it', () => {
     }
   })
 
+  test('a receipt that demonstrates no assertion exits nonzero and publishes no artifact', () => {
+    // The false green this lane was repaired for, run as the job runs it: a
+    // receipt that carries no assertion and claims that it passed two.
+    const directory = mkdtempSync(join(tmpdir(), 'adea-built-worker-gate-'))
+    try {
+      const receiptFile = join(directory, 'receipt.out')
+      const artifactFile = join(directory, 'receipt.json')
+      writeFileSync(receiptFile, printed(receipt({ assertions: [], passed: 2, failed: 0 })))
+      const result = runGate([receiptFile, head, artifactFile])
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('carries no assertion')
+      expect(existsSync(artifactFile)).toBe(false)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('a receipt whose counters do not match its assertions exits nonzero', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-built-worker-gate-'))
+    try {
+      const receiptFile = join(directory, 'receipt.out')
+      const artifactFile = join(directory, 'receipt.json')
+      writeFileSync(receiptFile, printed(receipt({ passed: 7, failed: 0 })))
+      const result = runGate([receiptFile, head, artifactFile])
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('counters do not match')
+      expect(existsSync(artifactFile)).toBe(false)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  test('a receipt whose artifact carries no digest exits nonzero', () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-built-worker-gate-'))
+    try {
+      const receiptFile = join(directory, 'receipt.out')
+      const artifactFile = join(directory, 'receipt.json')
+      const broken = receipt()
+      ;(broken.worker as Record<string, unknown>).artifact = {
+        digest: 'not-a-digest',
+        sha: head,
+        dirty: false,
+        verified: true,
+      }
+      writeFileSync(receiptFile, printed(broken))
+      const result = runGate([receiptFile, head, artifactFile])
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('no usable artifact digest')
+      expect(existsSync(artifactFile)).toBe(false)
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   test('a missing argument exits with the usage', () => {
     const result = runGate([join(tmpdir(), 'nothing.out')])
     expect(result.status).toBe(2)
@@ -392,6 +565,32 @@ describe('the gate consumes the contract the qualification publishes', () => {
     expect(proof).toContain('export function assertBuiltWorkerDesktopAuthPassed')
     expect(proof).toContain('assertion.passed')
     expect(proof).toContain('receipt.passed > 0')
+  })
+
+  test('the counters the gate reads are the ones the qualification counts', () => {
+    // The qualification counts the assertions it made: the counts on the
+    // receipt are the numbers its own assertions say, and the gate refuses a
+    // receipt whose counts are anything else.
+    expect(proof).toContain(
+      'const passed = assertions.filter((assertion) => assertion.passed).length'
+    )
+    expect(proof).toContain('const failed = assertions.length - passed')
+    expect(proof).toContain('passed,')
+    expect(proof).toContain('failed,')
+  })
+
+  test('the assertion shape the gate requires is the one the qualification records', () => {
+    expect(proof).toContain('readonly name: string')
+    expect(proof).toContain('readonly passed: boolean')
+    expect(proof).toContain('readonly detail: string')
+    expect(proof).toContain('readonly attempts: number')
+    expect(proof).toContain('readonly outcomes: readonly DesktopAttemptOutcome[]')
+  })
+
+  test('the digest the gate requires is the one the qualification computes', () => {
+    // The artifact digest is a sha256 in hex, the way the repository writes
+    // every digest it checks.
+    expect(runtime).toContain("hash.digest('hex')")
   })
 
   test('the cleanup rule the gate applies is the one the qualification states', () => {

@@ -9,14 +9,22 @@
 // The contract is the receipt the qualification publishes. This gate reads it
 // and applies the rules that contract states: the proof kind, the pass rule
 // (every assertion passed, and the run proved something), the evidence class,
-// the exact source and head with the artifact's identity, and the cleanup
-// verdict that the receipt may only carry once the Worker was stopped and its
-// material was removed. The shared provenance check is imported rather than
-// restated.
+// the exact source and head with the artifact's identity and its digest, and
+// the cleanup verdict that the receipt may only carry once the Worker was
+// stopped and its material was removed. The shared provenance check is
+// imported rather than restated.
 //
-// The gate runs with Bun, because the qualification and its contract modules
-// are TypeScript with extensionless internal imports, which Node's resolver
-// cannot load.
+// A receipt is counted, not believed: the assertions it carries have to be
+// there, have to have the shape the contract declares, and the counts that
+// summarize them have to be the numbers those assertions say. A receipt that
+// carries no assertion cannot claim that it passed some.
+//
+// The gate runs with Node, on the runtime the repository pins, like the
+// fresh-account gate beside it. The qualification's own TypeScript modules are
+// not imported here: they use extensionless internal imports that Node's
+// resolver cannot load, and importing them would pull files this lane does not
+// own into the coverage gate. The contract's rules are pinned against its
+// source instead, so the two cannot drift apart unnoticed.
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -29,6 +37,54 @@ export const BUILT_WORKER_RECEIPT_PREFIX = 'BUILT_WORKER_DESKTOP_AUTH '
 
 /** The kind of proof the qualification publishes. */
 export const BUILT_WORKER_PROOF_KIND = 'built-worker-desktop-auth'
+
+/** The shape of a sha256 digest, the way the repository writes it everywhere. */
+const SHA256_DIGEST = /^[0-9a-f]{64}$/
+
+/**
+ * True when a count is a finite, non-negative integer.
+ *
+ * A fraction, a string, `NaN`, an infinity and a negative number cannot count
+ * anything, and a receipt that carries one cannot be counted either.
+ */
+function isCount(value) {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0
+}
+
+/**
+ * Requires one assertion to have the shape the contract declares.
+ *
+ * A malformed assertion is not an assertion. A receipt that carries one
+ * cannot be counted, and the counts that summarize it cannot be trusted
+ * either, so the receipt is refused before any count is read.
+ */
+function assertAssertionShape(assertion) {
+  if (!assertion || typeof assertion !== 'object' || Array.isArray(assertion)) {
+    throw new Error('the receipt carries a malformed assertion')
+  }
+  if (typeof assertion.name !== 'string' || assertion.name.length === 0) {
+    throw new Error('the receipt carries an assertion without a name')
+  }
+  if (typeof assertion.passed !== 'boolean') {
+    throw new Error('the receipt carries an assertion without a result')
+  }
+  if (typeof assertion.detail !== 'string') {
+    throw new Error('the receipt carries an assertion without a detail')
+  }
+  // An assertion that made no attempt made no attempt at all, and cannot be
+  // a result.
+  if (!isCount(assertion.attempts) || assertion.attempts < 1) {
+    throw new Error('the receipt carries an assertion without a usable attempt count')
+  }
+  if (!Array.isArray(assertion.outcomes) || assertion.outcomes.length === 0) {
+    throw new Error('the receipt carries an assertion without an outcome')
+  }
+  for (const outcome of assertion.outcomes) {
+    if (typeof outcome !== 'string' || outcome.length === 0) {
+      throw new Error('the receipt carries an assertion with a malformed outcome')
+    }
+  }
+}
 
 /**
  * The receipt the qualification printed, or a failure when it printed none.
@@ -87,14 +143,37 @@ export function assertBuiltWorkerReceipt(receipt, options = {}) {
     throw new Error('the receipt does not carry a real evidence class')
   }
 
+  // The assertions the receipt carries. A receipt that carries no assertion
+  // list, an empty one, or a malformed one proves nothing: the counts that
+  // summarize it cannot be trusted either, so the receipt is refused before
+  // any count is read.
+  const assertions = receipt?.assertions
+  if (!Array.isArray(assertions)) {
+    throw new Error('the receipt carries no assertion list')
+  }
+  if (assertions.length === 0) {
+    throw new Error('the receipt carries no assertion')
+  }
+  for (const assertion of assertions) {
+    assertAssertionShape(assertion)
+  }
+
+  // The counts have to be the numbers the assertions themselves say. A
+  // receipt that claims more passes than it carries, or a failed count that
+  // no assertion accounts for, is not a receipt: a receipt that carries no
+  // assertion at all must not be able to claim that it passed some.
+  if (!isCount(receipt.passed) || !isCount(receipt.failed)) {
+    throw new Error('the receipt does not carry integer assertion counters')
+  }
+  const failedAssertions = assertions.filter((assertion) => assertion.passed !== true)
+  const passedAssertions = assertions.length - failedAssertions.length
+  if (receipt.passed !== passedAssertions || receipt.failed !== failedAssertions.length) {
+    throw new Error('the receipt counters do not match the assertions it carries')
+  }
+
   // The pass rule the contract states: every assertion passed, and the run
   // proved something. A run that proved nothing is a failed run.
-  const assertions = Array.isArray(receipt?.assertions) ? receipt.assertions : []
-  const failed = assertions.filter((assertion) => assertion?.passed !== true)
-  if (failed.length > 0 || !(receipt.passed > 0)) {
-    throw new Error('the built-Worker qualification failed')
-  }
-  if (receipt.failed !== 0) {
+  if (failedAssertions.length > 0) {
     throw new Error('the built-Worker qualification failed')
   }
 
@@ -109,13 +188,17 @@ export function assertBuiltWorkerReceipt(receipt, options = {}) {
   }
 
   // The artifact the qualification proved belongs to this checkout: the build
-  // stamp names this exact commit, and the tree it was built from was clean.
+  // stamp names this exact commit, the tree it was built from was clean, and
+  // the artifact carries the digest of the build it was.
   if (receipt.worker?.built !== true) {
     throw new Error('the receipt does not name a built Worker')
   }
   const artifact = receipt.worker.artifact
   if (artifact?.verified !== true) {
     throw new Error('the built Worker was not proved to belong to this checkout')
+  }
+  if (typeof artifact.digest !== 'string' || !SHA256_DIGEST.test(artifact.digest)) {
+    throw new Error('the built Worker carries no usable artifact digest')
   }
   if (artifact.sha !== checkout.sha) {
     throw new Error('the built Worker was built from another commit')

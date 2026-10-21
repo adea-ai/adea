@@ -547,9 +547,29 @@ describe('the built-Worker desktop auth job wires the qualification into CI', ()
     expect(gate).toContain('does not name the exact head the job checked out')
     expect(gate).toContain('did not clean up after itself')
     // The gate is a Node program, like the fresh-account gate, and it reads
-    // the shared provenance contract rather than restating it.
+    // the shared provenance contract rather than restating it. It does not
+    // claim a runtime it is not run with.
     expect(gate).toContain("from './fresh-postgres-acceptance/provenance.mjs'")
+    expect(gate).not.toContain('The gate runs with Bun')
     const step = stepNamed(worker, 'Gate and publish the acceptance receipt')
     expect(step.run).toContain('node scripts/ci-built-worker-desktop-auth.mjs')
+  })
+
+  test('the gate it calls counts the assertions instead of believing them', () => {
+    const gate = readFileSync(resolve(root, 'scripts/ci-built-worker-desktop-auth.mjs'), 'utf8')
+    // A receipt that carries no assertion cannot claim that it passed some.
+    expect(gate).toContain('carries no assertion list')
+    expect(gate).toContain('carries no assertion')
+    // The assertions have to have the shape the contract declares.
+    expect(gate).toContain('without a name')
+    expect(gate).toContain('without a result')
+    expect(gate).toContain('without a detail')
+    expect(gate).toContain('without a usable attempt count')
+    expect(gate).toContain('without an outcome')
+    // The counts have to be the numbers the assertions say.
+    expect(gate).toContain('does not carry integer assertion counters')
+    expect(gate).toContain('counters do not match the assertions it carries')
+    // The artifact has to name the build it proved.
+    expect(gate).toContain('no usable artifact digest')
   })
 })

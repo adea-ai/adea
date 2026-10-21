@@ -233,13 +233,17 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Install Bun
+        # The qualification is a TypeScript program, and the workspace build it
+        # runs is orchestrated with Bun. The gate that reads its receipt is a
+        # Node program and runs on the runtime below.
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.3
 
       - name: Install the repository Node runtime
         # The workspace build the qualification needs is orchestrated with Node,
-        # on the runtime the repository pins.
+        # and the gate that reads the receipt is a Node program too, on the
+        # runtime the repository pins.
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.21.0
