@@ -88,6 +88,48 @@ The **disposable PostgreSQL proof** (`disposable-postgres-proof`):
 - the owned disposable instance is removed on success, on failure and on
   interruption.
 
+The **built-Worker desktop authorization qualification**
+(`built-worker-desktop-auth`):
+
+- the production-built Worker served the desktop authorize and exchange routes
+  against a disposable loopback instance, and both routes answered;
+- the authorize route refused a caller without a session, refused a request that
+  carried a parameter the desktop contract does not define, and issued an
+  authorization code to a fresh account the Worker signed up itself;
+- the exchange route turned that code into a desktop session, and refused a wrong
+  PKCE verifier, an untrusted origin and a replayed code;
+- the exchange preflight refused an untrusted origin;
+- no response carried the auth secret, the session cookie, the authorization
+  code or the desktop credential;
+- the receipt carries every assertion by name, the number of assertions that
+  passed, how many attempts each assertion made, how every attempt ended, the
+  identity of the built artifact the qualification proved, the verdict of the
+  teardown, and the full auth lifecycle assertions the lane proved against the
+  same instance;
+- an authorization is validated before it is exchanged: the redirect must be a
+  `303` to the desktop completion page **on the origin the Worker serves**, and
+  its callback must be exactly the desktop callback with exactly the code, nonce
+  and state the client sent;
+- the artifact's identity covers the entry point, the chunks it imports, the
+  assets it serves and the configuration it was built with, and it does not
+  change when the provenance stamp is written beside it;
+- a failure is published with one of a fixed set of kinds and a redacted
+  detail, and the runtime's own output is redacted before it is quoted;
+- every field of the stored receipt and of the published receipt is sanitized
+  before it is published, so a value that reached a detail, a URL or a name a
+  suite reported cannot travel out with the evidence;
+- an application failure is never retried into a pass, and a request whose
+  outcome is unknown is never replayed;
+- the Worker is stopped and its process group confirmed gone before the runtime
+  material and the container are removed, and the material is kept when the
+  group is still alive — including when a signal arrives during the startup;
+- the receipt is published only after that teardown succeeded, and the Worker
+  and the disposable instance are removed on success and on failure. An
+  interruption is a bounded best-effort: the Worker is asked to stop, the
+  container is removed, and the runtime material is retained while the process
+  group is alive. An interrupted run publishes no receipt, so its acceptance
+  stays pending.
+
 What a proved artifact was **not** shown to do, and what a live acceptance
 still has to establish:
 
@@ -96,7 +138,12 @@ still has to establish:
 - the hosted target's data state is **UNKNOWN**. The live target was not read,
   so no data-loss estimate is available, and an unobserved state is not an
   empty one;
-- no traffic was moved and no session was issued against the hosted target.
+- no traffic was moved and no session was issued against the hosted target;
+- the built Worker ran on the local development runtime, not on the hosted
+  Cloudflare runtime. The hosted runtime's own connections, its pooler binding
+  and its certificate handling were not exercised, and the local qualification
+  reaches the disposable instance with the repository's loopback development
+  policy rather than with the hosted lane's verified TLS connection.
 
 A different commit is not qualified by any of this. It needs its own proof
 against the same image, and that proof must carry its own provenance.
