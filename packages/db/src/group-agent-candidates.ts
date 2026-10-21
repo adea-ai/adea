@@ -74,9 +74,12 @@ export type GroupAgentCandidateScope = Readonly<{
 /**
  * The stable identity of a candidate. Two Agents that share a display name
  * never share this key.
+ *
+ * The key is canonical: a workspace id and an Agent id are stored lowercase, so
+ * a differently-cased spelling names the same Agent and yields the same key.
  */
 export function groupAgentCandidateKey(candidate: GroupAgentCandidate): string {
-  return `${candidate.workspaceId}:${candidate.agentId}`
+  return `${candidate.workspaceId.toLowerCase()}:${candidate.agentId.toLowerCase()}`
 }
 
 /**
@@ -97,14 +100,18 @@ export async function listGroupAgentCandidates(
   await requireTenantMembership(database, scope.workspaceId, scope.principal)
 
   // The tenant's own Agents are listed by the existing Agent read, not here.
+  // The tenant workspace and every source workspace are compared canonically:
+  // a workspace id is stored lowercase, so a differently-cased spelling names
+  // the same workspace. Canonicalizing before the exclusion, the de-duplication
+  // and the limit keeps a mixed-case spelling from evading the tenant
+  // exclusion, from being counted twice, or from consuming two source slots.
+  const tenantWorkspaceId = scope.workspaceId.toLowerCase()
   const sourceWorkspaceIds = [
     ...new Set(
-      scope.sourceWorkspaceIds.filter(
-        (workspaceId) =>
-          typeof workspaceId === 'string' &&
-          UUID.test(workspaceId) &&
-          workspaceId !== scope.workspaceId
-      )
+      scope.sourceWorkspaceIds
+        .filter((workspaceId) => typeof workspaceId === 'string' && UUID.test(workspaceId))
+        .map((workspaceId) => workspaceId.toLowerCase())
+        .filter((workspaceId) => workspaceId !== tenantWorkspaceId)
     ),
   ].slice(0, GROUP_AGENT_CANDIDATE_LIMITS.sourceWorkspaces)
   if (sourceWorkspaceIds.length === 0) return []
@@ -147,11 +154,16 @@ export async function listGroupAgentCandidates(
   }
   if (authorized.length === 0) return []
 
+  // The bound is applied in the query, not after it: the database returns at
+  // most the candidate limit, so the read never materializes an unbounded
+  // candidate set in the process. The slice is kept as the same bound applied
+  // to what the database returned.
   const rows = await database
     .select({ agentId: agents.id, name: agents.name, workspaceId: agents.workspaceId })
     .from(agents)
     .where(and(inArray(agents.workspaceId, authorized), eq(agents.lifecycleState, 'active')))
     .orderBy(asc(agents.workspaceId), asc(agents.name), asc(agents.id))
+    .limit(GROUP_AGENT_CANDIDATE_LIMITS.candidates)
 
   return rows.slice(0, GROUP_AGENT_CANDIDATE_LIMITS.candidates).map((row) =>
     Object.freeze({

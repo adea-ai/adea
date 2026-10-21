@@ -3,7 +3,11 @@ import { and, eq } from 'drizzle-orm'
 
 import { createAgent, archiveAgent } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
-import { groupAgentCandidateKey, listGroupAgentCandidates } from '../../src/group-agent-candidates'
+import {
+  GROUP_AGENT_CANDIDATE_LIMITS,
+  groupAgentCandidateKey,
+  listGroupAgentCandidates,
+} from '../../src/group-agent-candidates'
 import { requireAgentEnlistmentSource } from '../../src/group-participation-store'
 import { createTemporaryUserSession } from '../../src/identity'
 import {
@@ -267,5 +271,109 @@ describe.skipIf(!connectionUrl)('tenant-authorized foreign-Agent candidates', ()
       .from(agents)
       .where(and(eq(agents.workspaceId, tenant.id)))
     expect(tenantAgents).toEqual([])
+  })
+
+  test('the candidate query carries the limit so the read never materializes an unbounded set', async () => {
+    const owner = await session('query-limit')
+    const { workspace: tenant } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: 'group-agent-candidates-query-limit-tenant',
+      name: 'Tenant',
+      owner: owner.principal,
+    })
+    const { workspace: source } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: 'group-agent-candidates-query-limit-source',
+      name: 'Source',
+      owner: owner.principal,
+    })
+    await createAgent(connection.db, source.id, owner.principal, {
+      name: 'Ada',
+      profileId: 'software-engineer',
+      profileVersion: '1.0.0',
+    })
+
+    // The bound is a property of the query, not of the rows the caller
+    // receives: the statement the database is asked to run carries the limit.
+    const statements: string[] = []
+    const limitValues: unknown[] = []
+    const dbSession = (
+      connection.db as unknown as {
+        session: { logger: { logQuery: (query: string, params: unknown[]) => void } }
+      }
+    ).session
+    const previousLogger = dbSession.logger
+    dbSession.logger = {
+      logQuery: (query: string, params: unknown[]) => {
+        statements.push(query)
+        for (const value of params) {
+          if (value === GROUP_AGENT_CANDIDATE_LIMITS.candidates) limitValues.push(value)
+        }
+      },
+    }
+    try {
+      await listGroupAgentCandidates(connection.db, {
+        principal: owner.principal,
+        sourceWorkspaceIds: [source.id],
+        workspaceId: tenant.id,
+      })
+    } finally {
+      dbSession.logger = previousLogger
+    }
+
+    const candidateQuery = statements.find(
+      (statement) =>
+        statement.includes('agents') &&
+        statement.includes('lifecycle_state') &&
+        !statement.includes('workspace_memberships')
+    )
+    expect(candidateQuery).toBeDefined()
+    // The limit is a bound parameter, so the statement carries the limit
+    // clause and the bound value is the candidate limit.
+    expect(candidateQuery).toMatch(/ limit \$\d+$/)
+    expect(candidateQuery?.endsWith('limit $3')).toBe(true)
+    expect(limitValues).toContain(GROUP_AGENT_CANDIDATE_LIMITS.candidates)
+  })
+
+  test('a differently-cased source workspace is excluded, de-duplicated and bounded canonically', async () => {
+    const owner = await session('mixed-case')
+    const { workspace: tenant } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: 'group-agent-candidates-mixed-case-tenant',
+      name: 'Tenant',
+      owner: owner.principal,
+    })
+    const { workspace: source } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: 'group-agent-candidates-mixed-case-source',
+      name: 'Source',
+      owner: owner.principal,
+    })
+    const foreign = await createAgent(connection.db, source.id, owner.principal, {
+      name: 'Ada',
+      profileId: 'software-engineer',
+      profileVersion: '1.0.0',
+    })
+    const own = await createAgent(connection.db, tenant.id, owner.principal, {
+      name: 'Tenant Agent',
+      profileId: 'software-engineer',
+      profileVersion: '1.0.0',
+    })
+
+    // The tenant's own workspace named in a different case names the same
+    // workspace, so it is still excluded and never becomes a source.
+    const candidates = await listGroupAgentCandidates(connection.db, {
+      principal: owner.principal,
+      sourceWorkspaceIds: [
+        tenant.id.toUpperCase(),
+        source.id.toUpperCase(),
+        source.id.toLowerCase(),
+      ],
+      workspaceId: tenant.id,
+    })
+
+    // The mixed-case spelling of the source names the same workspace, so it is
+    // one source and one candidate, not two.
+    expect(candidates).toEqual([
+      Object.freeze({ agentId: foreign.id, name: 'Ada', workspaceId: source.id }),
+    ])
+    expect(candidates.map((candidate) => candidate.agentId)).not.toContain(own.id)
+    expect(candidates.map(groupAgentCandidateKey)).toEqual([`${source.id}:${foreign.id}`])
   })
 })

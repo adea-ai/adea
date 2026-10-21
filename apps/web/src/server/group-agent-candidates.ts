@@ -74,6 +74,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * The tenant workspace must be a canonical UUID and the source workspaces a
  * bounded list of canonical UUIDs. Anything else fails closed: the caller
  * learns nothing about the workspaces it named.
+ *
+ * A workspace id is stored lowercase, so a differently-cased spelling names the
+ * same workspace. The validated ids are canonicalized before the tenant
+ * exclusion, the de-duplication and the limit, so a mixed-case spelling cannot
+ * evade the exclusion, be counted twice, or consume two source slots.
  */
 export function parseGroupAgentCandidateScope(
   input: unknown,
@@ -83,17 +88,19 @@ export function parseGroupAgentCandidateScope(
   const { sourceWorkspaceIds, workspaceId } = input
   if (typeof workspaceId !== 'string' || !UUID.test(workspaceId)) return null
   if (!Array.isArray(sourceWorkspaceIds)) return null
+  const tenantWorkspaceId = workspaceId.toLowerCase()
   const sources = [
     ...new Set(
-      sourceWorkspaceIds.filter(
-        (value): value is string => typeof value === 'string' && UUID.test(value)
-      )
+      sourceWorkspaceIds
+        .filter((value): value is string => typeof value === 'string' && UUID.test(value))
+        .map((value) => value.toLowerCase())
+        .filter((value) => value !== tenantWorkspaceId)
     ),
   ].slice(0, GROUP_AGENT_CANDIDATE_LIMITS.sourceWorkspaces)
   return Object.freeze({
     principal,
     sourceWorkspaceIds: Object.freeze(sources),
-    workspaceId,
+    workspaceId: tenantWorkspaceId,
   })
 }
 
@@ -143,20 +150,23 @@ function validateScope(scope: GroupAgentCandidateScope): GroupAgentCandidateScop
   if (!scope || typeof scope !== 'object') return null
   if (typeof scope.workspaceId !== 'string' || !UUID.test(scope.workspaceId)) return null
   if (!scope.principal || scope.principal.kind !== 'user') return null
+  // Canonicalized before the tenant exclusion, the de-duplication and the
+  // limit, so the boundary is reached with one spelling of each workspace.
+  const tenantWorkspaceId = scope.workspaceId.toLowerCase()
   const sources = Array.isArray(scope.sourceWorkspaceIds) ? scope.sourceWorkspaceIds : []
   return Object.freeze({
     principal: scope.principal,
     sourceWorkspaceIds: Object.freeze(
       [
         ...new Set(
-          sources.filter(
-            (value): value is string =>
-              typeof value === 'string' && UUID.test(value) && value !== scope.workspaceId
-          )
+          sources
+            .filter((value): value is string => typeof value === 'string' && UUID.test(value))
+            .map((value) => value.toLowerCase())
+            .filter((value) => value !== tenantWorkspaceId)
         ),
       ].slice(0, GROUP_AGENT_CANDIDATE_LIMITS.sourceWorkspaces)
     ),
-    workspaceId: scope.workspaceId,
+    workspaceId: tenantWorkspaceId,
   })
 }
 
@@ -166,14 +176,21 @@ function bounded(
 ): GroupAgentCandidateSummary[] {
   const seen = new Set<string>()
   const result: GroupAgentCandidateSummary[] = []
+  // The tenant workspace is compared canonically: a candidate naming the
+  // tenant's own workspace in a different case is still the tenant's own
+  // Agent, and the tenant's own Agents come from the existing Agent endpoint.
+  const tenantWorkspaceId = scope.workspaceId.toLowerCase()
   for (const candidate of candidates) {
     if (!candidate || typeof candidate.agentId !== 'string') continue
     if (typeof candidate.workspaceId !== 'string' || !UUID.test(candidate.workspaceId)) continue
     if (typeof candidate.name !== 'string') continue
+    const workspaceId = candidate.workspaceId.toLowerCase()
     // A candidate from the tenant's own workspace is not a foreign candidate;
     // the tenant's own Agents come from the existing Agent endpoint.
-    if (candidate.workspaceId === scope.workspaceId) continue
-    const key = `${candidate.workspaceId}:${candidate.agentId}`
+    if (workspaceId === tenantWorkspaceId) continue
+    // The identity is the canonical workspace-qualified pair, so a candidate
+    // that names the same Agent in two spellings is one candidate.
+    const key = `${workspaceId}:${candidate.agentId.toLowerCase()}`
     if (seen.has(key)) continue
     seen.add(key)
     result.push(
