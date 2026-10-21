@@ -59,10 +59,10 @@ test('the rail carries a static product mark and the global shortcut dispatches 
     await import(url)
   }, '/@fs' + entry)
 
-  // Workspaces are switched from the contextual sidebar (ADR 0011): the rail
-  // header is the Adea mark only, with no switcher button or menu.
+  // Workspaces are switched from the top bar's switcher: the rail header is
+  // the Adea mark only, with no switcher button or menu.
   const rail = page.getByRole('navigation', { name: 'Global navigation' })
-  const mark = rail.locator('.global-rail__mark')
+  const mark = rail.locator('[data-slot="shell-rail-mark"]')
   await expect(mark).toBeVisible()
   await expect(mark.locator('button, [role="button"], [tabindex]')).toHaveCount(0)
   await expect(rail.getByRole('button', { name: /Switch workspace/ })).toHaveCount(0)

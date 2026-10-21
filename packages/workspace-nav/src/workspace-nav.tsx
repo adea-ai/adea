@@ -2,10 +2,7 @@ import '@adea-ai/app-ui/workspace-nav.css'
 
 import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { paintWorkspaceAccent } from '@adea-ai/app-ui/components/workspace-accent'
-import { WorkspaceIdentityMark } from '@adea-ai/app-ui/components/workspace-identity-mark'
 import { ActionButton } from '@adea-ai/ui/components/composites/action-button'
-import { SidebarNavButton, SidebarNavLabel } from '@adea-ai/ui/components/layout/sidebar-nav'
-import { Badge } from '@adea-ai/ui/components/ui/badge'
 import { Button } from '@adea-ai/ui/components/ui/button'
 import {
   DropdownMenu,
@@ -16,56 +13,29 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@adea-ai/ui/components/ui/dropdown-menu'
-import { Heading, Text } from '@adea-ai/ui/components/ui/typography'
-import {
-  AtSign,
-  ChevronDown,
-  CircleAlert,
-  Inbox,
-  ListFilter,
-  LoaderCircle,
-  MessageSquare,
-  Plus,
-  Settings2,
-} from 'lucide-solid'
+import { Text } from '@adea-ai/ui/components/ui/typography'
+import { ChevronDown, FolderPlus, ListFilter } from 'lucide-solid'
 import {
   For,
-  Match,
   Show,
-  Suspense,
-  Switch,
   createEffect,
   createMemo,
   createSignal,
   createUniqueId,
-  lazy,
   type JSX,
 } from 'solid-js'
 
 import { createViewAdapter, type NavMenuItemId, type NavView, type ViewAdapter } from './adapters'
-import type { WorkspaceCreationContext } from './workspace-creation-context'
 import {
+  activeWorkspace,
   emptyWorkspaceHint,
   navGroupModes,
-  needsYouFallbackGroupMode,
-  sortWorkspaces,
-  workspaceChips,
   type NavGroupMode,
   type NavLeaf,
   type NavProject,
   type NavTree,
-  type NavWorkspace,
-  type WorkspaceChip,
 } from './model'
 import { NavLeafTree } from './nav-leaf-tree'
-
-// Creating a workspace is rare, so its inline row (and the shared Input it
-// renders) loads on demand: hovering or focusing "New workspace" starts the
-// import before the click mounts the row.
-const loadWorkspaceDraftRow = () => import('./workspace-draft-row')
-const WorkspaceDraftRow = lazy(() =>
-  loadWorkspaceDraftRow().then((module) => ({ default: module.WorkspaceDraftRow }))
-)
 
 export { describeWorkspaceCreationContext } from './workspace-creation-context'
 export type { WorkspaceCreationContext } from './workspace-creation-context'
@@ -81,47 +51,26 @@ export type WorkspaceNavProps = {
   onGroupByChange: (mode: NavGroupMode) => void
   selectedLeafId?: string | null
   onSelectLeaf: (leaf: NavLeaf, project: NavProject) => void
-  onSelectWorkspace: (workspaceId: string) => void
-  onCreateWorkspace: (name: string) => void
-  /**
-   * Controlled inline-create state; omit to let the "New workspace" button own
-   * it. While controlled, Enter keeps the draft row until the host closes it,
-   * so a failed create can show `workspaceDraftError` beside the typed name.
-   */
-  creatingWorkspace?: boolean
-  onCreatingWorkspaceChange?: (creating: boolean) => void
-  /** Inline failure for the controlled draft; the typed name is kept. */
-  workspaceDraftError?: string
-  /**
-   * Owner/placement facts for the inline draft's context line when the
-   * host knows them; unknown labels render honestly. No host feeds this
-   * today — the nav carries no account identity — so the row states the
-   * generic owner sentence until one does.
-   */
-  creationContext?: WorkspaceCreationContext
-  /** The controlled draft's create request is in flight. */
-  workspaceDraftPending?: boolean
-  onCreateProject?: (workspaceId: string) => void
+  /** Adds a project to the selected workspace; the heading's button hides without it. */
+  onCreateProject?: () => void
   /**
    * The create affordance stays mounted while its action is unavailable (a
    * runtime scope still resolving, a workspace still preparing) — a disabled
    * control reads as "not yet", an absent one as "never".
    */
   createDisabled?: boolean
-  onOpenWorkspaceSettings?: (workspaceId: string) => void
+  /** Opens a project's settings; each project row shows the button only when present. */
+  onOpenProjectSettings?: (project: NavProject) => void
   onCreateLeaf?: (project: NavProject) => void
-  onProjectMenuAction?: (id: NavMenuItemId, project: NavProject) => void
   onLeafMenuAction?: (id: NavMenuItemId, leaf: NavLeaf, project: NavProject) => void
   /** Hover or focus on a leaf, for prefetching what selecting it shows. */
   onLeafIntent?: (leaf: NavLeaf) => void
-  /** Controlled collapsed projects of the active workspace. */
+  /** Controlled collapsed projects of the selected workspace. */
   collapsedProjectIds?: ReadonlySet<string>
   onProjectExpandedChange?: (projectId: string, expanded: boolean) => void
-  /** "Needs you" strip activation; defaults to grouping by status. */
-  onNeedsYou?: () => void
-  /** Host quick actions (Agents, Mark all read) above the strip. */
+  /** Host quick actions (Agents, Mark all read) above the projects. */
   quickActions?: JSX.Element
-  /** The host's global Conversations section. */
+  /** The selected workspace's Conversations section. */
   conversations?: JSX.Element
   /** The host's footer (archive shelf). */
   footer?: JSX.Element
@@ -139,12 +88,13 @@ export type WorkspaceNavProps = {
 /**
  * WorkspaceNav.
  *
- * The shared contextual sidebar of ADR 0011: quick actions, the cross-workspace
- * "Needs you" strip, the workspace accordion (only the active workspace is
- * expanded; the others are one row each with status chips), the active
- * workspace's project tree in the chosen grouping, and the host's
- * Conversations and footer slots. Presentational only: every datum and action
- * arrives through props.
+ * The shared contextual sidebar: everything in it belongs to the selected
+ * workspace. The workspace itself is chosen from the top bar's switcher, so the
+ * sidebar lists no other workspaces, no cross-workspace counts and no "needs
+ * you" strip. From the top it holds the host's quick actions, the Projects
+ * section (each project an independent accordion group of sessions, in the
+ * chosen grouping), the workspace's Conversations and the host's footer.
+ * Presentational only: every datum and action arrives through props.
  */
 export function WorkspaceNav(props: WorkspaceNavProps) {
   const adapter = createMemo(
@@ -152,52 +102,42 @@ export function WorkspaceNav(props: WorkspaceNavProps) {
       props.adapter ??
       createViewAdapter(props.view ?? 'dev', { branchSwitching: props.branchSwitching })
   )
-  const workspaces = createMemo(() => sortWorkspaces(props.tree.workspaces))
-  const [ownCreating, setOwnCreating] = createSignal(false)
-  const creating = () => props.creatingWorkspace ?? ownCreating()
-  const setCreating = (next: boolean) => {
-    if (props.creatingWorkspace === undefined) setOwnCreating(next)
-    props.onCreatingWorkspaceChange?.(next)
-  }
+  const workspace = createMemo(() => activeWorkspace(props.tree))
+  const projects = () => workspace()?.projects ?? []
   const groupLabel = () =>
     navGroupModes.find((entry) => entry.mode === props.groupBy)?.label ?? 'Project'
   const headingId = `workspace-nav-heading-${createUniqueId()}`
 
+  // The selected workspace themes its own subtree: project rows, selection and
+  // focus rings follow its accent; a null accent inherits the app's.
+  const theme = useOptionalTheme()
+  const [host, setHost] = createSignal<HTMLElement>()
+  createEffect(() => {
+    const element = host()
+    if (element) paintWorkspaceAccent(element, workspace()?.accent ?? null, theme)
+  })
+
   return (
     <nav
-      aria-label={props.label ?? 'Workspaces'}
+      ref={setHost}
+      aria-label={props.label ?? 'Workspace'}
       data-slot="workspace-nav"
+      data-workspace-id={workspace()?.id}
       class="flex min-w-0 flex-col gap-3"
     >
       <Show when={props.quickActions}>
         <div class="flex flex-col gap-0.5">{props.quickActions}</div>
       </Show>
-      <Show when={props.tree.needsYou > 0}>
-        <SidebarNavButton
-          data-slot="workspace-nav-needs-you"
-          aria-pressed={props.groupBy === needsYouFallbackGroupMode}
-          onClick={() =>
-            (props.onNeedsYou ?? (() => props.onGroupByChange(needsYouFallbackGroupMode)))()
-          }
-        >
-          <Inbox aria-hidden="true" class="text-warning" />
-          {/* The count sums every workspace, not just the open one. */}
-          <SidebarNavLabel>Needs you · all workspaces</SidebarNavLabel>
-          <Badge variant="warning" size="sm">
-            {props.tree.needsYou}
-          </Badge>
-        </SidebarNavButton>
-      </Show>
       <section
         aria-labelledby={headingId}
-        data-slot="workspace-nav-workspaces"
+        data-slot="workspace-nav-projects"
         class="flex min-w-0 flex-col gap-0.5"
       >
-        {/* The heading's actions stay visible: grouping and creating a
-            workspace are primary affordances, not hover extras. */}
+        {/* The heading's actions stay visible: grouping and adding a project
+            are primary affordances, not hover extras. */}
         <div class="flex min-w-0 items-center gap-1 py-1 ps-2 pe-1">
           <Text as="h2" variant="overline" id={headingId} class="min-w-0 flex-1">
-            Workspaces
+            Projects
           </Text>
           <span class="flex shrink-0 items-center gap-0.5" data-slot="workspace-nav-actions">
             <DropdownMenu>
@@ -241,222 +181,54 @@ export function WorkspaceNav(props: WorkspaceNavProps) {
                 </DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
-            <ActionButton
-              variant="ghost"
-              size="icon-xs"
-              tooltip={props.tooltips === false ? undefined : 'New workspace'}
-              aria-label="New workspace"
-              onPointerEnter={() => void loadWorkspaceDraftRow()}
-              onFocus={() => void loadWorkspaceDraftRow()}
-              onClick={() => setCreating(true)}
-            >
-              <Plus aria-hidden="true" />
-            </ActionButton>
+            <Show when={props.onCreateProject}>
+              <ActionButton
+                variant="ghost"
+                size="icon-xs"
+                disabled={props.createDisabled}
+                tooltip={props.tooltips === false ? undefined : adapter().createProjectLabel}
+                aria-label={adapter().createProjectLabel}
+                data-slot="workspace-nav-add-project"
+                onClick={() => props.onCreateProject?.()}
+              >
+                <FolderPlus aria-hidden="true" />
+              </ActionButton>
+            </Show>
           </span>
         </div>
-        <For each={workspaces()}>
-          {(workspace) => (
-            <Show
-              when={workspace.id === props.tree.activeWorkspaceId}
-              fallback={
-                <CollapsedWorkspaceRow
-                  workspace={workspace}
-                  onSelect={() => props.onSelectWorkspace(workspace.id)}
-                />
-              }
-            >
-              <ActiveWorkspace {...props} workspace={workspace} adapter={adapter()} />
-            </Show>
-          )}
-        </For>
-        <Suspense>
-          <Show when={creating()}>
-            <WorkspaceDraftRow
-              controlled={props.creatingWorkspace !== undefined}
-              error={props.workspaceDraftError}
-              pending={props.workspaceDraftPending}
-              creationContext={props.creationContext}
-              onCreate={(name) => {
-                // A host-owned draft stays open until the host closes it, so a
-                // failure can be shown beside the name the user typed.
-                if (props.creatingWorkspace === undefined) setCreating(false)
-                props.onCreateWorkspace(name)
-              }}
-              onCancel={() => setCreating(false)}
-            />
-          </Show>
-        </Suspense>
+        <Show
+          when={projects().length > 0}
+          fallback={
+            <p class="px-2 py-1" data-slot="workspace-nav-empty">
+              <Text variant="caption" tone="muted">
+                {emptyWorkspaceHint(
+                  adapter().nouns.project,
+                  Boolean(props.onCreateProject) && props.createDisabled !== true
+                )}
+              </Text>
+            </p>
+          }
+        >
+          <NavLeafTree
+            label={`${workspace()?.name ?? 'Workspace'} ${adapter().nouns.project.toLowerCase()}s`}
+            projects={projects()}
+            adapter={adapter()}
+            groupBy={props.groupBy}
+            selectedLeafId={props.selectedLeafId}
+            onSelectLeaf={props.onSelectLeaf}
+            onCreateLeaf={props.onCreateLeaf}
+            onOpenProjectSettings={props.onOpenProjectSettings}
+            onLeafMenuAction={props.onLeafMenuAction}
+            onLeafIntent={props.onLeafIntent}
+            collapsedProjectIds={props.collapsedProjectIds}
+            onProjectExpandedChange={props.onProjectExpandedChange}
+            portalMount={props.portalMount}
+            tooltips={props.tooltips}
+          />
+        </Show>
       </section>
       <Show when={props.conversations}>{props.conversations}</Show>
       <Show when={props.footer}>{props.footer}</Show>
     </nav>
-  )
-}
-
-function ChipIcon(props: { chip: WorkspaceChip }) {
-  return (
-    <Switch>
-      <Match when={props.chip.kind === 'needs_you'}>
-        <CircleAlert aria-hidden="true" />
-      </Match>
-      <Match when={props.chip.kind === 'running'}>
-        <LoaderCircle aria-hidden="true" />
-      </Match>
-      <Match when={props.chip.kind === 'mention'}>
-        <AtSign aria-hidden="true" />
-      </Match>
-      <Match when={props.chip.kind === 'unread'}>
-        <MessageSquare aria-hidden="true" />
-      </Match>
-    </Switch>
-  )
-}
-
-const chipVariant = {
-  needs_you: 'warning',
-  running: 'info',
-  mention: 'subtle',
-  unread: 'secondary',
-} as const
-
-/** A collapsed workspace: one row whose click switches to it. */
-function CollapsedWorkspaceRow(props: { workspace: NavWorkspace; onSelect: () => void }) {
-  return (
-    <SidebarNavButton
-      data-workspace-id={props.workspace.id}
-      aria-description="Switch to this workspace"
-      onClick={() => props.onSelect()}
-    >
-      <span aria-hidden="true" class="flex shrink-0">
-        <WorkspaceIdentityMark
-          accent={props.workspace.accent}
-          logo={props.workspace.logo}
-          name={props.workspace.name}
-          size="xs"
-        />
-      </span>
-      <SidebarNavLabel>{props.workspace.name}</SidebarNavLabel>
-      {/* The row keeps the name readable: the most urgent chip is shown,
-          and every chip is announced. */}
-      <Show when={workspaceChips(props.workspace)[0]}>
-        {(chip) => (
-          // The chip gives way before the name does: in a narrow column (or
-          // at a large root size) it truncates while the name keeps width.
-          <Badge
-            variant={chipVariant[chip().kind]}
-            size="sm"
-            data-chip={chip().kind}
-            aria-hidden="true"
-            class="max-w-1/2 min-w-0 shrink"
-          >
-            <ChipIcon chip={chip()} />
-            <span class="min-w-0 truncate">{chip().label}</span>
-          </Badge>
-        )}
-      </Show>
-      <Show when={workspaceChips(props.workspace).length > 0}>
-        <span class="visually-hidden">
-          {workspaceChips(props.workspace)
-            .map((chip) => chip.label)
-            .join(', ')}
-        </span>
-      </Show>
-    </SidebarNavButton>
-  )
-}
-
-/** The expanded, active workspace: its header actions and project tree. */
-function ActiveWorkspace(
-  props: WorkspaceNavProps & { workspace: NavWorkspace; adapter: ViewAdapter }
-) {
-  // The active workspace themes its own subtree: the header, project rows,
-  // selection and focus rings follow its accent; a null accent inherits.
-  const theme = useOptionalTheme()
-  const [host, setHost] = createSignal<HTMLDivElement>()
-  createEffect(() => {
-    const element = host()
-    if (element) paintWorkspaceAccent(element, props.workspace.accent, theme)
-  })
-  return (
-    <div
-      ref={setHost}
-      class="flex min-w-0 flex-col gap-0.5"
-      data-workspace-id={props.workspace.id}
-      data-active-workspace=""
-    >
-      {/* The header lines up with the collapsed rows' leading edge
-          (SidebarNavButton's px-3 + gap-2.5) so selecting a workspace never
-          shifts its indentation. */}
-      <div class="flex min-w-0 items-center gap-2.5 ps-3">
-        <span aria-hidden="true" class="flex shrink-0">
-          <WorkspaceIdentityMark
-            accent={props.workspace.accent}
-            logo={props.workspace.logo}
-            name={props.workspace.name}
-            size="xs"
-          />
-        </span>
-        <span class="min-w-0 flex-1 truncate">
-          <Heading as="h3" size="subsection">
-            {props.workspace.name}
-          </Heading>
-        </span>
-        <span class="flex shrink-0 items-center gap-0.5">
-          <Show when={props.onCreateProject}>
-            <ActionButton
-              variant="ghost"
-              size="icon-xs"
-              disabled={props.createDisabled}
-              tooltip={props.tooltips === false ? undefined : props.adapter.createProjectLabel}
-              aria-label={`${props.adapter.createProjectLabel} in ${props.workspace.name}`}
-              onClick={() => props.onCreateProject?.(props.workspace.id)}
-            >
-              <Plus aria-hidden="true" />
-            </ActionButton>
-          </Show>
-          <Show when={props.onOpenWorkspaceSettings}>
-            <ActionButton
-              variant="ghost"
-              size="icon-xs"
-              tooltip={props.tooltips === false ? undefined : 'Workspace settings'}
-              aria-label={`Workspace settings for ${props.workspace.name}`}
-              onClick={() => props.onOpenWorkspaceSettings?.(props.workspace.id)}
-            >
-              <Settings2 aria-hidden="true" />
-            </ActionButton>
-          </Show>
-        </span>
-      </div>
-      <Show
-        when={(props.workspace.projects ?? []).length > 0}
-        fallback={
-          <p class="ps-9 pe-2 py-1" data-slot="workspace-nav-empty">
-            <Text variant="caption" tone="muted">
-              {emptyWorkspaceHint(props.adapter.nouns.project, {
-                create: Boolean(props.onCreateProject) && props.createDisabled !== true,
-                settings: Boolean(props.onOpenWorkspaceSettings),
-              })}
-            </Text>
-          </p>
-        }
-      >
-        <NavLeafTree
-          label={`${props.workspace.name} ${props.adapter.nouns.project.toLowerCase()}s`}
-          projects={props.workspace.projects ?? []}
-          adapter={props.adapter}
-          groupBy={props.groupBy}
-          selectedLeafId={props.selectedLeafId}
-          onSelectLeaf={props.onSelectLeaf}
-          onCreateLeaf={props.onCreateLeaf}
-          onProjectMenuAction={props.onProjectMenuAction}
-          onLeafMenuAction={props.onLeafMenuAction}
-          onLeafIntent={props.onLeafIntent}
-          collapsedProjectIds={props.collapsedProjectIds}
-          onProjectExpandedChange={props.onProjectExpandedChange}
-          portalMount={props.portalMount}
-          tooltips={props.tooltips}
-        />
-      </Show>
-    </div>
   )
 }

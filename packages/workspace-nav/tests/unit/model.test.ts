@@ -10,9 +10,7 @@ import {
   projectCollapsedSummary,
   projectSummary,
   sortProjectLeaves,
-  sortWorkspaces,
   strongerStatus,
-  workspaceChips,
   type NavLeaf,
   type NavProject,
   type NavWorkspace,
@@ -221,29 +219,6 @@ describe('summaries', () => {
     const idle = project({ id: 'i', leaves: [leaf({ id: 'y' })] })
     expect(projectCollapsedSummary(idle)).toBeUndefined()
   })
-
-  test('workspaceChips orders needs-you, running, unread and omits zeros', () => {
-    expect(workspaceChips({ summary: { running: 2, needsYou: 1, unread: 0 } })).toEqual([
-      { kind: 'needs_you', count: 1, label: '1 needs you' },
-      { kind: 'running', count: 2, label: '2 running' },
-    ])
-    expect(workspaceChips({ summary: { running: 0, needsYou: 0, unread: 3 } })).toEqual([
-      { kind: 'unread', count: 3, label: '3 unread' },
-    ])
-    expect(workspaceChips({ summary: { running: 0, needsYou: 0, unread: 0 } })).toEqual([])
-  })
-
-  test('workspaceChips puts mentions ahead of unread and pluralizes them', () => {
-    expect(
-      workspaceChips({ summary: { running: 0, needsYou: 0, unread: 3, mentions: 1 } })
-    ).toEqual([
-      { kind: 'mention', count: 1, label: '1 mention' },
-      { kind: 'unread', count: 3, label: '3 unread' },
-    ])
-    expect(
-      workspaceChips({ summary: { running: 0, needsYou: 0, unread: 0, mentions: 2 } })
-    ).toEqual([{ kind: 'mention', count: 2, label: '2 mentions' }])
-  })
 })
 
 describe('groupTree', () => {
@@ -330,24 +305,13 @@ const workspace = (id: string, sortOrder: number): NavWorkspace => ({
   logo: { kind: 'monogram' },
   accent: null,
   sortOrder,
-  summary: { running: 0, needsYou: 0, unread: 0 },
 })
 
 describe('workspaces', () => {
-  test('sort by the caller order and resolve the active workspace', () => {
+  test('resolve the active workspace', () => {
     const workspaces = [workspace('b', 2), workspace('a', 1)]
-    expect(sortWorkspaces(workspaces).map((entry) => entry.id)).toEqual(['a', 'b'])
-    expect(activeWorkspace({ activeWorkspaceId: 'b', workspaces, needsYou: 0 })?.id).toBe('b')
-    expect(activeWorkspace({ activeWorkspaceId: 'z', workspaces, needsYou: 0 })).toBeUndefined()
-  })
-
-  test('Home leads the list even when its stored order is later', () => {
-    const workspaces = [
-      workspace('a', 1),
-      { ...workspace('home', 9), isHome: true },
-      workspace('b', 2),
-    ]
-    expect(sortWorkspaces(workspaces).map((entry) => entry.id)).toEqual(['home', 'a', 'b'])
+    expect(activeWorkspace({ activeWorkspaceId: 'b', workspaces })?.id).toBe('b')
+    expect(activeWorkspace({ activeWorkspaceId: 'z', workspaces })).toBeUndefined()
   })
 })
 
@@ -381,18 +345,13 @@ describe('navAgentCountLabel', () => {
 })
 
 describe('emptyWorkspaceHint', () => {
-  test('explains how to start, offering only the wired actions', () => {
-    expect(emptyWorkspaceHint('Project', { create: true, settings: true })).toBe(
-      'No projects yet. Use + to add one, or open workspace settings to add connections, set a mark and pick a colour.'
+  test('explains how to start, offering the add button only when it is wired', () => {
+    expect(emptyWorkspaceHint('Project', true)).toBe(
+      'No projects yet. Use the add button above to start one.'
     )
-    expect(emptyWorkspaceHint('Room', { create: true, settings: false })).toBe(
-      'No rooms yet. Use + to add one.'
+    expect(emptyWorkspaceHint('Room', true)).toBe(
+      'No rooms yet. Use the add button above to start one.'
     )
-    expect(emptyWorkspaceHint('Project', { create: false, settings: true })).toBe(
-      'No projects yet. Open workspace settings to add connections, set a mark and pick a colour.'
-    )
-    expect(emptyWorkspaceHint('Project', { create: false, settings: false })).toBe(
-      'No projects yet.'
-    )
+    expect(emptyWorkspaceHint('Project', false)).toBe('No projects yet.')
   })
 })

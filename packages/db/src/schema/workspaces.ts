@@ -31,7 +31,7 @@ export const workspaces = appSchema.table(
     /** A theme-provided accent id, a custom lowercase `#rrggbb`, or null for the theme default. */
     accent: text('accent'),
     logoKind: text('logo_kind').default('box').notNull(),
-    /** The emoji grapheme when `logo_kind` is `emoji`; null otherwise. */
+    /** The emoji grapheme (`emoji`), icon key (`icon`) or image data URL (`image`); null otherwise. */
     logoValue: text('logo_value'),
     version: integer('version').default(1).notNull(),
     /** Stable personal/root identity; never writable through workspace settings. */
@@ -70,9 +70,11 @@ export const workspaces = appSchema.table(
       'workspaces_accent_valid',
       sql`${table.accent} is null or ${table.accent} in ('violet', 'blue', 'green', 'amber', 'cyan', 'pink') or ${table.accent} ~ '^#[0-9a-f]{6}$'`
     ),
+    // The `\x3b` in the image pattern is a semicolon, deliberately escaped: the
+    // migration generator truncates a check expression at a literal one.
     check(
       'workspaces_logo_valid',
-      sql`(${table.logoKind} in ('monogram', 'home', 'box') and ${table.logoValue} is null) or (${table.logoKind} = 'emoji' and length(${table.logoValue}) between 1 and 16)`
+      sql`(${table.logoKind} in ('monogram', 'home', 'box') and ${table.logoValue} is null) or (${table.logoKind} = 'emoji' and length(${table.logoValue}) between 1 and 16) or (${table.logoKind} = 'icon' and ${table.logoValue} ~ '^[a-z][a-z0-9-]{0,31}$') or (${table.logoKind} = 'image' and length(${table.logoValue}) <= 49152 and ${table.logoValue} ~ '^data:image/(webp|png)\\x3bbase64,[A-Za-z0-9+/]+={0,2}$')`
     ),
     check('workspaces_version_positive', sql`${table.version} > 0`),
     index('workspaces_owner_idx').on(table.ownerUserId, table.deletedAt),

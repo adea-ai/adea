@@ -139,7 +139,7 @@ Catalog availability does not imply runtime health or execution activity.
 
 ## Execution host inventory
 
-Workspace details › Connections lazily loads a read-only execution-host
+Settings › Workspaces › Connections lazily loads a read-only execution-host
 inspector. Registration/proof, reported Control Plane node health, individual
 connection health, freshness, grants, entitlement, compatibility and capabilities
 stay separate. Observations age without network polling; refresh and committed
