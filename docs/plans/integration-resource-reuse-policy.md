@@ -56,13 +56,23 @@ fully written record onto the claim path, so two runs that ask at the same
 moment cannot both hold it. A scan of per-run records cannot do that, because
 two processes can both read an empty directory and then both write into it.
 
-A claim whose owner is gone may be taken over, but only by a run that names the
-same resource identity, so a takeover can never point a shared resource at a
-different project. The stale record is moved aside before it is replaced, and
-the moved file is compared with the one that was read: if they differ, another
-reclaimer wrote a live claim in between, and this one puts it back and
-refuses. A claim that cannot be read is uncertain, and an uncertain claim is
-never taken. The claim is released with the cleanup, and a claim that cannot be
+A claim whose owner is gone may be taken over only by the run that recorded
+it, because that arbitration is the run's own: a restarting run names the
+same run id, so it takes its own record back. Another run is refused, with
+the reason that the arbitration cannot be proved, because two reclaimers
+reaching for one stale record is exactly the case nothing here can settle.
+A contested shared instance is therefore not taken: the run that cannot prove
+it is entitled to it takes an instance of its own instead.
+
+Within the run that owns the record, the stale file is moved aside before it
+is replaced, and the moved file is compared with the one that was read. If
+they differ, a live claim was displaced, so it is put back with a link — a
+link refuses to replace a claim that is already there — and the claim is
+refused. The claim is read back before the run treats the resource as
+claimed, and a claim that is still live is never moved aside at all.
+
+A claim that cannot be read is uncertain, and an uncertain claim is never
+taken. The claim is released with the cleanup, and a claim that cannot be
 released is reported rather than hidden.
 
 ## The liveness of an owner
@@ -84,10 +94,12 @@ its own lease and its own claim, and it never takes a resource that names
 another identity, another project, or an owner it cannot prove is gone. An
 uncertain resource is left alone, and it is never recreated.
 
-A run's own record that cannot be read is not an absent record. The ownership
-of a record nobody can parse is unknown, so the run is refused rather than
-overwriting evidence it does not understand. The reconciliation reports such a
-record as uncertain.
+A run's own record that cannot be read is not an absent record. A record that
+does not parse, or that parses into null, false, zero, an array, or an object
+that is not a lease record, is a record whose ownership is unknown, so the run
+is refused rather than overwriting evidence it does not understand. The bytes
+on disk are never rewritten. The reconciliation reports such a record as
+uncertain.
 
 ## The bound on the lane's own records
 

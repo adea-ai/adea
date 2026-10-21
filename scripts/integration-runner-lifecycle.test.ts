@@ -162,7 +162,13 @@ function exercise(options: {
       }),
       './integration-resource-lease.mjs': stub({
         CLEANUP_DECISION: { remove: 'remove', stop: 'stop', retain: 'retain', refuse: 'refuse' },
-        CLEANUP_REFUSAL: { active: 'active', foreign: 'foreign', uncertain: 'uncertain', callerOwned: 'caller-owned' },
+        CLEANUP_REFUSAL: {
+          active: 'active',
+          foreign: 'foreign',
+          uncertain: 'uncertain',
+          callerOwned: 'caller-owned',
+          unsafeArbitration: 'unsafe-arbitration',
+        },
         DISK_PRESSURE: { admitted: 'admitted', refused: 'refused' },
         REUSABLE_PORT: '55432',
         RESOURCE_MODE: { reusable: 'reusable', disposable: 'disposable' },
@@ -1389,6 +1395,22 @@ test('the shared claim is released with the cleanup', () => {
   // take the instance.
   const removal = calls.findIndex((call) => call.startsWith('docker rm'))
   expect(release).toBeGreaterThan(removal)
+})
+
+test('a shared instance two runs are contending for sends this run to an instance of its own', () => {
+  const result = exercise({
+    mode: 'reusable',
+    sharedClaimRefused: 'unsafe-arbitration',
+    success: true,
+  })
+  // The shared instance is contested, so the run does not share a database with
+  // whoever else is reaching for it.
+  expect(result.sharedClaims.map((claim) => claim.resourceKey)).toEqual([
+    'adea-integration-reusable:agent-hq',
+    'adea-integration-disposable:adea-int-d-synthetictoken',
+  ])
+  const composeCalls = result.calls.filter((call) => call[0] === 'docker' && call[1] === 'compose')
+  expect(composeCalls.every((call) => call.includes('adea-int-d-synthetictoken'))).toBe(true)
 })
 
 test('a refused shared claim stops the run before it creates anything', () => {

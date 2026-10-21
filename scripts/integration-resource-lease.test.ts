@@ -19,6 +19,7 @@ import {
   buildInventory,
   classifyClaim,
   classifyDockerResource,
+  isLeaseRecord,
   classifyLease,
   cleanupReceipt,
   createRunToken,
@@ -1313,12 +1314,12 @@ describe('the stale takeover', () => {
       isProcessAlive: () => false,
     })
 
-    // A second reclaimer finishes its takeover while the first is between its
-    // read and its own move.
+    // The same run, restarting, finishes its takeover while the first
+    // reclaimer is between its read and its own move.
     const first = claimSharedResource({
       directory,
       resourceKey: identity.label,
-      runId: 'run-first',
+      runId: 'run-dead',
       identity,
       owner: { ...owner, pid: 5151 },
       isProcessAlive: () => false,
@@ -1326,7 +1327,7 @@ describe('the stale takeover', () => {
         const second = claimSharedResource({
           directory,
           resourceKey: identity.label,
-          runId: 'run-second',
+          runId: 'run-dead',
           identity,
           owner: { ...owner, pid: 6161 },
           isProcessAlive: () => false,
@@ -1340,7 +1341,80 @@ describe('the stale takeover', () => {
     expect(first.reason).toBe(CLEANUP_REFUSAL.active)
     const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
     const held = JSON.parse(readFileSync(claimFile, 'utf8'))
-    expect(held.runId).toBe('run-second')
+    expect(held.runId).toBe('run-dead')
+  })
+
+  test('three contenders for one stale claim never overlap and never overwrite a live claim', () => {
+    const directory = leaseDirectoryForTest()
+    // A process died holding the claim.
+    claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-dead',
+      identity,
+      owner: { ...owner, pid: 4242 },
+      isProcessAlive: () => false,
+    })
+    const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
+
+    // A reads the stale claim and pauses between its read and its move.
+    let contenderB = null
+    let contenderC = null
+    const a = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-dead',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => false,
+      afterClaimRead: () => {
+        // B reaches for the same stale record. It belongs to another run, so
+        // the arbitration cannot be proved and B is refused.
+        contenderB = claimSharedResource({
+          directory,
+          resourceKey: identity.label,
+          runId: 'run-b',
+          identity,
+          owner: { ...owner, pid: 6161 },
+          isProcessAlive: () => false,
+        })
+        // C reaches for it as well.
+        contenderC = claimSharedResource({
+          directory,
+          resourceKey: identity.label,
+          runId: 'run-c',
+          identity,
+          owner: { ...owner, pid: 7171 },
+          isProcessAlive: () => false,
+        })
+      },
+    })
+
+    // Exactly one holder: A, which owns the record it took back.
+    expect(a.decision).toBe('granted')
+    expect(contenderB?.decision).toBe('refused')
+    expect(contenderB?.reason).toBe(CLEANUP_REFUSAL.unsafeArbitration)
+    expect(contenderC?.decision).toBe('refused')
+    expect(contenderC?.reason).toBe(CLEANUP_REFUSAL.unsafeArbitration)
+
+    // The claim on disk is A's, and nobody else's record replaced it.
+    const held = JSON.parse(readFileSync(claimFile, 'utf8'))
+    expect(held.runId).toBe('run-dead')
+    expect(held.owner.pid).toBe(5151)
+
+    // A claim that is still live is never moved aside, so it is never
+    // overwritten by a reclaimer.
+    const live = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-dead',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => true,
+    })
+    expect(live.decision).toBe('refused')
+    expect(live.reason).toBe(CLEANUP_REFUSAL.active)
+    expect(JSON.parse(readFileSync(claimFile, 'utf8')).owner.pid).toBe(5151)
   })
 
   test('a reclaimer that reads the stale claim itself still takes it over', () => {
@@ -1353,16 +1427,43 @@ describe('the stale takeover', () => {
       owner: { ...owner, pid: 4242 },
       isProcessAlive: () => false,
     })
+    // The same run, restarting, takes its own record back.
     const takeover = claimSharedResource({
       directory,
       resourceKey: identity.label,
-      runId: 'run-next',
+      runId: 'run-dead',
       identity,
       owner: { ...owner, pid: 5151 },
       isProcessAlive: () => false,
     })
     expect(takeover.decision).toBe('granted')
-    expect(takeover.claim?.runId).toBe('run-next')
+    expect(takeover.claim?.runId).toBe('run-dead')
+    expect(takeover.claim?.owner.pid).toBe(5151)
+  })
+
+  test("another run's stale record is refused, because the arbitration cannot be proved", () => {
+    const directory = leaseDirectoryForTest()
+    claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-dead',
+      identity,
+      owner: { ...owner, pid: 4242 },
+      isProcessAlive: () => false,
+    })
+    const refused = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-other',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => false,
+    })
+    expect(refused.decision).toBe('refused')
+    expect(refused.reason).toBe(CLEANUP_REFUSAL.unsafeArbitration)
+    // The record of the run that is gone is left exactly as it was.
+    const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
+    expect(JSON.parse(readFileSync(claimFile, 'utf8')).runId).toBe('run-dead')
   })
 })
 
@@ -1439,5 +1540,69 @@ describe('the receipt and a removal that was not confirmed', () => {
     })
     expect(receipt.removed).toHaveLength(5)
     expect(receipt.unknown).toEqual([])
+  })
+})
+
+describe('a lease record that is not a lease', () => {
+  const invalidRecords: [string, string][] = [
+    ['null', 'null'],
+    ['false', 'false'],
+    ['zero', '0'],
+    ['an array', '[]'],
+    ['an array of records', '[{"version":1}]'],
+    ['a string', '"a lease"'],
+    ['an object without a version', '{"runId":"run-a","identity":{"label":"l"}}'],
+    ['an object without an identity', '{"version":1,"runId":"run-a"}'],
+    ['an object with an empty label', '{"version":1,"runId":"run-a","identity":{"label":""}}'],
+    ['an object with another version', '{"version":99,"runId":"run-a","identity":{"label":"l"}}'],
+  ]
+
+  for (const [name, content] of invalidRecords) {
+    test(`${name} is not an absent lease, and the bytes on disk are not touched`, () => {
+      const directory = leaseDirectoryForTest()
+      const file = join(directory, 'run-a.json')
+      writeFileSync(file, content)
+      // The read distinguishes a file that is not there from a file that is
+      // there and cannot be understood.
+      expect(() => readLease(directory, 'run-a')).toThrow()
+      // The bytes are exactly what they were.
+      expect(readFileSync(file, 'utf8')).toBe(content)
+    })
+  }
+
+  test('a file that is not there at all is an absence, not a failure', () => {
+    const directory = leaseDirectoryForTest()
+    expect(readLease(directory, 'run-never-wrote-one')).toBeNull()
+  })
+
+  test('a claim refuses a record it cannot understand and leaves it alone', () => {
+    const directory = leaseDirectoryForTest()
+    const file = join(directory, 'run-a.json')
+    writeFileSync(file, 'null')
+    const claim = claimResource({
+      directory,
+      runId: 'run-a',
+      mode: RESOURCE_MODE.disposable,
+      identity: disposableIdentity(),
+      owner,
+    })
+    expect(claim.decision).toBe('refused')
+    expect(claim.reason).toBe(CLEANUP_REFUSAL.uncertain)
+    expect(readFileSync(file, 'utf8')).toBe('null')
+  })
+
+  test('a record that is not a lease is not a lease this model understands', () => {
+    expect(isLeaseRecord(null)).toBe(false)
+    expect(isLeaseRecord(false)).toBe(false)
+    expect(isLeaseRecord(0)).toBe(false)
+    expect(isLeaseRecord([])).toBe(false)
+    expect(isLeaseRecord({})).toBe(false)
+    expect(
+      isLeaseRecord({
+        version: 1,
+        runId: 'run-a',
+        identity: { label: 'adea-integration-reusable:x' },
+      })
+    ).toBe(true)
   })
 })

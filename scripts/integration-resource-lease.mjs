@@ -58,6 +58,9 @@ export const CLEANUP_REFUSAL = {
   uncertain: 'uncertain',
   // The caller supplied the target, so the caller owns it.
   callerOwned: 'caller-owned',
+  // Two reclaimers could reach for the same stale record, and nothing here can
+  // prove which of them is entitled to it.
+  unsafeArbitration: 'unsafe-arbitration',
 }
 
 /** The states a lease can be in. */
@@ -322,12 +325,31 @@ export function writeLease(directory, lease) {
 }
 
 /**
+ * Whether a value is a lease record this model understands.
+ *
+ * A record that parses into null, false, zero, an array, or an object that is
+ * missing its shape is not a lease. It is a record whose ownership is unknown,
+ * and an unknown owner is never overwritten.
+ */
+export function isLeaseRecord(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  if (value.version !== LEASE_VERSION) return false
+  if (typeof value.runId !== 'string' || value.runId === '') return false
+  if (!value.identity || typeof value.identity !== 'object' || Array.isArray(value.identity)) {
+    return false
+  }
+  if (typeof value.identity.label !== 'string' || value.identity.label === '') return false
+  return true
+}
+
+/**
  * Reads one run's lease.
  *
  * An absent record and a record that cannot be read are different things. An
- * absent record is a run that never wrote one. A record that cannot be parsed
- * is a record whose ownership is unknown, and an unknown owner is never
- * overwritten, so the read fails loudly instead of looking like an absence.
+ * absent record is a run that never wrote one. A record that cannot be parsed,
+ * or that parses into something this model does not understand, is a record
+ * whose ownership is unknown, and the read fails loudly instead of looking like
+ * an absence. The bytes on disk are never rewritten.
  */
 export function readLease(directory, runId) {
   let content
@@ -337,11 +359,16 @@ export function readLease(directory, runId) {
     if (error?.code === 'ENOENT') return null
     throw error
   }
+  let parsed
   try {
-    return JSON.parse(content)
+    parsed = JSON.parse(content)
   } catch (error) {
     throw new Error(`the lease for ${runId} cannot be read: ${error.message}`, { cause: error })
   }
+  if (!isLeaseRecord(parsed)) {
+    throw new Error(`the lease for ${runId} is not a lease record this model understands`)
+  }
+  return parsed
 }
 
 /**
@@ -530,12 +557,22 @@ export function claimSharedResource({
         // The resource belongs to another identity. It is never taken.
         return { decision: 'refused', reason: CLEANUP_REFUSAL.foreign, claim: existing }
       }
-      // The owner is gone and the identity matches. The stale record is moved
-      // aside before it is replaced, and the moved file is compared with the
-      // one that was read. If they differ, another reclaimer wrote a fresh
-      // claim in between, and this one puts it back and refuses: two reclaimers
-      // must never both end up holding the claim, and one of them must never
-      // delete the other's live claim.
+      if (existing.runId !== runId) {
+        // The stale record belongs to another run. Taking it over would let
+        // two reclaimers reach for the same record, and nothing here can prove
+        // which of them is entitled to it, so the claim is refused rather than
+        // arbitrated. A run that is restarting takes its own record back: it
+        // names the same run, so the arbitration is the run's own.
+        return {
+          decision: 'refused',
+          reason: CLEANUP_REFUSAL.unsafeArbitration,
+          claim: existing,
+        }
+      }
+      // The owner is gone and the identity matches, and the record is this
+      // run's own. The stale record is moved aside before it is replaced, and
+      // the moved file is compared with the one that was read: if they differ,
+      // a live claim was displaced, so it is put back and the claim is refused.
       if (typeof afterClaimRead === 'function') {
         afterClaimRead({ raw, claim: existing })
       }
@@ -554,9 +591,11 @@ export function claimSharedResource({
       }
       if (asideContent !== raw) {
         // The record that was moved was not the record that was read, so a live
-        // claim was displaced. It is put back and the claim is refused.
+        // claim was displaced. It is put back with a link, which refuses to
+        // replace a claim that is already there, and the claim is refused.
         try {
-          renameSync(aside, path)
+          linkSync(aside, path)
+          rmSync(aside, { force: true })
         } catch {
           // The claim stays where it is; the holder reads it and refuses.
         }
@@ -586,14 +625,27 @@ export function claimSharedResource({
     // ever appears complete, and only one reclaimer can create it. A reader
     // never sees a half-written record and never has to guess what it says.
     const temporary = `${path}.${runId}.${attempt}.tmp`
+    const content = `${JSON.stringify(record, null, 2)}\n`
     try {
-      writeFileSync(temporary, `${JSON.stringify(record, null, 2)}\n`)
+      writeFileSync(temporary, content)
       linkSync(temporary, path)
       try {
         rmSync(temporary, { force: true })
       } catch {
         // The claim is durable through the link; the temporary record beside it
         // is not part of it.
+      }
+      // The claim is read back before the run treats the resource as claimed.
+      // If the record on disk is not this run's, the claim was taken and this
+      // run does not hold it.
+      let held = null
+      try {
+        held = readFileSync(path, 'utf8')
+      } catch {
+        held = null
+      }
+      if (held !== content) {
+        return { decision: 'refused', reason: CLEANUP_REFUSAL.active, claim: null }
       }
       return { decision: 'granted', claim: record }
     } catch (error) {

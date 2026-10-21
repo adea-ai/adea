@@ -314,12 +314,14 @@ if (ownership === 'owned') {
   })
   if (
     sharedClaim.decision === 'refused' &&
+    ownership === 'owned' &&
     requestedMode === RESOURCE_MODE.reusable &&
-    sharedClaim.reason === CLEANUP_REFUSAL.active
+    (sharedClaim.reason === CLEANUP_REFUSAL.active ||
+      sharedClaim.reason === CLEANUP_REFUSAL.unsafeArbitration)
   ) {
-    // The shared instance is held by a live run. A concurrent run does not
-    // share a database with it: it takes an instance labelled for itself, and
-    // says so.
+    // The shared instance is held by a live run, or two runs are contending for
+    // it and the arbitration cannot be proved. A concurrent run does not share
+    // a database with it: it takes an instance labelled for itself, and says so.
     identity = resourceIdentity({
       mode: RESOURCE_MODE.disposable,
       runToken,
