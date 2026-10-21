@@ -12,6 +12,7 @@ on:
       - 'bun.lock'
       - 'vite.config.ts'
       - 'scripts/orch-*'
+      - 'scripts/vite-plus-proof*'
       - '.github/workflows/task-cache-qualification.yml'
   pull_request:
     types: [ready_for_review, synchronize]
@@ -20,6 +21,7 @@ on:
       - 'bun.lock'
       - 'vite.config.ts'
       - 'scripts/orch-*'
+      - 'scripts/vite-plus-proof*'
       - '.github/workflows/task-cache-qualification.yml'
   workflow_dispatch:
 
@@ -64,17 +66,56 @@ jobs:
           proof=node_modules/.vite/task-cache/qualification-head
           head="$(git rev-parse HEAD)"
           previous="$(cat "$proof" 2>/dev/null || true)"
-          for pass in first second; do
-            start=$SECONDS
-            bun run build > "$RUNNER_TEMP/build-$pass.log" 2>&1
-            cat "$RUNNER_TEMP/build-$pass.log"
-            echo "$pass elapsed: $((SECONDS-start))s" >> "$GITHUB_STEP_SUMMARY"
-          done
-          grep -Fq '15/15 cache hit' "$RUNNER_TEMP/build-second.log"
+          # The cacheable task count comes from the build graph itself. A literal
+          # would keep asserting a number the graph no longer has.
+          expected="$(node scripts/vite-plus-proof.mjs --print-expectation)"
+          echo "expected cache summary: $expected"
+          # Only the outputs the build graph declares are owned by this lane, and
+          # only those are ever removed.
+          mkdir -p "$RUNNER_TEMP/cold-cache"
+          # 1. The cold baseline: an empty cache directory, so the build cannot
+          #    restore anything. It is the reference the restored outputs are
+          #    compared against, and it is independent of the restored cache.
+          node scripts/vite-plus-proof.mjs --clear-outputs
+          start=$SECONDS
+          VITE_CACHE_PATH="$RUNNER_TEMP/cold-cache" bun run build > "$RUNNER_TEMP/build-cold.log" 2>&1
+          cat "$RUNNER_TEMP/build-cold.log"
+          node scripts/vite-plus-proof.mjs --check-pass cold --log "$RUNNER_TEMP/build-cold.log"
+          node scripts/vite-plus-proof.mjs --print-manifest > "$RUNNER_TEMP/manifest-cold.txt"
+          echo "cold elapsed: $((SECONDS-start))s" >> "$GITHUB_STEP_SUMMARY"
+          # 2. The restored pass: the owned outputs are removed again, so what it
+          #    measures is what the cache restored and not what the cold pass left
+          #    behind.
+          node scripts/vite-plus-proof.mjs --clear-outputs
+          start=$SECONDS
+          bun run build > "$RUNNER_TEMP/build-restored.log" 2>&1
+          cat "$RUNNER_TEMP/build-restored.log"
+          node scripts/vite-plus-proof.mjs --print-manifest > "$RUNNER_TEMP/manifest-restored.txt"
+          echo "restored elapsed: $((SECONDS-start))s" >> "$GITHUB_STEP_SUMMARY"
+          # The restored outputs are byte-identical to the cold baseline.
+          node scripts/vite-plus-proof.mjs --compare-manifest "$RUNNER_TEMP/manifest-cold.txt,$RUNNER_TEMP/manifest-restored.txt"
+          echo 'The restored build outputs are byte-identical to the cold baseline.' >> "$GITHUB_STEP_SUMMARY"
           if test "$previous" = "$head"; then
-            grep -Fq '15/15 cache hit' "$RUNNER_TEMP/build-first.log"
+            # A complete restore for the same head: the restored pass hit every task too.
+            node scripts/vite-plus-proof.mjs --check-pass warm --log "$RUNNER_TEMP/build-restored.log"
             echo 'Fresh runner restored all production tasks for the same head.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            # An incomplete or stale restore: the restored pass rebuilt what the
+            # restore did not cover, and the outputs are still the same bytes.
+            node scripts/vite-plus-proof.mjs --check-pass observed --log "$RUNNER_TEMP/build-restored.log"
+            echo 'The restore did not cover this head; the restored pass rebuilt from source.' >> "$GITHUB_STEP_SUMMARY"
           fi
+          # 3. The warm pass: the cache the restored pass wrote. The owned outputs
+          #    are cleared first, so this pass measures what the cache replays and
+          #    not what the restored pass left behind.
+          node scripts/vite-plus-proof.mjs --clear-outputs
+          start=$SECONDS
+          bun run build > "$RUNNER_TEMP/build-warm.log" 2>&1
+          cat "$RUNNER_TEMP/build-warm.log"
+          node scripts/vite-plus-proof.mjs --check-pass warm --log "$RUNNER_TEMP/build-warm.log"
+          node scripts/vite-plus-proof.mjs --print-manifest > "$RUNNER_TEMP/manifest-warm.txt"
+          node scripts/vite-plus-proof.mjs --compare-manifest "$RUNNER_TEMP/manifest-cold.txt,$RUNNER_TEMP/manifest-warm.txt"
+          echo "warm elapsed: $((SECONDS-start))s" >> "$GITHUB_STEP_SUMMARY"
           echo "Restored entry: ${RESTORED_KEY:-none}" >> "$GITHUB_STEP_SUMMARY"
           printf '%s\n' "$head" > "$proof"
       - name: Save production task cache
