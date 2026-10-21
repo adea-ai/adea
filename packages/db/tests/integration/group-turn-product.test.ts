@@ -1018,6 +1018,80 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
     expect((await publicationState(f, intentId)).messages).toHaveLength(1)
   })
 
+  /**
+   * Two claims can carry one intent: the first dispatch mints it, a later
+   * dispatch for the same trigger message and Agent reuses it and binds
+   * itself to it as well. The claim table has no unique key or index over
+   * `intent_id`, so a lookup of one claim can never prove which one admitted
+   * the work.
+   */
+  async function claimsSharingOneIntent(f: Fixture, revisions: readonly number[]) {
+    const turns = []
+    for (const revision of revisions) {
+      const addressed = await address(f, f.lead.id, revision)
+      turns.push(addressed.turn)
+    }
+    const intentIds = new Set(turns.map((turn) => turn.leadTurnIntentId))
+    // Both dispatches landed on ONE intent: that is the ambiguity.
+    expect(intentIds.size).toBe(1)
+    return { intentId: [...intentIds][0]!, turns }
+  }
+
+  T(
+    'claims that share one intent must agree on the binding, in either creation order',
+    async () => {
+      // The first claim created keeps its binding; the second is legacy and
+      // carries none. Which of the two a lookup reads must not change the
+      // outcome: the authorizing grant is unproven either way, so the late
+      // result is held instead of published under a binding that may never
+      // have admitted the work.
+      for (const revisions of [
+        [1, 2],
+        [2, 1],
+      ]) {
+        const f = await fixture()
+        const { intentId, turns } = await claimsSharingOneIntent(f, revisions)
+        await connection.db
+          .update(schema.addressedAgentTurns)
+          .set({ authGrantId: null, authRevision: null })
+          .where(eq(schema.addressedAgentTurns.id, turns[1]!.id))
+        const rows = await connection.db
+          .select({
+            authGrantId: schema.addressedAgentTurns.authGrantId,
+            intentId: schema.addressedAgentTurns.intentId,
+          })
+          .from(schema.addressedAgentTurns)
+          .where(eq(schema.addressedAgentTurns.channelId, f.channelId))
+        // The mixed state is real: two claims, one intent, one binding.
+        expect(rows).toHaveLength(2)
+        expect(new Set(rows.map((row) => row.intentId)).size).toBe(1)
+        expect(rows.filter((row) => row.authGrantId === null)).toHaveLength(1)
+        const publish = await complete(f, intentId)
+        await expect(publish()).rejects.toMatchObject({
+          name: 'GroupPublicationHoldError',
+          reason: 'publication_binding_mismatch',
+        })
+        // Nothing entered the group, and the job survived the hold.
+        expect((await publicationState(f, intentId)).messages).toHaveLength(1)
+      }
+    }
+  )
+
+  T('claims that share one intent and agree on the binding publish normally', async () => {
+    const f = await fixture()
+    const { intentId, turns } = await claimsSharingOneIntent(f, [1, 2])
+    // Both claims agree, so the binding is canonical and the work publishes.
+    for (const turn of turns)
+      expect(await retainedBinding(f, turn.id)).toEqual({
+        authGrantId: 'gra_lead',
+        authRevision: 1,
+      })
+    const publish = await complete(f, intentId)
+    const messageId = await publish()
+    expect(messageId).toBeString()
+    expect((await publicationState(f, intentId)).messages).toHaveLength(2)
+  })
+
   T(
     'a replay converges on the same message while the binding holds, and is held once it does not',
     async () => {

@@ -452,21 +452,38 @@ type AddressedTurnPublication = Readonly<{
 }>
 
 /**
- * The addressed-turn claim that owns a lead-turn intent, with the exact
- * participation grant that admitted its work.
+ * The addressed-turn claims that carry one lead-turn intent, and the exact
+ * participation grant they agree on.
  *
- * `null` when the intent is not an addressed turn — a group lead posted
- * straight into the channel has no claim and is not this gate's business.
- * A claim whose retained binding is missing (persisted before the binding
- * existed) proves no authorization and therefore carries `authorization:
- * null`, which fails closed at the decision.
+ * `lead_turn_intents.message_id` is unique, so one intent serves every
+ * dispatch attempt for one trigger message and Agent. The FIRST attempt mints
+ * the intent and binds itself to it; a LATER attempt (a different dispatch
+ * revision, which the claim key allows) reuses that same intent and binds
+ * itself to it as well, so several claims can carry one intent. The claim
+ * table has no unique or index over `intent_id` to settle it.
+ *
+ * The retained binding is therefore canonical only when EVERY such claim
+ * agrees on the Agent and on the grant id and revision. A disagreement — a
+ * legacy claim without a binding beside a bound one, or two different grant
+ * revisions — leaves the authorizing grant unproven, and no row order can
+ * settle it: the later claim may have reused work the earlier one admitted
+ * under another revision. The binding is then carried as unproven and the
+ * policy holds the late result exactly as it holds a missing binding.
  */
 async function loadAddressedTurnPublication(
   database: GroupStoreDatabase,
   workspaceId: string,
   intentId: string
 ): Promise<AddressedTurnPublication | null> {
-  const [claim] = await database
+  const [intent] = await database
+    .select({ agentId: leadTurnIntents.agentId, channelId: leadTurnIntents.channelId })
+    .from(leadTurnIntents)
+    .where(and(eq(leadTurnIntents.id, intentId), eq(leadTurnIntents.workspaceId, workspaceId)))
+    .limit(1)
+  if (!intent) return null
+  // EVERY claim that carries the intent, never one of them: the binding is
+  // canonical only when they all agree.
+  const claims = await database
     .select()
     .from(addressedAgentTurns)
     .where(
@@ -475,12 +492,11 @@ async function loadAddressedTurnPublication(
         eq(addressedAgentTurns.intentId, intentId)
       )
     )
-    .limit(1)
-  if (!claim) return null
+  if (claims.length === 0) return null
   const [channel] = await database
     .select({ kind: channels.kind })
     .from(channels)
-    .where(and(eq(channels.id, claim.channelId), eq(channels.workspaceId, workspaceId)))
+    .where(and(eq(channels.id, intent.channelId), eq(channels.workspaceId, workspaceId)))
     .limit(1)
   if (!channel || channel.kind !== 'group') return null
   const [runtime] = await database
@@ -488,17 +504,23 @@ async function loadAddressedTurnPublication(
     .from(leadTurnRuntime)
     .where(eq(leadTurnRuntime.intentId, intentId))
     .limit(1)
+  const agreements = new Set(
+    claims.map((claim) => JSON.stringify([claim.agentId, claim.authGrantId, claim.authRevision]))
+  )
+  const agreed = agreements.size === 1 ? claims[0] : undefined
   const authorization =
-    claim.authGrantId && claim.authRevision !== null && claim.authRevision > 0
-      ? { groupId: claim.channelId, grantId: claim.authGrantId, revision: claim.authRevision }
+    agreed && agreed.authGrantId && agreed.authRevision !== null && agreed.authRevision > 0
+      ? { groupId: intent.channelId, grantId: agreed.authGrantId, revision: agreed.authRevision }
       : null
   return {
-    channelId: claim.channelId,
+    channelId: intent.channelId,
     job: {
       authorization,
       completedAt: runtime?.observedAt?.toISOString() ?? new Date().toISOString(),
       jobId: intentId,
-      participant: { agentId: claim.agentId, kind: 'agent' },
+      // The publisher is the Agent the intent itself pins, never whichever
+      // claim happened to be read first.
+      participant: { agentId: intent.agentId, kind: 'agent' },
     },
   }
 }
