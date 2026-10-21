@@ -14,26 +14,26 @@ into one bundle.
 
 ## 1. The candidate under test
 
-| Fact                                                | Value                                                                                                                                                                                          |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Candidate's integration base `main`                 | `333b948d4c5fba1f88d98d764c075b790be6ee22` (unchanged since the first run)                                                                                                                     |
-| This lane's branch                                  | `test/installed-desktop-ui-acceptance-20261020`                                                                                                                                                |
-| Pull request base (current `main`)                  | `1098c658300beec7e49f1a2143aabd971aefbcfe` (the base moved forward from `333b948d4`)                                                                                                           |
-| Published head (the pull request)                   | `a18e35ff2e213133480811435b47107a68c6e2b3` — 13 commits on that base                                                                                                                           |
-| Local head (this record's continuation)             | the published head plus this record's local commits — the teardown, drain, evidence, row-log and boot-credential-store repairs — all unpublished                                               |
-| Head this record qualifies                          | the branch head; the **source** is unchanged from `b152e54c4abc3fec5cbae230e7d4513cf755e50f`, which is where §8's receipts were measured — this record's own commit changes documentation only |
-| B — CI, no vendor dependency                        | `codex/20261020-ci-release-w7` @ `fcb20c08bafad0940330dd5728175a52f334beb3` (#1516, draft)                                                                                                     |
-| C — provider coupling removed                       | `codex/20261020-efficiency-audit-w8` @ `7fa24f2ee991d672cb6ed1373b63f125a6e206e1` (#1515, draft)                                                                                               |
-| D — Railway qualification lane                      | `feat/railway-postgres-qualification-lane-a` @ `82addf079` (#1514, draft)                                                                                                                      |
-| Integration candidate (local only, never published) | `integration/cp1048-g-20261020` @ `49cb6e19c`                                                                                                                                                  |
-| Bundle                                              | `apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app`                                                                                                                                        |
-| Bundle identity                                     | `Adea-dev` 0.98.0, channel `dev`, identifier `dev.adea.desktop`                                                                                                                                |
-| Runtime                                             | Electrobun **2.0.4**, bundled CEF, bundled Bun 1.4.0, `defaultRenderer: native`                                                                                                                |
-| Declared URL scheme                                 | `adea` (`CFBundleURLTypes` → `CFBundleURLSchemes`)                                                                                                                                             |
-| Recorded build target                               | `{"mode":"local","cloudOrigin":"http://localhost:3000"}`                                                                                                                                       |
-| Shell entry digest (sha256)                         | `38b4dae799e6a14740f2ed13f7da6a02e655f5d4e02288f5e73225e47fe31b6e`                                                                                                                             |
-| Build target record digest (sha256)                 | `f4f73f77f565d7d3c4029e23de0b4d0fd6a997786986f01ef9a5a07c938f444e`                                                                                                                             |
-| Version identity digest (sha256)                    | `f82b5e671ad33ec0efbb65231030646858b10a748adb82de733fa8945e1e268b`                                                                                                                             |
+| Fact                                                | Value                                                                                                                                                                                              |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidate's integration base `main`                 | `333b948d4c5fba1f88d98d764c075b790be6ee22` (unchanged since the first run)                                                                                                                         |
+| This lane's branch                                  | `test/installed-desktop-ui-acceptance-20261020`                                                                                                                                                    |
+| Pull request base (current `main`)                  | `1098c658300beec7e49f1a2143aabd971aefbcfe` (the base moved forward from `333b948d4`)                                                                                                               |
+| Published head (the pull request)                   | `a18e35ff2e213133480811435b47107a68c6e2b3` — 13 commits on that base                                                                                                                               |
+| Local head (this record's continuation)             | the published head **is an ancestor** of it: the nine repair commits sit on top of `1001f8fad`, and the merge commit `7919444cf` folds the published head back in — all unpublished                |
+| Head this record qualifies                          | the branch head; the **source** is the merged tree of `7919444cfe08ff48df2b37590121800bccbba1b2`, which is where §8's receipts were measured — this record's own commit changes documentation only |
+| B — CI, no vendor dependency                        | `codex/20261020-ci-release-w7` @ `fcb20c08bafad0940330dd5728175a52f334beb3` (#1516, draft)                                                                                                         |
+| C — provider coupling removed                       | `codex/20261020-efficiency-audit-w8` @ `7fa24f2ee991d672cb6ed1373b63f125a6e206e1` (#1515, draft)                                                                                                   |
+| D — Railway qualification lane                      | `feat/railway-postgres-qualification-lane-a` @ `82addf079` (#1514, draft)                                                                                                                          |
+| Integration candidate (local only, never published) | `integration/cp1048-g-20261020` @ `49cb6e19c`                                                                                                                                                      |
+| Bundle                                              | `apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app`                                                                                                                                            |
+| Bundle identity                                     | `Adea-dev` 0.98.0, channel `dev`, identifier `dev.adea.desktop`                                                                                                                                    |
+| Runtime                                             | Electrobun **2.0.4**, bundled CEF, bundled Bun 1.4.0, `defaultRenderer: native`                                                                                                                    |
+| Declared URL scheme                                 | `adea` (`CFBundleURLTypes` → `CFBundleURLSchemes`)                                                                                                                                                 |
+| Recorded build target                               | `{"mode":"local","cloudOrigin":"http://localhost:3000"}`                                                                                                                                           |
+| Shell entry digest (sha256)                         | `38b4dae799e6a14740f2ed13f7da6a02e655f5d4e02288f5e73225e47fe31b6e`                                                                                                                                 |
+| Build target record digest (sha256)                 | `f4f73f77f565d7d3c4029e23de0b4d0fd6a997786986f01ef9a5a07c938f444e`                                                                                                                                 |
+| Version identity digest (sha256)                    | `f82b5e671ad33ec0efbb65231030646858b10a748adb82de733fa8945e1e268b`                                                                                                                                 |
 
 The candidate is the **local** target, not a release build: a release build
 needs Apple signing and notarization, which this lane does not do and is not
@@ -225,9 +225,10 @@ section separates them.
 
 **The prior-head result — the run.** The matrix in §4, the artifact and the
 captures under `screenshots/` are the output of the lane's run against the
-candidate whose integration base is `333b948d4` (the candidate of the published
-head `a18e35ff2`). It is the **installed-application** result: 21 of 22 rows
-passed, the one failure was the `adea://` callback row (§6.2), and the
+candidate whose integration base is `333b948d4` — the branch as it stood at
+the time of the run, before the published head `a18e35ff2` merged `main`
+forward to `1098c658`. It is the **installed-application** result: 21 of 22
+rows passed, the one failure was the `adea://` callback row (§6.2), and the
 console-error cleanliness and the captures came from it. **It does not certify
 the current head.** The source has moved since (§13 to §21), the lane's entry
 point was not executed again, and the current source refuses to install,
@@ -489,20 +490,20 @@ installed application reports that state instead of pretending to work.
 
 ## 8. Commands and results
 
-| Command                                                                                  | Result                                                                                                                                          |
-| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun install --frozen-lockfile`                                                          | 823 packages, exit 0 (both the lane tree and the integration tree)                                                                              |
-| `bun run --cwd apps/desktop shell:client:build`                                          | client built (local target, `http://localhost:3000`)                                                                                            |
-| `bunx --bun electrobun build` (apps/desktop/shell)                                       | `dev-macos-arm64/Adea-dev.app` built — Electrobun 2.0.4, CEF and Bun 1.4.0 bundled                                                              |
-| `bun run --cwd packages/db db:migrate`                                                   | 60 migrations applied and verified                                                                                                              |
-| `bun run --cwd apps/web dev` (no provider endpoint configured)                           | local cloud on `http://localhost:3000`; server log contains no `neon`                                                                           |
-| `bun scripts/installed-app-acceptance.ts --app-bundle … --artifact … --profile-parent …` | **21 passed, 1 failed, 22 rows** (row 6, §6.2) — the run predates the safety repair of §13, and the entry point was not executed again after it |
-| `bun test tests/boot-credential-store.test.ts` (apps/desktop)                            | 12 pass, 0 fail, 36 assertions                                                                                                                  |
-| `bun test scripts/installed-app-acceptance.test.ts`                                      | 74 pass, 0 fail, 288 assertions (59 pass / 168 assertions at the published head `a18e35ff`)                                                     |
-| `bun test scripts/installed-app-acceptance-evidence.test.ts`                             | 8 pass, 0 fail, 203 assertions                                                                                                                  |
-| `bun check -p shell/tsconfig.json` (apps/desktop)                                        | no type errors in 229 files — re-checked for this revision with `tsc --noEmit -p shell/tsconfig.json`, exit 0, no diagnostics                   |
-| pre-commit hook (`vp run orch:typecheck`)                                                | 33/33 successful, no type errors in 324 files                                                                                                   |
-| `bunx oxlint --deny-warnings` on the changed files                                       | exit 0                                                                                                                                          |
+| Command                                                                                  | Result                                                                                                                                                    |
+| ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun install --frozen-lockfile`                                                          | 823 packages, exit 0 (both the lane tree and the integration tree); on the merged tree of §1 the lockfile's twenty changed packages install clean, exit 0 |
+| `bun run --cwd apps/desktop shell:client:build`                                          | client built (local target, `http://localhost:3000`)                                                                                                      |
+| `bunx --bun electrobun build` (apps/desktop/shell)                                       | `dev-macos-arm64/Adea-dev.app` built — Electrobun 2.0.4, CEF and Bun 1.4.0 bundled                                                                        |
+| `bun run --cwd packages/db db:migrate`                                                   | 60 migrations applied and verified                                                                                                                        |
+| `bun run --cwd apps/web dev` (no provider endpoint configured)                           | local cloud on `http://localhost:3000`; server log contains no `neon`                                                                                     |
+| `bun scripts/installed-app-acceptance.ts --app-bundle … --artifact … --profile-parent …` | **21 passed, 1 failed, 22 rows** (row 6, §6.2) — the run predates the safety repair of §13, and the entry point was not executed again after it           |
+| `bun test tests/boot-credential-store.test.ts` (apps/desktop)                            | 12 pass, 0 fail, 36 assertions                                                                                                                            |
+| `bun test scripts/installed-app-acceptance.test.ts`                                      | 74 pass, 0 fail, 288 assertions (59 pass / 168 assertions at the published head `a18e35ff`)                                                               |
+| `bun test scripts/installed-app-acceptance-evidence.test.ts`                             | 8 pass, 0 fail, 203 assertions                                                                                                                            |
+| `bun check -p shell/tsconfig.json` (apps/desktop)                                        | no type errors in 229 files — re-checked for this revision with `tsc --noEmit -p shell/tsconfig.json`, exit 0, no diagnostics                             |
+| pre-commit hook (`vp run orch:typecheck`)                                                | 33/33 successful, no type errors in 324 files                                                                                                             |
+| `bunx oxlint --deny-warnings` on the changed files                                       | exit 0                                                                                                                                                    |
 
 ## 9. What the run left behind
 
@@ -550,11 +551,22 @@ base, `1098c658300beec7e49f1a2143aabd971aefbcfe`.
 Everything after the published head is **local and unpublished**: this record's
 own commits — the teardown repair (`e7f7e2704`), the drain repair
 (`90e19c63`), the evidence reconciliation (`a2ce5140f`), the row-log repair
-(`364af10f7`), the boot-credential-store repair (`b74d15c1e`) and the
-completion of the check table below. The published head is not an ancestor of
-the local head — the two lines have shared no ancestor since `1001f8fa`, the
-point at which the repairs branched off, so the published scope was never
-folded into the local one.
+(`364af10f7`), the boot-credential-store repair (`b74d15c1e`), the check table
+(`3f63c4ab6`), the integrity-fault regression (`b059f5f6d`), the pinned
+captures (`b152e54c4`), the prior-head/current-head separation
+(`678e18eb8`) — and the merge commit `7919444cf`.
+
+**That merge is why the update is a fast-forward.** The repairs branched off at
+`1001f8fad` and the published scope was never folded into them, so the branch
+had **diverged** from the pull request's head: it did not contain the
+twenty-two commits of `main` that the published head had merged in, and its
+tree differed from the published tree in **three hundred files**. Publishing
+the branch as it stood would have needed a force-push and would have dropped
+`main`'s current content from the pull request. Merging the published head
+back in resolves that: the two sides touch no common file, so the merge is
+conflict-free, the nine repair commits keep their hashes — every hash this
+record cites still resolves — and the published head is now an **ancestor** of
+the branch head. Nothing published is rewritten.
 
 **The publication hold on this pull request is in force.** Nothing here is
 pushed, the pull request is not marked ready, nothing is merged, no issue is
@@ -581,18 +593,23 @@ step, needing that one missing authorization, is:
 git push origin test/installed-desktop-ui-acceptance-20261020
 ```
 
-which would update the existing pull request's head. The pull request already
-exists, so there is no `gh pr create` step left.
+which would update the existing pull request's head. That push is a
+**fast-forward** — the published head is an ancestor of the branch head — so
+no force, no rewrite of published history and no `--force-with-lease` is
+involved. The pull request already exists, so there is no `gh pr create` step
+left; only the body's reconciliation, applied with `gh pr edit --body-file`,
+follows the push.
 
 **The pull request's body is reconciled with its head.** The body reported
 "Current head `5ac039904`" and the receipts of that head — 23 acceptance unit
 cases and 7 boot-credential-store cases. The pull request's head is
-`a18e35ff2`, thirteen commits later, and the receipts at the head this record
-qualifies are the ones in §8. The reconciled body names the head it describes,
-states the prior-head run and the current-head qualification separately, as §4
-now does, and claims no installed acceptance. It is prepared for the
-authorized controller route as a **draft** update with **auto-merge off**: no
-readiness, no merge, no issue closure, and the publication hold unchanged.
+`a18e35ff2` — four further repairs and the merge of `main` — and the receipts
+at the head this record qualifies are the ones in §8. The reconciled body names
+the head it describes, states the prior-head run and the current-head
+qualification separately, as §4 now does, and claims no installed acceptance.
+It is prepared for the authorized controller route as a **draft** update with
+**auto-merge off**: no readiness, no merge, no issue closure, and the
+publication hold unchanged.
 
 ## 13. The safety repair (root-verified defects at `7ba2fba`)
 
