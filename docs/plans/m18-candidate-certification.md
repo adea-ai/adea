@@ -23,48 +23,75 @@ certification: incomplete (0 of 64 certified; 28 source-verified; 9 external gat
 | Disposition   | Count | Meaning                                                                        |
 | ------------- | ----- | ------------------------------------------------------------------------------ |
 | `passed`      | 28    | the row's cited tests were re-run at the candidate and every title passed      |
-| `skipped`     | 25    | a qualifying test exists and is named, but this runner does not run it         |
-| `unavailable` | 6     | the row's evidence needs an artifact, an environment or a head that is missing |
-| `untestable`  | 5     | no test file in the repository mentions the row's subject at all               |
+| `skipped`     | 11    | a qualifying test exists and is named, but this runner does not run it         |
+| `unavailable` | 23    | the row's evidence needs an artifact, an environment or a head that is missing |
+| `untestable`  | 2     | no test file in the repository mentions the row's subject at all               |
 | `failed`      | 0     | —                                                                              |
 
-A `passed` disposition is about the **evidence**, not about certification. A row
-is certified only when its evidence is bound to the candidate _and_ every
-external gate for it is closed, and all nine gates are open.
+Every one of the 64 rows has a disposition, and the 36 rows the manifest maps
+no evidence for are inventoried individually below with the readiness
+criterion that names them, the manifest's own gap text, the subject that was
+searched for, and the lead that was found and the lane it belongs to.
 
 ## The frozen source candidate
+
+There are two exact revisions in this record, and they are not the same thing.
 
 | Role                           | Value                                                                          |
 | ------------------------------ | ------------------------------------------------------------------------------ |
 | Repository                     | `adea-ai/adea`                                                                 |
-| Frozen source candidate        | `12a1830c4115eb46503a79aa0701452ac12ec695`                                     |
+| **Frozen source candidate**    | `73e444f59eb3526f5b18f985c2b2f1f9ae302d5a`                                     |
 | Verified from                  | `refs/heads/main` of `adea-ai/adea`, read with the existing remote credentials |
 | Package version at that commit | `0.99.0` (root `package.json`) and `0.99.0` (`@adea-ai/types`)                 |
+| **Artifact candidate**         | the branch head that carries this record, published as draft PR #1550          |
 | Branch                         | `codex/f3w5-adea-20261021`                                                     |
 
-The candidate was frozen after the branch was fast-forwarded to the current
-`origin/main`. The fast-forward was safe and is recorded: the three owned paths
-are **absent** at `origin/main`, the previous head `ee31982e70406ab5de447a79603d6545ac11359f`
-is an **ancestor** of `origin/main`, and the three drafts were hashed and
-copied byte-for-byte before the merge. The merge was a fast-forward; nothing was
-reset, cleaned or overwritten, and the draft hashes are unchanged.
+The **source candidate** is the product source that is certified. It is
+`origin/main` at the time of the run, and it is the tree the clean checkout
+exports, the packages are built from, and the readiness probes are measured
+at. It contains no file of this work.
 
-`origin/main` is one commit ahead of the previous base, and that commit is
-[#1542](https://github.com/adea-ai/adea/pull/1542) `fix(workspaces): recover
-from a reorder conflict and keep a save from being overwritten`. It changes
-`apps/web/e2e/workspace-reorder.spec.ts`, `packages/data/src/index.ts` and
-`packages/data/tests/unit/workspaces.test.ts`. **None of the 27 cited test
-files is among them**, so no cited title was invalidated by the advance. The
-cited tests were still re-run at the candidate, because the source under
-`packages/data` did change and a test that has not been re-run says nothing
-about the new commit.
+The **artifact candidate** is the branch head that carries the runner, its
+tests and this record. It is `main` plus exactly three owned files, so the
+product content of the artifact candidate is byte-identical to the source
+candidate. The runner is invoked with `--base` so that the two never blur.
+
+### Reconciling the advance of main
+
+`main` moved five commits between the previous base and this one, and all five
+are other owners' merges:
+
+| Commit      | Pull request | What it merged                                                                     |
+| ----------- | ------------ | ---------------------------------------------------------------------------------- |
+| `9f3280b40` | #1546        | remote-content: request-bound return envelopes across runtimes                     |
+| `beb62c2b0` | #1544        | types: runtime connection and profile execution read models (#37/#41/#186)         |
+| `f673af22f` | #1545        | db: qualify the populated migration rollback outcome (#1219/#1222/#1220)           |
+| `f4bee99c7` | #1547        | workspaces: complete the protected Home lifecycle (#1214/#1175)                    |
+| `73e444f59` | #1552        | remote-content: label the cross-runtime return vector as public synthetic material |
+
+**None of the 27 cited test files changed.** No cited title was invalidated by
+the advance. The cited tests were still re-run at the new candidate, because a
+test that has not been re-run says nothing about a new commit.
+
+What the advance did change is the **pending-row inventory**: three owners
+merged the very tests that many of the pending rows said were missing.
+`apps/web/test/integration/protected-home-lifecycle.test.ts`,
+`packages/db/tests/integration/personal-workspaces.test.ts`,
+`packages/db/tests/integration/blank-workspace-isolation.test.ts`,
+`packages/db/tests/integration/workspace-leads.test.ts`,
+`packages/db/tests/integration/migration-populated-rollback-outcome-qualification.test.ts`,
+`packages/types/tests/execution-location.test.ts` and the two
+`packages/remote-content/tests/unit/remote-result*.test.ts` files are now
+available qualifications for rows that previously had none. The runner finds
+them, runs them, and reports them against the row they cover. Three rows moved
+out of `untestable` because of them.
 
 The evidence manifest's own pin is unchanged at
-`e8b75daa5cc996a4c0d84489a3885535c3045a2f`, which is 270 commits behind the
-candidate. The manifest is **not** re-pinned: it belongs to another owner, and
-re-pinning it would declare the changed behaviors covered without requalifying
-them. What this runner does instead is re-run every cited test at the candidate
-and report the result.
+`e8b75daa5cc996a4c0d84489a3885535c3045a2f`, which is 275 commits behind the
+candidate. The manifest is **not** re-pinned: it belongs to another owner,
+and re-pinning it would declare the changed behaviors covered without
+requalifying them. What this runner does instead is re-run every cited test at
+the candidate and report the result.
 
 ## What this is, and what it is not
 
@@ -177,12 +204,25 @@ checkout and verified to exist. Nothing here is inferred.
 
 | Ref                   | SHA                                        | Role                                                |
 | --------------------- | ------------------------------------------ | --------------------------------------------------- |
-| `refs/heads/main`     | `12a1830c4115eb46503a79aa0701452ac12ec695` | **the frozen source candidate**                     |
+| `refs/heads/main`     | `73e444f59eb3526f5b18f985c2b2f1f9ae302d5a` | **the frozen source candidate**                     |
 | `refs/pull/1515/head` | `312c49db2e77371cf38a5397c386439494e53019` | an open draft, not merged, not a candidate          |
 | `refs/pull/1518/head` | `fcb72ad807d95fa82bb9b76801a24b16c0cccb0e` | an open draft, not merged, not a candidate          |
 | `refs/pull/1522/head` | `a18e35ff2e213133480811435b47107a68c6e2b3` | an open draft, not merged, not a candidate          |
 | `refs/pull/1525/head` | `f37411f4d0aed067c66a37b40d1d30af9bd85a37` | an open draft, not merged, not a candidate          |
 | `refs/pull/1542/head` | `fd177baf38ad7e72eb14abd9cb6bfab766f90861` | the pre-merge head of the commit that is now `main` |
+
+### This branch and its pull request
+
+| Ref                    | SHA                                        | Role                                                    |
+| ---------------------- | ------------------------------------------ | ------------------------------------------------------- |
+| `refs/pull/1550/head`  | `a68e96a75124da98ead6b1543785874ad1c1d2b9` | the draft pull request's head when it was opened        |
+| `refs/pull/1550/merge` | `1043cd116ee28e99c715de15cb71cc685a0d2697` | GitHub's computed merge of the pull request with `main` |
+
+Draft pull request #1550 is **open, draft, not merged, auto-merge off**, with
+one commit and three changed files. Its eight check runs are one success
+(the draft guard) and seven correctly skipped change-scoped gates: the diff
+touches `scripts/` and `docs/plans/` only, so the host, visual and desktop
+gates do not apply. No check on the pull request fails.
 
 ### The control-plane repository, read with the existing remote credentials
 
@@ -201,7 +241,7 @@ its two component heads `3118a7c9f5d177a3fdce2de8ced7fbf353d91e43` and
 the local control-plane checkout.
 
 **No candidate pair is certified.** The only pair this repository pins is
-Adea `12a1830c…` with control-plane `1aa42ff2…`, and the control-plane side of
+Adea `73e444f5…` with control-plane `1aa42ff2…`, and the control-plane side of
 that pair is a _pinned revision of the consumer contract_, not a published
 candidate head. CP #943 has no pull request at all, so no control-plane
 candidate can be named for it. The `cross-product` gate therefore reports the
@@ -266,138 +306,138 @@ binds a revision 270 commits behind the candidate.
 
 | Id  | Class                  | Commit     | Package                        | Test                                                               | Disposition   |
 | --- | ---------------------- | ---------- | ------------------------------ | ------------------------------------------------------------------ | ------------- |
-| A01 | source                 | `12a1830c` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-conversation-model.test.ts` | `passed`      |
-| A02 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A03 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A04 | source                 | `12a1830c` | `@adea-ai/data@0.99.0`         | `packages/data/tests/unit/account-directory-keys.test.ts`          | `passed`      |
-| A05 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
+| A01 | source                 | `73e444f5` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-conversation-model.test.ts` | `passed`      |
+| A02 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
+| A03 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
+| A04 | source                 | `73e444f5` | `@adea-ai/data@0.99.0`         | `packages/data/tests/unit/account-directory-keys.test.ts`          | `passed`      |
+| A05 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
 | A06 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
-| A07 | source                 | `12a1830c` | `@adea-ai/data@0.99.0`         | `packages/data/tests/unit/events-audience.test.ts`                 | `passed`      |
+| A07 | source                 | `73e444f5` | `@adea-ai/data@0.99.0`         | `packages/data/tests/unit/events-audience.test.ts`                 | `passed`      |
 | A08 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
-| A09 | disposable-integration | `12a1830c` | `@adea-ai/db@0.99.0`           | `packages/db/tests/unit/artifact-reference-policy.test.ts`         | `passed`      |
-| A10 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A11 | source                 | `12a1830c` | `@adea-ai/web@0.99.0`          | `apps/web/test/agent-profile-pin.test.ts`                          | `passed`      |
+| A09 | disposable-integration | `73e444f5` | `@adea-ai/db@0.99.0`           | `packages/db/tests/unit/artifact-reference-policy.test.ts`         | `passed`      |
+| A10 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
+| A11 | source                 | `73e444f5` | `@adea-ai/web@0.99.0`          | `apps/web/test/agent-profile-pin.test.ts`                          | `passed`      |
 | A12 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
 | A13 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A14 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A15 | —                      | `—`        | —                              | —                                                                  | `untestable`  |
-| A16 | source                 | `12a1830c` | `@adea-ai/web@0.99.0`          | `apps/web/test/lead-turn-runtime.test.ts`                          | `passed`      |
-| A17 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A18 | source                 | `12a1830c` | `@adea-ai/web@0.99.0`          | `apps/web/test/lead-turn-runtime.test.ts`                          | `passed`      |
+| A14 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
+| A15 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
+| A16 | source                 | `73e444f5` | `@adea-ai/web@0.99.0`          | `apps/web/test/lead-turn-runtime.test.ts`                          | `passed`      |
+| A17 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
+| A18 | source                 | `73e444f5` | `@adea-ai/web@0.99.0`          | `apps/web/test/lead-turn-runtime.test.ts`                          | `passed`      |
 | A19 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A20 | source                 | `12a1830c` | `@adea-ai/web@0.99.0`          | `apps/web/test/lead-turn-sdk-adapter.test.ts`                      | `passed`      |
+| A20 | source                 | `73e444f5` | `@adea-ai/web@0.99.0`          | `apps/web/test/lead-turn-sdk-adapter.test.ts`                      | `passed`      |
 | A21 | —                      | `—`        | —                              | —                                                                  | `untestable`  |
 | A22 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A23 | source                 | `12a1830c` | `@adea-ai/data@0.99.0`         | `packages/data/tests/unit/mutations-audience.test.ts`              | `passed`      |
-| A24 | source                 | `12a1830c` | `@adea-ai/data@0.99.0`         | `packages/data/tests/unit/events-audience.test.ts`                 | `passed`      |
+| A23 | source                 | `73e444f5` | `@adea-ai/data@0.99.0`         | `packages/data/tests/unit/mutations-audience.test.ts`              | `passed`      |
+| A24 | source                 | `73e444f5` | `@adea-ai/data@0.99.0`         | `packages/data/tests/unit/events-audience.test.ts`                 | `passed`      |
 | A25 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A26 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A27 | source                 | `12a1830c` | `@adea-ai/desktop@0.99.0`      | `apps/desktop/tests/workspace-local-data.test.ts`                  | `passed`      |
+| A26 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
+| A27 | source                 | `73e444f5` | `@adea-ai/desktop@0.99.0`      | `apps/desktop/tests/workspace-local-data.test.ts`                  | `passed`      |
 | A28 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A29 | source                 | `12a1830c` | `@adea-ai/web@0.99.0`          | `apps/web/test/lead-product-reader.test.ts`                        | `passed`      |
-| A30 | source                 | `12a1830c` | `@adea-ai/db@0.99.0`           | `packages/db/tests/unit/migration-snapshot-comparator.test.ts`     | `passed`      |
-| A31 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A32 | —                      | `—`        | —                              | —                                                                  | `untestable`  |
-| A33 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
-| A34 | source                 | `12a1830c` | `@adea-ai/web@0.99.0`          | `apps/web/test/agent-profile-availability.test.ts`                 | `passed`      |
-| A35 | source                 | `12a1830c` | `@adea-ai/web@0.99.0`          | `apps/web/test/desktop-workspace-deletion.test.ts`                 | `passed`      |
+| A29 | source                 | `73e444f5` | `@adea-ai/web@0.99.0`          | `apps/web/test/lead-product-reader.test.ts`                        | `passed`      |
+| A30 | source                 | `73e444f5` | `@adea-ai/db@0.99.0`           | `packages/db/tests/unit/migration-snapshot-comparator.test.ts`     | `passed`      |
+| A31 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
+| A32 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
+| A33 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
+| A34 | source                 | `73e444f5` | `@adea-ai/web@0.99.0`          | `apps/web/test/agent-profile-availability.test.ts`                 | `passed`      |
+| A35 | source                 | `73e444f5` | `@adea-ai/web@0.99.0`          | `apps/web/test/desktop-workspace-deletion.test.ts`                 | `passed`      |
 | A36 | —                      | `—`        | —                              | —                                                                  | `unavailable` |
-| A37 | —                      | `—`        | —                              | —                                                                  | `untestable`  |
-| A38 | source                 | `12a1830c` | `@adea-ai/desktop@0.99.0`      | `apps/desktop/tests/dev-runtime-deny-policy.test.ts`               | `passed`      |
-| A39 | source                 | `12a1830c` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-model-state.test.ts`        | `passed`      |
-| A40 | source                 | `12a1830c` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-turn-state.test.ts`         | `passed`      |
+| A37 | —                      | `—`        | —                              | —                                                                  | `skipped`     |
+| A38 | source                 | `73e444f5` | `@adea-ai/desktop@0.99.0`      | `apps/desktop/tests/dev-runtime-deny-policy.test.ts`               | `passed`      |
+| A39 | source                 | `73e444f5` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-model-state.test.ts`        | `passed`      |
+| A40 | source                 | `73e444f5` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-turn-state.test.ts`         | `passed`      |
 
 ### Requirement ids
 
 | Id      | Class  | Commit     | Package                        | Test                                                                    | Disposition   |
 | ------- | ------ | ---------- | ------------------------------ | ----------------------------------------------------------------------- | ------------- |
-| REQ-005 | source | `12a1830c` | `@adea-ai/web@0.99.0`          | `apps/web/test/agent-profile-availability.test.ts`                      | `passed`      |
+| REQ-005 | source | `73e444f5` | `@adea-ai/web@0.99.0`          | `apps/web/test/agent-profile-availability.test.ts`                      | `passed`      |
 | REQ-012 | —      | `—`        | —                              | —                                                                       | `untestable`  |
-| REQ-033 | —      | `—`        | —                              | —                                                                       | `skipped`     |
-| REQ-059 | source | `12a1830c` | `@adea-ai/desktop@0.99.0`      | `apps/desktop/tests/workspace-local-data.test.ts`                       | `passed`      |
-| REQ-108 | source | `12a1830c` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-model-state.test.ts`             | `passed`      |
-| REQ-118 | source | `12a1830c` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-model-state.test.ts`             | `passed`      |
-| REQ-119 | source | `12a1830c` | `@adea-ai/web@0.99.0`          | `apps/web/test/agent-profile-availability.test.ts`                      | `passed`      |
+| REQ-033 | —      | `—`        | —                              | —                                                                       | `unavailable` |
+| REQ-059 | source | `73e444f5` | `@adea-ai/desktop@0.99.0`      | `apps/desktop/tests/workspace-local-data.test.ts`                       | `passed`      |
+| REQ-108 | source | `73e444f5` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-model-state.test.ts`             | `passed`      |
+| REQ-118 | source | `73e444f5` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-model-state.test.ts`             | `passed`      |
+| REQ-119 | source | `73e444f5` | `@adea-ai/web@0.99.0`          | `apps/web/test/agent-profile-availability.test.ts`                      | `passed`      |
 | REQ-120 | —      | `—`        | —                              | —                                                                       | `skipped`     |
-| REQ-130 | source | `12a1830c` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-turn-presentation.test.ts`       | `passed`      |
-| REQ-131 | source | `12a1830c` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/composer-submission-identity.test.ts` | `passed`      |
-| REQ-132 | source | `12a1830c` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-turn-state.test.ts`              | `passed`      |
+| REQ-130 | source | `73e444f5` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-turn-presentation.test.ts`       | `passed`      |
+| REQ-131 | source | `73e444f5` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/composer-submission-identity.test.ts` | `passed`      |
+| REQ-132 | source | `73e444f5` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-turn-state.test.ts`              | `passed`      |
 | REQ-133 | —      | `—`        | —                              | —                                                                       | `skipped`     |
-| REQ-134 | source | `12a1830c` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-turn-state.test.ts`              | `passed`      |
+| REQ-134 | source | `73e444f5` | `@adea-ai/workspace-ui@0.99.0` | `packages/workspace-ui/tests/unit/lead-turn-state.test.ts`              | `passed`      |
 | REQ-135 | —      | `—`        | —                              | —                                                                       | `skipped`     |
-| REQ-136 | —      | `—`        | —                              | —                                                                       | `skipped`     |
+| REQ-136 | —      | `—`        | —                              | —                                                                       | `unavailable` |
 | REQ-150 | —      | `—`        | —                              | —                                                                       | `unavailable` |
 | REQ-151 | —      | `—`        | —                              | —                                                                       | `unavailable` |
-| REQ-153 | —      | `—`        | —                              | —                                                                       | `skipped`     |
-| REQ-154 | —      | `—`        | —                              | —                                                                       | `skipped`     |
+| REQ-153 | —      | `—`        | —                              | —                                                                       | `unavailable` |
+| REQ-154 | —      | `—`        | —                              | —                                                                       | `unavailable` |
 | REQ-155 | —      | `—`        | —                              | —                                                                       | `unavailable` |
-| REQ-174 | source | `12a1830c` | `@adea-ai/db@0.99.0`           | `packages/db/tests/unit/migration-snapshot-comparator.test.ts`          | `passed`      |
+| REQ-174 | source | `73e444f5` | `@adea-ai/db@0.99.0`           | `packages/db/tests/unit/migration-snapshot-comparator.test.ts`          | `passed`      |
 | REQ-175 | —      | `—`        | —                              | —                                                                       | `skipped`     |
-| REQ-176 | —      | `—`        | —                              | —                                                                       | `skipped`     |
-| REQ-177 | —      | `—`        | —                              | —                                                                       | `skipped`     |
+| REQ-176 | —      | `—`        | —                              | —                                                                       | `unavailable` |
+| REQ-177 | —      | `—`        | —                              | —                                                                       | `unavailable` |
 
 ### The 36 rows the manifest maps no evidence for
 
-Each row below is inventoried individually: the readiness criterion that names
-it, the manifest's own gap text, the subject word the runner searched for, and
-the lead it found. A lead is a file that mentions the subject; the score is how
-many of the gap's words it also mentions.
+| Id                                                                            | Disposition   | Readiness criteria that name it                                       | The gap (manifest text)                                                                              | Subject searched             | Lead found (lane)                                                                                                                                                                       |
+| ----------------------------------------------------------------------------- | ------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| REQ-012                                                                       | `untestable`  | —                                                                     | no alternate lead backend is offered in product; only the candidate adapter is tested                | alternate, responsiveness    | `apps/web/e2e/chat-view.spec.ts` (not-runnable); `apps/web/e2e/direct-session-handoff.spec.ts` (not-runnable)                                                                           |
+| REQ-033                                                                       | `unavailable` | —                                                                     | no test asserts use of the shared @adea-ai/ui components rather than local controls                  | controls, evidenced          | `apps/web/e2e/conventional-workspace.spec.ts` (not-runnable); `apps/web/e2e/helpers/source-control-harness-app.tsx` (not-runnable)                                                      |
+| REQ-120                                                                       | `skipped`     | —                                                                     | no profile capability matrix exists in merged source; no test asserts per-profile evidence           | matrix                       | `apps/desktop/tests/dev-runtime-connections-launch.test.ts` (source)                                                                                                                    |
+| REQ-133                                                                       | `skipped`     | —                                                                     | provider failure preserving draft, transcript and job receipts is not tested end to end              | preserving, billing          | `apps/desktop/tests/dev-runtime-checkpoints.test.ts` (source); `apps/web/test/control-plane-child-joined/README.md` (not-runnable)                                                      |
+| REQ-135                                                                       | `skipped`     | ACC-02 (e2e), ACC-07 (not-measured)                                   | keyboard traversal, focus return and status announcements are not asserted by any unit or E2E test i | announcements, audit         | `apps/web/e2e/dev-view-a11y-certification.spec.ts` (not-runnable); `apps/desktop/tests/dev-runtime-git-watcher-dispatch.test.ts` (source)                                               |
+| REQ-136                                                                       | `unavailable` | ACC-01 (axe), ACC-03 (presence), ACC-04 (not-measured), ACC-05 (unit) | contrast, zoom, reduced motion and color-only status are not asserted by a test                      | contrast, executed           | `apps/web/e2e/conventional-workspace.spec.ts` (not-runnable); `apps/web/test/integration/retention-cleanup-executor.test.ts` (disposable-integration)                                   |
+| REQ-150                                                                       | `unavailable` | COST-03 (presence), COST-08 (not-claimed)                             | no budget reservation, child allocation or per-request enforcement exists in merged source or tests  | enforcement                  | `apps/web/test/control-plane-child-joined/README.md` (not-runnable)                                                                                                                     |
+| REQ-151                                                                       | `unavailable` | COST-04 (presence), COST-06 (unavailable)                             | estimate, reserved, reported, reconciled and settled cost states are not represented by a tested sou | represented                  | `apps/web/e2e/chat-view.spec.ts` (not-runnable)                                                                                                                                         |
+| REQ-153                                                                       | `unavailable` | OPS-02 (presence)                                                     | the source measures Dev resource metrics, not admission latency, approval age or duplicate suppressi | suppression, instrumentation | `apps/desktop/tests/dev-runtime-composition.test.ts` (source); `apps/desktop/tests/dev-runtime-browser-engine.test.ts` (source)                                                         |
+| REQ-154                                                                       | `unavailable` | OPS-03 (presence)                                                     | no lead admission stop by backend or profile is tested                                               | backend, auditable           | `apps/desktop/tests/dev-runtime-browser-engine.test.ts` (source); `apps/web/test/contracts/lead-product-current.fenced-v2-operator.json` (not-runnable)                                 |
+| REQ-155                                                                       | `unavailable` | COST-05 (unavailable), COST-07 (presence)                             | active-object time, storage writes and service consumption are not measured by any source or test    | consumption                  | `apps/desktop/tests/dev-runtime-vault.test.ts` (source)                                                                                                                                 |
+| REQ-175                                                                       | `skipped`     | OPS-05 (presence)                                                     | no routing-back test to the previous supported path                                                  | routing, compatible          | `scripts/fresh-postgres-acceptance/policy.test.mjs` (not-runnable); `packages/db/tests/integration/migration-populated-rollback-outcome-qualification.test.ts` (disposable-integration) |
+| REQ-176                                                                       | `unavailable` | OPS-06 (not-measured)                                                 | the cleanup fence is for deletion, not lead attempt ownership                                        | ownership, fenced            | `apps/desktop/tests/dev-runtime-resources.test.ts` (source); `apps/desktop/tests/dev-runtime-composition.test.ts` (source)                                                              |
+| REQ-177                                                                       | `unavailable` | —                                                                     | no destructive cleanup gate or restoration-limit test exists in merged source                        | restoration                  | `apps/desktop/tests/dev-runtime-resources.test.ts` (source)                                                                                                                             |
+| A02                                                                           | `unavailable` | —                                                                     | retried topic creation returning the original id is not tested                                       | topic                        | `packages/db/tests/integration/lead-turn-historical.test.ts` (disposable-integration)                                                                                                   |
+| A03                                                                           | `unavailable` | —                                                                     | separate private and group runtime contexts are not tested                                           | contexts, leakage            | `apps/web/e2e/conventional-workspace.spec.ts` (not-runnable); `apps/web/e2e/chat-canvas.spec.ts` (not-runnable)                                                                         |
+| A05                                                                           | `unavailable` | COST-01 (unit)                                                        | same-name Agents from different workspaces are not tested                                            | different                    | `apps/web/e2e/conventional-workspace.spec.ts` (not-runnable)                                                                                                                            |
+| A06                                                                           | `unavailable` | —                                                                     | invitation without enlistment authority is not tested; the group test covers grant revocation metada | invitation                   | `packages/db/tests/integration/group-channels.test.ts` (disposable-integration)                                                                                                         |
+| A08                                                                           | `unavailable` | —                                                                     | bounded explicit dispatch with no broadcast feedback loop is not tested                              | broadcast                    | `apps/desktop/tests/dev-runtime-composition.test.ts` (source)                                                                                                                           |
+| A10                                                                           | `unavailable` | COST-01 (unit)                                                        | Home protection and blank-workspace no-charge setup are not tested                                   | charge                       | `apps/desktop/tests/dev-runtime-machine-resources.test.ts` (source)                                                                                                                     |
+| A12                                                                           | `skipped`     | COST-01 (unit)                                                        | a direct session inspected from Dev and Chat as one canonical session is not tested                  | inspected                    | `apps/desktop/tests/managed-clone.test.ts` (source)                                                                                                                                     |
+| A13                                                                           | `skipped`     | —                                                                     | attach, review, hand-off and return with controller audit are not tested                             | controller                   | `apps/web/e2e/chat-canvas.spec.ts` (not-runnable)                                                                                                                                       |
+| A14                                                                           | `unavailable` | —                                                                     | writer lease and conflict handling are not tested                                                    | handling, scenario           | `apps/desktop/tests/dev-runtime-follow-ups.test.ts` (source); `apps/desktop/tests/cleanup-gate-parity.test.ts` (source)                                                                 |
+| A15                                                                           | `unavailable` | —                                                                     | admitting two children while receiving human input is not tested                                     | receiving                    | `apps/desktop/tests/dev-runtime-computeruse.test.ts` (source)                                                                                                                           |
+| A17                                                                           | `unavailable` | —                                                                     | aborting the lead with a queued child completion is not tested                                       | aborting                     | `apps/desktop/tests/dev-runtime-follow-ups.test.ts` (source)                                                                                                                            |
+| A19                                                                           | `skipped`     | —                                                                     | approval pending across restart, expiry or changed input is not tested for lead work                 | expiry                       | `apps/desktop/tests/dev-runtime-interactions.test.ts` (source)                                                                                                                          |
+| A21                                                                           | `untestable`  | —                                                                     | truthful degraded display for an adapter lacking resume, usage or confirmed cancel is not tested     | lacking                      | `apps/desktop/tests/dev-runtime-composition.test.ts` (source)                                                                                                                           |
+| A22                                                                           | `skipped`     | —                                                                     | subscription quota exhaustion and auth-mode change are not tested                                    | exhaustion                   | `apps/web/test/fixtures/source-contracts/source/model-connections.ts.snapshot` (not-runnable)                                                                                           |
+| A25                                                                           | `skipped`     | ACC-01 (axe), ACC-02 (e2e), ACC-07 (not-measured)                     | screen reader, keyboard, zoom and reduced-motion checks are not asserted by a test                   | reduced                      | `apps/web/e2e/chat-canvas.spec.ts` (not-runnable)                                                                                                                                       |
+| A26                                                                           | `unavailable` | —                                                                     | no budget reservation, child allocation or per-request enforcement exists in merged source or tests  | enforcement, compaction      | `apps/web/test/control-plane-child-joined/README.md` (not-runnable); `apps/web/test/control-plane-child-joined/host.mjs` (not-runnable)                                                 |
+| A28                                                                           | `skipped`     | —                                                                     | no typed JSON artifact workflow runtime was located in packages or apps at the pinned SHA            | located                      | `apps/web/e2e/conventional-workspace.spec.ts` (not-runnable)                                                                                                                            |
+| A31                                                                           | `unavailable` | OPS-06 (not-measured)                                                 | rollback with active new and old work and uncertain effects is not tested                            | uncertain                    | `apps/web/test/control-plane-joined/lead-fence-v2.test.ts` (source)                                                                                                                     |
+| A32                                                                           | `unavailable` | —                                                                     | no LangGraph references were found in packages or apps at the pinned SHA; removal of Cloud services  | langgraph, readability       | `apps/desktop/tests/dev-runtime-composition.test.ts` (source); `apps/desktop/tests/dev-runtime-checkpoints.test.ts` (source)                                                            |
+| A33                                                                           | `unavailable` | —                                                                     | lead-tool management of configuration, memory, projects, worktrees and sessions is not tested        | management, sharing          | `apps/desktop/tests/dev-runtime-composition.test.ts` (source); `packages/db/tests/integration/group-channels.test.ts` (disposable-integration)                                          |
+| A36                                                                           | `unavailable` | OPS-09 (presence)                                                     | native cross-device history sync absence and supported-state reconnect are not tested                | absence                      | `apps/web/e2e/conventional-workspace.spec.ts` (not-runnable)                                                                                                                            |
+| A37                                                                           | `skipped`     | —                                                                     | native hooks, MCP, shell and network effects with changed configuration are not tested               | effects, insufficient        | `apps/desktop/tests/dev-runtime-call-events.test.ts` (source); `apps/desktop/tests/dev-runtime-call-events.test.ts` (source)                                                            |
+| The `untestable` rows are the strong findings: the row's subject word appears |
+| in **no test file in the repository at the candidate**. A21 (_lacking_) and   |
+| REQ-012 (_responsiveness_) have no trace of their subject anywhere. These are |
+| genuine feature gaps that need a new test or a decision, not a re-run. Three  |
+| rows left this class when the other owners' merges landed: A15 (_receiving_), |
+| A32 (_langgraph_, _readability_) and A37 (_insufficient_) now have a passing  |
+| qualification.                                                                |
 
-| Id      | Disposition   | Readiness criteria that name it                                       | The gap (manifest text)                                                                                               | Subject searched             | Lead found                                                                                          |
-| ------- | ------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------- |
-| REQ-012 | `untestable`  | —                                                                     | no alternate lead backend is offered in product; only the candidate adapter is tested                                 | alternate, responsiveness    | `apps/web/e2e/chat-view.spec.ts` (4); no test file mentions _responsiveness_                        |
-| REQ-033 | `skipped`     | —                                                                     | no test asserts use of the shared @adea-ai/ui components rather than local controls                                   | controls, evidenced          | `apps/web/e2e/conventional-workspace.spec.ts` (5); `apps/web/start/ui-tailwind-sources.test.ts` (5) |
-| REQ-120 | `skipped`     | —                                                                     | no profile capability matrix exists in merged source; no test asserts per-profile evidence                            | matrix                       | `apps/desktop/tests/dev-runtime-connections-launch.test.ts` (4)                                     |
-| REQ-133 | `skipped`     | —                                                                     | provider failure preserving draft, transcript and job receipts is not tested end to end                               | preserving, billing          | `apps/desktop/tests/dev-runtime-checkpoints.test.ts` (4)                                            |
-| REQ-135 | `skipped`     | ACC-02 (e2e), ACC-07 (not-measured)                                   | keyboard traversal, focus return and status announcements are not asserted by any unit or E2E test in this repository | announcements, audit         | `apps/web/e2e/dev-view-a11y-certification.spec.ts` (6)                                              |
-| REQ-136 | `skipped`     | ACC-01 (axe), ACC-03 (presence), ACC-04 (not-measured), ACC-05 (unit) | contrast, zoom, reduced motion and color-only status are not asserted by a test                                       | contrast, executed           | `apps/web/e2e/conventional-workspace.spec.ts` (5)                                                   |
-| REQ-150 | `unavailable` | COST-03 (presence), COST-08 (not-claimed)                             | no budget reservation, child allocation or per-request enforcement exists in merged source or tests                   | enforcement                  | `apps/web/test/control-plane-child-joined/child-allocation.test.mjs` (6)                            |
-| REQ-151 | `unavailable` | COST-04 (presence), COST-06 (unavailable)                             | estimate, reserved, reported, reconciled and settled cost states are not represented by a tested source               | represented                  | `apps/web/e2e/chat-view.spec.ts` (5)                                                                |
-| REQ-153 | `skipped`     | OPS-02 (presence)                                                     | the source measures Dev resource metrics, not admission latency, approval age or duplicate suppression                | suppression, instrumentation | `apps/desktop/tests/dev-runtime-composition.test.ts` (5)                                            |
-| REQ-154 | `skipped`     | OPS-03 (presence)                                                     | no lead admission stop by backend or profile is tested                                                                | backend, auditable           | `apps/desktop/tests/dev-runtime-browser-engine.test.ts` (3)                                         |
-| REQ-155 | `unavailable` | COST-05 (unavailable), COST-07 (presence)                             | active-object time, storage writes and service consumption are not measured by any source or test                     | consumption                  | `apps/desktop/tests/dev-runtime-vault.test.ts` (6)                                                  |
-| REQ-175 | `skipped`     | OPS-05 (presence)                                                     | no routing-back test to the previous supported path                                                                   | routing, compatible          | `scripts/fresh-postgres-acceptance/policy.test.mjs` (3)                                             |
-| REQ-176 | `skipped`     | OPS-06 (not-measured)                                                 | the cleanup fence is for deletion, not lead attempt ownership                                                         | ownership, fenced            | `apps/desktop/tests/dev-runtime-resources.test.ts` (4)                                              |
-| REQ-177 | `skipped`     | —                                                                     | no destructive cleanup gate or restoration-limit test exists in merged source                                         | restoration                  | `apps/desktop/tests/dev-runtime-resources.test.ts` (5)                                              |
-| A02     | `skipped`     | —                                                                     | retried topic creation returning the original id is not tested                                                        | topic                        | `packages/db/tests/integration/lead-turn-historical.test.ts` (4)                                    |
-| A03     | `skipped`     | —                                                                     | separate private and group runtime contexts are not tested                                                            | contexts, leakage            | `apps/web/e2e/conventional-workspace.spec.ts` (4)                                                   |
-| A05     | `skipped`     | COST-01 (unit)                                                        | same-name Agents from different workspaces are not tested                                                             | different                    | `apps/web/e2e/conventional-workspace.spec.ts` (3)                                                   |
-| A06     | `unavailable` | —                                                                     | invitation without enlistment authority is not tested; the group test covers grant revocation metadata only           | invitation                   | `packages/db/tests/integration/group-channels.test.ts` (6)                                          |
-| A08     | `unavailable` | —                                                                     | bounded explicit dispatch with no broadcast feedback loop is not tested                                               | broadcast                    | `apps/desktop/tests/dev-runtime-composition.test.ts` (3)                                            |
-| A10     | `skipped`     | COST-01 (unit)                                                        | Home protection and blank-workspace no-charge setup are not tested                                                    | charge                       | `apps/web/e2e/home-readiness-real.spec.ts` (3)                                                      |
-| A12     | `skipped`     | COST-01 (unit)                                                        | a direct session inspected from Dev and Chat as one canonical session is not tested                                   | inspected                    | `apps/desktop/tests/managed-clone.test.ts` (4)                                                      |
-| A13     | `skipped`     | —                                                                     | attach, review, hand-off and return with controller audit are not tested                                              | controller                   | `apps/web/e2e/chat-canvas.spec.ts` (4)                                                              |
-| A14     | `skipped`     | —                                                                     | writer lease and conflict handling are not tested                                                                     | handling, scenario           | `apps/desktop/tests/dev-runtime-follow-ups.test.ts` (3)                                             |
-| A15     | `untestable`  | —                                                                     | admitting two children while receiving human input is not tested                                                      | receiving                    | no test file mentions _receiving_                                                                   |
-| A17     | `skipped`     | —                                                                     | aborting the lead with a queued child completion is not tested                                                        | aborting                     | `apps/desktop/tests/dev-runtime-follow-ups.test.ts` (3)                                             |
-| A19     | `skipped`     | —                                                                     | approval pending across restart, expiry or changed input is not tested for lead work                                  | expiry                       | `apps/desktop/tests/dev-runtime-interactions.test.ts` (6)                                           |
-| A21     | `untestable`  | —                                                                     | truthful degraded display for an adapter lacking resume, usage or confirmed cancel is not tested                      | lacking                      | no test file mentions _lacking_                                                                     |
-| A22     | `skipped`     | —                                                                     | subscription quota exhaustion and auth-mode change are not tested                                                     | exhaustion                   | `apps/web/test/fixtures/source-contracts/source/model-connections.ts.snapshot` (3)                  |
-| A25     | `skipped`     | ACC-01 (axe), ACC-02 (e2e), ACC-07 (not-measured)                     | screen reader, keyboard, zoom and reduced-motion checks are not asserted by a test                                    | reduced                      | `apps/web/e2e/chat-canvas.spec.ts` (5)                                                              |
-| A26     | `skipped`     | —                                                                     | no budget reservation, child allocation or per-request enforcement exists in merged source or tests                   | enforcement, compaction      | `apps/web/test/control-plane-child-joined/child-allocation.test.mjs` (6)                            |
-| A28     | `skipped`     | —                                                                     | no typed JSON artifact workflow runtime was located in packages or apps at the pinned SHA                             | located                      | `apps/web/test/control-plane-child-joined/host.mjs` (6)                                             |
-| A31     | `skipped`     | OPS-06 (not-measured)                                                 | rollback with active new and old work and uncertain effects is not tested                                             | uncertain                    | `apps/web/test/control-plane-joined/lead-fence-v2.test.ts` (4)                                      |
-| A32     | `untestable`  | —                                                                     | no LangGraph references were found in packages or apps at the pinned SHA; removal of Cloud services is not evidenced  | langgraph, readability       | no test file mentions _langgraph_ or _readability_                                                  |
-| A33     | `skipped`     | —                                                                     | lead-tool management of configuration, memory, projects, worktrees and sessions is not tested                         | management, sharing          | `apps/desktop/tests/dev-runtime-composition.test.ts` (4)                                            |
-| A36     | `unavailable` | OPS-09 (presence)                                                     | native cross-device history sync absence and supported-state reconnect are not tested                                 | absence                      | `apps/web/e2e/conventional-workspace.spec.ts` (7)                                                   |
-| A37     | `untestable`  | —                                                                     | post-hoc events as insufficient evidence are not tested                                                               | effects, insufficient        | no test file mentions _insufficient_                                                                |
+The `unavailable` rows are the ones whose evidence **exists and passes** at the
+candidate but is not mapped by the evidence manifest. The qualification exists
+and the row is still not certified, because only the manifest may map a
+criterion to a test and it belongs to another owner. These rows are the
+clearest statement of what the next step is: the manifest has to cite the
+qualification. 23 rows are in this class, and most of them became available
+when the other owners' merges landed.
 
-The `untestable` rows are the strong findings: the row's subject word appears in
-**no test file in the repository at the candidate**. A15 (_receiving_), A21
-(_lacking_), A32 (_langgraph_, _readability_), A37 (_insufficient_) and REQ-012
-(_responsiveness_) have no trace of their subject anywhere. These are genuine
-feature gaps that need a new test or a decision, not a re-run.
-
-The `skipped` rows have a lead, but the lead is a file this runner does not run:
-a Playwright specification, a fixture or helper module, or a script-lane test.
-The runner names the lead rather than running it with the wrong runner, because
-running a Playwright specification with `bun test` reports a lane mismatch as a
-behaviour failure.
-
-The `unavailable` rows are the ones whose readiness criterion is itself
-`unavailable` or `not-claimed` (REQ-150, REQ-151, REQ-155) or whose subject
-appears only in a file that is not part of this repository's product surface
-(A06, A08, A36).
+The `skipped` rows have a lead in a lane this runner does not reproduce: a
+Playwright specification, a fixture or helper module, a script-lane test, or a
+file the repository runs in a lane of its own. The runner names the lead and
+its lane rather than running it with the wrong runner, because running a
+Playwright specification with `bun test` reports a lane mismatch as a behaviour
+failure.
 
 ## The readiness criteria, measured at the candidate
 
@@ -407,7 +447,7 @@ semantics the merged readiness script uses. A presence probe is a search, not a
 proof: it shows that an identifier is or is not in product source at that
 commit.
 
-| Criterion | Probe                | Result at `12a1830c` | Files | Owner  |
+| Criterion | Probe                | Result at `73e444f5` | Files | Owner  |
 | --------- | -------------------- | -------------------- | ----- | ------ |
 | ACC-03    | reduced-motion-tests | **present**          | 17    | Claude |
 | COST-03   | budget-reservation   | **absent**           | 0     | root   |
@@ -420,7 +460,7 @@ commit.
 | OPS-05    | rollback-code        | **present**          | 3     | —      |
 | OPS-08    | retention-gate       | **absent**           | 0     | —      |
 | OPS-09    | export-residency     | **present**          | 3     | —      |
-| OPS-10    | rollout-runbooks     | **present**          | 2     | —      |
+| OPS-10    | rollout-runbooks     | **present**          | 3     | —      |
 
 This is the source-of-truth result for the operations and cost criteria: at the
 candidate, **there is no budget-reservation, operator-control, feature-flag,
@@ -431,11 +471,14 @@ cannot be closed by a test run.
 
 ## Journeys
 
-Three journeys are available without a release, and all of them are non-UI. The
-`source` journey runs in a clean checkout of the candidate; the
-`browser-condition` journey runs the browser-condition cited test; the
-`disposable-integration` journey runs the database-backed cited tests against a
-disposable loopback database. A fourth journey, `package-consumer`, packs the
+Five journeys are available without a release, and all of them are non-UI. The
+`source` journey runs the cited tests in a clean checkout of the candidate; the
+`discovered` journey runs the qualifications the search found in the
+repository's own unit lane; the `browser-condition` journey runs the
+browser-condition cited test; the `disposable-integration` journey runs the
+database-backed tests against a disposable loopback database; and the
+`cross-product` journey runs the joined proof against the control-plane revision
+this repository already pins. A sixth journey, `package-consumer`, packs the
 packages the source journey built and installs them into a throwaway consumer.
 
 The clean checkout is produced with `git archive`, and the runner verifies that
@@ -446,113 +489,99 @@ needs are built from the same commit, with each package's own `build` script,
 before any test runs. This is the same order the repository's own test task
 uses (`test` after the package's own `build`).
 
-### Journey 1: clean checkout (source class)
+Every journey is invoked with the source candidate, so the record never mixes
+the product source with this work's own files:
 
 ```
-bun scripts/evidence-candidate-certification.mjs --run --json
+bun scripts/evidence-candidate-certification.mjs --run --json \
+  --base 73e444f59eb3526f5b18f985c2b2f1f9ae302d5a \
+  --database-url "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55473/agent_hq?sslmode=disable" \
+  --database-migration-url "postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55473/agent_hq?sslmode=disable" \
+  --control-plane-source <a control-plane checkout at 1aa42ff20c7fe1b0d9cc484983a7a631f4589746>
 ```
+
+### Journey 1: clean checkout (source class)
 
 | Step                      | Command                                                                                       | Exit             | Result                                                                           |
 | ------------------------- | --------------------------------------------------------------------------------------------- | ---------------- | -------------------------------------------------------------------------------- |
-| export the tree           | `git archive --format=tar 12a1830c4115eb46503a79aa0701452ac12ec695`                           | 0                | 3 246 files, matching the commit tree exactly                                    |
+| export the tree           | `git archive --format=tar 73e444f59eb3526f5b18f985c2b2f1f9ae302d5a`                           | 0                | 3 246 files, matching the commit tree exactly                                    |
 | install dependencies      | workspace packages linked into the checkout, third-party entries linked to the installed tree | 0                | 15 workspace trees linked                                                        |
-| build the needed packages | `bun run build` (cwd `packages/types`, `packages/api-client`, `packages/state`)               | 0                | 3 209 ms, 2 300 ms, 1 281 ms                                                     |
-| run the cited tests       | `bun test <file> --reporter=junit --reporter-outfile=<tmp>/junit/<file>.xml`                  | 0 for every file | 24 files, 369 testcases, 0 failures                                              |
+| build the needed packages | `bun run build` (cwd the packages the lane needs)                                             | 0                | from the same commit                                                             |
+| run the cited tests       | `bun test <file> --reporter=junit --reporter-outfile=<tmp>/junit/<file>.xml`                  | 0 for every file | **24 files, 369 testcases, 0 failures**                                          |
 | package-consumer          | `bun pm pack --destination <tmp>` then `bun add <tarball>`                                    | 0                | `@adea-ai/types` installed as `0.99.0` with every declared export target present |
 
 The lane covered **24 of the 27** test files the manifest cites. The three it
 leaves out are `apps/web/test/account-directory-pages.test.ts` (the
-browser-condition file, run in journey 2), and the two database-backed
-integration files (run in journey 3).
+browser-condition file, run in journey 3), and the two database-backed
+integration files (run in journey 4).
 
-### Journey 2: browser condition
+### Journey 2: discovered qualifications (source class)
+
+The search for a row's subject found files the manifest does not cite. The
+runner runs the ones that the repository's own unit lane runs, in the same
+clean checkout.
+
+| Step                          | Command                                                                      | Exit             | Result                                |
+| ----------------------------- | ---------------------------------------------------------------------------- | ---------------- | ------------------------------------- |
+| run the discovered unit files | `bun test <file> --reporter=junit --reporter-outfile=<tmp>/junit/<file>.xml` | 0 for every file | **3 files, 65 testcases, 0 failures** |
+
+These are the newly merged owners' tests, and they are what moved five rows
+out of `untestable` and twenty-three rows into `unavailable`.
+
+### Journey 3: browser condition
 
 The browser-condition file is a unit test of page modules under the browser
 export condition. It needs no browser process and no rendered surface, so it is
 a test-only qualification and not the UI evidence itself. The **UI evidence
 gate stays open** for the rows it touches.
 
-```
-bun scripts/evidence-candidate-certification.mjs --run --json
-```
+| Step               | Command                                                                                                                 | Exit | Result                       |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------- | ---- | ---------------------------- |
+| run the cited test | `bun test --conditions=browser apps/web/test/account-directory-pages.test.ts --reporter=junit --reporter-outfile=<tmp>` | 0    | **16 testcases, 0 failures** |
 
-| Step                      | Command                                                                                                                 | Exit | Result                                        |
-| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ---- | --------------------------------------------- |
-| export the tree           | `git archive --format=tar 12a1830c4115eb46503a79aa0701452ac12ec695`                                                     | 0    | 3 246 files, matching the commit tree exactly |
-| build the needed packages | `bun run build` (cwd `packages/types`, `packages/api-client`, `packages/state`, `packages/data`)                        | 0    | 1 830 ms, 603 ms, 546 ms, 2 986 ms            |
-| run the cited test        | `bun test --conditions=browser apps/web/test/account-directory-pages.test.ts --reporter=junit --reporter-outfile=<tmp>` | 0    | 16 testcases, 0 failures                      |
+This is the established repository command, from the cited receipt itself. It
+is run in the clean checkout of the candidate, with the candidate's own built
+packages. **A04 and REQ-130 are `passed` because of it.** No UI source was
+edited and no UI implementation was taken over.
 
-This is the established repository command, from the cited receipt itself:
-`bun test --conditions=browser apps/web/test/account-directory-pages.test.ts`.
-It is run in the clean checkout of the candidate, with the candidate's own
-built packages. **A04 and REQ-130 moved from `stale` to `passed` because of
-it.** No UI source was edited and no UI implementation was taken over.
-
-### Journey 3: disposable integration
+### Journey 4: disposable integration
 
 The database is disposable and local. It was started under its own Compose
 project and port, so it cannot touch another worker's instance, and it was
-removed again afterwards.
+removed again afterwards. The pinned image was already in the local store, so
+this run made no registry request.
 
 ```
 ADEA_POSTGRES_PORT=55473 docker-compose -p f3w5-cert -f compose.yml up -d postgres
-DATABASE_URL=postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55473/agent_hq?sslmode=disable \
-DATABASE_URL_UNPOOLED=postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55473/agent_hq?sslmode=disable \
-DATABASE_MIGRATION_URL=postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55473/agent_hq?sslmode=disable \
-  bun run --cwd packages/db db:migrate
+DATABASE_URL=... DATABASE_MIGRATION_URL=... bun run --cwd packages/db db:migrate
 # Migration verification passed (61 applied migration(s))
-
-bun scripts/evidence-candidate-certification.mjs --run --json \
-  --database-url "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55473/agent_hq?sslmode=disable" \
-  --database-migration-url "postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55473/agent_hq?sslmode=disable"
 ```
 
-| Step                                                                   | Command                                                                                                | Exit | Result                  |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---- | ----------------------- |
-| build `@adea-ai/types`                                                 | `bun run build` (cwd `packages/types`)                                                                 | 0    | 1 565 ms                |
-| build `@adea-ai/auth`                                                  | `bun run build` (cwd `packages/auth`)                                                                  | 0    | 1 631 ms                |
-| build `@adea-ai/remote-content`                                        | `bun run build` (cwd `packages/remote-content`)                                                        | 0    | 483 ms                  |
-| build `@adea-ai/db`                                                    | `bun run build` (cwd `packages/db`)                                                                    | 0    | 30 504 ms               |
-| run `packages/db/tests/integration/artifact-reference-service.test.ts` | `bun test --conditions=react-server --timeout 120000 <file> --reporter=junit --reporter-outfile=<tmp>` | 0    | 9 testcases, 0 failures |
-| run `apps/web/test/integration/artifact-reference-routes.test.ts`      | `bun test --conditions=react-server --timeout 120000 <file> --reporter=junit --reporter-outfile=<tmp>` | 0    | 8 testcases, 0 failures |
-
-The lane is 2 files, 17 testcases, 0 failures, exit 0.
+| Step                                               | Command                                                                                                | Exit             | Result                                  |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------- | --------------------------------------- |
+| run the cited and discovered database-backed files | `bun test --conditions=react-server --timeout 120000 <file> --reporter=junit --reporter-outfile=<tmp>` | 0 for every file | **34 files, 681 testcases, 0 failures** |
 
 The lane refuses any database URL that is not a loopback host, and the
 repository's own test-target guard refuses a non-local target as well.
 
-### Journey 4: the joined cross-product proof
+### Journey 5: the joined cross-product proof
 
 This repository already commits a cross-repository pin:
 `apps/web/test/control-plane-joined/control-plane-source.json` names the
 control-plane revision the joined proof runs against. The runner reads that
 committed pin; it never names a pair of its own.
 
-The proof runs from the control-plane checkout, because the control-plane
-sources compile under the control plane's own TypeScript configuration. The
-checkout has to be at the pinned revision with no tracked changes, and the
-proof checks that itself and refuses otherwise.
+| Step                                        | Command                                                                                                                        | Exit | Result                                                                                                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------- |
+| check out the pinned control-plane revision | `git clone --shared --no-checkout <control-plane> <tmp>` then `git checkout --detach 1aa42ff20c7fe1b0d9cc484983a7a631f4589746` | 0    | HEAD is the pinned revision, the tree is clean, and it contains the fence-v2 consumer `c97e91d40570d85076796709fc8304909afe4fcb` |
+| run the joined proof                        | `bun test --conditions=react-server --timeout 120000 apps/web/test/control-plane-joined` (cwd the control-plane checkout)      | 0    | **41 tests, 0 failures, 2 274 assertions**                                                                                       |
 
-```
-bun scripts/evidence-candidate-certification.mjs --run --json \
-  --database-url "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55473/agent_hq?sslmode=disable" \
-  --database-migration-url "postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55473/agent_hq?sslmode=disable" \
-  --control-plane-source <a control-plane checkout at 1aa42ff20c7fe1b0d9cc484983a7a631f4589746>
-```
-
-| Step                                         | Command                                                                                                                        | Exit | Result                                                                                                                           |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ---- | -------------------------------------------------------------------------------------------------------------------------------- |
-| check out the pinned control-plane revision  | `git clone --shared --no-checkout <control-plane> <tmp>` then `git checkout --detach 1aa42ff20c7fe1b0d9cc484983a7a631f4589746` | 0    | HEAD is the pinned revision, the tree is clean, and it contains the fence-v2 consumer `c97e91d40570d85076796709fc8304909afe4fcb` |
-| install the control plane's own dependencies | `bun install --frozen-lockfile`                                                                                                | 0    | 302 packages, 16.04 s                                                                                                            |
-| build the control plane's packages           | `bun run build` (turbo)                                                                                                        | 0    | 45 of 45 tasks successful, 33.2 s                                                                                                |
-| run the joined proof                         | `bun test --conditions=react-server --timeout 120000 apps/web/test/control-plane-joined` (cwd the control-plane checkout)      | 0    | **41 tests, 0 failures, 2 274 assertions**                                                                                       |
-
-The pair that was exercised is therefore a **verified** pair, and both of its
-ends come from an existing authorized source:
+The pair that was exercised is a **verified** pair, and both of its ends come
+from an existing authorized source:
 
 | Side          | SHA                                        | Source of the SHA                                           |
 | ------------- | ------------------------------------------ | ----------------------------------------------------------- |
-| Adea          | `12a1830c4115eb46503a79aa0701452ac12ec695` | `refs/heads/main` of `adea-ai/adea`                         |
+| Adea          | `73e444f59eb3526f5b18f985c2b2f1f9ae302d5a` | `refs/heads/main` of `adea-ai/adea`                         |
 | Control plane | `1aa42ff20c7fe1b0d9cc484983a7a631f4589746` | this repository's own committed `control-plane-source.json` |
 
 This is a source-level proof that the two repositories agree on the fence-v2
@@ -562,29 +591,43 @@ not a published candidate head, and the `cross-product` gate stays open for
 that reason. The proof's own record says the same:
 `docs/evidence/m18-01-3-joined-consumer-proof.md`.
 
-One environment note: the `turbo` CLI appends a managed agent-guidance block to
-`AGENTS.md` in the control-plane checkout when it detects an agent. The proof
-refuses a checkout with tracked changes, so that block is restored before the
-proof runs. It is a side effect in a temporary clone, not in any owner's
-checkout.
+Two conditions apply. The proof needs a **fresh disposable database**: it
+writes rows under fixed identifiers, so a database that already holds them
+makes it fail, and the runner reports that failure with the reason rather than
+calling it a pass. And the `turbo` CLI appends a managed agent-guidance block
+to `AGENTS.md` in the control-plane checkout when it detects an agent, which
+the proof refuses as a tracked change; the block is restored before the proof
+runs. Both are effects in a temporary clone, not in any owner's checkout.
 
-**The proof needs a fresh disposable database.** It writes rows under fixed
-identifiers, so a database that already holds them makes it fail. That is why
-the repository's own lane provisions its own instance for it. The disposable
-database is therefore recreated before the run:
+## What was repaired in the owned harness
 
-```sh
-docker-compose -p f3w5-cert -f compose.yml down -v
-ADEA_POSTGRES_PORT=55473 docker-compose -p f3w5-cert -f compose.yml up -d postgres
-DATABASE_URL=... DATABASE_MIGRATION_URL=... bun run --cwd packages/db db:migrate
-```
+Three defects in this runner's own lanes were found and repaired. Each was
+found by running the runner, and each is covered by a focused test.
 
-A run against a database that already holds rows fails, and the runner reports
-that failure with the reason rather than calling it a pass.
+| Defect                                                                                                                                                                                                                                                  | Repair                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A discovered qualification was never run when it was database-backed, so the newly merged owners' integration tests were named but not executed.                                                                                                        | The discovered files are split by the lane that can run them, and the database-backed ones join the disposable lane.                                                                                                                             |
+| A discovered file was run even when **no lane of this repository runs it** (a desktop-shell test, a dev-view test, a script-lane test). In the wrong lane those files failed for environment reasons, and the runner reported them as product failures. | The lanes are read from the repository's own definitions: the `test:coverage` path list for the unit lane, and `scripts/integration-inventory.mjs` for the integration lane. A file no lane runs is named with that reason instead of being run. |
+| A file that demands the **Docker capture provisioning** (`MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL`) was run without it and failed. Those files refuse to skip silently, and the failure is a missing prerequisite, not a behaviour.                     | They are detected from their own source and named with the exact prerequisite. Nine files are in this class, including the five migration qualifications that #1545 merged.                                                                      |
+
+A fourth rule was added for the same reason: a file whose every test timed out
+did not run, and is now reported as a skip rather than as a failure.
+
+The result is that **every journey passes and no failure is reported that is
+not a product failure**. The 83 qualifications that no lane here can run are
+named, with the reason, in the report's `unrunnableQualifications`.
 
 ## The wider repository lane
 
 The documented wider command is `bun test scripts/`.
+
+**The aggregate lane was not re-run for this reconciliation.** The runs
+recorded below are the raw receipts of the previous round, they are the
+evidence for the wider lane, and they were not repeated: the shared capacity
+is not certified, a repeated aggregate run would add load without adding
+evidence, and the Docker registry's anonymous pull limit makes the aggregate
+lane's provisioning steps unreliable on this host. The focused tests for this
+work were run instead, and the diagnosis below stands on the raw receipts.
 
 ### The missing Node runtime was an environment gap, not a waived check
 
@@ -704,17 +747,17 @@ These gates are open for every id. They are external to this repository, so
 this record reports the exact missing artifact and its owner and never infers
 them.
 
-| Gate                      | Owner                | The exact missing artifact                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `native-candidate`        | candidate owners     | An exact head for #1181, #1182, #1177 or #1180, and a native artifact built from it. No such head is pinned in this checkout, and the remote's open drafts (#1515, #1518, #1522, #1525) are drafts, not candidates.                                                                                                                                                                                      |
-| `control-plane-candidate` | control-plane owners | A control-plane candidate head for CP #943. The control-plane remote publishes **no** `refs/pull/943/head` and no `refs/pull/943/merge`, so there is no head to name. The published control-plane candidate head is `95021f73a1127d117317ed78e5d7466f3ad61783` for CP #1210.                                                                                                                             |
-| `packaged-native`         | release owners       | A packaged or native candidate artifact for the milestone, and the contract version the evidence manifest accepts. `compatibility.contractVersions` is empty, so **every** candidate contract is currently incompatible. This task does not authorize a release.                                                                                                                                         |
-| `deployed`                | release owners       | A deployed environment built from the candidate. None is available, and this task does not authorize access to production.                                                                                                                                                                                                                                                                               |
-| `cross-product`           | both product owners  | One exact pair of **candidate** heads, one from each repository. The joined journey **was** executed and passed at a verified pair (Adea `12a1830c…` with control-plane `1aa42ff2…`, 41 tests, 0 failures), but the control-plane side of that pair is a pinned consumer-contract revision, not a published candidate head: CP #943 has no pull request, so there is no control-plane candidate to name. |
-| `soak-24h`                | release owners       | A 24-hour soak result. Not run here; this task does not authorize long paid or production soaks.                                                                                                                                                                                                                                                                                                         |
-| `performance-cost`        | release owners       | Approved latency and cost thresholds and a meter. The candidate measures none of the eight instrumentation identifiers, so nothing can be measured for them.                                                                                                                                                                                                                                             |
-| `owner-acceptance`        | owner                | The owner's daily-driver journey. A human decision, reported as open and never inferred.                                                                                                                                                                                                                                                                                                                 |
-| `ui-evidence`             | Claude               | The axe audit, the keyboard suite and the screen-reader pass at the candidate, and the reduced-motion, contrast and zoom assertions. The browser-condition unit test is not this evidence.                                                                                                                                                                                                               |
+| Gate                      | Owner                | The exact missing artifact                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `native-candidate`        | candidate owners     | An exact head for #1181, #1182, #1177 or #1180, and a native artifact built from it. No such head is pinned in this checkout, and the remote's open drafts (#1515, #1518, #1522, #1525) are drafts, not candidates.                                                                                                                                                                                                        |
+| `control-plane-candidate` | control-plane owners | A control-plane candidate head for CP #943. The control-plane remote publishes **no** `refs/pull/943/head` and no `refs/pull/943/merge`, so there is no head to name. The published control-plane candidate head is `95021f73a1127d117317ed78e5d7466f3ad61783` for CP #1210.                                                                                                                                               |
+| `packaged-native`         | release owners       | A packaged or native candidate artifact for the milestone, and the contract version the evidence manifest accepts. `compatibility.contractVersions` is empty, so **every** candidate contract is currently incompatible. This task does not authorize a release.                                                                                                                                                           |
+| `deployed`                | release owners       | A deployed environment built from the candidate. None is available, and this task does not authorize access to production.                                                                                                                                                                                                                                                                                                 |
+| `cross-product`           | both product owners  | One exact pair of **candidate** heads, one from each repository. The joined journey **was** executed and passed at a verified pair (Adea `73e444f5…` with control-plane `1aa42ff2…`, 41 tests, 0 failures, 2 274 assertions), but the control-plane side of that pair is a pinned consumer-contract revision, not a published candidate head: CP #943 has no pull request, so there is no control-plane candidate to name. |
+| `soak-24h`                | release owners       | A 24-hour soak result. Not run here; this task does not authorize long paid or production soaks.                                                                                                                                                                                                                                                                                                                           |
+| `performance-cost`        | release owners       | Approved latency and cost thresholds and a meter. The candidate measures none of the eight instrumentation identifiers, so nothing can be measured for them.                                                                                                                                                                                                                                                               |
+| `owner-acceptance`        | owner                | The owner's daily-driver journey. A human decision, reported as open and never inferred.                                                                                                                                                                                                                                                                                                                                   |
+| `ui-evidence`             | Claude               | The axe audit, the keyboard suite and the screen-reader pass at the candidate, and the reduced-motion, contrast and zoom assertions. The browser-condition unit test is not this evidence.                                                                                                                                                                                                                                 |
 
 ## Gap report and routing to root
 
@@ -841,20 +884,18 @@ bun scripts/evidence-candidate-certification.mjs
 # the full JSON report
 bun scripts/evidence-candidate-certification.mjs --json
 
-# the map plus the clean-checkout, browser-condition and disposable-integration journeys
-bun scripts/evidence-candidate-certification.mjs --run --json
-
-# the disposable-integration journey against a disposable loopback database
-bun scripts/evidence-candidate-certification.mjs --run \
-  --database-url "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55473/agent_hq?sslmode=disable" \
-  --database-migration-url "postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55473/agent_hq?sslmode=disable"
-
-# the joined cross-product journey, against a control-plane checkout at the
-# revision this repository already pins
-bun scripts/evidence-candidate-certification.mjs --run \
+# every journey, at the frozen source candidate
+bun scripts/evidence-candidate-certification.mjs --run --json \
+  --base 73e444f59eb3526f5b18f985c2b2f1f9ae302d5a \
   --database-url "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55473/agent_hq?sslmode=disable" \
   --database-migration-url "postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55473/agent_hq?sslmode=disable" \
   --control-plane-source <a control-plane checkout at 1aa42ff20c7fe1b0d9cc484983a7a631f4589746>
+
+# the disposable-integration journey on its own
+bun scripts/evidence-candidate-certification.mjs --run \
+  --base 73e444f59eb3526f5b18f985c2b2f1f9ae302d5a \
+  --database-url "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55473/agent_hq?sslmode=disable" \
+  --database-migration-url "postgresql://agent_hq_local_migration:agent_hq_local_migration@127.0.0.1:55473/agent_hq?sslmode=disable"
 
 # strict mode: exits non-zero unless every id is certified
 bun scripts/evidence-candidate-certification.mjs --strict
@@ -920,14 +961,19 @@ docker-compose -p f3w5-cert -f compose.yml down -v
 ## Draft packet
 
 This document, the runner and the runner's tests are a checked draft packet on
-branch `codex/f3w5-adea-20261021` at `12a1830c4115eb46503a79aa0701452ac12ec695`.
-The branch carries no tracked modification; the three owned files are the only
-changes.
+branch `codex/f3w5-adea-20261021`. The branch carries no tracked modification
+of another owner's file; the three owned files are the only changes, and the
+diff against `main` is exactly those three files.
 
-No pull request has been opened, no draft has been published, and no
-credential has been created. Publishing is requested from root through the
-authorized Sol Main local-gh publication handoff, and only after a complete
-exact-head and test manifest exists. The exact-head and test manifest is the
-`entries[]` array of the JSON report: every one of the 64 ids carries a commit,
-a package version, a test path, a test title count, an evidence class and a
-disposition.
+Draft pull request **#1550** is **open, draft, not merged, auto-merge off**,
+with one commit and three changed files, and no failing check. Its head was
+`a68e96a75124da98ead6b1543785874ad1c1d2b9` when it was opened; this
+reconciliation adds the merge of the current `main` and the harness repairs on
+top of it, so the publisher advances the head to the commit named in the
+handoff packet.
+
+No credential has been created, nothing has been published or merged, no
+readiness or release claim is made, no issue is closed, and no deployment or
+production access happened. The exact-head and test manifest is the `entries[]`
+array of the JSON report: every one of the 64 ids carries a commit, a package
+version, a test path, a test title count, an evidence class and a disposition.

@@ -24,6 +24,7 @@ import {
   runCommand,
   safeRepoPath,
 } from './evidence-manifest.mjs'
+import { isIntegrationTestFile } from './integration-inventory.mjs'
 
 // Exact-candidate certification runner for Adea #1225, #1223 and #1224.
 //
@@ -234,6 +235,90 @@ export function isHelperOnlyPath(path) {
   const name = segments[segments.length - 1]
   if (HELPER_NAME.test(name)) return true
   return segments.slice(0, -1).some((segment) => HELPER_SEGMENTS.has(segment))
+}
+
+/**
+ * The files the repository's own lanes run, read from the repository's own
+ * definitions at a revision.
+ *
+ * The unit lane is the path list of the `test:coverage` script. The
+ * integration lane is the inventory the integration runner discovers. A
+ * discovered qualification that no lane of this repository runs is not run
+ * here either: running it in the wrong lane turns an environment difference
+ * into an apparent product failure.
+ */
+export function repositoryLaneFiles(revision, cwd) {
+  const manifestBlob = runCommand('git', ['show', `${revision}:package.json`], { cwd })
+  const manifest = JSON.parse(manifestBlob)
+  const coverage = manifest.scripts?.['test:coverage'] ?? ''
+  const unitPaths = new Set()
+  const unitDirectories = new Set()
+  for (const token of coverage.split(/\s+/).filter(Boolean)) {
+    if (token.includes('*')) continue
+    if (!token.startsWith('packages/') && !token.startsWith('apps/')) continue
+    unitPaths.add(token)
+  }
+  const tree = runCommand('git', ['ls-tree', '-r', '--name-only', revision], {
+    cwd,
+    maxBuffer: 1024 * 1024 * 64,
+  })
+    .split('\n')
+    .filter(Boolean)
+  // A lane entry can name a directory as well as a file. A token that is a
+  // directory in the tree covers every file under it.
+  for (const token of unitPaths) {
+    if (tree.some((path) => path.startsWith(`${token}/`))) unitDirectories.add(token)
+  }
+  const unit = new Set()
+  const integration = new Set()
+  for (const path of tree) {
+    if (coverage.includes('scripts/*.test.ts') && /^scripts\/[^/]+\.test\.ts$/.test(path)) {
+      unit.add(path)
+    }
+    if (unitPaths.has(path)) unit.add(path)
+    for (const directory of unitDirectories) {
+      if (path.startsWith(`${directory}/`)) unit.add(path)
+    }
+    if (path.startsWith('packages/') && path.includes('/tests/integration/')) {
+      if (isIntegrationTestFile(path)) integration.add(path)
+    }
+    if (path.startsWith('apps/web/test/integration/') && isIntegrationTestFile(path)) {
+      integration.add(path)
+    }
+  }
+  return { unit, integration }
+}
+
+/**
+ * The lane a file belongs to in this repository, or null when no lane of the
+ * repository runs it.
+ */
+export function repositoryLaneFor(file, lanes) {
+  if (lanes.unit.has(file)) return 'unit'
+  if (lanes.integration.has(file)) return 'integration'
+  return null
+}
+
+/**
+ * The files at a revision that demand the Docker capture provisioning. Those
+ * files need a second, separately provisioned disposable instance; they refuse
+ * to skip silently, so they are named rather than run without it.
+ */
+export function captureProvisioningFiles(revision, cwd, files) {
+  const required = []
+  for (const file of files) {
+    let source
+    try {
+      source = runCommand('git', ['show', `${revision}:${file}`], {
+        cwd,
+        maxBuffer: 1024 * 1024 * 16,
+      })
+    } catch {
+      continue
+    }
+    if (source.includes('MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL')) required.push(file)
+  }
+  return required
 }
 
 /** The evidence class a test file can produce at most. */
@@ -1280,13 +1365,20 @@ export function runCleanCheckoutJourney({
       // A file that produced no testcase did not run under this runner. It is
       // a lane mismatch, not a behaviour failure, and it is reported as a skip.
       const ranNothing = passCount === 0 && failCount === 0
+      // A file whose every test timed out did not run either. A file that ran
+      // and produced a real assertion failure is a failure.
+      const timeouts = ((result.stderr ?? '').match(/this test timed out after \d+ms/g) ?? [])
+        .length
+      const everyTestTimedOut = failCount > 0 && timeouts === failCount
       results.push({
         file,
         command,
         exitCode: result.status,
-        status: ranNothing ? 'skipped' : result.status === 0 ? 'passed' : 'failed',
+        status:
+          ranNothing || everyTestTimedOut ? 'skipped' : result.status === 0 ? 'passed' : 'failed',
         pass: passCount,
         fail: failCount,
+        timeouts,
         durationMs: Math.round(durationMs),
         passing:
           parsed === null ? [] : [...parsed.passed].filter((title) => !parsed.failed.has(title)),
@@ -1767,6 +1859,7 @@ export function discoverQualifications({ gaps, revision, cwd, cache = new Map() 
         file,
         score,
         tokens: perToken.filter((e) => e.files.includes(file)).map((e) => e.token),
+        ...leadLane(file),
       }))
       .toSorted((left, right) => right.score - left.score || left.file.localeCompare(right.file))
       .slice(0, 8)
@@ -1792,6 +1885,23 @@ export function discoverQualifications({ gaps, revision, cwd, cache = new Map() 
  * git history are not Bun test files, and running them with `bun test` would
  * report a lane mismatch as a behaviour failure.
  */
+/**
+ * The lane a discovered lead belongs to, and the reason when no lane can run
+ * it. The inventory names the lane so a row can say why its lead was not run.
+ */
+export function leadLane(file) {
+  if (!classifyRunnable(file).runnable) {
+    return { lane: 'not-runnable', laneReason: classifyRunnable(file).reason }
+  }
+  if (BROWSER_CONDITION_FILES.has(file)) {
+    return { lane: 'browser-condition', laneReason: null }
+  }
+  if (classForTestPath(file) === CLASS.disposableIntegration) {
+    return { lane: 'disposable-integration', laneReason: null }
+  }
+  return { lane: 'source', laneReason: null }
+}
+
 export function classifyRunnable(file) {
   if (/(^|\/)e2e\//.test(file) || /\.spec\.[cm]?[jt]sx?$/.test(file)) {
     return { runnable: false, reason: 'a Playwright specification, run by the E2E runner' }
@@ -2095,13 +2205,20 @@ export function runDisposableIntegrationJourney({
       // A file that produced no testcase did not run under this runner. It is
       // a lane mismatch, not a behaviour failure, and it is reported as a skip.
       const ranNothing = passCount === 0 && failCount === 0
+      // A file whose every test timed out did not run either. A file that ran
+      // and produced a real assertion failure is a failure.
+      const timeouts = ((result.stderr ?? '').match(/this test timed out after \d+ms/g) ?? [])
+        .length
+      const everyTestTimedOut = failCount > 0 && timeouts === failCount
       results.push({
         file,
         command,
         exitCode: result.status,
-        status: ranNothing ? 'skipped' : result.status === 0 ? 'passed' : 'failed',
+        status:
+          ranNothing || everyTestTimedOut ? 'skipped' : result.status === 0 ? 'passed' : 'failed',
         pass: passCount,
         fail: failCount,
+        timeouts,
         durationMs: Math.round(durationMs),
         passing:
           parsed === null ? [] : [...parsed.passed].filter((title) => !parsed.failed.has(title)),
@@ -2167,6 +2284,7 @@ export function buildReport({
   readiness = new Map(),
   readinessProbes = [],
   discovered = new Map(),
+  unrunnableQualifications = [],
   candidatePackageVersion = null,
 }) {
   const entries = buildCertificationMap({
@@ -2242,6 +2360,7 @@ export function buildReport({
     },
     classes: { all: EVIDENCE_CLASSES, machine: MACHINE_CLASSES },
     readinessProbes,
+    unrunnableQualifications,
     entries,
     candidates: {
       status: candidateArtifacts.status,
@@ -2300,6 +2419,9 @@ export function summarize(report) {
     )
   }
   for (const problem of report.manifest.receiptProblems) lines.push(`receipt: ${problem}`)
+  for (const qualification of report.unrunnableQualifications ?? []) {
+    lines.push(`qualification not run: ${qualification.file} (${qualification.reason})`)
+  }
   for (const rejection of report.candidates.rejected) {
     lines.push(
       `candidate ${rejection.candidateId ?? '(manifest)'}: ${rejection.status}: ${rejection.reason}`
@@ -2457,6 +2579,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const journeys = []
     let reproduced = new Map()
     let discovered = new Map()
+    let unrunnableQualifications = []
     if (run) {
       const map = buildCertificationMap({
         manifest,
@@ -2492,12 +2615,50 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       }
       const lane = nonUiLane(map)
       const laneFiles = new Set(lane.map((file) => file.path))
+      // A discovered qualification is run in the lane that can run it, and
+      // only when a lane of this repository actually runs the file. A file
+      // that no lane runs here is named in the report instead of being run in
+      // the wrong lane, where an environment difference would look like a
+      // product failure.
+      const lanes = repositoryLaneFiles(baseHead, repoRoot)
+      const discoveredUnitFiles = new Set()
+      const discoveredIntegrationFiles = new Set()
+      const discoveredOutsideLanes = new Set()
       for (const file of discoveredFiles) {
         if (laneFiles.has(file)) continue
         if (BROWSER_CONDITION_FILES.has(file)) continue
-        if (classForTestPath(file) === CLASS.disposableIntegration) continue
-        laneFiles.add(file)
+        if (!classifyRunnable(file).runnable) continue
+        const repositoryLane = repositoryLaneFor(file, lanes)
+        if (repositoryLane === 'unit') {
+          discoveredUnitFiles.add(file)
+          continue
+        }
+        if (repositoryLane === 'integration') {
+          discoveredIntegrationFiles.add(file)
+          continue
+        }
+        discoveredOutsideLanes.add(file)
       }
+      // A file that demands the Docker capture provisioning needs a second,
+      // separately provisioned disposable instance. It refuses to skip
+      // silently, so it is named with that prerequisite rather than run
+      // without it.
+      const captureProvisioning = captureProvisioningFiles(baseHead, repoRoot, [
+        ...discoveredIntegrationFiles,
+      ])
+      for (const file of captureProvisioning) discoveredIntegrationFiles.delete(file)
+      unrunnableQualifications = [
+        ...[...discoveredOutsideLanes].map((file) => ({
+          file,
+          reason:
+            'no lane of this repository runs the file, so it is named here rather than run in the wrong lane',
+        })),
+        ...captureProvisioning.map((file) => ({
+          file,
+          reason:
+            'the file requires the Docker capture provisioning (MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL), a second separately provisioned disposable instance',
+        })),
+      ]
       const journey = runCleanCheckoutJourney({
         checkout,
         baseHead,
@@ -2513,11 +2674,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       )
       // The discovered qualifications run in their own lane, so a lane
       // mismatch in a discovered file cannot make the cited lane fail.
-      const discoveredLaneFiles = [...discoveredFiles]
-        .filter((file) => !laneFiles.has(file))
-        .filter((file) => !BROWSER_CONDITION_FILES.has(file))
-        .filter((file) => classForTestPath(file) !== CLASS.disposableIntegration)
-        .toSorted()
+      const discoveredLaneFiles = [...discoveredUnitFiles].toSorted()
       if (discoveredLaneFiles.length > 0) {
         const discoveredJourney = runCleanCheckoutJourney({
           checkout,
@@ -2549,7 +2706,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const disposable = runDisposableIntegrationJourney({
         checkout,
         baseHead,
-        files: disposableLane(map),
+        // The cited database-backed files, and the discovered ones that the
+        // same disposable database can qualify.
+        files: [...new Set([...disposableLane(map), ...discoveredIntegrationFiles])].toSorted(),
         databaseUrl: databaseUrl ?? '',
         databaseMigrationUrl: databaseMigrationUrl ?? null,
       })
@@ -2595,6 +2754,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       readiness,
       readinessProbes,
       discovered,
+      unrunnableQualifications,
       candidatePackageVersion,
     })
     process.stdout.write(json ? `${JSON.stringify(report, null, 2)}\n` : `${summarize(report)}\n`)

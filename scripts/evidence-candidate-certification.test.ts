@@ -16,6 +16,7 @@ import {
   browserConditionLane,
   buildCertificationMap,
   buildReport,
+  captureProvisioningFiles,
   certificationExitCode,
   changedSince,
   classifyRunnable,
@@ -31,11 +32,14 @@ import {
   installWorkspaceDependencies,
   isHelperOnlyPath,
   isLoopbackDatabaseUrl,
+  leadLane,
   nonUiLane,
   owningPackage,
   readReceipts,
   readCrossRepositoryPin,
   readinessCriteriaForId,
+  repositoryLaneFiles,
+  repositoryLaneFor,
   requiredBuilds,
   REQUIRED_IDS,
   runCrossProductJourney,
@@ -1281,6 +1285,61 @@ describe('the cross-repository pin', () => {
     })
     expect(result.status).toBe('unavailable')
     expect(result.reason).toContain('ADEA_CONTROL_PLANE_SOURCE')
+  })
+})
+
+describe('the lane a discovered lead belongs to', () => {
+  test('a unit test is a source lead, a database-backed test a disposable lead', () => {
+    expect(leadLane('packages/db/tests/unit/artifact-reference-policy.test.ts').lane).toBe('source')
+    expect(leadLane('packages/db/tests/integration/personal-workspaces.test.ts').lane).toBe(
+      'disposable-integration'
+    )
+    expect(leadLane('apps/web/test/integration/protected-home-lifecycle.test.ts').lane).toBe(
+      'disposable-integration'
+    )
+  })
+
+  test('a browser-condition file and a file no lane can run are named as such', () => {
+    expect(leadLane('apps/web/test/account-directory-pages.test.ts').lane).toBe('browser-condition')
+    const playwright = leadLane('apps/web/e2e/chat-view.spec.ts')
+    expect(playwright.lane).toBe('not-runnable')
+    expect(playwright.laneReason).toContain('Playwright')
+    expect(leadLane('scripts/evidence-manifest.test.ts').lane).toBe('not-runnable')
+  })
+})
+
+describe("the repository's own lanes", () => {
+  test('the unit lane and the integration lane are read from the repository', () => {
+    const lanes = repositoryLaneFiles('HEAD', root)
+    expect(lanes.unit.has('scripts/evidence-candidate-certification.test.ts')).toBe(true)
+    expect(lanes.unit.has('packages/db/tests/unit/artifact-reference-policy.test.ts')).toBe(true)
+    expect(
+      lanes.integration.has('packages/db/tests/integration/artifact-reference-service.test.ts')
+    ).toBe(true)
+    expect(
+      lanes.integration.has('apps/web/test/integration/artifact-reference-routes.test.ts')
+    ).toBe(true)
+  })
+
+  test('a file no lane of the repository runs is in no lane', () => {
+    const lanes = repositoryLaneFiles('HEAD', root)
+    expect(repositoryLaneFor('apps/desktop/tests/dev-runtime-github-provider.test.ts', lanes)).toBe(
+      null
+    )
+    expect(repositoryLaneFor('packages/dev-view/tests/utility-layout-storage.test.ts', lanes)).toBe(
+      null
+    )
+    expect(
+      repositoryLaneFor('packages/db/tests/unit/artifact-reference-policy.test.ts', lanes)
+    ).toBe('unit')
+  })
+
+  test('a file that demands the capture provisioning is named', () => {
+    const required = captureProvisioningFiles('HEAD', root, [
+      'packages/db/tests/integration/migration-cutover-rehearsal.test.ts',
+      'packages/db/tests/integration/artifact-reference-service.test.ts',
+    ])
+    expect(required).toEqual(['packages/db/tests/integration/migration-cutover-rehearsal.test.ts'])
   })
 })
 
