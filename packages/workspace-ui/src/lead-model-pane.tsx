@@ -60,7 +60,7 @@ export default function LeadModelPane(props: { client?: AgentHqApiClient; worksp
       when={scope()}
       keyed
       fallback={
-        <SettingsSection title="Agent models" description="Default models for this workspace.">
+        <SettingsSection title="Agent models" help="Default models for this workspace.">
           <EmptyDescription role="status">
             Model setup is unavailable in this view. Your drafts and direct sessions remain
             available.
@@ -183,7 +183,7 @@ function LeadModelContent(props: { client: AgentHqApiClient; workspaceId: string
   return (
     <SettingsSection
       title="Agent models"
-      description="Default models for this workspace. Credentials are managed in Connections."
+      help="Default models for this workspace. Credentials are managed in Connections."
       bodyLayout="content"
     >
       <WorkspaceLeadStatus client={props.client} workspaceId={props.workspaceId} />
