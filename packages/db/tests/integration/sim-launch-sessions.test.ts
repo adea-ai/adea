@@ -126,6 +126,37 @@ describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
     })
   })
 
+  test('a code spent by the plain redemption cannot later mint a session', async () => {
+    const b = binding()
+    const code = `code-${unique()}`
+    const session = `session-${unique()}`
+    await store.issue(code, b, later)
+
+    expect(await store.redeem(code, presented, Date.now())).toMatchObject({ ok: true })
+    expect(
+      await store.redeemAndSave(code, presented, Date.now(), { value: session, expiresAt: later })
+    ).toEqual({ ok: false, reason: 'code_used' })
+    // The refused redemption wrote no session.
+    expect(await findSimSession(connection.db, session, b.workspaceId, Date.now())).toBeNull()
+  })
+
+  test('a code spent by the atomic redemption cannot be redeemed again', async () => {
+    const b = binding()
+    const code = `code-${unique()}`
+    const session = `session-${unique()}`
+    await store.issue(code, b, later)
+
+    expect(
+      await store.redeemAndSave(code, presented, Date.now(), { value: session, expiresAt: later })
+    ).toEqual({ ok: true, surface: 'room-designer' })
+    expect(await store.redeem(code, presented, Date.now())).toEqual({
+      ok: false,
+      reason: 'code_used',
+    })
+    // The one session that was minted is still the only one.
+    expect(await findSimSession(connection.db, session, b.workspaceId, Date.now())).not.toBeNull()
+  })
+
   test('exactly one of many concurrent redemptions wins and saves one session', async () => {
     const code = `code-${unique()}`
     const b = binding()
@@ -167,6 +198,30 @@ describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
     expect(retried).toEqual({ ok: true, surface: 'room-designer' })
   })
 
+  test('a session expiry that is not a finite instant is refused before the code is spent', async () => {
+    const b = binding()
+    const code = `code-${unique()}`
+    const session = `session-${unique()}`
+    await store.issue(code, b, later)
+
+    await expect(
+      store.redeemAndSave(code, presented, Date.now(), { value: session, expiresAt: Number.NaN })
+    ).rejects.toThrow('session expiry must be finite')
+
+    // The refusal spent nothing and wrote no session, so the code is still redeemable.
+    const [stored] = await connection.db
+      .select()
+      .from(simLaunchCodes)
+      .where(eq(simLaunchCodes.workspaceId, b.workspaceId))
+    expect(stored?.consumedAt).toBeNull()
+    const sessions = await connection.db
+      .select()
+      .from(simSessions)
+      .where(eq(simSessions.workspaceId, b.workspaceId))
+    expect(sessions).toHaveLength(0)
+    expect(await store.redeem(code, presented, Date.now())).toMatchObject({ ok: true })
+  })
+
   test('an expired code is refused and its spend is kept', async () => {
     const code = `code-${unique()}`
     const past = Date.now() - 1_000
@@ -176,6 +231,65 @@ describe.skipIf(!connectionUrl)('durable Sim launch codes and sessions', () => {
       reason: 'code_expired',
     })
     expect(await store.redeem(code, presented, past)).toEqual({ ok: false, reason: 'code_used' })
+  })
+
+  test('the expiry instant is the boundary: live one millisecond before it, expired at it', async () => {
+    const b = binding()
+    const expiry = Date.now() + 60_000
+    const clock = { value: expiry - 1 }
+    const timed = createSimLaunchStore(connection.db, { clock: () => clock.value })
+
+    const live = `code-${unique()}`
+    await timed.issue(live, b, expiry)
+    clock.value = expiry - 1
+    expect(await timed.redeem(live, presented, expiry - 1)).toEqual({
+      ok: true,
+      surface: 'room-designer',
+    })
+
+    const atExpiry = `code-${unique()}`
+    await timed.issue(atExpiry, b, expiry)
+    clock.value = expiry
+    expect(await timed.redeem(atExpiry, presented, expiry)).toEqual({
+      ok: false,
+      reason: 'code_expired',
+    })
+  })
+
+  test('the injected clock records the instant the code was spent', async () => {
+    const b = binding()
+    const clockValue = Date.now()
+    const timed = createSimLaunchStore(connection.db, { clock: () => clockValue })
+    const code = `code-${unique()}`
+    await timed.issue(code, b, later)
+
+    expect(await timed.redeem(code, presented, clockValue)).toMatchObject({ ok: true })
+    const [stored] = await connection.db
+      .select()
+      .from(simLaunchCodes)
+      .where(eq(simLaunchCodes.workspaceId, b.workspaceId))
+    expect(stored?.consumedAt?.valueOf()).toBe(clockValue)
+  })
+
+  test('a non-finite reading from the injected clock refuses the code without spending it', async () => {
+    const b = binding()
+    const code = `code-${unique()}`
+    const timed = createSimLaunchStore(connection.db, { clock: () => Number.NaN })
+    await timed.issue(code, b, later)
+
+    expect(await timed.redeem(code, presented, Date.now())).toEqual({
+      ok: false,
+      reason: 'code_expired',
+    })
+    // The clock could not prove the code was live, so nothing was spent.
+    const [stored] = await connection.db
+      .select()
+      .from(simLaunchCodes)
+      .where(eq(simLaunchCodes.workspaceId, b.workspaceId))
+    expect(stored?.consumedAt).toBeNull()
+
+    const usable = createSimLaunchStore(connection.db)
+    expect(await usable.redeem(code, presented, Date.now())).toMatchObject({ ok: true })
   })
 
   test('a presentation from another bridge or origin is refused and still spends the code', async () => {

@@ -52,7 +52,7 @@
     "test:browser:desktop-client": "bunx playwright install --with-deps chromium && bun apps/desktop/scripts/client.mjs && node scripts/check-desktop-client-browser.mjs"
   },
   "devDependencies": {
-    "@adea-ai/ui": "0.144.0",
+    "@adea-ai/ui": "0.145.0",
     "@babel/core": "^8.0.6",
     "@babel/preset-typescript": "^8.0.1",
     "@playwright/test": "^1.63.0",
