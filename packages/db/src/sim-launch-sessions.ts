@@ -32,6 +32,7 @@ const digest = (value: string) => createHash('sha256').update(value).digest('hex
  * The expiry decision uses a clock read after the lock is acquired, because a wait behind another
  * transaction can outlast the code. The caller's `now` is only a finiteness check before the transaction.
  * A refusal returns and commits the spend. A failed session insert throws, which rolls the spend back.
+ * A session that cannot expire is refused before the transaction opens, so nothing is spent.
  */
 async function redeemCore(
   database: AgentHqDatabase,
@@ -43,6 +44,12 @@ async function redeemCore(
 ): Promise<SimLaunchRedemption> {
   // An unusable clock reading cannot prove the code is still live, so nothing is spent.
   if (!Number.isFinite(now)) return { ok: false, reason: 'code_expired' }
+  // A session that cannot expire would outlive every gate on it, so it is refused before the code
+  // is spent, exactly as a non-finite code expiry is refused before the code is stored. Without
+  // this the refusal would come from the driver rejecting an invalid date, which is not a contract
+  // this store keeps.
+  if (session && !Number.isFinite(session.expiresAt))
+    throw new RangeError('session expiry must be finite')
   return database.transaction(async (tx): Promise<SimLaunchRedemption> => {
     const [row] = await tx
       .select()
