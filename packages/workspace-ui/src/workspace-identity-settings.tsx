@@ -125,7 +125,7 @@ export function WorkspaceIdentitySettings(props: {
           aria-label="Virtual world"
           value={props.workspace.scene}
           disabled={!editable()}
-          onChange={(value) => {
+          onChange={(value: string | null) => {
             if (value === 'home' || value === 'work') void save({ scene: value })
           }}
         >

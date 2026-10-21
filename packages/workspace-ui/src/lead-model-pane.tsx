@@ -357,7 +357,7 @@ function ModelDefaultRow(props: {
         )}
       >
         <SelectTrigger class="w-64" aria-label={props.label}>
-          <SelectValue<ModelOption>>{(state) => state.selectedOption().label}</SelectValue>
+          <SelectValue />
         </SelectTrigger>
         <SelectContent />
       </Select>
