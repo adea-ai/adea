@@ -108,6 +108,12 @@ const callsOf = (page: Page, op: string) =>
     op
   )
 
+/** The select trigger of one default-model row; its accessible name starts with the row label. */
+const defaultTrigger = (page: Page, label: string) =>
+  page.getByRole('button', { name: new RegExp(`^${label}\\b`) })
+
+const ROLE_LABELS = ['Workspace Lead', 'Workspace Threads', 'Direct Sessions'] as const
+
 const noConnectionsCopy =
   'No model connections are available. Add a supported provider credential in Connections, then refresh.'
 
@@ -121,9 +127,13 @@ test('a fresh install shows no model connections, no selected defaults and no mo
   })
   await expect(page.getByText(noConnectionsCopy)).toBeVisible()
   await expect(page.getByText('No model selected')).toHaveCount(3)
-  await expect(page.getByText('Not configured', { exact: true })).toHaveCount(3)
+  for (const label of ROLE_LABELS)
+    await expect(defaultTrigger(page, label)).toContainText('No model selected')
   await expect(page.getByRole('button', { name: 'Register model connection' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /^Use for / })).toHaveCount(0)
+  // No model is offered for any role.
+  await defaultTrigger(page, 'Workspace Lead').click()
+  await expect(page.getByRole('option')).toHaveCount(0)
+  await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Revoke model connection' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Refresh models' })).toBeEnabled()
   expect(errors).toEqual([])
@@ -191,8 +201,15 @@ test('a workspace credential is registered as a model connection and its model i
       'Model connection registered. Refresh model readiness before choosing a default.'
     )
   ).toBeVisible()
-  await expect(page.getByText('fixture-provider · fixture-model', { exact: true })).toBeVisible()
-  await expect(page.getByText('Eligible model', { exact: true })).toBeVisible()
+  await expect(page.getByText('fixture-provider · fixture-account', { exact: true })).toBeVisible()
+  await expect(page.getByText('fixture-model', { exact: true })).toBeVisible()
+  // The model is eligible: it carries no setup remedy and is offered for a role.
+  await expect(page.getByText(/Setup required/u)).toHaveCount(0)
+  await defaultTrigger(page, 'Workspace Lead').click()
+  await expect(
+    page.getByRole('option', { name: 'fixture-provider · fixture-model', exact: true })
+  ).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(page.getByText(noConnectionsCopy)).toHaveCount(0)
   const calls = await callsOf(page, 'createModelConnection')
   expect(calls).toHaveLength(1)
@@ -231,15 +248,18 @@ test('an eligible model can be chosen for a role, and the saved default names it
 }) => {
   const errors = await mount(page, scenario({ inventory: inventory([connection()]) }))
 
-  await page.getByRole('button', { name: 'Use for workspace lead' }).click()
+  await defaultTrigger(page, 'Workspace Lead').click()
+  await page.getByRole('option', { name: 'fixture-provider · fixture-model', exact: true }).click()
 
   await expect(
     page.getByText(
       'Model default saved. Readiness and payer authorization are checked for each turn.'
     )
   ).toBeVisible()
-  await expect(page.getByText('Selected', { exact: true })).toHaveCount(1)
-  await expect(page.getByText('fixture-provider · fixture-model', { exact: true })).toHaveCount(2)
+  await expect(defaultTrigger(page, 'Workspace Lead')).toContainText(
+    'fixture-provider · fixture-model'
+  )
+  await expect(page.getByText('No model selected')).toHaveCount(2)
   const calls = await callsOf(page, 'setWorkspaceModelDefaults')
   expect(calls).toHaveLength(1)
   expect(calls[0]?.input).toMatchObject({
@@ -264,12 +284,18 @@ test('a model that is not ready names its remedy and offers no default choice', 
     })
   )
 
-  await expect(page.getByText('Setup required', { exact: true })).toBeVisible()
-  await expect(
-    page.getByText('Choose a connection with a valid credential in workspace settings.')
-  ).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Use for workspace lead' })).toBeDisabled()
-  await expect(page.getByRole('button', { name: 'Use for direct sessions' })).toBeDisabled()
+  const notReady = page.getByText('fixture-model · Setup required', { exact: true })
+  await expect(notReady).toBeVisible()
+  await expect(notReady).toHaveAttribute(
+    'title',
+    'Choose a connection with a valid credential in workspace settings.'
+  )
+  // Neither the lead nor the direct-session default offers the model.
+  for (const label of ['Workspace Lead', 'Direct Sessions']) {
+    await defaultTrigger(page, label).click()
+    await expect(page.getByRole('option')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+  }
   await expect(page.getByRole('button', { name: 'Revoke model connection' })).toBeEnabled()
   expect(errors).toEqual([])
 })
@@ -293,7 +319,10 @@ test('a saved default that names a connection no longer listed reads as unavaila
   )
 
   await expect(page.getByText('Saved model connection unavailable', { exact: true })).toBeVisible()
-  await expect(page.getByText('Selected', { exact: true })).toHaveCount(1)
+  await expect(defaultTrigger(page, 'Workspace Lead')).toContainText(
+    'Saved model connection unavailable'
+  )
+  await expect(page.getByText('No model selected')).toHaveCount(2)
   expect(errors).toEqual([])
 })
 
@@ -314,7 +343,9 @@ test('revoking a connection marks it revoked, removes the revoke action and keep
       },
     })
   )
-  await expect(page.getByText('Selected', { exact: true })).toHaveCount(1)
+  await expect(defaultTrigger(page, 'Workspace Lead')).toContainText(
+    'fixture-provider · fixture-model'
+  )
 
   await page.getByRole('button', { name: 'Revoke model connection' }).click()
 
@@ -323,12 +354,11 @@ test('revoking a connection marks it revoked, removes the revoke action and keep
   await expect(
     page.getByText('Model connection revoked. Existing drafts and direct sessions are preserved.')
   ).toBeVisible()
-  await expect(page.getByText('Revoked', { exact: true })).toBeVisible()
+  await expect(page.getByText('fixture-model · Revoked', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Revoke model connection' })).toHaveCount(0)
-  await expect(page.getByText('Selected', { exact: true })).toHaveCount(1)
-  await expect(
-    page.getByText('fixture-provider · fixture-model', { exact: true }).first()
-  ).toBeVisible()
+  await expect(defaultTrigger(page, 'Workspace Lead')).toContainText(
+    'fixture-provider · fixture-model'
+  )
   await expect(page.getByText('Saved model connection unavailable', { exact: true })).toHaveCount(0)
   expect(await callsOf(page, 'setWorkspaceModelDefaults')).toHaveLength(0)
   const saved = await page.evaluate(

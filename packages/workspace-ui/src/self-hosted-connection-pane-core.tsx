@@ -47,7 +47,7 @@ export default function SelfHostedConnectionPaneCore(props: SelfHostedConnection
       fallback={
         <SettingsSection
           title="Self-hosted hosts"
-          description="Servers you control that run work for this workspace."
+          help="Servers you control that run work for this workspace."
         >
           <EmptyDescription role="status">
             Self-hosted hosts are unavailable in this view.

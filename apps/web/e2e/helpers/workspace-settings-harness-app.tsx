@@ -12,6 +12,7 @@ import type { TranscriptionProvider, WorkspacePreferences } from '@adea-ai/works
 import { createDesktopSettingsProvider } from '../../src/lib/desktop-platform-services'
 import { localContentAuthority } from '../../src/lib/desktop-local-content'
 import { desktopMacPermissionsService } from '../../src/lib/desktop-permissions'
+import { PluginsDialog } from '@adea-ai/workspace-ui/plugins-dialog'
 import { controlPlaneSettingsClient } from './control-plane-settings-fixture'
 
 let permissionRequests = 0
@@ -225,7 +226,10 @@ function Harness() {
   const missingDesktopBridge = document
     .querySelector('#harness-root')
     ?.hasAttribute('data-missing-desktop-bridge')
-  const [open, setOpen] = createSignal(true)
+  // Skills is managed in the Plugins dialog, which this fixture shows instead of Settings.
+  const [open, setOpen] = createSignal(
+    !document.querySelector('#harness-root')?.hasAttribute('data-plugins-skills')
+  )
   const [workspace, setWorkspace] = createSignal({
     ...initialWorkspace,
     isPersonal: document.querySelector('#harness-root')?.hasAttribute('data-personal') ?? false,
@@ -245,13 +249,10 @@ function Harness() {
     logo: { kind: 'box' as const },
     sortOrder: 1,
   }
-  const [orderIds, setOrderIds] = createSignal([initialWorkspace.id, sibling.id])
-  const workspaceOrder = () =>
-    orderIds().map((id, sortOrder) => ({
-      ...(id === sibling.id ? sibling : workspace()),
-      sortOrder,
-    }))
-  let reorderCalls = 0
+  const workspaceOrder = () => [
+    { ...workspace(), sortOrder: 0 },
+    { ...sibling, sortOrder: 1 },
+  ]
   let openCalls = 0
   // A versioned in-memory workspace store: a stale version is refused the way
   // the API refuses it, so the General section's conflict path is reachable.
@@ -315,6 +316,13 @@ function Harness() {
       <Button id="resolve-permission-fixture" onClick={() => resolvePermission?.('granted')}>
         Resolve permission fixture
       </Button>
+      <Show when={document.querySelector('#harness-root')?.hasAttribute('data-plugins-skills')}>
+        <PluginsDialog
+          open
+          onClose={() => undefined}
+          skills={{ client: client(), workspaceId: workspace().id }}
+        />
+      </Show>
       <WorkspaceSettingsDialog
         open={open()}
         accountAuthenticated={false}
@@ -345,15 +353,6 @@ function Harness() {
           if (root.hasAttribute('data-open-failure') && openCalls === 1) return false
           root.setAttribute('data-opened-workspace', id)
           return true
-        }}
-        onReorderWorkspaces={async (ids) => {
-          reorderCalls += 1
-          const root = document.querySelector('#harness-root')!
-          root.setAttribute('data-reorder-calls', String(reorderCalls))
-          if (root.hasAttribute('data-reorder-failure') && reorderCalls === 1)
-            throw new Error('fixture ordering failure')
-          setOrderIds([...ids])
-          root.setAttribute('data-order', JSON.stringify(ids))
         }}
         {...(document.querySelector('#harness-root')?.hasAttribute('data-read-only')
           ? {}

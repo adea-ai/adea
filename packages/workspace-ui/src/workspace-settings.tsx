@@ -22,7 +22,6 @@ import {
   MonitorCog,
   Settings2,
   ShieldCheck,
-  Sparkles,
   UserRound,
 } from 'lucide-solid'
 import {
@@ -81,7 +80,6 @@ const sectionIcons = {
   workspaces: Boxes,
   'workspace-general': Settings2,
   'workspace-memory': Brain,
-  'workspace-skills': Sparkles,
   'workspace-connections': LockKeyhole,
 } satisfies Record<SettingsSection, typeof UserRound>
 
@@ -96,10 +94,9 @@ const sectionDescriptions: Record<SettingsSection, string> = {
   integrations: 'Control Plane-owned descriptors, not a second plugin system.',
   permissions: 'macOS capabilities this app is granted, with the system panes that control them.',
   workspaces: 'Pick the workspace you are working in, add another, or open one to customize it.',
-  // The four workspace sections take their description from the selected workspace.
+  // The workspace sections take their description from the selected workspace.
   'workspace-general': '',
   'workspace-memory': '',
-  'workspace-skills': '',
   'workspace-connections': '',
 }
 
@@ -250,7 +247,6 @@ export function WorkspaceSettingsDialog(props: {
   /** The Adea API client for the Control Plane-backed workspace sections. */
   client?: AgentHqApiClient
   accountPrincipalId?: () => string | null | undefined
-  onReorderWorkspaces?: (workspaceIds: readonly string[]) => Promise<void>
   onUpdateWorkspace?: (
     update: WorkspaceUpdate & Readonly<{ expectedVersion: number }>
   ) => Promise<void>
@@ -745,11 +741,9 @@ export function WorkspaceSettingsDialog(props: {
                           ]
                         }
                         onOpenWorkspace={props.onOpenWorkspace}
-                        onReorderWorkspaces={props.onReorderWorkspaces}
                         onUpdateWorkspace={props.onUpdateWorkspace}
                         services={props.services}
                         workspace={props.workspace}
-                        workspaceOrder={props.workspaces}
                       />
                     </>
                   )}

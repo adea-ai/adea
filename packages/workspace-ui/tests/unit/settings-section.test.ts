@@ -20,7 +20,8 @@ describe('settings deep links and keyboard navigation', () => {
     expect(settingsSectionFromHash('#settings/privacy-data')).toBe('privacy-data')
     expect(settingsSectionFromHash('#settings/not-a-section')).toBe('account')
     expect(settingsSectionFromHash('#settings/workspaces')).toBe('workspaces')
-    expect(settingsSectionFromHash('#settings/workspace-skills')).toBe('workspace-skills')
+    // Skills moved into Plugins, so its old section is no longer addressable.
+    expect(settingsSectionFromHash('#settings/workspace-skills')).toBe('account')
   })
 
   test('the retired workspace-settings links land on the matching Workspaces section', () => {
@@ -38,7 +39,6 @@ describe('settings deep links and keyboard navigation', () => {
       'workspaces',
       'workspace-general',
       'workspace-memory',
-      'workspace-skills',
       'workspace-connections',
       'agents',
       'input-notifications',
@@ -49,12 +49,11 @@ describe('settings deep links and keyboard navigation', () => {
     expect(Object.keys(workspaceScopedSettingsSections)).toEqual([
       'workspace-general',
       'workspace-memory',
-      'workspace-skills',
       'workspace-connections',
     ])
     expect(isWorkspaceScopedSection('workspace-memory')).toBe(true)
     expect(isWorkspaceScopedSection('workspaces')).toBe(false)
-    expect(settingsSectionForWorkspaceSection('skills')).toBe('workspace-skills')
+    expect(settingsSectionForWorkspaceSection('connections')).toBe('workspace-connections')
   })
 
   test('wraps arrow navigation and honors Home and End', () => {
@@ -81,17 +80,17 @@ describe('settings deep links and keyboard navigation', () => {
 })
 
 describe('workspace settings deep links', () => {
-  test('lists General, Memory, Skills and Connections in order', () => {
-    expect(workspaceSettingsSections).toEqual(['general', 'memory', 'skills', 'connections'])
+  test('lists General, Memory and Connections in order', () => {
+    expect(workspaceSettingsSections).toEqual(['general', 'memory', 'connections'])
     expect(
       workspaceSettingsSections.map((section) => workspaceSettingsSectionLabels[section])
-    ).toEqual(['General', 'Memory', 'Skills', 'Connections'])
+    ).toEqual(['General', 'Memory', 'Connections'])
   })
 
   test('reads its own hash and falls back to General for unknown sections', () => {
     for (const section of workspaceSettingsSections)
       expect(workspaceSettingsSectionFromHash(workspaceSettingsHash(section))).toBe(section)
-    expect(workspaceSettingsHash('skills')).toBe('#workspace-settings/skills')
+    expect(workspaceSettingsHash('memory')).toBe('#workspace-settings/memory')
     expect(workspaceSettingsSectionFromHash('#workspace-settings')).toBe('general')
     expect(workspaceSettingsSectionFromHash('#workspace-settings/not-a-section')).toBe('general')
   })
@@ -99,7 +98,7 @@ describe('workspace settings deep links', () => {
   test('maps the retired app Settings links onto the matching section', () => {
     expect(workspaceSettingsSectionFromHash('#settings/workspace')).toBe('general')
     expect(workspaceSettingsSectionFromHash('#settings/memory')).toBe('memory')
-    expect(workspaceSettingsSectionFromHash('#settings/skills')).toBe('skills')
+    expect(workspaceSettingsSectionFromHash('#settings/skills')).toBeUndefined()
     expect(workspaceSettingsSectionFromHash('#settings/connections')).toBe('connections')
   })
 

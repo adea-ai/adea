@@ -24,7 +24,7 @@ export default function SelfHostedConnectionsSection(props: {
       fallback={
         <SettingsSection
           title="Self-hosted hosts"
-          description="Servers you control that run work for this workspace."
+          help="Servers you control that run work for this workspace."
         >
           <EmptyDescription role="status">
             Self-hosted hosts need a signed-in account.

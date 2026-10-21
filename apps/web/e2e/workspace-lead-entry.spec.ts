@@ -450,8 +450,11 @@ test('a delayed defaults save that completes after settings close still updates 
   await expect(details).toBeVisible()
   await details.getByRole('tab', { name: 'Connections', exact: true }).click()
   await expect(details.getByRole('heading', { name: 'Agent models' })).toBeVisible()
-  await details.getByRole('button', { name: 'Use for workspace lead', exact: true }).click()
+  await details.getByRole('button', { name: /^Workspace Lead\b/ }).click()
+  await page.getByRole('option', { name: 'fixture-provider · fixture-model', exact: true }).click()
   await expect.poll(() => state.defaultsRequests).toBe(1)
+  // The model list finishes closing before Escape, which would otherwise dismiss only it.
+  await expect(page.getByRole('listbox')).toHaveCount(0)
 
   // The settings surface closes while the save is still in flight.
   await page.keyboard.press('Escape')
@@ -467,7 +470,9 @@ test('a delayed defaults save that completes after settings close still updates 
   await openWorkspaceSettings(page)
   await expect(details).toBeVisible()
   await details.getByRole('tab', { name: 'Connections', exact: true }).click()
-  await expect(details.getByText('Selected', { exact: true })).toBeVisible()
+  await expect(details.getByRole('button', { name: /^Workspace Lead\b/ })).toContainText(
+    'fixture-provider · fixture-model'
+  )
   expect(state.defaultsRequests).toBe(1)
 })
 

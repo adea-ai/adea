@@ -31,10 +31,11 @@ test('active deletion is unavailable and cannot invoke the mutation; default mar
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
   await expect(page.locator('#harness-root')).not.toHaveAttribute('data-delete-calls')
   await expect(settings.locator('[data-workspace-icon="box"] svg')).toHaveCount(2)
-  await settings.getByRole('textbox', { name: 'Workspace emoji' }).fill('📦')
-  await settings.getByRole('textbox', { name: 'Workspace emoji' }).blur()
+  await settings.getByRole('button', { name: /^Workspace icon:/ }).click()
+  await page.getByRole('radio', { name: 'Rocket', exact: true }).press('Space')
   await expect(settings.locator('[data-workspace-icon="box"] svg')).toHaveCount(0)
-  await settings.getByRole('button', { name: 'Use workspace icon', exact: true }).click()
+  await settings.getByRole('button', { name: /^Workspace icon:/ }).click()
+  await page.getByRole('radio', { name: /^Box/ }).press('Space')
   await expect(settings.locator('[data-workspace-icon="box"] svg')).toHaveCount(2)
 })
 
@@ -73,41 +74,14 @@ test('personal Home remains protected after renaming and changing its icon', asy
     name: 'Settings',
     exact: true,
   })
-  await renamed.getByRole('textbox', { name: 'Workspace emoji' }).fill('🌿')
-  await renamed.getByRole('textbox', { name: 'Workspace emoji' }).blur()
+  await renamed.getByRole('button', { name: /^Workspace icon:/ }).click()
+  await page.getByRole('radio', { name: 'Rocket', exact: true }).press('Space')
   await expect(renamed.locator('[data-workspace-icon="home"] svg')).toHaveCount(0)
   await expect(renamed.getByRole('button', { name: 'Delete workspace', exact: true })).toHaveCount(
     0
   )
-  await renamed.getByRole('button', { name: 'Use workspace icon', exact: true }).click()
+  await renamed.getByRole('button', { name: /^Workspace icon:/ }).click()
+  await page.getByRole('radio', { name: /^Home/ }).press('Space')
   await expect(renamed.locator('[data-workspace-icon="home"] svg')).toHaveCount(2)
   await expect(page.locator('#harness-root')).not.toHaveAttribute('data-delete-calls')
-})
-
-test('personal Home stays first and cannot be moved', async ({ page }) => {
-  const settings = await openFixture(page, 'data-personal')
-  await expect(settings).toContainText('Position 1 of 2')
-  await expect(settings).toContainText('Home always stays first')
-  await expect(settings.getByRole('button', { name: 'Move up', exact: true })).toBeDisabled()
-  await expect(settings.getByRole('button', { name: 'Move down', exact: true })).toBeDisabled()
-  await expect(page.locator('#harness-root')).not.toHaveAttribute('data-reorder-calls')
-})
-
-test('additional workspaces move in the list and a failed order stays reviewable', async ({
-  page,
-}) => {
-  const settings = await openFixture(page, 'data-reorder-failure')
-  await expect(settings.getByRole('button', { name: 'Move up', exact: true })).toBeDisabled()
-  await settings.getByRole('button', { name: 'Move down', exact: true }).click()
-  await expect(settings.getByRole('alert')).toContainText('Workspace order could not be saved')
-  await expect(settings).toContainText('Position 1 of 2')
-  await settings.getByRole('button', { name: 'Move down', exact: true }).click()
-  await expect(settings).toContainText('Position 2 of 2')
-  await expect(settings.getByRole('button', { name: 'Move down', exact: true })).toBeDisabled()
-  await settings.getByRole('button', { name: 'Move up', exact: true }).click()
-  await expect(settings).toContainText('Position 1 of 2')
-  await expect(page.locator('#harness-root')).toHaveAttribute(
-    'data-order',
-    '["workspace-settings-e2e","settings-sibling"]'
-  )
 })
