@@ -120,7 +120,7 @@ inbox artifact. The opt-in child reconciler calls the versioned Control Plane ch
 publication operation for each retained terminal child, verifies the exact parent
 and child attempts, then rechecks that operation while holding the current Adea
 reader, original actor, runtime-binding and rollback locks. PostgreSQL migration
-0060 commits one canonical channel message and an independent
+0061 commits one canonical channel message and an independent
 `lead_child_publications` receipt in the same transaction. Duplicate delivery and
 process reconnect replay the receipt; contradictory evidence is refused. The
 desktop child poll retries the explicit publication command on reconnect. Its
