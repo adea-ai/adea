@@ -1,6 +1,16 @@
 import { expect, test } from 'bun:test'
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
+import {
+  cpSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +19,7 @@ import { randomUUID } from 'node:crypto'
 const nodePath = Bun.which('node')
 if (!nodePath) throw new Error('Node.js is required for the isolated runner VM')
 const runnerPath = fileURLToPath(new URL('./test-integration.mjs', import.meta.url))
+const repositoryRoot = fileURLToPath(new URL('..', import.meta.url))
 
 // Run the production runner in a child VM: all process, Docker, provisioning,
 // target and inventory boundaries are synthetic and cannot reach real resources.
@@ -788,3 +799,100 @@ test('explicit target is independent of an unused malformed Compose port', () =>
   expect(result.calls.filter((call) => call[0] === 'docker')).toHaveLength(0)
   expect(result.databaseEnvironments.every((env) => env.DATABASE_URL === 'synthetic')).toBe(true)
 })
+
+// Resolves a module under the conditions the lane runs its package suites with.
+function resolvesUnderLaneConditions(module: string, cwd: string): boolean {
+  const result = spawnSync(
+    'bun',
+    [
+      '--conditions=react-server',
+      '--input-type=module',
+      '--eval',
+      `await import(${JSON.stringify(module)})`,
+    ],
+    { cwd, encoding: 'utf8', timeout: 120_000 }
+  )
+  return result.status === 0
+}
+
+test('the integration lane builds the compiled spatial package before the suites run', () => {
+  const result = exercise({ success: true })
+  const calls = result.calls.map((call) => call.join(' '))
+  const build = calls.indexOf('bun run --cwd packages/spatial build')
+  const provisioning = calls.findIndex((call) => call.startsWith('docker compose up'))
+  const suites = calls.findIndex((call) => call.startsWith('bun --conditions=react-server test'))
+  expect(build).toBeGreaterThan(-1)
+  // The build precedes the provisioning and the suites, so a clean checkout has the compiled
+  // entry before any suite can import it. The provisioning and its cleanup are unchanged.
+  expect(provisioning).toBeGreaterThan(build)
+  expect(suites).toBeGreaterThan(build)
+  expect(stops(result.calls)).toHaveLength(1)
+})
+
+// The joined Sim acceptance runs in the package suites and imports the hosted service's server
+// modules, and those import the compiled Sim bridge through the spatial package's export map. A
+// clean checkout has no compiled output, so the lane has to build the spatial package before the
+// suites run. This proves the resolution from a clean checkout: the real package with no compiled
+// output, built by the lane's own invocation, and then imported through the server module that
+// needs it.
+test('the joined Sim acceptance resolves the compiled spatial bridge from a clean checkout', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'adea-spatial-resolution-'))
+  try {
+    // The clean checkout: the real package, the real export map, and no compiled output.
+    cpSync(join(repositoryRoot, 'packages/spatial'), join(directory, 'packages/spatial'), {
+      recursive: true,
+    })
+    rmSync(join(directory, 'packages/spatial/dist'), { recursive: true, force: true })
+    copyFileSync(join(repositoryRoot, 'tsconfig.base.json'), join(directory, 'tsconfig.base.json'))
+    mkdirSync(join(directory, 'packages/config'), { recursive: true })
+    copyFileSync(
+      join(repositoryRoot, 'packages/config/tsconfig.base.json'),
+      join(directory, 'packages/config/tsconfig.base.json')
+    )
+    // The workspace links the package the way a workspace install does, and the toolchain the
+    // package's own build needs is the repository's.
+    mkdirSync(join(directory, 'node_modules/@adea-ai'), { recursive: true })
+    symlinkSync(
+      join(directory, 'packages/spatial'),
+      join(directory, 'node_modules/@adea-ai/spatial')
+    )
+    symlinkSync(
+      join(repositoryRoot, 'node_modules/bun-types'),
+      join(directory, 'node_modules/bun-types')
+    )
+    symlinkSync(
+      join(repositoryRoot, 'node_modules/typescript'),
+      join(directory, 'node_modules/typescript')
+    )
+    symlinkSync(join(repositoryRoot, 'node_modules/.bin'), join(directory, 'node_modules/.bin'))
+    // The server module the joined acceptance imports, and the modules it imports.
+    mkdirSync(join(directory, 'apps/web/src/server'), { recursive: true })
+    mkdirSync(join(directory, 'apps/web/src/lib'), { recursive: true })
+    for (const file of [
+      'apps/web/src/server/sim-launch-service.ts',
+      'apps/web/src/server/sim-entitlement.ts',
+      'apps/web/src/lib/sim-host-contract.ts',
+    ]) {
+      copyFileSync(join(repositoryRoot, file), join(directory, file))
+    }
+
+    const module = join(directory, 'apps/web/src/server/sim-launch-service.ts')
+    // Nothing is compiled yet, so the import the lane depends on cannot resolve.
+    expect(existsSync(join(directory, 'packages/spatial/dist/sim-bridge/index.js'))).toBe(false)
+    expect(resolvesUnderLaneConditions(module, directory)).toBe(false)
+
+    // The lane's build prerequisite produces the compiled entry the export map names.
+    const build = spawnSync('bun', ['run', '--cwd', join(directory, 'packages/spatial'), 'build'], {
+      cwd: directory,
+      encoding: 'utf8',
+      timeout: 300_000,
+    })
+    expect(build.status, build.stderr).toBe(0)
+    expect(existsSync(join(directory, 'packages/spatial/dist/sim-bridge/index.js'))).toBe(true)
+
+    // And the server module now resolves the compiled Sim bridge.
+    expect(resolvesUnderLaneConditions(module, directory)).toBe(true)
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+}, 300_000)

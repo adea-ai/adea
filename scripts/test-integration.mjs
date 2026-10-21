@@ -165,6 +165,12 @@ try {
   run('bun', ['run', '--cwd', 'packages/remote-content', 'build'], process.env)
   run('bun', ['run', '--cwd', 'packages/types', 'build'], process.env)
   run('bun', ['run', '--cwd', 'packages/auth', 'build'], process.env)
+  // The joined Sim acceptance imports the hosted service's server modules, and those import the
+  // compiled Sim bridge. The spatial package's export map names its compiled entry, so a clean
+  // checkout has to build the spatial package before the suites run or the import cannot resolve
+  // and the joined acceptance never runs. Like the builds above, this keeps integration runnable
+  // independently from a workspace-wide `vp run` build.
+  run('bun', ['run', '--cwd', 'packages/spatial', 'build'], process.env)
   // API regression cases exercise the production server handler through the
   // compiled database entry, with the explicit server-only runtime condition.
   run('bun', ['run', '--cwd', 'packages/db', 'build'], process.env)
