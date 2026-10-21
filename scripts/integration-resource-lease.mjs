@@ -20,6 +20,7 @@
 // exercised with synthetic children and synthetic transports, and a test never
 // needs a daemon, a container or a volume to prove the model.
 
+import { randomUUID } from 'node:crypto'
 import { hostname, tmpdir } from 'node:os'
 import {
   linkSync,
@@ -490,120 +491,91 @@ function safeClaimName(resourceKey) {
 }
 
 /**
- * Writes a record in full and creates a path with it, exclusively.
+ * A unique token for one lock or one claim record.
  *
- * The record is written beside the path and linked onto it. A link is atomic
- * and refuses a path that is already there, so the path only ever appears
- * complete, and only one caller can create it.
+ * A run id is not a process identity: two processes can share one, and a
+ * process id can be recycled. A token is unique to the record that carries it,
+ * so it is what says a lock or a claim belongs to the holder that took it.
  */
-function createExclusive(path, content, suffix) {
-  const temporary = `${path}.${suffix}.tmp`
-  writeFileSync(temporary, content)
-  try {
-    linkSync(temporary, path)
-    return true
-  } finally {
-    try {
-      rmSync(temporary, { force: true })
-    } catch {
-      // The temporary record is not the claim or the lock; leaving it behind is
-      // untidy but harmless.
-    }
-  }
+function uniqueToken() {
+  return randomUUID()
 }
 
 /**
  * Takes the lock that serialises the claim and the release of one resource.
  *
  * The lock is taken with an exclusive create, so exactly one process holds it.
- * A lock whose owner is gone is broken: the stale lock is moved aside and the
- * moved file is compared with the one that was read, and if they differ a live
- * lock was displaced, so it is put back with a link and the claim is refused.
- * A lock that cannot be read has an unknown owner, so it is never broken.
+ * A lock that is already there is refused, whatever its owner is doing: this
+ * call cannot prove that it is entitled to the resource, and a residual lock is
+ * recovered by an operator on evidence, never by an automatic bypass. The
+ * temporary record is named for this call and created exclusively, so two
+ * processes that share a run id never write over each other's record.
  */
 function acquireLock({ directory, resourceKey, runId, identity, owner, now, isProcessAlive }) {
   mkdirSync(claimsDirectory(directory), { recursive: true })
   const path = lockPath(directory, resourceKey)
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const record = {
-      version: CLAIM_VERSION,
-      resourceKey,
-      runId,
-      identity,
-      owner: {
-        pid: owner.pid,
-        hostname: owner.hostname,
-        startedAt: owner.startedAt ?? null,
-      },
-      createdAt: now(),
-    }
-    const content = `${JSON.stringify(record, null, 2)}\n`
+  const record = {
+    version: CLAIM_VERSION,
+    resourceKey,
+    runId,
+    identity,
+    owner: {
+      pid: owner.pid,
+      hostname: owner.hostname,
+      startedAt: owner.startedAt ?? null,
+    },
+    token: uniqueToken(),
+    createdAt: now(),
+  }
+  const content = `${JSON.stringify(record, null, 2)}\n`
+  const temporary = `${path}.${record.token}.tmp`
+  try {
+    writeFileSync(temporary, content, { flag: 'wx' })
+    linkSync(temporary, path)
     try {
-      createExclusive(path, content, `${runId}-${attempt}`)
-      return { acquired: true, record }
-    } catch (error) {
-      if (error?.code !== 'EEXIST') {
-        return { acquired: false, reason: CLEANUP_REFUSAL.uncertain }
-      }
-    }
-    let raw = null
-    let held = null
-    try {
-      raw = readFileSync(path, 'utf8')
-      held = JSON.parse(raw)
+      rmSync(temporary, { force: true })
     } catch {
-      held = null
+      // The lock is durable through the link; the temporary record beside it
+      // is not part of it.
     }
-    if (!held || !held.owner) {
-      // The lock is there and cannot be understood, so its owner is unknown.
+    return { acquired: true, record }
+  } catch (error) {
+    try {
+      rmSync(temporary, { force: true })
+    } catch {
+      // The temporary record is not the lock; leaving it behind is untidy but
+      // harmless.
+    }
+    if (error?.code === 'EEXIST') {
+      // A lock is already there. Whether its owner is alive or gone, this call
+      // cannot prove it is entitled to the resource, so the claim is refused.
+      let held = null
+      try {
+        held = JSON.parse(readFileSync(path, 'utf8'))
+      } catch {
+        held = null
+      }
+      if (held?.owner && isProcessAlive(held.owner.pid, held.owner.hostname)) {
+        return { acquired: false, reason: CLEANUP_REFUSAL.active }
+      }
       return { acquired: false, reason: CLEANUP_REFUSAL.uncertain }
     }
-    if (isProcessAlive(held.owner.pid, held.owner.hostname)) {
-      return { acquired: false, reason: CLEANUP_REFUSAL.active }
-    }
-    // The lock is stale. It is moved aside and compared with the one that was
-    // read, and a live lock is never displaced.
-    const aside = `${path}.aside-${runId}-${attempt}`
-    try {
-      renameSync(path, aside)
-    } catch {
-      continue
-    }
-    let asideContent = null
-    try {
-      asideContent = readFileSync(aside, 'utf8')
-    } catch {
-      asideContent = null
-    }
-    if (asideContent !== raw) {
-      try {
-        linkSync(aside, path)
-        rmSync(aside, { force: true })
-      } catch {
-        // The lock stays where it is; its holder reads it and refuses.
-      }
-      return { acquired: false, reason: CLEANUP_REFUSAL.active }
-    }
-    try {
-      rmSync(aside, { force: true })
-    } catch {
-      // The stale lock is out of the way either way.
-    }
+    return { acquired: false, reason: CLEANUP_REFUSAL.uncertain }
   }
-  return { acquired: false, reason: CLEANUP_REFUSAL.active }
 }
 
 /**
  * Releases the lock on one resource's claim.
  *
- * Only the process that took the lock may release it, and a lock that belongs
- * to another process is left alone.
+ * The record's token is what says the lock is this call's: a process id can be
+ * recycled, and a token cannot. A lock that carries another token is left
+ * alone.
  */
-function releaseLock({ directory, resourceKey, owner }) {
+function releaseLock({ directory, resourceKey, token }) {
   const path = lockPath(directory, resourceKey)
   try {
     const held = JSON.parse(readFileSync(path, 'utf8'))
-    if (held.owner?.pid !== owner.pid) return { released: false }
+    if (held.token !== token) return { released: false }
     rmSync(path, { force: true })
     return { released: true }
   } catch {
@@ -690,7 +662,7 @@ export function claimSharedResource({
       afterClaimRead,
     })
   } finally {
-    releaseLock({ directory, resourceKey, owner: lock.record.owner })
+    releaseLock({ directory, resourceKey, token: lock.record.token })
   }
 }
 
@@ -783,12 +755,15 @@ function claimUnderLock({
         hostname: owner.hostname,
         startedAt: owner.startedAt ?? null,
       },
+      token: uniqueToken(),
       createdAt: now(),
     }
     const content = `${JSON.stringify(record, null, 2)}\n`
-    const temporary = `${path}.${runId}.${attempt}.tmp`
+    // The temporary record is named for this claim and created exclusively, so
+    // two processes that share a run id never write over each other's record.
+    const temporary = `${path}.${record.token}.tmp`
     try {
-      writeFileSync(temporary, content)
+      writeFileSync(temporary, content, { flag: 'wx' })
       linkSync(temporary, path)
       try {
         rmSync(temporary, { force: true })
@@ -829,25 +804,50 @@ function claimUnderLock({
  * Only the run that holds the claim may release it, and only for the same
  * identity it recorded. A claim held by another run is left alone.
  */
-export function releaseSharedResource({ directory, resourceKey, runId, identity }) {
+export function releaseSharedResource({ directory, resourceKey, runId, identity, token }) {
   const path = claimPath(directory, resourceKey)
-  let existing = null
+  // The claim is released under the resource's own lock, so a claim and a
+  // release cannot interleave: the holder of the lock is the only one that
+  // changes the record. A lock that is already there refuses the release, and
+  // the claim stays until the lock is resolved on evidence.
+  const lock = acquireLock({
+    directory,
+    resourceKey,
+    runId,
+    identity,
+    owner: { pid: process.pid, hostname: hostname(), startedAt: null },
+    now: Date.now,
+    isProcessAlive: () => true,
+  })
+  if (!lock.acquired) {
+    return { released: false, reason: `the claim's lock could not be taken: ${lock.reason}` }
+  }
   try {
-    existing = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    return { released: false, reason: 'the claim could not be read' }
-  }
-  if (existing.runId !== runId) {
-    return { released: false, reason: 'the claim belongs to another run' }
-  }
-  if (existing.identity?.label !== identity.label) {
-    return { released: false, reason: 'the claim names another identity' }
-  }
-  try {
-    rmSync(path, { force: true })
-    return { released: true }
-  } catch (error) {
-    return { released: false, reason: error.message }
+    let existing = null
+    try {
+      existing = JSON.parse(readFileSync(path, 'utf8'))
+    } catch {
+      return { released: false, reason: 'the claim could not be read' }
+    }
+    if (existing.runId !== runId) {
+      return { released: false, reason: 'the claim belongs to another run' }
+    }
+    if (existing.identity?.label !== identity.label) {
+      return { released: false, reason: 'the claim names another identity' }
+    }
+    // The record's token is what says the claim is this holder's. A run id is
+    // not a process identity, and a process id can be recycled.
+    if (token !== undefined && existing.token !== token) {
+      return { released: false, reason: 'the claim was not taken by this holder' }
+    }
+    try {
+      rmSync(path, { force: true })
+      return { released: true }
+    } catch (error) {
+      return { released: false, reason: error.message }
+    }
+  } finally {
+    releaseLock({ directory, resourceKey, token: lock.record.token })
   }
 }
 

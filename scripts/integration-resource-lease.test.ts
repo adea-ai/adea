@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -1316,8 +1324,10 @@ describe('the stale takeover', () => {
       isProcessAlive: () => false,
     })
 
-    // The same run, restarting, finishes its takeover while the first
-    // reclaimer is between its read and its own move.
+    const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
+
+    // While the reclaimer is between its read and its move, a writer that does
+    // not hold the lock replaces the record with its own.
     const first = claimSharedResource({
       directory,
       resourceKey: identity.label,
@@ -1326,24 +1336,27 @@ describe('the stale takeover', () => {
       owner: { ...owner, pid: 5151 },
       isProcessAlive: () => false,
       afterClaimRead: () => {
-        const second = claimSharedResource({
-          directory,
-          resourceKey: identity.label,
-          runId: 'run-dead',
-          identity,
-          owner: { ...owner, pid: 6161 },
-          isProcessAlive: () => false,
-        })
-        expect(second.decision).toBe('granted')
+        writeFileSync(
+          claimFile,
+          `${JSON.stringify({
+            version: 1,
+            resourceKey: identity.label,
+            runId: 'run-foreign',
+            identity,
+            owner: { pid: 9999, hostname: 'foreign-host', startedAt: null },
+            token: 'foreign-token',
+            createdAt: 0,
+          })}\n`
+        )
       },
     })
 
-    // The first reclaimer refuses, and the live claim is still there.
+    // The reclaimer refuses, and the record that was written since is intact.
     expect(first.decision).toBe('refused')
     expect(first.reason).toBe(CLEANUP_REFUSAL.active)
-    const claimFile = join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
     const held = JSON.parse(readFileSync(claimFile, 'utf8'))
-    expect(held.runId).toBe('run-dead')
+    expect(held.runId).toBe('run-foreign')
+    expect(held.token).toBe('foreign-token')
   })
 
   test('three contenders for one stale claim never overlap and never overwrite a live claim', () => {
@@ -1642,5 +1655,163 @@ describe('a lease record that is not a lease', () => {
         identity: { label: 'adea-integration-reusable:x' },
       })
     ).toBe(true)
+  })
+})
+
+/** The file that holds the claim on the shared instance. */
+const claimFile = (directory: string) =>
+  join(directory, 'claims', 'adea-integration-reusable-agent-hq.claim')
+
+/** The file that holds the lock on the shared instance. */
+const lockFile = (directory: string) =>
+  join(directory, 'claims', 'adea-integration-reusable-agent-hq.lock')
+
+describe('the lock and the token', () => {
+  const identity = resourceIdentity({ mode: RESOURCE_MODE.reusable, runToken: 'a', port: '55432' })
+
+  test('a residual lock is refused, and it is never recovered automatically', () => {
+    const directory = leaseDirectoryForTest()
+    mkdirSync(join(directory, 'claims'), { recursive: true })
+    // A process died holding the lock. Its lock is still there.
+    writeFileSync(
+      lockFile(directory),
+      `${JSON.stringify({
+        version: 1,
+        resourceKey: identity.label,
+        runId: 'run-dead',
+        identity,
+        owner: { pid: 4242, hostname: 'synthetic-host', startedAt: null },
+        token: 'residual-token',
+        createdAt: 0,
+      })}\n`
+    )
+    // Three contenders reach for the same resource. The lock is taken by no
+    // automatic recovery, so every one of them is refused.
+    for (const runId of ['run-a', 'run-b', 'run-c']) {
+      const claim = claimSharedResource({
+        directory,
+        resourceKey: identity.label,
+        runId,
+        identity,
+        owner: { ...owner, pid: 5151 },
+        // The lock's owner is gone, and that is not a licence to bypass it.
+        isProcessAlive: () => false,
+      })
+      expect(claim.decision).toBe('refused')
+      expect(claim.reason).toBe(CLEANUP_REFUSAL.uncertain)
+    }
+    // The residual lock is exactly as it was, and no claim was written.
+    expect(JSON.parse(readFileSync(lockFile(directory), 'utf8')).token).toBe('residual-token')
+    expect(existsSync(claimFile(directory))).toBe(false)
+  })
+
+  test('two claims that share a run id never share a temporary record', () => {
+    const directory = leaseDirectoryForTest()
+    const first = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-shared',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => true,
+    })
+    expect(first.decision).toBe('granted')
+    const firstToken = first.claim?.token
+    // The claim is released, so the second claim of the same run id can be
+    // taken, and it carries a record of its own.
+    const released = releaseSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-shared',
+      identity,
+      token: firstToken,
+    })
+    expect(released.released).toBe(true)
+    const second = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-shared',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => true,
+    })
+    expect(second.decision).toBe('granted')
+    // The two records are told apart by their tokens, not by the run id.
+    expect(second.claim?.token).not.toBe(firstToken)
+    // No temporary record was left behind by either claim.
+    const leftovers = readdirSync(join(directory, 'claims')).filter((name) => name.endsWith('.tmp'))
+    expect(leftovers).toEqual([])
+  })
+
+  test('a claim is released only by the holder that took it', () => {
+    const directory = leaseDirectoryForTest()
+    const claim = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-holder',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => true,
+    })
+    expect(claim.decision).toBe('granted')
+    // Another run, with the same run id, cannot release it: the token is what
+    // says the claim is the holder's.
+    const foreign = releaseSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-holder',
+      identity,
+      token: 'not-the-token',
+    })
+    expect(foreign.released).toBe(false)
+    expect(existsSync(claimFile(directory))).toBe(true)
+    // The holder can.
+    const released = releaseSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-holder',
+      identity,
+      token: claim.claim?.token,
+    })
+    expect(released.released).toBe(true)
+    expect(existsSync(claimFile(directory))).toBe(false)
+  })
+
+  test('a release is ordered under the lock, so it cannot interleave with a claim', () => {
+    const directory = leaseDirectoryForTest()
+    const claim = claimSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-holder',
+      identity,
+      owner: { ...owner, pid: 5151 },
+      isProcessAlive: () => true,
+    })
+    expect(claim.decision).toBe('granted')
+    // A residual lock stands in the way of the release, and the release
+    // refuses rather than removing the record without the lock.
+    mkdirSync(join(directory, 'claims'), { recursive: true })
+    writeFileSync(
+      lockFile(directory),
+      `${JSON.stringify({
+        version: 1,
+        resourceKey: identity.label,
+        runId: 'run-other',
+        identity,
+        owner: { pid: 9999, hostname: 'other-host', startedAt: null },
+        token: 'residual-token',
+        createdAt: 0,
+      })}\n`
+    )
+    const released = releaseSharedResource({
+      directory,
+      resourceKey: identity.label,
+      runId: 'run-holder',
+      identity,
+      token: claim.claim?.token,
+    })
+    expect(released.released).toBe(false)
+    // The claim is still there, because the release never took the lock.
+    expect(existsSync(claimFile(directory))).toBe(true)
   })
 })

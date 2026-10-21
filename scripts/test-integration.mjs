@@ -317,11 +317,13 @@ if (ownership === 'owned') {
     ownership === 'owned' &&
     requestedMode === RESOURCE_MODE.reusable &&
     (sharedClaim.reason === CLEANUP_REFUSAL.active ||
-      sharedClaim.reason === CLEANUP_REFUSAL.unsafeArbitration)
+      sharedClaim.reason === CLEANUP_REFUSAL.unsafeArbitration ||
+      sharedClaim.reason === CLEANUP_REFUSAL.uncertain)
   ) {
-    // The shared instance is held by a live run, or two runs are contending for
-    // it and the arbitration cannot be proved. A concurrent run does not share
-    // a database with it: it takes an instance labelled for itself, and says so.
+    // The shared instance is held by a live run, or its lock is residual and
+    // its ownership cannot be established. The locked instance is left exactly
+    // as it is; this run does not share a database with it, and does not take
+    // it either. It takes an instance labelled for itself, and says so.
     identity = resourceIdentity({
       mode: RESOURCE_MODE.disposable,
       runToken,
@@ -890,6 +892,7 @@ function applyCleanupPlan(cleanupPlan) {
       resourceKey: identity.label,
       runId,
       identity,
+      token: sharedClaim.claim?.token,
     })
     if (!released.released) {
       errors.push(`the shared claim was not released: ${released.reason}`)

@@ -60,24 +60,36 @@ The arbitration is held by a lock: one lock per resource, taken with an
 exclusive create and held for the whole claim or release. A run id is not a
 process identity, so two processes that share one can reach for the same
 record; the lock is a process identity, and it is what makes the arbitration
-sound. A run that cannot take the lock is refused, because the resource is in
-use, and a run that cannot read the lock is refused, because its owner is
-unknown. A lock whose owner is gone is broken by moving it aside and
-comparing the moved file with the one that was read: if they differ, a live
-lock was displaced, so it is put back with a link — a link refuses to replace
-a lock that is already there — and the claim is refused.
+sound.
+
+A lock that is already there is refused, whatever its owner is doing. This
+call cannot prove that it is entitled to the resource, so it does not take it,
+and it does not break the lock either: a residual lock is recovered by an
+operator, on evidence, and never by an automatic bypass. A run whose lock
+cannot be taken is refused, and the resource it was refused is left exactly as
+it is. The lane does not then take that resource either — it takes an
+instance of its own.
+
+The temporary record of a lock or a claim is named for that call and created
+exclusively, so two processes that share a run id never write over each
+other's record, and the record that is linked into place is always complete.
 
 A claim whose owner is gone may be taken over when the identity matches, and
 the lock is held while that happens, so only one reclaimer is in the operation
 at a time. Within it, the stale record is moved aside before it is replaced
 and the moved file is compared with the one that was read: if they differ, a
-live claim was displaced, so it is put back and the claim is refused. A claim
-that is still live is never moved aside at all. The claim is read back before
-the run treats the resource as claimed.
+live claim was displaced, so it is put back with a link — a link refuses to
+replace a claim that is already there — and the claim is refused. A claim that
+is still live is never moved aside at all. The claim is read back before the
+run treats the resource as claimed.
 
 A claim that cannot be read is uncertain, and an uncertain claim is never
-taken. The claim is released with the cleanup, and a claim that cannot be
-released is reported rather than hidden.
+taken. The claim is released with the cleanup, under the same exclusive lock,
+so a claim and a release cannot interleave. The release checks the record's
+token and not the run id or the process id: a process id can be recycled, and
+a run id is not a process identity, so only the token says that a record
+belongs to the holder that took it. A claim that cannot be released is
+reported rather than hidden.
 
 ## The liveness of an owner
 
