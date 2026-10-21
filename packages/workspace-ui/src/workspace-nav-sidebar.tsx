@@ -781,26 +781,31 @@ export function WorkspaceNavSidebar(props: Props) {
       </Show>
       <Suspense fallback={null}>
         <Show when={editingProject()}>
-          {(project) => (
-            <ProjectSettingsDialog
-              busy={props.projectBusy}
-              initial={{
-                accent: project().accent,
-                iconKey: project().iconKey,
-                name: project().name,
-              }}
-              actions={
-                navProject(project().id) ? adapter().projectMenu(navProject(project().id)!) : []
-              }
-              onAction={(id) => {
-                const target = navProject(project().id)
-                if (target) projectAction(id, target)
-              }}
-              onClose={() => setEditingProject(null)}
-              onSave={(input) => props.onUpdateProject(project().id, input)}
-              open
-            />
-          )}
+          {(editing) => {
+            // The project actions close this dialog first, which unmounts the
+            // `Show` and makes its accessor stale, so read the project once.
+            const project = editing()
+            return (
+              <ProjectSettingsDialog
+                busy={props.projectBusy}
+                initial={{
+                  accent: project.accent,
+                  iconKey: project.iconKey,
+                  name: project.name,
+                }}
+                actions={
+                  navProject(project.id) ? adapter().projectMenu(navProject(project.id)!) : []
+                }
+                onAction={(id) => {
+                  const target = navProject(project.id)
+                  if (target) projectAction(id, target)
+                }}
+                onClose={() => setEditingProject(null)}
+                onSave={(input) => props.onUpdateProject(project.id, input)}
+                open
+              />
+            )
+          }}
         </Show>
         <Show when={renaming()}>
           {(target) => {
