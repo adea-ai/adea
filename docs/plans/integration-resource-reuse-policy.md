@@ -161,6 +161,16 @@ not answer — a timeout, a refused call, a daemon that cannot be reached —
 leaves the state unknown rather than absent. A cleanup that could not complete
 fails the lane: a teardown that did not finish never leaves the lane green.
 
+The receipt is stored in the lease, so a later run can read what the earlier
+run did and did not remove. The lane claims a settled cleanup only when that
+store is confirmed. A receipt that could not be stored — because the record's
+lock was held, or because the write failed — leaves the cleanup unsettled: the
+lane does not report a settled cleanup it cannot prove, and an otherwise
+successful run fails because the evidence of its own cleanup is missing. That
+failure is reported on its own, and it does not replace the refusal or the
+error that stopped the run in the first place: the run's outcome stays the
+reason the run stopped, and the missing receipt is reported beside it.
+
 ## What may be removed
 
 The cleanup decision is about ownership, not convenience.

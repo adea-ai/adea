@@ -2066,3 +2066,55 @@ describe('the pruner and the writers of a record', () => {
     expect(readLease(directory, 'run-locked')).not.toBeNull()
   })
 })
+
+/** Claims a lease and builds the receipt that settles it. */
+function claimedLease(directory: string, runId: string) {
+  const identity = disposableIdentity(runId, '20001')
+  const claim = claimResource({
+    directory,
+    runId,
+    mode: RESOURCE_MODE.disposable,
+    identity,
+    owner,
+    isProcessAlive: () => true,
+  })
+  return {
+    claim,
+    receipt: cleanupReceipt({
+      lease: claim.lease,
+      decision: CLEANUP_DECISION.remove,
+      reason: 'disposable-instance-owned-by-this-run',
+      resources: [],
+      child: { status: 0, signal: null },
+    }),
+  }
+}
+
+describe('a lease receipt that cannot be stored', () => {
+  test('a lock that cannot be taken leaves the receipt unstored', () => {
+    const directory = leaseDirectoryForTest()
+    const { receipt } = claimedLease(directory, 'run-lock')
+    // Another holder has the record's lock, so the settlement cannot be
+    // established and the receipt is not stored.
+    mkdirSync(join(directory, 'locks'), { recursive: true })
+    writeFileSync(
+      join(directory, 'locks', 'run-lock.lock'),
+      `${JSON.stringify({ version: 1, runId: 'run-lock', token: 'another-holder', pid: 4242, at: 0 })}\n`
+    )
+    expect(releaseLease({ directory, runId: 'run-lock', receipt })).toBeNull()
+    // The record is exactly as it was: the receipt was not stored in it.
+    expect(readLease(directory, 'run-lock')?.state).toBe('claimed')
+    expect(readLease(directory, 'run-lock')?.cleanup).toBeNull()
+  })
+
+  test('a record that cannot be written leaves the receipt unstored', () => {
+    const directory = leaseDirectoryForTest()
+    const { receipt } = claimedLease(directory, 'run-write')
+    // The temporary record's path is occupied, so the write cannot complete.
+    mkdirSync(join(directory, `run-write.json.${process.pid}.tmp`))
+    expect(releaseLease({ directory, runId: 'run-write', receipt })).toBeNull()
+    // The record is exactly as it was: the receipt was not stored in it.
+    expect(readLease(directory, 'run-write')?.state).toBe('claimed')
+    expect(readLease(directory, 'run-write')?.cleanup).toBeNull()
+  })
+})

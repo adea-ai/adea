@@ -46,6 +46,7 @@ function exercise(options: {
   releaseRefused?: string
   releaseThrows?: boolean
   removalUnconfirmed?: boolean
+  leaseReceiptFails?: boolean
 }) {
   const child = `
     import vm from 'node:vm'
@@ -314,7 +315,13 @@ function exercise(options: {
           receipts.push(receipt)
           return receipt
         },
-        releaseLease({ receipt }) { calls.push(['release-lease', receipt.decision]); return receipt },
+        releaseLease({ receipt }) {
+          calls.push(['release-lease', receipt.decision])
+          // A settlement that could not be stored is not a settlement, and the
+          // runner has to see that.
+          if (options.leaseReceiptFails) return null
+          return receipt
+        },
         summariseReceipt(receipt) { return 'decision=' + receipt.decision },
       }),
       './disposable-postgres-volume-cleanup.mjs': stub({
@@ -1573,4 +1580,23 @@ test('a thrown release is reported and the original refusal still stops the run'
   expect(result.failure).toContain('the integration resource is not available: uncertain')
   expect(result.errors.some((message) => message.includes('could not be released'))).toBe(true)
   expect(result.failure).not.toContain('synthetic release failure')
+})
+
+test('a lease receipt that could not be stored leaves the cleanup unsettled and fails the run', () => {
+  const result = exercise({ success: true, leaseReceiptFails: true })
+  // The cleanup is not settled, so the lane does not claim one, and the run
+  // fails even though the suites passed.
+  expect(result.failure).toContain('the integration resource cleanup did not complete')
+  expect(result.failure).toContain('the lease receipt was not stored')
+  // The receipt says why, on its own.
+  expect(result.receipts.at(-1)?.errors).toContain('the lease receipt was not stored')
+})
+
+test('a primary failure stays the reason the run stopped when the receipt cannot be stored', () => {
+  const result = exercise({ failAt: 'test', leaseReceiptFails: true })
+  // The suite's failure is the reason the run stopped, and the cleanup failure
+  // is reported beside it rather than in place of it.
+  expect(result.failure).toContain('failed with exit code 7')
+  expect(result.failure).not.toContain('the lease receipt was not stored')
+  expect(result.receipts.at(-1)?.errors).toContain('the lease receipt was not stored')
 })

@@ -920,10 +920,22 @@ function applyCleanupPlan(cleanupPlan) {
     child: lastChildOutcome,
     errors,
   })
-  releaseLease({ directory: leaseDirectoryPath, runId, receipt })
-  cleanupSettled = true
+  // The durable receipt is what a later run reads, so the settlement has to be
+  // confirmed. If the receipt could not be stored, the cleanup is not settled,
+  // and the lane says so rather than claiming a settled cleanup it cannot
+  // prove. The failure is reported on its own: the refusal or error that
+  // stopped the run stays the reason the run stopped.
+  const settled = releaseLease({ directory: leaseDirectoryPath, runId, receipt })
+  if (!settled) {
+    receipt.errors.push('the lease receipt was not stored')
+  }
+  if (errors.length === 0 && settled) {
+    cleanupSettled = true
+  }
   console.log(`the integration resource receipt: ${summariseReceipt(receipt)}`)
-  if (errors.length > 0) {
-    throw new Error(`the integration resource cleanup did not complete: ${errors.join('; ')}`)
+  if (errors.length > 0 || !settled) {
+    const reasons = [...errors]
+    if (!settled) reasons.push('the lease receipt was not stored')
+    throw new Error(`the integration resource cleanup did not complete: ${reasons.join('; ')}`)
   }
 }
