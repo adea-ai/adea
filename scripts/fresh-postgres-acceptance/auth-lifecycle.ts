@@ -8,7 +8,12 @@ import {
   handleBetterAuthRequest,
 } from '../../packages/auth/src/better-auth-server'
 import type { createRecordingAuthDelivery } from '../../packages/auth/src/delivery'
-import type { createBetterAuthService } from '../../packages/auth/src/server'
+import { createBetterAuthService } from '../../packages/auth/src/server'
+import {
+  runAuthLifecycleRecovery,
+  type AuthLifecycleRecoveryReceipt,
+  type AuthLifecycleStore,
+} from './auth-lifecycle-recovery'
 
 const cookies = (response: Response) =>
   response.headers
@@ -200,11 +205,68 @@ export async function runFreshAuthAcceptance(
   await adapter(revokeCookie).revokeSession(revokeSession.session.id)
   assert.equal(await adapter(revokeCookie).refreshSession(), null)
   assert.equal(await sessionCount(), 0)
+
+  // The failure-recovery phase: what happens when the flow is interrupted. It
+  // runs on synthetic accounts of its own, against the same store, and every
+  // service it builds is closed again before this phase returns.
+  const built: Array<{ close(): Promise<void> }> = []
+  const recoveryEnvironment = {
+    AUTH_BASE_URL: service.config.baseUrl,
+    AUTH_DATABASE_URL: service.config.databaseUrl,
+    AUTH_EMAIL_VERIFICATION_REQUIRED: String(service.config.emailVerificationRequired),
+    AUTH_SECURE_COOKIES: String(service.config.secureCookies),
+    AUTH_SECRET: service.config.secret,
+    AUTH_TRUSTED_ORIGINS: service.config.trustedOrigins.join(','),
+  }
+  const recoveryStore: AuthLifecycleStore = {
+    async account(address) {
+      const result = await providerSql<
+        { id: string; emailVerified: boolean }[]
+      >`SELECT id, "emailVerified" FROM "user" WHERE email = ${address}`
+      assert.equal(result.length, 1)
+      return { emailVerified: result[0]!.emailVerified, id: result[0]!.id }
+    },
+    async sessionCount(address) {
+      const result = await providerSql<
+        { count: number }[]
+      >`SELECT count(*)::int AS count FROM "session" s JOIN "user" u ON u.id = s."userId" WHERE u.email = ${address}`
+      return result[0]?.count ?? 0
+    },
+  }
+  let recovery: AuthLifecycleRecoveryReceipt
+  try {
+    recovery = await runAuthLifecycleRecovery({
+      createService: (recoveryDelivery) => {
+        const created = createBetterAuthService(recoveryEnvironment, recoveryDelivery)
+        built.push(created)
+        return { auth: created.auth, config: created.config }
+      },
+      delivery: recorder.delivery,
+      sent: recorder.sent,
+      store: recoveryStore,
+      origin,
+    })
+  } finally {
+    for (const created of built) {
+      await created.close().catch(() => undefined)
+    }
+  }
+  assert.equal(recovery.deliveryFailureClosed, true)
+  assert.equal(recovery.deliveryFailureRecovered, true)
+  assert.equal(recovery.rollbackLeftNoSession, true)
+  assert.equal(recovery.concurrentVerification, true)
+  assert.equal(recovery.replayedVerificationAccepted, true)
+  assert.equal(recovery.replayedResetRefused, true)
+  assert.equal(recovery.concurrentResetSingleUse, true)
+  assert.equal(recovery.restartContinues, true)
+  assert.equal(recovery.sessionRevocationConsistent, true)
+  assert.equal(recovery.redacted, true)
   return {
     lifecycle: 'passed',
     verificationRequired: true,
     resetSingleUse: true,
     expiredResetRefused: true,
     sessionRevocation: true,
+    recovery,
   } as const
 }
