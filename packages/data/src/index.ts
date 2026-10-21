@@ -989,6 +989,9 @@ export const workspaceMutationOptions = {
     // reported.
     onError: async (error: unknown) => {
       if ((error as { status?: unknown } | null)?.status !== 409) return
+      // A read that began during the failed save may carry the old membership, and
+      // fetchQuery would hand its promise back as the refresh. Drop it first.
+      await cancelWorkspaceMembershipQueries(queryClient)
       // Fetched directly, so the cache refreshes whether or not a view is observing it.
       await Promise.allSettled([
         queryClient.fetchQuery({ ...workspaceQueryOptions.list(client), staleTime: 0 }),
