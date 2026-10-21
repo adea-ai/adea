@@ -18,6 +18,7 @@ import {
   getWorkspaceForUser,
   listArchivedWorkspacesForOwner,
   listWorkspacesForUser,
+  removeWorkspaceMembership,
   reorderWorkspaces,
   reopenWorkspace,
   updateWorkspace,
@@ -31,10 +32,14 @@ import {
   temporaryUserSessions,
   users,
   workspaceDeletions,
+  workspaceEvents,
   workspaceMemberships,
   workspaces,
 } from '../../src/schema'
+import { lockWorkspaceEventSequence } from '../../src/transactions'
 import { mintControlPlaneIdentifier } from '../../src/control-plane-identifiers'
+
+const connectionUrl = process.env.DATABASE_URL
 
 describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () => {
   let connection: DatabaseConnection
@@ -84,6 +89,50 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
       expect(
         await connection.db.select().from(table).where(eq(table.workspaceId, workspaceId))
       ).toEqual([])
+  }
+
+  /**
+   * The backend pid of a session that is waiting for a lock, read from
+   * PostgreSQL's own wait graph. Elapsed time never decides whether a write
+   * was blocked.
+   */
+  async function waitForLockedBackend(applicationName: string, timeoutMs = 5_000): Promise<number> {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      const rows = await connection.db.execute(sql`
+        select a.pid from pg_stat_activity a
+        where a.datname = current_database() and a.application_name = ${applicationName}
+          and a.wait_event_type = 'Lock'
+      `)
+      const pid = rows[0]?.pid
+      if (pid !== undefined && pid !== null) return Number(pid)
+      await Bun.sleep(10)
+    }
+    throw new Error(`Expected ${applicationName} to wait for a lock`)
+  }
+
+  /** A session blocked on a membership row, and the backends that block it. */
+  async function waitForBlockedMembershipQuery(applicationName: string, blockerPid: number) {
+    const deadline = Date.now() + 5_000
+    while (Date.now() < deadline) {
+      const rows = await connection.db.execute(sql`
+        select a.pid, a.wait_event, a.query, pg_blocking_pids(a.pid) as blocker_pids
+        from pg_stat_activity a
+        where a.datname = current_database() and a.application_name = ${applicationName}
+          and a.wait_event_type = 'Lock'
+          and a.query ilike '%workspace_memberships%'
+          and pg_blocking_pids(a.pid) @> array[${blockerPid}]::int[]
+      `)
+      if (rows[0])
+        return {
+          blockerPids: (rows[0].blocker_pids ?? []) as number[],
+          pid: Number(rows[0].pid),
+          query: String(rows[0].query),
+          waitEvent: String(rows[0].wait_event),
+        }
+      await Bun.sleep(10)
+    }
+    throw new Error('Expected the membership revocation to wait for the rename')
   }
 
   test('fresh signed-in and guest onboarding create only Home, with a home icon, under concurrent retry', async () => {
@@ -341,6 +390,156 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
       .from(workspaces)
       .where(eq(workspaces.id, reserved.id))
     expect(row?.isPersonal).toBe(false)
+  })
+
+  test('a rename cannot commit after the caller lost the authority, and a revocation waits for a rename in flight', async () => {
+    const owner = await guest()
+    const member = await guest()
+    const { workspace } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: crypto.randomUUID(),
+      name: 'Rename fence',
+      owner: owner.principal,
+    })
+    await addWorkspaceMembership(connection.db, workspace.id, member.principal, 'admin')
+    const before = await getWorkspaceForUser(connection.db, workspace.id, owner.principal)
+    expect(before).toMatchObject({ name: 'Rename fence', version: workspace.version })
+    const eventsBefore = await connection.db
+      .select({ id: workspaceEvents.id })
+      .from(workspaceEvents)
+      .where(eq(workspaceEvents.workspaceId, workspace.id))
+
+    // A revocation never changes the workspace's version, so the rename's own
+    // version check still matches after it. Only the fence can refuse it.
+    const revoker = createDatabase(connectionUrl!)
+    try {
+      expect(await removeWorkspaceMembership(revoker.db, workspace.id, member.principal)).toBe(true)
+      expect(
+        (await getWorkspaceForUser(connection.db, workspace.id, owner.principal))?.version
+      ).toBe(workspace.version)
+      await expect(
+        updateWorkspace(connection.db, workspace.id, member.principal, {
+          expectedVersion: workspace.version,
+          update: { name: 'Renamed after the revocation' },
+        })
+      ).rejects.toThrow('Workspace unavailable')
+      // No partial rename: the workspace, its version and its event log are
+      // exactly what they were before the refused rename.
+      expect(await getWorkspaceForUser(connection.db, workspace.id, owner.principal)).toEqual(
+        before
+      )
+      expect(
+        await connection.db
+          .select({ id: workspaceEvents.id })
+          .from(workspaceEvents)
+          .where(eq(workspaceEvents.workspaceId, workspace.id))
+      ).toEqual(eventsBefore)
+    } finally {
+      await revoker.close()
+    }
+
+    // A demotion is refused the same way: the role is read under the fence,
+    // and a demoted member no longer grants `workspace.update`.
+    const demoted = await guest()
+    await addWorkspaceMembership(connection.db, workspace.id, demoted.principal, 'admin')
+    await connection.db
+      .update(workspaceMemberships)
+      .set({ role: 'member' })
+      .where(
+        and(
+          eq(workspaceMemberships.workspaceId, workspace.id),
+          eq(workspaceMemberships.userId, demoted.principal.userId)
+        )
+      )
+    await expect(
+      updateWorkspace(connection.db, workspace.id, demoted.principal, {
+        expectedVersion: workspace.version,
+        update: { name: 'Renamed after the demotion' },
+      })
+    ).rejects.toThrow('Workspace unavailable')
+    expect(await getWorkspaceForUser(connection.db, workspace.id, owner.principal)).toEqual(before)
+
+    // A rename in flight holds the fence, so a concurrent revocation waits for
+    // it. The revocation cannot commit between the rename's authorization read
+    // and its effect: the interleaving is unconstructible, and the two writes
+    // are one ordered pair.
+    const label = `rename-fence-${crypto.randomUUID()}`
+    const renameUrl = new URL(connectionUrl!)
+    renameUrl.searchParams.set('application_name', `${label}-rename`)
+    const revokeUrl = new URL(connectionUrl!)
+    revokeUrl.searchParams.set('application_name', `${label}-revoke`)
+    const renamer = createDatabase(renameUrl.toString())
+    const revoker2 = createDatabase(revokeUrl.toString())
+    const release = Promise.withResolvers<void>()
+    let parker: Promise<unknown> | undefined
+    let rename: Promise<unknown> | undefined
+    let revocation: Promise<boolean> | undefined
+    try {
+      const concurrent = await guest()
+      await addWorkspaceMembership(connection.db, workspace.id, concurrent.principal, 'admin')
+      // Parking the workspace's event sequence row holds the rename after it
+      // has taken both fences and applied its write, without committing it.
+      parker = connection.db.transaction(async (transaction) => {
+        await lockWorkspaceEventSequence(transaction, workspace.id)
+        await release.promise
+      })
+      void parker.catch(() => undefined)
+      rename = updateWorkspace(renamer.db, workspace.id, concurrent.principal, {
+        expectedVersion: workspace.version,
+        update: { name: 'Renamed while in flight' },
+      })
+      void rename.catch(() => undefined)
+      const renamePid = await waitForLockedBackend(`${label}-rename`)
+      revocation = removeWorkspaceMembership(revoker2.db, workspace.id, concurrent.principal)
+      void revocation.catch(() => undefined)
+      // Observe PostgreSQL's actual wait graph; elapsed time never decides
+      // whether the revocation was blocked by the rename.
+      const blocked = await waitForBlockedMembershipQuery(`${label}-revoke`, renamePid)
+      expect(blocked.pid).toBeGreaterThan(0)
+      expect(blocked.blockerPids.map(Number)).toContain(renamePid)
+      expect(blocked.waitEvent.length).toBeGreaterThan(0)
+      expect(blocked.query).toContain('workspace_memberships')
+      // The revocation has not committed, and the rename has not committed.
+      expect(
+        (
+          await connection.db
+            .select({ role: workspaceMemberships.role })
+            .from(workspaceMemberships)
+            .where(
+              and(
+                eq(workspaceMemberships.workspaceId, workspace.id),
+                eq(workspaceMemberships.userId, concurrent.principal.userId)
+              )
+            )
+        )[0]?.role
+      ).toBe('admin')
+      expect((await getWorkspaceForUser(connection.db, workspace.id, owner.principal))?.name).toBe(
+        'Rename fence'
+      )
+      release.resolve()
+      await rename
+      expect(await revocation).toBe(true)
+      expect((await getWorkspaceForUser(connection.db, workspace.id, owner.principal))?.name).toBe(
+        'Renamed while in flight'
+      )
+      expect(
+        await connection.db
+          .select({ id: workspaceMemberships.id })
+          .from(workspaceMemberships)
+          .where(
+            and(
+              eq(workspaceMemberships.workspaceId, workspace.id),
+              eq(workspaceMemberships.userId, concurrent.principal.userId)
+            )
+          )
+      ).toEqual([])
+    } finally {
+      release.resolve()
+      await parker?.catch(() => undefined)
+      await rename?.catch(() => undefined)
+      await revocation?.catch(() => undefined)
+      await renamer.close()
+      await revoker2.close()
+    }
   })
 
   test('a rename is scope-aware and presentation-only', async () => {

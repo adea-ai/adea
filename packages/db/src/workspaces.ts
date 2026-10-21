@@ -427,6 +427,54 @@ export async function addWorkspaceMembership(
   return Object.freeze(membership)
 }
 
+/**
+ * The workspace membership fence, shared by the paths that authorize on a
+ * membership and the paths that revoke one.
+ *
+ * The membership row is the authority fence. An authorizer takes it in SHARE
+ * mode and reads the role under that lock; a revoker takes the same row
+ * exclusively. A SHARE lock conflicts with a DELETE and with a non-key role
+ * UPDATE, so a revocation that committed first is observed by the authorizer,
+ * and a revocation that arrives while the fence is held waits for the effect
+ * to commit.
+ *
+ * Without the fence an authorizer could read a role, lose it, and still
+ * commit: a revocation does not change the workspace's version, so the
+ * author's own version check would still match. The fence is what makes the
+ * revocation and the effect one ordered pair instead of two independent
+ * writes.
+ */
+export async function lockWorkspaceMembership(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  userId: string,
+  mode: 'authorize' | 'revoke'
+): Promise<Readonly<{ role: WorkspaceRole; sortOrder: number }> | null> {
+  const selection = {
+    role: workspaceMemberships.role,
+    sortOrder: workspaceMemberships.sortOrder,
+  }
+  const scoped = and(
+    eq(workspaceMemberships.workspaceId, workspaceId),
+    eq(workspaceMemberships.userId, userId)
+  )
+  const [membership] =
+    mode === 'authorize'
+      ? await transaction
+          .select(selection)
+          .from(workspaceMemberships)
+          .where(scoped)
+          .for('share')
+          .limit(1)
+      : await transaction
+          .select(selection)
+          .from(workspaceMemberships)
+          .where(scoped)
+          .for('update')
+          .limit(1)
+  return membership ?? null
+}
+
 export async function removeWorkspaceMembership(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -442,15 +490,27 @@ export async function removeWorkspaceMembership(
       throw new Error('Workspace owner membership cannot be removed')
     }
 
-    const removed = await transaction
-      .delete(workspaceMemberships)
-      .where(
-        and(
-          eq(workspaceMemberships.workspaceId, workspaceId),
-          eq(workspaceMemberships.userId, principal.userId)
-        )
-      )
-      .returning({ id: workspaceMemberships.id })
+    // The revoker's side of the shared fence: the membership row is taken
+    // exclusively, so a concurrent authorizer either finished before this
+    // revocation or waits for it.
+    const membership = await lockWorkspaceMembership(
+      transaction,
+      workspaceId,
+      principal.userId,
+      'revoke'
+    )
+
+    const removed = membership
+      ? await transaction
+          .delete(workspaceMemberships)
+          .where(
+            and(
+              eq(workspaceMemberships.workspaceId, workspaceId),
+              eq(workspaceMemberships.userId, principal.userId)
+            )
+          )
+          .returning({ id: workspaceMemberships.id })
+      : []
     // Project lists only grant access alongside a workspace membership; drop
     // them too so a later re-join starts with no project access.
     await transaction
@@ -878,6 +938,16 @@ export async function reopenWorkspace(
  * `workspace.update` may rename the workspace, the change never touches the
  * workspace's identity, its memberships or its content, and an archived
  * workspace is never renamed.
+ *
+ * The rename is fenced against a concurrent revocation of the caller's
+ * authority. The workspace row is the lifecycle fence and is locked first, the
+ * same order the management authority uses, so a direct rename and a managed
+ * rename cannot deadlock against each other. The membership is the authority
+ * fence, and the role is read under that lock: a revocation that committed
+ * first is observed here, and a revocation that arrives while the rename holds
+ * the fence waits for the rename to commit. A revocation never changes the
+ * workspace's version, so without the fence the rename's own version check
+ * would still match after the caller's authority was gone.
  */
 export async function updateWorkspace(
   database: AgentHqDatabase | AgentHqTransaction,
@@ -886,23 +956,24 @@ export async function updateWorkspace(
   input: Readonly<{ expectedVersion: number; update: WorkspaceUpdate }>
 ): Promise<WorkspaceSummary> {
   return database.transaction(async (transaction) => {
-    const [membership] = await transaction
+    const [current] = await transaction
       .select({
-        role: workspaceMemberships.role,
-        sortOrder: workspaceMemberships.sortOrder,
+        deletedAt: workspaces.deletedAt,
+        deletionRequestedAt: workspaces.deletionRequestedAt,
       })
-      .from(workspaceMemberships)
-      .innerJoin(workspaces, eq(workspaceMemberships.workspaceId, workspaces.id))
-      .where(
-        and(
-          eq(workspaceMemberships.workspaceId, workspaceId),
-          eq(workspaceMemberships.userId, principal.userId),
-          isNull(workspaces.deletedAt),
-          isNull(workspaces.deletionRequestedAt)
-        )
-      )
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+      .for('update')
       .limit(1)
+    if (!current) throw new Error('Workspace unavailable')
+    const membership = await lockWorkspaceMembership(
+      transaction,
+      workspaceId,
+      principal.userId,
+      'authorize'
+    )
     if (!membership) throw new Error('Workspace unavailable')
+    if (current.deletedAt || current.deletionRequestedAt) throw new Error('Workspace unavailable')
     // Membership alone is not authority to rename. The same role matrix the
     // management gateway applies decides here, so a direct database caller
     // cannot reach past it.
