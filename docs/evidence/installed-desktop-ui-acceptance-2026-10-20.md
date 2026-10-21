@@ -14,25 +14,26 @@ into one bundle.
 
 ## 1. The candidate under test
 
-| Fact                                                | Value                                                                                                                                            |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Candidate's integration base `main`                 | `333b948d4c5fba1f88d98d764c075b790be6ee22` (unchanged since the first run)                                                                       |
-| This lane's branch                                  | `test/installed-desktop-ui-acceptance-20261020`                                                                                                  |
-| Pull request base (current `main`)                  | `1098c658300beec7e49f1a2143aabd971aefbcfe` (the base moved forward from `333b948d4`)                                                             |
-| Published head (the pull request)                   | `a18e35ff2e213133480811435b47107a68c6e2b3` — 13 commits on that base                                                                             |
-| Local head (this record's continuation)             | the published head plus this record's local commits — the teardown, drain, evidence, row-log and boot-credential-store repairs — all unpublished |
-| B — CI, no vendor dependency                        | `codex/20261020-ci-release-w7` @ `fcb20c08bafad0940330dd5728175a52f334beb3` (#1516, draft)                                                       |
-| C — provider coupling removed                       | `codex/20261020-efficiency-audit-w8` @ `7fa24f2ee991d672cb6ed1373b63f125a6e206e1` (#1515, draft)                                                 |
-| D — Railway qualification lane                      | `feat/railway-postgres-qualification-lane-a` @ `82addf079` (#1514, draft)                                                                        |
-| Integration candidate (local only, never published) | `integration/cp1048-g-20261020` @ `49cb6e19c`                                                                                                    |
-| Bundle                                              | `apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app`                                                                                          |
-| Bundle identity                                     | `Adea-dev` 0.98.0, channel `dev`, identifier `dev.adea.desktop`                                                                                  |
-| Runtime                                             | Electrobun **2.0.4**, bundled CEF, bundled Bun 1.4.0, `defaultRenderer: native`                                                                  |
-| Declared URL scheme                                 | `adea` (`CFBundleURLTypes` → `CFBundleURLSchemes`)                                                                                               |
-| Recorded build target                               | `{"mode":"local","cloudOrigin":"http://localhost:3000"}`                                                                                         |
-| Shell entry digest (sha256)                         | `38b4dae799e6a14740f2ed13f7da6a02e655f5d4e02288f5e73225e47fe31b6e`                                                                               |
-| Build target record digest (sha256)                 | `f4f73f77f565d7d3c4029e23de0b4d0fd6a997786986f01ef9a5a07c938f444e`                                                                               |
-| Version identity digest (sha256)                    | `f82b5e671ad33ec0efbb65231030646858b10a748adb82de733fa8945e1e268b`                                                                               |
+| Fact                                                | Value                                                                                                                                                                                          |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Candidate's integration base `main`                 | `333b948d4c5fba1f88d98d764c075b790be6ee22` (unchanged since the first run)                                                                                                                     |
+| This lane's branch                                  | `test/installed-desktop-ui-acceptance-20261020`                                                                                                                                                |
+| Pull request base (current `main`)                  | `1098c658300beec7e49f1a2143aabd971aefbcfe` (the base moved forward from `333b948d4`)                                                                                                           |
+| Published head (the pull request)                   | `a18e35ff2e213133480811435b47107a68c6e2b3` — 13 commits on that base                                                                                                                           |
+| Local head (this record's continuation)             | the published head plus this record's local commits — the teardown, drain, evidence, row-log and boot-credential-store repairs — all unpublished                                               |
+| Head this record qualifies                          | the branch head; the **source** is unchanged from `b152e54c4abc3fec5cbae230e7d4513cf755e50f`, which is where §8's receipts were measured — this record's own commit changes documentation only |
+| B — CI, no vendor dependency                        | `codex/20261020-ci-release-w7` @ `fcb20c08bafad0940330dd5728175a52f334beb3` (#1516, draft)                                                                                                     |
+| C — provider coupling removed                       | `codex/20261020-efficiency-audit-w8` @ `7fa24f2ee991d672cb6ed1373b63f125a6e206e1` (#1515, draft)                                                                                               |
+| D — Railway qualification lane                      | `feat/railway-postgres-qualification-lane-a` @ `82addf079` (#1514, draft)                                                                                                                      |
+| Integration candidate (local only, never published) | `integration/cp1048-g-20261020` @ `49cb6e19c`                                                                                                                                                  |
+| Bundle                                              | `apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app`                                                                                                                                        |
+| Bundle identity                                     | `Adea-dev` 0.98.0, channel `dev`, identifier `dev.adea.desktop`                                                                                                                                |
+| Runtime                                             | Electrobun **2.0.4**, bundled CEF, bundled Bun 1.4.0, `defaultRenderer: native`                                                                                                                |
+| Declared URL scheme                                 | `adea` (`CFBundleURLTypes` → `CFBundleURLSchemes`)                                                                                                                                             |
+| Recorded build target                               | `{"mode":"local","cloudOrigin":"http://localhost:3000"}`                                                                                                                                       |
+| Shell entry digest (sha256)                         | `38b4dae799e6a14740f2ed13f7da6a02e655f5d4e02288f5e73225e47fe31b6e`                                                                                                                             |
+| Build target record digest (sha256)                 | `f4f73f77f565d7d3c4029e23de0b4d0fd6a997786986f01ef9a5a07c938f444e`                                                                                                                             |
+| Version identity digest (sha256)                    | `f82b5e671ad33ec0efbb65231030646858b10a748adb82de733fa8945e1e268b`                                                                                                                             |
 
 The candidate is the **local** target, not a release build: a release build
 needs Apple signing and notarization, which this lane does not do and is not
@@ -215,6 +216,32 @@ Virtual, Kanban and Source control listed and marked "Not in sidebar".
 which is the defect §15(2) found and repaired: the interrupted-navigation row
 had been answered by an ordinary navigation. This capture set predates that
 repair, and the bytes show it.
+
+### What this record qualifies, and what it does not
+
+**Two results, and they are not the same claim.** The pull request's body
+reported them as one, at a head that is not the head it was attached to; this
+section separates them.
+
+**The prior-head result — the run.** The matrix in §4, the artifact and the
+captures under `screenshots/` are the output of the lane's run against the
+candidate whose integration base is `333b948d4` (the candidate of the published
+head `a18e35ff2`). It is the **installed-application** result: 21 of 22 rows
+passed, the one failure was the `adea://` callback row (§6.2), and the
+console-error cleanliness and the captures came from it. **It does not certify
+the current head.** The source has moved since (§13 to §21), the lane's entry
+point was not executed again, and the current source refuses to install,
+register or launch at all (the provenance below), so no row of that run
+describes the current source's behaviour.
+
+**The current-head result — the qualification.** What this record qualifies at
+the head named in §1 is the **source-side** behaviour only: the focused suites
+and gates in §8, the harness's own decisions, the evidence provenance, and the
+boot credential store's decision. That is a source qualification. It carries
+**no** native, packaged, provider or production claim, and it is not an
+installed-application acceptance: the packaged entry point was not run, no
+application was launched, and every installed-application row remains the
+prior-head run's result.
 
 ### The artifact's provenance
 
@@ -556,6 +583,16 @@ git push origin test/installed-desktop-ui-acceptance-20261020
 
 which would update the existing pull request's head. The pull request already
 exists, so there is no `gh pr create` step left.
+
+**The pull request's body is reconciled with its head.** The body reported
+"Current head `5ac039904`" and the receipts of that head — 23 acceptance unit
+cases and 7 boot-credential-store cases. The pull request's head is
+`a18e35ff2`, thirteen commits later, and the receipts at the head this record
+qualifies are the ones in §8. The reconciled body names the head it describes,
+states the prior-head run and the current-head qualification separately, as §4
+now does, and claims no installed acceptance. It is prepared for the
+authorized controller route as a **draft** update with **auto-merge off**: no
+readiness, no merge, no issue closure, and the publication hold unchanged.
 
 ## 13. The safety repair (root-verified defects at `7ba2fba`)
 
