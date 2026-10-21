@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core'
+import type { AgentProfileState } from '@adea-ai/types'
 import { appSchema } from './schema'
 import {
   controlPlaneIdentifierColumn,
@@ -25,16 +26,31 @@ export const agentLifecycleState = appSchema.enum('agent_lifecycle_state', [
   'archived',
   'configuration_error',
 ])
+/**
+ * The stored catalog state of an Agent's pinned profile version.
+ *
+ * It records what the last authorized profile change observed. It is not a
+ * read-time availability claim: `revoked`, `incompatible`, `unapproved` and
+ * `unavailable` are derived by the authorized resolver when a profile is read
+ * and are never persisted here. The stored vocabulary therefore stays a
+ * subset of the read-time one, and the assertion below fails to compile if
+ * the two ever drift apart.
+ */
 export const agentProfileState = appSchema.enum('agent_profile_state', [
   'available',
   'deprecated',
   'missing',
-])
+] as const satisfies readonly AgentProfileState[])
 
 export const agents = appSchema.table(
   'agents',
   {
     id: entityId(),
+    /**
+     * The immutable public Control Plane Agent identity. It is minted once and
+     * survives every profile version change, so an Agent keeps its identity
+     * while its profile version evolves. Possessing it grants no authority.
+     */
     controlPlaneAgentId: controlPlaneIdentifierColumn('control_plane_agent_id', 'agt'),
     workspaceId: uuid('workspace_id')
       .notNull()
@@ -47,9 +63,19 @@ export const agents = appSchema.table(
     characterRef: text('character_ref'),
     presentationMetadata: jsonb('presentation_metadata').$type<JsonObject>().default({}).notNull(),
     lifecycleState: agentLifecycleState('lifecycle_state').default('active').notNull(),
+    /**
+     * The pinned profile reference. Together with `profileVersion` and
+     * `profileRevision` it is the immutable selected profile version: a
+     * submission is authorized against this exact triple and is refused when
+     * the Agent's pin has moved, so an execution never follows a newer
+     * version on its own.
+     */
     profileId: text('profile_id').notNull(),
+    /** The exact pinned profile version. Never a newer one. */
     profileVersion: text('profile_version').notNull(),
+    /** The stored catalog state of the pinned version. */
     profileState: agentProfileState('profile_state').default('available').notNull(),
+    /** The pin's own revision; it advances only with an authorized change. */
     profileRevision: integer('profile_revision').default(0).notNull(),
     /** Presentation and project-placement revision; profile pins keep `profileRevision`. */
     revision: integer('revision').default(0).notNull(),

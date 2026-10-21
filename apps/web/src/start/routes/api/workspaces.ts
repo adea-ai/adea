@@ -46,12 +46,18 @@ async function post(request: Request) {
   } catch {
     return workspaceInvalidRequestResponse(request)
   }
+  // A JSON `null`, an array or a scalar body is not a workspace request. It is
+  // refused as an invalid request, never read as an empty object.
+  if (body === null || typeof body !== 'object' || Array.isArray(body))
+    return workspaceInvalidRequestResponse(request)
   const candidate = body as Record<string, unknown>
   const name = typeof candidate.name === 'string' ? candidate.name.trim() : ''
   const scene = candidate.scene === undefined ? 'home' : candidate.scene
   if (
     !idempotencyKey ||
     idempotencyKey.length > 128 ||
+    // The personal root's own creation key is reserved: a caller may never
+    // claim the protected Home's identity for a workspace of its own.
     idempotencyKey.startsWith('personal:') ||
     ['default', 'default-home', 'default-work'].includes(idempotencyKey) ||
     !name ||
@@ -61,7 +67,16 @@ async function post(request: Request) {
     return workspaceInvalidRequestResponse(request)
   }
 
-  await ensureBootstrapWorkspaces(applicationDatabase(), resolution.principal)
+  // The caller gets a protected Home before an optional workspace, so the
+  // bootstrap runs first. A bootstrap that cannot establish one fails closed
+  // instead of creating a workspace for a caller without a root.
+  try {
+    await ensureBootstrapWorkspaces(applicationDatabase(), resolution.principal)
+  } catch (error) {
+    if (error instanceof Error && error.name === 'WorkspacePersonalRootUnavailableError')
+      return workspaceUnavailableResponse(request)
+    throw error
+  }
   const created = await createWorkspaceWithOwner(applicationDatabase(), {
     idempotencyKey,
     name,
