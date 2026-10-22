@@ -26,6 +26,11 @@ function memoryStorage(seed: Record<string, string> = {}) {
   }
 }
 
+/** A storage factory that fails, the way a browser that refuses storage does. */
+const throwingStorage = (): Storage => {
+  throw new Error('storage is unavailable')
+}
+
 describe('self-hosted host choice preference', () => {
   test('records and reads the chosen host for one scope', () => {
     const storage = memoryStorage()
@@ -85,6 +90,12 @@ describe('self-hosted host choice preference', () => {
     }
     expect(readSelfHostedHostPreference(broken, ALICE)).toBeUndefined()
     expect(() => writeSelfHostedHostPreference(broken, ALICE, 'host-1')).not.toThrow()
+  })
+
+  test('a storage factory that throws is no choice, and never throws', () => {
+    // A caller may hand over a getter that fails; the note is simply absent.
+    expect(readSelfHostedHostPreference(throwingStorage, ALICE)).toBeUndefined()
+    expect(() => writeSelfHostedHostPreference(throwingStorage, ALICE, 'host-1')).not.toThrow()
   })
 
   test('no storage at all is not a choice', () => {

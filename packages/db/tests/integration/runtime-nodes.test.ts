@@ -27,6 +27,7 @@ import {
   fingerprintOf,
   listRuntimeNodesForUser,
   PAIRING_CHALLENGE_LIFETIME_MS,
+  renameRuntimeNode,
   pruneRuntimeNodeCredentials,
   readRuntimeNode,
   recordRuntimeNodeProof,
@@ -218,6 +219,80 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
     const refs = [...rows].map((row) => row.ref)
     expect(new Set(refs).size).toBe(500)
     for (const ref of refs) expect(ref).toMatch(/^rnr_[0-9A-HJKMNP-TV-Z]{26}$/u)
+  })
+
+  test('two renames of different hosts to the same name cannot both take it', async () => {
+    const { owner, workspace } = await fixture('runtime-rename-race')
+    const first = await registerRuntimeNode(connection.db, {
+      challengeId: (await challenge(workspace.id, owner.principal.userId, 'remote_host'))
+        .challengeId,
+      displayName: 'Host A',
+      keys: keys('signing-a', 'encryption-a'),
+      kind: 'remote_host',
+      ownerUserId: owner.principal.userId,
+      platform: 'Linux 6.1',
+      softwareVersion: '0.20.0',
+      workspaceId: workspace.id,
+    })
+    const second = await registerRuntimeNode(connection.db, {
+      challengeId: (await challenge(workspace.id, owner.principal.userId, 'remote_host'))
+        .challengeId,
+      displayName: 'Host B',
+      keys: keys('signing-b', 'encryption-b'),
+      kind: 'remote_host',
+      ownerUserId: owner.principal.userId,
+      platform: 'Linux 6.1',
+      softwareVersion: '0.20.0',
+      workspaceId: workspace.id,
+    })
+
+    // Three connections, so the two renames really overlap instead of being pipelined by one
+    // client. The barrier holds the workspace's host rows while both renames are in flight: a rename
+    // that locks those rows before it checks the name therefore queues behind the barrier, and the
+    // two renames then run one after the other. A rename that only read the name would sail past
+    // the barrier, both would see "no clash", and both would commit the same name.
+    const other = createDatabase(connectionUrl!)
+    const third = createDatabase(connectionUrl!)
+    try {
+      const barrier = third.client.begin(async (tx) => {
+        await tx`SELECT id FROM app.runtime_nodes WHERE workspace_id = ${workspace.id} FOR UPDATE`
+        await new Promise((resolve) => setTimeout(resolve, 150))
+      })
+      await new Promise((resolve) => setTimeout(resolve, 50))
+      const outcomes = await Promise.allSettled([
+        renameRuntimeNode(connection.db, {
+          actorUserId: owner.principal.userId,
+          displayName: 'Shared name',
+          runtimeNodeId: first.id,
+          workspaceId: workspace.id,
+        }),
+        renameRuntimeNode(other.db, {
+          actorUserId: owner.principal.userId,
+          displayName: 'Shared name',
+          runtimeNodeId: second.id,
+          workspaceId: workspace.id,
+        }),
+      ])
+      await barrier
+      const fulfilled = outcomes.filter((outcome) => outcome.status === 'fulfilled')
+      const rejected = outcomes.filter((outcome) => outcome.status === 'rejected')
+      expect(fulfilled).toHaveLength(1)
+      expect(rejected).toHaveLength(1)
+      const reason = (rejected[0] as PromiseRejectedResult).reason
+      expect(reason).toBeInstanceOf(RuntimeNodeError)
+      expect((reason as InstanceType<typeof RuntimeNodeError>).code).toBe('conflict')
+
+      // Exactly one host carries the name, and the other kept its own.
+      const nodes = await listRuntimeNodesForUser(connection.db, workspace.id)
+      const named = nodes.filter((node) => node.displayName === 'Shared name')
+      expect(named).toHaveLength(1)
+      expect(
+        nodes.filter((node) => node.displayName === 'Host A' || node.displayName === 'Host B')
+      ).toHaveLength(1)
+    } finally {
+      await other.close()
+      await third.close()
+    }
   })
 
   test('a self-hosted host registers once with its exchange credential', async () => {

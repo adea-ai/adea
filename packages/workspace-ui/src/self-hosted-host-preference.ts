@@ -1,8 +1,9 @@
-// The chosen self-hosted host, per account and workspace (#188).
+// The remembered self-hosted host, per account and workspace (#188).
 //
-// Choosing a host records where this browser asked for work to run, and nothing more:
-// the host is still chosen again for each submission, so a stored choice never routes
-// work by itself and never grants authority over a host.
+// This is a local note, not a routing decision. No submission path reads it, so it
+// never decides where work runs and never grants authority over a host. It only lets
+// this browser keep a note about one host, scoped so that one workspace's note can
+// never appear in another.
 //
 // The record is scoped by account and workspace, so one workspace's choice can never
 // appear in another. A malformed record is quarantined rather than discarded, and a
@@ -67,10 +68,20 @@ export type PreferenceStorageSource =
   | (() => PreferenceStorage | undefined)
   | undefined
 
+/**
+ * The storage this preference is kept in, or none. A caller may hand over a factory,
+ * and that factory may throw: a browser can refuse storage outright, and a caller may
+ * pass a getter that fails. Such a failure means "no note", never a broken view and
+ * never a thrown error.
+ */
 function resolveStorage(source: PreferenceStorageSource): PreferenceStorage | undefined {
   if (!source) return undefined
-  const selected = typeof source === 'function' ? source() : source
-  return selected ?? undefined
+  try {
+    const selected = typeof source === 'function' ? source() : source
+    return selected ?? undefined
+  } catch {
+    return undefined
+  }
 }
 
 /** The chosen host for one scope, or undefined when this scope has none. */

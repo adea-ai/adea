@@ -4,10 +4,13 @@
 // account-scoped caches), never from a query cache that outlives a session: without one the section
 // says so and renders no host list.
 //
-// Two operations are connected here, and only these two:
+// Two things are connected here, and only these two:
 //   - rename: a product label for one registered host. The host keeps its own identity and keys.
-//   - choice: which registered host this browser asks for work to run. It is a local preference,
-//     scoped by account and workspace, and it is not authority over a host.
+//   - remember: which registered host this browser keeps a note about.
+//
+// The note is a local preference scoped by account and workspace. No submission path reads it, so it
+// is not a routing decision and the copy says so. It never leaves this browser, and one workspace's
+// note never appears in another.
 //
 // Pairing and revocation stay unavailable: this build connects no pairing call and no revoke call,
 // so the pane shows them as unavailable with their reasons and does not ship the code that would
@@ -19,40 +22,46 @@ import { createEffect, createMemo, createSignal, Show } from 'solid-js'
 
 import SelfHostedConnectionPaneCore from './self-hosted-connection-pane-core'
 import type { SelfHostedOperations } from './self-hosted-connection-panel'
+import { RenameHostActions } from './self-hosted-rename-actions'
 import {
   readSelfHostedHostPreference,
   writeSelfHostedHostPreference,
   type SelfHostedHostPreferenceScope,
 } from './self-hosted-host-preference'
+import {
+  browserHostPreferenceStorage,
+  selfHostedHostOperations,
+} from './self-hosted-host-operations'
 
-/** Browser storage is best-effort: a storage failure never blocks the view. */
-const storage = () => (typeof window === 'undefined' ? undefined : window.localStorage)
+/**
+ * The host actions this build mounts. The rename row on its own: revocation is not part of them,
+ * so a revocation operation handed to the mounted component is never run.
+ */
+export function selfHostedHostActionsSlot() {
+  return RenameHostActions
+}
+
+/** This browser's note store, or none when the browser refuses storage. */
+const storage = () => browserHostPreferenceStorage()
 
 export default function SelfHostedConnectionsSection(props: {
   accountId?: () => string | null | undefined
   client?: AgentHqApiClient
   workspaceId: string
 }) {
-  const [chosenHostId, setChosenHostId] = createSignal<string | undefined>()
-  const currentAccountId = () => props.accountId?.()
+  const [chosenHostId, setChosenHostId] = createSignal<string | null>(null)
   const scope = createMemo<SelfHostedHostPreferenceScope | undefined>(() => {
-    const current = currentAccountId()
+    const current = props.accountId?.()
     return current ? { accountId: current, workspaceId: props.workspaceId } : undefined
   })
-  // The stored choice belongs to one account and workspace. A change of either drops it.
+  // The note belongs to one account and workspace. A change of either drops it.
   createEffect(() => {
     const current = scope()
-    setChosenHostId(current ? readSelfHostedHostPreference(storage(), current) : undefined)
+    setChosenHostId(current ? (readSelfHostedHostPreference(storage(), current) ?? null) : null)
   })
-  const operations = createMemo<SelfHostedOperations>(() => {
-    const client = props.client
-    if (!client) return {}
-    return {
-      renameHost: async (hostId: string, displayName: string) => {
-        await client.renameRuntimeNode(props.workspaceId, hostId, displayName)
-      },
-    }
-  })
+  const operations = createMemo<SelfHostedOperations>(() =>
+    selfHostedHostOperations(props.client, props.workspaceId)
+  )
   return (
     <Show
       when={props.accountId?.()}
@@ -71,15 +80,16 @@ export default function SelfHostedConnectionsSection(props: {
       {(account) => (
         <SelfHostedConnectionPaneCore
           accountId={account}
-          chosenHostId={chosenHostId()}
+          chosenHostId={chosenHostId() ?? undefined}
           client={props.client}
           onChooseHost={(hostId) => {
             const current = scope()
             if (!current) return
             writeSelfHostedHostPreference(storage(), current, hostId)
-            setChosenHostId(hostId)
+            setChosenHostId(hostId ?? null)
           }}
           operations={operations()}
+          slots={{ HostActions: selfHostedHostActionsSlot() }}
           workspaceId={props.workspaceId}
         />
       )}

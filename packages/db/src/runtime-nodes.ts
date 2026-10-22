@@ -522,6 +522,22 @@ export async function renameRuntimeNode(
       throw new RuntimeNodeError('invalid', 'A host name may not contain control characters')
   }
   return inTransaction(database, async (transaction) => {
+    // Serialize the renames of one workspace before the name check. Two renames of two different
+    // hosts to the same name would otherwise both read "no clash" and both commit, leaving the
+    // workspace with two hosts called the same thing. Locking the workspace's host rows first
+    // makes the check and the write one step, so the second rename sees the first one's name.
+    //
+    // The workspace rows are locked before the host's own row, so every rename takes the same
+    // order and two of them can never wait for each other.
+    //
+    // This makes concurrent renames atomic with each other. It does not make a workspace's names
+    // unique: registration and resume set a name of their own without taking this lock, so a name
+    // can still be taken later by a host that registers under it.
+    await transaction
+      .select({ id: runtimeNodes.id })
+      .from(runtimeNodes)
+      .where(eq(runtimeNodes.workspaceId, input.workspaceId))
+      .for('update')
     const node = await requireNode(transaction, input.workspaceId, input.runtimeNodeId, true)
     if (node.pairingState === 'revoked') {
       throw new RuntimeNodeError('revoked', 'A revoked host cannot be renamed')
