@@ -39,20 +39,22 @@ it rather than queueing it.
 | Base           | `d3c24c1c1960ea04692eefae9b827de0dd9e0d0d` (adea-ai/adea `main`)                                   |
 | Tooling branch | `codex/f1w28-adea-1567-dev-resource-reuse`                                                         |
 | Tooling commit | `fcf05c07a` — `feat(scripts): add the safe development-resource reuse and cleanup tooling (#1567)` |
+| Repair commit  | `7302fb4b6` — `fix(scripts): fail closed on the reuse decision the report makes (#1567)`           |
 
 Added: `scripts/dev-resource-reuse.mjs` (the model), `scripts/dev-resource-reuse.test.ts`
-(the regressions), `scripts/dev-resource-reuse-report.mjs` (the dry-run report runner).
+(the regressions), `scripts/dev-resource-reuse-report.mjs` (the dry-run report runner),
+`scripts/dev-resource-reuse-report.test.ts` (the runner-level regressions).
 
 ## Commands and evidence
 
-| Check                   | Command                                                                                                                      | Result                                            |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- |
-| Focused regression      | `bun test scripts/dev-resource-reuse.test.ts`                                                                                | 25 pass, 0 fail, 53 expect() calls                |
-| Repository scripts lane | `bun test scripts/*.test.ts`                                                                                                 | 1354 pass, 0 fail, 11572 expect() calls, 88 files |
-| Formatting              | `bunx oxfmt --check scripts/dev-resource-reuse.mjs scripts/dev-resource-reuse.test.ts scripts/dev-resource-reuse-report.mjs` | All matched files use the correct format          |
-| Lint                    | `bunx oxlint --deny-warnings` (the three files)                                                                              | 0 warnings, 0 errors                              |
-| Type check              | `bun check -p tsconfig.json` (the repository gate)                                                                           | No type errors in 328 files                       |
-| Pre-commit gate         | `git commit` → `.githooks/pre-commit` → `code-foundry pre-commit`                                                            | `vp run: 33/33 successful`                        |
+| Check                   | Command                                                                                 | Result                                            |
+| ----------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| Focused regression      | `bun test scripts/dev-resource-reuse.test.ts scripts/dev-resource-reuse-report.test.ts` | 46 pass, 0 fail, 113 expect() calls               |
+| Repository scripts lane | `bun test scripts/*.test.ts`                                                            | 1375 pass, 0 fail, 11632 expect() calls, 89 files |
+| Formatting              | `bunx oxfmt --check` (the four scripts and this record)                                 | All matched files use the correct format          |
+| Lint                    | `bunx oxlint --deny-warnings` (the four scripts)                                        | 0 warnings, 0 errors                              |
+| Type check              | `bun check -p tsconfig.json` (the repository gate)                                      | No type errors in 328 files                       |
+| Pre-commit gate         | `git commit` → `.githooks/pre-commit` → `code-foundry pre-commit`                       | `vp run: 33/33 successful`                        |
 
 The two type errors the root `tsconfig.json` reports for `scripts/dev-resource-reuse.test.ts`
 (`TS7016`, no declaration file for a `.mjs` module) are the repository's existing pattern
@@ -64,7 +66,12 @@ The regression suite covers the crash and restart cases and the concurrent-owner
 the issue names: a run that died leaves a reclaimable resource, a restarted run does not
 reclaim what it cannot prove it owns, an unreadable lease is uncertain, a second live
 owner protects the resource and refuses the checkout, and two owners cannot both pass
-the concurrency bound.
+the concurrency bound. The repair commit adds the cases the review found: a stale lease
+followed by a live one, an owner that cannot be established, a shared or unknown scope,
+a removable disposition without a matching lease, an eligible item that contradicts its
+own evidence, an ignored artifact that is not a build output, a verified origin that
+reaches the planner, and a listing whose modified entries are not read as ignored
+paths.
 
 ## The dry-run report on this host
 
