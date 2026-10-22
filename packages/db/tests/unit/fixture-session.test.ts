@@ -34,6 +34,16 @@ describe('directFixtureUrl', () => {
 describe('withFixtureSession', () => {
   const url = 'postgresql://app:secret@127.0.0.1:55432/agent_hq?sslmode=disable'
 
+  test('the default connector rejects a malformed URL before running the fixture body', async () => {
+    let bodyRan = false
+    await expect(
+      withFixtureSession('postgresql://[', async () => {
+        bodyRan = true
+      })
+    ).rejects.toThrow(TypeError)
+    expect(bodyRan).toBe(false)
+  })
+
   test('returns the body result and always closes the client', async () => {
     let closed = false
     const result = await withFixtureSession(
