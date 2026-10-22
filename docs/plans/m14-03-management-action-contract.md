@@ -100,22 +100,22 @@ not fork the gateway, authorization or audit paths.
   journal ends at index 47, `0047_requested_role_model_selections`. The
   earlier #1233/#1213 `0045_agent-edit-revisions`, #1207 `0046` artifact grant,
   and requested-role `0047` migrations are already in that history.
-- The combined local #1230 candidate adds the actual migration
-  `0048_graceful_prima` at journal index 48 (timestamp `1791602651133`) with
-  its matching SQL and snapshot. It combines the previously provisional
-  archive-source/project-version schema with the durable management-authority
-  consumption table: `channel_archive_source` and `channels.archive_source`,
-  positive `projects.version`, and `management_authority_consumptions` with its
-  state enum, checks, workspace foreign key and index.
-- The migration **is** on `main` now: `0048_graceful_prima` and its snapshot
-  shipped with the merged #1230 candidate, and no migration on `main` was
-  renumbered for it. Local `test:integration`, migration verification and
-  `db:verify` cover the candidate database state; they do not establish
-  production migration history or live Control Plane qualification. Verify the
-  intended deployment target before any rollout.
-- Remote #1227 remains an open draft that contains stacked history. Its code
-  scope is represented in this local combined candidate, but this note does
-  not update, close or merge that PR.
+- The merged #1230 shipped the actual migration `0048_graceful_prima` at journal
+  index 48 (timestamp `1791602651133`) with its matching SQL and snapshot. It combines
+  the previously provisional archive-source/project-version schema with the durable
+  management-authority consumption table: `channel_archive_source` and
+  `channels.archive_source`, positive `projects.version`, and
+  `management_authority_consumptions` with its state enum, checks, workspace foreign key
+  and index.
+- The migration is on `main`: `0048_graceful_prima` and its snapshot shipped with the
+  merged #1230, and no migration on `main` was renumbered for it. The journal has since
+  advanced past it on `main`. Local `test:integration`, migration verification and
+  `db:verify` cover the database state; they do not establish production migration history
+  or live Control Plane qualification. Verify the intended deployment target before any
+  rollout.
+- Remote PR #1227 was closed without merging (2026-10-12). Its code scope is the scope the
+  merged #1230 carried, and the closed draft published nothing of its own; this note
+  neither reopens it nor treats it as a publication.
 
 ## Implemented: canonical project revision
 
