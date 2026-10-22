@@ -11,6 +11,7 @@ import {
   isRegenerableIgnored,
   planWorktreeReuse,
   preservationProof,
+  REGENERABLE_PROOF,
   reuseDiskAdmission,
   unknownIgnoredPaths,
 } from './dev-resource-reuse.mjs'
@@ -78,6 +79,42 @@ describe('the owned-resource inventory', () => {
     })
     expect(inventory.summary).toEqual({ total: 2, reclaimable: 2, protected: 0 })
     expect(inventory.resources[0]?.leaseState).toBe(LEASE_STATE.stale)
+  })
+
+  test('every lease that names a resource is read, and one uncertain owner protects it', () => {
+    // The first matching lease does not speak for the rest: a lease whose owner
+    // cannot be established is an owner, and it protects the resource.
+    const uncertain = {
+      ...lease(),
+      owner: { hostname: 'host-a', startedAt: '2026-10-21T00:00:00.000Z' },
+    }
+    const inventory = inventoryOwnedResources({
+      runId: 'run-a',
+      identity,
+      leases: [lease(), uncertain],
+      dockerResources: [
+        { kind: RESOURCE_KIND.container, name: identity.container, label: identity.project },
+      ],
+      isProcessAlive: dead,
+    })
+    expect(inventory.summary.reclaimable).toBe(0)
+    expect(inventory.resources[0]?.leaseState).toBe(LEASE_STATE.uncertain)
+    expect(inventory.resources[0]?.leaseEvidence).toHaveLength(2)
+  })
+
+  test('a lease record that could not be read protects every resource', () => {
+    const inventory = inventoryOwnedResources({
+      runId: 'run-a',
+      identity,
+      leases: [lease()],
+      unreadableLeases: ['broken.json'],
+      dockerResources: [
+        { kind: RESOURCE_KIND.container, name: identity.container, label: identity.project },
+      ],
+      isProcessAlive: dead,
+    })
+    expect(inventory.summary.reclaimable).toBe(0)
+    expect(inventory.resources[0]?.reason).toContain('could not be read')
   })
 
   test('a resource a live run still holds is protected', () => {
@@ -464,23 +501,112 @@ describe('the concurrent owner regressions', () => {
 })
 
 describe('the ignored paths a checkout holds', () => {
-  test('a known build output is regenerable and is not local work', () => {
-    expect(isRegenerableIgnored('node_modules/')).toBe(true)
-    expect(isRegenerableIgnored('apps/web/dist/')).toBe(true)
-    expect(isRegenerableIgnored('apps/web/cloudflare-env.d.ts')).toBe(true)
-    expect(isRegenerableIgnored('apps/web/test/fixtures/source-contracts/.runtime/index.ts')).toBe(
-      true
-    )
-    expect(isRegenerableIgnored('apps/web/public/assets/logo.png')).toBe(true)
-    expect(isRegenerableIgnored('tsconfig.tsbuildinfo')).toBe(true)
+  test('a build output is regenerable only when the repository proves it', () => {
+    // The proof is the tracked tooling that produces the path. A name is not a
+    // proof, so nothing is regenerable without one.
+    expect(isRegenerableIgnored('node_modules/')).toBe(false)
+    expect(isRegenerableIgnored('apps/web/dist/')).toBe(false)
+    expect(isRegenerableIgnored('apps/web/cloudflare-env.d.ts')).toBe(false)
+    expect(isRegenerableIgnored('apps/web/public/assets/logo.png')).toBe(false)
+
+    expect(isRegenerableIgnored('node_modules/', REGENERABLE_PROOF.dependencyTree)).toBe(true)
+    expect(isRegenerableIgnored('apps/web/dist/', REGENERABLE_PROOF.buildOutput)).toBe(true)
+    expect(
+      isRegenerableIgnored('apps/web/cloudflare-env.d.ts', REGENERABLE_PROOF.generatedFile)
+    ).toBe(true)
+    expect(
+      isRegenerableIgnored(
+        'apps/web/test/fixtures/source-contracts/.runtime/index.ts',
+        REGENERABLE_PROOF.pinnedRuntime
+      )
+    ).toBe(true)
+    expect(
+      isRegenerableIgnored('apps/web/public/assets/logo.png', REGENERABLE_PROOF.syncedAssets)
+    ).toBe(true)
+    expect(isRegenerableIgnored('tsconfig.tsbuildinfo', REGENERABLE_PROOF.buildOutput)).toBe(true)
   })
 
-  test('an ignored path that is not a build output is content the checkout holds', () => {
+  test('local persisted state is never regenerable output', () => {
+    // `.wrangler` holds the local state of a development runtime. No proof
+    // makes it build output, so it is content the checkout holds.
+    expect(isRegenerableIgnored('.wrangler/', REGENERABLE_PROOF.buildOutput)).toBe(false)
+    expect(
+      isRegenerableIgnored('.wrangler/state/v3/do/resource', REGENERABLE_PROOF.buildOutput)
+    ).toBe(false)
+  })
+
+  test('an ignored path that is not proven build output is content the checkout holds', () => {
     expect(isRegenerableIgnored('docs/evals/calibration-verdicts/grader-verdicts.json')).toBe(false)
     expect(isRegenerableIgnored('apps/web/start/.checks/fixture/loopback-key.pem')).toBe(false)
+    // Without proofs, nothing is regenerable: the paths are content the
+    // checkout holds.
     expect(unknownIgnoredPaths(['node_modules/', 'docs/evals/verdicts.json'])).toEqual([
+      'node_modules/',
       'docs/evals/verdicts.json',
     ])
+    // With the matching proof, the build output is not content.
+    expect(
+      unknownIgnoredPaths(['node_modules/', 'docs/evals/verdicts.json'], {
+        'node_modules/': REGENERABLE_PROOF.dependencyTree,
+      })
+    ).toEqual(['docs/evals/verdicts.json'])
+  })
+
+  test('an ignored list that could not be read is not an empty one', () => {
+    const plan = planWorktreeReuse({
+      worktree: {
+        path: '/tmp/worktrees/unreadable-ignored',
+        head: 'abc',
+        branch: 'b',
+        localChanges: false,
+        published: true,
+        ignoredUnknown: [],
+        ignoredUnreadable: true,
+        origin: { fresh: true, containsHead: true },
+      },
+      leases: [],
+    })
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.unreadableIgnored)
+    expect(plan.evidence.ignoredUnreadable).toBe(true)
+  })
+
+  test('a lease record that could not be read protects every checkout', () => {
+    const plan = planWorktreeReuse({
+      worktree: {
+        path: '/tmp/worktrees/lease-evidence',
+        head: 'abc',
+        branch: 'b',
+        localChanges: false,
+        published: true,
+        ignoredUnknown: [],
+        origin: { fresh: true, containsHead: true },
+      },
+      leases: [],
+      unreadableLeases: ['broken.json'],
+    })
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.uncertainLeaseEvidence)
+    expect(plan.evidence.unreadableLeaseRecords).toEqual(['broken.json'])
+  })
+
+  test('a lease scan that failed protects every checkout', () => {
+    const plan = planWorktreeReuse({
+      worktree: {
+        path: '/tmp/worktrees/lease-scan',
+        head: 'abc',
+        branch: 'b',
+        localChanges: false,
+        published: true,
+        ignoredUnknown: [],
+        origin: { fresh: true, containsHead: true },
+      },
+      leases: [],
+      leaseScanFailed: true,
+    })
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.uncertainLeaseEvidence)
+    expect(plan.evidence.leaseScanFailed).toBe(true)
   })
 
   test('a checkout that holds an ignored artifact is not free to reuse', () => {

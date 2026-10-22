@@ -12,7 +12,8 @@
 // claim that something may be removed.
 
 import { spawnSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import {
   diskTelemetry,
@@ -20,6 +21,8 @@ import {
   inventoryOwnedResources,
   planWorktreeReuse,
   preservationProof,
+  REGENERABLE_PROOF,
+  regenerableKind,
   unknownIgnoredPaths,
 } from './dev-resource-reuse.mjs'
 import { RESOURCE_KIND, leaseDirectory, scanLeases } from './integration-resource-lease.mjs'
@@ -74,14 +77,18 @@ function git(args, cwd) {
  *
  * `git status --porcelain` does not list them, so a checkout that holds an
  * ignored receipt is indistinguishable from one that holds nothing. They are
- * read here, and the ones that are not known build output are reported as
- * content the checkout holds.
+ * read here, and the ones that are not proven regenerable output are reported
+ * as content the checkout holds.
+ *
+ * The untracked files are listed explicitly: a repository that sets
+ * `status.showUntrackedFiles=no` would otherwise hide ordinary untracked work
+ * from the local-work check, and the checkout would look clean.
  */
 function ignoredPaths(path) {
   // The ignored paths are read collapsed, one entry per ignored directory or
   // file: the per-file listing of a checkout with a dependency tree is not
   // usable, and the collapsed listing still names every ignored path.
-  const result = git(['status', '--porcelain', '--ignored=matching'], path)
+  const result = git(['status', '--porcelain', '--ignored=matching', '--untracked-files=all'], path)
   if (!result.ok) return null
   return parseIgnoredPaths(result.stdout)
 }
@@ -100,6 +107,110 @@ export function parseIgnoredPaths(stdout) {
     .filter((line) => line.startsWith('!! '))
     .map((line) => line.slice('!! '.length).trim())
     .filter((line) => line !== '')
+}
+
+/**
+ * The tracked files of a repository.
+ *
+ * The proof for an ignored path is about tracked tooling, so the tracked tree
+ * is the evidence. A path's name is not.
+ */
+function trackedFiles(repo) {
+  const result = git(['ls-files'], repo)
+  if (!result.ok) return new Set()
+  return new Set(result.stdout.split('\n').filter((line) => line !== ''))
+}
+
+/**
+ * The nearest tracked package manifest above a path, and the scripts it declares.
+ */
+function packageProducer(worktreePath, relative, tracked) {
+  const segments = relative.split('/')
+  for (let index = segments.length - 1; index >= 0; index -= 1) {
+    const directory = segments.slice(0, index).join('/')
+    const manifest = directory === '' ? 'package.json' : `${directory}/package.json`
+    if (!tracked.has(manifest)) continue
+    try {
+      const parsed = JSON.parse(readFileSync(join(worktreePath, manifest), 'utf8'))
+      return { manifest, scripts: parsed?.scripts ?? {} }
+    } catch {
+      return { manifest, scripts: {} }
+    }
+  }
+  return null
+}
+
+/**
+ * The proof that an ignored path is regenerable output, or null when the
+ * repository does not prove it.
+ *
+ * The proof is the tracked tooling that produces the path. A name is not a
+ * proof: `.wrangler` holds local persisted state that nothing rebuilds, and a
+ * build output may hold an overlay that no rebuild reproduces, so the producer
+ * has to be there and the tracked sources have to be the committed ones.
+ */
+export function proofForIgnoredPath(entry, { tracked, trackedClean, worktreePath }) {
+  const kind = regenerableKind(entry)
+  if (kind === null) return null
+  if (!trackedClean) return null
+  if (kind === REGENERABLE_PROOF.dependencyTree) {
+    return tracked.has('bun.lock') ? kind : null
+  }
+  if (kind === REGENERABLE_PROOF.generatedFile) {
+    return tracked.has('apps/web/wrangler.jsonc') ? kind : null
+  }
+  if (kind === REGENERABLE_PROOF.syncedAssets) {
+    return tracked.has('scripts/sync-assets.mjs') ? kind : null
+  }
+  if (kind === REGENERABLE_PROOF.pinnedRuntime) {
+    return tracked.has('scripts/setup-source-contract-tests.mjs') ? kind : null
+  }
+  const relative = String(entry).replace(/\/+$/u, '')
+  const producer = packageProducer(worktreePath, relative, tracked)
+  if (!producer) return null
+  const scripts = producer.scripts ?? {}
+  if (scripts.build || scripts.typecheck) return kind
+  return null
+}
+
+/**
+ * The lease records of a directory, with the evidence that could not be read.
+ *
+ * A record that does not parse, or that is not yet valid, is not an absence: it
+ * is evidence whose owner is unknown. A scan that fails is the same: nothing is
+ * known, so everything is protected. None of it is discarded before the
+ * decision.
+ */
+export function readLeaseEvidence(directory, { now = Date.now() } = {}) {
+  let leases = []
+  let unreadable = []
+  let scanError = null
+  try {
+    const scanned = scanLeases(directory)
+    leases = scanned.leases
+    unreadable = scanned.unreadable
+  } catch (error) {
+    scanError = (error?.message ?? String(error)).trim()
+    leases = []
+    unreadable = []
+  }
+  // A record whose own timestamps are in the future is not yet a claim about
+  // this world: it is evidence whose owner is unknown, and it protects what it
+  // may name.
+  const future = leases
+    .filter((lease) => isFutureLease(lease, now))
+    .map((lease) => lease.runId ?? 'unknown')
+  return { leases, unreadable, future, scanError }
+}
+
+/** Whether a lease record claims a time this host has not reached yet. */
+export function isFutureLease(lease, now = Date.now()) {
+  const skew = 60_000
+  for (const field of ['createdAt', 'updatedAt']) {
+    const value = lease?.[field]
+    if (typeof value === 'number' && Number.isFinite(value) && value > now + skew) return true
+  }
+  return false
 }
 
 /** The size of a directory in bytes, or null when it cannot be read. */
@@ -144,13 +255,14 @@ function fetchOrigin(repo) {
  * A fact that cannot be read is reported as the pessimistic answer, so an
  * unreadable checkout is refused rather than reused.
  */
-function worktreesOf(repo, { refresh = false } = {}) {
+export function worktreesOf(repo, { refresh = false } = {}) {
   // The origin freshness check is only as fresh as the last fetch. Refreshing
   // is opt-in, because it writes remote-tracking refs; without it the report
   // uses the last fetched state and refuses anything it cannot prove.
   const fetch = refresh ? fetchOrigin(repo) : { requested: false, ok: false, error: null }
   const listed = git(['worktree', 'list', '--porcelain'], repo)
   if (!listed.ok) return { worktrees: [], fetch }
+  const tracked = trackedFiles(repo)
   const entries = []
   let current = null
   for (const line of listed.stdout.split('\n')) {
@@ -168,7 +280,10 @@ function worktreesOf(repo, { refresh = false } = {}) {
   const worktrees = entries
     .filter((entry) => entry.path && entry.path !== repo)
     .map((entry) => {
-      const status = git(['status', '--porcelain'], entry.path)
+      // The untracked files are listed explicitly: a repository that turns
+      // `status.showUntrackedFiles` off would otherwise hide ordinary untracked
+      // work, and the checkout would look clean when it is not.
+      const status = git(['status', '--porcelain', '--untracked-files=all'], entry.path)
       const localChanges = status.ok ? status.stdout !== '' : true
       const ignored = ignoredPaths(entry.path)
       const branch = entry.branch ?? null
@@ -180,6 +295,14 @@ function worktreesOf(repo, { refresh = false } = {}) {
           ? git(['merge-base', '--is-ancestor', entry.head, `refs/remotes/origin/${branch}`], repo)
               .ok
           : false
+      // A remote-tracking ref can outlive the branch it points at: the branch
+      // may have been deleted, or the fetch may not carry it. The remote is
+      // asked what it holds now, and a branch the remote does not have is not
+      // current authority for anything.
+      const remoteBranch =
+        branch && fetch.ok
+          ? git(['ls-remote', '--exit-code', 'origin', `refs/heads/${branch}`], repo)
+          : { ok: false, stdout: '' }
       const published = entry.head
         ? git(
             [
@@ -192,6 +315,17 @@ function worktreesOf(repo, { refresh = false } = {}) {
             repo
           ).stdout !== ''
         : false
+      // The proof for each ignored path: the tracked tooling that produces it,
+      // and the committed sources it would be produced from.
+      const proofs = {}
+      for (const entryPath of ignored ?? []) {
+        const proof = proofForIgnoredPath(entryPath, {
+          tracked,
+          trackedClean: !localChanges,
+          worktreePath: entry.path,
+        })
+        if (proof) proofs[entryPath] = proof
+      }
       return {
         path: entry.path,
         head: entry.head ?? null,
@@ -199,14 +333,17 @@ function worktreesOf(repo, { refresh = false } = {}) {
         localChanges,
         // An unreadable ignored list is not an empty one: it is content this
         // report cannot account for, so the checkout is not free.
-        ignoredUnknown: ignored === null ? [] : unknownIgnoredPaths(ignored),
+        ignoredUnknown: ignored === null ? [] : unknownIgnoredPaths(ignored, proofs),
         ignoredUnreadable: ignored === null,
+        ignoredProofs: proofs,
         published,
         // A failed fetch leaves the local refs stale, so the origin is not
-        // verified and nothing may be judged fresh.
+        // verified and nothing may be judged fresh. A branch the remote does
+        // not hold is the same: the local ref is stale, not authority.
         origin: {
-          fresh: fetch.ok && origin.ok,
-          containsHead: fetch.ok && containsHead,
+          fresh: fetch.ok && origin.ok && remoteBranch.ok,
+          containsHead: fetch.ok && remoteBranch.ok && containsHead,
+          remoteBranchPresent: remoteBranch.ok,
         },
         sizeBytes: directoryBytes(entry.path),
       }
@@ -220,61 +357,70 @@ function worktreesOf(repo, { refresh = false } = {}) {
  * The origin travels with the checkout, so the planner sees what the runner
  * actually observed instead of assuming it.
  */
-export function planWorktrees(worktrees = [], leases = []) {
+export function planWorktrees(worktrees = [], leases = [], options = {}) {
+  const unreadableLeases = Array.isArray(options.unreadableLeases) ? options.unreadableLeases : []
+  const leaseScanFailed = options.leaseScanFailed === true
   return worktrees.map((worktree) => ({
     ...worktree,
-    plan: planWorktreeReuse({ worktree, origin: worktree.origin, leases }),
+    plan: planWorktreeReuse({
+      worktree,
+      origin: worktree.origin,
+      leases,
+      unreadableLeases,
+      leaseScanFailed,
+    }),
   }))
 }
 
-function parseArgs(argv) {
-  const args = { report: null, repo: null, leaseDir: null, fetch: false }
-  for (let index = 0; index < argv.length; index += 1) {
-    const flag = argv[index]
-    if (flag === '--report') args.report = argv[++index]
-    else if (flag === '--repo') args.repo = argv[++index]
-    else if (flag === '--lease-dir') args.leaseDir = argv[++index]
-    else if (flag === '--fetch') args.fetch = true
-  }
-  return args
-}
-
-function main() {
-  const args = parseArgs(process.argv.slice(2))
-  const directory = args.leaseDir ?? leaseDirectory(process.env)
-  let leases = []
-  let unreadableLeases = []
-  try {
-    const scanned = scanLeases(directory)
-    leases = scanned.leases
-    // A record that does not parse into a lease is not an absence: it is
-    // evidence whose ownership is unknown, and it is reported as such.
-    unreadableLeases = scanned.unreadable
-  } catch {
-    leases = []
-  }
-  const resources = inventoryOwnedResources({
-    runId: process.env.ADEA_INTEGRATION_RUN_ID ?? null,
-    leases,
-    dockerResources: dockerResources(),
+/**
+ * The report, from what the runner observed.
+ *
+ * Every read that failed is carried into the decision: a lease record that
+ * could not be read, a lease scan that failed, an ignored list that could not
+ * be read, and a remote branch the remote does not hold. Each of them protects
+ * what it may name, and the report says which.
+ */
+export function collectReport({
+  repo = null,
+  leaseDir = null,
+  refresh = false,
+  now = null,
+  dockerResources: resources = [],
+  runId = null,
+} = {}) {
+  const directory = leaseDir ?? leaseDirectory(process.env)
+  const evidence = readLeaseEvidence(directory)
+  // The records that could not be read, and the records that are not yet valid,
+  // are evidence of an unknown owner. They protect everything they may name.
+  const unreadableLeases = [...evidence.unreadable, ...evidence.future]
+  const inventory = inventoryOwnedResources({
+    runId,
+    leases: evidence.leases,
+    unreadableLeases,
+    dockerResources: resources,
     identity: null,
   })
-  const { worktrees, fetch } = args.repo
-    ? worktreesOf(args.repo, { refresh: args.fetch })
+  const { worktrees, fetch } = repo
+    ? worktreesOf(repo, { refresh })
     : { worktrees: [], fetch: { requested: false, ok: false, error: null } }
-  const plans = planWorktrees(worktrees, leases)
+  const plans = planWorktrees(worktrees, evidence.leases, {
+    unreadableLeases,
+    leaseScanFailed: evidence.scanError !== null,
+  })
   const report = eligibilityReport({
-    resources: resources.resources,
+    resources: inventory.resources,
     worktrees: plans,
     disk: diskTelemetry({ worktrees }),
-    now: new Date().toISOString(),
+    now: now ?? new Date().toISOString(),
   })
   report.leaseDirectory = directory
-  report.leases = leases.length
+  report.leases = evidence.leases.length
   // The unreadable records are preserved and named: their ownership is unknown,
   // so nothing may be reclaimed on their account.
-  report.unreadableLeaseRecords = unreadableLeases
-  report.repository = args.repo
+  report.unreadableLeaseRecords = evidence.unreadable
+  report.futureLeaseRecords = evidence.future
+  report.leaseScanError = evidence.scanError
+  report.repository = repo
   // What the reuse decision was made from, and what it could not see. The
   // lease records are the only ownership this report knows; a checkout held by
   // a session or a task outside the lease model is invisible here, so an
@@ -291,6 +437,30 @@ function main() {
   report.preservation = preservationProof({
     resources: report.resources,
     worktrees: report.worktrees,
+  })
+  return { report, fetch }
+}
+
+function parseArgs(argv) {
+  const args = { report: null, repo: null, leaseDir: null, fetch: false }
+  for (let index = 0; index < argv.length; index += 1) {
+    const flag = argv[index]
+    if (flag === '--report') args.report = argv[++index]
+    else if (flag === '--repo') args.repo = argv[++index]
+    else if (flag === '--lease-dir') args.leaseDir = argv[++index]
+    else if (flag === '--fetch') args.fetch = true
+  }
+  return args
+}
+
+function main() {
+  const args = parseArgs(process.argv.slice(2))
+  const { report, fetch } = collectReport({
+    repo: args.repo,
+    leaseDir: args.leaseDir,
+    refresh: args.fetch,
+    dockerResources: dockerResources(),
+    runId: process.env.ADEA_INTEGRATION_RUN_ID ?? null,
   })
   const serialized = `${JSON.stringify(report, null, 2)}\n`
   if (args.report) {
@@ -309,6 +479,9 @@ function main() {
   // unverified, so the report says nothing is fresh. It fails closed, and it
   // says so in its exit status.
   if (fetch.requested && !fetch.ok) process.exitCode = 1
+  // A lease directory that could not be read leaves the ownership unknown, so
+  // nothing may be reclaimed on its account. It fails closed, and it says so.
+  if (report.leaseScanError) process.exitCode = 1
 }
 
 if (import.meta.main) main()

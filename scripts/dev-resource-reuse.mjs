@@ -67,6 +67,9 @@ export const REUSE_REFUSAL = {
   localWork: 'local_work',
   // The checkout carries ignored artifacts that are not known generated output.
   unknownIgnored: 'unknown_ignored',
+  // The checkout's ignored paths could not be read, so it may hold content that
+  // this report cannot account for.
+  unreadableIgnored: 'unreadable_ignored',
   // The fetched origin ref does not contain the checkout's head.
   originStale: 'origin_stale',
   // Another live owner holds the checkout.
@@ -77,6 +80,32 @@ export const REUSE_REFUSAL = {
   unpublished: 'unpublished',
   // The checkout could not be read, so nothing may be done with it.
   uncertain: 'uncertain',
+  // A lease record that could not be read may name this checkout, so nothing may
+  // be done with it.
+  uncertainLeaseEvidence: 'uncertain_lease_evidence',
+}
+
+/**
+ * The proof an ignored path needs before it may be called regenerable.
+ *
+ * The proof names how the content is produced, not what the path is called. A
+ * path's name is not evidence: `.wrangler` holds local persisted state that
+ * exists nowhere else, and a build output directory can hold an overlay that no
+ * rebuild would reproduce. The runner supplies the proof only when the tracked
+ * repository contains the tooling that regenerates the path, and only when the
+ * checkout's tracked sources are the committed ones.
+ */
+export const REGENERABLE_PROOF = {
+  // A dependency tree the tracked lockfile pins.
+  dependencyTree: 'dependency_tree',
+  // A build output the tracked build tooling produces.
+  buildOutput: 'build_output',
+  // A file a tracked tool generates.
+  generatedFile: 'generated_file',
+  // The synced public assets a tracked script rebuilds from tracked sources.
+  syncedAssets: 'synced_assets',
+  // The pinned source-contract runtime a tracked script writes.
+  pinnedRuntime: 'pinned_runtime',
 }
 
 /**
@@ -94,47 +123,93 @@ const UNKNOWN_LIVENESS_IS_ALIVE = () => true
  * `git status --porcelain` does not list ignored paths at all, so a checkout
  * that carries an ignored artifact is indistinguishable from one that carries
  * nothing. That distinction decides whether a checkout may be reused, so it is
- * made here rather than assumed: a path in this set is a build output, and any
- * other ignored path is content the checkout holds and nobody else has.
+ * made here rather than assumed.
+ *
+ * A path is only regenerable when the runner supplies the matching proof. The
+ * proof is the tracked tooling that regenerates the path; the name alone is
+ * not a proof, and the paths that hold local persisted state never are.
  */
-const REGENERABLE_IGNORED_DIRECTORIES = new Set([
-  '.hutch',
-  '.wrangler',
-  'coverage',
-  'dist',
-  'dist-desktop',
-  'node_modules',
-  'test-results',
-])
-const REGENERABLE_IGNORED_FILES = new Set(['cloudflare-env.d.ts'])
+const REGENERABLE_BUILD_DIRECTORIES = new Set(['coverage', 'dist', 'dist-desktop', 'test-results'])
+const REGENERABLE_GENERATED_FILES = new Set(['cloudflare-env.d.ts'])
 
 /**
- * Whether one ignored path is a known regenerable build output.
+ * The kind of regenerable output an ignored path would be, or null when no
+ * kind of output could describe it.
+ *
+ * `.wrangler` is never regenerable: it holds the local persisted state of a
+ * development runtime, and nothing rebuilds it.
+ */
+export function regenerableKind(entry) {
+  if (typeof entry !== 'string' || entry === '') return null
+  const trimmed = entry.replace(/\/+$/u, '')
+  if (trimmed === '') return null
+  const segments = trimmed.split('/')
+  const name = segments[segments.length - 1]
+  if (segments.includes('.wrangler')) return null
+  if (name.endsWith('tsbuildinfo')) return REGENERABLE_PROOF.buildOutput
+  if (REGENERABLE_GENERATED_FILES.has(name)) return REGENERABLE_PROOF.generatedFile
+  if (name === 'node_modules') return REGENERABLE_PROOF.dependencyTree
+  if (REGENERABLE_BUILD_DIRECTORIES.has(name)) return REGENERABLE_PROOF.buildOutput
+  // The pinned source-contract runtime and the synced public assets are both
+  // written by a repository script from tracked sources.
+  if (segments.includes('.runtime') && trimmed.includes('source-contracts')) {
+    return REGENERABLE_PROOF.pinnedRuntime
+  }
+  if (segments.includes('assets') && segments.includes('public')) {
+    return REGENERABLE_PROOF.syncedAssets
+  }
+  return null
+}
+
+/**
+ * Whether one ignored path is proven to be regenerable output.
  *
  * The answer is deliberately narrow. A path that is merely ignored is not
  * evidence of anything: it may be a build output, and it may equally be the
  * only copy of an evaluation result or a receipt. An unknown ignored path is
  * treated as content the checkout holds.
+ *
+ * The proof is the kind of output the runner established, and the runner only
+ * establishes it from tracked tooling and committed sources.
  */
-export function isRegenerableIgnored(entry) {
-  if (typeof entry !== 'string' || entry === '') return false
-  const trimmed = entry.replace(/\/+$/u, '')
-  if (trimmed === '') return false
-  const segments = trimmed.split('/')
-  const name = segments[segments.length - 1]
-  if (REGENERABLE_IGNORED_FILES.has(name)) return true
-  if (name.endsWith('tsbuildinfo')) return true
-  if (REGENERABLE_IGNORED_DIRECTORIES.has(name)) return true
-  // The pinned source-contract runtime and the synced public assets are both
-  // written by a repository script from tracked sources.
-  if (segments.includes('.runtime') && trimmed.includes('source-contracts')) return true
-  if (segments.includes('assets') && segments.includes('public')) return true
-  return false
+export function isRegenerableIgnored(entry, proof = null) {
+  const kind = regenerableKind(entry)
+  if (kind === null) return false
+  return proof === kind
 }
 
-/** The ignored paths of a checkout that are not known regenerable output. */
-export function unknownIgnoredPaths(entries = []) {
-  return entries.filter((entry) => !isRegenerableIgnored(entry))
+/**
+ * The ignored paths of a checkout that are not proven regenerable output.
+ *
+ * The proofs are the runner's, one per ignored path: a path with no proof is
+ * content the checkout holds.
+ */
+export function unknownIgnoredPaths(entries = [], proofs = {}) {
+  return entries.filter((entry) => !isRegenerableIgnored(entry, proofs?.[entry] ?? null))
+}
+
+/**
+ * The lease states that mean an owner is present.
+ *
+ * An active owner holds the resource, a foreign owner belongs to another run,
+ * and an uncertain owner is an owner whose state could not be established. Any
+ * of them protects the resource.
+ */
+const BLOCKING_LEASE_STATES = [LEASE_STATE.active, LEASE_STATE.foreign, LEASE_STATE.uncertain]
+
+/**
+ * The state that describes a set of leases.
+ *
+ * The most protective state wins: an uncertain owner among the leases means the
+ * ownership is uncertain, whatever the others say.
+ */
+function worstLeaseState(states) {
+  if (states.includes(LEASE_STATE.uncertain)) return LEASE_STATE.uncertain
+  if (states.includes(LEASE_STATE.active)) return LEASE_STATE.active
+  if (states.includes(LEASE_STATE.foreign)) return LEASE_STATE.foreign
+  if (states.includes(LEASE_STATE.stale)) return LEASE_STATE.stale
+  if (states.includes(LEASE_STATE.settled)) return LEASE_STATE.settled
+  return LEASE_STATE.uncertain
 }
 
 /**
@@ -152,17 +227,22 @@ export function unknownIgnoredPaths(entries = []) {
  * owns the resource, and the rule that a lease is the ownership proof.
  *
  * A resource is reclaimable only when all of the following hold: the lane's
- * model says this run created it, a lease of *this* run names it, and that
- * lease's owner is gone. A resource this run's label covers but no lease
- * proves is protected: a running container is not a lease.
+ * model says this run created it, a lease of *this* run names it, that lease's
+ * owner is gone, and no other lease that names the resource leaves its owner in
+ * doubt. Every matching lease is read: the first one does not speak for the
+ * rest, and a lease whose owner could not be established is an owner.
  */
 export function inventoryOwnedResources({
   runId = null,
   leases = [],
+  unreadableLeases = [],
   dockerResources = [],
   identity = null,
   isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
 } = {}) {
+  // A lease record that could not be read may name this resource. It cannot be
+  // attributed, so it protects every resource until it can be.
+  const unreadable = Array.isArray(unreadableLeases) ? unreadableLeases : []
   const resources = dockerResources.map((resource) => {
     const classification = classifyDockerResource(resource, {
       identity,
@@ -172,14 +252,21 @@ export function inventoryOwnedResources({
     // Every lease that names this resource is read, not the first one: a stale
     // lease does not speak for a live one that follows it.
     const matching = leases.filter((candidate) => candidate?.identity?.project === resource.label)
-    const lease = matching[0] ?? null
-    const leaseState = lease
-      ? classifyLease(lease, { isProcessAlive, expectedIdentity: identity })
-      : LEASE_STATE.uncertain
+    const states = matching.map((candidate) =>
+      classifyLease(candidate, { isProcessAlive, expectedIdentity: identity })
+    )
+    const leaseState = worstLeaseState(states)
+    const ownLeases = matching.filter((candidate) => candidate.runId === runId)
+    const ownStates = ownLeases.map((candidate) =>
+      classifyLease(candidate, { isProcessAlive, expectedIdentity: identity })
+    )
     // A resource this run's label covers is not reclaimable unless a lease of
     // this run names it. A removable disposition without that lease is a
     // fail-closed case, and it is reported as such.
-    const leaseMatched = runId !== null && matching.some((candidate) => candidate.runId === runId)
+    const leaseMatched = runId !== null && ownLeases.length > 0
+    const blockedByLease = states.some((state) => BLOCKING_LEASE_STATES.includes(state))
+    const ownLeaseStale =
+      ownStates.length > 0 && ownStates.every((state) => state === LEASE_STATE.stale)
     let reason = classification.reason
     if (classification.disposition === RESOURCE_DISPOSITION.removable && !leaseMatched) {
       reason =
@@ -188,20 +275,29 @@ export function inventoryOwnedResources({
           : 'the resource carries this run’s label but no lease of this run proves it owns the resource'
     } else if (
       classification.disposition === RESOURCE_DISPOSITION.removable &&
+      unreadable.length > 0
+    ) {
+      reason = 'a lease record that could not be read may name this resource, so it is protected'
+    } else if (classification.disposition === RESOURCE_DISPOSITION.removable && blockedByLease) {
+      reason = `a lease that names this resource has an owner in ${leaseState} state, so the resource is protected`
+    } else if (
+      classification.disposition === RESOURCE_DISPOSITION.removable &&
       leaseMatched &&
-      leaseState !== LEASE_STATE.stale
+      !ownLeaseStale
     ) {
       reason = `the lease of this run is ${leaseState}, so the resource is not provably reclaimable`
     }
     const reclaimable =
       classification.disposition === RESOURCE_DISPOSITION.removable &&
       leaseMatched &&
-      leaseState === LEASE_STATE.stale
+      ownLeaseStale &&
+      !blockedByLease &&
+      unreadable.length === 0
     return {
       kind: resource.kind ?? RESOURCE_KIND.container,
       name: resource.name ?? null,
       label: resource.label ?? null,
-      leaseRunId: lease?.runId ?? null,
+      leaseRunId: ownLeases[0]?.runId ?? null,
       leaseState,
       leaseMatched,
       disposition: classification.disposition,
@@ -209,9 +305,9 @@ export function inventoryOwnedResources({
       reclaimable,
       // The ownership evidence travels with the decision, so a reader can
       // re-check it instead of believing it.
-      leaseEvidence: matching.map((candidate) => ({
+      leaseEvidence: matching.map((candidate, index) => ({
         runId: candidate.runId ?? null,
-        state: classifyLease(candidate, { isProcessAlive, expectedIdentity: identity }),
+        state: states[index] ?? LEASE_STATE.uncertain,
       })),
     }
   })
@@ -255,11 +351,14 @@ export function planWorktreeReuse({
   leases = [],
   origin = null,
   isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
+  unreadableLeases = [],
+  leaseScanFailed = false,
 } = {}) {
   const refusals = []
   const evidence = {
     localWork: null,
     ignoredUnknown: [],
+    ignoredUnreadable: null,
     originFresh: null,
     headInOrigin: null,
     published: null,
@@ -268,6 +367,8 @@ export function planWorktreeReuse({
     ownerForeign: null,
     matchingLeases: [],
     preservedScopes: [],
+    unreadableLeaseRecords: [],
+    leaseScanFailed,
   }
   if (!worktree || typeof worktree.path !== 'string' || worktree.path === '') {
     return {
@@ -283,12 +384,18 @@ export function planWorktreeReuse({
     refusals.push(REUSE_REFUSAL.localWork)
   }
   // The ignored paths are read from the checkout's own record, and anything
-  // that is not a known build output is content the checkout holds.
+  // that is not proven regenerable output is content the checkout holds.
   evidence.ignoredUnknown = Array.isArray(worktree.ignoredUnknown)
     ? [...worktree.ignoredUnknown]
     : []
   if (evidence.ignoredUnknown.length > 0) {
     refusals.push(REUSE_REFUSAL.unknownIgnored)
+  }
+  // An ignored list that could not be read is not an empty one: the checkout may
+  // hold content this report cannot account for, so it is not free.
+  evidence.ignoredUnreadable = worktree.ignoredUnreadable === true
+  if (evidence.ignoredUnreadable) {
+    refusals.push(REUSE_REFUSAL.unreadableIgnored)
   }
   // The origin facts travel with the checkout, so a caller that has already
   // verified them does not have to repeat them, and a caller that has not
@@ -324,6 +431,13 @@ export function planWorktreeReuse({
   if (evidence.ownerLive) refusals.push(REUSE_REFUSAL.owned)
   if (evidence.ownerUncertain) refusals.push(REUSE_REFUSAL.uncertainOwner)
   if (evidence.ownerForeign) refusals.push(REUSE_REFUSAL.owned)
+  // A lease record that could not be read, or one that is not yet valid, may
+  // name this checkout. It cannot be attributed to a path, so it protects every
+  // checkout until it can be.
+  evidence.unreadableLeaseRecords = Array.isArray(unreadableLeases) ? [...unreadableLeases] : []
+  if (evidence.unreadableLeaseRecords.length > 0 || leaseScanFailed) {
+    refusals.push(REUSE_REFUSAL.uncertainLeaseEvidence)
+  }
 
   if (refusals.length > 0) {
     return {
@@ -350,7 +464,13 @@ export function describeRefusals(refusals) {
     if (refusal === REUSE_REFUSAL.localWork) {
       parts.push('the checkout carries local work that is not committed anywhere')
     } else if (refusal === REUSE_REFUSAL.unknownIgnored) {
-      parts.push('the checkout carries ignored artifacts that are not known build output')
+      parts.push('the checkout carries ignored artifacts that are not proven build output')
+    } else if (refusal === REUSE_REFUSAL.unreadableIgnored) {
+      parts.push(
+        'the checkout’s ignored paths could not be read, so it may hold content this report cannot account for'
+      )
+    } else if (refusal === REUSE_REFUSAL.uncertainLeaseEvidence) {
+      parts.push('a lease record that could not be read may name this checkout, so it is protected')
     } else if (refusal === REUSE_REFUSAL.originStale) {
       parts.push('the fetched origin ref does not contain the checkout head')
     } else if (refusal === REUSE_REFUSAL.owned) {
