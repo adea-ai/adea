@@ -506,6 +506,26 @@ describe('attachment transaction and recovery hardening', () => {
       expect(ctx.events.events()).toHaveLength(1)
     }))
 
+  test('quota checks re-authenticate a record whose row changed under the same store', () =>
+    fixture((ctx) => {
+      // The same store instance already authenticated this record, so the
+      // changed column must invalidate that verdict: a remembered
+      // authentication is only valid for the row it was made against.
+      ctx.store.upload(binding, upload('original'), 'tampered-same-store')
+      const db = new Database(ctx.dbPath())
+      // The row claims a tombstone its sealed record does not contain. Only
+      // re-authenticating the row against its sealed record can see that: the
+      // outbox still holds the matching available event, so the reconciliation
+      // alone would not notice.
+      db.query("UPDATE attachments SET state='removed'").run()
+      db.close(true)
+
+      code(
+        () => ctx.store.upload(binding, upload('another'), 'after-tamper-same-store'),
+        'corrupt_state'
+      )
+    }))
+
   test('workspace purge refuses additional account/node authority for the same workspace', () =>
     fixture((ctx) => {
       ctx.store.upload(binding, upload(), 'upload-1')

@@ -60,6 +60,9 @@ type Row = {
   byte_length: number
   sealed: Uint8Array
 }
+/** A record row without its sealed payload: the columns the quota reads and compares. */
+type RowSummary = Omit<Row, 'sealed'>
+
 type Pending = {
   id: string
   binding: string
@@ -98,6 +101,27 @@ export function createChatAttachmentStore(input: {
     input.scope.runtimeNodeId,
   ])
   const scopeHash = createHash('sha256').update(scopeText).digest('hex')
+  /**
+   * Verified row metadata, memoised for the lifetime of this store.
+   *
+   * The quota is computed from sealed-record values, so a retained record only
+   * counts once its row has been authenticated against its sealed record.
+   * Authenticating every record on every upload is quadratic in the record
+   * count, which made the record-count and live-byte quota checks time out.
+   *
+   * The memo keeps the verified metadata of a record whose row is unchanged, so
+   * an unchanged record is not decrypted again. The key is the exact tuple of
+   * columns the authentication compares, so a row whose columns changed is
+   * authenticated again and a row that no longer agrees with its sealed record
+   * is still refused. The quota never reads a value from an unauthenticated
+   * row: it reads the metadata the authentication produced.
+   *
+   * The memo is bound to the scope secret. A different secret (a rotated
+   * device key) empties it, so a verdict reached under another secret is never
+   * reused.
+   */
+  const verifiedRows = new Map<string, { columns: string; attachment: ChatAttachment }>()
+  let verifiedSecret: Buffer | undefined
   const requestedRoot = resolve(input.dataDir)
   let root = requestedRoot
   try {
@@ -251,6 +275,10 @@ export function createChatAttachmentStore(input: {
       hkdfSync('sha256', deviceKey, 'adea-chat-attachment:v1', scopeText, 32)
     )
     deviceKey.fill(0)
+    if (verifiedSecret === undefined || Buffer.compare(verifiedSecret, secret) !== 0) {
+      verifiedSecret = Buffer.from(secret)
+      verifiedRows.clear()
+    }
     let db: Database | undefined
     let failed = false
     let failure: unknown
@@ -417,15 +445,48 @@ export function createChatAttachmentStore(input: {
         throw new AttachmentError('corrupt_state')
     return rows
   }
+  /**
+   * The columns the record authentication compares with the sealed record.
+   *
+   * A change to any of them invalidates the memoised verdict, so a tampered
+   * row is authenticated again and refused.
+   */
+  function rowColumns(row: RowSummary): string {
+    return JSON.stringify([
+      row.id,
+      row.binding,
+      row.state,
+      row.byte_length,
+      row.upload_key,
+      row.fingerprint,
+    ])
+  }
+
   function attachmentUsage(
     db: Database,
     secret: Buffer
   ): Readonly<{ recordCount: number; liveBytes: number }> {
-    const rows = db.query<Row, []>('SELECT * FROM attachments').all()
-    const records = new Map<string, { row: Row; attachment: ChatAttachment }>()
+    // The columns are read without the sealed payloads: an unchanged record
+    // is not authenticated again, so its payload is not read again either.
+    const rows = db
+      .query<RowSummary, []>(
+        'SELECT id, binding, upload_key, fingerprint, state, byte_length FROM attachments'
+      )
+      .all()
+    const records = new Map<string, { row: RowSummary; attachment: ChatAttachment }>()
     let liveBytes = 0
     for (const row of rows) {
-      const attachment = record(row, secret).attachment
+      const columns = rowColumns(row)
+      const verified = verifiedRows.get(row.id)
+      let attachment: ChatAttachment
+      if (verified !== undefined && verified.columns === columns) {
+        attachment = verified.attachment
+      } else {
+        const full = db.query<Row, [string]>('SELECT * FROM attachments WHERE id=?').get(row.id)
+        if (full === null || full === undefined) throw new AttachmentError('corrupt_state')
+        attachment = record(full, secret).attachment
+        verifiedRows.set(row.id, { columns, attachment })
+      }
       if (attachment.state === 'available') liveBytes += attachment.byteLength
       records.set(attachment.attachmentId, { row, attachment })
     }
@@ -786,7 +847,10 @@ export function createChatAttachmentStore(input: {
     return database(false, (db, secret) =>
       transaction(db, undefined, () => {
         const usage = attachmentUsage(db, secret)
-        if (!validateOnly) db.exec('DELETE FROM attachment_outbox; DELETE FROM attachments;')
+        if (!validateOnly) {
+          db.exec('DELETE FROM attachment_outbox; DELETE FROM attachments;')
+          verifiedRows.clear()
+        }
         return usage.recordCount
       })
     )
