@@ -96,7 +96,7 @@ stripped from inbound requests first, so a caller cannot forge it;
 
 ## Validation
 
-Use Node 24.21.0 and Bun 1.4.3. From the repository root:
+Use Node 24.21.0 and Bun 1.4.4. From the repository root:
 
 ```sh
 bun install --frozen-lockfile

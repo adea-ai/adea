@@ -10,7 +10,7 @@ fallback for builds without an engine pack.
 ## Stack
 
 - Vite+ (`vp run` task graph), TanStack Start, SolidJS, and TypeScript
-- Bun 1.4.3 for installation, scripts, tests, and TypeScript checking
+- Bun 1.4.4 for installation, scripts, tests, and TypeScript checking
 - Scene manifests and telemetry schema via `@adea-ai/spatial`
   (the Three.js runtime, scenes, and asset pipeline live in Agent Sim)
 - TanStack Query's Solid bindings for server state and `solid-js/store` for

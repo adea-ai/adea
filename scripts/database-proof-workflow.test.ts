@@ -71,7 +71,7 @@ describe('the database proof lane proves only a disposable local instance', () =
     expect(run.run).toContain('scripts/disposable-postgres-cli.ts')
     const bun = stepNamed(proof, 'Install Bun')
     expect(bun.uses).toBe('oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6')
-    expect(bun.with?.['bun-version']).toBe('1.4.3')
+    expect(bun.with?.['bun-version']).toBe('1.4.4')
     expect(stepNamed(proof, 'Install dependencies').run).toBe('bun install --frozen-lockfile')
   })
 
@@ -492,7 +492,7 @@ describe('the built-Worker desktop auth job wires the qualification into CI', ()
     // still the clean tree the run happened in.
     expect(run.run).toContain('$RUNNER_TEMP/built-worker-desktop-auth.out')
     const bun = stepNamed(worker, 'Install Bun')
-    expect(bun.with?.['bun-version']).toBe('1.4.3')
+    expect(bun.with?.['bun-version']).toBe('1.4.4')
     const node = stepNamed(worker, 'Install the repository Node runtime')
     expect(node.with?.['node-version']).toBe('24.21.0')
     expect(stepNamed(worker, 'Install dependencies').run).toBe('bun install --frozen-lockfile')
