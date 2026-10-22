@@ -348,6 +348,15 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
       // The barrier holds the workspace's rename lock and says so. The renames then queue behind
       // it, which the observer confirms before the barrier is released: every step waits for an
       // acknowledgment, and none of them waits for a fixed duration.
+      // The sessions the renames run on, and the session that holds the lock. They are read
+      // before anything is opened: each pool holds one connection, and a pid cannot be read
+      // from a pool whose only connection a transaction already holds.
+      const [firstPid, secondPid, barrierPid] = await Promise.all([
+        backendPid(firstRename),
+        backendPid(secondRename),
+        backendPid(barrierConnection),
+      ])
+
       const released = deferred()
       const held = deferred()
       releaseBarrier = released.release
@@ -357,13 +366,6 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
         await released.promise
       })
       await held.promise
-
-      // The sessions the renames run on, and the session that holds the lock.
-      const [firstPid, secondPid, barrierPid] = await Promise.all([
-        backendPid(firstRename),
-        backendPid(secondRename),
-        backendPid(barrierConnection),
-      ])
 
       outcomes = Promise.allSettled([
         renameRuntimeNode(firstRename.db, {
