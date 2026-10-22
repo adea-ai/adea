@@ -954,7 +954,11 @@ describe('residual portable export and residency acceptance', () => {
         exportedIds.map((_, index) => index + 1)
       )
     }
-  })
+    // This case creates a disposable destination database and migrates the repository's schema
+    // into it, which is the slowest work in this file. The other portable integration files
+    // give their migration-heavy cases an explicit timeout; without one this case runs against
+    // bun's five-second default and fails on a loaded machine.
+  }, 300_000)
 
   test('the export carries the authorized content and its provenance, unchanged', async () => {
     const sourceMessages = await connection.db
@@ -1468,7 +1472,11 @@ describe('residual portable export and residency acceptance', () => {
     expect(globalCounts.messages).toBeUndefined()
     expect(globalCounts.workspaces).toBe(0)
     expect(globalCounts.users).toBe(0)
-  })
+    // This case creates a disposable destination database and migrates the repository's schema
+    // into it, which is the slowest work in this file. The other portable integration files
+    // give their migration-heavy cases an explicit timeout; without one this case runs against
+    // bun's five-second default and fails on a loaded machine.
+  }, 300_000)
 
   test("a manifest claiming another exporter's authority does not transfer authority", async () => {
     const destination = await ensureRefusalDestination()
@@ -1584,7 +1592,11 @@ describe('residual portable export and residency acceptance', () => {
       assertAbsent(dump, secretCanaries)
       assertAbsent(dump, [inviteToken, inviteTokenDigest])
     }
-  })
+    // This case creates a disposable destination database and migrates the repository's schema
+    // into it, which is the slowest work in this file. The other portable integration files
+    // give their migration-heavy cases an explicit timeout; without one this case runs against
+    // bun's five-second default and fails on a loaded machine.
+  }, 300_000)
 
   test('the private plaintext reaches the authorized reader and no one else', async () => {
     const ownerTarget = await ensureOwnerDestination()
