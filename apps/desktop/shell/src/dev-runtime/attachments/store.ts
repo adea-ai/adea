@@ -60,9 +60,6 @@ type Row = {
   byte_length: number
   sealed: Uint8Array
 }
-/** A record row without its sealed payload: the columns the quota reads and compares. */
-type RowSummary = Omit<Row, 'sealed'>
-
 type Pending = {
   id: string
   binding: string
@@ -110,17 +107,18 @@ export function createChatAttachmentStore(input: {
    * count, which made the record-count and live-byte quota checks time out.
    *
    * The memo keeps the verified metadata of a record whose row is unchanged, so
-   * an unchanged record is not decrypted again. The key is the exact tuple of
-   * columns the authentication compares, so a row whose columns changed is
-   * authenticated again and a row that no longer agrees with its sealed record
-   * is still refused. The quota never reads a value from an unauthenticated
-   * row: it reads the metadata the authentication produced.
+   * an unchanged record is not decrypted again. The key covers the record's
+   * current payload as well as the columns the authentication compares, so a
+   * row whose payload changed is authenticated again and a row that no longer
+   * agrees with its sealed record is still refused. The quota never reads a
+   * value from an unauthenticated row: it reads the metadata the
+   * authentication produced.
    *
    * The memo is bound to the scope secret. A different secret (a rotated
    * device key) empties it, so a verdict reached under another secret is never
    * reused.
    */
-  const verifiedRows = new Map<string, { columns: string; attachment: ChatAttachment }>()
+  const verifiedRows = new Map<string, { key: string; attachment: ChatAttachment }>()
   let verifiedSecret: Buffer | undefined
   const requestedRoot = resolve(input.dataDir)
   let root = requestedRoot
@@ -446,46 +444,55 @@ export function createChatAttachmentStore(input: {
     return rows
   }
   /**
-   * The columns the record authentication compares with the sealed record.
+   * The cache key of one record.
    *
-   * A change to any of them invalidates the memoised verdict, so a tampered
-   * row is authenticated again and refused.
+   * The key must cover the bytes the verdict was reached from, not only the
+   * plaintext columns: an edit to the sealed payload that leaves the columns
+   * alone would otherwise keep a verdict that was reached from different
+   * bytes. The digest is computed from the payload now in the row, inside the
+   * operation's transaction, so it is a statement about the current bytes and
+   * not a stored claim about them. Hashing the payload is enough: a changed
+   * payload changes the digest, so the record is authenticated again, and it
+   * is the authentication, not the digest, that refuses a corrupt record.
    */
-  function rowColumns(row: RowSummary): string {
-    return JSON.stringify([
-      row.id,
-      row.binding,
-      row.state,
-      row.byte_length,
-      row.upload_key,
-      row.fingerprint,
-    ])
+  function rowCacheKey(row: Row): string {
+    const digest = createHash('sha256')
+    digest.update(row.id)
+    digest.update('\0')
+    digest.update(row.binding)
+    digest.update('\0')
+    digest.update(row.state)
+    digest.update('\0')
+    digest.update(String(row.byte_length))
+    digest.update('\0')
+    digest.update(row.upload_key)
+    digest.update('\0')
+    digest.update(row.fingerprint)
+    digest.update('\0')
+    digest.update(row.sealed)
+    return digest.digest('hex')
   }
 
   function attachmentUsage(
     db: Database,
-    secret: Buffer
+    secret: Buffer,
+    options: { readonly authenticateAll?: boolean } = {}
   ): Readonly<{ recordCount: number; liveBytes: number }> {
-    // The columns are read without the sealed payloads: an unchanged record
-    // is not authenticated again, so its payload is not read again either.
-    const rows = db
-      .query<RowSummary, []>(
-        'SELECT id, binding, upload_key, fingerprint, state, byte_length FROM attachments'
-      )
-      .all()
-    const records = new Map<string, { row: RowSummary; attachment: ChatAttachment }>()
+    // The whole row is read, payload included: the cache key is a digest of
+    // the payload now in the row, so a payload that changed is authenticated
+    // again instead of keeping an earlier verdict.
+    const rows = db.query<Row, []>('SELECT * FROM attachments').all()
+    const records = new Map<string, { row: Row; attachment: ChatAttachment }>()
     let liveBytes = 0
     for (const row of rows) {
-      const columns = rowColumns(row)
-      const verified = verifiedRows.get(row.id)
+      const cacheKey = rowCacheKey(row)
+      const verified = options.authenticateAll ? undefined : verifiedRows.get(row.id)
       let attachment: ChatAttachment
-      if (verified !== undefined && verified.columns === columns) {
+      if (verified !== undefined && verified.key === cacheKey) {
         attachment = verified.attachment
       } else {
-        const full = db.query<Row, [string]>('SELECT * FROM attachments WHERE id=?').get(row.id)
-        if (full === null || full === undefined) throw new AttachmentError('corrupt_state')
-        attachment = record(full, secret).attachment
-        verifiedRows.set(row.id, { columns, attachment })
+        attachment = record(row, secret).attachment
+        verifiedRows.set(row.id, { key: cacheKey, attachment })
       }
       if (attachment.state === 'available') liveBytes += attachment.byteLength
       records.set(attachment.attachmentId, { row, attachment })
@@ -846,7 +853,9 @@ export function createChatAttachmentStore(input: {
     }
     return database(false, (db, secret) =>
       transaction(db, undefined, () => {
-        const usage = attachmentUsage(db, secret)
+        // A purge is rare and it decides what is destroyed, so every current
+        // row is authenticated here rather than read from the memo.
+        const usage = attachmentUsage(db, secret, { authenticateAll: true })
         if (!validateOnly) {
           db.exec('DELETE FROM attachment_outbox; DELETE FROM attachments;')
           verifiedRows.clear()

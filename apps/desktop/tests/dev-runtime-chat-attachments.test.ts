@@ -506,6 +506,57 @@ describe('attachment transaction and recovery hardening', () => {
       expect(ctx.events.events()).toHaveLength(1)
     }))
 
+  test('a tampered sealed payload is refused after the record was cached', () =>
+    fixture((ctx) => {
+      // The second upload authenticates the first record, so the store holds a
+      // verdict about it. Only the sealed payload changes below: the plaintext
+      // columns stay exactly as the authentication left them, so a verdict that
+      // is keyed on the columns alone would still be reused.
+      const first = ctx.store.upload(binding, upload('original'), 'tampered-payload')
+      ctx.store.upload(binding, upload('distinct'), 'distinct-payload')
+
+      const db = new Database(ctx.dbPath())
+      const row = db.query('SELECT sealed FROM attachments WHERE id=?').get(first.attachmentId)
+      const sealed = Buffer.from(row.sealed)
+      // One ciphertext byte, so the payload differs while the row's columns do not.
+      sealed[sealed.length - 17] ^= 0xff
+      db.query('UPDATE attachments SET sealed=? WHERE id=?').run(sealed, first.attachmentId)
+      db.close(true)
+
+      code(
+        () => ctx.store.upload(binding, upload('another'), 'after-payload-tamper'),
+        'corrupt_state'
+      )
+      code(() => ctx.store.validateWorkspacePurge(), 'corrupt_state')
+    }))
+
+  test('a tampered row is refused after the record was cached', () =>
+    fixture((ctx) => {
+      const first = ctx.store.upload(binding, upload('original'), 'tampered-columns')
+      ctx.store.upload(binding, upload('distinct'), 'distinct-columns')
+
+      const db = new Database(ctx.dbPath())
+      db.query("UPDATE attachments SET state='removed' WHERE id=?").run(first.attachmentId)
+      db.close(true)
+
+      code(
+        () => ctx.store.upload(binding, upload('another'), 'after-column-tamper'),
+        'corrupt_state'
+      )
+      code(() => ctx.store.validateWorkspacePurge(), 'corrupt_state')
+    }))
+
+  test('a record cached under an earlier device key is not reused', () =>
+    fixture((ctx) => {
+      let key = ctx.secret
+      const store = ctx.make(scope, () => key)
+      store.upload(binding, upload('original'), 'rotated-key')
+
+      key = randomBytes(32)
+
+      code(() => store.upload(binding, upload('another'), 'rotated-key-upload'), 'corrupt_state')
+    }))
+
   test('quota checks re-authenticate a record whose row changed under the same store', () =>
     fixture((ctx) => {
       // The same store instance already authenticated this record, so the
