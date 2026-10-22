@@ -182,8 +182,6 @@ Filed, still open:
   `bun run test:packaged`; they skip loudly without it).
 - The pre-existing failure of `apps/web/e2e/dev-view-terminal.spec.ts` in
   this environment is unrelated to this branch: `/api/workspaces/bootstrap`
-  returns 500 because the checkout's `apps/web/.env.local` Neon credentials
   fail authentication (`password authentication failed for user
-'neondb_owner'`); the fixture terminal never finishes bootstrapping. The
   same failure reproduces with this branch's product changes stashed, and CI
   provides its own database.

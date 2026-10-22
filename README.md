@@ -149,9 +149,9 @@ point runs the provider-neutral and PostgreSQL cases together. When no database
 variables are exported, it starts the repository's local PostgreSQL Compose
 service, verifies the restricted migration/runtime roles, applies migrations
 deterministically, and runs the complete integration suite. CI and explicit
-Neon runs must provide all three canonical variables (`DATABASE_URL`,
+hosted runs must provide all three canonical variables (`DATABASE_URL`,
 `DATABASE_URL_UNPOOLED`, and `DATABASE_MIGRATION_URL`) for an isolated test
-branch; production or owner credentials are not valid test targets.
+target; production or owner credentials are not valid test targets.
 
 `bun run build` covers the workspace packages and the TanStack Start
 production build. Packaged macOS desktop evidence uses `bun run test:packaged`,

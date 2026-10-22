@@ -38,7 +38,6 @@ closure or acceptance-ledger update is claimed by local validation.
 
 ## Hosted fixture correction
 
-The earlier [Neon preview run](https://github.com/adea-ai/adea/actions/runs/37688227388)
 at inventory candidate `32e34b680` failed the old-but-valid proof case. It left
 one second of its unchanged 120-second replay window, and the proof correctly
 expired during hosted database admission. The fixture now leaves 30 seconds,

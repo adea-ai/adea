@@ -367,7 +367,7 @@ describe('test suite boundaries', () => {
 
   test('enforces the repository coverage goal on durable core code', () => {
     expect(packageJson.scripts['test:coverage']).toBe(
-      'bun test packages/auth/tests/unit packages/db/tests/unit packages/auth/tests/integration/adapter.test.ts packages/auth/tests/integration/neon-driver.test.ts apps/web/test/client-policy.test.ts packages/types/tests/workspace-primitives.test.ts apps/web/test/cloudflare-config.test.ts packages/types/tests/execution-location.test.ts packages/types/tests/migration-snapshot.test.ts packages/types/tests/artifact-reference.test.ts packages/types/tests/desktop-permissions.test.ts packages/types/tests/group-participation.test.ts packages/types/tests/management.test.ts packages/types/tests/agent-profile-execution.test.ts scripts/*.test.ts --coverage'
+      'bun test packages/auth/tests/unit packages/db/tests/unit packages/auth/tests/integration/adapter.test.ts apps/web/test/client-policy.test.ts packages/types/tests/workspace-primitives.test.ts apps/web/test/cloudflare-config.test.ts packages/types/tests/execution-location.test.ts packages/types/tests/migration-snapshot.test.ts packages/types/tests/artifact-reference.test.ts packages/types/tests/desktop-permissions.test.ts packages/types/tests/group-participation.test.ts packages/types/tests/management.test.ts packages/types/tests/agent-profile-execution.test.ts scripts/*.test.ts --coverage'
     )
 
     const bunfig = readFileSync(resolve(root, 'bunfig.toml'), 'utf8')

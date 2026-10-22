@@ -302,7 +302,7 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
 
   test('claims a temporary workspace for a new account identity', async () => {
     const credentialDigest = `claim-new-${crypto.randomUUID()}`
-    const identity = { provider: 'neon', subject: `claim-new-${crypto.randomUUID()}` }
+    const identity = { provider: 'better-auth', subject: `claim-new-${crypto.randomUUID()}` }
     const temporary = await createTemporaryUserSession(connection.db, {
       credentialDigest,
       expiresAt: new Date(Date.now() + 60_000),
@@ -339,7 +339,7 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
   })
 
   test('transfers temporary workspaces when signing into an existing account', async () => {
-    const identity = { provider: 'neon', subject: `claim-existing-${crypto.randomUUID()}` }
+    const identity = { provider: 'better-auth', subject: `claim-existing-${crypto.randomUUID()}` }
     const registered = await createUserWithAuthIdentity(connection.db, { identity })
     const credentialDigest = `claim-existing-${crypto.randomUUID()}`
     const temporary = await createTemporaryUserSession(connection.db, {
@@ -376,7 +376,7 @@ describe.skipIf(!connectionUrl)('workspace tenancy integration', () => {
   })
 
   test('claims multiple guest workspaces concurrently into one desktop account', async () => {
-    const identity = { provider: 'neon', subject: `desktop-claim-${crypto.randomUUID()}` }
+    const identity = { provider: 'better-auth', subject: `desktop-claim-${crypto.randomUUID()}` }
     const registered = await createUserWithAuthIdentity(connection.db, { identity })
     const guests = await Promise.all(
       ['first', 'second'].map(async (label) => {

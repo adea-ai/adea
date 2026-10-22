@@ -208,7 +208,7 @@ const opsOn = (name: string) => ctl.log.filter((entry) => entry.startsWith(`${na
 
 beforeEach(() => {
   process.env.DATABASE_URL = 'postgresql://app:secret@127.0.0.1:1/agent_hq'
-  process.env.NEON_AUTH_COOKIE_SECRET = 'x'.repeat(48)
+  process.env.AUTH_SECRET = 'x'.repeat(48)
   ctl.clients.length = 0
   ctl.log.length = 0
   ctl.usedAfterClose.length = 0

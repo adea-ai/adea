@@ -18,23 +18,9 @@ export type DatabaseEnvironment = Record<string, string | undefined>
 const LOOPBACK_HOSTNAMES = new Set(['127.0.0.1', '::1', '[::1]', 'localhost'])
 const TLS_REQUIRED_SSL_MODES = new Set(['require', 'verify-ca', 'verify-full'])
 
-// Neon's pooled endpoint runs PgBouncer in transaction mode (`<endpoint>-pooler`
-// host). Cloudflare Hyperdrive and a direct Railway PostgreSQL connection are not
-// that shape: Cloudflare documents `prepare: true` (the Postgres.js default) for
-// Hyperdrive and warns that `prepare: false` "can cause queries to hang or fail
-// intermittently" under its transaction pooling. Only the Neon pooler host keeps
-// the conservative unprepared mode.
-const NEON_POOLED_HOST_MARKER = '-pooler.'
-const NEON_HOST_SUFFIX = '.neon.tech'
-
 export function isLoopbackDatabaseHost(hostname: string): boolean {
   const host = hostname.trim().toLowerCase()
   return LOOPBACK_HOSTNAMES.has(host) || host.endsWith('.localhost')
-}
-
-export function isTransactionPooledHost(hostname: string): boolean {
-  const host = hostname.trim().toLowerCase()
-  return host.includes(NEON_POOLED_HOST_MARKER) && host.endsWith(NEON_HOST_SUFFIX)
 }
 
 // Postgres.js reduces repeated query parameters last-value-wins and then maps `sslmode` onto its
@@ -56,15 +42,26 @@ function assertUnambiguousTransport(url: URL, key: string): void {
 
 /**
  * The connection role a database URL names, and what it means for Postgres.js
- * prepared statements. `pooled` is true only for a host that multiplexes client
- * transactions onto shared backends and is not known to support them (Neon's
- * `-pooler` endpoint); a Hyperdrive or direct connection prepares statements.
+ * prepared statements.
+ *
+ * Every origin this deployment can reach prepares statements: the Cloudflare
+ * Hyperdrive binding (the edge pooler in front of the origin) and a direct
+ * managed PostgreSQL connection alike. Cloudflare documents `prepare: true`
+ * (the Postgres.js default) for Hyperdrive and warns that `prepare: false`
+ * "can cause queries to hang or fail intermittently" under its transaction
+ * pooling.
+ *
+ * The one hosted shape that did not support prepared statements was the
+ * transaction-pooled endpoint of the provider this deployment has left. That
+ * endpoint is gone with the provider, so the runtime no longer recognises a
+ * host by its hostname to decide the statement mode: a hostname is not a
+ * statement-capability contract, and a retired provider's shape is not a
+ * capability to keep.
  */
 export interface DatabaseConnectionTarget {
   readonly url: string
   readonly hostname: string
   readonly hosted: boolean
-  readonly pooled: boolean
   readonly preparedStatements: boolean
 }
 
@@ -102,27 +99,7 @@ export function readDatabaseTarget(value: string, key = 'DATABASE_URL'): Databas
     }
   }
 
-  const pooled = isTransactionPooledHost(hostname)
-  return { url: value, hostname, hosted, pooled, preparedStatements: !pooled }
-}
-
-/**
- * The prepared-statement behaviour a URL names, without the hosted-TLS
- * requirement of `readDatabaseTarget`. This is for URLs another layer has
- * already trusted, such as the Cloudflare `HYPERDRIVE` binding (whose own hop is
- * TLS terminated by Cloudflare) or a validated migration URL. An unparsable URL
- * keeps the driver default; `postgres.js` reports the real error when it
- * connects.
- */
-export function classifyDatabaseUrl(
-  value: string
-): Pick<DatabaseConnectionTarget, 'pooled' | 'preparedStatements'> {
-  try {
-    const pooled = isTransactionPooledHost(new URL(value).hostname)
-    return { pooled, preparedStatements: !pooled }
-  } catch {
-    return { pooled: false, preparedStatements: true }
-  }
+  return { url: value, hostname, hosted, preparedStatements: true }
 }
 
 export function readDatabaseUrl(

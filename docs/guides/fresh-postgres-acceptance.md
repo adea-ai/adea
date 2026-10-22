@@ -3,7 +3,6 @@
 This acceptance plan covers a new PostgreSQL target for fresh accounts. It records
 what must be proved before a Railway database change can proceed. It does not
 authorize provisioning, traffic changes, deployment or the start of the cost week.
-Existing Neon data stays recoverable throughout this work.
 
 The application, authentication provider and Control Plane own separate migration
 boundaries. A successful migration of one does not initialize the others.
@@ -159,6 +158,5 @@ lifecycle assertion, privilege results, connection/idle measurements, cleanup
 verification and every failed or skipped check. Separate local fixture evidence
 from hosted TLS, real delivery configuration and deployment acceptance.
 
-A passing local receipt does not switch traffic, retire Neon, start the cost week
 or close the remaining migration and product acceptance gates. Those decisions
 require their own approved evidence and authorization.

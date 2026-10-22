@@ -37,7 +37,7 @@ advisory plans do not establish materialization or activation. See the
 2. Render and inspect the diagram before replacing the image in its owning Google Doc.
 3. Keep headings aligned with the owning document and figure purpose.
 4. Do not hand-edit rendered diagram images.
-5. Physical provider resource names such as R2 bucket names, Wrangler bindings, Neon project IDs, and Railway project IDs are deployment configuration, not domain identifiers.
+5. Physical provider resource names such as R2 bucket names, Wrangler bindings, and hosted-database project IDs are deployment configuration, not domain identifiers.
 6. Adea and Control Plane may share a Cloudflare account/provider, but they use separate bucket/credential authority. The Control Plane `ctrl-plane` bucket is not Adea Artifact storage.
 
 ## Adea PRD: Product Architecture
@@ -69,9 +69,9 @@ flowchart TB
     subgraph HQ["Adea: Public Application / Private Optional Spatial Payload"]
         C[Desktop / Web / Mobile UI]
         API[Application Services]
-        HQDB[(Adea Neon / Cloud-Safe Metadata)]
+        HQDB[(Adea Postgres / Cloud-Safe Metadata)]
         RELAY[Adea Remote Relay / HPKE Ciphertext]
-        EVT[Railway Event Gateway / Neon WorkspaceEvents]
+        EVT[Railway Event Gateway / WorkspaceEvents]
     end
     subgraph CP["Control Plane: Open Source / Apache-2.0"]
         CPAPI[Control API / Public SDK]
@@ -152,12 +152,12 @@ flowchart TB
         CL --> EC[Event Client]
     end
     subgraph App["Adea Application Services"]
-        AUTH["Neon Auth<br/>via @adea-ai/auth"]
+        AUTH["Auth Service<br/>via @adea-ai/auth"]
         API[API]
         WS[Workspace / Agent / Task / Conversation Metadata Services]
         RELAY[Remote Control Relay / HPKE]
         EV[Railway Event Gateway]
-        DB[(Neon / Drizzle Cloud Metadata)]
+        DB[(Adea Postgres / Cloud-Safe Metadata)]
     end
     CL --> AUTH
     CL <--> LC[(Encrypted Local Content / File-Backed Shell Store)]
@@ -213,9 +213,9 @@ sequenceDiagram
 flowchart LR
     U([User]) --> B[Browser / Adea Client]
     subgraph AppCloud["Adea Application Trust Zone"]
-        AUTH["Neon Auth<br/>via @adea-ai/auth"]
+        AUTH["Auth Service<br/>via @adea-ai/auth"]
         API[Adea API]
-        DB[(Adea Neon / Cloud-Safe Metadata)]
+        DB[(Adea Postgres / Cloud-Safe Metadata)]
         RELAY[Remote Relay / HPKE Ciphertext]
         EG[Railway Event Gateway]
         ART[Adea Artifact API]
@@ -373,7 +373,7 @@ flowchart TB
     end
     subgraph Cloud["Adea Cloud Coordination"]
         APP[Application Services]
-        DB[(Neon / Drizzle Cloud Metadata)]
+        DB[(Adea Postgres / Cloud-Safe Metadata)]
         RELAY[Durable Remote Relay / Metadata + HPKE Ciphertext]
         META[(Workspace / Device / Task Status Metadata)]
         EVT[Sync / Events]
@@ -463,7 +463,7 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    AUTH[Neon Auth] --> AB[@adea-ai/auth]
+    AUTH[Auth Service] --> AB[@adea-ai/auth]
     AB --> AI[(AuthIdentity)]
     AI --> U[(Stable Adea User)]
     U --> UP[User PrincipalRef]
@@ -485,7 +485,7 @@ sequenceDiagram
     participant D as Packaged Electrobun Desktop
     participant B as System Browser
     participant A as Adea Auth Broker
-    participant N as Neon Auth
+    participant N as Auth Service
     U->>D: Sign in
     D->>D: Create state, nonce, PKCE verifier
     D->>B: Open authorization URL
@@ -624,8 +624,8 @@ flowchart LR
 
 ```mermaid
 flowchart TB
-    DB[(Adea Neon WorkspaceEvent Log - >=30d online replay)]
-    W[LISTEN/NOTIFY IDs + 2s Neon Poll Fallback]
+    DB[(Adea Postgres WorkspaceEvent Log - >=30d online replay)]
+    W[LISTEN/NOTIFY IDs + 2s Poll Fallback]
     G1[Railway Event Gateway A]
     G2[Railway Event Gateway B]
     C1[Desktop or Web Client]

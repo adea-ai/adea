@@ -28,7 +28,7 @@ describe.skipIf(!connectionUrl)('desktop auth persistence', () => {
 
   test('consumes one-time codes atomically and rotates application sessions', async () => {
     const principal = await createUserWithAuthIdentity(connection.db, {
-      identity: { provider: 'neon', subject: `desktop-${crypto.randomUUID()}` },
+      identity: { provider: 'better-auth', subject: `desktop-${crypto.randomUUID()}` },
     })
     const now = Date.now()
     const code = {

@@ -28,12 +28,15 @@ and `cf-wrangler build --mode preview`.
 bindings: whatever `cloudflare.config.ts` returns is what the Preview Worker is
 uploaded with. The config therefore branches on the build context
 (`isPreview`, or `--mode preview`). A Preview Worker runs unreviewed
-pull-request code, so it never gets the production Hyperdrive, Neon database or
-auth secret, cookie secret, or Control Plane signer. It needs dedicated preview
-resources, selected explicitly, all or none, through build variables:
+pull-request code, so it never gets the production Hyperdrive, the production
+database, the auth secrets, or the Control Plane signer. It needs dedicated
+preview resources, selected explicitly, all or none, through build variables:
 `ADEA_PREVIEW_HYPERDRIVE_ID`, `ADEA_PREVIEW_SECRETS_STORE_ID`,
 `ADEA_PREVIEW_DATABASE_URL_SECRET`, `ADEA_PREVIEW_AUTH_BASE_URL_SECRET`,
 `ADEA_PREVIEW_AUTH_COOKIE_SECRET_NAME`, `ADEA_PREVIEW_AUTH_TRUSTED_ORIGINS_SECRET`.
+The auth database is a dedicated preview record (`ADEA_PREVIEW_AUTH_DATABASE_URL`)
+inside the selected preview store, so a complete existing selection stays
+complete.
 The build fails if the selection is partial, names the production Hyperdrive or
 Secrets Store, or names a secret that is a production secret or not a dedicated
 `*PREVIEW*` secret.
@@ -100,22 +103,19 @@ also writes a `.wrangler/deploy/config.json` redirect. The legacy
      not stage the workspace dependencies), and do NOT add a `build` block to
      `wrangler.jsonc` (`no_bundle` is set because Vite already produced a
      bundled entry).
-3. **Hyperdrive (Neon pooling).** `adea-db` (id in `wrangler.jsonc`) should
-   point at the standalone Neon project (`us-east-2`) through its
-   **direct/unpooled** host. Hyperdrive provides the pooling, so do not use the
-   `-pooler` host. The previous setup note named `neondb_owner` as the
-   production principal. Treat that as a historical claim: the intended
-   runtime role follows the `_app` naming convention and has no schema or
-   database `CREATE` privileges or elevated attributes. The repository's
-   `database-health.mjs` check validates those rules; application startup does
-   not. Repository files cannot confirm which principal or grants are
-   currently configured in Cloudflare, so verify the deployed binding through
-   the approved operations process before claiming it meets this contract. If
-   the binding must be recreated, use the direct URL for the target
-   environment's `_app` role:
+3. **Hyperdrive (edge connection pooling).** `adea-db` (id in `wrangler.jsonc`)
+   fronts the Railway-managed PostgreSQL. Hyperdrive provides the pooling, so
+   the origin is the database's own direct endpoint. The intended runtime role
+   follows the `_app` naming convention and has no schema or database `CREATE`
+   privileges or elevated attributes. The repository's `database-health.mjs`
+   check validates those rules; application startup does not. Repository files
+   cannot confirm which principal or grants are currently configured in
+   Cloudflare, so verify the deployed binding through the approved operations
+   process before claiming it meets this contract. If the binding must be
+   recreated, use the direct URL for the target environment's `_app` role:
    ```bash
    wrangler hyperdrive create adea-db \
-     --connection-string="$DATABASE_URL_UNPOOLED"
+     --connection-string="$DATABASE_URL"
    ```
    The app reads the binding captured by the Worker entry at runtime
    (`src/server/worker-bindings.ts`, resolved in
@@ -127,16 +127,16 @@ also writes a `.wrangler/deploy/config.json` redirect. The legacy
    `cloudflare.config.ts` — the deploy source of truth for `cf deploy
 --prebuilt`, which replaces the whole binding set on every deploy. A value
    that exists only as a dashboard secret disappears on the next deploy (this
-   is how the 2026-10-01 migration took the marketplace proxy and Neon Auth
-   down until the bindings were restored), so:
+   is how the 2026-10-01 migration took the marketplace proxy and the auth
+   service down until the bindings were restored), so:
    - `CONTROL_PLANE_ORIGIN`, `CONTROL_PLANE_SIGNING_KEY_ID` and
      `CONTROL_PLANE_SIGNING_ISSUER` are plain `text` bindings (identifiers,
      not secrets);
-   - `CONTROL_PLANE_SIGNING_KEY`, `DATABASE_URL`, `NEON_AUTH_BASE_URL`,
-     `NEON_AUTH_COOKIE_SECRET`, and `AUTH_TRUSTED_ORIGINS` are
-     `secrets-store-secret` bindings referencing the account Secrets Store
-     (`control-plane-neon`). Secrets Store bindings resolve lazily, so the
-     Worker entry hydrates them onto `process.env` before any handler runs
+   - `CONTROL_PLANE_SIGNING_KEY`, `DATABASE_URL`, `AUTH_BASE_URL`,
+     `AUTH_SECRET`, `AUTH_DATABASE_URL`, and `AUTH_TRUSTED_ORIGINS` are
+     `secrets-store-secret` bindings referencing the account Secrets Store.
+     Secrets Store bindings resolve lazily, so the Worker entry hydrates them
+     onto `process.env` before any handler runs
      (`src/server/worker-bindings.ts`).
    - `wrangler.jsonc` carries the same set for the legacy wrangler deploy
      path; keep the two files in sync.
@@ -149,7 +149,7 @@ also writes a `.wrangler/deploy/config.json` redirect. The legacy
      has to be revoked on the Control Plane and its store record
      `AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN` deleted. Provision,
      verify and rotate the signer with the
-     [Control Plane credentials runbook](../../docs/control-plane-credentials.md). Rotating `NEON_AUTH_COOKIE_SECRET` invalidates every Worker
+     [Control Plane credentials runbook](../../docs/control-plane-credentials.md). Rotating `AUTH_SECRET` invalidates every Worker
      session. To add a hosted value: create the store record, add the binding to
      BOTH config files, and deploy.
      Access is additionally gated by an account allowlist: set the
@@ -159,7 +159,7 @@ also writes a `.wrangler/deploy/config.json` redirect. The legacy
      the default open behavior (any authenticated account plus guests).
      Source values: the Cloudflare Secret Store is the source of truth for hosted
      values (the `ADEA_*` records); `.env.local` (gitignored) keeps local
-     Development copies for day-to-day dev. Drop every `POSTGRES_*`/`PG*` duplicate of the same Neon role.
+     Development copies for day-to-day dev. Drop every `POSTGRES_*`/`PG*` duplicate of the same role.
 5. **Local preview.** Copy `.dev.vars.example` to `.dev.vars` (gitignored),
    then `bun run preview`. Day-to-day dev is `bun run dev`, which runs the Vite
    dev server inside the Workers runtime using the same `wrangler.jsonc`
@@ -254,7 +254,7 @@ subscribes to the router history in `src/start/router.tsx`.
   Worker bundle for production requests.
 - No `next/image` usage existed; the workspace uses plain `<img>` elements, so
   no Cloudflare Images loader configuration is needed.
-- Pull-request CI no longer creates a preview Neon branch. The database proof
+- Pull-request CI no longer creates a preview external provider branch. The database proof
   (`.github/workflows/database-proof.yml`) proves a disposable PostgreSQL
   instance on the loopback interface and gates PRs behind the
   `Prove Disposable PostgreSQL` check.

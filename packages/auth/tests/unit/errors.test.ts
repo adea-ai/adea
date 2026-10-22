@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 
 import { createAuthAdapter } from '../../src/adapter'
 import { AUTH_ERROR_CODES, AuthProviderError, authErrorCode, providerError } from '../../src/errors'
-import { createNeonAuthDriver, type NeonSdk } from '../../src/neon-driver'
+import { createBetterAuthDriver, type BetterAuthServerApi } from '../../src/better-auth-driver'
 
 describe('provider error codes', () => {
   test('reads a normalized code from the SDK error', () => {
@@ -56,28 +56,25 @@ describe('provider error codes', () => {
   })
 })
 
-const sdk = (overrides: Partial<NeonSdk>): NeonSdk =>
+const sdk = (overrides: Partial<BetterAuthServerApi>): BetterAuthServerApi =>
   ({
     getSession: async () => ({ data: null, error: null }),
     listSessions: async () => ({ data: [], error: null }),
-    refreshToken: async () => ({ data: null, error: null }),
     revokeSession: async () => ({ data: null, error: null }),
-    signIn: { email: async () => ({ data: null, error: null }) },
-    signUp: { email: async () => ({ data: null, error: null }) },
+    signInEmail: async () => ({ data: null, error: null }),
+    signUpEmail: async () => ({ data: null, error: null }),
     signOut: async () => ({ data: null, error: null }),
     ...overrides,
-  }) as NeonSdk
+  }) as BetterAuthServerApi
 
 describe('driver failures keep their cause', () => {
   test('a rejected sign-in reports invalid_credentials, not a generic failure', async () => {
-    const driver = createNeonAuthDriver(
+    const driver = createBetterAuthDriver(
       sdk({
-        signIn: {
-          email: async () => ({
-            data: null,
-            error: { code: 'INVALID_EMAIL_OR_PASSWORD', message: 'Invalid email or password' },
-          }),
-        },
+        signInEmail: async () => ({
+          data: null,
+          error: { code: 'INVALID_EMAIL_OR_PASSWORD', message: 'Invalid email or password' },
+        }),
       })
     )
     await expect(
@@ -91,11 +88,9 @@ describe('driver failures keep their cause', () => {
   })
 
   test('an existing account on sign-up reports user_already_exists', async () => {
-    const driver = createNeonAuthDriver(
+    const driver = createBetterAuthDriver(
       sdk({
-        signUp: {
-          email: async () => ({ data: null, error: { code: 'USER_ALREADY_EXISTS' } }),
-        },
+        signUpEmail: async () => ({ data: null, error: { code: 'USER_ALREADY_EXISTS' } }),
       })
     )
     try {
@@ -112,9 +107,9 @@ describe('driver failures keep their cause', () => {
   })
 
   test('an unconfirmed email is distinguishable from a wrong password', async () => {
-    const driver = createNeonAuthDriver(
+    const driver = createBetterAuthDriver(
       sdk({
-        signIn: { email: async () => ({ data: null, error: { code: 'EMAIL_NOT_CONFIRMED' } }) },
+        signInEmail: async () => ({ data: null, error: { code: 'EMAIL_NOT_CONFIRMED' } }),
       })
     )
     try {
@@ -126,7 +121,7 @@ describe('driver failures keep their cause', () => {
   })
 
   test('a provider outage stays a transport failure, not a credential rejection', async () => {
-    const driver = createNeonAuthDriver(
+    const driver = createBetterAuthDriver(
       sdk({ getSession: async () => ({ data: null, error: new Error('socket hang up') }) })
     )
     try {
@@ -140,7 +135,7 @@ describe('driver failures keep their cause', () => {
 
   test('the adapter still normalizes a successful session', async () => {
     const expiresAt = new Date(Date.now() + 60_000).toISOString()
-    const driver = createNeonAuthDriver(
+    const driver = createBetterAuthDriver(
       sdk({
         getSession: async () => ({
           data: {

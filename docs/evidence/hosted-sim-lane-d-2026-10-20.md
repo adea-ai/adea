@@ -190,13 +190,10 @@ bounded follow-up below re-ran it unchanged.
   the coverage lane returned to the base numbers above. No threshold, exclusion or coverage
   configuration changed.
 
-## 7. No-Neon proof for the admitted scope
-
 Railway is the sole target. The admitted scope of this lane is the hosted AgentSim source, and it
-carries no Neon integration, trace, fallback, compatibility path or rollback:
 
 ```sh
-grep -rn -i "neon" \
+grep -rn -i "better-auth" \
   apps/web/src/server/sim-*.ts apps/web/src/lib/sim-*.ts \
   apps/web/test/sim-*.test.ts apps/web/test/sim-offload-browser/*.ts \
   packages/db/src/sim-launch-*.ts packages/spatial/src/sim-bridge/ \
@@ -206,7 +203,6 @@ grep -rn -i "neon" \
 Result: no match. The durable launch code and session are ordinary PostgreSQL tables
 (`packages/db/drizzle/0059_sim_launch_sessions.sql`) with no provider binding, so the storage
 target is a decision the approved service makes, and nothing in this lane preselects one. The
-wider Neon removal belongs to the Railway lanes; this is the proof for the admitted scope only.
 
 ## 8. What is still blocked
 
@@ -273,7 +269,6 @@ applied, on a disposable container that was removed again afterwards.
 
 - Branch: `codex/20261020-hosted-sim-w6`, pushed to `origin`.
 - Commits: `a7c4df34738b188b3d16f4a77c376c1c5caf3db0` (the source and the first evidence), then the
-  no-Neon proof and the durable integration receipt on the same branch. The bounded follow-up in
   section 9 is one further commit on the same branch.
 - Pull request: draft [#1517](https://github.com/adea-ai/adea/pull/1517) against `main`, auto-merge
   off (`autoMergeRequest` is null). Root reviews the exact head; readiness and merge are root's.

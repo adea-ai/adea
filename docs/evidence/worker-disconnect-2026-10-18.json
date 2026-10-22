@@ -138,7 +138,7 @@
     "fixtureResultSHA256": "3beeabab91dc7e955cceb60f8cdd341117a09870d033ee22d2476d1267924ede",
     "generatedOutput": "Built module copies use the standard dist directory; the existing source authentication boundary remains unchanged."
   },
-  "limits": "Hosted edge abort timing and billing effects remain unmeasured. Small local samples do not establish a universal timing bound. Native worker flags permit cancellation notification but not immediate detection before a response write. No PlanetScale migration, Neon changes or production operation is included.",
+  "limits": "Hosted edge abort timing and billing effects remain unmeasured. Small local samples do not establish a universal timing bound. Native worker flags permit cancellation notification but not immediate detection before a response write. No PlanetScale migration, PostgreSQL changes or production operation is included.",
   "safety": {
     "productionInvocations": 0,
     "productionDeployments": 0,
@@ -149,7 +149,7 @@
   },
   "remaining": [
     "Root exact-head review, Advance Queue readiness and hosted required validation",
-    "Separate owner-approved deployment followed by passive production CPU/Hyperdrive/Neon verification",
+    "Separate owner-approved deployment followed by passive production CPU/Hyperdrive/PostgreSQL verification",
     "Real-browser hidden/resume behavior and hosted disconnect timing"
   ],
   "references": [

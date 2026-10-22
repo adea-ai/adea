@@ -61,13 +61,12 @@ export function createBetterAuthService(
 }
 
 /**
- * The server-side auth adapter the application calls. The name is retained for
- * the existing web and desktop call sites; the implementation is now the
- * self-hosted Better Auth service rather than a hosted Neon Auth SDK. Pass a
+ * The server-side auth adapter the application calls. The implementation uses
+ * the self-hosted Better Auth service. Pass a
  * `consumer.registerCleanup` (for example the app's `registerRequestCleanup`)
  * so the request-owned connection is released with the request.
  */
-export function createNeonServerAdapter(
+export function createAuthServerAdapter(
   context: AuthRequestContextFactory,
   environment: AuthEnvironment = process.env,
   consumer: AuthServiceConsumer = {}
@@ -77,10 +76,7 @@ export function createNeonServerAdapter(
   return createBetterAuthContextAdapter(service.auth, context)
 }
 
-/** Provider-neutral alias for {@link createNeonServerAdapter}. */
-export const createAuthServerAdapter = createNeonServerAdapter
-
-export async function handleNeonAuthRequest(
+export async function handleAuthRequest(
   method: RouteMethod,
   request: Request,
   _path?: string,
@@ -95,9 +91,6 @@ export async function handleNeonAuthRequest(
   }
 }
 
-/** Provider-neutral alias for {@link handleNeonAuthRequest}. */
-export const handleAuthRequest = handleNeonAuthRequest
-
 export { createAuthAdapter, type AuthAdapter } from './adapter'
 export { createBetterAuthDriver, type BetterAuthServerApi } from './better-auth-driver'
 export {
@@ -107,13 +100,7 @@ export {
   type AuthRequestContextFactory,
   type BetterAuthInstance,
 } from './better-auth-server'
-export {
-  readAuthConfig,
-  readBetterAuthConfig,
-  type AuthConfig,
-  type AuthEnvironment,
-  type BetterAuthConfig,
-} from './config'
+export { readBetterAuthConfig, type AuthEnvironment, type BetterAuthConfig } from './config'
 export {
   AuthDeliveryUnavailableError,
   createRecordingAuthDelivery,
@@ -121,7 +108,7 @@ export {
   type AuthDelivery,
   type AuthDeliveryMessage,
 } from './delivery'
-export { normalizeNeonSession, normalizeProviderSession } from './session'
+export { normalizeProviderSession } from './session'
 export {
   assertTrustedOrigin,
   createAuthorizationState,

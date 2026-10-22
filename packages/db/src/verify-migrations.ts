@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
-import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import { migrateOwnedSchema } from './scoped-migrations'
 
 import { createDatabase } from './connection'
-import { readDatabaseUrl } from './config'
+import { migrationConnection } from './migration-target'
 import { assertDatabaseMigrationHistoryCompatible } from './migration-history-preflight'
 
-const connection = createDatabase(readDatabaseUrl(process.env, 'DATABASE_MIGRATION_URL'))
+const target = migrationConnection()
+const connection = createDatabase(target.connectionUrl, target.options)
 const migrationsFolder = fileURLToPath(new URL('../drizzle', import.meta.url))
 
 async function migrationState() {
@@ -23,18 +24,10 @@ async function migrationState() {
 try {
   await assertDatabaseMigrationHistoryCompatible(connection, migrationsFolder)
 
-  await migrate(connection.db, {
-    migrationsFolder,
-    migrationsSchema: 'app',
-    migrationsTable: '__drizzle_migrations',
-  })
+  await migrateOwnedSchema(connection.client, migrationsFolder, 'app', Boolean(target.options.tls))
   const first = await migrationState()
 
-  await migrate(connection.db, {
-    migrationsFolder,
-    migrationsSchema: 'app',
-    migrationsTable: '__drizzle_migrations',
-  })
+  await migrateOwnedSchema(connection.client, migrationsFolder, 'app', Boolean(target.options.tls))
   const second = await migrationState()
 
   if (first.count === 0 || first.fingerprint !== second.fingerprint) {

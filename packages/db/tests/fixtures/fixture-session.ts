@@ -1,7 +1,7 @@
 import postgres from 'postgres'
 
 // Session-local fixtures (TEMP tables, pg_temp copies) are only safe on one server backend for the
-// whole body. Neon's pooled endpoint runs PgBouncer in transaction mode, and Neon documents that
+// whole body. A transaction-pooled endpoint runs PgBouncer in transaction mode, and the provider documents that
 // temporary tables are not supported on pooled connections, so fixtures must use the direct
 // endpoint that CI passes as DATABASE_URL_UNPOOLED. The guard below fails closed if the client
 // ever lands on a different backend (a reconnect would silently lose every temp table).

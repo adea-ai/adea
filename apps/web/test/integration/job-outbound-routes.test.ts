@@ -115,15 +115,15 @@ describe.skipIf(!url)(
   'job outbound results across workspaces through the production routes',
   () => {
     let connection: DatabaseConnection
-    const previousSecret = process.env.NEON_AUTH_COOKIE_SECRET
+    const previousSecret = process.env.AUTH_SECRET
     beforeAll(() => {
       connection = createDatabase(url!)
       // The event cursor is signed with the deployment secret; the lane supplies a test value.
-      process.env.NEON_AUTH_COOKIE_SECRET = 'route-flow-cursor-secret-0123456789abcdef'
+      process.env.AUTH_SECRET = 'route-flow-cursor-secret-0123456789abcdef'
     })
     afterAll(async () => {
-      if (previousSecret === undefined) delete process.env.NEON_AUTH_COOKIE_SECRET
-      else process.env.NEON_AUTH_COOKIE_SECRET = previousSecret
+      if (previousSecret === undefined) delete process.env.AUTH_SECRET
+      else process.env.AUTH_SECRET = previousSecret
       await connection.close()
     })
 

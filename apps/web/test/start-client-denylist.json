@@ -6,8 +6,6 @@
   "/repo/node_modules/@adea-ai/sdk/dist/testing.js",
   "/repo/node_modules/@adea-ai/contracts/dist/index.js",
   "/repo/packages/auth/dist/server.js",
-  "/repo/node_modules/@neondatabase/auth/dist/next/server.js",
-  "/repo/node_modules/@neondatabase/auth/dist/server/index.js",
   "/repo/apps/web/src/server/workspace-principal.ts",
   "/repo/apps/web/src/start/worker.ts",
   "/repo/node_modules/server-only/index.js",
@@ -21,5 +19,7 @@
   "/repo/node_modules/next-themes/dist/index.js",
   "/repo/node_modules/nuqs/dist/index.js",
   "/repo/node_modules/lucide-react/dist/lucide-react.js",
-  "/repo/node_modules/@tanstack/react-query/build/index.js"
+  "/repo/node_modules/@tanstack/react-query/build/index.js",
+  "/repo/node_modules/better-auth/dist/api/index.mjs",
+  "/repo/node_modules/better-auth/dist/db/index.mjs"
 ]
