@@ -960,7 +960,14 @@ export const workspaceMutationOptions = {
   }),
   reorder: (client: AgentHqApiClient, queryClient: QueryClient) => ({
     mutationFn: (workspaceIds: readonly string[]) => client.reorderWorkspaces(workspaceIds),
+    // A list or bootstrap fetch that began before the save carries the previous
+    // order; if it landed after the save it would put that order back.
+    onMutate: async () => {
+      await cancelWorkspaceMembershipQueries(queryClient)
+    },
     onSuccess: async (workspaces: Awaited<ReturnType<AgentHqApiClient['reorderWorkspaces']>>) => {
+      // A fetch started while the save was in flight may also predate it.
+      await cancelWorkspaceMembershipQueries(queryClient)
       queryClient.setQueryData(workspaceQueryKeys.list, workspaces)
       queryClient.setQueryData(
         workspaceQueryKeys.bootstrap,
@@ -976,7 +983,29 @@ export const workspaceMutationOptions = {
           }
       )
     },
+    // The server refuses an order that is not exactly the member's live set (409).
+    // Until the cached membership is refreshed, a retry would send the same stale
+    // ids and be refused again, so the refresh finishes before the failure is
+    // reported.
+    onError: async (error: unknown) => {
+      if ((error as { status?: unknown } | null)?.status !== 409) return
+      // A read that began during the failed save may carry the old membership, and
+      // fetchQuery would hand its promise back as the refresh. Drop it first.
+      await cancelWorkspaceMembershipQueries(queryClient)
+      // Fetched directly, so the cache refreshes whether or not a view is observing it.
+      await Promise.allSettled([
+        queryClient.fetchQuery({ ...workspaceQueryOptions.list(client), staleTime: 0 }),
+        queryClient.fetchQuery({ ...workspaceQueryOptions.bootstrap(client), staleTime: 0 }),
+      ])
+    },
   }),
+}
+
+function cancelWorkspaceMembershipQueries(queryClient: QueryClient) {
+  return Promise.all([
+    queryClient.cancelQueries({ queryKey: workspaceQueryKeys.list }),
+    queryClient.cancelQueries({ queryKey: workspaceQueryKeys.bootstrap }),
+  ])
 }
 
 export const workspaceDeleteMutationOptions = (

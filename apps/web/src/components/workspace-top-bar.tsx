@@ -26,6 +26,8 @@ export function WorkspaceTopBar(props: {
   activeWorkspaceId?: string
   onSwitchWorkspace(workspace: WorkspaceSummary): void
   onCreateWorkspace(): void
+  /** Saves the member's new order of all their workspaces; rejects when it could not be saved. */
+  onReorderWorkspaces(ids: readonly string[]): Promise<void>
   /** Opens Settings on the active workspace's section. */
   onManageWorkspace(): void
   /** The plain title, shown while the active surface supplies no breadcrumbs. */
@@ -196,6 +198,8 @@ export function WorkspaceTopBar(props: {
             workspaces={props.workspaces.map((workspace) => ({
               id: workspace.id,
               name: workspace.name,
+              // The server pins the personal root first, so it never offers to move it.
+              fixed: workspace.isPersonal,
               mark: (
                 <WorkspaceIdentityMark
                   accent={workspace.accent}
@@ -210,6 +214,7 @@ export function WorkspaceTopBar(props: {
               if (workspace) props.onSwitchWorkspace(workspace)
             }}
             onCreate={props.onCreateWorkspace}
+            onReorder={props.onReorderWorkspaces}
             onManage={props.onManageWorkspace}
             label="Workspaces"
           />

@@ -20,6 +20,7 @@ import {
   settledData,
   useAgentListQuery,
   useCreateWorkspaceMutation,
+  useReorderWorkspacesMutation,
   useUpdateWorkspaceMutation,
   useWorkspaceListQuery,
 } from '@adea-ai/data'
@@ -1067,6 +1068,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   const settingsOpen = () => globalPanel() === 'settings' || hashSettingsOpen()
   const [creatingWorkspace, setCreatingWorkspace] = createSignal(false)
   const createWorkspace = useCreateWorkspaceMutation(props.client)
+  const reorderWorkspaces = useReorderWorkspacesMutation(props.client)
   // Opens the workspace a restore created; retired whenever Settings closes.
   const restoredWorkspaceOpener = createRestoredWorkspaceOpener<WorkspaceSummary>({
     loaded: () => orderedWorkspaces(),
@@ -1409,6 +1411,9 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         activeWorkspaceId={props.activeWorkspace?.id}
         onSwitchWorkspace={(workspace) => void switchToWorkspace(workspace)}
         onCreateWorkspace={() => setCreatingWorkspace(true)}
+        onReorderWorkspaces={async (ids) => {
+          await reorderWorkspaces.mutateAsync(ids)
+        }}
         onManageWorkspace={() => openSettings('workspace-general')}
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
         breadcrumbs={topBarBreadcrumbs()}

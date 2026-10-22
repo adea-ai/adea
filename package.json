@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.99.0",
+  "version": "0.101.0",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -18,7 +18,7 @@
     "lint": "vp run orch:lint && oxlint --deny-warnings",
     "test": "bun run test:unit",
     "test:unit": "vp run orch:test && bun run test:coverage",
-    "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit packages/auth/tests/integration/adapter.test.ts packages/auth/tests/integration/neon-driver.test.ts apps/web/test/client-policy.test.ts packages/types/tests/workspace-primitives.test.ts apps/web/test/cloudflare-config.test.ts packages/types/tests/execution-location.test.ts packages/types/tests/migration-snapshot.test.ts packages/types/tests/artifact-reference.test.ts packages/types/tests/desktop-permissions.test.ts packages/types/tests/group-participation.test.ts packages/types/tests/management.test.ts scripts/*.test.ts --coverage",
+    "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit packages/auth/tests/integration/adapter.test.ts packages/auth/tests/integration/neon-driver.test.ts apps/web/test/client-policy.test.ts packages/types/tests/workspace-primitives.test.ts apps/web/test/cloudflare-config.test.ts packages/types/tests/execution-location.test.ts packages/types/tests/migration-snapshot.test.ts packages/types/tests/artifact-reference.test.ts packages/types/tests/desktop-permissions.test.ts packages/types/tests/group-participation.test.ts packages/types/tests/management.test.ts packages/types/tests/agent-profile-execution.test.ts scripts/*.test.ts --coverage",
     "test:bundle:dev-view": "bun run --cwd apps/web build && node scripts/check-dev-view-bundle.mjs",
     "test:integration": "bun scripts/test-integration.mjs",
     "test:integration:control-plane-child": "bun --conditions=react-server test apps/web/test/control-plane-child-joined/child-allocation.test.mjs apps/web/test/control-plane-child-joined/allowance-omitted.test.mjs",
@@ -52,7 +52,7 @@
     "test:browser:desktop-client": "bunx playwright install --with-deps chromium && bun apps/desktop/scripts/client.mjs && node scripts/check-desktop-client-browser.mjs"
   },
   "devDependencies": {
-    "@adea-ai/ui": "0.144.0",
+    "@adea-ai/ui": "0.146.0",
     "@babel/core": "^8.0.6",
     "@babel/preset-typescript": "^8.0.1",
     "@playwright/test": "^1.63.0",

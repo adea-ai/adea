@@ -12,6 +12,7 @@ import {
   createWorkspaceWithOwner,
   deleteWorkspace,
   ensureBootstrapWorkspaces,
+  getWorkspaceForUser,
 } from '../../src/workspaces'
 import { createAgent, ensureWorkspaceLead, getWorkspaceLeadForUser } from '../../src/agents'
 import {
@@ -129,6 +130,71 @@ describe.skipIf(!process.env.DATABASE_URL)('blank workspace isolation and protec
     await expect(archiveWorkspace(connection.db, home!.id, principal)).rejects.toThrow(
       'personal workspace cannot be deleted'
     )
+    expect(outbound).toBe(0)
+  })
+
+  test('a blank workspace inherits no lead, agent or context from Home, and archiving it leaves Home untouched', async () => {
+    const principal = await guest()
+    const [home] = await ensureBootstrapWorkspaces(connection.db, principal)
+    await ensureWorkspaceLead(connection.db, home!.id, principal)
+    await createAgent(connection.db, home!.id, principal, {
+      name: 'Home only',
+      profileId: 'profile-home',
+      profileVersion: '1',
+    })
+
+    const { workspace: blank } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `blank-${crypto.randomUUID()}`,
+      name: 'Blank',
+      owner: principal,
+      scene: 'work',
+    })
+    // The blank workspace starts empty: no lead, no agent, no channel, no task
+    // and no runtime node, and nothing it could have inherited from Home.
+    expect(await getWorkspaceLeadForUser(connection.db, blank.id, principal)).toBeNull()
+    await assertBlank(blank.id)
+
+    // Its own lead is provisioned for that workspace alone.
+    const blankLead = await ensureWorkspaceLead(connection.db, blank.id, principal)
+    expect(blankLead.id).not.toBe(
+      (await getWorkspaceLeadForUser(connection.db, home!.id, principal))?.id
+    )
+    expect(await getWorkspaceLeadForUser(connection.db, home!.id, principal)).not.toBeNull()
+    expect(outbound).toBe(0)
+
+    // Archiving the blank workspace preserves its history and its links, and
+    // never touches Home.
+    await archiveWorkspace(connection.db, blank.id, principal)
+    expect(await getWorkspaceForUser(connection.db, blank.id, principal)).toBeNull()
+    expect(await getWorkspaceForUser(connection.db, home!.id, principal)).not.toBeNull()
+    expect(await getWorkspaceLeadForUser(connection.db, home!.id, principal)).not.toBeNull()
+    expect(
+      await connection.db.select().from(agents).where(eq(agents.workspaceId, blank.id))
+    ).toHaveLength(1)
+    expect(
+      await connection.db
+        .select()
+        .from(workspaceMemberships)
+        .where(eq(workspaceMemberships.workspaceId, blank.id))
+    ).toHaveLength(1)
+    expect(outbound).toBe(0)
+  })
+
+  test('a replayed bootstrap after a blank workspace exists still returns one Home and no inherited content', async () => {
+    const principal = await guest()
+    const [home] = await ensureBootstrapWorkspaces(connection.db, principal)
+    const { workspace: blank } = await createWorkspaceWithOwner(connection.db, {
+      idempotencyKey: `blank-${crypto.randomUUID()}`,
+      name: 'Blank',
+      owner: principal,
+      scene: 'work',
+    })
+    const replay = await ensureBootstrapWorkspaces(connection.db, principal)
+    expect(replay.map((workspace) => workspace.id)).toEqual([home!.id, blank.id])
+    expect(replay.filter((workspace) => workspace.isPersonal)).toHaveLength(1)
+    // The blank workspace stays blank across the replay.
+    expect(await getWorkspaceLeadForUser(connection.db, blank.id, principal)).toBeNull()
+    await assertBlank(blank.id)
     expect(outbound).toBe(0)
   })
 })
