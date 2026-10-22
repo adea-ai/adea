@@ -470,6 +470,42 @@ describe('attachment transaction and recovery hardening', () => {
       )
     }))
 
+  test('quota checks authenticate stored row metadata before trusting byte counts', () =>
+    fixture((ctx) => {
+      ctx.store.upload(binding, upload('original'), 'tampered-metadata')
+      const db = new Database(ctx.dbPath())
+      db.query("UPDATE attachments SET state='removed'").run()
+      db.close(true)
+
+      code(() => ctx.make().upload(binding, upload('another'), 'after-tamper'), 'corrupt_state')
+      expect(ctx.events.events()).toHaveLength(1)
+    }))
+
+  test('quota checks refuse deleted rows while authenticated attachment events remain', () =>
+    fixture((ctx) => {
+      const attachment = ctx.store.upload(binding, upload('original'), 'deleted-row')
+      const db = new Database(ctx.dbPath())
+      db.query('DELETE FROM attachments WHERE id=?').run(attachment.attachmentId)
+      db.close(true)
+
+      code(() => ctx.make().upload(binding, upload('another'), 'after-delete'), 'corrupt_state')
+      expect(ctx.events.events()).toHaveLength(1)
+    }))
+
+  test('quota checks refuse a row whose stored byte length no longer matches its sealed record', () =>
+    fixture((ctx) => {
+      ctx.store.upload(binding, upload('original'), 'tampered-length')
+      const db = new Database(ctx.dbPath())
+      db.query('UPDATE attachments SET byte_length=0').run()
+      db.close(true)
+
+      code(
+        () => ctx.make().upload(binding, upload('another'), 'after-tamper-length'),
+        'corrupt_state'
+      )
+      expect(ctx.events.events()).toHaveLength(1)
+    }))
+
   test('workspace purge refuses additional account/node authority for the same workspace', () =>
     fixture((ctx) => {
       ctx.store.upload(binding, upload(), 'upload-1')

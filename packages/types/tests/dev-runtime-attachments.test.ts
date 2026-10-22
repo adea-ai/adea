@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { createHash } from 'node:crypto'
 import { devOperationDefinitions } from '../src/dev-runtime'
 
 describe('chat attachment contract (#1392)', () => {
@@ -36,7 +37,7 @@ const descriptor = {
   name: 'notes.txt',
   mediaType: 'text/plain',
   byteLength: 5,
-  digestSha256: 'a'.repeat(64),
+  digestSha256: '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824',
   state: 'available',
   createdAt: '2026-10-15T00:00:00.000Z',
 }
@@ -126,9 +127,35 @@ describe('bounded attachment DTOs', () => {
     expect(() =>
       decodeChatAttachmentOpenResult({ ...opened, contentBase64: btoa('longer') })
     ).toThrow('byte count')
+    expect(() =>
+      decodeChatAttachmentOpenResult({
+        ...opened,
+        attachment: { ...descriptor, digestSha256: 'a'.repeat(64) },
+      })
+    ).toThrow('digest')
     expect(() => decodeChatAttachmentOpenResult({ ...opened, disposition: 'execute' })).toThrow(
       'inert_text'
     )
+  })
+
+  test('verifies open-reply digests across the maximum supported byte length', () => {
+    const bytes = Buffer.alloc(chatAttachmentLimits.maxBytes, 0x61)
+    const opened = {
+      attachment: {
+        ...descriptor,
+        byteLength: bytes.byteLength,
+        digestSha256: createHash('sha256').update(bytes).digest('hex'),
+      },
+      contentBase64: bytes.toString('base64'),
+      disposition: 'inert_text',
+    }
+    expect(decodeChatAttachmentOpenResult(opened)).toEqual(opened)
+    expect(() =>
+      decodeChatAttachmentOpenResult({
+        ...opened,
+        contentBase64: Buffer.from('a'.repeat(bytes.byteLength - 1) + 'b').toString('base64'),
+      })
+    ).toThrow('digest')
   })
 
   test('transcript facts require authoritative host provenance and contain only bounded references', () => {
