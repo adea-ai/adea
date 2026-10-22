@@ -226,39 +226,82 @@ export const FRESHNESS_QUALIFICATION = {
   rule: 'authority-reads-not-cache-disabled',
 } as const
 
+/** What a scan actually covered. */
+export type SourceScanCoverage = {
+  roots: string[]
+  extensions: string[]
+  skippedDirectories: string[]
+  skippedHiddenEntries: boolean
+  readsWorkingTree: boolean
+  testFilesInDependencyInventory: boolean
+  testFilesInMarkerScan: boolean
+  narrowed: boolean
+}
+
+function sameList(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index])
+}
+
 /**
- * The source scope the scan covers, stated rather than implied.
+ * The source scope a scan actually covered.
  *
- * The scan reads the working tree of every root; it does not consult git, so a
- * generated declaration that names the provider is listed as well. Test files
- * are part of the dependency inventory and are excluded from the marker scan.
+ * The coverage is **derived from the scan that ran**, not from the approved
+ * scope: a scan that was narrowed to one root reports that root, so a coverage
+ * record can never describe a wider scope than the scan that produced it. The
+ * skipping is part of the coverage too - the named directories and the hidden
+ * entries are not read - so a reader knows what the scan did not see.
  */
-export const SOURCE_SCAN_COVERAGE = {
-  roots: SOURCE_SCAN_ROOTS,
-  extensions: SOURCE_SCAN_EXTENSIONS,
-  skippedDirectories: SOURCE_SCAN_SKIPPED_DIRECTORIES,
-  readsWorkingTree: true,
-  testFilesInDependencyInventory: true,
-  testFilesInMarkerScan: false,
-} as const
+export function sourceScanCoverage(options: SourceScanOptions = {}): SourceScanCoverage {
+  const roots = [...(options.roots ?? SOURCE_SCAN_ROOTS)]
+  const extensions = [...(options.extensions ?? SOURCE_SCAN_EXTENSIONS)]
+  return {
+    roots,
+    extensions,
+    skippedDirectories: [...SOURCE_SCAN_SKIPPED_DIRECTORIES],
+    // A hidden entry, and everything under it, is never read.
+    skippedHiddenEntries: true,
+    // The scan reads the working tree and does not consult git, so a generated
+    // declaration that names the provider is listed as well.
+    readsWorkingTree: true,
+    testFilesInDependencyInventory: true,
+    testFilesInMarkerScan: false,
+    narrowed: !sameList(roots, SOURCE_SCAN_ROOTS) || !sameList(extensions, SOURCE_SCAN_EXTENSIONS),
+  }
+}
+
+/** Thrown when an acceptance record would be built from a narrowed scan. */
+export class SourceScanScopeError extends Error {
+  constructor(readonly coverage: SourceScanCoverage) {
+    super(
+      `the acceptance record requires the approved source scope (roots: ${SOURCE_SCAN_ROOTS.join(', ')}; extensions: ${SOURCE_SCAN_EXTENSIONS.join(', ')}), but this scan covered roots: ${coverage.roots.join(', ')}; extensions: ${coverage.extensions.join(', ')}`
+    )
+    this.name = 'SourceScanScopeError'
+  }
+}
 
 /** The inventory record, assembled from the repository's own sources. */
 export function railwayMigrationAcceptanceInventory(options: SourceScanOptions = {}): {
   neonProviderDependencies: string[]
   forbiddenMigrationMarkers: string[]
-  scanCoverage: typeof SOURCE_SCAN_COVERAGE
+  scanCoverage: SourceScanCoverage
   scanIncomplete: string[]
   freshnessQualification: typeof FRESHNESS_QUALIFICATION
   childScopes: typeof CHILD_SCOPES
   relatedPullRequests: typeof RELATED_PULL_REQUESTS
   gatedAcceptance: typeof GATED_ACCEPTANCE
 } {
+  const coverage = sourceScanCoverage(options)
+  // An acceptance record describes the approved scope. A narrowed scan may be
+  // run and reported on its own, but it may not be recorded as the acceptance
+  // record: a record that claimed the approved scope over a narrower scan
+  // would report coverage the scan never had.
+  if (coverage.narrowed) throw new SourceScanScopeError(coverage)
   const dependencies = inventoryNeonProviderDependencies(options)
   const markers = scanForbiddenMigrationMarkers(options)
   return {
     neonProviderDependencies: dependencies.hits,
     forbiddenMigrationMarkers: markers.hits,
-    scanCoverage: SOURCE_SCAN_COVERAGE,
+    scanCoverage: coverage,
     // Every path the scan could not read. A non-empty list means the scan did
     // not see the whole approved scope, so the record is incomplete and the
     // qualification fails closed on it.

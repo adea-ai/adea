@@ -54,16 +54,26 @@ bun test scripts/railway-migration-acceptance-inventory.test.ts
 ## The source scope the scan covers, and what an unreadable path means
 
 The scan's coverage is **explicit**, not implied, and the record carries it in
-`scanCoverage`:
+`scanCoverage`. The coverage is **derived from the scan that ran**: it reports
+the roots and extensions that scan actually covered, so a record can never
+describe a wider scope than the scan behind it.
 
-| Field                            | Value                  | Why                                                                                                                                                                                                                                                 |
-| -------------------------------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `roots`                          | `apps`, `packages`     | the web and desktop application sources **and** the workspace packages. An apps-only scan could not see `packages/auth/src/config.ts` (the `NEON_AUTH` variables) or `packages/auth/src/neon-driver.ts`, so it under-reported the provider surface. |
-| `extensions`                     | `.ts`, `.tsx`          | the source files the scan reads.                                                                                                                                                                                                                    |
-| `skippedDirectories`             | `node_modules`, `dist` | build output and installed dependencies are not source.                                                                                                                                                                                             |
-| `readsWorkingTree`               | `true`                 | the scan reads the working tree and does not consult git, so a generated declaration that names the provider is listed too.                                                                                                                         |
-| `testFilesInDependencyInventory` | `true`                 | a test that names the provider is still a path that names it.                                                                                                                                                                                       |
-| `testFilesInMarkerScan`          | `false`                | a test may legitimately name a forbidden marker to assert its absence.                                                                                                                                                                              |
+| Field                            | Value                          | Why                                                                                                                                                                                                                                                 |
+| -------------------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `roots`                          | `apps`, `packages`             | the web and desktop application sources **and** the workspace packages. An apps-only scan could not see `packages/auth/src/config.ts` (the `NEON_AUTH` variables) or `packages/auth/src/neon-driver.ts`, so it under-reported the provider surface. |
+| `extensions`                     | `.ts`, `.tsx`                  | the source files the scan reads.                                                                                                                                                                                                                    |
+| `skippedDirectories`             | `node_modules`, `dist`         | build output and installed dependencies are not source.                                                                                                                                                                                             |
+| `skippedHiddenEntries`           | `true`                         | a hidden entry, and everything under it, is never read.                                                                                                                                                                                             |
+| `readsWorkingTree`               | `true`                         | the scan reads the working tree and does not consult git, so a generated declaration that names the provider is listed too.                                                                                                                         |
+| `testFilesInDependencyInventory` | `true`                         | a test that names the provider is still a path that names it.                                                                                                                                                                                       |
+| `testFilesInMarkerScan`          | `false`                        | a test may legitimately name a forbidden marker to assert its absence.                                                                                                                                                                              |
+| `narrowed`                       | `false` for the approved scope | whether the scan covered less than the approved scope.                                                                                                                                                                                              |
+
+A **narrowed** scan may be run, and it reports the scope it actually covered.
+It may **not** produce the acceptance record: `railwayMigrationAcceptanceInventory`
+raises `SourceScanScopeError` when the requested roots or extensions differ from
+the approved scope, because a record that claimed the approved scope over a
+narrower scan would report coverage the scan never had.
 
 A root or subtree that **cannot be read is reported, never treated as an empty
 tree**. The record's `scanIncomplete` names every path the scan could not read,
@@ -73,16 +83,19 @@ claim the file is clean. The record is complete only when `scanIncomplete` is
 empty.
 
 The scan's file system and root are injectable, so the regressions can drive
-input that cannot be read:
+input that cannot be read, and the temporary fixtures they create are removed
+in a `finally` block:
 
-| Regression                                                                          | What it proves                                                                           |
-| ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| the approved source scope covers the auth package provider configuration and driver | the inventory names `packages/auth/src/config.ts` and `packages/auth/src/neon-driver.ts` |
-| the scan coverage is explicit                                                       | the record's `scanCoverage` matches the exported coverage                                |
-| a missing root is reported as incomplete, not as an empty scan                      | a root that does not exist is named in `scanIncomplete`                                  |
-| an unreadable subtree is reported, not read as clean                                | a reader that refuses one subtree names it, while the readable files are still scanned   |
-| a temporary source root is scanned for both the provider and the markers            | the scan really reads a temporary tree, for both scanners                                |
-| the inventory record is complete                                                    | the real scan of this repository leaves `scanIncomplete` empty                           |
+| Regression                                                                          | What it proves                                                                                                                                                           |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| the approved source scope covers the auth package provider configuration and driver | the inventory names `packages/auth/src/config.ts` and `packages/auth/src/neon-driver.ts`                                                                                 |
+| the scan coverage is explicit                                                       | the record's `scanCoverage` matches the exported coverage                                                                                                                |
+| a missing root is reported as incomplete, not as an empty scan                      | a root that does not exist is named in `scanIncomplete`                                                                                                                  |
+| an unreadable subtree is reported, not read as clean                                | a reader that refuses one subtree names it, while the readable files are still scanned                                                                                   |
+| a temporary source root is scanned for both the provider and the markers            | the scan really reads a temporary tree, for both scanners                                                                                                                |
+| the inventory record is complete                                                    | the real scan of this repository leaves `scanIncomplete` empty                                                                                                           |
+| a narrowed scan succeeds and reports the scope it actually covered                  | a narrowed scan runs, finds what is there, and reports the narrowed roots and `narrowed: true`                                                                           |
+| a narrowed scan cannot produce the acceptance record                                | `railwayMigrationAcceptanceInventory` raises `SourceScanScopeError` for narrowed roots and for narrowed extensions, and still produces the record for the approved scope |
 
 ## What this change is
 
@@ -91,8 +104,27 @@ The pull request is **three files**, not an increment over one of them:
 | File                                                     | What it carries                                                                                                                                                                                                |
 | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `scripts/railway-migration-acceptance-inventory.ts`      | the inventory module: the child scopes, the related pull requests, the gated acceptance, the freshness dependency declaration, and the source scan with its explicit coverage and its incompleteness reporting |
-| `scripts/railway-migration-acceptance-inventory.test.ts` | the offline suite for the module, including the coverage, missing-root, unreadable-subtree and temporary-source-root regressions                                                                               |
+| `scripts/railway-migration-acceptance-inventory.test.ts` | the offline suite for the module, including the coverage, missing-root, unreadable-subtree, temporary-source-root and narrowed-scope regressions                                                               |
 | `docs/railway-migration-acceptance-inventory.md`         | this document: the ownership map, the scope, the coverage and the gates                                                                                                                                        |
+
+## What this inventory does not cover
+
+The scan is deliberately narrow, and the record says so. It reads **TypeScript
+and TSX source under `apps/` and `packages/` only**. It does **not** read:
+
+- **workflow files** — `.github/` is a hidden directory and is never read, so no
+  workflow's provider dependency is inventoried;
+- **repository scripts** — `scripts/` is not one of the scanned roots;
+- **configuration** — no `.json`, `.yml`, `.toml` or other configuration file is
+  read, so a provider named only in configuration is not inventoried.
+
+The provider-dependency list is therefore **explicitly partial** with respect
+to #1564's broader acceptance. It names the source paths that still name the
+provider or its authentication; it does **not** claim that the workflow, script
+or configuration dependency is removed, and it is not evidence that the
+migration is free of them. Those surfaces belong to their own owners and to
+the wider acceptance of #1564, which this parent coordinates rather than
+closes.
 
 ## The acceptance that stays gated
 

@@ -1,6 +1,6 @@
 /** Offline checks for the Railway migration acceptance inventory (issue #1564). */
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -10,12 +10,14 @@ import {
   GATED_ACCEPTANCE,
   RELATED_PULL_REQUESTS,
   FRESHNESS_QUALIFICATION,
-  SOURCE_SCAN_COVERAGE,
+  SOURCE_SCAN_EXTENSIONS,
   SOURCE_SCAN_ROOTS,
+  SourceScanScopeError,
   inventoryNeonProviderDependencies,
   railwayMigrationAcceptanceInventory,
   scanForbiddenMigrationMarkers,
   scanSourceTree,
+  sourceScanCoverage,
   type SourceScanReader,
 } from './railway-migration-acceptance-inventory.ts'
 
@@ -29,9 +31,7 @@ function readerRefusing(paths: readonly string[]): SourceScanReader {
         isDirectory: entry.isDirectory(),
       }))
     },
-    readFile: (path) => {
-      return readFileSync(path, 'utf8')
-    },
+    readFile: (path) => readFileSync(path, 'utf8'),
   }
 }
 
@@ -53,13 +53,59 @@ describe('the Railway migration acceptance inventory', () => {
     expect(dependencies.hits).toContain('packages/auth/src/neon-driver.ts')
   })
 
-  test('the scan coverage is explicit', () => {
-    expect([...SOURCE_SCAN_ROOTS]).toEqual(['apps', 'packages'])
+  test('the scan coverage is explicit, and names what it skipped', () => {
+    const coverage = sourceScanCoverage()
+    expect(coverage.roots).toEqual([...SOURCE_SCAN_ROOTS])
+    expect(coverage.extensions).toEqual([...SOURCE_SCAN_EXTENSIONS])
+    expect(coverage.skippedDirectories).toContain('node_modules')
+    expect(coverage.skippedDirectories).toContain('dist')
+    // A hidden entry, and everything under it, is never read.
+    expect(coverage.skippedHiddenEntries).toBe(true)
+    expect(coverage.readsWorkingTree).toBe(true)
+    expect(coverage.testFilesInDependencyInventory).toBe(true)
+    expect(coverage.testFilesInMarkerScan).toBe(false)
+    expect(coverage.narrowed).toBe(false)
     const record = railwayMigrationAcceptanceInventory()
-    expect(record.scanCoverage.roots).toEqual(SOURCE_SCAN_COVERAGE.roots)
-    expect(record.scanCoverage.extensions).toEqual(SOURCE_SCAN_COVERAGE.extensions)
-    expect(record.scanCoverage.readsWorkingTree).toBe(true)
-    expect(record.scanCoverage.testFilesInMarkerScan).toBe(false)
+    expect(record.scanCoverage).toEqual(coverage)
+  })
+
+  test('a narrowed scan succeeds and reports the scope it actually covered', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-inventory-narrowed-'))
+    try {
+      mkdirSync(join(root, 'packages', 'auth', 'src'), { recursive: true })
+      writeFileSync(
+        join(root, 'packages', 'auth', 'src', 'config.ts'),
+        'export const provider = process.env.NEON_AUTH_TOKEN\n'
+      )
+      // The narrowed scan itself succeeds.
+      const dependencies = inventoryNeonProviderDependencies({ root, roots: ['packages'] })
+      expect(dependencies.hits).toEqual([join('packages', 'auth', 'src', 'config.ts')])
+      expect(dependencies.unreadable).toEqual([])
+      // And the coverage it reports is the narrowed one, not the approved one.
+      const coverage = sourceScanCoverage({ root, roots: ['packages'] })
+      expect(coverage.roots).toEqual(['packages'])
+      expect(coverage.narrowed).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a narrowed scan cannot produce the acceptance record', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-inventory-scope-guard-'))
+    try {
+      // A record that claimed the approved scope over a narrower scan would
+      // report coverage the scan never had, so it is refused.
+      expect(() => railwayMigrationAcceptanceInventory({ root, roots: ['packages'] })).toThrow(
+        SourceScanScopeError
+      )
+      expect(() => railwayMigrationAcceptanceInventory({ root, extensions: ['.ts'] })).toThrow(
+        SourceScanScopeError
+      )
+      // The approved scope still produces the record.
+      expect(railwayMigrationAcceptanceInventory({ root }).scanCoverage.narrowed).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test('no legacy import, dual write or old-data reconciliation is present', () => {
@@ -71,48 +117,59 @@ describe('the Railway migration acceptance inventory', () => {
 
   test('a missing root is reported as incomplete, not as an empty scan', () => {
     const root = mkdtempSync(join(tmpdir(), 'adea-inventory-missing-'))
-    const scan = scanSourceTree({ root, roots: ['not-there'] })
-    expect(scan.files).toEqual([])
-    // The unreadable root is named, so the scan cannot be read as "nothing here".
-    expect(scan.unreadable).toEqual(['not-there'])
-    const record = railwayMigrationAcceptanceInventory({ root, roots: ['not-there'] })
-    expect(record.scanIncomplete.length).toBeGreaterThan(0)
-    expect(record.scanIncomplete).toContain('not-there')
+    try {
+      const scan = scanSourceTree({ root, roots: ['not-there'] })
+      expect(scan.files).toEqual([])
+      // The unreadable root is named, so the scan cannot be read as "nothing here".
+      expect(scan.unreadable).toEqual(['not-there'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test('an unreadable subtree is reported, not read as clean', () => {
     const root = mkdtempSync(join(tmpdir(), 'adea-inventory-unreadable-'))
-    mkdirSync(join(root, 'apps'), { recursive: true })
-    mkdirSync(join(root, 'apps', 'locked'), { recursive: true })
-    writeFileSync(join(root, 'apps', 'readable.ts'), 'export const value = 1\n')
-    writeFileSync(join(root, 'apps', 'locked', 'hidden.ts'), 'export const hidden = 1\n')
-    const reader = readerRefusing([join(root, 'apps', 'locked')])
-    const scan = scanSourceTree({ root, reader, roots: ['apps'] })
-    expect(scan.files.length).toBe(1)
-    expect(scan.unreadable).toEqual([join('apps', 'locked')])
-    const record = railwayMigrationAcceptanceInventory({ root, reader, roots: ['apps'] })
-    expect(record.scanIncomplete.length).toBeGreaterThan(0)
+    try {
+      mkdirSync(join(root, 'apps'), { recursive: true })
+      mkdirSync(join(root, 'apps', 'locked'), { recursive: true })
+      writeFileSync(join(root, 'apps', 'readable.ts'), 'export const value = 1\n')
+      writeFileSync(join(root, 'apps', 'locked', 'hidden.ts'), 'export const hidden = 1\n')
+      const reader = readerRefusing([join(root, 'apps', 'locked')])
+      const scan = scanSourceTree({ root, reader, roots: ['apps'] })
+      expect(scan.files.length).toBe(1)
+      expect(scan.unreadable).toEqual([join('apps', 'locked')])
+      const dependencies = inventoryNeonProviderDependencies({ root, reader, roots: ['apps'] })
+      expect(dependencies.unreadable.length).toBeGreaterThan(0)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test('a temporary source root is scanned for both the provider and the markers', () => {
     const root = mkdtempSync(join(tmpdir(), 'adea-inventory-temporary-'))
-    mkdirSync(join(root, 'packages', 'auth', 'src'), { recursive: true })
-    writeFileSync(
-      join(root, 'packages', 'auth', 'src', 'config.ts'),
-      'export const provider = process.env.NEON_AUTH_TOKEN\n'
-    )
-    writeFileSync(
-      join(root, 'packages', 'auth', 'src', 'migration.ts'),
-      'export const write = { dualWrite: true }\n'
-    )
-    // The temporary root holds the packages part of the scope only, so the
-    // scan is rooted at that part; a root that is not there would be reported.
-    const dependencies = inventoryNeonProviderDependencies({ root, roots: ['packages'] })
-    expect(dependencies.hits).toEqual([join('packages', 'auth', 'src', 'config.ts')])
-    expect(dependencies.unreadable).toEqual([])
-    const markers = scanForbiddenMigrationMarkers({ root, roots: ['packages'] })
-    expect(markers.hits).toEqual([`${join('packages', 'auth', 'src', 'migration.ts')}: dualWrite`])
-    expect(markers.unreadable).toEqual([])
+    try {
+      mkdirSync(join(root, 'packages', 'auth', 'src'), { recursive: true })
+      writeFileSync(
+        join(root, 'packages', 'auth', 'src', 'config.ts'),
+        'export const provider = process.env.NEON_AUTH_TOKEN\n'
+      )
+      writeFileSync(
+        join(root, 'packages', 'auth', 'src', 'migration.ts'),
+        'export const write = { dualWrite: true }\n'
+      )
+      // The temporary root holds the packages part of the scope only, so the
+      // scan is rooted at that part; a root that is not there would be reported.
+      const dependencies = inventoryNeonProviderDependencies({ root, roots: ['packages'] })
+      expect(dependencies.hits).toEqual([join('packages', 'auth', 'src', 'config.ts')])
+      expect(dependencies.unreadable).toEqual([])
+      const markers = scanForbiddenMigrationMarkers({ root, roots: ['packages'] })
+      expect(markers.hits).toEqual([
+        `${join('packages', 'auth', 'src', 'migration.ts')}: dualWrite`,
+      ])
+      expect(markers.unreadable).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test('the freshness qualification this parent depends on is recorded, not re-verified', () => {
