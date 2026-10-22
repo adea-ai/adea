@@ -116,6 +116,16 @@ the documented shape, and the boundary above is what stops an unnormalized provi
 being read as one. Validating the adapter against an authoritative provider schema is a separate
 piece of work that would need a recorded provider capture; this document does not claim it.
 
+The adapter side of that boundary is a contract of its own:
+[`railway-production-source-contract.md`](railway-production-source-contract.md) names the
+public, non-secret schema provenance the adapter normalizes against, the two read shapes, and
+the mapping from the provider's field names to the ones the plan reads, and it is proven
+against the planner itself by `scripts/railway-production-source-contract.test.ts`. That
+provenance is a citation of the published schema, **not** a captured provider payload: the
+contract records `capturedProviderOutput: false` and `identityEvidence: none`, so nothing in
+it may be read as live provider acceptance, and the identity values in its fixtures are
+placeholders.
+
 The reads are JSON, and the plan refuses a read it cannot parse rather than plan on a payload
 it did not understand. A status read answers with the candidate targets and the deployment
 metadata; a deployments read answers with the deployment history, newest first. The identity

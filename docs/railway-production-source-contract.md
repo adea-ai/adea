@@ -69,6 +69,32 @@ project, service and environment cases, the malformed and empty payloads, the
 unconfigured identity, the provenance, and the absence of secret-shaped values
 in the contract and the fixtures.
 
+## The normalization boundary, and how it is proven
+
+The contract normalizes the provider's payload into the shapes the planner reads.
+The mapping is explicit:
+
+| The provider names it | The planner reads it | In                                     |
+| --------------------- | -------------------- | -------------------------------------- |
+| `deploymentId`        | `id`                 | a deployment in the `deployments` read |
+| `projectId`           | `project`            | a deployment and a target              |
+| `serviceId`           | `service`            | a deployment and a target              |
+| `environmentId`       | `environment`        | a deployment and a target              |
+
+The two read shapes are `status` (`targets` and `deployment`) and `deployments`
+(`deployments`); `PLAN_READ_SHAPES` names the container each one carries. A
+normalizer that produces these shapes is read by the planner; the planner's own
+shape check refuses a payload that is not one of them with
+`RAILWAY_PRODUCTION_READ_UNNORMALIZED`, and its content rules refuse a
+deployment that names another project, another service or another environment.
+
+The boundary is **proven, not asserted**: `scripts/railway-production-source-contract.test.ts`
+runs the planner over the contract's own output and shows that the plan binds
+cleanly, that the provider's field names are refused on the content (the
+deployments name no identity the plan can bind), that a payload that is not the
+normalized shape is refused as unnormalized, and that a deployment of another
+project, service or environment is refused against the target.
+
 ## Reproducing
 
 ```sh
