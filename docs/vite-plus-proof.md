@@ -36,6 +36,12 @@ from the first `bun` on `PATH`; the id in the run summary is the one the tasks u
 
 ## CI
 
+The required Build script now exposes its CI `vp run` invocation to Code Foundry's setup matcher, while local builds
+keep the shared-cache wrapper. The qualification workflow also publishes its verified outputs under validation's
+restore namespace and exact archive path list on successful default-branch pushes. See the
+[2026-10-22 investigation](evidence/ci-cache-reuse-2026-10-22.md) for the two demonstrated persistence gaps, local
+fresh-output replay, failed broad checks, hosted-proof limitations and generator follow-up.
+
 `.github/workflows/vite-plus-proof.yml` runs on pushes to its own branch and by dispatch. It checks out Code Foundry
 v1.48.1 at release commit
 [`e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d`](https://github.com/0xPlayerOne/code-foundry/releases/tag/v1.48.1),
