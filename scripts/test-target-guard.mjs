@@ -19,6 +19,7 @@
 
 /** Variables that carry a Postgres connection string into test lanes. */
 export const DATABASE_TARGET_VARIABLES = [
+  'AUTH_DATABASE_URL',
   'DATABASE_URL',
   'DATABASE_URL_UNPOOLED',
   'DATABASE_MIGRATION_URL',
