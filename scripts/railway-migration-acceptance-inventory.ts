@@ -17,6 +17,56 @@ import { join, relative } from 'node:path'
 
 export const REPOSITORY_ROOT = join(import.meta.dirname, '..')
 
+/**
+ * The source roots the approved scope covers.
+ *
+ * The scan reads the whole tree of every root, so the coverage is explicit
+ * rather than implied: the web and desktop application sources, and the
+ * workspace packages, including the auth package whose configuration and
+ * Neon driver still name the provider.
+ */
+export const SOURCE_SCAN_ROOTS = ['apps', 'packages'] as const
+
+/** The source file extensions the scan reads. */
+export const SOURCE_SCAN_EXTENSIONS = ['.ts', '.tsx'] as const
+
+/** The directory names the scan never descends into. */
+export const SOURCE_SCAN_SKIPPED_DIRECTORIES: readonly string[] = ['node_modules', 'dist']
+
+/** A directory entry, as the scan sees it. */
+export type SourceScanEntry = { name: string; isDirectory: boolean }
+
+/** The file system the scan reads. It is injected so a regression can drive unreadable input. */
+export type SourceScanReader = {
+  readDirectory: (path: string) => SourceScanEntry[]
+  readFile: (path: string) => string
+}
+
+/** How a scan is rooted and what it reads. */
+export type SourceScanOptions = {
+  root?: string
+  reader?: SourceScanReader
+  roots?: readonly string[]
+  extensions?: readonly string[]
+}
+
+/** What a scan found, and what it could not read. */
+export type SourceScan = { files: string[]; unreadable: string[] }
+
+/** What a scanner reports: its hits, and every path it could not read. */
+export type SourceScanResult = { hits: string[]; unreadable: string[] }
+
+function defaultSourceReader(): SourceScanReader {
+  return {
+    readDirectory: (path) =>
+      readdirSync(path, { withFileTypes: true }).map((entry) => ({
+        name: entry.name,
+        isDirectory: entry.isDirectory(),
+      })),
+    readFile: (path) => readFileSync(path, 'utf8'),
+  }
+}
+
 /** The child scopes whose acceptance this parent coordinates. */
 export const CHILD_SCOPES = [
   {
@@ -76,50 +126,89 @@ export const FORBIDDEN_MIGRATION_MARKERS = [
   'oldDataReconciliation',
 ] as const
 
-function walk(directory: string, extensions: readonly string[]): string[] {
-  const found: string[] = []
+/**
+ * The source files of the approved scope, and every path that could not be read.
+ *
+ * A root or subtree that cannot be read is **reported**, never treated as an
+ * empty tree: an unreadable subtree would otherwise read as "nothing found
+ * here", and a scan that could not see a file must not claim the file is
+ * clean.
+ */
+export function scanSourceTree(options: SourceScanOptions = {}): SourceScan {
+  const root = options.root ?? REPOSITORY_ROOT
+  const reader = options.reader ?? defaultSourceReader()
+  const roots = options.roots ?? SOURCE_SCAN_ROOTS
+  const extensions = options.extensions ?? SOURCE_SCAN_EXTENSIONS
+  const files: string[] = []
+  const unreadable: string[] = []
   const visit = (current: string) => {
-    let entries
+    let entries: SourceScanEntry[]
     try {
-      entries = readdirSync(current, { withFileTypes: true })
+      entries = reader.readDirectory(current)
     } catch {
+      unreadable.push(relative(root, current))
       return
     }
     for (const entry of entries) {
-      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.'))
+      if (SOURCE_SCAN_SKIPPED_DIRECTORIES.includes(entry.name) || entry.name.startsWith('.'))
         continue
       const path = join(current, entry.name)
-      if (entry.isDirectory()) visit(path)
-      else if (extensions.some((extension) => entry.name.endsWith(extension))) found.push(path)
+      if (entry.isDirectory) visit(path)
+      else if (extensions.some((extension) => entry.name.endsWith(extension))) files.push(path)
     }
   }
-  visit(join(REPOSITORY_ROOT, directory))
-  return found
+  for (const directory of roots) visit(join(root, directory))
+  return { files: files.toSorted(), unreadable: unreadable.toSorted() }
+}
+
+function readScannedFile(
+  file: string,
+  reader: SourceScanReader,
+  unreadable: string[]
+): string | undefined {
+  try {
+    return reader.readFile(file)
+  } catch {
+    unreadable.push(file)
+    return undefined
+  }
 }
 
 /** The source paths that still name the Neon provider or its authentication. */
-export function inventoryNeonProviderDependencies(): string[] {
+export function inventoryNeonProviderDependencies(
+  options: SourceScanOptions = {}
+): SourceScanResult {
+  const root = options.root ?? REPOSITORY_ROOT
+  const reader = options.reader ?? defaultSourceReader()
+  const scan = scanSourceTree({ ...options, reader })
+  const unreadable = [...scan.unreadable]
   const hits: string[] = []
-  for (const file of walk('apps', ['.ts', '.tsx'])) {
-    const source = readFileSync(file, 'utf8')
-    if (/NEON_|neon\.|neonAuth|NeonAuth/i.test(source)) hits.push(relative(REPOSITORY_ROOT, file))
+  for (const file of scan.files) {
+    const source = readScannedFile(file, reader, unreadable)
+    if (source === undefined) continue
+    if (/NEON_|neon\.|neonAuth|NeonAuth/i.test(source)) hits.push(relative(root, file))
   }
-  return hits.toSorted()
+  return { hits: hits.toSorted(), unreadable: unreadable.toSorted() }
 }
 
 /** The forbidden legacy-import, dual-write and reconciliation markers found. */
-export function scanForbiddenMigrationMarkers(): string[] {
+export function scanForbiddenMigrationMarkers(options: SourceScanOptions = {}): SourceScanResult {
+  const root = options.root ?? REPOSITORY_ROOT
+  const reader = options.reader ?? defaultSourceReader()
+  const scan = scanSourceTree({ ...options, reader })
+  const unreadable = [...scan.unreadable]
   const hits: string[] = []
-  for (const file of walk('apps', ['.ts', '.tsx'])) {
+  for (const file of scan.files) {
     // A test may legitimately name a forbidden marker to assert its absence;
     // the migration itself must not carry one.
     if (file.includes('.test.')) continue
-    const source = readFileSync(file, 'utf8')
+    const source = readScannedFile(file, reader, unreadable)
+    if (source === undefined) continue
     for (const marker of FORBIDDEN_MIGRATION_MARKERS) {
-      if (source.includes(marker)) hits.push(`${relative(REPOSITORY_ROOT, file)}: ${marker}`)
+      if (source.includes(marker)) hits.push(`${relative(root, file)}: ${marker}`)
     }
   }
-  return hits.toSorted()
+  return { hits: hits.toSorted(), unreadable: unreadable.toSorted() }
 }
 
 /**
@@ -137,18 +226,43 @@ export const FRESHNESS_QUALIFICATION = {
   rule: 'authority-reads-not-cache-disabled',
 } as const
 
+/**
+ * The source scope the scan covers, stated rather than implied.
+ *
+ * The scan reads the working tree of every root; it does not consult git, so a
+ * generated declaration that names the provider is listed as well. Test files
+ * are part of the dependency inventory and are excluded from the marker scan.
+ */
+export const SOURCE_SCAN_COVERAGE = {
+  roots: SOURCE_SCAN_ROOTS,
+  extensions: SOURCE_SCAN_EXTENSIONS,
+  skippedDirectories: SOURCE_SCAN_SKIPPED_DIRECTORIES,
+  readsWorkingTree: true,
+  testFilesInDependencyInventory: true,
+  testFilesInMarkerScan: false,
+} as const
+
 /** The inventory record, assembled from the repository's own sources. */
-export function railwayMigrationAcceptanceInventory(): {
+export function railwayMigrationAcceptanceInventory(options: SourceScanOptions = {}): {
   neonProviderDependencies: string[]
   forbiddenMigrationMarkers: string[]
+  scanCoverage: typeof SOURCE_SCAN_COVERAGE
+  scanIncomplete: string[]
   freshnessQualification: typeof FRESHNESS_QUALIFICATION
   childScopes: typeof CHILD_SCOPES
   relatedPullRequests: typeof RELATED_PULL_REQUESTS
   gatedAcceptance: typeof GATED_ACCEPTANCE
 } {
+  const dependencies = inventoryNeonProviderDependencies(options)
+  const markers = scanForbiddenMigrationMarkers(options)
   return {
-    neonProviderDependencies: inventoryNeonProviderDependencies(),
-    forbiddenMigrationMarkers: scanForbiddenMigrationMarkers(),
+    neonProviderDependencies: dependencies.hits,
+    forbiddenMigrationMarkers: markers.hits,
+    scanCoverage: SOURCE_SCAN_COVERAGE,
+    // Every path the scan could not read. A non-empty list means the scan did
+    // not see the whole approved scope, so the record is incomplete and the
+    // qualification fails closed on it.
+    scanIncomplete: [...new Set([...dependencies.unreadable, ...markers.unreadable])].toSorted(),
     freshnessQualification: FRESHNESS_QUALIFICATION,
     childScopes: CHILD_SCOPES,
     relatedPullRequests: RELATED_PULL_REQUESTS,
