@@ -2,22 +2,27 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   ELIGIBILITY,
+  LIVENESS,
   REUSE_DECISION,
   REUSE_REFUSAL,
+  boundedLivenessProbe,
   concurrencyAdmission,
   diskTelemetry,
   eligibilityReport,
   inventoryOwnedResources,
   isRegenerableIgnored,
+  livenessOf,
   planWorktreeReuse,
   preservationProof,
   REGENERABLE_PROOF,
+  regenerableKind,
   reuseDiskAdmission,
   unknownIgnoredPaths,
 } from './dev-resource-reuse.mjs'
 import {
   DISK_PRESSURE,
   LEASE_STATE,
+  LEASE_VERSION,
   RESOURCE_DISPOSITION,
   RESOURCE_KIND,
   RESOURCE_MODE,
@@ -29,6 +34,11 @@ const identity = resourceIdentity({
   runToken: 'run-a',
   port: 40_001,
 })
+
+/** A liveness probe that cannot answer. */
+function failingProbe() {
+  throw new Error('the probe could not run')
+}
 
 const otherIdentity = resourceIdentity({
   mode: RESOURCE_MODE.disposable,
@@ -500,42 +510,125 @@ describe('the concurrent owner regressions', () => {
   })
 })
 
+describe('the liveness of an owner', () => {
+  test('an owner that names no host cannot be located, so it is not established', () => {
+    const owner = { owner: { pid: 4242 } }
+    const liveness = livenessOf(owner, { host: 'here', probe: () => false })
+    expect(liveness.state).toBe(LIVENESS.notEstablished)
+    expect(liveness.reason).toContain('no host')
+    // The bounded probe answers "alive" for it, so the lease protects what it
+    // may name: an owner that cannot be shown to be absent is an owner.
+    const probe = boundedLivenessProbe({ host: 'here', probe: () => false })
+    expect(probe(4242, undefined)).toBe(true)
+    expect(probe(4242, '')).toBe(true)
+  })
+
+  test('an owner on another host is not established', () => {
+    const liveness = livenessOf(
+      { owner: { pid: 4242, hostname: 'elsewhere' } },
+      { host: 'here', probe: () => false }
+    )
+    expect(liveness.state).toBe(LIVENESS.notEstablished)
+    expect(liveness.reason).toContain('another host')
+    const probe = boundedLivenessProbe({ host: 'here', probe: () => false })
+    expect(probe(4242, 'elsewhere')).toBe(true)
+  })
+
+  test('a probe that fails leaves the owner unestablished', () => {
+    const failing = failingProbe
+    const liveness = livenessOf(
+      { owner: { pid: 4242, hostname: 'here' } },
+      { host: 'here', probe: failing }
+    )
+    expect(liveness.state).toBe(LIVENESS.notEstablished)
+    expect(liveness.reason).toContain('probe failed')
+    const probe = boundedLivenessProbe({ host: 'here', probe: failing })
+    expect(probe(4242, 'here')).toBe(true)
+  })
+
+  test('a pid no process holds is an absent owner, not a dead one', () => {
+    const liveness = livenessOf(
+      { owner: { pid: 4242, hostname: 'here' } },
+      { host: 'here', probe: () => false }
+    )
+    expect(liveness.state).toBe(LIVENESS.absent)
+    expect(liveness.reason).toContain('no process holds the recorded pid')
+    expect(liveness.reason).not.toContain('gone')
+    const probe = boundedLivenessProbe({ host: 'here', probe: () => false })
+    expect(probe(4242, 'here')).toBe(false)
+  })
+
+  test('a process that holds the recorded pid is present', () => {
+    const liveness = livenessOf(
+      { owner: { pid: 4242, hostname: 'here' } },
+      { host: 'here', probe: () => true }
+    )
+    expect(liveness.state).toBe(LIVENESS.present)
+  })
+
+  test('a lease whose owner names no host protects what it may name', () => {
+    const plan = planWorktreeReuse({
+      worktree: {
+        path: '/tmp/worktrees/no-host',
+        head: 'abc',
+        branch: 'b',
+        localChanges: false,
+        published: true,
+        ignoredUnknown: [],
+        origin: { fresh: true, containsHead: true },
+      },
+      leases: [
+        {
+          version: LEASE_VERSION,
+          runId: 'run-a',
+          identity: { label: 'label-a', worktree: '/tmp/worktrees/no-host' },
+          owner: { pid: 4242 },
+        },
+      ],
+      isProcessAlive: boundedLivenessProbe({ host: 'here', probe: () => false }),
+      host: 'here',
+      probe: () => false,
+    })
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.owned)
+    expect(plan.evidence.matchingLeases[0]?.liveness?.state).toBe(LIVENESS.notEstablished)
+  })
+})
+
 describe('the ignored paths a checkout holds', () => {
-  test('a build output is regenerable only when the repository proves it', () => {
-    // The proof is the tracked tooling that produces the path. A name is not a
-    // proof, so nothing is regenerable without one.
+  test('an ignored path is regenerable only when its content is accounted for', () => {
+    // The proof is about the bytes, not the name. Nothing is regenerable
+    // without one.
     expect(isRegenerableIgnored('node_modules/')).toBe(false)
     expect(isRegenerableIgnored('apps/web/dist/')).toBe(false)
     expect(isRegenerableIgnored('apps/web/cloudflare-env.d.ts')).toBe(false)
     expect(isRegenerableIgnored('apps/web/public/assets/logo.png')).toBe(false)
 
-    expect(isRegenerableIgnored('node_modules/', REGENERABLE_PROOF.dependencyTree)).toBe(true)
-    expect(isRegenerableIgnored('apps/web/dist/', REGENERABLE_PROOF.buildOutput)).toBe(true)
-    expect(
-      isRegenerableIgnored('apps/web/cloudflare-env.d.ts', REGENERABLE_PROOF.generatedFile)
-    ).toBe(true)
-    expect(
-      isRegenerableIgnored(
-        'apps/web/test/fixtures/source-contracts/.runtime/index.ts',
-        REGENERABLE_PROOF.pinnedRuntime
-      )
-    ).toBe(true)
-    expect(
-      isRegenerableIgnored('apps/web/public/assets/logo.png', REGENERABLE_PROOF.syncedAssets)
-    ).toBe(true)
-    expect(isRegenerableIgnored('tsconfig.tsbuildinfo', REGENERABLE_PROOF.buildOutput)).toBe(true)
+    // A path that holds nothing has nothing to reproduce.
+    expect(isRegenerableIgnored('node_modules/', { kind: REGENERABLE_PROOF.empty })).toBe(true)
+    expect(isRegenerableIgnored('apps/web/dist/', { kind: REGENERABLE_PROOF.empty })).toBe(true)
+    // A rebuild in an isolated copy that reproduced exactly those bytes.
+    expect(isRegenerableIgnored('apps/web/dist/', { kind: REGENERABLE_PROOF.contentMatch })).toBe(
+      true
+    )
+    // A name that resembles a build output is not a proof of anything.
+    expect(isRegenerableIgnored('apps/web/dist/', { kind: 'build_output' })).toBe(false)
+    expect(isRegenerableIgnored('apps/web/dist/', { kind: 'dependency_tree' })).toBe(false)
+    expect(isRegenerableIgnored('tsconfig.tsbuildinfo', { kind: 'build_output' })).toBe(false)
   })
 
   test('local persisted state is never regenerable output', () => {
     // `.wrangler` holds the local state of a development runtime. No proof
     // makes it build output, so it is content the checkout holds.
-    expect(isRegenerableIgnored('.wrangler/', REGENERABLE_PROOF.buildOutput)).toBe(false)
+    expect(isRegenerableIgnored('.wrangler/', { kind: REGENERABLE_PROOF.empty })).toBe(true)
     expect(
-      isRegenerableIgnored('.wrangler/state/v3/do/resource', REGENERABLE_PROOF.buildOutput)
-    ).toBe(false)
+      isRegenerableIgnored('.wrangler/state/v3/do/resource', { kind: REGENERABLE_PROOF.empty })
+    ).toBe(true)
+    // It is never regenerable on the strength of what it looks like either.
+    expect(regenerableKind('.wrangler/state/v3/do/resource')).toBe(null)
   })
 
-  test('an ignored path that is not proven build output is content the checkout holds', () => {
+  test('an ignored path that is not proven reproducible is content the checkout holds', () => {
     expect(isRegenerableIgnored('docs/evals/calibration-verdicts/grader-verdicts.json')).toBe(false)
     expect(isRegenerableIgnored('apps/web/start/.checks/fixture/loopback-key.pem')).toBe(false)
     // Without proofs, nothing is regenerable: the paths are content the
@@ -544,12 +637,18 @@ describe('the ignored paths a checkout holds', () => {
       'node_modules/',
       'docs/evals/verdicts.json',
     ])
-    // With the matching proof, the build output is not content.
+    // With a content-bound proof, that one path is not content.
     expect(
       unknownIgnoredPaths(['node_modules/', 'docs/evals/verdicts.json'], {
-        'node_modules/': REGENERABLE_PROOF.dependencyTree,
+        'node_modules/': { kind: REGENERABLE_PROOF.contentMatch, digest: 'abc' },
       })
     ).toEqual(['docs/evals/verdicts.json'])
+    // A path that only resembles a build output is still content.
+    expect(
+      unknownIgnoredPaths(['node_modules/', 'docs/evals/verdicts.json'], {
+        'node_modules/': { kind: 'build_output' },
+      })
+    ).toEqual(['node_modules/', 'docs/evals/verdicts.json'])
   })
 
   test('an ignored list that could not be read is not an empty one', () => {

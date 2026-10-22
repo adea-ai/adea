@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { ELIGIBILITY, REUSE_DECISION, REUSE_REFUSAL } from './dev-resource-reuse.mjs'
 import {
   collectReport,
+  originIsBound,
   parseIgnoredPaths,
   planWorktrees,
   readLeaseEvidence,
@@ -179,9 +180,76 @@ describe('the runner reads the checkout it is given', () => {
     expect(fetch.ok).toBe(true)
     expect(worktrees[0]?.origin?.remoteBranchPresent).toBe(false)
     expect(worktrees[0]?.origin?.fresh).toBe(false)
+    // The head is still in a local tracking ref, and that is not publication:
+    // the remote does not hold it.
+    expect(worktrees[0]?.published).toBe(false)
+    const [planned] = planWorktrees(worktrees, [])
+    expect(planned?.plan.decision).toBe(REUSE_DECISION.refuse)
   })
 
-  test('local persisted state is preserved, and a proven build output is not', () => {
+  test('a stale tracking ref never makes a head published', () => {
+    const { root, repo } = tempRepo('stale-tracking')
+    const remote = join(root, 'remote.git')
+    git(['init', '--bare', remote], root)
+    git(['remote', 'add', 'origin', remote], repo)
+    git(['push', 'origin', 'main'], repo)
+    git(['push', 'origin', 'feature/case'], repo)
+    // The remote loses every branch; the local tracking refs survive a fetch
+    // that does not prune, so the checkout's head is still in a local ref.
+    git(['--git-dir', remote, 'update-ref', '-d', 'refs/heads/feature/case'], root)
+    git(['--git-dir', remote, 'update-ref', '-d', 'refs/heads/main'], root)
+    git(['fetch', 'origin'], repo)
+    expect(git(['ls-remote', '--heads', 'origin'], repo)).toBe('')
+
+    const { worktrees } = worktreesOf(repo, { refresh: false })
+    expect(worktrees[0]?.published).toBe(false)
+    expect(worktrees[0]?.origin?.fresh).toBe(false)
+    expect(worktrees[0]?.origin?.bound).toBe(false)
+  })
+
+  test('a remote that was rewritten away from the head is not publication', () => {
+    const { root, repo } = tempRepo('rewritten-remote')
+    const remote = join(root, 'remote.git')
+    git(['init', '--bare', remote], root)
+    git(['remote', 'add', 'origin', remote], repo)
+    git(['push', 'origin', 'main'], repo)
+    git(['push', 'origin', 'feature/case'], repo)
+    git(['fetch', 'origin'], repo)
+    // Another party rewrites the branch to a history that does not contain the
+    // checkout's head.
+    const other = join(root, 'other')
+    git(['clone', remote, other], root)
+    git(['config', 'user.email', 'other@example.invalid'], other)
+    git(['config', 'user.name', 'Other'], other)
+    git(['checkout', '-B', 'rewritten'], other)
+    writeFileSync(join(other, 'b.txt'), 'b\n')
+    git(['add', '.'], other)
+    git(['commit', '-m', 'rewritten'], other)
+    git(['push', '--force', 'origin', 'rewritten:feature/case'], other)
+
+    // The runner's own fetch sees the rewrite, so the fetched ref is the
+    // remote's commit and the checkout's head is not in it.
+    const refreshed = worktreesOf(repo, { refresh: true })
+    expect(refreshed.worktrees[0]?.origin?.fresh).toBe(true)
+    expect(refreshed.worktrees[0]?.origin?.bound).toBe(true)
+    expect(refreshed.worktrees[0]?.origin?.containsHead).toBe(false)
+    expect(refreshed.worktrees[0]?.published).toBe(false)
+    const [planned] = planWorktrees(refreshed.worktrees, [])
+    expect(planned?.plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(planned?.plan.reasons).toContain(REUSE_REFUSAL.originStale)
+  })
+
+  test('the fetched ref speaks for the remote only while it is the remote commit', () => {
+    expect(originIsBound('aaa', 'aaa')).toBe(true)
+    // The remote moved after the fetch: the fetched ref is behind it.
+    expect(originIsBound('bbb', 'aaa')).toBe(false)
+    // The remote does not hold the branch at all.
+    expect(originIsBound(null, 'aaa')).toBe(false)
+    expect(originIsBound('', 'aaa')).toBe(false)
+    expect(originIsBound('aaa', null)).toBe(false)
+  })
+
+  test('local persisted state is preserved, and a build output is preserved too', () => {
     const { repo, checkout } = tempRepo('ignored', {
       ignore: ['node_modules/', 'dist/', '.wrangler/'],
     })
@@ -194,11 +262,94 @@ describe('the runner reads the checkout it is given', () => {
 
     const { worktrees } = worktreesOf(repo, { refresh: false })
     const unknown = worktrees[0]?.ignoredUnknown ?? []
-    // The dependency tree and the build output have tracked producers, so they
-    // are regenerable. The local persisted state has none, so it is content.
-    expect(unknown).not.toContain('node_modules/')
-    expect(unknown).not.toContain('dist/')
+    // A path that looks like a build output is not reproducible on the
+    // strength of its name or of the build script beside it. Nothing here is
+    // proven reproducible, so every one of them is content the checkout holds.
+    expect(unknown).toContain('node_modules/')
+    expect(unknown).toContain('dist/')
     expect(unknown).toContain('.wrangler/')
+    // The content is named and measured, not assumed: the digest is what a
+    // rebuild would have to reproduce.
+    const content = worktrees[0]?.ignoredContent?.['dist/']
+    expect(content?.files).toBe(1)
+    expect(content?.bytes).toBe(6)
+    expect(content?.truncated).toBe(false)
+    expect(typeof content?.digest).toBe('string')
+    expect(content?.digest?.length).toBe(64)
+  })
+
+  test('unique bytes inside an ignored directory are content the checkout holds', () => {
+    const { repo, checkout } = tempRepo('unique-ignored', { ignore: ['dist/'] })
+    mkdirSync(join(checkout, 'dist'), { recursive: true })
+    writeFileSync(join(checkout, 'dist', 'only-copy.json'), '{"verdict": "irreplaceable"}\n')
+
+    const { worktrees } = worktreesOf(repo, { refresh: false })
+    expect(worktrees[0]?.ignoredUnknown).toContain('dist/')
+    const content = worktrees[0]?.ignoredContent?.['dist/']
+    expect(content?.files).toBe(1)
+    expect(content?.truncated).toBe(false)
+    // The checkout is refused: the content is not proven reproducible.
+    const [planned] = planWorktrees(worktrees, [])
+    expect(planned?.plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(planned?.plan.reasons).toContain(REUSE_REFUSAL.unknownIgnored)
+  })
+
+  test('a no-op build and a typecheck-only package prove nothing', () => {
+    // The fixture's own manifest declares a build that does nothing.
+    const { repo, checkout } = tempRepo('noop-build', { ignore: ['dist/'] })
+    mkdirSync(join(checkout, 'dist'), { recursive: true })
+    writeFileSync(join(checkout, 'dist', 'bundle.js'), 'built\n')
+
+    const { worktrees } = worktreesOf(repo, { refresh: false })
+    expect(worktrees[0]?.ignoredUnknown).toContain('dist/')
+
+    // A second manifest that declares only a typecheck: a type check emits
+    // nothing, so it is not a producer of build output either.
+    const typecheckOnly = tempRepo('typecheck-only', { ignore: ['dist/'] })
+    writeFileSync(
+      join(typecheckOnly.repo, 'package.json'),
+      JSON.stringify({ name: 'case', private: true, scripts: { typecheck: 'tsc --noEmit' } })
+    )
+    git(['add', '.'], typecheckOnly.repo)
+    git(['commit', '-qm', 'a typecheck that emits nothing'], typecheckOnly.repo)
+    mkdirSync(join(typecheckOnly.checkout, 'dist'), { recursive: true })
+    writeFileSync(join(typecheckOnly.checkout, 'dist', 'bundle.js'), 'built\n')
+
+    const typechecked = worktreesOf(typecheckOnly.repo, { refresh: false })
+    expect(typechecked.worktrees[0]?.ignoredUnknown).toContain('dist/')
+  })
+
+  test('an ignored path that holds nothing has nothing to reproduce', () => {
+    const { repo, checkout } = tempRepo('empty-ignored', { ignore: ['dist/'] })
+    mkdirSync(join(checkout, 'dist'), { recursive: true })
+
+    const { worktrees } = worktreesOf(repo, { refresh: false })
+    expect(worktrees[0]?.ignoredUnknown).not.toContain('dist/')
+    expect(worktrees[0]?.ignoredProofs?.['dist/']?.kind).toBe('empty_content')
+    expect(worktrees[0]?.ignoredContent?.['dist/']?.files).toBe(0)
+  })
+
+  test('a rebuild in an isolated copy that matches the bytes is a proof', () => {
+    const { repo, checkout } = tempRepo('rebuilt', { ignore: ['dist/'] })
+    mkdirSync(join(checkout, 'dist'), { recursive: true })
+    writeFileSync(join(checkout, 'dist', 'bundle.js'), 'built\n')
+
+    const { worktrees } = worktreesOf(repo, { refresh: false })
+    const digest = worktrees[0]?.ignoredContent?.['dist/']?.digest
+    expect(typeof digest).toBe('string')
+
+    const rebuilt = worktreesOf(repo, {
+      refresh: false,
+      rebuildDigests: { 'dist/': digest },
+    })
+    expect(rebuilt.worktrees[0]?.ignoredUnknown).not.toContain('dist/')
+    expect(rebuilt.worktrees[0]?.ignoredProofs?.['dist/']?.kind).toBe('content_match')
+    // A rebuild that produced different bytes is not a proof.
+    const different = worktreesOf(repo, {
+      refresh: false,
+      rebuildDigests: { 'dist/': 'not-the-digest' },
+    })
+    expect(different.worktrees[0]?.ignoredUnknown).toContain('dist/')
   })
 
   test('a checkout whose ignored paths cannot be read is not free', () => {

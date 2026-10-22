@@ -12,15 +12,18 @@
 //
 // The rules this file encodes:
 //
-//   * A resource is only ever reclaimed when this run owns it and its owner is
-//     gone. An active, foreign or uncertain owner is protected, and so is a
-//     resource nobody has claimed: an unlabelled volume is not evidence of
-//     anything.
+//   * A resource is only ever reclaimed when this run owns it and the lease
+//     that names it records a pid no process holds on this host. An active,
+//     foreign or uncertain owner is protected, and so is a resource nobody has
+//     claimed: an unlabelled volume is not evidence of anything.
 //   * A stale worktree is reused only when the local work is already
-//     committed, the fetched origin ref contains the checkout's head, and no
-//     live owner holds it. Local work is never overwritten: a checkout with
-//     changes is preserved, and a checkout whose origin is behind is refused
-//     until the owner refreshes it.
+//     committed, the remote's current branch head contains the checkout's head
+//     and the fetched ref is that same commit, and no live owner holds it.
+//     Local work is never overwritten: a checkout with changes is preserved,
+//     and a checkout whose origin is behind is refused until the owner
+//     refreshes it.
+//   * Ignored content is content until its own bytes are accounted for. A name
+//     and the presence of a build script are not a proof of reproducibility.
 //   * Every ownership question is answered by every record that bears on it.
 //     One stale lease does not speak for a second live one, and an owner whose
 //     state cannot be established is an owner, not an absence.
@@ -86,26 +89,25 @@ export const REUSE_REFUSAL = {
 }
 
 /**
- * The proof an ignored path needs before it may be called regenerable.
+ * The proof an ignored path needs before its content may be called reproducible.
  *
- * The proof names how the content is produced, not what the path is called. A
- * path's name is not evidence: `.wrangler` holds local persisted state that
- * exists nowhere else, and a build output directory can hold an overlay that no
- * rebuild would reproduce. The runner supplies the proof only when the tracked
- * repository contains the tooling that regenerates the path, and only when the
- * checkout's tracked sources are the committed ones.
+ * The proof is about the content, not about the name. A path's name is not
+ * evidence: `.wrangler` holds local persisted state that exists nowhere else,
+ * and a directory called `dist` may hold the only copy of a result. The
+ * presence of a build script is not evidence either: a script that does
+ * nothing produces nothing, and a script that runs may write somewhere else
+ * entirely.
+ *
+ * So a path is regenerable only when its own bytes are accounted for: either it
+ * holds nothing, or a rebuild in an isolated copy reproduced exactly those
+ * bytes. Every other ignored path is content the checkout holds, and it is
+ * preserved and named.
  */
 export const REGENERABLE_PROOF = {
-  // A dependency tree the tracked lockfile pins.
-  dependencyTree: 'dependency_tree',
-  // A build output the tracked build tooling produces.
-  buildOutput: 'build_output',
-  // A file a tracked tool generates.
-  generatedFile: 'generated_file',
-  // The synced public assets a tracked script rebuilds from tracked sources.
-  syncedAssets: 'synced_assets',
-  // The pinned source-contract runtime a tracked script writes.
-  pinnedRuntime: 'pinned_runtime',
+  // The path holds nothing, so there is nothing to reproduce.
+  empty: 'empty_content',
+  // A rebuild in an isolated copy produced exactly the bytes the path holds.
+  contentMatch: 'content_match',
 }
 
 /**
@@ -116,6 +118,96 @@ export const REGENERABLE_PROOF = {
  * resource to a second run.
  */
 const UNKNOWN_LIVENESS_IS_ALIVE = () => true
+
+/**
+ * The liveness answers this model is willing to stand behind.
+ *
+ * The honest answer about a process is what was established, not what is
+ * assumed. A process that is present is present. A process that is not present
+ * under its recorded pid is not present - that is exactly what the probe
+ * establishes, and it is not the same as a claim that the owner is gone: a
+ * record names a pid, not a person. Anything that could not be established is
+ * not established, and an owner that could not be established protects what it
+ * may name.
+ */
+export const LIVENESS = {
+  present: 'owner_present',
+  absent: 'owner_pid_absent',
+  notEstablished: 'owner_not_established',
+}
+
+/**
+ * The liveness of one lease's owner, with the reason for the answer.
+ *
+ * The probe is the null signal: it asks whether a process exists without
+ * disturbing it. It is only used when the owner record names this host. An
+ * owner on another host cannot be probed from here, so it is not established;
+ * and an owner whose record names no host at all cannot be located, so it is
+ * not established either. A probe that fails leaves the answer unestablished.
+ *
+ * Nothing here reaches a process boundary: the host and the probe are
+ * injected, so the whole answer can be exercised without touching a process.
+ */
+export function livenessOf(lease, { host = null, probe = null } = {}) {
+  const owner = lease?.owner
+  if (!owner || typeof owner !== 'object') {
+    return { state: LIVENESS.notEstablished, reason: 'the lease names no owner' }
+  }
+  if (!Number.isInteger(owner.pid) || owner.pid <= 0) {
+    return { state: LIVENESS.notEstablished, reason: 'the lease names no usable process id' }
+  }
+  if (typeof owner.hostname !== 'string' || owner.hostname === '') {
+    return {
+      state: LIVENESS.notEstablished,
+      reason: 'the owner names no host, so the owner cannot be located',
+    }
+  }
+  if (host === null || owner.hostname !== host) {
+    return {
+      state: LIVENESS.notEstablished,
+      reason: 'the owner runs on another host, so it cannot be probed from here',
+    }
+  }
+  if (typeof probe !== 'function') {
+    return { state: LIVENESS.notEstablished, reason: 'no liveness probe was supplied' }
+  }
+  let alive
+  try {
+    alive = probe(owner.pid, owner.hostname)
+  } catch (error) {
+    return {
+      state: LIVENESS.notEstablished,
+      reason: 'the liveness probe failed: ' + (error?.message ?? String(error)),
+    }
+  }
+  if (alive) {
+    return { state: LIVENESS.present, reason: 'a process holds the recorded pid on this host' }
+  }
+  return { state: LIVENESS.absent, reason: 'no process holds the recorded pid on this host' }
+}
+
+/**
+ * The probe the model hands to the lease classifier.
+ *
+ * The classifier asks one question - is the owner alive? - and reads "no" as
+ * an owner that is gone. That answer is only allowed when it is established:
+ * the owner names this host, the probe ran, and the probe found no process
+ * under the recorded pid. Everything else answers "alive", because an owner
+ * that cannot be shown to be absent protects what it may name.
+ */
+export function boundedLivenessProbe({ host = null, probe = null } = {}) {
+  return (pid, ownerHostname) => {
+    if (!Number.isInteger(pid) || pid <= 0) return true
+    if (typeof ownerHostname !== 'string' || ownerHostname === '') return true
+    if (host === null || ownerHostname !== host) return true
+    if (typeof probe !== 'function') return true
+    try {
+      return probe(pid, ownerHostname) === true
+    } catch {
+      return true
+    }
+  }
+}
 
 /**
  * The ignored paths that a build regenerates from the checkout's own sources.
@@ -133,10 +225,27 @@ const REGENERABLE_BUILD_DIRECTORIES = new Set(['coverage', 'dist', 'dist-desktop
 const REGENERABLE_GENERATED_FILES = new Set(['cloudflare-env.d.ts'])
 
 /**
- * The kind of regenerable output an ignored path would be, or null when no
- * kind of output could describe it.
+ * What an ignored path looks like, described rather than proved.
  *
- * `.wrangler` is never regenerable: it holds the local persisted state of a
+ * These labels say what a path *resembles*, so the report can name it. They
+ * never make the path regenerable: that takes the content, not the name.
+ */
+const REGENERABLE_LOOKS = {
+  dependencyTree: 'dependency_tree',
+  buildOutput: 'build_output',
+  generatedFile: 'generated_file',
+  syncedAssets: 'synced_assets',
+  pinnedRuntime: 'pinned_runtime',
+}
+
+/**
+ * The kind of output an ignored path could be, or null when no kind describes it.
+ *
+ * This is a description, not a proof. It says what a path looks like so the
+ * report can name it; it never says the path's content may be discarded. A
+ * path is regenerable only on the evidence of its own bytes.
+ *
+ * `.wrangler` is never a build output: it holds the local persisted state of a
  * development runtime, and nothing rebuilds it.
  */
 export function regenerableKind(entry) {
@@ -146,36 +255,34 @@ export function regenerableKind(entry) {
   const segments = trimmed.split('/')
   const name = segments[segments.length - 1]
   if (segments.includes('.wrangler')) return null
-  if (name.endsWith('tsbuildinfo')) return REGENERABLE_PROOF.buildOutput
-  if (REGENERABLE_GENERATED_FILES.has(name)) return REGENERABLE_PROOF.generatedFile
-  if (name === 'node_modules') return REGENERABLE_PROOF.dependencyTree
-  if (REGENERABLE_BUILD_DIRECTORIES.has(name)) return REGENERABLE_PROOF.buildOutput
+  if (name.endsWith('tsbuildinfo')) return REGENERABLE_LOOKS.buildOutput
+  if (REGENERABLE_GENERATED_FILES.has(name)) return REGENERABLE_LOOKS.generatedFile
+  if (name === 'node_modules') return REGENERABLE_LOOKS.dependencyTree
+  if (REGENERABLE_BUILD_DIRECTORIES.has(name)) return REGENERABLE_LOOKS.buildOutput
   // The pinned source-contract runtime and the synced public assets are both
   // written by a repository script from tracked sources.
   if (segments.includes('.runtime') && trimmed.includes('source-contracts')) {
-    return REGENERABLE_PROOF.pinnedRuntime
+    return REGENERABLE_LOOKS.pinnedRuntime
   }
   if (segments.includes('assets') && segments.includes('public')) {
-    return REGENERABLE_PROOF.syncedAssets
+    return REGENERABLE_LOOKS.syncedAssets
   }
   return null
 }
 
 /**
- * Whether one ignored path is proven to be regenerable output.
+ * Whether one ignored path is proven to hold nothing that would be lost.
  *
- * The answer is deliberately narrow. A path that is merely ignored is not
- * evidence of anything: it may be a build output, and it may equally be the
- * only copy of an evaluation result or a receipt. An unknown ignored path is
- * treated as content the checkout holds.
- *
- * The proof is the kind of output the runner established, and the runner only
- * establishes it from tracked tooling and committed sources.
+ * The answer is deliberately narrow, and it is about the content: a path with
+ * no content-bound proof is content the checkout holds, whether it is named
+ * like a build output or not. A name, and the presence of a producer script,
+ * are not a proof of reproducibility, so they no longer grant one.
  */
 export function isRegenerableIgnored(entry, proof = null) {
-  const kind = regenerableKind(entry)
-  if (kind === null) return false
-  return proof === kind
+  if (proof == null || typeof proof !== 'object') return false
+  if (proof.kind === REGENERABLE_PROOF.empty) return true
+  if (proof.kind === REGENERABLE_PROOF.contentMatch) return true
+  return false
 }
 
 /**
@@ -239,6 +346,8 @@ export function inventoryOwnedResources({
   dockerResources = [],
   identity = null,
   isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
+  host = null,
+  probe = null,
 } = {}) {
   // A lease record that could not be read may name this resource. It cannot be
   // attributed, so it protects every resource until it can be.
@@ -286,6 +395,15 @@ export function inventoryOwnedResources({
       !ownLeaseStale
     ) {
       reason = `the lease of this run is ${leaseState}, so the resource is not provably reclaimable`
+    } else if (
+      classification.disposition === RESOURCE_DISPOSITION.removable &&
+      leaseMatched &&
+      ownLeaseStale
+    ) {
+      // The lease's owner is not present under its recorded pid. That is what
+      // the probe established; it is not a claim that the owner is gone.
+      reason =
+        'the lease of this run names a pid no process holds on this host, so the resource is not provably reclaimable'
     }
     const reclaimable =
       classification.disposition === RESOURCE_DISPOSITION.removable &&
@@ -304,10 +422,12 @@ export function inventoryOwnedResources({
       reason,
       reclaimable,
       // The ownership evidence travels with the decision, so a reader can
-      // re-check it instead of believing it.
+      // re-check it instead of believing it. The liveness answer travels with
+      // it too, and it says what was established rather than what is assumed.
       leaseEvidence: matching.map((candidate, index) => ({
         runId: candidate.runId ?? null,
         state: states[index] ?? LEASE_STATE.uncertain,
+        liveness: livenessOf(candidate, { host, probe }),
       })),
     }
   })
@@ -328,13 +448,14 @@ export function inventoryOwnedResources({
  * is recorded so the decision can be re-checked rather than believed:
  *
  *   * the checkout carries no local work (nothing is overwritten);
- *   * the checkout carries no ignored artifact that is not a known build
- *     output, because `git status --porcelain` does not list ignored paths and
- *     an ignored receipt is the only copy of itself;
- *   * the fetched origin ref contains the checkout's head (the origin is fresh
- *     for this branch);
- *   * the checkout's commits are published, so nothing is lost if the
- *     checkout is rebuilt;
+ *   * the checkout carries no ignored content that is not proven reproducible,
+ *     because `git status --porcelain` does not list ignored paths and an
+ *     ignored receipt is the only copy of itself;
+ *   * the remote's current branch head contains the checkout's head, and the
+ *     fetched ref is that same commit, so the origin is fresh for this branch
+ *     and no stale tracking ref is standing in for the remote;
+ *   * the checkout's commits are published by the remote's current state, so
+ *     nothing is lost if the checkout is rebuilt;
  *   * no owner holds it: not a live one, not an uncertain one, and not a
  *     foreign one.
  *
@@ -351,6 +472,8 @@ export function planWorktreeReuse({
   leases = [],
   origin = null,
   isProcessAlive = UNKNOWN_LIVENESS_IS_ALIVE,
+  host = null,
+  probe = null,
   unreadableLeases = [],
   leaseScanFailed = false,
 } = {}) {
@@ -358,6 +481,9 @@ export function planWorktreeReuse({
   const evidence = {
     localWork: null,
     ignoredUnknown: [],
+    // What each ignored path holds, with the digest a rebuild would have to
+    // reproduce. The content is named and measured, not assumed.
+    ignoredContent: {},
     ignoredUnreadable: null,
     originFresh: null,
     headInOrigin: null,
@@ -384,10 +510,16 @@ export function planWorktreeReuse({
     refusals.push(REUSE_REFUSAL.localWork)
   }
   // The ignored paths are read from the checkout's own record, and anything
-  // that is not proven regenerable output is content the checkout holds.
+  // that is not proven reproducible is content the checkout holds.
   evidence.ignoredUnknown = Array.isArray(worktree.ignoredUnknown)
     ? [...worktree.ignoredUnknown]
     : []
+  // The content of those paths travels with the decision: the report names what
+  // it preserves, and the digest is what a rebuild would have to reproduce.
+  evidence.ignoredContent =
+    worktree.ignoredContent && typeof worktree.ignoredContent === 'object'
+      ? { ...worktree.ignoredContent }
+      : {}
   if (evidence.ignoredUnknown.length > 0) {
     refusals.push(REUSE_REFUSAL.unknownIgnored)
   }
@@ -400,6 +532,12 @@ export function planWorktreeReuse({
   // The origin facts travel with the checkout, so a caller that has already
   // verified them does not have to repeat them, and a caller that has not
   // gets the pessimistic answer.
+  //
+  // The remote's current state is what counts. The facts the runner carries say
+  // which commit the remote holds now, which commit the fetched ref holds, and
+  // whether those are the same commit. A ref that is behind the remote, or a
+  // branch the remote no longer holds, is not the remote's state, so it never
+  // makes the origin fresh.
   const originFacts = origin ?? worktree.origin ?? null
   evidence.originFresh = Boolean(originFacts?.fresh)
   if (!evidence.originFresh) {
@@ -418,11 +556,13 @@ export function planWorktreeReuse({
   evidence.matchingLeases = matching.map((lease) => ({
     runId: lease?.runId ?? null,
     state: classifyLease(lease, { isProcessAlive }),
+    liveness: livenessOf(lease, { host, probe }),
   }))
   evidence.preservedScopes = preserved.map((lease) => ({
     runId: lease?.runId ?? null,
     scope: lease?.identity?.worktree ?? null,
     state: classifyLease(lease, { isProcessAlive }),
+    liveness: livenessOf(lease, { host, probe }),
   }))
   const states = evidence.matchingLeases.map((lease) => lease.state)
   evidence.ownerLive = states.includes(LEASE_STATE.active)
@@ -452,7 +592,8 @@ export function planWorktreeReuse({
     path: worktree.path,
     decision: REUSE_DECISION.reuse,
     reasons: [],
-    reason: 'the checkout is clean, its head is in the fetched origin ref and no owner holds it',
+    reason:
+      'the checkout is clean, the remote’s current branch head contains its head and no owner holds it',
     evidence,
   }
 }
@@ -464,7 +605,7 @@ export function describeRefusals(refusals) {
     if (refusal === REUSE_REFUSAL.localWork) {
       parts.push('the checkout carries local work that is not committed anywhere')
     } else if (refusal === REUSE_REFUSAL.unknownIgnored) {
-      parts.push('the checkout carries ignored artifacts that are not proven build output')
+      parts.push('the checkout carries ignored content that is not proven reproducible')
     } else if (refusal === REUSE_REFUSAL.unreadableIgnored) {
       parts.push(
         'the checkout’s ignored paths could not be read, so it may hold content this report cannot account for'
@@ -496,9 +637,9 @@ export function describeRefusals(refusals) {
  *
  * A resource is eligible only when the inventory proved it reclaimable: the
  * lane's own disposition says this run created it, a lease of this run names
- * it, and that lease's owner is gone. A removable disposition without a
- * matching lease is a fail-closed case, and it is reported as ineligible with
- * the reason that decided it.
+ * it, and the lease records a pid no process holds on this host. A removable
+ * disposition without a matching lease is a fail-closed case, and it is
+ * reported as ineligible with the reason that decided it.
  */
 export function eligibilityReport({
   resources = [],

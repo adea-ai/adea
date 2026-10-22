@@ -12,20 +12,28 @@
 // claim that something may be removed.
 
 import { spawnSync } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { lstatSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs'
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 
 import {
+  REGENERABLE_PROOF,
+  boundedLivenessProbe,
   diskTelemetry,
   eligibilityReport,
   inventoryOwnedResources,
   planWorktreeReuse,
   preservationProof,
-  REGENERABLE_PROOF,
   regenerableKind,
   unknownIgnoredPaths,
 } from './dev-resource-reuse.mjs'
-import { RESOURCE_KIND, leaseDirectory, scanLeases } from './integration-resource-lease.mjs'
+import {
+  RESOURCE_KIND,
+  leaseDirectory,
+  processIsAlive,
+  scanLeases,
+} from './integration-resource-lease.mjs'
 
 /** Reads one Docker listing. A failed read is an empty listing, never a guess. */
 function dockerLines(args) {
@@ -110,67 +118,150 @@ export function parseIgnoredPaths(stdout) {
 }
 
 /**
- * The tracked files of a repository.
+ * The content of one ignored path, with a digest over its bytes.
  *
- * The proof for an ignored path is about tracked tooling, so the tracked tree
- * is the evidence. A path's name is not.
+ * The ignored listing collapses a directory to its name, so the files inside
+ * it are never named by git. This walks the path itself and digests what it
+ * finds: the digest is what a rebuild would have to reproduce, and the file
+ * and byte counts say how much the checkout holds. A path too large to
+ * inspect is reported as truncated, and a truncated path is never
+ * reproducible - it is content the checkout holds.
  */
-function trackedFiles(repo) {
-  const result = git(['ls-files'], repo)
-  if (!result.ok) return new Set()
-  return new Set(result.stdout.split('\n').filter((line) => line !== ''))
-}
-
-/**
- * The nearest tracked package manifest above a path, and the scripts it declares.
- */
-function packageProducer(worktreePath, relative, tracked) {
-  const segments = relative.split('/')
-  for (let index = segments.length - 1; index >= 0; index -= 1) {
-    const directory = segments.slice(0, index).join('/')
-    const manifest = directory === '' ? 'package.json' : `${directory}/package.json`
-    if (!tracked.has(manifest)) continue
+export function ignoredContent(worktreePath, entry, limits = {}) {
+  const fileLimit = limits.fileLimit ?? 2000
+  const byteLimit = limits.byteLimit ?? 32 * 1024 * 1024
+  const root = join(worktreePath, entry)
+  const files = []
+  let bytes = 0
+  let truncated = false
+  const walk = (directory, prefix) => {
+    if (truncated) return
+    let entries
     try {
-      const parsed = JSON.parse(readFileSync(join(worktreePath, manifest), 'utf8'))
-      return { manifest, scripts: parsed?.scripts ?? {} }
+      entries = readdirSync(directory, { withFileTypes: true })
     } catch {
-      return { manifest, scripts: {} }
+      truncated = true
+      return
+    }
+    for (const item of entries) {
+      if (truncated) return
+      const relative = prefix === '' ? item.name : `${prefix}/${item.name}`
+      const absolute = join(directory, item.name)
+      let stats
+      try {
+        stats = lstatSync(absolute)
+      } catch {
+        truncated = true
+        return
+      }
+      if (stats.isSymbolicLink()) {
+        let target = ''
+        try {
+          target = readlinkSync(absolute)
+        } catch {
+          truncated = true
+          return
+        }
+        files.push(`${relative}\0link\0${target}`)
+        continue
+      }
+      if (stats.isDirectory()) {
+        walk(absolute, relative)
+        continue
+      }
+      if (!stats.isFile()) continue
+      if (files.length >= fileLimit || bytes + stats.size > byteLimit) {
+        truncated = true
+        return
+      }
+      let content
+      try {
+        content = readFileSync(absolute)
+      } catch {
+        truncated = true
+        return
+      }
+      bytes += content.length
+      files.push(
+        `${relative}\0file\0${stats.size}\0${createHash('sha256').update(content).digest('hex')}`
+      )
     }
   }
+  try {
+    const stats = lstatSync(root)
+    if (stats.isDirectory()) {
+      walk(root, '')
+    } else if (stats.isFile()) {
+      const content = readFileSync(root)
+      bytes = content.length
+      files.push(`\0file\0${stats.size}\0${createHash('sha256').update(content).digest('hex')}`)
+    } else {
+      truncated = true
+    }
+  } catch {
+    truncated = true
+  }
+  const digest = createHash('sha256').update(files.toSorted().join('\n')).digest('hex')
+  return { digest, files: files.length, bytes, truncated }
+}
+
+/**
+ * The proof that an ignored path's content may be reproduced.
+ *
+ * The proof is about the bytes. A path that holds nothing has nothing to
+ * reproduce. A path whose digest equals the digest a rebuild in an isolated
+ * copy produced is reproducible, byte for byte. Everything else - including
+ * every path that merely looks like a build output, and every path whose
+ * content could not be read in full - is content the checkout holds, and it
+ * is preserved.
+ */
+export function proofForIgnoredPath(
+  entry,
+  { content = null, rebuildDigests = {}, trackedClean = true } = {}
+) {
+  if (!content || content.truncated) return null
+  if (content.files === 0) return { kind: REGENERABLE_PROOF.empty, digest: content.digest }
+  if (!trackedClean) return null
+  const rebuilt = rebuildDigests?.[entry]
+  if (typeof rebuilt === 'string' && rebuilt === content.digest) {
+    return { kind: REGENERABLE_PROOF.contentMatch, digest: content.digest }
+  }
   return null
 }
 
 /**
- * The proof that an ignored path is regenerable output, or null when the
- * repository does not prove it.
+ * Whether the fetched ref is the remote's current commit.
  *
- * The proof is the tracked tooling that produces the path. A name is not a
- * proof: `.wrangler` holds local persisted state that nothing rebuilds, and a
- * build output may hold an overlay that no rebuild reproduces, so the producer
- * has to be there and the tracked sources have to be the committed ones.
+ * This is the binding the decision rests on. The fetched ref speaks for the
+ * remote only while it is the commit the remote holds now: a ref that is
+ * behind a branch that has since moved, and a branch the remote no longer
+ * holds, are both a stale local fact rather than the remote's state.
  */
-export function proofForIgnoredPath(entry, { tracked, trackedClean, worktreePath }) {
-  const kind = regenerableKind(entry)
-  if (kind === null) return null
-  if (!trackedClean) return null
-  if (kind === REGENERABLE_PROOF.dependencyTree) {
-    return tracked.has('bun.lock') ? kind : null
+export function originIsBound(remoteSha, fetchedSha) {
+  if (typeof remoteSha !== 'string' || remoteSha === '') return false
+  if (typeof fetchedSha !== 'string' || fetchedSha === '') return false
+  return remoteSha === fetchedSha
+}
+
+/**
+ * The branch heads the remote holds now.
+ *
+ * This is the remote's own answer, taken from the remote rather than from the
+ * local refs, and it is what the fetched ref is compared with. A branch the
+ * remote does not hold is not there, and a branch it holds at another commit
+ * is there at that commit.
+ */
+export function remoteBranchHeads(repo) {
+  const result = git(['ls-remote', '--heads', 'origin'], repo)
+  if (!result.ok) return null
+  const heads = new Map()
+  for (const line of result.stdout.split('\n')) {
+    const [sha, ref] = line.split('\t')
+    if (!sha || !ref) continue
+    if (!ref.startsWith('refs/heads/')) continue
+    heads.set(ref.slice('refs/heads/'.length), sha)
   }
-  if (kind === REGENERABLE_PROOF.generatedFile) {
-    return tracked.has('apps/web/wrangler.jsonc') ? kind : null
-  }
-  if (kind === REGENERABLE_PROOF.syncedAssets) {
-    return tracked.has('scripts/sync-assets.mjs') ? kind : null
-  }
-  if (kind === REGENERABLE_PROOF.pinnedRuntime) {
-    return tracked.has('scripts/setup-source-contract-tests.mjs') ? kind : null
-  }
-  const relative = String(entry).replace(/\/+$/u, '')
-  const producer = packageProducer(worktreePath, relative, tracked)
-  if (!producer) return null
-  const scripts = producer.scripts ?? {}
-  if (scripts.build || scripts.typecheck) return kind
-  return null
+  return heads
 }
 
 /**
@@ -255,14 +346,17 @@ function fetchOrigin(repo) {
  * A fact that cannot be read is reported as the pessimistic answer, so an
  * unreadable checkout is refused rather than reused.
  */
-export function worktreesOf(repo, { refresh = false } = {}) {
+export function worktreesOf(repo, { refresh = false, rebuildDigests = {} } = {}) {
   // The origin freshness check is only as fresh as the last fetch. Refreshing
   // is opt-in, because it writes remote-tracking refs; without it the report
   // uses the last fetched state and refuses anything it cannot prove.
   const fetch = refresh ? fetchOrigin(repo) : { requested: false, ok: false, error: null }
   const listed = git(['worktree', 'list', '--porcelain'], repo)
   if (!listed.ok) return { worktrees: [], fetch }
-  const tracked = trackedFiles(repo)
+  // The remote's current branch heads, asked once. This is the remote's own
+  // state; the local refs are compared with it below, so a ref that is behind
+  // the remote cannot stand in for it.
+  const remoteHeads = fetch.ok ? remoteBranchHeads(repo) : null
   const entries = []
   let current = null
   for (const line of listed.stdout.split('\n')) {
@@ -287,42 +381,38 @@ export function worktreesOf(repo, { refresh = false } = {}) {
       const localChanges = status.ok ? status.stdout !== '' : true
       const ignored = ignoredPaths(entry.path)
       const branch = entry.branch ?? null
-      const origin = branch
+      // The remote is asked what it holds, once, and the answer is the commit
+      // the decision is made against. A remote-tracking ref can outlive the
+      // branch it points at, and it can also be behind a branch that has since
+      // moved, so the fetched ref is compared with what the remote says now:
+      // only a ref that *is* the remote's current commit speaks for the remote.
+      const remoteSha = branch && remoteHeads ? (remoteHeads.get(branch) ?? null) : null
+      const fetched = branch
         ? git(['rev-parse', '--verify', `refs/remotes/origin/${branch}`], repo)
         : { ok: false, stdout: '' }
+      const fetchedSha = fetched.ok ? fetched.stdout : null
+      const bound = originIsBound(remoteSha, fetchedSha)
       const containsHead =
-        origin.ok && entry.head
-          ? git(['merge-base', '--is-ancestor', entry.head, `refs/remotes/origin/${branch}`], repo)
-              .ok
+        bound && entry.head
+          ? git(['merge-base', '--is-ancestor', entry.head, fetchedSha], repo).ok
           : false
-      // A remote-tracking ref can outlive the branch it points at: the branch
-      // may have been deleted, or the fetch may not carry it. The remote is
-      // asked what it holds now, and a branch the remote does not have is not
-      // current authority for anything.
-      const remoteBranch =
-        branch && fetch.ok
-          ? git(['ls-remote', '--exit-code', 'origin', `refs/heads/${branch}`], repo)
-          : { ok: false, stdout: '' }
-      const published = entry.head
-        ? git(
-            [
-              'for-each-ref',
-              '--contains',
-              entry.head,
-              '--format=%(refname:short)',
-              'refs/remotes/',
-            ],
-            repo
-          ).stdout !== ''
-        : false
-      // The proof for each ignored path: the tracked tooling that produces it,
-      // and the committed sources it would be produced from.
+      // The head is published when the remote's current commit contains it.
+      // A head that only a stale local ref contains is not published by the
+      // remote, and a head the remote's branch no longer contains was
+      // rewritten away.
+      const published = containsHead
+      // The proof for each ignored path: its own bytes, and a rebuild that
+      // reproduces them. The name and the presence of a build script are not
+      // a proof, so they no longer grant one.
       const proofs = {}
+      const contents = {}
       for (const entryPath of ignored ?? []) {
+        const content = ignoredContent(entry.path, entryPath)
+        contents[entryPath] = { ...content, looks: regenerableKind(entryPath) }
         const proof = proofForIgnoredPath(entryPath, {
-          tracked,
+          content,
           trackedClean: !localChanges,
-          worktreePath: entry.path,
+          rebuildDigests,
         })
         if (proof) proofs[entryPath] = proof
       }
@@ -336,14 +426,22 @@ export function worktreesOf(repo, { refresh = false } = {}) {
         ignoredUnknown: ignored === null ? [] : unknownIgnoredPaths(ignored, proofs),
         ignoredUnreadable: ignored === null,
         ignoredProofs: proofs,
+        // What each ignored path holds, with the digest a rebuild would have to
+        // reproduce. The content is named and measured, not assumed.
+        ignoredContent: contents,
         published,
         // A failed fetch leaves the local refs stale, so the origin is not
         // verified and nothing may be judged fresh. A branch the remote does
-        // not hold is the same: the local ref is stale, not authority.
+        // not hold is the same: the local ref is stale, not authority. And a
+        // ref that is not the remote's current commit is stale in the other
+        // direction: the remote has moved since the fetch.
         origin: {
-          fresh: fetch.ok && origin.ok && remoteBranch.ok,
-          containsHead: fetch.ok && remoteBranch.ok && containsHead,
-          remoteBranchPresent: remoteBranch.ok,
+          fresh: fetch.ok && bound,
+          containsHead,
+          remoteBranchPresent: Boolean(remoteSha),
+          remoteSha,
+          fetchedSha,
+          bound,
         },
         sizeBytes: directoryBytes(entry.path),
       }
@@ -368,6 +466,9 @@ export function planWorktrees(worktrees = [], leases = [], options = {}) {
       leases,
       unreadableLeases,
       leaseScanFailed,
+      isProcessAlive: options.isProcessAlive,
+      host: options.host,
+      probe: options.probe,
     }),
   }))
 }
@@ -387,25 +488,39 @@ export function collectReport({
   now = null,
   dockerResources: resources = [],
   runId = null,
+  host = hostname(),
+  probe = processIsAlive,
+  rebuildDigests = {},
 } = {}) {
   const directory = leaseDir ?? leaseDirectory(process.env)
   const evidence = readLeaseEvidence(directory)
   // The records that could not be read, and the records that are not yet valid,
   // are evidence of an unknown owner. They protect everything they may name.
   const unreadableLeases = [...evidence.unreadable, ...evidence.future]
+  // The liveness probe the model is given is bounded: it answers "the owner is
+  // absent" only when the owner names this host, the probe ran, and no process
+  // holds the recorded pid. Every other answer is "alive", because an owner
+  // that cannot be shown to be absent protects what it may name.
+  const isProcessAlive = boundedLivenessProbe({ host, probe })
   const inventory = inventoryOwnedResources({
     runId,
     leases: evidence.leases,
     unreadableLeases,
     dockerResources: resources,
     identity: null,
+    isProcessAlive,
+    host,
+    probe,
   })
   const { worktrees, fetch } = repo
-    ? worktreesOf(repo, { refresh })
+    ? worktreesOf(repo, { refresh, rebuildDigests })
     : { worktrees: [], fetch: { requested: false, ok: false, error: null } }
   const plans = planWorktrees(worktrees, evidence.leases, {
     unreadableLeases,
     leaseScanFailed: evidence.scanError !== null,
+    isProcessAlive,
+    host,
+    probe,
   })
   const report = eligibilityReport({
     resources: inventory.resources,
