@@ -369,4 +369,106 @@ describe('CP #41 agent profile projection consumer', () => {
     if (second.ok) throw new Error('expected the incompatible target to be refused')
     expect(second.blocker).toBe('profile_incompatible')
   })
+  test('a deferred reader cannot turn an authorization for one version into a success for another', async () => {
+    const requestedPin = { id: approvedPin.id, version: '4', revision: 1 }
+    const mutating: AgentProfileCatalogPort = {
+      async readProfileVersion(input) {
+        // The caller mutates the pin it passed in while the lookup is in flight.
+        requestedPin.version = '5'
+        return catalogRows.find(
+          (row) =>
+            row.profileId === input.profileId &&
+            row.version === input.version &&
+            row.revision === input.revision
+        )
+      },
+    }
+    const outcome = await authorizeAgentProfileChange({
+      identity,
+      currentPin: approvedPin,
+      requestedPin,
+      authorization: {
+        authorizedBy: 'svc_agent-hq',
+        authorizedAt: '2026-09-25T11:59:00.000Z',
+        approvedPin: { id: approvedPin.id, version: '4', revision: 1 },
+      },
+      catalog: mutating,
+      decidedAt: checkedAt,
+    })
+    expect(outcome.ok).toBe(true)
+    if (!outcome.ok) throw new Error('expected the authorized version to be applied')
+    // The authorization was for version 4, so version 4 is what may be applied.
+    expect(outcome.pin.version).toBe('4')
+    expect(outcome.audit.requestedPin.version).toBe('4')
+    expect(outcome.audit.previousPin.version).toBe('3')
+  })
+
+  test('never returns a forbidden field from the caller', async () => {
+    const identityWithExtras = { ...identity, secret: 'do-not-serialize' }
+    const pinWithExtras = { ...approvedPin, secret: 'do-not-serialize' }
+    const resolution = await resolveAgentProfileExecution({
+      identity: identityWithExtras,
+      pin: pinWithExtras,
+      catalog: catalog(),
+      checkedAt,
+    })
+    expect(JSON.stringify(resolution)).not.toContain('do-not-serialize')
+    expect(Object.keys(resolution.readModel.identity).toSorted()).toEqual([
+      'controlPlaneAgentId',
+      'id',
+    ])
+    expect(Object.keys(resolution.readModel.pin).toSorted()).toEqual(['id', 'revision', 'version'])
+
+    const refused = await authorizeAgentProfileChange({
+      identity: identityWithExtras,
+      currentPin: pinWithExtras,
+      requestedPin: pinWithExtras,
+      authorization: undefined,
+      catalog: catalog(),
+      decidedAt: checkedAt,
+    })
+    expect(JSON.stringify(refused)).not.toContain('do-not-serialize')
+    expect(Object.keys(refused.requestedPin).toSorted()).toEqual(['id', 'revision', 'version'])
+
+    const applied = await authorizeAgentProfileChange({
+      identity: identityWithExtras,
+      currentPin: pinWithExtras,
+      requestedPin: { ...pinWithExtras, version: '4' },
+      authorization: {
+        authorizedBy: 'svc_agent-hq',
+        authorizedAt: '2026-09-25T11:59:00.000Z',
+        approvedPin: { id: approvedPin.id, version: '4', revision: 1 },
+      },
+      catalog: catalog(),
+      decidedAt: checkedAt,
+    })
+    expect(JSON.stringify(applied)).not.toContain('do-not-serialize')
+    if (!applied.ok) throw new Error('expected the authorized change to be applied')
+    expect(Object.keys(applied.pin).toSorted()).toEqual(['id', 'revision', 'version'])
+    expect(Object.keys(applied.audit.previousPin).toSorted()).toEqual(['id', 'revision', 'version'])
+    expect(Object.keys(applied.audit.requestedPin).toSorted()).toEqual([
+      'id',
+      'revision',
+      'version',
+    ])
+  })
+
+  test('never returns a mutable alias of the caller objects', async () => {
+    const pin = { id: approvedPin.id, version: '3', revision: 1 }
+    const localIdentity = { controlPlaneAgentId: identity.controlPlaneAgentId, id: identity.id }
+    const resolution = await resolveAgentProfileExecution({
+      identity: localIdentity,
+      pin,
+      catalog: catalog(),
+      checkedAt,
+    })
+    expect(resolution.readModel.pin).not.toBe(pin)
+    expect(resolution.readModel.identity).not.toBe(localIdentity)
+    expect(resolution.decision).not.toBe(resolution.readModel)
+    expect(resolution.readModel.pin).not.toBe(resolution.decision.pin)
+    pin.version = '9'
+    localIdentity.id = 'mutated'
+    expect(resolution.readModel.pin.version).toBe('3')
+    expect(resolution.readModel.identity.id).toBe(identity.id)
+  })
 })

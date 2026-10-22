@@ -10,6 +10,12 @@
  * The read model produced here is not an execution authorization. It says
  * whether the exact saved pin is currently available and what to do about it
  * when it is not.
+ *
+ * Every value that leaves this module is a copy of the allowed fields only. The
+ * catalog read is asynchronous, so the caller's objects are snapshotted before
+ * the first await: a caller that mutates the identity, pin or authorization it
+ * passed in during that window cannot change what is resolved, what is
+ * authorized, or what is returned.
  */
 
 import {
@@ -87,24 +93,27 @@ export async function resolveAgentProfileExecution(input: {
   catalog: AgentProfileCatalogPort
   checkedAt: string
 }): Promise<AgentProfileResolution> {
+  // Snapshot the caller's identity and pin before the first await.
+  const identity = snapshotIdentity(input.identity)
+  const pin = snapshotPin(input.pin)
   let state: ExecutionProfileState
   try {
     const entry = await input.catalog.readProfileVersion({
-      profileId: input.pin.id,
-      version: input.pin.version,
-      revision: input.pin.revision,
+      profileId: pin.id,
+      version: pin.version,
+      revision: pin.revision,
     })
     state = resolveAgentProfileState(entry)
   } catch {
     state = 'unavailable'
   }
   const readModel: AgentProfileExecutionReadModel = {
-    identity: input.identity,
-    pin: input.pin,
+    identity,
+    pin,
     state,
     checkedAt: input.checkedAt,
   }
-  return { readModel, decision: decideExecutionProfileAdmission(readModel) }
+  return { readModel, decision: decisionFor(readModel) }
 }
 
 /** The authorization that permits one exact profile pin change. */
@@ -156,62 +165,104 @@ export async function authorizeAgentProfileChange(input: {
   catalog: AgentProfileCatalogPort
   decidedAt: string
 }): Promise<AgentProfileChangeOutcome> {
+  // Snapshot every caller-supplied value before the first await. A mutation of
+  // the caller's objects during the catalog read must not turn an authorization
+  // for one version into a success for another.
+  const identity = snapshotIdentity(input.identity)
+  const currentPin = snapshotPin(input.currentPin)
+  const requestedPin = snapshotPin(input.requestedPin)
+  const authorization = snapshotAuthorization(input.authorization)
   const unapproved = (): AgentProfileChangeOutcome => {
-    const readModel: AgentProfileExecutionReadModel = {
-      identity: input.identity,
-      pin: input.requestedPin,
+    const decision = decisionFor({
+      identity,
+      pin: snapshotPin(requestedPin),
       state: 'unapproved',
       checkedAt: input.decidedAt,
-    }
-    const decision = decideExecutionProfileAdmission(readModel)
+    })
     if (decision.action !== 'block') throw new Error('AGENT_PROFILE_CHANGE_NOT_BLOCKED')
     return {
       ok: false,
       blocker: decision.blocker,
-      remediation: decision.remediation,
-      requestedPin: input.requestedPin,
+      remediation: { ...decision.remediation },
+      requestedPin: snapshotPin(requestedPin),
     }
   }
-  const authorization = input.authorization
   if (authorization === undefined) return unapproved()
-  if (!pinsMatch(authorization.approvedPin, input.requestedPin)) return unapproved()
+  if (!pinsMatch(authorization.approvedPin, requestedPin)) return unapproved()
   let state: ExecutionProfileState
   try {
     const entry = await input.catalog.readProfileVersion({
-      profileId: input.requestedPin.id,
-      version: input.requestedPin.version,
-      revision: input.requestedPin.revision,
+      profileId: requestedPin.id,
+      version: requestedPin.version,
+      revision: requestedPin.revision,
     })
     state = resolveAgentProfileState(entry)
   } catch {
     state = 'unavailable'
   }
-  const readModel: AgentProfileExecutionReadModel = {
-    identity: input.identity,
-    pin: input.requestedPin,
+  const decision = decisionFor({
+    identity,
+    pin: snapshotPin(requestedPin),
     state,
     checkedAt: input.decidedAt,
-  }
-  const decision = decideExecutionProfileAdmission(readModel)
+  })
   if (decision.action !== 'execute') {
     return {
       ok: false,
       blocker: decision.blocker,
-      remediation: decision.remediation,
-      requestedPin: input.requestedPin,
+      remediation: { ...decision.remediation },
+      requestedPin: snapshotPin(requestedPin),
     }
   }
   return {
     ok: true,
-    pin: input.requestedPin,
+    pin: snapshotPin(requestedPin),
     audit: {
-      agentId: input.identity.id,
-      previousPin: input.currentPin,
-      requestedPin: input.requestedPin,
+      agentId: identity.id,
+      previousPin: snapshotPin(currentPin),
+      requestedPin: snapshotPin(requestedPin),
       authorizedBy: authorization.authorizedBy,
       authorizedAt: authorization.authorizedAt,
       decidedAt: input.decidedAt,
     },
+  }
+}
+
+/**
+ * The decision for one read model, with its own copies of the pin and the
+ * remediation so that no two results share a mutable object.
+ */
+function decisionFor(readModel: AgentProfileExecutionReadModel): ExecutionProfileDecision {
+  const decision = decideExecutionProfileAdmission(readModel)
+  return decision.action === 'execute'
+    ? { action: 'execute', pin: snapshotPin(decision.pin), reason: decision.reason }
+    : {
+        action: 'block',
+        blocker: decision.blocker,
+        pin: snapshotPin(decision.pin),
+        remediation: { ...decision.remediation },
+      }
+}
+
+/** The allowed identity fields, copied. */
+function snapshotIdentity(identity: AgentExecutionIdentity): AgentExecutionIdentity {
+  return { controlPlaneAgentId: identity.controlPlaneAgentId, id: identity.id }
+}
+
+/** The allowed pin fields, copied. */
+function snapshotPin(pin: ExecutionProfilePin): ExecutionProfilePin {
+  return { id: pin.id, version: pin.version, revision: pin.revision }
+}
+
+/** The allowed authorization fields, copied. */
+function snapshotAuthorization(
+  authorization: AgentProfileChangeAuthorization | undefined
+): AgentProfileChangeAuthorization | undefined {
+  if (authorization === undefined) return undefined
+  return {
+    authorizedBy: authorization.authorizedBy,
+    authorizedAt: authorization.authorizedAt,
+    approvedPin: snapshotPin(authorization.approvedPin),
   }
 }
 
