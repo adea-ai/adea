@@ -1,9 +1,16 @@
 # Cache correctness and reuse qualification (adea-ai/adea#1565)
 
-Repository `adea-ai/adea`, read and measured at `origin/main` `d3c24c1c1960ea04692eefae9b827de0dd9e0d0d`
-("fix(deps): update dependency @adea-ai/ui to v0.146.0 (#1558)"), 2026-10-21 20:25:14 -0400. Branch
-`feat/1565-cache-reuse-qualification`, one commit on top of that base. Toolchain: `bun 1.4.3`, `node 24.21.0`,
-`darwin-arm64`, the repository's own pins.
+Repository `adea-ai/adea`. Branch `feat/1565-cache-reuse-qualification`, cut from `origin/main`
+`d3c24c1c1960ea04692eefae9b827de0dd9e0d0d` ("fix(deps): update dependency @adea-ai/ui to v0.146.0
+(#1558)"), the commit `main` carried when the branch was cut. The branch is **four commits over that
+base** (`2651acbf`, `3608d539b`, `659f5be4`, `0498a6c5`), and the measurements below were taken at
+the exact head **`0498a6c507f187e35a7b20145a47bddda7e6cc15`**; the commit that carries this document
+changes only this document.
+
+Toolchain of the measurements: `bun 1.4.3` (the runtime the test runs under), `node 24.21.0` (the
+runtime that executes the wrapper and produces the cached work), `vite-plus 1.3.0` (the client whose
+own output is parsed), `darwin-arm64` — **the repository's own pins, and verified as the versions the
+runs actually use** rather than as the fact that a command answered (§4).
 
 ## 1. What this document is, and what it deliberately does not repeat
 
@@ -26,18 +33,25 @@ The tracker records that the local cache's contract is held by the wrapper's own
 (§A of the map), and that the Actions cache is held by the hosted cold/warm pair (§B). What neither recorded is
 the **correctness** side of the reuse, stated as executable properties:
 
-| #   | Property                                                                                                                                                                                                                       | Where it is qualified                                                                                                                                                                                    |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | The environment key separates every build-relevant identity: the lockfile, the build config, the pinned toolchain (Node, `vite-plus`), the platform and the build-relevant environment. An unrelated variable changes nothing. | `scripts/cache-reuse-qualification.test.ts` — "the environment key separates every build-relevant identity" (key level) and "a plan under a changed identity selects a different directory" (plan level) |
-| 2   | **The directory decides only which entries are visible, never whether an entry is valid.** A source edit inside one dirty state must still miss, a second different edit must miss again, and the same content must hit again. | the same file — "cold then warm: the first run misses, the second hits, and a source edit misses again" (real client)                                                                                    |
-| 3   | Two checkouts of one repository at one commit share the clean directory; a dirty checkout is isolated and does not disturb the shared entry.                                                                                   | the same file — "two checkouts of one repository at one commit share the clean directory; a dirty one does not" (real client)                                                                            |
-| 4   | A cache that cannot be used is refused and the run **falls back** to the plain run instead of failing.                                                                                                                         | the same file — "a cache that cannot be used is refused and the run still succeeds" (real client)                                                                                                        |
-| 5   | No credential-shaped value from the environment reaches the shared cache.                                                                                                                                                      | the same file — "no credential-shaped value from the environment reaches the shared cache" (real client)                                                                                                 |
+| #   | Property                                                                                                                                                                                                                             | Where it is qualified                                                                                                                                                                                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | The environment key separates every build-relevant identity: the lockfile, the build config, the pinned toolchain (Node, `vite-plus`), the platform and the build-relevant environment. An unrelated variable changes nothing.       | `scripts/cache-reuse-qualification.test.ts` — "the environment key separates every build-relevant identity" (key level) and "a plan under a changed identity selects a different directory" (plan level)                                                                                    |
+| 2   | **The directory decides only which entries are visible, never whether an entry is valid.** A source edit inside one dirty state must still miss, a second different edit must miss again, and the same content must hit again.       | the same file — "cold then warm: the first run misses, the second hits, and a source edit misses again" (real client)                                                                                                                                                                       |
+| 3   | Two checkouts of one repository at one commit share the clean directory; a dirty checkout is isolated and does not disturb the shared entry.                                                                                         | the same file — "two checkouts of one repository at one commit share the clean directory; a dirty one does not" (real client)                                                                                                                                                               |
+| 4   | A cache that cannot be used is refused and the run **falls back** to the plain run instead of failing.                                                                                                                               | the same file — "a cache that cannot be used is refused and the run still succeeds" (real client)                                                                                                                                                                                           |
+| 5   | **A run that failed leaves no reusable entry**, so its output is never replayed as a hit.                                                                                                                                            | the same file — "a failed run leaves no reusable entry, so its output is never replayed as a hit" (real client)                                                                                                                                                                             |
+| 6   | No credential-shaped value from the environment reaches the shared cache.                                                                                                                                                            | the same file — "no credential-shaped value from the environment reaches the shared cache" (real client)                                                                                                                                                                                    |
+| 7   | **The qualification runs on the pinned toolchain**, and it does not touch shared repository state: the shared `info/exclude` is never written, no repository-wide worktree prune is used, and a failed setup cleans up after itself. | the same file — "the real cases run on the pinned toolchain, and a different one is not accepted", "a checkout whose worktree step fails is cleaned up anyway", "a checkout whose dependency link fails is cleaned up anyway", "a file the scan cannot read is reported instead of skipped" |
 
 Property 2 is the one the earlier receipts did not establish. The lane evidence §4.7 isolates a **tracked
 modification** into a directory of its own, which shows _isolation_; it does not show what happens when two
 different sources share one directory. The qualification now shows that the entry is keyed by the client's input
 fingerprint: two different sources in the same dirty state are two misses, and the same source is a hit again.
+
+Property 5 is the local boundary's answer to the hosted boundary's open question (§5). It is a property of the
+**local** entry store, exercised with a task that cannot run: the failed run exits non-zero, the next run of a
+task that does run **misses**, and only then does the successful run hit. The hosted analogue is not exercised
+here (§5).
 
 ## 3. The measurement, and that it is not a fixture
 
@@ -47,11 +61,24 @@ this checkout. The hit and miss counts are parsed from the client's **own** `vp 
 parser the hosted proof uses (`scripts/vite-plus-proof.mjs` → `parseVpOutput`, `matchesPattern`). No fake cache,
 no synthetic client and no substituted key took part.
 
+The wrapper and the cached work run under the pinned **Node**, not under Bun's Node-API emulation: the identity
+the cache key records for Node is the version of the runtime that produced the entry.
+
+The disposable checkouts borrow the dependencies of this checkout through a symbolic link, and they keep
+everything they do inside their own temporary directory:
+
+- the borrowed dependencies are excluded from the checkout's status through a **per-run exclusion file outside the
+  repository**, because the repository-wide `.git/info/exclude` belongs to every worktree of this repository;
+- each checkout is removed with a **worktree-scoped** removal, because a repository-wide `git worktree prune`
+  would reach other owners' worktrees;
+- the cleanup is registered **before** the fallible setup steps and runs when one of them fails, so a failed setup
+  leaves neither a checkout nor a worktree registration behind.
+
 One real, small, portable task was used: `orch:types:build` (the `@adea-ai/types` workspace build, one cacheable
 task). The full graph was deliberately not used: the qualification is about the cache's correctness, and the
 15-task graph's behaviour is already recorded in the lane evidence.
 
-The five real sequences, each a fresh disposable cache home and a fresh disposable checkout:
+The six real sequences, each a fresh disposable cache home and a fresh disposable checkout:
 
 | Sequence               | Runs | Observed                                                                                                                                                                                           |
 | ---------------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -60,30 +87,52 @@ The five real sequences, each a fresh disposable cache home and a fresh disposab
 | Identity invalidation  | 5    | one more build-relevant variable at the same commit and a clean checkout: `0/1`; the original identity: `1/1`; a changed lockfile: `0/1`; a changed build config: `0/1`; the original again: `1/1` |
 | Worktree isolation     | 4    | the second checkout at the same commit: `1/1` (the shared entry is reused); a dirty checkout: `0/1` in its own directory; the clean checkout again: `1/1` (the shared entry was untouched)         |
 | Safe failure           | 2    | with a symlinked component on the cache path the shared cache is refused (`vp-local-run: … no shared cache`) and the run still succeeds, with no cache hit                                         |
-| Credential non-leakage | 1    | with `BUN_INSTALL_TOKEN` and `NPM_CONFIG_AUTHSRC` set to a known value, that value appears nowhere under the cache home — not in a path, a file name or a file's bytes                             |
+| Failed run             | 3    | a task that cannot run exits non-zero; the same identity with a task that does run is `0/1`; the successful run is then `1/1`                                                                      |
+| Credential non-leakage | 1    | with `BUN_INSTALL_TOKEN` and `NPM_CONFIG_AUTHSRC` set to known values in the shapes those variables really take, neither value appears under the cache home — see the bound in §5                  |
+
+The non-leakage row is bounded, and the bound is part of the claim: the scan reads **every regular file below
+4,000,000 bytes** under the cache home, and a larger file, a symbolic link or a file the platform refuses to read
+is **reported** rather than skipped, so an incomplete scan cannot read as a clean one. The scan is not a proof for
+the artifacts it did not read, and the run states which they were.
 
 ## 4. Exact checks
 
-Every command below was run on this branch at the head named in §1, with the pinned toolchain.
+Every command below was run on this branch at the head named in §1 (`0498a6c5`), with the pinned toolchain.
 
-| Command                                                                                                                                                                             | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bun test scripts/cache-reuse-qualification.test.ts scripts/vp-local-run.test.ts scripts/vite-plus-proof.test.ts scripts/no-neon-cache-scope.test.ts scripts/toolchain-pin.test.ts` | **121 pass, 0 fail, 1081 assertions across 5 files** (39.10 s)                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `bun test scripts/cache-reuse-qualification.test.ts` alone                                                                                                                          | **7 pass, 0 fail, 45 assertions** (23.02 s)                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `bunx oxfmt --check scripts/cache-reuse-qualification.test.ts docs/evidence/cache-reuse-qualification-2026-10-21.md`                                                                | `All matched files use the correct format.`                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `bunx oxlint --deny-warnings scripts/cache-reuse-qualification.test.ts`                                                                                                             | no findings                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `bun run typecheck` (`vp run orch:typecheck`)                                                                                                                                       | **fails in `apps/web` only, and not because of this change**: this checkout's installed `@adea-ai/ui` is 0.142.4 while the base pins 0.146.0 (the last commit on `main`), so `src/components/workspace-identity-mark.tsx` cannot resolve `@adea-ai/ui/components/composites/icon-picker`. The workspace typecheck tasks do not cover `scripts/`, and this change adds a `scripts/` test and a `docs/` document only. Clearing it needs a dependency install, and none was run |
-| `bun node_modules/typescript6/lib/tsc.js --ignoreConfig --noEmit --strict … scripts/cache-reuse-qualification.test.ts`                                                              | two `TS7016` diagnostics, for the untyped `./vp-local-run.mjs` and `./vite-plus-proof.mjs` imports. The same check reports four `TS2345` diagnostics on the existing `scripts/vite-plus-proof.test.ts`, and no workspace typecheck covers `scripts/`, so the new file follows the scope's existing pattern rather than adding a gate                                                                                                                                          |
+| Command                                                                                                                                                                             | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bun test scripts/cache-reuse-qualification.test.ts scripts/vp-local-run.test.ts scripts/vite-plus-proof.test.ts scripts/no-neon-cache-scope.test.ts scripts/toolchain-pin.test.ts` | **126 pass, 0 fail, 1098 assertions across 5 files** (95.52 s)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `bun test scripts/cache-reuse-qualification.test.ts` alone                                                                                                                          | **12 pass, 0 fail, 62 assertions** (71.17 s)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `bunx oxfmt --check scripts/cache-reuse-qualification.test.ts docs/evidence/cache-reuse-qualification-2026-10-21.md`                                                                | `All matched files use the correct format.`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `bunx oxlint --deny-warnings scripts/cache-reuse-qualification.test.ts`                                                                                                             | no findings                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `bun run typecheck` (`vp run orch:typecheck`)                                                                                                                                       | **exit 0, 33/33 tasks.** The typecheck needs the dependencies the lockfile pins: an earlier receipt recorded this command failing in `apps/web` only, which was a **stale installed `@adea-ai/ui` (0.142.4) against the pinned 0.146.0** in that environment, with no dependency install run. In this checkout the installed version is the pinned 0.146.0 and the command passes. A checkout that has not installed the pinned dependencies cannot produce this result, and must not report it. The workspace typecheck tasks do not cover `scripts/`, and this change adds a `scripts/` test and a `docs/` document only |
+| `bun node_modules/typescript6/lib/tsc.js --ignoreConfig --noEmit --strict … scripts/cache-reuse-qualification.test.ts`                                                              | the same two `TS7016` diagnostics for the untyped `./vp-local-run.mjs` and `./vite-plus-proof.mjs` imports. The same check reports four `TS2345` diagnostics on the existing `scripts/vite-plus-proof.test.ts`, and no workspace typecheck covers `scripts/`, so the new file follows the scope's existing pattern rather than adding a gate                                                                                                                                                                                                                                                                               |
 
-The seven qualification cases are conditional on the pinned client and the pinned toolchain being present, and
-they are **skipped visibly** without them, exactly as the transfer qualification does. The two key-level cases
-always run.
+The twelve qualification cases are conditional on the pinned client **and the pinned toolchain** being effective,
+and they are **skipped visibly** without them, exactly as the transfer qualification does. The two key-level
+cases always run. "Pinned" now means the versions the runs actually use — the Node that executes the wrapper, the
+Bun that runs the test, and the installed client — and a mismatch is reported rather than assumed away.
 
 ## 5. What this qualification does not claim
 
 - **The hosted GitHub Actions caches are not re-qualified here.** The cold/warm pair for the current graph stays
-  where it is, in the lane evidence §4.8; the Actions key's own invalidation is a property of the key, and the
-  Actions scope's contract is the proof script's own test suite.
+  where it is, in the lane evidence §4.8.
+- **The hosted reuse semantics are not the local ones.** The Actions task-cache key is run-unique
+  (`github.run_id`, `github.run_attempt`) and reuse comes from a **prefix restore**, while this qualification
+  models the local exact-environment-key semantics. The hosted analogue of property 2 — a stale directory restored
+  from a prefix that the client must miss — is therefore **not exercised here**.
+- **The hosted keys' own invalidation is not covered by any in-repository test.** The Actions key is a workflow
+  string, and the Vite+ cache key is computed by the pinned Code Foundry setup action in another repository.
+  `scripts/vite-plus-proof.test.ts` covers the output parser, the graph expectation, the argument parser, the dist
+  manifest and the proof CLI — **not** a hosted cache key. An earlier receipt of this document claimed that the
+  Actions key's own invalidation was covered by that suite; that claim was unsubstantiated and is withdrawn.
+- **The hosted cache transport and lifecycle are not exercised.** The Actions cache upload/restore transport, the
+  hosted eviction and the hosted size limits are untouched here. The hosted lane is also branch-bound and
+  billing-conditional, and this pull request's paths are outside its `pull_request` filter, so the hosted lane does
+  not run on it at all.
+- **The failed-output property is the local boundary's.** Property 5 is exercised against the local entry store.
+  A hosted `actions/cache/save` step is skipped by a failed job, and the hosted analogue of the property is not
+  exercised here.
 - **The path-embedding task is not repeated.** `apps/web build` embeds the absolute path of the checkout that
   built it, so it is keyed per checkout and is rebuilt under a second checkout; the lane evidence §4.7 measured
   exactly that (14 of 15 hits, the single miss being that task). The qualification above uses a portable task on
@@ -95,8 +144,10 @@ always run.
 - **No cache was purged, and no shared or hosted cache was deleted.** Every cache home in this qualification was
   disposable, created by the run and removed with it.
 - **No credential was read, created or used**, and no secret store was inspected. The only credential-shaped
-  values in this qualification are synthetic strings the test itself supplies, and the test proves they do not
-  reach the cache.
+  values in this qualification are synthetic values the test itself supplies, in the shapes those variables really
+  take: a token for `BUN_INSTALL_TOKEN` and a URL with the token embedded in it for `NPM_CONFIG_AUTHSRC`. The
+  non-leakage claim is **bounded to the artifacts the scan reads** (every regular file below 4,000,000 bytes under
+  the cache home); anything the scan did not read is reported by the run, and the claim is not made for it.
 - **No release or CI gate changed.** The two cache workflows are untouched, and the qualification adds a test file
   and this document only.
 - **Nothing here qualifies a deployed, hosted or production cache**, and no timing, load or cutover claim is made.
@@ -109,12 +160,15 @@ always run.
 - The **authentication, session and permission reads** stay cache-disabled and belong to the separate routing
   tracker (adea-ai/adea#1562), not to this issue.
 - The **worktree consolidation** is a separate scope (adea-ai/adea#1566) and is not touched here; this
-  qualification used disposable worktrees and removed them.
+  qualification used disposable worktrees and removed them with worktree-scoped removals.
+- The **hosted invalidation and replay questions** this document lists in §5 are open questions about the hosted
+  boundary, not measurements this qualification can make.
 
 ## 7. Handoff
 
-- The qualification is one new test file and one new evidence document, on a branch one commit over the current
-  `origin/main` `d3c24c1c1`.
+- The qualification is one new test file and one new evidence document, on a branch **four commits over** the
+  `origin/main` commit `d3c24c1c1` the branch was cut from. The code was measured at `0498a6c5`; the commit that
+  carries this document changes only this document.
 - The inventory this document deliberately does not repeat is in the fleet's cache acceptance gap map and in
   `docs/evidence/vp-local-cache-lane-e-2026-10-20.md`; this document's §2 names exactly which property of each
   boundary it adds, and §3 shows the measurement that was not in either.
