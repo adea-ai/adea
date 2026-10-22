@@ -20,7 +20,6 @@ import {
   type RetentionEvaluationInput,
   type TrustedCleanupExecutor,
 } from '../../src/retention-policy'
-import { runRetentionCleanupExecutor } from '../../src/retention-cleanup-executor'
 
 /**
  * The per-category policy contract of M18.02 (#1221).
@@ -30,8 +29,8 @@ import { runRetentionCleanupExecutor } from '../../src/retention-cleanup-executo
  * be reported complete, and the reviewed set is pinned here so that any change
  * to it is an explicit, reviewable diff rather than a silent edit of a data
  * table. The proof is offline: subjects, executors, periods and the clock are
- * disposable fixtures. No database, store, deletion or receipt is involved, and
- * the executor is only asked to refuse before it would reach one.
+ * disposable fixtures. No database, store, deletion or receipt is involved.
+ * The real executor boundary is checked in the required DB integration lane.
  */
 
 /** The reviewed per-category policy, stated independently of the implementation. */
@@ -270,33 +269,6 @@ describe('the retention policy set is total over the categories', () => {
       }
       expect(raised).toBeInstanceOf(RetentionPolicyError)
       expect((raised as RetentionPolicyError).code).toBe(code)
-    }
-  })
-})
-
-describe('the cleanup executor refuses an undefined policy before it reaches a store', () => {
-  test('an inherited category name is refused with a typed code, without a database', async () => {
-    for (const name of INHERITED_PROPERTY_NAMES) {
-      let raised: unknown
-      try {
-        // The database is a stub the executor never reaches: it refuses the
-        // category before it looks at a store, a subject or a transaction.
-        await runRetentionCleanupExecutor({} as never, {
-          anchorAt: ANCHOR,
-          category: name as never,
-          coverageInventory: {},
-          executorId: EXECUTOR,
-          reconciliationOpen: false,
-          stores: [],
-          subjectId: SUBJECT,
-          submit: async () => {},
-          workspaceId: '00000000-0000-4000-8000-000000000000',
-        })
-      } catch (error) {
-        raised = error
-      }
-      expect(raised).toBeInstanceOf(RetentionPolicyError)
-      expect((raised as RetentionPolicyError).code).toBe('invalid_candidate')
     }
   })
 })
