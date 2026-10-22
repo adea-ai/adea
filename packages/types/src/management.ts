@@ -699,11 +699,25 @@ export type ManagementSupport =
   | Readonly<{ state: 'supported' }>
   | Readonly<{ state: 'unsupported'; reason: ManagementUnsupportedReason }>
 
-/** The lane's callable state; never a fabricated grant. */
+/**
+ * The lane's callable state; never a fabricated grant.
+ *
+ * An operation the catalogue does not name is not a grant and not a crash: it
+ * is classified with the same typed reason vocabulary, so a caller that passes
+ * an unknown id (a mistyped route parameter, a stale client, a name inherited
+ * from the prototype) receives a refusal instead of an untyped error. The
+ * membership test is an own-property test, so an inherited name is not an
+ * operation either.
+ */
 export function managementOperationSupport(
   id: ManagementOperationId,
   lane: ManagementLane
 ): ManagementSupport {
+  if (!Object.hasOwn(managementOperations, id))
+    return Object.freeze({
+      state: 'unsupported' as const,
+      reason: 'not_implemented' as const,
+    })
   const state = managementOperations[id].lanes[lane]
   return state === 'supported'
     ? Object.freeze({ state: 'supported' as const })
@@ -712,6 +726,7 @@ export function managementOperationSupport(
 
 /** The lanes that carry a copy of an operation (used by parity checks). */
 export function managementOperationLanes(id: ManagementOperationId): readonly ManagementLane[] {
+  if (!Object.hasOwn(managementOperations, id)) return Object.freeze([])
   return Object.freeze(
     managementLanes.filter((lane) => managementOperations[id].lanes[lane] === 'supported')
   )

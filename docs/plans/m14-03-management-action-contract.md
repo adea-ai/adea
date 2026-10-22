@@ -1,15 +1,22 @@
 # M14.03 management-action contract: #1218 scope in the combined #1230 candidate
 
-- Status: implemented in the combined local review candidate (2026-10-12); not
-  merged or live-qualified.
+- Status: **merged** through PR #1230 (2026-10-12), which carried the #1215
+  shared management surface and the #1218 project, memory-provenance and
+  cleanup work together. The live and native qualification of those paths is
+  still open, so nothing here is a live acceptance claim.
 - Lane: **#1218** — preserve memory provenance/audience and explicit project
   state promotion; preview sensitive/dirty-worktree cleanup.
 - Sibling: **#1215** — route management through shared audited APIs
-  (`feat/issue-1215-management-audit-apis`, commit `8364b2865`, PR #1230).
-- Consolidation: the current local #1230 candidate includes the #1215 shared
+  (`feat/issue-1215-management-audit-apis`, commit `8364b2865`, PR #1230,
+  merged 2026-10-12).
+- Consolidation: the merged #1230 candidate included the #1215 shared
   management surface and the #1218/#1227 project, memory-provenance and cleanup
-  work. No separate #1227 code commit is pending in this candidate. Remote PR
-  #1227 remains an open draft and was not updated by this handoff.
+  work. No separate #1227 code commit was pending in that candidate. Remote PR
+  #1227 was later closed unmerged; its code scope is the scope that #1230
+  merged, and the closed draft is not a publication of it.
+- Parent: **#1176** (M14.03) is a tracking rollup. Its acceptance is the union
+  of the two lanes above; the rollup stays open until every child and the
+  parent's own acceptance are satisfied, and a merged slice does not close it.
 - Contract sources: REQ 022,033,050,052–058,086,087; tests A11,A14,A33,A35;
   reuse gate [#811](https://github.com/adea-ai/adea/issues/811).
 
@@ -100,11 +107,12 @@ not fork the gateway, authorization or audit paths.
   consumption table: `channel_archive_source` and `channels.archive_source`,
   positive `projects.version`, and `management_authority_consumptions` with its
   state enum, checks, workspace foreign key and index.
-- The migration is not on `main` yet, and no migration is renumbered on `main`.
-  Local `test:integration`, migration verification and `db:verify` cover the
-  candidate database state; they do not establish production migration history
-  or live Control Plane qualification. Verify the intended deployment target
-  before any rollout.
+- The migration **is** on `main` now: `0048_graceful_prima` and its snapshot
+  shipped with the merged #1230 candidate, and no migration on `main` was
+  renumbered for it. Local `test:integration`, migration verification and
+  `db:verify` cover the candidate database state; they do not establish
+  production migration history or live Control Plane qualification. Verify the
+  intended deployment target before any rollout.
 - Remote #1227 remains an open draft that contains stacked history. Its code
   scope is represented in this local combined candidate, but this note does
   not update, close or merge that PR.
