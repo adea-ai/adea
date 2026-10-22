@@ -1,4 +1,7 @@
-import { describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import {
   ELIGIBILITY,
@@ -13,6 +16,7 @@ import {
   isRegenerableIgnored,
   livenessOf,
   planWorktreeReuse,
+  physicalPath,
   preservationProof,
   REGENERABLE_PROOF,
   regenerableKind,
@@ -809,6 +813,138 @@ describe('every lease that names a checkout is read', () => {
     expect(plan.decision).toBe(REUSE_DECISION.reuse)
   })
 })
+
+/**
+ * A checkout that is clean, published, and carries a verified origin: the only
+ * question left for the planner is who owns it.
+ */
+const checkoutWorktree = (path: string) => ({
+  path,
+  head: 'abc',
+  branch: 'b',
+  localChanges: false,
+  published: true,
+  origin: { fresh: true, containsHead: true },
+})
+
+/**
+ * A plan for a checkout that is clean, published, and carries a verified
+ * origin, held by one owner recorded at `leasePath`. The owner is present
+ * wherever its lease is filed, so the only question the planner answers is
+ * whether that lease is read as naming this checkout.
+ */
+const planWithOwnerAt = (worktreePath: string, leasePath: string) =>
+  planWorktreeReuse({
+    worktree: checkoutWorktree(worktreePath),
+    leases: [
+      {
+        ...lease({ runId: 'run-live', pid: 2222 }),
+        identity: { ...identity, worktree: leasePath },
+      },
+    ],
+    isProcessAlive: () => true,
+  })
+
+/**
+ * A checkout is identified by where it physically is, not by how it is spelled.
+ *
+ * The regression this covers is a live-ownership bypass: `/tmp` is a symlink
+ * into `/private/tmp` on macOS, so one lease can record a checkout under one
+ * spelling while `git worktree list` reports the other. A literal comparison
+ * answers "a different scope", files the live owner away as somebody else's,
+ * and reports the checkout it holds as reusable. The lease is the ownership
+ * proof, so the comparison has to be made on the physical identity.
+ */
+describe('a checkout is identified by where it is, not by how it is spelled', () => {
+  let root: string
+  let checkout: string
+  let alias: string
+  let loop: string
+
+  beforeAll(() => {
+    root = mkdtempSync(join(tmpdir(), 'adea-reuse-alias-'))
+    checkout = join(root, 'checkout')
+    mkdirSync(checkout)
+    // A second spelling of the same directory. The checkout also carries the
+    // host's own alias when there is one: on macOS `tmpdir()` is
+    // `/var/folders/...`, whose physical location is `/private/var/folders/...`.
+    alias = join(root, 'alias-checkout')
+    symlinkSync(checkout, alias)
+    // A path whose physical identity cannot be established at all: a symlink
+    // that follows itself. Resolving it fails, so it must never be treated as
+    // proof that a scope differs from this checkout.
+    loop = join(root, 'loop')
+    symlinkSync(loop, loop)
+  })
+
+  afterAll(() => {
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test('two spellings of one directory are one physical identity', () => {
+    expect(physicalPath(checkout)).not.toBeNull()
+    expect(physicalPath(checkout)).toBe(physicalPath(alias))
+  })
+
+  test('an owner recorded under another spelling of the checkout still holds it', () => {
+    const plan = planWithOwnerAt(checkout, alias)
+    expect(plan.evidence.matchingLeases.map((entry) => entry.state)).toEqual([LEASE_STATE.active])
+    expect(plan.evidence.preservedScopes).toHaveLength(0)
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.owned)
+  })
+
+  test('a checkout named by its alias is still the checkout an owner holds', () => {
+    const plan = planWithOwnerAt(alias, checkout)
+    expect(plan.evidence.matchingLeases).toHaveLength(1)
+    expect(plan.evidence.preservedScopes).toHaveLength(0)
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.owned)
+  })
+
+  test('an owner recorded under the host path git reports still holds the checkout', () => {
+    // What `git worktree list` reports is the physical path. A lease written
+    // with the path the caller was handed may be the unaliased spelling of it.
+    const plan = planWithOwnerAt(realpathOf(checkout), checkout)
+    expect(plan.evidence.matchingLeases).toHaveLength(1)
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.owned)
+  })
+
+  test('a scope that cannot be located is not set aside as another scope', () => {
+    const plan = planWorktreeReuse({
+      worktree: checkoutWorktree(checkout),
+      leases: [
+        {
+          ...lease({ runId: 'run-unlocatable' }),
+          identity: { ...identity, worktree: loop },
+        },
+      ],
+      isProcessAlive: () => true,
+    })
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.unresolvedLeaseScope)
+    expect(plan.evidence.unresolvedLeaseScopes.map((entry) => entry.scope)).toEqual([loop])
+    // It authorises nothing and it blocks: it is not filed away as another
+    // checkout's scope, and it is not mistaken for an absent owner.
+    expect(plan.evidence.preservedScopes).toHaveLength(0)
+    expect(plan.evidence.matchingLeases).toHaveLength(0)
+  })
+
+  test('a checkout whose own location cannot be established is refused', () => {
+    const plan = planWorktreeReuse({
+      worktree: checkoutWorktree(loop),
+      leases: [],
+    })
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toEqual([REUSE_REFUSAL.uncertain])
+  })
+})
+
+/** A path's physical identity, for a checkout that exists on disk. */
+function realpathOf(path: string) {
+  return physicalPath(path) ?? path
+}
 
 describe('the report carries the ownership evidence end to end', () => {
   test('a removable disposition without a matching lease is not eligible', () => {

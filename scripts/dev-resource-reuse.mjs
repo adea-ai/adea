@@ -36,6 +36,9 @@
 // remove anything remains with the operator who holds it, applied to the
 // eligible items after reading every reason.
 
+import { realpathSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
+
 import {
   CLEANUP_REFUSAL,
   DISK_PRESSURE,
@@ -86,6 +89,9 @@ export const REUSE_REFUSAL = {
   // A lease record that could not be read may name this checkout, so nothing may
   // be done with it.
   uncertainLeaseEvidence: 'uncertain_lease_evidence',
+  // A lease names a scope whose physical location could not be established, so
+  // it may name this checkout and nothing may be done with it.
+  unresolvedLeaseScope: 'unresolved_lease_scope',
 }
 
 /**
@@ -442,6 +448,60 @@ export function inventoryOwnedResources({
 }
 
 /**
+ * The physical identity of a path, or null when it cannot be established.
+ *
+ * Two spellings of one directory are one directory. On macOS `/tmp` is a
+ * symlink into `/private/tmp`, so the same checkout can be recorded as
+ * `/tmp/worktrees/x` by one writer and `/private/tmp/worktrees/x` by another.
+ * Comparing those literals answers "different scopes", which is how a live
+ * owner recorded under one spelling gets filed away as somebody else's scope
+ * while the checkout it holds is reported reusable. A lease is the ownership
+ * proof, so the identity compared has to be the *physical* one: the symlinks
+ * on the way are resolved before two paths are judged the same or different.
+ *
+ * A path that does not exist still has one physical name. The deepest ancestor
+ * that does exist is resolved and the remaining segments are re-attached, so a
+ * checkout that has not been created yet is still compared against the right
+ * directory rather than against nothing.
+ *
+ * A path whose physical identity cannot be established resolves to null. Null
+ * is never equal to itself and never equal to any other path: it is not
+ * evidence that two scopes differ, and it is not evidence that a scope is
+ * absent. The caller fails closed on it, because a scope that cannot be
+ * located may still be the scope in question.
+ *
+ * Only a path that is not there is walked past. A directory that exists but
+ * cannot be read, followed, or otherwise resolved is not walked past: the
+ * symlinks on the way to it are exactly what could not be read, so continuing
+ * would invent an identity that may skip one. That is a fail-closed case and
+ * it resolves to null.
+ */
+export function physicalPath(path) {
+  if (typeof path !== 'string' || path === '') return null
+  // `resolve` makes the answer absolute, so a relative path is judged against
+  // this process's own location rather than against nothing.
+  let current = resolve(path)
+  const missing = []
+  for (;;) {
+    try {
+      const real = realpathSync(current)
+      return missing.length === 0 ? real : join(real, ...missing)
+    } catch (error) {
+      // A path that is not there is not a failed resolution: nothing exists at
+      // that point, so no symlink exists there either, and the segment keeps
+      // its one unambiguous spelling.
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') return null
+      const parent = dirname(current)
+      // Nothing that exists leads to this path, so its physical identity is
+      // unknown rather than merely unconfirmed.
+      if (parent === current || parent === '') return null
+      missing.unshift(current.slice(parent.length).replace(/^[/\\]+/, ''))
+      current = parent
+    }
+  }
+}
+
+/**
  * Decides whether one stale worktree may be reused.
  *
  * The checkout is reused only when every condition holds, and each condition
@@ -493,6 +553,9 @@ export function planWorktreeReuse({
     ownerForeign: null,
     matchingLeases: [],
     preservedScopes: [],
+    // Leases whose scope could not be located on disk. They may name this
+    // checkout, so they are preserved and they protect it.
+    unresolvedLeaseScopes: [],
     unreadableLeaseRecords: [],
     leaseScanFailed,
   }
@@ -502,6 +565,21 @@ export function planWorktreeReuse({
       decision: REUSE_DECISION.refuse,
       reasons: [REUSE_REFUSAL.uncertain],
       reason: 'the checkout could not be read, so nothing may be done with it',
+      evidence,
+    }
+  }
+  // Every lease below is compared with this checkout's *physical* location, so
+  // the checkout's own physical identity is established first. A checkout that
+  // cannot be located cannot be told apart from any other path, so nothing may
+  // be done with it.
+  const checkoutScope = physicalPath(worktree.path)
+  if (checkoutScope === null) {
+    return {
+      path: worktree.path,
+      decision: REUSE_DECISION.refuse,
+      reasons: [REUSE_REFUSAL.uncertain],
+      reason:
+        'the checkout’s physical location could not be established, so it cannot be told apart from any other path',
       evidence,
     }
   }
@@ -551,8 +629,32 @@ export function planWorktreeReuse({
 
   // Every lease that names this checkout is read, and every lease that names
   // something else is preserved rather than discarded.
-  const matching = leases.filter((lease) => lease?.identity?.worktree === worktree.path)
-  const preserved = leases.filter((lease) => lease?.identity?.worktree !== worktree.path)
+  //
+  // The scope is compared by physical identity, not by spelling: on macOS
+  // `/tmp/worktrees/x` and `/private/tmp/worktrees/x` are one checkout, and a
+  // literal comparison would file a live owner away as an unrelated scope
+  // while reporting the checkout it holds as reusable. A lease whose scope
+  // cannot be located is not an unrelated scope either - it may be this one -
+  // so it protects the checkout exactly as an unreadable record does.
+  const matching = []
+  const preserved = []
+  const unresolved = []
+  for (const candidate of leases) {
+    const scope = candidate?.identity?.worktree
+    // A shared or unknown scope names no checkout, so it is preserved and
+    // never authorises anything.
+    if (typeof scope !== 'string' || scope === '') {
+      preserved.push(candidate)
+      continue
+    }
+    const located = physicalPath(scope)
+    if (located === null) {
+      unresolved.push(candidate)
+      continue
+    }
+    if (located === checkoutScope) matching.push(candidate)
+    else preserved.push(candidate)
+  }
   evidence.matchingLeases = matching.map((lease) => ({
     runId: lease?.runId ?? null,
     state: classifyLease(lease, { isProcessAlive }),
@@ -564,6 +666,16 @@ export function planWorktreeReuse({
     state: classifyLease(lease, { isProcessAlive }),
     liveness: livenessOf(lease, { host, probe }),
   }))
+  // A lease whose scope could not be located may name this checkout. It is not
+  // evidence of an absence, so it protects the checkout rather than being set
+  // aside as somebody else's scope.
+  evidence.unresolvedLeaseScopes = unresolved.map((lease) => ({
+    runId: lease?.runId ?? null,
+    scope: lease?.identity?.worktree ?? null,
+  }))
+  if (unresolved.length > 0) {
+    refusals.push(REUSE_REFUSAL.unresolvedLeaseScope)
+  }
   const states = evidence.matchingLeases.map((lease) => lease.state)
   evidence.ownerLive = states.includes(LEASE_STATE.active)
   evidence.ownerUncertain = states.includes(LEASE_STATE.uncertain)
@@ -612,6 +724,10 @@ export function describeRefusals(refusals) {
       )
     } else if (refusal === REUSE_REFUSAL.uncertainLeaseEvidence) {
       parts.push('a lease record that could not be read may name this checkout, so it is protected')
+    } else if (refusal === REUSE_REFUSAL.unresolvedLeaseScope) {
+      parts.push(
+        'a lease names a scope whose physical location could not be established, so it may name this checkout'
+      )
     } else if (refusal === REUSE_REFUSAL.originStale) {
       parts.push('the fetched origin ref does not contain the checkout head')
     } else if (refusal === REUSE_REFUSAL.owned) {

@@ -1,10 +1,10 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ELIGIBILITY, REUSE_DECISION, REUSE_REFUSAL } from './dev-resource-reuse.mjs'
+import { ELIGIBILITY, REUSE_DECISION, REUSE_REFUSAL, physicalPath } from './dev-resource-reuse.mjs'
 import {
   collectReport,
   originIsBound,
@@ -433,6 +433,149 @@ describe('the lease records that could not be read', () => {
     expect(report.unreadableLeaseRecords).toEqual(['broken.json'])
     expect(report.worktrees[0]?.eligibility).toBe(ELIGIBILITY.ineligible)
     expect(report.worktrees[0]?.reasons).toContain(REUSE_REFUSAL.uncertainLeaseEvidence)
+  })
+})
+
+/**
+ * A checkout is planned by its physical location, not by how a lease spelled it.
+ *
+ * `git worktree list` reports the path git resolved, which on macOS is the
+ * physical one (`/private/...`). A lease written earlier carries the path its
+ * caller was handed, which may be the unaliased spelling of the same
+ * directory. Comparing those literals files a live owner away as an unrelated
+ * scope and reports the checkout it holds as eligible. The report inherits the
+ * planner's identity rule, and the preservation proof proves nothing was
+ * scheduled because of it.
+ */
+describe('a live owner is read across the alias a checkout is spelled with', () => {
+  test('a lease that spells the checkout differently still holds it', () => {
+    const { repo, checkout } = tempRepo('alias-plan')
+    const { worktrees } = worktreesOf(repo, { refresh: false })
+    const [planned] = planWorktrees(
+      [{ ...worktrees[0], origin: { fresh: true, containsHead: true } }],
+      [
+        {
+          version: 1,
+          runId: 'run-live',
+          mode: 'disposable',
+          identity: { label: 'l', project: 'p', worktree: checkout },
+          owner: { pid: 2222, hostname: 'host-a', startedAt: '2026-10-21T00:00:00.000Z' },
+          state: 'claimed',
+          createdAt: 0,
+          updatedAt: 0,
+          cleanup: null,
+        },
+      ]
+    )
+    // The checkout git reports and the path the lease carries are two spellings
+    // of one directory, so the lease is read as naming this checkout.
+    expect(physicalPath(planned?.path)).toBe(physicalPath(checkout))
+    expect(planned?.plan.evidence.matchingLeases).toHaveLength(1)
+    expect(planned?.plan.evidence.preservedScopes).toHaveLength(0)
+    expect(planned?.plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(planned?.plan.reasons).toContain(REUSE_REFUSAL.owned)
+  })
+
+  test('a symlink that resolves to the checkout is the checkout', () => {
+    const { root, repo, checkout } = tempRepo('alias-symlink')
+    const alias = join(root, 'link-to-checkout')
+    symlinkSync(checkout, alias)
+    const { worktrees } = worktreesOf(repo, { refresh: false })
+    const [planned] = planWorktrees(
+      [{ ...worktrees[0], origin: { fresh: true, containsHead: true } }],
+      [
+        {
+          version: 1,
+          runId: 'run-live',
+          mode: 'disposable',
+          identity: { label: 'l', project: 'p', worktree: alias },
+          owner: { pid: 2222, hostname: 'host-a', startedAt: '2026-10-21T00:00:00.000Z' },
+          state: 'claimed',
+          createdAt: 0,
+          updatedAt: 0,
+          cleanup: null,
+        },
+      ]
+    )
+    expect(planned?.plan.evidence.matchingLeases).toHaveLength(1)
+    expect(planned?.plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(planned?.plan.reasons).toContain(REUSE_REFUSAL.owned)
+  })
+
+  test('the report calls the checkout ineligible and preserves it', () => {
+    const { root, repo, checkout } = tempRepo('alias-report')
+    const leases = join(root, 'leases')
+    mkdirSync(leases)
+    // The lease records the path the caller was handed. The report reads the
+    // checkout at the path git resolved, and the two are one directory.
+    writeFileSync(
+      join(leases, 'live.json'),
+      JSON.stringify({
+        version: 1,
+        runId: 'run-live',
+        mode: 'disposable',
+        identity: { label: 'l', project: 'p', worktree: checkout },
+        owner: { pid: 2222, hostname: 'host-a', startedAt: '2026-10-21T00:00:00.000Z' },
+        state: 'claimed',
+        createdAt: 0,
+        updatedAt: 0,
+        cleanup: null,
+      })
+    )
+
+    const { report } = collectReport({
+      repo,
+      leaseDir: leases,
+      now: '2026-10-22T00:00:00.000Z',
+    })
+    const [planned] = report.worktrees
+    // The owner is read as holding this checkout, under whichever spelling it
+    // was recorded.
+    expect(planned?.evidence?.matchingLeases).toHaveLength(1)
+    expect(planned?.reasons).toContain(REUSE_REFUSAL.owned)
+    expect(planned?.eligibility).toBe(ELIGIBILITY.ineligible)
+    expect(report.summary.eligibleWorktrees).toBe(0)
+    // Nothing is scheduled: the checkout is preserved, and the proof agrees.
+    expect(report.preservation.ok).toBe(true)
+    expect(
+      report.preservation.preserved.some((item: { path?: string }) => item.path === planned?.path)
+    ).toBe(true)
+  })
+
+  test('a scope that cannot be located leaves the checkout ineligible', () => {
+    const { root, repo } = tempRepo('alias-unresolved')
+    const leases = join(root, 'leases')
+    mkdirSync(leases)
+    // A symlink that follows itself cannot be resolved, so the scope it names
+    // has no established physical identity. It may be this checkout, so it is
+    // not set aside as somebody else's scope.
+    const loop = join(root, 'loop')
+    symlinkSync(loop, loop)
+    writeFileSync(
+      join(leases, 'loop.json'),
+      JSON.stringify({
+        version: 1,
+        runId: 'run-unlocatable',
+        mode: 'disposable',
+        identity: { label: 'l', project: 'p', worktree: loop },
+        owner: { pid: 2222, hostname: 'host-a', startedAt: '2026-10-21T00:00:00.000Z' },
+        state: 'claimed',
+        createdAt: 0,
+        updatedAt: 0,
+        cleanup: null,
+      })
+    )
+
+    const { report } = collectReport({
+      repo,
+      leaseDir: leases,
+      now: '2026-10-22T00:00:00.000Z',
+    })
+    const [planned] = report.worktrees
+    expect(planned?.eligibility).toBe(ELIGIBILITY.ineligible)
+    expect(planned?.reasons).toContain(REUSE_REFUSAL.unresolvedLeaseScope)
+    expect(report.summary.eligibleWorktrees).toBe(0)
+    expect(report.preservation.ok).toBe(true)
   })
 })
 
