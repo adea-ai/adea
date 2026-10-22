@@ -487,7 +487,7 @@ source comments so an inline disable cannot silently bypass these checks.
 - Use least-privilege permissions and pin action versions consistently with the template.
 - Keep CI, Test, Security, CodeQL, Draft Guard, Draft PR, Release PR, and Release concerns separated.
 - Security and CodeQL may skip when repository visibility or GitHub plan support does not permit them. Do not make an unavailable check required.
-- Workspace tasks run through Vite+ (`vp run`, ADR 0015). Turborepo Remote Caching is not used (`turbo_remote: false` in `.github/code-foundry.yml`); do not add Vercel deployment behavior or a remote cache just to enable caching.
+- Optional Turborepo Remote Caching uses `TURBO_TOKEN` and `TURBO_TEAM`; do not add Vercel deployment behavior just to enable caching.
 - Update branch protection when adding or renaming required job checks; verify the actual GitHub status context.
 
 <!-- /code-foundry-managed: github-workflows-and-configuration -->

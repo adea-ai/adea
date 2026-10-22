@@ -2,10 +2,10 @@ name: Vite+ Cache Proof
 
 # Opt-in, non-required proof lane for the Vite+ task cache on the real `orch:build`
 # graph (vite.config.ts, scripts/orch-graph.mjs). The committed code-foundry.yml
-# already sets `monorepo_tool: vite-plus` and `runtime_ref: v1.48.1`, so the required
+# already sets `monorepo_tool: vite-plus` and `runtime_ref: v1.48.4`, so the required
 # lanes run the same graph; this lane only adds the evidence that the cache saves
 # and restores on a fresh runner. It consumes the Code Foundry setup action at the
-# exact published v1.48.1 commit, runs on pushes to its own branch, and adds no
+# exact published v1.48.4 commit, runs on pushes to its own branch, and adds no
 # secrets, remote cache, or deployment: the cache is the repository's GitHub
 # Actions cache.
 #
@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      CODE_FOUNDRY_VERSION: 1.48.1
-      CODE_FOUNDRY_SHA: e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d
+      CODE_FOUNDRY_VERSION: 1.48.4
+      CODE_FOUNDRY_SHA: 6b1c536bec00b7044da91a15813e61d5d5063ce7
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -74,15 +74,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r5-v1.48.1"
+          cache_path="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r5-v1.48.4"
           case "$cache_path" in
             "$RUNNER_TEMP"/*) ;;
             *) echo "Vite+ cache path is outside RUNNER_TEMP" >&2; exit 1 ;;
           esac
           printf 'VITE_CACHE_PATH=%s\n' "$cache_path" >> "$GITHUB_ENV"
-      - name: Setup with Code Foundry v1.48.1
+      - name: Setup with Code Foundry v1.48.4
         id: code-foundry-setup
-        uses: 0xPlayerOne/code-foundry/.github/actions/setup@e96e7bdf8c8d5c5074a848813d1ce71954ecdb0d
+        uses: 0xPlayerOne/code-foundry/.github/actions/setup@6b1c536bec00b7044da91a15813e61d5d5063ce7
         with:
           install: 'true'
           cache-build: 'false'
@@ -134,7 +134,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r5-v1.48.1"
+          expected="$RUNNER_TEMP/adea-vite-plus-proof-cache-orch-r5-v1.48.4"
           test "$VITE_CACHE_PATH" = "$expected"
           printf '%s\n' "$CODE_FOUNDRY_VITE_CACHE_PATHS" | grep -Fqx "$expected"
           test -d "$VITE_CACHE_PATH"

@@ -141,7 +141,7 @@ jobs:
     if: >-
       github.event.pull_request.draft == false &&
       needs.availability.outputs.state == 'configured'
-    uses: 0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.48.1
+    uses: 0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.48.4
     permissions:
       contents: read
       deployments: write

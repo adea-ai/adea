@@ -99,7 +99,7 @@ describe('cloudflare-preview.yml outcomes', () => {
   test('the deploy job is the unchanged shared workflow with the credentials, and only it', () => {
     const preview = workflow.jobs.preview
     expect(preview.uses).toBe(
-      '0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.48.1'
+      '0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.48.4'
     )
     expect(preview.with).toEqual({
       mode: 'preview',
