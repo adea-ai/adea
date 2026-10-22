@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import type { ApiRuntimeNode } from '@adea-ai/api-client'
+
 import { hostChoiceCopy, hostChoiceHealthCopy } from '../../src/self-hosted-connection-model'
 import {
   applyHostRename,
@@ -10,6 +12,28 @@ import {
 } from '../../src/self-hosted-host-operations'
 
 const src = join(import.meta.dir, '../../src')
+
+/** A host as the list holds it: the rename notice reads its id and its name. */
+function hostNode(overrides: Partial<ApiRuntimeNode>): ApiRuntimeNode {
+  return {
+    id: 'host-1',
+    controlPlaneRuntimeNodeRefId: 'rnr_host_1',
+    kind: 'remote_host',
+    displayName: 'Home server',
+    health: 'healthy',
+    pairingState: 'paired',
+    lastProofAt: '2026-10-07T06:00:00.000Z',
+    deviceOnline: { state: 'not_applicable' },
+    hostReachability: {
+      state: 'unknown',
+      dependency: 'control_plane.runtime_connection_discovery.host_reachability',
+    },
+    platform: 'Linux 6.1',
+    softwareVersion: '0.20.0',
+    lastSeenAt: '2026-10-07T06:00:00.000Z',
+    ...overrides,
+  }
+}
 
 /**
  * The mounted path, not the model.
@@ -72,7 +96,7 @@ describe('the mounted self-hosted host actions', () => {
 })
 
 describe('the mounted rename', () => {
-  test('renames, re-reads the host list, and then reports the new name', async () => {
+  test('renames, re-reads the host list, and then reports the name the list shows', async () => {
     const order: string[] = []
     await applyHostRename({
       renameHost: async (hostId, displayName) => {
@@ -82,6 +106,7 @@ describe('the mounted rename', () => {
       displayName: 'workshop box',
       refreshHosts: async () => {
         order.push('refresh')
+        return [hostNode({ id: 'host-1', displayName: 'workshop box' })]
       },
       notify: (notice) => {
         order.push(`notice:${notice.tone}:${notice.title}`)
@@ -89,6 +114,82 @@ describe('the mounted rename', () => {
     })
     // The list read decides what is true, so the refresh happens before the notice.
     expect(order).toEqual(['rename:host-1:workshop box', 'refresh', 'notice:success:Host renamed'])
+  })
+
+  test('the name the list shows is the name the notice reports', async () => {
+    const notices: { tone: string; title: string; text: string }[] = []
+    await applyHostRename({
+      renameHost: async () => undefined,
+      hostId: 'host-1',
+      displayName: 'workshop box',
+      refreshHosts: () => [hostNode({ id: 'host-1', displayName: 'workshop box' })],
+      notify: (notice) => notices.push(notice),
+    })
+    expect(notices).toHaveLength(1)
+    expect(notices[0]?.tone).toBe('success')
+    expect(notices[0]?.text).toContain('Now shown as workshop box.')
+  })
+
+  test('a name the list does not show is never reported as shown', async () => {
+    const notices: { tone: string; title: string; text: string }[] = []
+    await applyHostRename({
+      renameHost: async () => undefined,
+      hostId: 'host-1',
+      displayName: 'workshop box',
+      // A concurrent change: the list shows another name now.
+      refreshHosts: () => [hostNode({ id: 'host-1', displayName: 'someone elses box' })],
+      notify: (notice) => notices.push(notice),
+    })
+    expect(notices).toHaveLength(1)
+    expect(notices[0]?.tone).toBe('warning')
+    expect(notices[0]?.text).toContain('someone elses box')
+    expect(notices[0]?.text).not.toContain('Now shown as workshop box')
+  })
+
+  test('a host the list no longer shows is reported as such', async () => {
+    const notices: { tone: string; title: string; text: string }[] = []
+    await applyHostRename({
+      renameHost: async () => undefined,
+      hostId: 'host-1',
+      displayName: 'workshop box',
+      refreshHosts: () => [],
+      notify: (notice) => notices.push(notice),
+    })
+    expect(notices).toHaveLength(1)
+    expect(notices[0]?.tone).toBe('warning')
+    expect(notices[0]?.text).toContain('no longer shows this host')
+  })
+
+  test('a list that cannot be read again reports the request result, not a confirmed name', async () => {
+    const notices: { tone: string; title: string; text: string }[] = []
+    await applyHostRename({
+      renameHost: async () => undefined,
+      hostId: 'host-1',
+      displayName: 'workshop box',
+      refreshHosts: async () => {
+        throw new Error('the list could not be read')
+      },
+      notify: (notice) => notices.push(notice),
+    })
+    expect(notices).toHaveLength(1)
+    expect(notices[0]?.tone).toBe('warning')
+    expect(notices[0]?.title).toBe('Rename request accepted')
+    expect(notices[0]?.text).toContain('not confirmed')
+    expect(notices[0]?.text).not.toContain('Now shown as')
+  })
+
+  test('a refresh that hands back no list leaves the name unconfirmed', async () => {
+    const notices: { tone: string; title: string; text: string }[] = []
+    await applyHostRename({
+      renameHost: async () => undefined,
+      hostId: 'host-1',
+      displayName: 'workshop box',
+      refreshHosts: () => undefined,
+      notify: (notice) => notices.push(notice),
+    })
+    expect(notices).toHaveLength(1)
+    expect(notices[0]?.title).toBe('Rename request accepted')
+    expect(notices[0]?.text).not.toContain('Now shown as')
   })
 
   test('a rename that is not connected refuses instead of pretending', async () => {

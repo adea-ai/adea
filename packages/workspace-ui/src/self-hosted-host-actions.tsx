@@ -30,7 +30,7 @@ import {
   REVOCATION_EFFECTS,
   type FailureGuidance,
 } from './self-hosted-connection-model'
-import type { Notice, SelfHostedOperations } from './self-hosted-connection-panel'
+import type { HostListRefresh, Notice, SelfHostedOperations } from './self-hosted-connection-panel'
 import { RenameHostActions } from './self-hosted-rename-actions'
 
 export type HostActionsProps = Readonly<{
@@ -41,7 +41,7 @@ export type HostActionsProps = Readonly<{
   /** Runs work for the scope that started it; a late result for another scope is dropped. */
   guarded: <T>(work: () => Promise<T>) => Promise<{ value: T } | { stale: true }>
   focusHeading: () => void
-  refreshHosts: () => void | Promise<void>
+  refreshHosts: HostListRefresh
   /** The host as the latest list read shows it, or undefined when it is no longer listed. */
   currentHost: (hostId: string) => ApiRuntimeNode | undefined
   notify: (notice: Notice) => void

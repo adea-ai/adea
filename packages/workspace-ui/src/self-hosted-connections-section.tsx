@@ -85,7 +85,10 @@ export default function SelfHostedConnectionsSection(props: {
           onChooseHost={(hostId) => {
             const current = scope()
             if (!current) return
-            writeSelfHostedHostPreference(storage(), current, hostId)
+            const outcome = writeSelfHostedHostPreference(storage(), current, hostId)
+            // A write that did not happen is never shown as a remembered host: the note on screen
+            // stays exactly as it was, so the badge cannot claim something that was not kept.
+            if (outcome.status === 'failed') return
             setChosenHostId(hostId ?? null)
           }}
           operations={operations()}

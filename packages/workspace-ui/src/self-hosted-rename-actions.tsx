@@ -15,7 +15,7 @@ import {
   hostNameProblem,
   type FailureGuidance,
 } from './self-hosted-connection-model'
-import type { Notice, SelfHostedOperations } from './self-hosted-connection-panel'
+import type { HostListRefresh, Notice, SelfHostedOperations } from './self-hosted-connection-panel'
 import { applyHostRename } from './self-hosted-host-operations'
 
 export type RenameHostActionsProps = Readonly<{
@@ -30,7 +30,7 @@ export type RenameHostActionsProps = Readonly<{
   /** Runs work for the scope that started it; a late result for another scope is dropped. */
   guarded: <T>(work: () => Promise<T>) => Promise<{ value: T } | { stale: true }>
   focusHeading: () => void
-  refreshHosts: () => void | Promise<void>
+  refreshHosts: HostListRefresh
   notify: (notice: Notice) => void
   onFailure: (failure: FailureGuidance, retry?: () => void) => void
 }>

@@ -21,6 +21,7 @@ const { default: SelfHostedConnectionsSection } =
   await import('../../src/self-hosted-connections-section')
 
 const PREFERENCE_KEY = 'adea:self-hosted-host:v1'
+const QUARANTINE_KEY = 'adea:self-hosted-host:quarantine:v1'
 const ACCOUNT_ID = 'account-1'
 const WORKSPACE_ID = 'workspace-1'
 
@@ -85,7 +86,16 @@ function buttonByText(container: HTMLElement, text: string): HTMLButtonElement |
   )
 }
 
-const mounted: HTMLElement[] = []
+const mounted: MountedHostView[] = []
+
+/** A mounted view and everything it owns, so the teardown can let go of all of it. */
+type MountedHostView = Readonly<{
+  container: HTMLElement
+  /** The Solid render's disposer. */
+  dispose: () => void
+  /** The query client this view created. */
+  queryClient: InstanceType<typeof QueryClient>
+}>
 
 function mount(options: { readonly host: ApiRuntimeNode; readonly remembered?: boolean }) {
   const renames: RenameCall[] = []
@@ -111,9 +121,8 @@ function mount(options: { readonly host: ApiRuntimeNode; readonly remembered?: b
   } as unknown as AgentHqApiClient
   const container = document.createElement('div')
   document.body.appendChild(container)
-  mounted.push(container)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  render(
+  const dispose = render(
     () => (
       <QueryClientProvider client={queryClient}>
         <SelfHostedConnectionsSection
@@ -125,6 +134,7 @@ function mount(options: { readonly host: ApiRuntimeNode; readonly remembered?: b
     ),
     container
   )
+  mounted.push({ container, dispose, queryClient })
   return { container, renames, lists }
 }
 
@@ -141,7 +151,16 @@ async function inspect(container: HTMLElement): Promise<void> {
 }
 
 afterEach(() => {
-  for (const container of mounted.splice(0)) container.remove()
+  for (const view of mounted.splice(0)) {
+    // The render is disposed first: the pane's interval and its query observers belong to it, and
+    // they have to stop while the DOM they observe is still there.
+    view.dispose()
+    // The query client's own state is cleared next, so no observer outlives the view it watches.
+    view.queryClient.clear()
+    view.queryClient.unmount()
+    // Only then does the container go.
+    view.container.remove()
+  }
   window.localStorage.clear()
 })
 
@@ -187,6 +206,86 @@ describe('the mounted host rename', () => {
     expect(container.textContent).toContain('A revoked host cannot be renamed.')
     // Nothing was renamed, and nothing could be: the control is not there to press.
     expect(renames).toEqual([])
+  })
+})
+
+describe('the mounted host note', () => {
+  test('a malformed record is quarantined on read, and the view shows no remembered host', async () => {
+    window.localStorage.setItem(PREFERENCE_KEY, '{not json')
+    const { container } = mount({ host: hostFixture() })
+
+    // The malformed text is preserved, not discarded.
+    await waitFor(
+      () => window.localStorage.getItem(QUARANTINE_KEY) === '{not json',
+      'the malformed record to be quarantined'
+    )
+    await waitFor(
+      () => container.querySelector('[data-testid="host-row"]') !== null,
+      'the host list'
+    )
+    // A broken record reads as no choice.
+    expect(container.textContent).not.toContain('Remembered in this browser')
+  })
+
+  test('a Forget that could not be stored leaves the note on screen', async () => {
+    // A storage that reads but cannot be written to, the way a full quota behaves.
+    const items = new Map<string, string>()
+    items.set(
+      PREFERENCE_KEY,
+      JSON.stringify({ version: 1, chosen: { [`${ACCOUNT_ID}:${WORKSPACE_ID}`]: 'host-1' } })
+    )
+    const original = Object.getOwnPropertyDescriptor(window, 'localStorage')
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => items.get(key) ?? null,
+        setItem: () => {
+          throw new Error('storage is full')
+        },
+        removeItem: (key: string) => {
+          items.delete(key)
+        },
+      },
+    })
+    try {
+      const { container } = mount({ host: hostFixture() })
+      await waitFor(
+        () => (container.textContent ?? '').includes('Remembered in this browser'),
+        'the remembered host'
+      )
+      await inspect(container)
+
+      const forget = buttonByText(container, 'Forget this host')
+      expect(forget).toBeDefined()
+      forget!.click()
+
+      // The note was not cleared, so the view still shows the host as remembered and still offers
+      // the Forget: it never shows a write that did not happen as one that did.
+      expect(container.textContent).toContain('Remembered in this browser')
+      expect(buttonByText(container, 'Forget this host')).toBeDefined()
+    } finally {
+      if (original) Object.defineProperty(window, 'localStorage', original)
+      else delete (window as unknown as { localStorage?: Storage }).localStorage
+    }
+  })
+
+  test('a remembered host is remembered again after a remount', async () => {
+    window.localStorage.setItem(
+      PREFERENCE_KEY,
+      JSON.stringify({ version: 1, chosen: { [`${ACCOUNT_ID}:${WORKSPACE_ID}`]: 'host-1' } })
+    )
+    const { container } = mount({ host: hostFixture() })
+    await waitFor(
+      () => (container.textContent ?? '').includes('Remembered in this browser'),
+      'the remembered host'
+    )
+
+    // A remount reads the note back: it was persisted, and not only shown.
+    const remounted = mount({ host: hostFixture() })
+    await waitFor(
+      () => (remounted.container.textContent ?? '').includes('Remembered in this browser'),
+      'the remembered host after a remount'
+    )
   })
 })
 

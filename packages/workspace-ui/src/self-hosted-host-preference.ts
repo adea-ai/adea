@@ -62,6 +62,21 @@ export function normalizeSelfHostedHostPreference(
   return value ? { value } : { value: defaultSelfHostedHostPreference, retainedRaw: raw }
 }
 
+/**
+ * What a write did.
+ *
+ * `persisted` — the record now holds what was asked for. `quarantined` — the same, and the record
+ * that was there before was malformed: its text is preserved in the quarantine key and the write
+ * started from a clean record. `failed` — nothing was persisted, and the reason says why.
+ */
+export type SelfHostedHostPreferenceWriteStatus = 'persisted' | 'quarantined' | 'failed'
+
+export type SelfHostedHostPreferenceWriteOutcome = Readonly<{
+  status: SelfHostedHostPreferenceWriteStatus
+  /** Why nothing was persisted. Present only when the write failed. */
+  reason?: 'storage_unavailable' | 'read_failed' | 'quarantine_failed' | 'write_failed'
+}>
+
 type PreferenceStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 export type PreferenceStorageSource =
   | PreferenceStorage
@@ -124,46 +139,86 @@ export function readSelfHostedHostPreference(
 }
 
 /**
+ * The active record, or a refusal.
+ *
+ * A malformed record is never parsed into a write. Its text is preserved in the quarantine key
+ * first, and the write then starts from a clean record: a Remember after a broken record persists
+ * instead of failing without a word. If the quarantine itself fails, the active record is left
+ * exactly as it is, because replacing it would discard the text that could not be preserved.
+ */
+function readActiveRecord(
+  storage: PreferenceStorage,
+  raw: string | null
+):
+  | { readonly record: SelfHostedHostPreference; readonly quarantined: boolean }
+  | { readonly failure: 'quarantine_failed' } {
+  if (raw === null) return { record: defaultSelfHostedHostPreference, quarantined: false }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    try {
+      storage.setItem(SELF_HOSTED_HOST_PREFERENCE_QUARANTINE_KEY, raw)
+    } catch {
+      return { failure: 'quarantine_failed' }
+    }
+    return { record: defaultSelfHostedHostPreference, quarantined: true }
+  }
+  const normalized = normalizeSelfHostedHostPreference(parsed)
+  if (normalized.retainedRaw !== undefined) {
+    try {
+      storage.setItem(
+        SELF_HOSTED_HOST_PREFERENCE_QUARANTINE_KEY,
+        JSON.stringify(normalized.retainedRaw)
+      )
+    } catch {
+      return { failure: 'quarantine_failed' }
+    }
+    return { record: defaultSelfHostedHostPreference, quarantined: true }
+  }
+  return { record: normalized.value, quarantined: false }
+}
+
+/**
  * Record the chosen host for one scope, or clear it when the choice is removed. Other
  * scopes are preserved: one workspace's choice never disturbs another's.
+ *
+ * The outcome says what happened, so a caller never shows a choice that was not written. A write
+ * that could not happen is `failed`, and the note on screen stays as it was.
  */
 export function writeSelfHostedHostPreference(
   source: PreferenceStorageSource,
   scope: SelfHostedHostPreferenceScope,
   hostId: string | undefined
-): void {
+): SelfHostedHostPreferenceWriteOutcome {
   const storage = resolveStorage(source)
-  if (!storage) return
+  if (!storage) return { status: 'failed', reason: 'storage_unavailable' }
+  let raw: string | null
   try {
-    const key = selfHostedHostScopeKey(scope)
-    const current = readSelfHostedHostPreference(storage, scope)
-    if (hostId === undefined) {
-      if (current === undefined) return
-      const raw = storage.getItem(SELF_HOSTED_HOST_PREFERENCE_STORAGE_KEY)
-      const record =
-        raw === null
-          ? defaultSelfHostedHostPreference
-          : normalizeSelfHostedHostPreference(JSON.parse(raw)).value
-      const { [key]: _removed, ...rest } = record.chosen
-      storage.setItem(
-        SELF_HOSTED_HOST_PREFERENCE_STORAGE_KEY,
-        JSON.stringify({ version: 1, chosen: rest } satisfies SelfHostedHostPreference)
+    raw = storage.getItem(SELF_HOSTED_HOST_PREFERENCE_STORAGE_KEY)
+  } catch {
+    return { status: 'failed', reason: 'read_failed' }
+  }
+  const active = readActiveRecord(storage, raw)
+  if ('failure' in active) return { status: 'failed', reason: active.failure }
+  const key = selfHostedHostScopeKey(scope)
+  const clearing = hostId === undefined
+  if (clearing && !active.quarantined && !(key in active.record.chosen)) {
+    // Nothing to clear, and the record is sound: the state already is what was asked for.
+    return { status: 'persisted' }
+  }
+  const chosen = clearing
+    ? Object.fromEntries(
+        Object.entries(active.record.chosen).filter(([scopeKey]) => scopeKey !== key)
       )
-      return
-    }
-    const raw = storage.getItem(SELF_HOSTED_HOST_PREFERENCE_STORAGE_KEY)
-    const record =
-      raw === null
-        ? defaultSelfHostedHostPreference
-        : normalizeSelfHostedHostPreference(JSON.parse(raw)).value
+    : { ...active.record.chosen, [key]: hostId }
+  try {
     storage.setItem(
       SELF_HOSTED_HOST_PREFERENCE_STORAGE_KEY,
-      JSON.stringify({
-        version: 1,
-        chosen: { ...record.chosen, [key]: hostId },
-      } satisfies SelfHostedHostPreference)
+      JSON.stringify({ version: 1, chosen } satisfies SelfHostedHostPreference)
     )
   } catch {
-    // A stored choice is a convenience. A storage failure never blocks the view.
+    return { status: 'failed', reason: 'write_failed' }
   }
+  return active.quarantined ? { status: 'quarantined' } : { status: 'persisted' }
 }

@@ -191,6 +191,10 @@ function Content(
         setNow(Date.now())
         const result = await nodes.refetch()
         if (result.error) throw result.error
+        // The list it read is handed back, so a caller can report what the list shows instead of
+        // what it asked for. A list that did not settle is reported as no list at all.
+        const settled = settledData(nodes)
+        return settled?.nodes
       }}
       onCheckHost={async (hostId) => {
         setNow(Date.now())

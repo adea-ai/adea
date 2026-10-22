@@ -45,6 +45,17 @@ import type { HostActionsProps } from './self-hosted-host-actions'
 import { PairingUnavailable, SelfHostedSetupGuideShell } from './self-hosted-setup-guide-shell'
 import type { SetupGuideProps } from './self-hosted-setup-guide'
 
+/**
+ * A host list refresh.
+ *
+ * A refresh that can hand back the list it read lets the caller say what the list shows, instead
+ * of reporting a name the list never confirmed. A refresh that cannot is still a refresh.
+ */
+export type HostListRefresh = () =>
+  | void
+  | readonly ApiRuntimeNode[]
+  | Promise<void | readonly ApiRuntimeNode[]>
+
 /** Effects. An undefined operation is not connected, and its control says so. */
 export type SelfHostedOperations = Readonly<{
   openPairing?: () => Promise<PairingGrant>
@@ -73,7 +84,7 @@ export type SelfHostedPanelProps = Readonly<{
   inspectedId: string | undefined
   onInspect: (hostId: string | undefined) => void
   /** Resolves when the refreshed list has settled. */
-  onRefreshHosts: () => void | Promise<void>
+  onRefreshHosts: HostListRefresh
   /** Re-reads one host; resolves when the read has settled. */
   onCheckHost: (hostId: string) => void | Promise<void>
   operations: SelfHostedOperations
@@ -463,7 +474,7 @@ function HostDetail(props: {
   onFailure: (failure: FailureGuidance, retry?: () => void) => void
   onRegisterAgain: () => void
   operations: SelfHostedOperations
-  refreshHosts: () => void | Promise<void>
+  refreshHosts: HostListRefresh
   currentHost: (hostId: string) => ApiRuntimeNode | undefined
   notify: (notice: Notice) => void
   markUnconfirmed: (hostId: string, unconfirmed: boolean) => void
