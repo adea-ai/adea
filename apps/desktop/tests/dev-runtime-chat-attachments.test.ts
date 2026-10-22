@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { createHash, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto'
 import {
   chmodSync,
   copyFileSync,
@@ -504,6 +504,84 @@ describe('attachment transaction and recovery hardening', () => {
         'corrupt_state'
       )
       expect(ctx.events.events()).toHaveLength(1)
+    }))
+
+  test('a cross-field edit that reproduces the hashed bytes is refused after the record was cached', () =>
+    fixture((ctx) => {
+      // The store seals a record under a random IV, so the collision this case
+      // needs would otherwise depend on that IV starting with a zero byte.
+      // The test owns the device key, so it derives the store's secret,
+      // decrypts the record the store wrote, and re-encrypts the identical
+      // plaintext under an IV it chooses. Nothing here is a stored claim: the
+      // resealed record is still a record the store authenticates.
+      const first = ctx.store.upload(binding, upload('original'), 'cross-field')
+      const scopeText = JSON.stringify([scope.accountId, scope.workspaceId, scope.runtimeNodeId])
+      const secret = Buffer.from(
+        hkdfSync('sha256', ctx.secret, 'adea-chat-attachment:v1', scopeText, 32)
+      )
+      const bound = JSON.stringify([binding.runtimeSessionId, binding.generation])
+      const aad = Buffer.from(
+        JSON.stringify(['adea-chat-attachment', 2, scopeText, bound, first.attachmentId])
+      )
+      const db = new Database(ctx.dbPath())
+      const row = db
+        .query<{ fingerprint: string; sealed: Uint8Array }, [string]>(
+          'SELECT fingerprint, sealed FROM attachments WHERE id=?'
+        )
+        .get(first.attachmentId)!
+      const sealed = Buffer.from(row.sealed)
+      const decipher = createDecipheriv('aes-256-gcm', secret, sealed.subarray(0, 12))
+      decipher.setAAD(aad)
+      decipher.setAuthTag(sealed.subarray(-16))
+      const plaintext = Buffer.concat([decipher.update(sealed.subarray(12, -16)), decipher.final()])
+      const iv = Buffer.from('00112233445566778899aabb', 'hex')
+      const cipher = createCipheriv('aes-256-gcm', secret, iv)
+      cipher.setAAD(aad)
+      const resealed = Buffer.concat([
+        iv,
+        cipher.update(plaintext, 'utf8'),
+        cipher.final(),
+        cipher.getAuthTag(),
+      ])
+      expect(resealed[0]).toBe(0)
+      db.query('UPDATE attachments SET sealed=? WHERE id=?').run(resealed, first.attachmentId)
+      db.close(true)
+
+      // A distinct upload authenticates the first record, so the store holds a
+      // verdict about the row as it now stands.
+      ctx.store.upload(binding, upload('distinct'), 'cross-field-distinct')
+
+      // The cross-field edit: the fingerprint gains the separator byte and the
+      // payload loses the byte that followed it. The columns and the payload
+      // are both different from the authenticated row.
+      const edited = new Database(ctx.dbPath())
+      edited
+        .query(
+          'UPDATE attachments SET fingerprint=fingerprint||char(0), sealed=substr(sealed,2) WHERE id=?'
+        )
+        .run(first.attachmentId)
+      edited.close(true)
+
+      // Byte-equality evidence: under a separator-only encoding the two rows
+      // hash to the very same input, which is why the key has to frame its
+      // fields instead of separating them.
+      const legacyBefore = Buffer.concat([
+        Buffer.from(row.fingerprint, 'utf8'),
+        Buffer.from([0]),
+        resealed,
+      ])
+      const legacyAfter = Buffer.concat([
+        Buffer.from(`${row.fingerprint}\0`, 'utf8'),
+        Buffer.from([0]),
+        resealed.subarray(1),
+      ])
+      expect(legacyAfter.equals(legacyBefore)).toBe(true)
+
+      code(
+        () => ctx.store.upload(binding, upload('another'), 'cross-field-upload'),
+        'corrupt_state'
+      )
+      code(() => ctx.store.validateWorkspacePurge(), 'corrupt_state')
     }))
 
   test('a tampered sealed payload is refused after the record was cached', () =>

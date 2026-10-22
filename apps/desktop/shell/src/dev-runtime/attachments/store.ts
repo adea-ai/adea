@@ -454,21 +454,28 @@ export function createChatAttachmentStore(input: {
    * not a stored claim about them. Hashing the payload is enough: a changed
    * payload changes the digest, so the record is authenticated again, and it
    * is the authentication, not the digest, that refuses a corrupt record.
+   *
+   * Every field enters the key length-framed, and the payload is framed by
+   * its own byte length. A separator alone is not a frame: a field that ends
+   * in the separator byte followed by a payload that starts with it hashes to
+   * the same input as the untouched field and the untouched payload, so one
+   * record's key could be reproduced by another record's columns. Framing
+   * every field by its length makes the encoding unambiguous in both
+   * directions: no field can be read as the start of the next one, and no
+   * payload byte can be read as a field.
    */
   function rowCacheKey(row: Row): string {
     const digest = createHash('sha256')
-    digest.update(row.id)
-    digest.update('\0')
-    digest.update(row.binding)
-    digest.update('\0')
-    digest.update(row.state)
-    digest.update('\0')
-    digest.update(String(row.byte_length))
-    digest.update('\0')
-    digest.update(row.upload_key)
-    digest.update('\0')
-    digest.update(row.fingerprint)
-    digest.update('\0')
+    const frame = (label: string, value: string): void => {
+      digest.update(`${label}\0${Buffer.byteLength(value, 'utf8')}\0${value}\0`)
+    }
+    frame('id', row.id)
+    frame('binding', row.binding)
+    frame('state', row.state)
+    frame('byte_length', String(row.byte_length))
+    frame('upload_key', row.upload_key)
+    frame('fingerprint', row.fingerprint)
+    digest.update(`sealed\0${row.sealed.byteLength}\0`)
     digest.update(row.sealed)
     return digest.digest('hex')
   }
