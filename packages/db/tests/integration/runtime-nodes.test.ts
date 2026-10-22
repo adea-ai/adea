@@ -28,6 +28,7 @@ import {
   listRuntimeNodesForUser,
   PAIRING_CHALLENGE_LIFETIME_MS,
   renameRuntimeNode,
+  workspaceHostRenameLock,
   pruneRuntimeNodeCredentials,
   readRuntimeNode,
   recordRuntimeNodeProof,
@@ -63,6 +64,50 @@ function keys(signingSeed: string, encryptionSeed: string) {
       role: 'command_encryption' as const,
     },
   ]
+}
+
+/**
+ * A promise and the handle that settles it.
+ *
+ * The barrier and the test acknowledge each other with these, so nothing waits for a fixed
+ * duration to find out that the other side has got there.
+ */
+function deferred(): { promise: Promise<void>; release: () => void } {
+  const settle: { resolve?: () => void } = {}
+  const promise = new Promise<void>((resolve) => {
+    settle.resolve = resolve
+  })
+  return {
+    promise,
+    release: () => settle.resolve?.(),
+  }
+}
+
+/**
+ * Waits until the database shows the expected number of renames queued behind a workspace's rename
+ * lock.
+ *
+ * The wait is for a condition, not for a duration: until the renames are queued behind the lock,
+ * they could both read "no clash" and both commit the same name. The deadline only bounds the
+ * failure, so a rename that never queues fails the test instead of hanging it.
+ */
+async function waitForQueuedRenames(observer: DatabaseConnection, expected: number): Promise<void> {
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    const rows = await observer.client<{ waiting: number }[]>`
+      select count(*)::int as waiting
+      from pg_locks
+      where locktype = 'advisory' and not granted
+    `
+    const waiting = rows[0]?.waiting ?? 0
+    if (waiting >= expected) return
+    if (Date.now() > deadline) {
+      throw new Error(
+        `expected ${expected} renames to wait for the workspace lock, the database showed ${waiting}`
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
 }
 
 /** `RuntimeNodeError.code` is the stable part of a refusal; the message is not. */
@@ -246,20 +291,25 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
       workspaceId: workspace.id,
     })
 
-    // Three connections, so the two renames really overlap instead of being pipelined by one
-    // client. The barrier holds the workspace's host rows while both renames are in flight: a rename
-    // that locks those rows before it checks the name therefore queues behind the barrier, and the
-    // two renames then run one after the other. A rename that only read the name would sail past
-    // the barrier, both would see "no clash", and both would commit the same name.
+    // Three more connections, so the two renames really overlap instead of being pipelined by one
+    // client, and so the barrier and the observer are not the renames' own connections.
     const other = createDatabase(connectionUrl!)
-    const third = createDatabase(connectionUrl!)
+    const barrierConnection = createDatabase(connectionUrl!)
+    const observer = createDatabase(connectionUrl!)
     try {
-      const barrier = third.client.begin(async (tx) => {
-        await tx`SELECT id FROM app.runtime_nodes WHERE workspace_id = ${workspace.id} FOR UPDATE`
-        await new Promise((resolve) => setTimeout(resolve, 150))
+      // The barrier holds the workspace's rename lock and says so. The renames then queue behind
+      // it, which the observer confirms before the barrier is released: every step waits for an
+      // acknowledgment, and none of them waits for a fixed duration.
+      const released = deferred()
+      const held = deferred()
+      const barrier = barrierConnection.db.transaction(async (transaction) => {
+        await transaction.execute(workspaceHostRenameLock(workspace.id))
+        held.release()
+        await released.promise
       })
-      await new Promise((resolve) => setTimeout(resolve, 50))
-      const outcomes = await Promise.allSettled([
+      await held.promise
+
+      const outcomes = Promise.allSettled([
         renameRuntimeNode(connection.db, {
           actorUserId: owner.principal.userId,
           displayName: 'Shared name',
@@ -273,9 +323,16 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
           workspaceId: workspace.id,
         }),
       ])
+
+      // The acknowledgment that both renames are queued behind the workspace's lock. Until they
+      // are, they could both read "no clash" and both commit the same name.
+      await waitForQueuedRenames(observer, 2)
+
+      released.release()
+      const settled = await outcomes
       await barrier
-      const fulfilled = outcomes.filter((outcome) => outcome.status === 'fulfilled')
-      const rejected = outcomes.filter((outcome) => outcome.status === 'rejected')
+      const fulfilled = settled.filter((outcome) => outcome.status === 'fulfilled')
+      const rejected = settled.filter((outcome) => outcome.status === 'rejected')
       expect(fulfilled).toHaveLength(1)
       expect(rejected).toHaveLength(1)
       const reason = (rejected[0] as PromiseRejectedResult).reason
@@ -291,7 +348,8 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
       ).toHaveLength(1)
     } finally {
       await other.close()
-      await third.close()
+      await barrierConnection.close()
+      await observer.close()
     }
   })
 

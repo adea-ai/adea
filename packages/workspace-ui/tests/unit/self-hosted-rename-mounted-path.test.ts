@@ -21,13 +21,15 @@ const src = join(import.meta.dir, '../../src')
 describe('the mounted self-hosted host actions', () => {
   test('the mount connects rename and nothing else', async () => {
     const calls: [string, string][] = []
+    const workspaces: string[] = []
     const client = {
       renameRuntimeNode: async (
         workspaceId: string,
         runtimeNodeId: string,
         displayName: string
       ) => {
-        calls.push([workspaceId, runtimeNodeId, displayName].join(':'))
+        workspaces.push(workspaceId)
+        calls.push([runtimeNodeId, displayName])
       },
     } as unknown as Parameters<typeof selfHostedHostOperations>[0]
 
@@ -39,7 +41,8 @@ describe('the mounted self-hosted host actions', () => {
     expect(operations.revokeHost).toBeUndefined()
 
     await operations.renameHost!('host-1', 'workshop box')
-    expect(calls).toEqual(['workspace-1:host-1:workshop box'])
+    expect(calls).toEqual([['host-1', 'workshop box']])
+    expect(workspaces).toEqual(['workspace-1'])
   })
 
   test('without a client the mount connects nothing', () => {

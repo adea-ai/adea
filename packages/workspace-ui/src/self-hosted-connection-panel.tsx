@@ -394,7 +394,7 @@ function HostList(props: {
                   </div>
                   <div class="flex flex-wrap items-center gap-3">
                     <Show when={props.chosenHostId === entry.key}>
-                      <StatusChip tone="info" label="Chosen for new work" />
+                      <StatusChip tone="info" label="Remembered in this browser" />
                     </Show>
                     <StatusChip tone={headline().tone} label={headline().label} />
                     <Button

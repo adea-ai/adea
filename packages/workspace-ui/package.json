@@ -201,7 +201,7 @@
     "dev": "vite build --watch",
     "lint": "oxlint",
     "test": "bun test --conditions=browser --preload ../../scripts/test-solid-transform.ts tests/unit",
-    "typecheck": "bun check -p tsconfig.json"
+    "typecheck": "bun check -p tsconfig.json && bun check -p tsconfig.test.json"
   },
   "dependencies": {
     "@adea-ai/api-client": "workspace:*",
@@ -218,6 +218,9 @@
     "solid-js": "^1.9.15"
   },
   "devDependencies": {
+    "@happy-dom/global-registrator": "^21.0.4",
+    "@tanstack/solid-query": "^5.104.1",
+    "happy-dom": "^21.0.4",
     "vite": "^8.3.3",
     "vite-plugin-solid": "^2.11.14"
   }

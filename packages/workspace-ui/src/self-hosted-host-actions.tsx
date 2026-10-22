@@ -127,6 +127,7 @@ export function HostActions(props: HostActionsProps) {
       <RenameHostActions
         node={props.node}
         hosts={props.hosts}
+        revoked={props.revoked}
         operations={props.operations}
         guarded={props.guarded}
         focusHeading={props.focusHeading}
