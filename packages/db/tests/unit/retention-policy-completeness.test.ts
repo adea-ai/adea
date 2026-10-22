@@ -18,6 +18,7 @@ import {
   type RetentionCategory,
   type RetentionCoverageInventory,
   type RetentionEvaluationInput,
+  type RetentionPeriods,
   type TrustedCleanupExecutor,
 } from '../../src/retention-policy'
 
@@ -158,7 +159,9 @@ function evaluate(category: RetentionCategory, overrides: Partial<RetentionEvalu
 
 describe('the retention policy set is total over the categories', () => {
   test('every category resolves to exactly one policy, and every store it names is known', () => {
-    expect([...RETENTION_CATEGORIES].toSorted()).toEqual(Object.keys(REVIEWED_POLICY).toSorted())
+    expect<string[]>([...RETENTION_CATEGORIES].toSorted()).toEqual(
+      Object.keys(REVIEWED_POLICY).toSorted()
+    )
     for (const category of RETENTION_CATEGORIES) {
       const rule = retentionCategoryRule(category)
       expect(rule.requiredCoverage).toEqual(REVIEWED_POLICY[category])
@@ -248,7 +251,7 @@ describe('the retention policy set is total over the categories', () => {
   })
 
   test('a malformed evaluation input is refused with a typed code, never a crash', () => {
-    const cases: ReadonlyArray<Readonly<{ input: unknown; code: string }>> = [
+    const cases: ReadonlyArray<Readonly<{ input: unknown; code: RetentionPolicyError['code'] }>> = [
       {
         code: 'invalid_receipt',
         input: inputFor('messages', { receipts: 'not-a-list' as never }),
