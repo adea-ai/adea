@@ -89,7 +89,7 @@
     {
       "binding": "AUTH_TRUSTED_ORIGINS",
       "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
-      "secret_name": "AGENT_HQ_WORKER_AUTH_TRUSTED_ORIGINS",
+      "secret_name": "ADEA_RAILWAY_PRODUCTION_AUTH_TRUSTED_ORIGINS",
     },
   ],
   "observability": {

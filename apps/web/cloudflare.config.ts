@@ -47,7 +47,7 @@ const productionSecretNames = [
   'ADEA_RAILWAY_PRODUCTION_AUTH_BASE_URL',
   'ADEA_RAILWAY_PRODUCTION_AUTH_DATABASE_URL',
   'ADEA_RAILWAY_PRODUCTION_AUTH_SECRET',
-  'AGENT_HQ_WORKER_AUTH_TRUSTED_ORIGINS',
+  'ADEA_RAILWAY_PRODUCTION_AUTH_TRUSTED_ORIGINS',
   'ADEA_CONTROL_PLANE_SIGNING_KEY',
 ]
 
@@ -155,7 +155,7 @@ export function productionEnv() {
     // Public origins allowed to talk to the auth endpoints.
     AUTH_TRUSTED_ORIGINS: bindings.secretsStoreSecret({
       storeId: controlPlaneStore,
-      secretName: 'AGENT_HQ_WORKER_AUTH_TRUSTED_ORIGINS',
+      secretName: 'ADEA_RAILWAY_PRODUCTION_AUTH_TRUSTED_ORIGINS',
     }),
   }
 }
