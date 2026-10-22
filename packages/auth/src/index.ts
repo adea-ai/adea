@@ -24,7 +24,6 @@ export {
 export { createAuthEvent, type AuthEventName } from './observability'
 export { resolveAuthenticatedPrincipal, type AuthIdentityMapping } from './principal'
 export {
-  normalizeNeonSession,
   normalizeProviderSession,
   type AuthProviderName,
   type AuthResult,

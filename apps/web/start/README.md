@@ -24,9 +24,9 @@ Worker setup, secrets, and caching.
   routes are ordinary `createFileRoute(...)` files with `server.handlers`
   (`GET`/`POST`/`PATCH`/`DELETE`/`OPTIONS`), so the URLs and HTTP contracts are
   unchanged: `/api/workspaces/bootstrap`, `/api/v1/workspaces/...`,
-  `/api/auth/desktop/...`, and the Neon Auth proxy at `/api/auth/*`.
-- `packages/auth` uses the framework-neutral `@neondatabase/auth/server`
-  toolkit. `src/server/auth-request-context.ts` adapts TanStack Start's
+  `/api/auth/desktop/...`, and the auth proxy at `/api/auth/*`.
+- `packages/auth` wraps the framework-neutral Better Auth service.
+  `src/server/auth-request-context.ts` adapts TanStack Start's
   request storage to the toolkit's `RequestContext`, so the server-side
   session/cookie contract is the same one the Next adapter implemented.
 - `src/server/` keeps the existing workspace principal, authorization,
@@ -96,7 +96,7 @@ stripped from inbound requests first, so a caller cannot forge it;
 
 ## Validation
 
-Use Node 24.21.0 and Bun 1.4.3. From the repository root:
+Use Node 24.21.0 and Bun 1.4.4. From the repository root:
 
 ```sh
 bun install --frozen-lockfile
@@ -178,7 +178,7 @@ stays reproducible. A UI change that moves pixels refreshes both sets with
 ### Hosted acceptance
 
 Automated hosted checks run against a production-built Worker with a distinct
-name and secrets scoped to an isolated Neon branch. They never use the
+name and secrets scoped to an isolated test database branch. They never use the
 production Worker, database, or DNS:
 
 ```sh
@@ -248,4 +248,4 @@ The timestamped evidence is in
 [`docs/evidence/worker-disconnect-2026-10-18.json`](../../../docs/evidence/worker-disconnect-2026-10-18.json).
 The captured 12:09 UTC deployment used for diagnosis predates the later release
 #1463 deployment. These local results do not establish current production CPU,
-Hyperdrive usage, Neon cost reductions, or browser hidden/resume behavior.
+Hyperdrive usage, hosted-database cost reductions, or browser hidden/resume behavior.

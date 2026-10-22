@@ -94,12 +94,12 @@
           "text": "bun-version: 1.4.3"
         },
         {
-          "path": ".github/workflows/neon_workflow.yml",
+          "path": ".github/workflows/postgres_workflow.yml",
           "line": 68,
           "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
         },
         {
-          "path": ".github/workflows/neon_workflow.yml",
+          "path": ".github/workflows/postgres_workflow.yml",
           "line": 70,
           "text": "bun-version: 1.4.3"
         },
@@ -234,12 +234,12 @@
           "text": "bun-version-file: .bun-version"
         },
         {
-          "path": ".github/workflows/neon_workflow.yml",
+          "path": ".github/workflows/postgres_workflow.yml",
           "line": 101,
           "text": "uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2"
         },
         {
-          "path": ".github/workflows/neon_workflow.yml",
+          "path": ".github/workflows/postgres_workflow.yml",
           "line": 104,
           "text": "bun-version-file: .bun-version"
         },
@@ -329,7 +329,7 @@
         "2616 emitted files match the Turbo baseline.",
         "Full composite typecheck, format, lint and doctor passed before review delta.",
         "Full unit lane at af16: 4144 pass, 11 skip, 0 fail; 83.08% line and 85.32% function coverage (80% minimum).",
-        "Review delta: 61 tooling/Neon tests, 824 assertions; boundaries 1217 files/45 packages, zero violations.",
+        "Review delta: 61 tooling/PostgreSQL tests, 824 assertions; boundaries 1217 files/45 packages, zero violations.",
         "Normal pre-commit build and 45/45 replay passed at b65e5175.",
         "Final local-anchor repair: 6 tooling tests /379 assertions; zero boundary violations; approved audit issues:read and caller1.48.1; doctor and normal pre-commit build/replay passed. Custom PostgreSQL gate preserved."
       ],

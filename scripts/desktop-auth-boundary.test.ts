@@ -501,7 +501,7 @@ describe('desktop packaging and single-UI client boundary', () => {
     expect(form).toContain('controlId="email"')
     expect(form).toContain('controlId="password"')
     expect(form).toContain('aria-live="polite"')
-    expect(form).toContain('createNeonClientAdapter')
+    expect(form).toContain('createAuthClientAdapter')
     expect(completionPage).toContain('class="auth-shell"')
     expect(completionClient).toContain('You can close this tab')
     expect(completionClient).toContain('parseDesktopCallbackFragment')
@@ -524,7 +524,7 @@ describe('desktop packaging and single-UI client boundary', () => {
     const violations: string[] = []
     for (const file of sources) {
       const source = await readFile(join(root, file), 'utf8')
-      for (const token of ['@neondatabase/auth', 'node:crypto', 'server-only', '@adea-ai/db']) {
+      for (const token of ['@legacy-provider/auth', 'node:crypto', 'server-only', '@adea-ai/db']) {
         if (source.includes(token)) violations.push(`${file}: ${token}`)
       }
     }

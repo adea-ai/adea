@@ -339,7 +339,12 @@ try {
       DATABASE_URL: url('agent_hq_local_app'),
       AUTH_TRUSTED_ORIGINS: baseURL,
       CONTROL_PLANE_ORIGIN: 'http://127.0.0.1:9',
-      NEON_AUTH_BASE_URL: 'http://127.0.0.1:9',
+      // The auth service is unavailable in this scenario: its base URL names an
+      // origin nothing listens on, so every account session lookup fails closed
+      // and the stream runs on the guest path.
+      AUTH_BASE_URL: 'http://127.0.0.1:9',
+      AUTH_SECRET: 'stream-disconnect-auth-secret-0123456789abcdef',
+      AUTH_DATABASE_URL: url('agent_hq_local_app'),
     }
     const config = `using Workerd = import "/workerd/workerd.capnp";
 const config :Workerd.Config = (

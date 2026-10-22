@@ -1,7 +1,7 @@
 # Management operation routing
 
-- Status: Implemented (2026-10-09), M14.03.1 (adea-ai/adea#1215), pending the
-  canonical CP932 host mapping and migration ordering.
+- Status: Implemented and merged (PR #1230, 2026-10-12), M14.03.1
+  (adea-ai/adea#1215); the canonical CP932 host mapping is still pending.
 - Scope: how human HTTP controls and workspace lead tools share one authorized
   management surface for configuration, memory, projects, worktrees and
   sessions, how a lead decision is bound to the exact call, and how authority,
@@ -37,6 +37,12 @@ callable state, with typed unsupported reasons.
   **audit** surface and **recovery** contract;
 - the callable state per **lane** (`web`, `desktop`, `lead`), where every
   unsupported lane carries one of the typed reasons below.
+
+An operation the catalogue does not name is classified, not dereferenced. The
+membership test is an own-property test of the catalogue, so a mistyped id, a
+stale client or a name inherited from the prototype (`toString`, `constructor`)
+is refused with the typed `not_implemented` reason on every lane, and the
+gateway returns that refusal before it authorizes, audits or executes anything.
 
 ## The gateway
 

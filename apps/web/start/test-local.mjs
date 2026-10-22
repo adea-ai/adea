@@ -143,7 +143,11 @@ function localHttps(url, method = 'GET') {
   // process, and only trusts the certificate minted for this run.
   assert.equal(new URL(url).hostname, '127.0.0.1')
   return new Promise((ok, fail) => {
-    const request = httpsRequest(url, { method, ca: tls.certificate }, (response) => {
+    // Every probe opens its own connection. The default agent keeps sockets alive, and
+    // the local workerd listener closes an idle one, so a reused socket answers the
+    // next probe with a transport error instead of the route's response. The auth
+    // acceptance already opens a connection per request for the same reason.
+    const request = httpsRequest(url, { method, ca: tls.certificate, agent: false }, (response) => {
       response.resume()
       response.once('end', () => ok({ status: response.statusCode, headers: response.headers }))
     })

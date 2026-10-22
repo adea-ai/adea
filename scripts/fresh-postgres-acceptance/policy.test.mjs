@@ -31,13 +31,13 @@ import { assertReproducibleProvenance, readCheckoutProvenance } from './provenan
 import { CP_COMPATIBILITY_SCOPE, assertCpScope, cpOpenItems } from './cp-compatibility.mjs'
 import {
   assertFreshAccountOnly,
-  assertNoNeonInScope,
+  assertRailwaySourceInScope,
   freshAccountOnlyViolations,
   freshAccountScopeFiles,
   laneSourceFiles,
-  noNeonViolations,
+  railwaySourceViolations,
   scanFreshAccountScope,
-  scanNoNeonScope,
+  scanRailwaySourceScope,
 } from './fresh-account-only.mjs'
 
 const local = 'postgresql://postgres:synthetic@127.0.0.1:54399/postgres?sslmode=disable'
@@ -601,7 +601,7 @@ test('recovery is a forward-fix or a Railway backup/restore, and nothing else', 
   assert.equal(assertRecoveryMethod('forward-fix'), 'forward-fix')
   assert.equal(assertRecoveryMethod('railway-backup-restore'), 'railway-backup-restore')
   for (const method of [
-    'neon-rollback',
+    'external-provider-rollback',
     'legacy-artifact',
     'previous-deployment',
     'forward-compatibility',
@@ -909,15 +909,15 @@ test('no source of this lane carries legacy provider coupling', () => {
   const root = fileURLToPath(new URL('../../', import.meta.url))
   const files = laneSourceFiles(root)
   assert.ok(files.length > freshAccountScopeFiles(root).length, 'the lane files are in the scope')
-  assert.deepEqual(scanNoNeonScope(root), [])
-  assert.equal(assertNoNeonInScope(root), true)
+  assert.deepEqual(scanRailwaySourceScope(root), [])
+  assert.equal(assertRailwaySourceInScope(root), true)
   for (const [source, kind] of [
-    ['const url = process.env.NEON_AUTH_BASE_URL\n', 'legacy-environment'],
-    ['const url = process.env.NEON_API_KEY\n', 'legacy-environment'],
-    ["const host = 'db.neon.tech'\n", 'legacy-host'],
-    ["import { neon } from '@neondatabase/serverless'\n", 'legacy-package'],
+    ['const url = process.env.LEGACY_AUTH_BASE_URL\n', 'legacy-environment'],
+    ['const url = process.env.LEGACY_API_KEY\n', 'legacy-environment'],
+    ["const host = 'db.legacy-db.example.invalid'\n", 'legacy-host'],
+    ["import { external-provider } from '@legacy-provider/serverless'\n", 'legacy-package'],
   ]) {
-    const violations = noNeonViolations('synthetic.ts', source)
+    const violations = railwaySourceViolations('synthetic.ts', source)
     assert.ok(
       violations.some((violation) => violation.kind === kind),
       'expected ' + kind + ' for ' + source
@@ -925,9 +925,9 @@ test('no source of this lane carries legacy provider coupling', () => {
   }
   // A comment that names the legacy provider is not a coupling.
   assert.deepEqual(
-    noNeonViolations(
+    railwaySourceViolations(
       'synthetic.ts',
-      '// the legacy provider names NEON_AUTH_BASE_URL\nconst a = 1\n'
+      '// the legacy provider names AUTH_BASE_URL\nconst a = 1\n'
     ),
     []
   )
@@ -950,7 +950,7 @@ test('a comment marker inside a string does not hide the code around it', () => 
     ['const s = `${ "}" + dualWriteToBoth(pool) }`;', 'dual-write'],
     ['const s = `${ dualWriteToBoth(pool) }`;', 'dual-write'],
     ['const s = `a${`b ${dualWriteToBoth(pool)}`}c`;', 'dual-write'],
-    ['const s = `${ process.env.NEON_AUTH_BASE_URL }`;', 'legacy-environment'],
+    ['const s = `${ process.env.LEGACY_AUTH_BASE_URL }`;', 'legacy-environment'],
     ['await /*note*/ importLegacyIdentities(pool)', 'legacy-import'],
     // A comment between the keywords of a statement is whitespace too.
     ["await pool.query('INSERT/**/INTO app.users SELECT * FROM legacy.users')", 'row-copy'],
@@ -1000,8 +1000,8 @@ test('a comment marker inside a string does not hide the code around it', () => 
 
 test('the fresh-account rule catches every construct it claims to catch', () => {
   const cases = [
-    ['const url = process.env.NEON_AUTH_BASE_URL\n', 'legacy-environment'],
-    ["const host = 'db.neon.tech'\n", 'legacy-host'],
+    ['const url = process.env.LEGACY_AUTH_BASE_URL\n', 'legacy-environment'],
+    ["const host = 'db.legacy-db.example.invalid'\n", 'legacy-host'],
     ['await importLegacyIdentities(pool)\n', 'legacy-import'],
     ['await seedLegacyUsers(pool)\n', 'legacy-import'],
     ["const mode = 'dual-write'\n", 'dual-write'],

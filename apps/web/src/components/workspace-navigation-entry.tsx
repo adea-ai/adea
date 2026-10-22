@@ -79,8 +79,8 @@ function WebNavigationEntry(props: {
     account: {
       onSignIn: () => window.location.assign('/auth/sign-in?returnTo=%2F'),
       onSignOut: async () => {
-        const { createNeonClientAdapter } = await import('@adea-ai/auth/client')
-        await createNeonClientAdapter().signOut()
+        const { createAuthClientAdapter } = await import('@adea-ai/auth/client')
+        await createAuthClientAdapter().signOut()
         window.location.assign('/')
       },
     },

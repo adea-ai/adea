@@ -907,7 +907,7 @@
         },
         {
           "id": "187.5",
-          "requirement": "Relay/Neon compromise fixtures cannot recover plaintext from stored command/result payloads.",
+          "requirement": "Relay/PostgreSQL compromise fixtures cannot recover plaintext from stored command/result payloads.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
@@ -990,7 +990,7 @@
         },
         {
           "id": "187.13",
-          "requirement": "Railway outage/redeploy does not lose durable relay state because Neon-backed records remain authoritative.",
+          "requirement": "Railway outage/redeploy does not lose durable relay state because PostgreSQL-backed records remain authoritative.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []
@@ -1117,7 +1117,7 @@
         },
         {
           "id": "189.3",
-          "requirement": "Relay/Neon fixtures containing only public keys and ciphertext cannot recover plaintext fixture content. — NOT VERIFIED 2026-09-25: there is no relay and no Neon-side envelope fixture to attack. The envelope module refuses plaintext-bearing errors and retagged key ids in unit vectors (`packages/remote-content/tests/unit/remote-content.test.ts`), which is the closest existing evidence, but the box needs the relay path that #38 owns.",
+          "requirement": "Relay/PostgreSQL fixtures containing only public keys and ciphertext cannot recover plaintext fixture content. — NOT VERIFIED 2026-09-25: there is no relay and no PostgreSQL-side envelope fixture to attack. The envelope module refuses plaintext-bearing errors and retagged key ids in unit vectors (`packages/remote-content/tests/unit/remote-content.test.ts`), which is the closest existing evidence, but the box needs the relay path that #38 owns.",
           "sourceChecked": false,
           "verification": "unverified",
           "evidence": []

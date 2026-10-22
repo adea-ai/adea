@@ -73,7 +73,7 @@ mock.module('@tanstack/solid-router', () => ({
 // `workspace-principal` reaches the real principal resolution through
 // `@tanstack/solid-start/server`, whose module scope needs the bundler's solid aliasing;
 // stub only its request helpers so the genuine temporary-session path can run under bun.
-// The Neon account branch still fails closed on the stub.
+// The external provider account branch still fails closed on the stub.
 mock.module('@tanstack/solid-start/server', () => ({
   getRequest: () => undefined,
   setCookie: () => undefined,

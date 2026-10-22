@@ -128,7 +128,7 @@ durable-history decryption authority.
 objects. The caller owns the trusted native/host boundary and must keep private
 key material in OS secure storage or an approved self-hosted secrets provider.
 This package does not register RuntimeNodes, persist public keys, rotate or
-revoke keys, retain queued envelopes, or access cloud/Neon state. Signing keys
+revoke keys, retain queued envelopes, or access cloud state. Signing keys
 and ContentSyncDevice synchronization keys remain separate contracts. The
 replay ledger adapter remains the host/dispatch integration responsibility.
 This package does not choose a database schema or claim retention policy; a

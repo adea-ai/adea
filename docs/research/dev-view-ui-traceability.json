@@ -124,7 +124,7 @@
       "repository": "adea-ai/adea",
       "number": 5,
       "kind": "issue",
-      "title": "M1.3 — Integrate Neon Auth behind @agent-hq/auth",
+      "title": "M1.3 — Integrate Authentication behind @agent-hq/auth",
       "url": "https://github.com/adea-ai/adea/issues/5",
       "state": "closed",
       "milestone": 1,

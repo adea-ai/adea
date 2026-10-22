@@ -1,7 +1,7 @@
 import 'server-only'
 
 import type { AuthResult } from '@adea-ai/auth'
-import { createNeonServerAdapter } from '@adea-ai/auth/server'
+import { createAuthServerAdapter } from '@adea-ai/auth/server'
 import {
   claimTemporaryUserSession,
   createTemporaryUserSession,
@@ -71,10 +71,10 @@ export async function resolveWorkspacePrincipal(
     // entrypoints at import time, which keeps the whole server graph out of
     // server-runtime tests. It is loaded here — inside the only branch that
     // uses it — instead of at module scope: production behavior is identical
-    // (same factory, first Neon-account call), and non-account paths never
+    // (same factory, first account call), and non-account paths never
     // evaluate the framework at all.
     const { createStartRequestContext } = await import('./auth-request-context')
-    authentication = await createNeonServerAdapter(createStartRequestContext, undefined, {
+    authentication = await createAuthServerAdapter(createStartRequestContext, undefined, {
       registerCleanup: registerRequestCleanup,
     }).getSession()
   } catch {

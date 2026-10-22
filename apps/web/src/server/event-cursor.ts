@@ -6,10 +6,10 @@
  * client cannot mint one, and carries its issue time so a cursor can expire
  * instead of being trusted forever.
  *
- * The signing key is derived from the deployment's existing auth cookie secret
- * with a domain-separation label. That keeps one secret to rotate rather than
- * two, and a missing secret fails closed: the stream refuses to start rather
- * than signing cursors with a default.
+ * The signing key is derived from the deployment's existing auth secret with a
+ * domain-separation label. That keeps one secret to rotate rather than two,
+ * and a missing secret fails closed: the stream refuses to start rather than
+ * signing cursors with a default.
  */
 
 const CURSOR_VERSION = 'v1'
@@ -26,7 +26,7 @@ export type CursorDecodeResult =
   | Readonly<{ ok: false; reason: CursorRejection }>
 
 function cursorSecret(environment: Record<string, string | undefined>): string | null {
-  const secret = environment.NEON_AUTH_COOKIE_SECRET
+  const secret = environment.AUTH_SECRET
   return secret && secret.length >= 32 ? secret : null
 }
 

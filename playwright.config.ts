@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 import { assertLocalTestTargets } from './scripts/test-target-guard.mjs'
 
-// Browser lanes reach only local servers and databases (or the CI-created Neon
+// Browser lanes reach only local servers and databases (or the CI-created
 // branch); a base URL or database URL inherited from the shell is checked first.
 assertLocalTestTargets()
 
