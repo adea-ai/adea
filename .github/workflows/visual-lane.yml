@@ -278,12 +278,14 @@ jobs:
           set -uo pipefail
           # Every suite the change can affect runs, and one failing suite does
           # not hide the other: both results land in the same log.
+          # Playwright cleans its output directory before each invocation.
+          # Separate roots retain the workspace trace even if chat runs next.
           status=0
           if [[ "$RUN_WORKSPACE" == 'true' ]]; then
-            bun run test:e2e:visual || status=1
+            bun run test:e2e:visual --output=test-results/workspace || status=1
           fi
           if [[ "$RUN_CHAT" == 'true' ]]; then
-            bun run test:e2e:visual:chat || status=1
+            bun run test:e2e:visual:chat --output=test-results/chat || status=1
           fi
           exit "$status"
 

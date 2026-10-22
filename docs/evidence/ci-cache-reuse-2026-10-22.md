@@ -127,5 +127,45 @@ No shared Code Foundry checkout or generated caller was edited. Its generator/ru
 3. An independently measured browser preparation improvement that preserves full system dependencies. The sample's
    slow apt transfer does not justify removing dependency installation or increasing shards.
 
-The live save/restore pair, all required green checks and review remain outstanding before ready/merge. Draft auto-merge
+The live save/restore pair, all required green checks and review remain outstanding before merge. Auto-merge
 must stay off. PR #1570's separate cache qualification files and the active provider/retention scopes were not edited.
+
+## Visual failure follow-up at published cache head `4b93f035`
+
+The coordinating owner marked #1581 ready; hosted Unit passed at that head. The earlier local unit/coverage
+failures above remain historical environment receipts, not the hosted Unit result.
+The [visual job in run 39862803468](https://github.com/adea-ai/adea/actions/runs/39862803468/job/120117511583)
+failed the unchanged `conventional-workspace.spec.ts:3262` sidebar scenario:
+
+- First attempt: the Virtual sidebar was absent at line 3373 after the narrow-layout view switch.
+- Built-in retry: the 90-second test budget expired waiting for the toolbar's Expand contextual sidebar at line 3362.
+- Workspace summary: 81 passed, 1 failed, 1 flaky. The flaky customization screenshot passed on retry; no baseline
+  was refreshed. Chat then passed all 13 tests.
+- Both failures logged trace/error-context paths, but the upload reported no files. The run's artifacts API returned
+  an empty list. The later passing chat invocation had cleaned the same default `test-results` directory.
+
+The bounded CI repair assigns `test-results/workspace` and `test-results/chat` to the respective invocations.
+Their common ancestor remains covered by the existing failure upload. The shell still runs every applicable suite,
+retains a failing suite's exit status and fails the same aggregate gate. No assertions, retries, time budgets,
+baseline files, product source, lane-selection rules or cache changes were altered.
+
+The new workflow-shell regression failed before this repair and passed afterward. An additional experiment with
+the installed, real Playwright 1.63.0 CLI used browser-free fixture tests (workspace fails, chat passes): with one
+output directory only the chat marker survived; with distinct directories both markers survived. Exit codes were
+`[1, 0]` in both cases. `bun run test:e2e:visual --output=... --list` also confirmed Bun forwards the flag and all
+83 workspace tests remain selected.
+
+The sidebar's `isVisible()` branches immediately after resize/view switch are a synchronization hypothesis, not an
+established cause. The shared component changes media state on mount/change and lazily loads its modal sheet;
+without the lost hosted trace there is insufficient evidence to change its assertions or product behavior.
+The exact unchanged scenario passed locally once normally (15.3 seconds) and once under 6x CPU throttling
+(26.4 seconds), with zero retries. The diagnostic throttle was removed. Both used system Chromium
+154.0.8037.57 against the unmodified dev server with an unreachable loopback database; these functional results
+do not qualify the pinned visual renderer. Installing the pinned Chromium 153.0.8010.12 was blocked by HTTP 403
+`Destination forbidden` from `cdn.playwright.dev`. No alternate download route or baseline update was attempted.
+
+Open PR ownership was checked before edits: #1574 concerns scoped host rename/selection, #1570 owns separate cache
+qualification files, and the open shared UI PR concerns packed WebKit diagnostics. None owns this workflow repair.
+The failed test and its sidebar sources match this branch's unchanged main base. No product repair is claimed.
+On the next authorized required visual run, retained workspace traces must establish the actual mobile transition
+failure if it recurs; the missing artifact from the old run cannot be recovered by this patch.
