@@ -335,6 +335,30 @@ describe('CP #41 agent profile projection consumer', () => {
     expect(outcome.blocker).toBe('profile_revoked')
   })
 
+  test('refuses an authorized change when the catalog read cannot be completed', async () => {
+    const outcome = await authorizeAgentProfileChange({
+      identity,
+      currentPin: approvedPin,
+      requestedPin: upgradedPin,
+      authorization: {
+        authorizedBy: 'svc_agent-hq',
+        authorizedAt: '2026-09-25T11:59:00.000Z',
+        approvedPin: upgradedPin,
+      },
+      catalog: catalog({ unavailable: true }),
+      decidedAt: checkedAt,
+    })
+    expect(outcome.ok).toBe(false)
+    if (outcome.ok)
+      throw new Error('expected the change to be refused when the catalog is unavailable')
+    expect(outcome.blocker).toBe('profile_unavailable')
+    expect(outcome.remediation).toEqual({ action: 'retry_profile_check' })
+    // The unavailable read must not move the Agent. The failure carries the
+    // requested pin and no audit record, so the caller retries the same pin
+    // instead of having applied an unauthorized or unverified change.
+    expect(outcome.requestedPin).toEqual(upgradedPin)
+  })
+
   test('decides a later profile change against the pin the previous change applied', async () => {
     // A second change is decided against the pin the first change applied, not
     // against the pin the Agent started on. The caller keeps the saved pin under
