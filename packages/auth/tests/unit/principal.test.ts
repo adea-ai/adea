@@ -6,7 +6,7 @@ import { resolveAuthenticatedPrincipal } from '../../src/principal'
 import type { AuthResult } from '../../src/session'
 
 const authenticated: AuthResult = {
-  identity: { provider: 'neon', subject: 'provider-subject' },
+  identity: { provider: 'better-auth', subject: 'provider-subject' },
   profile: {},
   session: { expiresAt: '2030-01-01T00:00:00.000Z', id: 'session-1' },
 }

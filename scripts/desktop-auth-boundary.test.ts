@@ -524,7 +524,7 @@ describe('desktop packaging and single-UI client boundary', () => {
     const violations: string[] = []
     for (const file of sources) {
       const source = await readFile(join(root, file), 'utf8')
-      for (const token of ['@neondatabase/auth', 'node:crypto', 'server-only', '@adea-ai/db']) {
+      for (const token of ['@legacy-provider/auth', 'node:crypto', 'server-only', '@adea-ai/db']) {
         if (source.includes(token)) violations.push(`${file}: ${token}`)
       }
     }

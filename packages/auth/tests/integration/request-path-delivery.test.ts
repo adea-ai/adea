@@ -3,9 +3,9 @@ import { getMigrations } from 'better-auth/db/migration'
 import { Pool } from 'pg'
 
 import {
-  createNeonServerAdapter,
+  createAuthServerAdapter,
   createBetterAuthService,
-  handleNeonAuthRequest,
+  handleAuthRequest,
 } from '../../src/server'
 import { createRecordingAuthDelivery, type RecordedAuthDelivery } from '../../src/delivery'
 
@@ -101,7 +101,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('verification-required signup delivers one verification message and issues no session', async () => {
     const recorder = createRecordingAuthDelivery()
-    const response = await handleNeonAuthRequest(
+    const response = await handleAuthRequest(
       'POST',
       request('sign-up/email', { body: { email, name: 'Verify Me', password } }),
       'sign-up/email',
@@ -118,7 +118,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     expect(recorder.sent.filter((entry) => entry.kind === 'verification')).toHaveLength(1)
 
     // Unverified sign-in is refused, with no session issued.
-    const blocked = await handleNeonAuthRequest(
+    const blocked = await handleAuthRequest(
       'POST',
       request('sign-in/email', { body: { email, password } }),
       'sign-in/email',
@@ -131,7 +131,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('verification with the delivered token signs in, and sign-in then works', async () => {
     const recorder = createRecordingAuthDelivery()
-    const verification = await handleNeonAuthRequest(
+    const verification = await handleAuthRequest(
       'GET',
       request(`verify-email?token=${encodeURIComponent(tokenFromSignup)}&callbackURL=%2F`, {
         method: 'GET',
@@ -143,7 +143,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     expect(verification.headers.get('cache-control')).toBe('no-store')
     expect(sessionCookie(verification)).not.toBe('')
 
-    const signIn = await handleNeonAuthRequest(
+    const signIn = await handleAuthRequest(
       'POST',
       request('sign-in/email', { body: { email, password } }),
       'sign-in/email',
@@ -156,7 +156,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('password reset delivers one message, the token resets once, and the old password stops working', async () => {
     const recorder = createRecordingAuthDelivery()
-    const requested = await handleNeonAuthRequest(
+    const requested = await handleAuthRequest(
       'POST',
       request('request-password-reset', { body: { email, redirectTo: `${origin}/reset` } }),
       'request-password-reset',
@@ -167,7 +167,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     const reset = await waitForDelivery(recorder.sent, 'password-reset')
     expect(reset.email).toBe(email)
 
-    const applied = await handleNeonAuthRequest(
+    const applied = await handleAuthRequest(
       'POST',
       request('reset-password', { body: { newPassword: nextPassword, token: reset.token } }),
       'reset-password',
@@ -176,7 +176,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     )
     expect(applied.status).toBe(200)
 
-    const replay = await handleNeonAuthRequest(
+    const replay = await handleAuthRequest(
       'POST',
       request('reset-password', {
         body: { newPassword: 'third password long enough', token: reset.token },
@@ -187,7 +187,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     )
     expect(replay.status).not.toBe(200)
 
-    const stale = await handleNeonAuthRequest(
+    const stale = await handleAuthRequest(
       'POST',
       request('sign-in/email', { body: { email, password } }),
       'sign-in/email',
@@ -199,7 +199,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('an expired reset token is refused and leaves the password unchanged', async () => {
     const recorder = createRecordingAuthDelivery()
-    await handleNeonAuthRequest(
+    await handleAuthRequest(
       'POST',
       request('request-password-reset', { body: { email, redirectTo: `${origin}/reset` } }),
       'request-password-reset',
@@ -212,7 +212,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
       [`%${reset.token}%`]
     )
 
-    const expired = await handleNeonAuthRequest(
+    const expired = await handleAuthRequest(
       'POST',
       request('reset-password', {
         body: { newPassword: 'expired attempt password', token: reset.token },
@@ -224,7 +224,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     expect(expired.status).not.toBe(200)
     expect(sessionCookie(expired)).toBe('')
 
-    const current = await handleNeonAuthRequest(
+    const current = await handleAuthRequest(
       'POST',
       request('sign-in/email', { body: { email, password: nextPassword } }),
       'sign-in/email',
@@ -235,7 +235,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
   }, 60_000)
 
   test('without an injected transport the request path fails closed and issues no session', async () => {
-    const response = await handleNeonAuthRequest(
+    const response = await handleAuthRequest(
       'POST',
       request('request-password-reset', { body: { email, redirectTo: `${origin}/reset` } }),
       'request-password-reset',
@@ -251,7 +251,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('a hostile origin is refused before the handler and the response is still no-store', async () => {
     const recorder = createRecordingAuthDelivery()
-    const response = await handleNeonAuthRequest(
+    const response = await handleAuthRequest(
       'POST',
       request('request-password-reset', {
         body: { email, redirectTo: `${origin}/reset` },
@@ -268,7 +268,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('the adapter composition registers exactly one request-owned cleanup that closes its connection', async () => {
     const cleanups: Array<() => Promise<void>> = []
-    createNeonServerAdapter(
+    createAuthServerAdapter(
       () => ({
         getCookies: () => '',
         getHeader: () => null,

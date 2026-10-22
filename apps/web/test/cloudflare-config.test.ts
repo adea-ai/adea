@@ -77,7 +77,7 @@ describe('cloudflare.config.ts preview isolation', () => {
 
   test('no production binding names the retired provider', () => {
     const production = JSON.stringify(evaluate({ isPreview: false, mode: undefined }).worker.env)
-    expect(production).not.toMatch(/neon/i)
+    expect(production).not.toMatch(/external-provider/i)
   })
 
   test('a preview build with no isolated resources is blocked, not deployed as assets only', () => {

@@ -257,7 +257,12 @@ describe('the artifact a recovery may name', () => {
     expect(RECOVERY_METHODS).toEqual(['forward-fix', 'railway-backup-restore'])
     expect(assertRecoveryMethod('forward-fix')).toBe('forward-fix')
     expect(assertRecoveryMethod('railway-backup-restore')).toBe('railway-backup-restore')
-    for (const method of ['neon-rollback', 'legacy-artifact', 'previous-deployment', '']) {
+    for (const method of [
+      'external-provider-rollback',
+      'legacy-artifact',
+      'previous-deployment',
+      '',
+    ]) {
       expect(() => assertRecoveryMethod(method)).toThrow(/unsupported recovery method/)
     }
   })

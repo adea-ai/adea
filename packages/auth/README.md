@@ -52,10 +52,7 @@ visibility, and that each response batch leaves no auth PostgreSQL backend withi
 polling window. The fixture uses only loopback HTTPS and PostgreSQL; Worker-side delivery is not
 tested, and no real email or production credentials are involved.
 
-The historical `createNeonServerAdapter` / `createNeonClientAdapter` / `handleNeonAuthRequest`
-names are retained for the existing web and desktop call sites, with provider-neutral aliases
-(`createAuthServerAdapter`, `createAuthClientAdapter`, `handleAuthRequest`). The legacy Neon-hosted
-Auth environment is left in place and recoverable.
+The web and desktop call sites use `createAuthServerAdapter`, `createAuthClientAdapter`, and `handleAuthRequest`.
 
 ### Fresh-schema initialization
 

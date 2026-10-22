@@ -150,7 +150,7 @@ describe('createDatabase construction', () => {
 
 describe('databaseConnectionOptions', () => {
   const RETIRED_POOLED_ENDPOINT =
-    'postgresql://app:secret@ep-cool-1234-pooler.us-east-2.aws.neon.tech/agent_hq?sslmode=require'
+    'postgresql://app:secret@ep-cool-1234-pooler.us-east-2.aws.legacy-db.example.invalid/agent_hq?sslmode=require'
 
   test('prepares statements for a direct connection and bounds the pool', () => {
     expect(databaseConnectionOptions()).toEqual({

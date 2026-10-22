@@ -104,7 +104,6 @@
 
 * **auth:** add desktop principal lifecycle acceptance phase ([#1492](https://github.com/adea-ai/adea/issues/1492)) ([90cea96](https://github.com/adea-ai/adea/commit/90cea96122170c15fded81c3ec405fd8d8839f48))
 * **build:** qualify the cross-machine transfer of the task cache ([#1499](https://github.com/adea-ai/adea/issues/1499)) ([39408e7](https://github.com/adea-ai/adea/commit/39408e7e9ba1b5640a805cb294f00cfe2fa06e77))
-* **ci:** add a disposable PostgreSQL proof beside Neon ([#1483](https://github.com/adea-ai/adea/issues/1483)) ([f188605](https://github.com/adea-ai/adea/commit/f18860544997c7f1ed88857e2203579ea26c7f31))
 * cover the Add repository folder picker in a mounted browser harness ([#1501](https://github.com/adea-ai/adea/issues/1501)) ([131c03b](https://github.com/adea-ai/adea/commit/131c03baa44534a1574f71fc8e4f7527afdd49a3))
 * **db:** cover the array parser registration lifecycle and the direct-write rows ([#1487](https://github.com/adea-ai/adea/issues/1487)) ([fda29dd](https://github.com/adea-ai/adea/commit/fda29dd50b09f984f08b5c2294618a7c70702674))
 * **desktop:** compose the folder picker and App Library selection rules ([#1496](https://github.com/adea-ai/adea/issues/1496)) ([29ee34d](https://github.com/adea-ai/adea/commit/29ee34d8d3e4747d85851d96a01ffb5d3affae37))
@@ -139,7 +138,6 @@
 ### Bug Fixes
 
 * **ci:** clean integration resources after partial startup and interruption ([#1469](https://github.com/adea-ai/adea/issues/1469)) ([0704d09](https://github.com/adea-ai/adea/commit/0704d09c7aff032bdc4cc70923c83c4861a00d05))
-* **ci:** make Neon branch cleanup close-only and independent of setup ([#1476](https://github.com/adea-ai/adea/issues/1476)) ([e7f19fa](https://github.com/adea-ai/adea/commit/e7f19faaf9a7d59b8d2f11abc61919336702bba4))
 * **db:** preserve archived group revocation through cutover ([#1472](https://github.com/adea-ai/adea/issues/1472)) ([697de84](https://github.com/adea-ai/adea/commit/697de84563a461a39abbb19608e754f87ffae061))
 * **db:** qualify direct vs pooled PostgreSQL connections ([#1465](https://github.com/adea-ai/adea/issues/1465)) ([5207191](https://github.com/adea-ai/adea/commit/52071913442a47810dd1092c6cc65dde3669b6b9))
 * **deps:** update dependency @adea-ai/ui to v0.142.4 ([#1473](https://github.com/adea-ai/adea/issues/1473)) ([290c2e6](https://github.com/adea-ai/adea/commit/290c2e6062808bb1b8cdc5c460bb09beb30ab84b))
@@ -484,7 +482,6 @@ do not mean that every native producer or Chat consumer is wired end to end.
 
 ### CI
 
-* bound Neon proof and shard E2E validation ([#1280](https://github.com/adea-ai/adea/issues/1280)) ([386706b](https://github.com/adea-ai/adea/commit/386706bc0bad2d753071aae8a92944718f84800d))
 * use npm trusted publishing for audio and spatial ([#1287](https://github.com/adea-ai/adea/issues/1287)) ([2e2134a](https://github.com/adea-ai/adea/commit/2e2134aadad10265820c13c7361b6b92b723df69))
 
 ## [0.89.0](https://github.com/adea-ai/adea/compare/v0.88.0...v0.89.0) (2026-10-11)
@@ -538,7 +535,6 @@ do not mean that every native producer or Chat consumer is wired end to end.
 
 ### CI
 
-* **neon:** run the integration inventory as two shards behind the migrate gate ([#1269](https://github.com/adea-ai/adea/issues/1269)) ([#1270](https://github.com/adea-ai/adea/issues/1270)) ([97189b6](https://github.com/adea-ai/adea/commit/97189b663e04d419cb0de90c51caa1d20767deec))
 
 ## [0.87.0](https://github.com/adea-ai/adea/compare/v0.86.0...v0.87.0) (2026-10-09)
 
@@ -2368,7 +2364,6 @@ do not mean that every native producer or Chat consumer is wired end to end.
 
 ### Bug Fixes
 
-* **auth:** mute the Neon auth logger without pino ([#453](https://github.com/adea-ai/adea/issues/453)) ([9494f20](https://github.com/adea-ai/adea/commit/9494f20351dc4553c8a44eca09c0bf29ccdaa2a6))
 
 ## [0.26.1](https://github.com/adea-ai/adea/compare/v0.26.0...v0.26.1) (2026-09-15)
 
@@ -3270,7 +3265,6 @@ do not mean that every native producer or Chat consumer is wired end to end.
 
 ### Features
 
-* **database:** provision Neon foundation ([#106](https://github.com/0xPlayerOne/agent-hq/issues/106)) ([54afc08](https://github.com/0xPlayerOne/agent-hq/commit/54afc08aafc8e22402f5b041506a698d2c29898b))
 
 ## [0.3.4](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.3...v0.3.4) (2026-08-23)
 

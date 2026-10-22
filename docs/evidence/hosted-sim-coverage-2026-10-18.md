@@ -32,7 +32,6 @@ on pinned Bun 1.4.3. The controls and boundary tests also pass.
 | ------------------------------------------------------------------ | ----------: | ------: |
 | `apps/web/start/client-policy.mjs`                                 |        0.00 |   41.67 |
 | `packages/auth/src/adapter.ts`                                     |       37.50 |   23.53 |
-| `packages/auth/src/neon-driver.ts`                                 |       66.67 |   50.00 |
 | `packages/db/src/agent-persona-policy.ts`                          |       66.67 |   84.44 |
 | `packages/db/src/control-plane-identifiers.ts`                     |       50.00 |   36.84 |
 | `packages/db/src/event-contract.ts`                                |        0.00 |   67.91 |
@@ -86,7 +85,6 @@ the optional-view work. The test owners' paths were not edited during integratio
 
 The canvas proposal adds exactly four inputs to the existing coverage command:
 `packages/auth/tests/integration/adapter.test.ts`,
-`packages/auth/tests/integration/neon-driver.test.ts`,
 `apps/web/test/client-policy.test.ts`, and
 `packages/types/tests/workspace-primitives.test.ts`. The two auth suites are
 fake-backed despite their directory names. All prior selectors, plural

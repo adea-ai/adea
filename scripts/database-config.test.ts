@@ -127,8 +127,8 @@ describe('inspectDatabaseConfiguration', () => {
     ]) {
       expect(() =>
         inspectDatabaseConfiguration({
-          DATABASE_URL: `postgresql://adea_dev_app:secret@${runtimeHost}/neondb?sslmode=require`,
-          DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${migrationHost}/neondb?sslmode=require`,
+          DATABASE_URL: `postgresql://adea_dev_app:secret@${runtimeHost}/external-providerdb?sslmode=require`,
+          DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${migrationHost}/external-providerdb?sslmode=require`,
         })
       ).toThrow('must reach the same PostgreSQL instance')
     }
@@ -144,16 +144,16 @@ describe('inspectDatabaseConfiguration', () => {
     const directHost = 'ep-quiet-pond-123456.us-east-2.aws.example.test'
     expect(() =>
       inspectDatabaseConfiguration({
-        DATABASE_URL: `postgresql://adea_dev_app:secret@${pooledHost}/neondb?sslmode=require`,
-        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${directHost}/neondb?sslmode=require`,
+        DATABASE_URL: `postgresql://adea_dev_app:secret@${pooledHost}/external-providerdb?sslmode=require`,
+        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${directHost}/external-providerdb?sslmode=require`,
       })
     ).toThrow('must reach the same PostgreSQL instance')
     // The other way round is refused the same way.
     expect(() =>
       inspectDatabaseConfiguration({
-        DATABASE_URL: `postgresql://adea_dev_app:secret@${directHost}/neondb?sslmode=require`,
-        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${directHost}/neondb?sslmode=require`,
-        DATABASE_URL_UNPOOLED: `postgresql://adea_dev_app:secret@${pooledHost}/neondb?sslmode=require`,
+        DATABASE_URL: `postgresql://adea_dev_app:secret@${directHost}/external-providerdb?sslmode=require`,
+        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${directHost}/external-providerdb?sslmode=require`,
+        DATABASE_URL_UNPOOLED: `postgresql://adea_dev_app:secret@${pooledHost}/external-providerdb?sslmode=require`,
       })
     ).toThrow('must reach the same PostgreSQL instance')
   })
@@ -163,15 +163,15 @@ describe('inspectDatabaseConfiguration', () => {
     const host = 'db.railway.internal'
     expect(() =>
       inspectDatabaseConfiguration({
-        DATABASE_URL: `postgresql://adea_dev_app:secret@${host}:5432/neondb?sslmode=require`,
-        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${host}:5433/neondb?sslmode=require`,
+        DATABASE_URL: `postgresql://adea_dev_app:secret@${host}:5432/external-providerdb?sslmode=require`,
+        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${host}:5433/external-providerdb?sslmode=require`,
       })
     ).toThrow('must reach the same PostgreSQL instance')
     expect(() =>
       inspectDatabaseConfiguration({
-        DATABASE_URL: `postgresql://adea_dev_app:secret@${host}:5432/neondb?sslmode=require`,
-        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${host}:5432/neondb?sslmode=require`,
-        DATABASE_URL_UNPOOLED: `postgresql://adea_dev_app:secret@${host}:5433/neondb?sslmode=require`,
+        DATABASE_URL: `postgresql://adea_dev_app:secret@${host}:5432/external-providerdb?sslmode=require`,
+        DATABASE_MIGRATION_URL: `postgresql://adea_dev_migration:secret@${host}:5432/external-providerdb?sslmode=require`,
+        DATABASE_URL_UNPOOLED: `postgresql://adea_dev_app:secret@${host}:5433/external-providerdb?sslmode=require`,
       })
     ).toThrow('must reach the same PostgreSQL instance')
   })
@@ -180,7 +180,7 @@ describe('inspectDatabaseConfiguration', () => {
     expect(() =>
       inspectDatabaseConfiguration({
         DATABASE_URL:
-          'postgresql://adea_dev_app:secret@db.railway.internal:5432/neondb?sslmode=require',
+          'postgresql://adea_dev_app:secret@db.railway.internal:5432/external-providerdb?sslmode=require',
         DATABASE_MIGRATION_URL:
           'postgresql://adea_dev_migration:secret@db.railway.internal:5432/other?sslmode=require',
       })

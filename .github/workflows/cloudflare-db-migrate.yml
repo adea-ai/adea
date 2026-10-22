@@ -6,7 +6,7 @@
 #
 # Required repository secret:
 #   DATABASE_MIGRATION_URL - migration-role URL for the production database
-#   that backs the Worker (sslmode=require). The value is the account's, not
+#   that backs the Worker (sslmode=verify-full). The value is the account's, not
 #   this repository's; which database it names is a live deployment decision.
 #
 # Deploy ordering caveat: the dashboard deploys the Worker on every push to
@@ -21,6 +21,8 @@ on:
     paths:
       - 'packages/db/drizzle/**'
       - 'packages/db/src/verify-migrations.ts'
+      - 'packages/db/src/migration-target.ts'
+      - '.railway/production-postgres-ca.crt'
       - '.github/workflows/cloudflare-db-migrate.yml'
   workflow_dispatch:
 

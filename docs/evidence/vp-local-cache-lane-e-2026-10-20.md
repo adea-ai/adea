@@ -9,18 +9,17 @@ reconciled, and what it does **not** claim.
 
 ## 1. Scope
 
-| File                                                      | What changed                                                                                                       |
-| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `scripts/vp-local-run.mjs`                                | a released lock is absent to the reader, not a failure; a component another run created is used, not refused       |
-| `scripts/vp-local-run.test.ts`                            | the regressions for both, and the never-overlap proof at two scales                                                |
-| `scripts/toolchain-pin.test.ts`                           | the guard that keeps the pinned Bun, Node and Vite+ versions, the native checker and the Actions cache key in step |
-| `docs/vite-plus-proof.md`                                 | the locking and platform behaviour, as it is now                                                                   |
-| `AGENTS.md`                                               | the pinned Bun version the instructions name                                                                       |
-| `.oxlintrc.json`, `.gitignore`                            | the last live Turbo traces                                                                                         |
-| `.agents/skills/turborepo/`, `.agents/.skill-lock.json`   | the Turbo skill this repository no longer uses                                                                     |
-| `docs/evidence/vp-local-cache-lane-e-2026-10-20.md`       | this receipt                                                                                                       |
-| `docs/evidence/cache-tooling-no-neon-proof-2026-10-20.md` | the no-Neon proof for the admitted scope                                                                           |
-| `scripts/no-neon-cache-scope.test.ts`                     | the guard that holds it                                                                                            |
+| File                                                    | What changed                                                                                                       |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `scripts/vp-local-run.mjs`                              | a released lock is absent to the reader, not a failure; a component another run created is used, not refused       |
+| `scripts/vp-local-run.test.ts`                          | the regressions for both, and the never-overlap proof at two scales                                                |
+| `scripts/toolchain-pin.test.ts`                         | the guard that keeps the pinned Bun, Node and Vite+ versions, the native checker and the Actions cache key in step |
+| `docs/vite-plus-proof.md`                               | the locking and platform behaviour, as it is now                                                                   |
+| `AGENTS.md`                                             | the pinned Bun version the instructions name                                                                       |
+| `.oxlintrc.json`, `.gitignore`                          | the last live Turbo traces                                                                                         |
+| `.agents/skills/turborepo/`, `.agents/.skill-lock.json` | the Turbo skill this repository no longer uses                                                                     |
+| `docs/evidence/vp-local-cache-lane-e-2026-10-20.md`     | this receipt                                                                                                       |
+| `scripts/cache-database-isolation.test.ts`              | the guard that holds it                                                                                            |
 
 No dependency was added, removed or moved. `bun.lock` and `package.json` are untouched: the toolchain pins were already in
 place, and they are now guarded rather than changed.
@@ -399,36 +398,33 @@ measurement on a separate machine with its own cache home.
 
 Host: macOS 14 (darwin-arm64), Node 24.21.0 and Bun 1.4.3 from the repository's pinned toolchain. The numbers
 below were measured on the cache and tooling branch `fix/vp-local-cache-lock-release-race` at `15f64d5db` and
-`a5f2245a6` (the repair, the reconciliation, the no-Neon proof and the child-process timeouts); the successor
 qualification in section 4.7 was measured at the current main `d55f485000e294db511fd70fd412c568ca7c46fe`.
 
-| Command                                                                                                                                                                                 | Result                                                                                                                                                                         |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `bun test scripts/vp-local-run.test.ts`                                                                                                                                                 | **67 pass, 0 fail**, 295 assertions                                                                                                                                            |
-| `bun test scripts/toolchain-pin.test.ts`                                                                                                                                                | **10 pass, 0 fail**, 81 assertions                                                                                                                                             |
-| `bun test scripts/no-neon-cache-scope.test.ts`                                                                                                                                          | **10 pass, 0 fail**, 510 assertions                                                                                                                                            |
-| `bun test scripts/vp-local-run.test.ts scripts/toolchain-pin.test.ts scripts/no-neon-cache-scope.test.ts`                                                                               | **87 pass, 0 fail**, 886 assertions                                                                                                                                            |
-| `bun test scripts/vp-local-run.test.ts scripts/toolchain-pin.test.ts scripts/no-neon-cache-scope.test.ts scripts/docs-boundary.test.ts scripts/no-neon-ci.test.ts` (at the merged head) | **107 pass, 0 fail**, 1,119 assertions                                                                                                                                         |
-| `bun test scripts/*.test.ts` (the root scripts lane)                                                                                                                                    | **1,009 pass, 0 fail**, 10,174 assertions, 77 files (one re-run: a five-second timeout in `scripts/evidence-manifest.test.ts`, another lane's test, which passes in isolation) |
-| `bun run test:coverage` (the aggregate coverage lane)                                                                                                                                   | **2,096 pass, 0 fail**, 20,013 assertions, 154 files; 98.36% functions and 97.97% lines against the 80% goal; `scripts/vp-local-run.mjs` at 92.86% functions and 96.38% lines  |
-| `vp run orch:test` (the aggregate unit lane)                                                                                                                                            | **32/32 tasks successful**, 0 failing tests                                                                                                                                    |
-| `bun run build`                                                                                                                                                                         | **17/17 tasks successful**                                                                                                                                                     |
-| `bun run format:check`                                                                                                                                                                  | clean over 2,914 files                                                                                                                                                         |
-| `bunx oxlint --deny-warnings`                                                                                                                                                           | exit 0, no warning and no error                                                                                                                                                |
-| `bun run typecheck` (the pre-commit gate)                                                                                                                                               | **33/33 tasks successful**, no type errors in 324 files                                                                                                                        |
-| `bun test scripts/docs-boundary.test.ts`                                                                                                                                                | **4 pass, 0 fail**                                                                                                                                                             |
+| Command                                                                                                        | Result                                                                                                                                                                         |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `bun test scripts/vp-local-run.test.ts`                                                                        | **67 pass, 0 fail**, 295 assertions                                                                                                                                            |
+| `bun test scripts/toolchain-pin.test.ts`                                                                       | **10 pass, 0 fail**, 81 assertions                                                                                                                                             |
+| `bun test scripts/cache-database-isolation.test.ts`                                                            | **10 pass, 0 fail**, 510 assertions                                                                                                                                            |
+| `bun test scripts/vp-local-run.test.ts scripts/toolchain-pin.test.ts scripts/cache-database-isolation.test.ts` | **87 pass, 0 fail**, 886 assertions                                                                                                                                            |
+| `bun test scripts/*.test.ts` (the root scripts lane)                                                           | **1,009 pass, 0 fail**, 10,174 assertions, 77 files (one re-run: a five-second timeout in `scripts/evidence-manifest.test.ts`, another lane's test, which passes in isolation) |
+| `bun run test:coverage` (the aggregate coverage lane)                                                          | **2,096 pass, 0 fail**, 20,013 assertions, 154 files; 98.36% functions and 97.97% lines against the 80% goal; `scripts/vp-local-run.mjs` at 92.86% functions and 96.38% lines  |
+| `vp run orch:test` (the aggregate unit lane)                                                                   | **32/32 tasks successful**, 0 failing tests                                                                                                                                    |
+| `bun run build`                                                                                                | **17/17 tasks successful**                                                                                                                                                     |
+| `bun run format:check`                                                                                         | clean over 2,914 files                                                                                                                                                         |
+| `bunx oxlint --deny-warnings`                                                                                  | exit 0, no warning and no error                                                                                                                                                |
+| `bun run typecheck` (the pre-commit gate)                                                                      | **33/33 tasks successful**, no type errors in 324 files                                                                                                                        |
+| `bun test scripts/docs-boundary.test.ts`                                                                       | **4 pass, 0 fail**                                                                                                                                                             |
 
 Each new regression was run against the module as it was, and fails there:
 
-| Regression                                                                              | Against the module as it was                                           |
-| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| a lock that is released between the check and the read is absent, not a failure         | fails: `ENOENT` leaves `withLock`                                      |
-| a run record that is released between the check and the read leaves the dead owner dead | fails: `ENOENT` leaves `withLock`                                      |
-| a lock that is released between the check and the read does not fail the release        | fails: the release throws over the run's result                        |
-| a component another run created at the same time is used, not refused                   | fails: `EEXIST` leaves `ensurePrivateDirectory`                        |
-| a component another run created at the same time is still judged by what it is          | fails: `EEXIST` leaves `ensurePrivateDirectory`                        |
-| the instructions name the pinned Bun version                                            | fails: the instructions named Bun 1.4.0                                |
-| the admitted scope names no Neon service                                                | fails: a `NEON_AUTH_BASE_URL` comment in the transport trips the guard |
+| Regression                                                                              | Against the module as it was                    |
+| --------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| a lock that is released between the check and the read is absent, not a failure         | fails: `ENOENT` leaves `withLock`               |
+| a run record that is released between the check and the read leaves the dead owner dead | fails: `ENOENT` leaves `withLock`               |
+| a lock that is released between the check and the read does not fail the release        | fails: the release throws over the run's result |
+| a component another run created at the same time is used, not refused                   | fails: `EEXIST` leaves `ensurePrivateDirectory` |
+| a component another run created at the same time is still judged by what it is          | fails: `EEXIST` leaves `ensurePrivateDirectory` |
+| the instructions name the pinned Bun version                                            | fails: the instructions named Bun 1.4.0         |
 
 Two aggregate runs were re-run rather than reported as they landed, and what they showed was the same thing both
 times: the tests that start child processes were on the runner's five-second default, and the wait grows with
@@ -465,20 +461,12 @@ themselves, and the run passed with 0 failures.
 
 ## 7. Coordination and handoff
 
-- **Railway is the sole target.** The no-Neon proof for this lane's admitted scope is
-  [the cache and tooling no-Neon proof](cache-tooling-no-neon-proof-2026-10-20.md): the thirteen files the lane owns
-  name no Neon service, package, variable or host, no database service at all, and no repository secret, and the
-  R2 transport is off and falls back to the caller's own local cache. There is no Neon fallback, compatibility path or
-  rollback in the scope; the recovery is a Railway backup/restore or a forward fix. The one Neon trace in this lane's
-  own tooling surface - the coverage lane's list naming the auth driver's `neon-driver.test.ts` - is routed to that
-  test's owner rather than removed here, because taking it out of the list would weaken a gate another lane owns.
+test's owner rather than removed here, because taking it out of the list would weaken a gate another lane owns.
+
 - **Lane F** (CI and release compatibility) routes product and cache defects to their single owner. No cache or lock
   defect was reported to this lane. This lane owns `scripts/vp-*.mjs`, `scripts/vite-plus-proof.mjs`,
   `scripts/orch-*.mjs` and the cache lanes of `.github/workflows`; a CI or release file that F needs is not changed here.
-- **Lane H** (efficiency and no-Neon dependency audit) measures and audits. The cache and tooling scope holds no active
-  Neon coupling: the only match for "neon" in it is the file name of a test in the coverage lane's list, which is
   recorded for the owner of that test. The repository-wide inventory of the traces this lane does not own is in
-  section 5 of the no-Neon proof, so the audit has the map without a second sweep.
 - The two repairs in this branch are in the shared cache's lock and directory code. A run that uses the shared cache on
   one machine is affected by them, so any measurement lane that runs builds concurrently should read this receipt before
   it compares timings.

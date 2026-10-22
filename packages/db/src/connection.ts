@@ -154,6 +154,8 @@ export interface CreateDatabaseOptions {
   idleTimeoutSeconds?: number
   /** Defaults to true. Only a declared transaction-pooled origin may turn it off. */
   preparedStatements?: boolean
+  /** Explicit verified TLS policy for a reviewed transport/peer mapping. */
+  tls?: { readonly rejectUnauthorized: true; readonly servername: string; readonly ca: string }
 }
 
 export function databaseConnectionOptions(options: CreateDatabaseOptions = {}): {
@@ -161,7 +163,16 @@ export function databaseConnectionOptions(options: CreateDatabaseOptions = {}): 
   connect_timeout: number
   idle_timeout: number
   prepare: boolean
+  ssl?: CreateDatabaseOptions['tls']
 } {
+  if (
+    options.tls &&
+    (options.tls.rejectUnauthorized !== true ||
+      !/^[a-z0-9.-]+$/.test(options.tls.servername) ||
+      !options.tls.ca.includes('-----BEGIN CERTIFICATE-----'))
+  ) {
+    throw new Error('Database TLS requires a trusted CA and verified peer identity')
+  }
   return {
     max:
       options.maxConnections ??
@@ -169,6 +180,7 @@ export function databaseConnectionOptions(options: CreateDatabaseOptions = {}): 
     connect_timeout: options.connectTimeoutSeconds ?? 10,
     idle_timeout: options.idleTimeoutSeconds ?? 20,
     prepare: options.preparedStatements ?? true,
+    ...(options.tls ? { ssl: options.tls } : {}),
   }
 }
 

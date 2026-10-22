@@ -144,8 +144,8 @@ describe('connection target qualification', () => {
     // hostname decides the statement mode, so the shape that used to force `prepare: false`
     // prepares statements like every other origin.
     for (const host of [
-      'ep-cool-1234-pooler.us-east-2.aws.neon.tech',
-      'ep-cool-1234.us-east-2.aws.neon.tech',
+      'ep-cool-1234-pooler.us-east-2.aws.legacy-db.example.invalid',
+      'ep-cool-1234.us-east-2.aws.legacy-db.example.invalid',
       'adea-db.hyperdrive.cloudflare.com',
       'abc123.proxy.rlwy.net',
     ]) {

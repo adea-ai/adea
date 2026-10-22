@@ -79,7 +79,7 @@ describe('adapter provider failures and credential flows', () => {
     const credentials = { email: 'fixture@example.invalid', password: 'fixture-only' }
     const registration = { ...credentials, name: 'Fixture' }
     expect((await adapter.signIn(credentials)).identity).toEqual({
-      provider: 'neon',
+      provider: 'better-auth',
       subject: 'provider-subject',
     })
     expect((await adapter.signUp(registration)).session.id).toBe('session-before-refresh')

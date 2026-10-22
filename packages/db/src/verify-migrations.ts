@@ -4,10 +4,11 @@ import { fileURLToPath } from 'node:url'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 
 import { createDatabase } from './connection'
-import { readDatabaseUrl } from './config'
+import { migrationConnection } from './migration-target'
 import { assertDatabaseMigrationHistoryCompatible } from './migration-history-preflight'
 
-const connection = createDatabase(readDatabaseUrl(process.env, 'DATABASE_MIGRATION_URL'))
+const target = migrationConnection()
+const connection = createDatabase(target.connectionUrl, target.options)
 const migrationsFolder = fileURLToPath(new URL('../drizzle', import.meta.url))
 
 async function migrationState() {

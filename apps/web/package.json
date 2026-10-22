@@ -51,7 +51,6 @@
     "@adea-ai/ui": "0.146.0",
     "@adea-ai/workspace-nav": "workspace:*",
     "@adea-ai/workspace-ui": "workspace:*",
-    "@neondatabase/auth": "0.5.0-beta",
     "@tanstack/solid-query": "^5.104.1",
     "@tanstack/solid-router": "1.170.38",
     "@tanstack/solid-start": "1.168.57",
