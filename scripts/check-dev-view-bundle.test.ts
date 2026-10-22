@@ -1,11 +1,38 @@
 import { expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
+import { gzipSync } from 'node:zlib'
 
-import { inspectDevViewChunks } from './check-dev-view-bundle.mjs'
+import { inspectDevViewAssets, inspectDevViewChunks } from './check-dev-view-bundle.mjs'
 
 const maxBytes = 112 * 1024
 const maxGzipBytes = 34 * 1024
+
+test('measures emitted JavaScript files and ignores non-script assets', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'adea-dev-chunks-'))
+  try {
+    const entry = devEntry(0).source
+    const layout = layoutRenderer(0).source
+    writeFileSync(join(directory, 'src-entry.js'), entry)
+    writeFileSync(join(directory, 'layout-view.js'), layout)
+    // The same markers in a non-script file must not create duplicate chunks.
+    writeFileSync(join(directory, 'source-map.txt'), entry + layout)
+    const measured = await inspectDevViewAssets(directory)
+    expect(measured.entry).toMatchObject({
+      file: 'src-entry.js',
+      bytes: Buffer.byteLength(entry),
+      gzipBytes: gzipSync(entry).byteLength,
+    })
+    expect(measured.layout).toMatchObject({
+      file: 'layout-view.js',
+      bytes: Buffer.byteLength(layout),
+      gzipBytes: gzipSync(layout).byteLength,
+    })
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
 
 function devEntry(bytes: number, gzipBytes = 1_000) {
   return {

@@ -12,7 +12,7 @@ codeql: auto
 dependency_review: auto
 package_manager: bun
 runtime_repository: 0xPlayerOne/code-foundry
-runtime_ref: v1.48.1
+runtime_ref: v1.48.4
 runner: ubuntu-latest
 ci_runner: ubuntu-latest
 test_runner: ubuntu-latest
@@ -62,3 +62,6 @@ release_batching_prerelease: true
 release_batching_soak_hours: 96
 release_batching_qualification_workflow: release-assets.yml
 turbo_remote: false
+
+# Preserve the existing application formatter explicitly.
+formatter: oxfmt
