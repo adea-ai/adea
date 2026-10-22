@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
-import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import { migrateOwnedSchema } from './scoped-migrations'
 
 import { createDatabase } from './connection'
 import { migrationConnection } from './migration-target'
@@ -24,18 +24,10 @@ async function migrationState() {
 try {
   await assertDatabaseMigrationHistoryCompatible(connection, migrationsFolder)
 
-  await migrate(connection.db, {
-    migrationsFolder,
-    migrationsSchema: 'app',
-    migrationsTable: '__drizzle_migrations',
-  })
+  await migrateOwnedSchema(connection.client, migrationsFolder, 'app', Boolean(target.options.tls))
   const first = await migrationState()
 
-  await migrate(connection.db, {
-    migrationsFolder,
-    migrationsSchema: 'app',
-    migrationsTable: '__drizzle_migrations',
-  })
+  await migrateOwnedSchema(connection.client, migrationsFolder, 'app', Boolean(target.options.tls))
   const second = await migrationState()
 
   if (first.count === 0 || first.fingerprint !== second.fingerprint) {

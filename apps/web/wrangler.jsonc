@@ -14,6 +14,7 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public", "enable_request_signal"],
   "no_bundle": true,
+  "send_email": [{ "name": "AUTH_EMAIL", "allowed_sender_addresses": ["team@adea.dev"] }],
   "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "assets": {
     "directory": "dist/client",

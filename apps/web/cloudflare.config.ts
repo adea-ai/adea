@@ -109,6 +109,7 @@ export function previewEnv(source: EnvSource = process.env) {
 
 export function productionEnv() {
   return {
+    AUTH_EMAIL: bindings.sendEmail({ allowedSenderAddresses: ['team@adea.dev'] }),
     ASSETS: bindings.assets(),
     HYPERDRIVE: bindings.hyperdrive({ id: productionHyperdriveId }),
     // Marketplace proxy: production Control Plane (Railway).

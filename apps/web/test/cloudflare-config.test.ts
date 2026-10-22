@@ -40,6 +40,7 @@ describe('cloudflare.config.ts preview isolation', () => {
       'ASSETS',
       'AUTH_BASE_URL',
       'AUTH_DATABASE_URL',
+      'AUTH_EMAIL',
       'AUTH_SECRET',
       'AUTH_TRUSTED_ORIGINS',
       'CONTROL_PLANE_ORIGIN',
