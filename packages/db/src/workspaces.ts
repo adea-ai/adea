@@ -1,3 +1,4 @@
+import { workspaceRolePermissions } from '@adea-ai/auth/authorization'
 import type {
   PrincipalRef,
   UserPrincipalRef,
@@ -34,14 +35,15 @@ export type WorkspaceMembershipRecord = Readonly<{
 }>
 
 function workspaceLogo(row: typeof workspaces.$inferSelect): WorkspaceLogo {
-  return row.logoKind === 'emoji' && row.logoValue
-    ? Object.freeze({ kind: 'emoji', value: row.logoValue })
-    : Object.freeze({
-        kind:
-          row.logoKind === 'home' || (row.logoKind === 'monogram' && row.isPersonal)
-            ? 'home'
-            : 'box',
-      })
+  if (
+    (row.logoKind === 'emoji' || row.logoKind === 'icon' || row.logoKind === 'image') &&
+    row.logoValue
+  )
+    return Object.freeze({ kind: row.logoKind, value: row.logoValue })
+  return Object.freeze({
+    kind:
+      row.logoKind === 'home' || (row.logoKind === 'monogram' && row.isPersonal) ? 'home' : 'box',
+  })
 }
 
 function workspaceSummary(
@@ -49,9 +51,16 @@ function workspaceSummary(
   sortOrder: number,
   userId: string
 ): WorkspaceSummary {
+  const owned = row.ownerUserId === userId
+  // An archived workspace keeps its history, links, jobs and artifacts, but it
+  // is no longer an archive or a deletion target: archive is not erasure, and
+  // permanent deletion stays blocked before a server-owned cleanup verifier
+  // exists. A pending deletion keeps its own notice, so it is not folded into
+  // the capability flags.
+  const lifecycleOpen = !row.deletedAt
   return Object.freeze({
-    canDelete: row.ownerUserId === userId && !isPersonalWorkspace(row),
-    canArchive: row.ownerUserId === userId && !isPersonalWorkspace(row),
+    canDelete: owned && !isPersonalWorkspace(row) && lifecycleOpen,
+    canArchive: owned && !isPersonalWorkspace(row) && lifecycleOpen,
     isPersonal: row.isPersonal && row.ownerUserId === userId,
     ...(row.deletionRequestedAt ? { deletionPending: true } : {}),
     accent: (row.accent as WorkspaceAccent | null) ?? null,
@@ -110,6 +119,21 @@ type WorkspaceCreationInput = Readonly<{
   scene?: WorkspaceSceneId
 }>
 
+/**
+ * The bootstrap could not establish exactly one protected personal root.
+ *
+ * The root's identity is the protected `isPersonal` column, never a name, a
+ * logo or a creation key. When the bootstrap cannot show exactly one of them
+ * it fails closed with this error instead of handing back a workspace list
+ * that omits Home or that adopts a row which was never a root.
+ */
+export class WorkspacePersonalRootUnavailableError extends Error {
+  constructor() {
+    super('Workspace personal root unavailable')
+    this.name = 'WorkspacePersonalRootUnavailableError'
+  }
+}
+
 async function createWorkspaceWithOwnerInTransaction(
   transaction: AgentHqTransaction,
   input: WorkspaceCreationInput,
@@ -122,17 +146,22 @@ async function createWorkspaceWithOwnerInTransaction(
     .from(users)
     .where(eq(users.id, input.owner.userId))
     .for('update')
-  const [deleted] = await transaction
-    .select({ id: workspaceDeletions.workspaceId })
-    .from(workspaceDeletions)
-    .where(
-      and(
-        eq(workspaceDeletions.ownerUserId, input.owner.userId),
-        eq(workspaceDeletions.idempotencyKey, input.idempotencyKey)
+  // The personal root is protected from deletion, so a deletion receipt can
+  // never be its proof. Refusing Home on a receipt would strand the owner
+  // with no root at all.
+  if (!isPersonal) {
+    const [deleted] = await transaction
+      .select({ id: workspaceDeletions.workspaceId })
+      .from(workspaceDeletions)
+      .where(
+        and(
+          eq(workspaceDeletions.ownerUserId, input.owner.userId),
+          eq(workspaceDeletions.idempotencyKey, input.idempotencyKey)
+        )
       )
-    )
-    .limit(1)
-  if (deleted) throw new Error('Workspace creation conflict')
+      .limit(1)
+    if (deleted) throw new Error('Workspace creation conflict')
+  }
   const [createdWorkspace] = await transaction
     .insert(workspaces)
     .values({
@@ -159,6 +188,11 @@ async function createWorkspaceWithOwnerInTransaction(
       )
       .limit(1)
     if (!existingWorkspace) throw new Error('Workspace creation conflict')
+    // The personal root is adopted only when the row really is a root. A row
+    // that merely holds the root's reserved creation key is never promoted
+    // into one, and never stands in for one.
+    if (isPersonal && !existingWorkspace.isPersonal)
+      throw new WorkspacePersonalRootUnavailableError()
     return Object.freeze({
       created: false,
       workspace: workspaceSummary(
@@ -198,6 +232,18 @@ export async function createWorkspaceWithOwner(
 }
 
 const legacyPersonalKeys = ['default-home', 'default']
+
+/**
+ * The personal root's stable creation key.
+ *
+ * A bootstrap that is replayed — the client retried, the request was
+ * duplicated, or the driver replayed the transaction after a serialization
+ * failure — must converge on the same Home instead of minting a second one.
+ * A stable key makes the personal root's creation idempotent for its owner,
+ * and the `personal:` prefix stays reserved: the create route refuses it, so
+ * a caller can never claim the root's identity for itself.
+ */
+export const personalRootIdempotencyKey = 'personal:home'
 
 function isPersonalWorkspace(
   row: Pick<typeof workspaces.$inferSelect, 'isPersonal' | 'idempotencyKey'>
@@ -274,6 +320,10 @@ async function workspacesForUser(
  * Exactly one persistent personal/root workspace per owner. Only stable legacy
  * seed markers are promoted. Ambiguous claimed workspaces are retained and a
  * new root is added; Home/Work names alone never identify a personal workspace.
+ *
+ * The bootstrap is replay-safe: it converges on one Home row, repairs a missing
+ * owner membership, and never creates a second personal root for the same
+ * owner. A replay returns the same Home the first call created.
  */
 export async function ensureBootstrapWorkspaces(
   database: AgentHqDatabase,
@@ -286,35 +336,43 @@ export async function ensureBootstrapWorkspaces(
       .where(eq(users.id, owner.userId))
       .for('update')
     const personal = await personalWorkspaceInTransaction(transaction, owner.userId)
-    if (!personal)
-      await createWorkspaceWithOwnerInTransaction(
-        transaction,
-        {
-          idempotencyKey: `personal:${crypto.randomUUID()}`,
-          name: 'Home',
-          scene: 'home',
-          owner,
-        },
-        true
-      )
-    else {
-      // Repair a missing owner membership without moving an existing one.
-      await transaction
-        .insert(workspaceMemberships)
-        .values({
-          role: 'owner',
-          userId: owner.userId,
-          workspaceId: personal.id,
-          sortOrder: await nextWorkspaceSortOrder(transaction, owner.userId),
-        })
-        .onConflictDoNothing({
-          target: [workspaceMemberships.workspaceId, workspaceMemberships.userId],
-        })
-    }
+    const root = personal
+      ? personal
+      : (
+          await createWorkspaceWithOwnerInTransaction(
+            transaction,
+            {
+              idempotencyKey: personalRootIdempotencyKey,
+              name: 'Home',
+              scene: 'home',
+              owner,
+            },
+            true
+          )
+        ).workspace
+    // The owner membership is the root's authority. A replayed bootstrap that
+    // found the row already present must still repair it, or the Home would be
+    // invisible to its own owner.
+    await transaction
+      .insert(workspaceMemberships)
+      .values({
+        role: 'owner',
+        userId: owner.userId,
+        workspaceId: root.id,
+        sortOrder: await nextWorkspaceSortOrder(transaction, owner.userId),
+      })
+      .onConflictDoNothing({
+        target: [workspaceMemberships.workspaceId, workspaceMemberships.userId],
+      })
     const rows = await workspacesForUser(transaction, owner)
-    return rows.map(({ sortOrder, workspace }) =>
+    const summaries = rows.map(({ sortOrder, workspace }) =>
       workspaceSummary(workspace, sortOrder, owner.userId)
     )
+    // Fail closed: a bootstrap that cannot show exactly one protected personal
+    // root has not provisioned Home, and must not pass a list that omits it.
+    if (summaries.filter((summary) => summary.isPersonal).length !== 1)
+      throw new WorkspacePersonalRootUnavailableError()
+    return summaries
   })
 }
 
@@ -369,6 +427,54 @@ export async function addWorkspaceMembership(
   return Object.freeze(membership)
 }
 
+/**
+ * The workspace membership fence, shared by the paths that authorize on a
+ * membership and the paths that revoke one.
+ *
+ * The membership row is the authority fence. An authorizer takes it in SHARE
+ * mode and reads the role under that lock; a revoker takes the same row
+ * exclusively. A SHARE lock conflicts with a DELETE and with a non-key role
+ * UPDATE, so a revocation that committed first is observed by the authorizer,
+ * and a revocation that arrives while the fence is held waits for the effect
+ * to commit.
+ *
+ * Without the fence an authorizer could read a role, lose it, and still
+ * commit: a revocation does not change the workspace's version, so the
+ * author's own version check would still match. The fence is what makes the
+ * revocation and the effect one ordered pair instead of two independent
+ * writes.
+ */
+export async function lockWorkspaceMembership(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  userId: string,
+  mode: 'authorize' | 'revoke'
+): Promise<Readonly<{ role: WorkspaceRole; sortOrder: number }> | null> {
+  const selection = {
+    role: workspaceMemberships.role,
+    sortOrder: workspaceMemberships.sortOrder,
+  }
+  const scoped = and(
+    eq(workspaceMemberships.workspaceId, workspaceId),
+    eq(workspaceMemberships.userId, userId)
+  )
+  const [membership] =
+    mode === 'authorize'
+      ? await transaction
+          .select(selection)
+          .from(workspaceMemberships)
+          .where(scoped)
+          .for('share')
+          .limit(1)
+      : await transaction
+          .select(selection)
+          .from(workspaceMemberships)
+          .where(scoped)
+          .for('update')
+          .limit(1)
+  return membership ?? null
+}
+
 export async function removeWorkspaceMembership(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -384,15 +490,27 @@ export async function removeWorkspaceMembership(
       throw new Error('Workspace owner membership cannot be removed')
     }
 
-    const removed = await transaction
-      .delete(workspaceMemberships)
-      .where(
-        and(
-          eq(workspaceMemberships.workspaceId, workspaceId),
-          eq(workspaceMemberships.userId, principal.userId)
-        )
-      )
-      .returning({ id: workspaceMemberships.id })
+    // The revoker's side of the shared fence: the membership row is taken
+    // exclusively, so a concurrent authorizer either finished before this
+    // revocation or waits for it.
+    const membership = await lockWorkspaceMembership(
+      transaction,
+      workspaceId,
+      principal.userId,
+      'revoke'
+    )
+
+    const removed = membership
+      ? await transaction
+          .delete(workspaceMemberships)
+          .where(
+            and(
+              eq(workspaceMemberships.workspaceId, workspaceId),
+              eq(workspaceMemberships.userId, principal.userId)
+            )
+          )
+          .returning({ id: workspaceMemberships.id })
+      : []
     // Project lists only grant access alongside a workspace membership; drop
     // them too so a later re-join starts with no project access.
     await transaction
@@ -715,6 +833,17 @@ export async function deleteWorkspace(
   })
 }
 
+/**
+ * Archives one optional workspace.
+ *
+ * Archive is not erasure. The workspace row, its memberships, its history,
+ * its links, its linked jobs and its artifacts are all retained; only the
+ * workspace's visibility changes. New work in an archived workspace is refused
+ * by the resources that check the workspace's lifecycle, and permanent
+ * deletion stays blocked until a server-owned cleanup verifier exists.
+ *
+ * The personal root is never archived.
+ */
 export async function archiveWorkspace(
   database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string,
@@ -726,6 +855,7 @@ export async function archiveWorkspace(
         ownerUserId: workspaces.ownerUserId,
         isPersonal: workspaces.isPersonal,
         idempotencyKey: workspaces.idempotencyKey,
+        deletionRequestedAt: workspaces.deletionRequestedAt,
       })
       .from(workspaces)
       .where(
@@ -738,6 +868,9 @@ export async function archiveWorkspace(
       .limit(1)
     if (!workspace) throw new Error('Workspace unavailable')
     if (isPersonalWorkspace(workspace)) throw new WorkspacePersonalProtectedError()
+    // A workspace whose deletion is already pending is past the archive
+    // boundary; archiving it would present two competing lifecycle endings.
+    if (workspace.deletionRequestedAt) throw new Error('Workspace unavailable')
 
     const now = new Date()
     await transaction
@@ -797,9 +930,24 @@ export async function reopenWorkspace(
 }
 
 /**
- * Applies a versioned update to a live workspace the caller is a member of.
+ * Applies a versioned update to a live workspace the caller may rename.
  * The caller's authorization (`workspace.update`) is checked by the route; a
  * stale `expectedVersion` raises `WorkspaceVersionConflictError`.
+ *
+ * The rename is scope-aware and presentation-only: only a role that grants
+ * `workspace.update` may rename the workspace, the change never touches the
+ * workspace's identity, its memberships or its content, and an archived
+ * workspace is never renamed.
+ *
+ * The rename is fenced against a concurrent revocation of the caller's
+ * authority. The workspace row is the lifecycle fence and is locked first, the
+ * same order the management authority uses, so a direct rename and a managed
+ * rename cannot deadlock against each other. The membership is the authority
+ * fence, and the role is read under that lock: a revocation that committed
+ * first is observed here, and a revocation that arrives while the rename holds
+ * the fence waits for the rename to commit. A revocation never changes the
+ * workspace's version, so without the fence the rename's own version check
+ * would still match after the caller's authority was gone.
  */
 export async function updateWorkspace(
   database: AgentHqDatabase | AgentHqTransaction,
@@ -808,20 +956,33 @@ export async function updateWorkspace(
   input: Readonly<{ expectedVersion: number; update: WorkspaceUpdate }>
 ): Promise<WorkspaceSummary> {
   return database.transaction(async (transaction) => {
-    const [membership] = await transaction
-      .select({ sortOrder: workspaceMemberships.sortOrder })
-      .from(workspaceMemberships)
-      .innerJoin(workspaces, eq(workspaceMemberships.workspaceId, workspaces.id))
-      .where(
-        and(
-          eq(workspaceMemberships.workspaceId, workspaceId),
-          eq(workspaceMemberships.userId, principal.userId),
-          isNull(workspaces.deletedAt),
-          isNull(workspaces.deletionRequestedAt)
-        )
-      )
+    const [current] = await transaction
+      .select({
+        deletedAt: workspaces.deletedAt,
+        deletionRequestedAt: workspaces.deletionRequestedAt,
+      })
+      .from(workspaces)
+      .where(eq(workspaces.id, workspaceId))
+      .for('update')
       .limit(1)
+    if (!current) throw new Error('Workspace unavailable')
+    const membership = await lockWorkspaceMembership(
+      transaction,
+      workspaceId,
+      principal.userId,
+      'authorize'
+    )
     if (!membership) throw new Error('Workspace unavailable')
+    if (current.deletedAt || current.deletionRequestedAt) throw new Error('Workspace unavailable')
+    // Membership alone is not authority to rename. The same role matrix the
+    // management gateway applies decides here, so a direct database caller
+    // cannot reach past it.
+    if (
+      !new Set<WorkspacePermission>(workspaceRolePermissions[membership.role]).has(
+        'workspace.update'
+      )
+    )
+      throw new Error('Workspace unavailable')
 
     const { update } = input
     const [workspace] = await transaction
@@ -833,7 +994,7 @@ export async function updateWorkspace(
         ...(update.logo !== undefined
           ? {
               logoKind: update.logo.kind,
-              logoValue: update.logo.kind === 'emoji' ? update.logo.value : null,
+              logoValue: 'value' in update.logo ? update.logo.value : null,
             }
           : {}),
         updatedAt: new Date(),

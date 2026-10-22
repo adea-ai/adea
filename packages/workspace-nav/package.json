@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/workspace-nav",
-  "version": "0.99.0",
+  "version": "0.100.0",
   "private": true,
   "type": "module",
   "sideEffects": false,
@@ -33,6 +33,20 @@
       "import": "./dist/sidebar-width.js",
       "default": "./dist/sidebar-width.js"
     },
+    "./project-identity-fields": {
+      "types": "./dist/project-identity-fields.d.ts",
+      "solid": "./src/project-identity-fields.tsx",
+      "development": "./src/project-identity-fields.tsx",
+      "import": "./dist/project-identity-fields.js",
+      "default": "./dist/project-identity-fields.js"
+    },
+    "./project-icon": {
+      "types": "./dist/project-icon.d.ts",
+      "solid": "./src/project-icon.tsx",
+      "development": "./src/project-icon.tsx",
+      "import": "./dist/project-icon.js",
+      "default": "./dist/project-icon.js"
+    },
     "./workspace-nav": {
       "types": "./dist/workspace-nav.d.ts",
       "solid": "./src/workspace-nav.tsx",
@@ -45,13 +59,13 @@
     "build": "vite build && tsc -p tsconfig.json --emitDeclarationOnly",
     "dev": "vite build --watch",
     "lint": "oxlint",
-    "test": "bun test --conditions=browser tests/unit",
+    "test": "bun test --conditions=browser --preload ../../scripts/test-solid-transform.ts tests/unit",
     "typecheck": "bun check -p tsconfig.json"
   },
   "dependencies": {
     "@adea-ai/app-ui": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.142.4",
+    "@adea-ai/ui": "0.146.0",
     "lucide-solid": "^1.51.0",
     "solid-js": "^1.9.15"
   },

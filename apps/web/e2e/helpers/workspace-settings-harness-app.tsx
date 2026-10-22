@@ -4,8 +4,6 @@ import { Button } from '@adea-ai/ui/components/ui/button'
 import { Toaster } from '@adea-ai/ui/components/ui/toast'
 import { render } from 'solid-js/web'
 import { WorkspaceSettingsDialog } from '@adea-ai/workspace-ui/workspace-settings'
-import { WorkspaceDetailsDialog } from '@adea-ai/workspace-ui/workspace-details-dialog'
-import { workspaceSettingsSectionFromHash } from '@adea-ai/workspace-ui/workspace-settings-section'
 import { ThemeProvider } from '@adea-ai/app-ui/components/theme-provider'
 import { AgentHqQueryProvider } from '@adea-ai/data/provider'
 import { ApiClientError, type AgentHqApiClient } from '@adea-ai/api-client'
@@ -14,6 +12,7 @@ import type { TranscriptionProvider, WorkspacePreferences } from '@adea-ai/works
 import { createDesktopSettingsProvider } from '../../src/lib/desktop-platform-services'
 import { localContentAuthority } from '../../src/lib/desktop-local-content'
 import { desktopMacPermissionsService } from '../../src/lib/desktop-permissions'
+import { PluginsDialog } from '@adea-ai/workspace-ui/plugins-dialog'
 import { controlPlaneSettingsClient } from './control-plane-settings-fixture'
 
 let permissionRequests = 0
@@ -220,14 +219,17 @@ const initialWorkspace: WorkspaceSummary = {
  * deliberately: the harness pins the dialog's contract that every section
  * renders standalone. The deep link (#settings/<section>) the dialog reads on
  * open decides the active tab, so the spec opens this page straight onto the
- * section it exercises. A `#workspace-settings/<section>` deep link mounts the
- * workspace settings dialog instead, under the same no-providers contract.
+ * section it exercises. The workspace sections (`#settings/workspace-*`, and the
+ * retired `#workspace-settings/<section>` links) open in this same dialog.
  */
 function Harness() {
   const missingDesktopBridge = document
     .querySelector('#harness-root')
     ?.hasAttribute('data-missing-desktop-bridge')
-  const [open, setOpen] = createSignal(true)
+  // Skills is managed in the Plugins dialog, which this fixture shows instead of Settings.
+  const [open, setOpen] = createSignal(
+    !document.querySelector('#harness-root')?.hasAttribute('data-plugins-skills')
+  )
   const [workspace, setWorkspace] = createSignal({
     ...initialWorkspace,
     isPersonal: document.querySelector('#harness-root')?.hasAttribute('data-personal') ?? false,
@@ -247,16 +249,11 @@ function Harness() {
     logo: { kind: 'box' as const },
     sortOrder: 1,
   }
-  const [orderIds, setOrderIds] = createSignal([initialWorkspace.id, sibling.id])
-  const workspaceOrder = () =>
-    orderIds().map((id, sortOrder) => ({
-      ...(id === sibling.id ? sibling : workspace()),
-      sortOrder,
-    }))
-  let reorderCalls = 0
+  const workspaceOrder = () => [
+    { ...workspace(), sortOrder: 0 },
+    { ...sibling, sortOrder: 1 },
+  ]
   let openCalls = 0
-  let deleteCalls = 0
-  const workspaceDialog = workspaceSettingsSectionFromHash(window.location.hash) !== undefined
   // A versioned in-memory workspace store: a stale version is refused the way
   // the API refuses it, so the General section's conflict path is reachable.
   const updateWorkspace = async (
@@ -319,78 +316,60 @@ function Harness() {
       <Button id="resolve-permission-fixture" onClick={() => resolvePermission?.('granted')}>
         Resolve permission fixture
       </Button>
-      <Show
-        when={!workspaceDialog}
-        fallback={
-          <WorkspaceDetailsDialog
-            open={open()}
-            client={client()}
-            onClose={() => setOpen(false)}
-            workspaceOrder={workspaceOrder()}
-            onOpenWorkspace={async (id) => {
-              const root = document.querySelector('#harness-root')!
-              openCalls += 1
-              root.setAttribute('data-open-calls', String(openCalls))
-              await new Promise((resolve) => setTimeout(resolve, 100))
-              // A staged failure covers the first attempt only, so the retry is reachable.
-              if (root.hasAttribute('data-open-failure') && openCalls === 1) return false
-              root.setAttribute('data-opened-workspace', id)
-              return true
-            }}
-            onReorderWorkspaces={async (ids) => {
-              reorderCalls += 1
-              const root = document.querySelector('#harness-root')!
-              root.setAttribute('data-reorder-calls', String(reorderCalls))
-              if (root.hasAttribute('data-reorder-failure') && reorderCalls === 1)
-                throw new Error('fixture ordering failure')
-              setOrderIds([...ids])
-              root.setAttribute('data-order', JSON.stringify(ids))
-            }}
-            onDeleteWorkspace={async () => {
-              deleteCalls += 1
-              const root = document.querySelector('#harness-root')!
-              root.setAttribute('data-delete-calls', String(deleteCalls))
-              if (root.hasAttribute('data-delete-failure') && deleteCalls === 1)
-                throw new Error('Fixture deletion failed')
-              if (root.hasAttribute('data-delete-delayed'))
-                await new Promise<void>((resolve) =>
-                  window.addEventListener('fixture:delete-complete', () => resolve(), {
-                    once: true,
-                  })
-                )
-            }}
-            {...(document.querySelector('#harness-root')?.hasAttribute('data-read-only')
-              ? {}
-              : { onUpdateWorkspace: updateWorkspace })}
-            workspace={workspace()}
-          />
-        }
-      >
-        <WorkspaceSettingsDialog
-          open={open()}
-          accountAuthenticated={false}
-          accountLabel="Guest"
-          agents={[]}
-          busy={false}
-          onClose={() => setOpen(false)}
-          onOpenAgents={() => undefined}
-          onSignIn={() => undefined}
-          onSignOut={() => undefined}
-          workspace={workspace()}
-          permissionsService={missingDesktopBridge ? desktopMacPermissionsService : undefined}
-          services={{
-            ...(missingDesktopBridge ? { privateContent: localContentAuthority } : {}),
-            ...(document
-              .querySelector('#harness-root')
-              ?.matches('[data-microphone-retry], [data-microphone-delayed]')
-              ? { transcription }
-              : {}),
-            ...(document.querySelector('#harness-root')?.hasAttribute('data-desktop-preferences')
-              ? { settings: desktopSettings }
-              : {}),
-          }}
+      <Show when={document.querySelector('#harness-root')?.hasAttribute('data-plugins-skills')}>
+        <PluginsDialog
+          open
+          onClose={() => undefined}
+          skills={{ client: client(), workspaceId: workspace().id }}
         />
       </Show>
+      <WorkspaceSettingsDialog
+        open={open()}
+        accountAuthenticated={false}
+        accountLabel="Guest"
+        agents={[]}
+        busy={false}
+        client={client()}
+        onClose={() => setOpen(false)}
+        onOpenAgents={() => undefined}
+        onSignIn={() => undefined}
+        onSignOut={() => undefined}
+        workspace={workspace()}
+        workspaces={workspaceOrder()}
+        onSwitchWorkspace={(next) => {
+          const root = document.querySelector('#harness-root')!
+          root.setAttribute('data-switched-workspace', next.id)
+          setWorkspace(next)
+        }}
+        onCreateWorkspace={() => {
+          document.querySelector('#harness-root')!.setAttribute('data-create-workspace', '')
+        }}
+        onOpenWorkspace={async (id) => {
+          const root = document.querySelector('#harness-root')!
+          openCalls += 1
+          root.setAttribute('data-open-calls', String(openCalls))
+          await new Promise((resolve) => setTimeout(resolve, 100))
+          // A staged failure covers the first attempt only, so the retry is reachable.
+          if (root.hasAttribute('data-open-failure') && openCalls === 1) return false
+          root.setAttribute('data-opened-workspace', id)
+          return true
+        }}
+        {...(document.querySelector('#harness-root')?.hasAttribute('data-read-only')
+          ? {}
+          : { onUpdateWorkspace: updateWorkspace })}
+        permissionsService={missingDesktopBridge ? desktopMacPermissionsService : undefined}
+        services={{
+          ...(missingDesktopBridge ? { privateContent: localContentAuthority } : {}),
+          ...(document
+            .querySelector('#harness-root')
+            ?.matches('[data-microphone-retry], [data-microphone-delayed]')
+            ? { transcription }
+            : {}),
+          ...(document.querySelector('#harness-root')?.hasAttribute('data-desktop-preferences')
+            ? { settings: desktopSettings }
+            : {}),
+        }}
+      />
     </>
   )
 }

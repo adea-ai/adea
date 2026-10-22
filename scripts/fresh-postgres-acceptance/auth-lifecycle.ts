@@ -8,7 +8,12 @@ import {
   handleBetterAuthRequest,
 } from '../../packages/auth/src/better-auth-server'
 import type { createRecordingAuthDelivery } from '../../packages/auth/src/delivery'
-import type { createBetterAuthService } from '../../packages/auth/src/server'
+import { createBetterAuthService } from '../../packages/auth/src/server'
+import {
+  runAuthLifecycleRecovery,
+  type AuthLifecycleRecoveryReceipt,
+  type AuthLifecycleStore,
+} from './auth-lifecycle-recovery'
 
 const cookies = (response: Response) =>
   response.headers
@@ -200,11 +205,99 @@ export async function runFreshAuthAcceptance(
   await adapter(revokeCookie).revokeSession(revokeSession.session.id)
   assert.equal(await adapter(revokeCookie).refreshSession(), null)
   assert.equal(await sessionCount(), 0)
+
+  // The failure-recovery phase: what happens when the flow is interrupted. It
+  // runs on synthetic accounts of its own, against the same store, and every
+  // service it builds is closed again before this phase returns.
+  const built: Array<{ close(): Promise<void> }> = []
+  const recoveryEnvironment = {
+    AUTH_BASE_URL: service.config.baseUrl,
+    AUTH_DATABASE_URL: service.config.databaseUrl,
+    AUTH_EMAIL_VERIFICATION_REQUIRED: String(service.config.emailVerificationRequired),
+    AUTH_SECURE_COOKIES: String(service.config.secureCookies),
+    AUTH_SECRET: service.config.secret,
+    AUTH_TRUSTED_ORIGINS: service.config.trustedOrigins.join(','),
+  }
+  const recoveryStore: AuthLifecycleStore = {
+    async account(address) {
+      const result = await providerSql<
+        { id: string; emailVerified: boolean }[]
+      >`SELECT id, "emailVerified" FROM "user" WHERE email = ${address}`
+      const row = result[0]
+      if (!row) return null
+      return { emailVerified: row.emailVerified, id: row.id }
+    },
+    async sessionCount(address) {
+      const result = await providerSql<
+        { count: number }[]
+      >`SELECT count(*)::int AS count FROM "session" s JOIN "user" u ON u.id = s."userId" WHERE u.email = ${address}`
+      return result[0]?.count ?? 0
+    },
+  }
+  let recovery: AuthLifecycleRecoveryReceipt
+  try {
+    recovery = await runAuthLifecycleRecovery({
+      createService: (recoveryDelivery) => {
+        const created = createBetterAuthService(recoveryEnvironment, recoveryDelivery)
+        built.push(created)
+        return { auth: created.auth, config: created.config }
+      },
+      delivery: recorder.delivery,
+      sent: recorder.sent,
+      store: recoveryStore,
+      origin,
+    })
+  } finally {
+    for (const created of built) {
+      await created.close().catch(() => undefined)
+    }
+  }
+  assert.equal(recovery.deliveryFailureClosed, true)
+  assert.equal(recovery.deliveryFailureRecovered, true)
+  assert.equal(recovery.refusedWriteLeftNoAccount, true)
+  assert.equal(recovery.providerWriteRollbackUnproven, true)
+  assert.equal(recovery.replayedVerificationAccepted, true)
+  assert.equal(recovery.replayedResetRefused, true)
+  assert.equal(recovery.restartContinues, true)
+  assert.equal(recovery.sessionRevocationConsistent, true)
+  assert.equal(recovery.redacted, true)
+  // The races are reported as the provider answered them: every raced request
+  // got a real HTTP status, and each race redeemed or verified at least once.
+  assert.equal(recovery.concurrentResetStatuses.length, 2)
+  assert.ok(
+    recovery.concurrentResetStatuses.every((status) => status >= 200),
+    'every raced redemption must have returned a real status'
+  )
+  assert.equal(
+    recovery.concurrentResetRedemptions,
+    1,
+    'exactly one redemption of the raced reset token may succeed'
+  )
+  assert.equal(
+    recovery.concurrentResetStatuses.filter((status) => status === 200).length,
+    1,
+    'the raced reset token must have exactly one successful redemption'
+  )
+  assert.equal(
+    recovery.concurrentResetStatuses.filter((status) => status === 400).length,
+    1,
+    'the other redemption of the raced reset token must be refused'
+  )
+  assert.equal(recovery.concurrentVerificationStatuses.length, 2)
+  assert.ok(
+    recovery.concurrentVerificationStatuses.every((status) => status >= 200),
+    'every raced verification must have returned a real status'
+  )
+  assert.ok(
+    recovery.concurrentVerificationStatuses.some((status) => status === 200),
+    'at least one concurrent verification must have been accepted'
+  )
   return {
     lifecycle: 'passed',
     verificationRequired: true,
     resetSingleUse: true,
     expiredResetRefused: true,
     sessionRevocation: true,
+    recovery,
   } as const
 }

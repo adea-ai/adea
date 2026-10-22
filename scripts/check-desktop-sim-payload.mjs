@@ -10,7 +10,10 @@ export function simPayloadOffenders(paths) {
     return (
       /(^|\/)assets\/agent-sim(\/|$)/.test(normalized) ||
       /(^|\/)(engine|character-designer|room-designer)\.(js|css)$/.test(normalized) ||
-      /\.(glb|gltf|fbx|blend|ktx2|basis)$/.test(normalized) ||
+      // The repository asset boundary already forbids these engine formats anywhere, so the
+      // desktop client may not carry one either, wherever it was moved to. The path is lowercased
+      // above, so the match is case-insensitive: CHAIR.OBJ is the same offender as chair.obj.
+      /\.(glb|gltf|fbx|obj|blend|ktx2|basis)$/.test(normalized) ||
       /(^|\/)basis_transcoder\.(js|wasm)$/.test(normalized)
     )
   })

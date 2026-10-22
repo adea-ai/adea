@@ -16,63 +16,77 @@ async function openHarness(page: Page, query = '') {
     },
     '/@fs' + resolve(process.cwd(), 'apps/web/e2e/helpers/workspace-nav-harness-app.tsx')
   )
-  await expect(page.getByRole('tree', { name: 'Adea projects' })).toBeVisible()
+  await expect(page.getByRole('tree', { name: /projects$/ })).toBeVisible()
 }
 
 const events = (page: Page) => page.getByRole('list', { name: 'Nav events' })
-const nav = (page: Page) => page.getByRole('navigation', { name: 'Workspaces' })
+const nav = (page: Page) => page.getByRole('navigation', { name: 'Workspace', exact: true })
 
-test('a collapsed workspace row switches the active workspace', async ({ page }) => {
+test('the sidebar shows the selected workspace alone, under a Projects heading', async ({
+  page,
+}) => {
   await openHarness(page)
-  const pinkBinder = nav(page).getByRole('button', { name: /Pink Binder/ })
-  await expect(pinkBinder).toContainText('2 running')
-  await pinkBinder.click()
-  await expect(events(page)).toContainText('workspace:pink-binder')
+  await expect(nav(page).getByRole('heading', { name: 'Projects' })).toBeVisible()
+  await expect(nav(page)).toHaveAttribute('data-workspace-id', 'adea-ws')
+  await expect(page.getByRole('tree', { name: 'Adea projects' })).toBeVisible()
+  // No other workspace, no cross-workspace counts, no workspace creation here.
+  for (const other of ['Pink Binder', 'Nifty League', 'Personal'])
+    await expect(nav(page).getByText(other)).toHaveCount(0)
+  await expect(nav(page).getByText('Across your workspaces')).toHaveCount(0)
+  await expect(nav(page).getByRole('button', { name: 'New workspace' })).toHaveCount(0)
+
+  await openHarness(page, '?workspace=pink-binder')
   await expect(page.getByRole('tree', { name: 'Pink Binder projects' })).toBeVisible()
   await expect(page.getByRole('tree', { name: 'Adea projects' })).toHaveCount(0)
-  await expect(nav(page).getByRole('button', { name: /Adea/ })).toBeVisible()
 })
 
-test('inline workspace create commits on Enter and cancels on Escape', async ({ page }) => {
+test('Add project is a folder-plus button beside the grouping control', async ({ page }) => {
   await openHarness(page)
-  const create = page.getByRole('button', { name: 'New workspace', exact: true })
-  await create.click()
-  const input = page.getByRole('textbox', { name: 'New workspace name' })
-  await expect(input).toBeFocused()
-  await input.fill('Side Quest')
-  await input.press('Enter')
-  await expect(events(page)).toContainText('create-workspace:Side Quest')
-  await expect(input).toHaveCount(0)
-
-  await create.click()
-  await page.getByRole('textbox', { name: 'New workspace name' }).fill('Discarded')
-  await page.getByRole('textbox', { name: 'New workspace name' }).press('Escape')
-  await expect(page.getByRole('textbox', { name: 'New workspace name' })).toHaveCount(0)
-  await expect(events(page)).not.toContainText('Discarded')
-
-  // Leaving the field creates when a name was typed and cancels when empty.
-  await create.click()
-  await page.getByRole('textbox', { name: 'New workspace name' }).fill('Blurred')
-  await page.getByRole('textbox', { name: 'New workspace name' }).blur()
-  await expect(events(page)).toContainText('create-workspace:Blurred')
-  await create.click()
-  await page.getByRole('textbox', { name: 'New workspace name' }).blur()
-  await expect(page.getByRole('textbox', { name: 'New workspace name' })).toHaveCount(0)
-  await expect(events(page).getByText(/^create-workspace:/)).toHaveCount(2)
+  const add = nav(page).getByRole('button', { name: 'Add project', exact: true })
+  await expect(add).toBeVisible()
+  await expect(add.locator('svg.lucide-folder-plus')).toHaveCount(1)
+  await add.click()
+  await expect(events(page)).toContainText('add-project')
 })
 
-test('the draft context names a known owner and stays honest unknown', async ({ page }) => {
-  // Known identity reaches the row through the host call-site chain.
-  await openHarness(page, '?owner=Acme')
-  await nav(page).getByRole('button', { name: 'New workspace', exact: true }).click()
-  await expect(nav(page).getByText('Owned by Acme · Only you · Location unknown')).toBeVisible()
-
-  // Without a fed label the same row falls back without inventing identity.
+test('projects are independent accordion groups: opening one never closes another', async ({
+  page,
+}) => {
   await openHarness(page)
-  await nav(page).getByRole('button', { name: 'New workspace', exact: true }).click()
-  await expect(
-    nav(page).getByText("You'll be the owner · Only you · Location unknown")
-  ).toBeVisible()
+  const tree = page.getByRole('tree', { name: 'Adea projects' })
+  const adea = tree.locator('[data-project-id="adea"]')
+  const ui = tree.locator('[data-project-id="adea-ui"]')
+  await expect(adea).toHaveAttribute('aria-expanded', 'true')
+  await expect(ui).toHaveAttribute('aria-expanded', 'true')
+
+  // Clicking the row (not an action button) toggles only that project.
+  await adea.click()
+  await expect(adea).toHaveAttribute('aria-expanded', 'false')
+  await expect(ui).toHaveAttribute('aria-expanded', 'true')
+  await expect(events(page)).toContainText('collapse:adea')
+  await expect(events(page)).not.toContainText('collapse:adea-ui')
+
+  // Expanding it again, and selecting a session in the other, collapses nothing.
+  await adea.click()
+  await expect(adea).toHaveAttribute('aria-expanded', 'true')
+  await page.locator('[data-leaf-id="sidebar-tree-primitive"]').click()
+  await expect(events(page)).toContainText('leaf:sidebar-tree-primitive')
+  await expect(adea).toHaveAttribute('aria-expanded', 'true')
+  await expect(ui).toHaveAttribute('aria-expanded', 'true')
+})
+
+test('project action buttons act on their own and never toggle the row', async ({ page }) => {
+  await openHarness(page)
+  const tree = page.getByRole('tree', { name: 'Adea projects' })
+  const adea = tree.locator('[data-project-id="adea"]')
+  await adea.hover()
+  await adea.getByRole('button', { name: 'New session in adea' }).click()
+  await expect(events(page)).toContainText('create-leaf:adea')
+  await adea.hover()
+  await adea.getByRole('button', { name: 'Project settings for adea' }).click()
+  await expect(events(page)).toContainText('project-settings:adea')
+  await expect(adea).toHaveAttribute('aria-expanded', 'true')
+  await expect(events(page)).not.toContainText('collapse:adea')
 })
 
 test('group-by switches between project, status and recent renderings', async ({ page }) => {
@@ -101,11 +115,6 @@ test('group-by switches between project, status and recent renderings', async ({
   await page.getByRole('menuitemradio', { name: /Recent/ }).click()
   await expect(events(page)).toContainText('group:recent')
   await expect(tree.getByRole('treeitem').first()).toContainText('sidebar-ux-redesign')
-
-  await nav(page)
-    .getByRole('button', { name: /^Needs you/ })
-    .click()
-  await expect(events(page)).toContainText('group:status')
 })
 
 test('row menus come from the adapter and the checkout has no delete', async ({ page }) => {
@@ -130,15 +139,12 @@ test('row menus come from the adapter and the checkout has no delete', async ({ 
   await expect(page.getByRole('menuitem', { name: 'Delete' })).toHaveCount(0)
   await page.keyboard.press('Escape')
 
+  // A project row has no menu of its own: Share, Archive and Delete live in
+  // its settings dialog beside every other setting.
   await page.locator('[data-project-id="adea"]').hover()
-  await page.getByRole('button', { name: 'Project options for adea', exact: true }).click()
-  await expect(page.getByRole('menuitem')).toHaveText([
-    'Rename',
-    'Project settings',
-    'Share',
-    'Archive',
-    'Delete',
-  ])
+  await expect(
+    page.getByRole('button', { name: 'Project options for adea', exact: true })
+  ).toHaveCount(0)
 })
 
 test('the tree supports keyboard navigation, disclosure and selection', async ({ page }) => {
@@ -165,10 +171,10 @@ test('the tree supports keyboard navigation, disclosure and selection', async ({
   await expect(project).toBeFocused()
 })
 
-test('the Workspaces heading actions stay visible without hover or focus', async ({ page }) => {
+test('the Projects heading actions stay visible without hover or focus', async ({ page }) => {
   await openHarness(page)
   await page.mouse.move(0, 0)
-  for (const name of [/^Group by/, /^New workspace$/]) {
+  for (const name of [/^Group by/, /^Add project$/]) {
     const action = nav(page).getByRole('button', { name })
     await expect(action).toBeVisible()
     await expect

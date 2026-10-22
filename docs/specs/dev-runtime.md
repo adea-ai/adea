@@ -7552,20 +7552,43 @@ provider; otherwise it reports that appearance settings are unavailable in
 this view. Missing preference ownership must not throw, reset the document's
 theme, or prevent navigation to other settings sections.
 
-App Settings holds only app-wide sections: Account & app and Appearance
-(Account), Agents and Input & notifications (Workflows), and Privacy & data,
-Integrations & capabilities and Permissions (Data & access), deep-linked as
-`#settings/<section>`. Workspace-scoped settings live in the workspace
-settings dialog the sidebar's workspace gear opens (`WorkspaceDetailsDialog`,
-`@adea-ai/workspace-ui/workspace-details-dialog`, lazy like app Settings):
-titled "<workspace name> workspace settings" with the workspace's own mark,
-its sections are General (name, mark, accent and Virtual world, saved as they
-change against the workspace version), Memory, Skills and Connections (the
-device connections pane and Connections › Cloud), deep-linked as
-`#workspace-settings/<section>`. The retired `#settings/workspace`,
+Settings is the one place for app and workspace configuration, deep-linked as
+`#settings/<section>`. Its groups are Account (Account & app, Appearance),
+Workspaces (Your workspaces, then the selected workspace's General, Memory,
+Skills and Connections), Workflows (Agents, Input & notifications) and Data &
+access (Privacy & data, Integrations & capabilities, Permissions). Your
+workspaces lists the member's workspaces in their own order with Open and
+Customize actions and a New workspace entry; the workspace sections show a
+"Settings for <name>" banner with a Change workspace action, so the active
+target is always visible. General saves the workspace's name, icon (the default
+Home or box mark, another icon from the picker, an uploaded image, or one
+emoji), accent and Virtual world as they change against the workspace version.
+The sections keep their scope: nothing about whether a setting applies to the
+account, a workspace, a project or a device changes. The retired
+`#workspace-settings/<section>` links and the older `#settings/workspace`,
 `#settings/memory`, `#settings/skills` and `#settings/connections` links open
-the workspace settings dialog at the matching section and are rewritten to
-the canonical hash.
+the matching section and are rewritten to the canonical hash
+(`#settings/workspace-general`, `-memory`, `-skills`, `-connections`).
+
+The workspace selector lives in the top bar beside the sidebar toggle
+(`WorkspaceSwitcher` from `@adea-ai/ui`), with Workspace settings… and New
+workspace beside the list; the global rail carries only the product mark,
+search, views and account menu. The Dev sidebar is scoped to the selected
+workspace alone: its Agents, Projects and Conversations sections never list
+other workspaces, and switching workspaces changes only what the window shows
+(no durable agent restarts, record moves or discarded work). Projects are
+top-level accordion groups (no workspace level and no subfolders); each expands
+independently, the row toggles its group, and the row actions (Add session,
+Project settings) act on their own. Project settings holds the project's name,
+icon and optional icon colour (no override uses the effective workspace or app
+accent), plus the device-local directory (with Browse where the execution
+context allows) and the default harness and model. Harness and model default to
+Inherit through the existing configuration hierarchy and apply to new sessions
+only; existing and running sessions are never reconfigured. Conversations lists
+the workspace's personal and group chats with its durable agents; its "+"
+starts a conversation with the workspace's existing lead agent, and other
+permitted agents or members are added through the existing group audience flow
+so no replacement lead agent or implicit access is created.
 
 Each signed-in user and guest receives exactly one persistent personal workspace,
 initially **Home** with a home icon and the established app defaults. Its persisted
@@ -7573,7 +7596,7 @@ initially **Home** with a home icon and the established app defaults. Its persis
 settings remain editable, and General’s **Move up / Move down** controls persist the member’s own workspace order. The API checks the complete current membership list, and ordering a shared workspace never changes another member’s list. It is the default
 workspace when no explicit workspace is selected, even after reordering. No
 account connection, project, agent or integration is created by this bootstrap.
-Additional workspaces use the existing **New workspace** inline name entry, a box
+Additional workspaces use the **New workspace** dialog (a name only), a box
 icon, empty workspace data and no account bindings; they append to the user's
 list and can be reordered. An unbound harness still uses the established **Use
 device default** behavior; an empty binding document is not an explicit account

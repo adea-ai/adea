@@ -69,7 +69,7 @@ const GENERATED = [
 ]
 
 /**
- * The Solid compile step the four Solid packages' tests run under (`bun test --preload`, see their `test` scripts):
+ * The Solid compile step the Solid packages' tests run under (`bun test --preload`, see their `test` scripts):
  * a change to it changes the JSX every one of their tests executes, but it is outside every package directory.
  */
 const SOLID_TEST_TRANSFORM = 'scripts/test-solid-transform.ts'
@@ -148,6 +148,9 @@ export const PACKAGE_RULES = {
       'packages/workspace-ui/src/**',
       SOLID_TEST_TRANSFORM,
     ],
+  },
+  'packages/workspace-nav': {
+    test: [SOLID_TEST_TRANSFORM],
   },
   'packages/workspace-ui': {
     test: [SOLID_TEST_TRANSFORM],

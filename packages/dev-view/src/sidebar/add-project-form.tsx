@@ -63,6 +63,12 @@ export type AddProjectFormProps = Readonly<{
    * widens authorization.
    */
   pickFolder?: () => Promise<string | null | undefined>
+  /**
+   * A path to fill the folder input with, for a caller that already has one
+   * (a typed directory from project settings). It is only a prefill: the path
+   * still goes through `dev.project.authorizeRoot` when the member authorizes it.
+   */
+  initialPath?: string
 }>
 
 type ScanState =
@@ -85,6 +91,7 @@ export function AddProjectForm(props: AddProjectFormProps) {
   // in flight, and a completion that arrives after this form was torn down
   // changes nothing.
   const picker = createProjectFolderPicker({ pickFolder: () => props.pickFolder?.() })
+  if (props.initialPath) picker.setPath(props.initialPath)
   const [authorizing, setAuthorizing] = createSignal(false)
   const [authorizeError, setAuthorizeError] = createSignal('')
   const [scan, setScan] = createSignal<ScanState>({ status: 'idle' })

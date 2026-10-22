@@ -43,20 +43,15 @@ test('a guest can use a workspace before opening the optional persistence flow',
   await expect(page.locator('.workspace-statusbar')).toHaveCount(0)
   await expect(page.getByLabel('Workspace toolbar')).toBeVisible()
 
-  // Workspaces are switched from the contextual sidebar's accordion (ADR
-  // 0011); the rail keeps only the static product mark.
-  await expect(page.getByRole('button', { name: /Switch workspace/ })).toHaveCount(0)
-  // Below 48rem the contextual sidebar is a sheet: open it to reach the
-  // accordion, then dismiss it before the layout checks below.
-  const narrow = (page.viewportSize()?.width ?? 1280) < 768
-  if (narrow) await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
-  const workspaceNav = page.getByRole('navigation', { name: 'Workspaces' })
-  await expect(workspaceNav.getByRole('heading', { name: 'My Adea', level: 3 })).toBeVisible()
-  await expect(workspaceNav.getByRole('button', { name: 'New workspace' })).toBeVisible()
-  if (narrow) {
-    await page.keyboard.press('Escape')
-    await expect(workspaceNav).toBeHidden()
-  }
+  // Workspaces are switched from the top bar's switcher; the rail keeps only
+  // the static product mark.
+  await expect(freshRail.getByRole('button', { name: /Switch workspace/ })).toHaveCount(0)
+  const switcher = page.getByRole('button', { name: 'Switch workspace, current: My Adea' })
+  await expect(switcher).toBeVisible()
+  await switcher.click()
+  await expect(page.getByRole('menuitem', { name: 'New workspace' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
 
   for (const viewport of [
     { width: 1280, height: 800 },
@@ -284,33 +279,19 @@ test('the new-workspace draft states creation context and cancels cleanly', asyn
   })
 
   await page.goto('/?view=virtual')
-  // Below 48rem the contextual sidebar is a sheet: open it through the toolbar entry
-  // the accordion test uses, then dismiss it at the end.
-  const narrow = (page.viewportSize()?.width ?? 1280) < 768
-  if (narrow) await page.getByRole('button', { name: 'Expand contextual sidebar' }).click()
-  const workspaceNav = page.getByRole('navigation', { name: 'Workspaces' })
-  await expect(workspaceNav.getByRole('button', { name: 'New workspace' })).toBeVisible({
-    timeout: 20_000,
-  })
-  await workspaceNav.getByRole('button', { name: 'New workspace' }).click()
+  const switcher = page.getByRole('button', { name: 'Switch workspace, current: My Adea' })
+  await expect(switcher).toBeVisible({ timeout: 20_000 })
+  await switcher.click()
+  await page.getByRole('menuitem', { name: 'New workspace' }).click()
 
-  // The inline draft keeps fast keyboard behavior and states the creation
-  // context beside the name: owner, initial audience, honest placement.
-  const name = workspaceNav.getByLabel('New workspace name')
+  // The dialog states the creation context beside the name: owner, initial
+  // audience, honest placement.
+  const dialog = page.getByRole('dialog', { name: 'New workspace', exact: true })
+  const name = dialog.getByLabel('Workspace name')
   await expect(name).toBeFocused()
-  await expect(workspaceNav.getByText('Enter to create · Esc to cancel')).toBeVisible()
-  await expect(
-    workspaceNav.getByText("You'll be the owner · Only you · Location unknown")
-  ).toBeVisible()
+  await expect(dialog.getByText("You'll be the owner · Only you · Location unknown")).toBeVisible()
   await name.fill('Side project')
   await page.keyboard.press('Escape')
-  await expect(workspaceNav.getByLabel('New workspace name')).toHaveCount(0)
-  await expect(workspaceNav.getByRole('button', { name: 'New workspace' })).toBeVisible()
-  if (narrow) {
-    // The draft's Escape returns focus to the page; move it back into the sheet so the
-    // sheet's own Escape dismiss applies, as it does after the sheet opens.
-    await workspaceNav.getByRole('button', { name: 'New workspace' }).focus()
-    await page.keyboard.press('Escape')
-    await expect(workspaceNav).toBeHidden()
-  }
+  await expect(dialog).toHaveCount(0)
+  await expect(switcher).toBeVisible()
 })

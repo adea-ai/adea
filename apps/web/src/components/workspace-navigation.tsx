@@ -4,7 +4,6 @@
 // (`updates`, account handlers, `platform`), never a forked render tree.
 import {
   createEffect,
-  createMemo,
   createSignal,
   on,
   onCleanup,
@@ -17,16 +16,12 @@ import { Portal } from 'solid-js/web'
 import { useNavigate, useSearch } from '@tanstack/solid-router'
 import { useQueryClient } from '@tanstack/solid-query'
 import type { AgentHqApiClient, ApiWorkspaceDeleteResponse } from '@adea-ai/api-client'
-import { AccountDirectoryApiClient } from '@adea-ai/api-client/account-directory'
-import type {
-  AccountConversationInboxEntry,
-  AccountDirectoryAgent,
-} from '@adea-ai/types/account-directory'
 import {
   settledData,
   useAgentListQuery,
-  useUpdateWorkspaceMutation,
+  useCreateWorkspaceMutation,
   useReorderWorkspacesMutation,
+  useUpdateWorkspaceMutation,
   useWorkspaceListQuery,
 } from '@adea-ai/data'
 import { useWorkspaceEventStream } from '@adea-ai/data/provider'
@@ -54,11 +49,7 @@ import {
   writeRailPreferences,
 } from '@adea-ai/workspace-ui/rail-preferences'
 import type { WorkspaceView } from '@adea-ai/workspace-ui/workspace-view-toggle'
-import {
-  workspaceSettingsHash,
-  workspaceSettingsSectionFromHash,
-  type WorkspaceSettingsSection,
-} from '@adea-ai/workspace-ui/workspace-settings-section'
+import { isSettingsHash } from '@adea-ai/workspace-ui/workspace-settings-section'
 import {
   createSharedDevUtilityOwner,
   createUnavailableDevUtilityRuntime,
@@ -91,9 +82,8 @@ import {
   type DevBreadcrumbSelection,
   type WorkspaceBreadcrumb,
 } from '@adea-ai/workspace-ui/workspace-breadcrumbs'
-import type { WorkspaceRunSummaryItem } from '@adea-ai/types/dev-runtime'
 import { WorkspaceTopBar } from './workspace-top-bar'
-import { conversationOpenPatch, watchAccountIdentity } from '../lib/account-directory'
+import { watchAccountIdentity } from '../lib/account-directory'
 import { createRestoredWorkspaceOpener } from '../lib/open-restored-workspace'
 import { createDeepLinkAttempts } from '../lib/workspace-deep-link'
 import {
@@ -111,7 +101,6 @@ import {
   type DevWorkspaceNavHost,
 } from '../lib/dev-workspace-nav-host'
 import { RuntimeResourcesControl } from './runtime-resources-control'
-import type { AccountDirectorySearchState } from './account-directory-sidebar'
 import type { WorkspaceSearch } from '../start/routes/__root'
 import { desktopMacPermissionsService } from '../lib/desktop-permissions'
 import { bindDesktopChatPresentation } from '../lib/desktop-chat-presentation'
@@ -267,17 +256,6 @@ const WorkspaceGlobalNav = lazyComponent(
   { loading: () => null }
 )
 
-// The account-wide Agents and Conversations results mount below the canonical
-// workspace lists, so they load after startup instead of weighing on it.
-const AccountDirectoryAgents = lazyComponent(
-  () => import('./account-directory-sidebar').then((module) => module.AccountDirectoryAgents),
-  { loading: () => null }
-)
-const AccountConversationInbox = lazyComponent(
-  () => import('./account-directory-sidebar').then((module) => module.AccountConversationInbox),
-  { loading: () => null }
-)
-
 const ConventionalWorkspace = lazyComponent(
   () =>
     import('./conventional-workspace-entry').then(
@@ -349,12 +327,12 @@ const WorkspaceSettingsDialog = lazyComponent(
   { ssr: false }
 )
 
-// The per-workspace settings dialog the sidebar's workspace gear opens. Lazy
-// like app Settings: its chunk loads only when the dialog opens.
-const WorkspaceDetailsDialog = lazyComponent(
+// The name-only create dialog the top bar's workspace switcher and Settings
+// open. Lazy like the other dialogs: its chunk loads when it opens.
+const CreateWorkspaceDialog = lazyComponent(
   () =>
-    import('@adea-ai/workspace-ui/workspace-details-dialog').then(
-      ({ WorkspaceDetailsDialog: DetailsDialog }) => DetailsDialog
+    import('@adea-ai/workspace-ui/create-workspace-dialogs').then(
+      ({ CreateWorkspaceDialog: Dialog }) => Dialog
     ),
   { ssr: false }
 )
@@ -381,15 +359,13 @@ function preloadView(nextView: WorkspaceView) {
 
 // Same trick for the overlay panels: hovering the rail button or the account
 // menu trigger downloads the dialog chunk before the click lands.
-function preloadPanel(panel: 'about' | 'help' | 'plugins' | 'settings' | 'workspace-settings') {
+function preloadPanel(panel: 'about' | 'help' | 'plugins' | 'settings') {
   if (panel === 'plugins') {
     void import('@adea-ai/workspace-ui/plugins-dialog')
     // The dialog's catalog provider resolves through the same deferred import.
     void import('@adea-ai/workspace-ui/plugins')
   } else if (panel === 'settings') {
     void import('@adea-ai/workspace-ui/workspace-settings')
-  } else if (panel === 'workspace-settings') {
-    void import('@adea-ai/workspace-ui/workspace-details-dialog')
   } else if (panel === 'help') {
     void import('@adea-ai/workspace-ui/workspace-help-center')
   } else {
@@ -400,72 +376,50 @@ function preloadPanel(panel: 'about' | 'help' | 'plugins' | 'settings' | 'worksp
 function WorkspaceSettingsOverlay(props: {
   accountAuthenticated: boolean
   accountLabel: string
+  accountPrincipalId?: () => string | null | undefined
   busy: boolean
   client: AgentHqApiClient
   onClose: () => void
+  onCreateWorkspace: () => void
   onOpenAgents: () => void
+  /** Opens a workspace the dialog just restored; false leaves the dialog open to try again. */
+  onOpenWorkspace: (workspaceId: string) => Promise<boolean>
   onSignIn: () => void
   onSignOut: () => void
+  onSwitchWorkspace: (workspace: WorkspaceSummary) => void | Promise<unknown>
   open: boolean
   restoreFocusRef?: Accessor<HTMLButtonElement | undefined>
   services: WorkspacePlatformServices
   workspace: WorkspaceSummary
+  workspaces: readonly WorkspaceSummary[]
 }) {
   const agentsQuery = useAgentListQuery(props.client, () => props.workspace.id)
+  const updateWorkspace = useUpdateWorkspaceMutation(props.client)
   return (
     <WorkspaceSettingsDialog
       accountAuthenticated={props.accountAuthenticated}
+      accountPrincipalId={props.accountPrincipalId}
       appearancePanel={() => <AppearancePanel />}
       accountLabel={props.accountLabel}
       agents={settledData(agentsQuery) ?? []}
       busy={props.busy}
+      client={props.client}
       onClose={props.onClose}
+      onCreateWorkspace={props.onCreateWorkspace}
       onOpenAgents={props.onOpenAgents}
+      onOpenWorkspace={props.onOpenWorkspace}
       onSignIn={props.onSignIn}
       onSignOut={props.onSignOut}
+      onSwitchWorkspace={props.onSwitchWorkspace}
+      onUpdateWorkspace={async (update) => {
+        await updateWorkspace.mutateAsync({ update, workspaceId: props.workspace.id })
+      }}
       open={props.open}
       restoreFocusRef={props.restoreFocusRef}
       permissionsService={isDesktopRuntime() ? desktopMacPermissionsService : undefined}
       services={props.services}
       workspace={props.workspace}
-    />
-  )
-}
-
-/**
- * The active workspace's own settings (identity, Memory, Skills,
- * Connections), opened from the sidebar's workspace gear. Workspace updates
- * save through the versioned workspace mutation.
- */
-function WorkspaceDetailsOverlay(props: {
-  accountPrincipalId?: () => string | null | undefined
-  client: AgentHqApiClient
-  onClose: () => void
-  /** Opens a workspace the dialog just restored; false leaves the dialog open to try again. */
-  onOpenWorkspace: (workspaceId: string) => Promise<boolean>
-  open: boolean
-  services: WorkspacePlatformServices
-  workspace: WorkspaceSummary
-  workspaceOrder: readonly WorkspaceSummary[]
-}) {
-  const reorderWorkspaces = useReorderWorkspacesMutation(props.client)
-  const updateWorkspace = useUpdateWorkspaceMutation(props.client)
-  return (
-    <WorkspaceDetailsDialog
-      accountPrincipalId={props.accountPrincipalId}
-      workspaceOrder={props.workspaceOrder}
-      onReorderWorkspaces={async (workspaceIds) => {
-        await reorderWorkspaces.mutateAsync(workspaceIds)
-      }}
-      client={props.client}
-      onClose={props.onClose}
-      onOpenWorkspace={props.onOpenWorkspace}
-      onUpdateWorkspace={async (update) => {
-        await updateWorkspace.mutateAsync({ update, workspaceId: props.workspace.id })
-      }}
-      open={props.open}
-      services={props.services}
-      workspace={props.workspace}
+      workspaces={props.workspaces}
     />
   )
 }
@@ -521,13 +475,6 @@ export type WorkspaceNavigationProps = Readonly<{
   account: WorkspaceNavigationAccount
   activeWorkspace?: WorkspaceSummary
   /**
-   * Builds the account-scoped directory client for the account-wide directory
-   * and inbox surface (M11.03). The desktop lane supplies one whose credential
-   * re-resolves from the live shell session on every request; without it the
-   * surface uses the cookie-authenticated browser default.
-   */
-  accountDirectoryClient?: () => AccountDirectoryApiClient | undefined
-  /**
    * The signed-in principal's stable id, from the lane's own principal source.
    * A change clears the account-scoped caches (`watchAccountIdentity`); absent,
    * the guard stays inert.
@@ -541,11 +488,6 @@ export type WorkspaceNavigationProps = Readonly<{
     teamChat: DesktopTeamChat
   ) => JSX.Element
   client: AgentHqApiClient
-  /**
-   * The desktop cross-workspace run counts (`dev.summary.workspaces`), polled
-   * by the desktop lane; the web lane has none (ADR 0011).
-   */
-  devSummary?: Accessor<readonly WorkspaceRunSummaryItem[] | undefined>
   /** Desktop authorizes local content per workspace before switching. */
   onAuthorizeWorkspace?(workspaceId: string): Promise<void>
   onWorkspaceDeleted?(result: ApiWorkspaceDeleteResponse): void
@@ -916,23 +858,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
   // re-run can't fire a second authorize for a switch already in progress.
   const [switchingWorkspaceId, setSwitchingWorkspaceId] = createSignal<string>()
   const [legacyDirectoryIntent, setLegacyDirectoryIntent] = createSignal<LegacyDirectoryIntent>()
-  const [agentDirectoryTerm, setAgentDirectoryTerm] = createSignal('')
-  const [agentDirectoryIncludesArchived, setAgentDirectoryIncludesArchived] = createSignal(false)
-  const agentDirectorySearchState: AccountDirectorySearchState = {
-    term: agentDirectoryTerm,
-    setTerm: setAgentDirectoryTerm,
-    includeArchived: agentDirectoryIncludesArchived,
-    setIncludeArchived: setAgentDirectoryIncludesArchived,
-  }
-  const [conversationInboxTerm, setConversationInboxTerm] = createSignal('')
-  const [conversationInboxIncludesArchived, setConversationInboxIncludesArchived] =
-    createSignal(false)
-  const conversationInboxSearchState: AccountDirectorySearchState = {
-    term: conversationInboxTerm,
-    setTerm: setConversationInboxTerm,
-    includeArchived: conversationInboxIncludesArchived,
-    setIncludeArchived: setConversationInboxIncludesArchived,
-  }
   const switchToWorkspace = (
     workspace: WorkspaceSummary,
     options: Readonly<{ fromDeepLink?: boolean; isCurrent?: () => boolean }> = {}
@@ -1032,39 +957,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     return undefined
   }
 
-  // The contextual sidebar's Workspaces accordion switches through the same
-  // helper the `?workspace=` links use, so a click and a link authorize and
-  // reset context identically.
+  // The workspace switcher in the top bar switches through the same helper the
+  // `?workspace=` links use, so a click and a link authorize and reset context
+  // identically. The sidebar only reports its breadcrumb path.
   const workspaceHost: WorkspaceNavHost = {
-    get workspaces() {
-      return orderedWorkspaces()
-    },
-    get devSummary() {
-      return props.devSummary?.()
-    },
-    globalNav: {
-      agents: ({ agents }) => (
-        <AccountDirectoryAgents
-          client={accountDirectoryClient()}
-          workspaces={orderedWorkspaces()}
-          searchState={agentDirectorySearchState}
-          localAgents={agents}
-          onOpenAgent={openDirectoryAgent}
-        />
-      ),
-      conversations: ({ channels }) => (
-        <AccountConversationInbox
-          client={accountDirectoryClient()}
-          searchState={conversationInboxSearchState}
-          workspaces={orderedWorkspaces()}
-          localChannels={channels}
-          onOpenConversation={openAccountConversation}
-          selectedChannelId={selectedChannelId}
-        />
-      ),
-    },
-    onSwitchWorkspace: (workspace) => switchToWorkspace(workspace),
-    onOpenWorkspaceSettings: () => openWorkspaceSettings(),
     registerBreadcrumbs: (crumbs) => {
       setNavBreadcrumbs(() => crumbs)
       return () => {
@@ -1090,43 +986,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     setTeamChatActive(true)
     if (activeAppId() !== 'chat' || libraryOpen()) changeApp('chat')
   }
-  const openAccountConversation = (entry: AccountConversationInboxEntry) => {
-    workspaceStore.getState().setGlobalPanel(null)
-    workspaceStore.getState().setActiveSurface('conversation')
-    setTeamChatActive(true)
-    void navigate({
-      search: {
-        ...currentSearch(),
-        ...conversationOpenPatch(entry),
-        view: 'chat',
-        app: undefined,
-        roomDesigner: undefined,
-        characterDesigner: undefined,
-      } as never,
-      hash: '',
-    })
-  }
   const globalSection =
     (section: 'quick-actions' | 'conversations') => (context: DevGlobalNavContext) => (
       <WorkspaceGlobalNav
         section={section}
         client={props.client}
         workspaceId={props.activeWorkspace?.id}
-        accountInbox={
-          section === 'conversations'
-            ? (inboxContext) => (
-                <AccountConversationInbox
-                  client={accountDirectoryClient()}
-                  searchState={conversationInboxSearchState}
-                  workspaces={orderedWorkspaces()}
-                  localChannels={inboxContext.channels}
-                  onOpenConversation={openAccountConversation}
-                  selectedChannelId={selectedChannelId}
-                  onCloseSheet={context.closeSheet}
-                />
-              )
-            : undefined
-        }
         selectedChannelId={
           teamChatActive() && view() === 'chat' && activeSurface() === 'conversation'
             ? selectedChannelId()
@@ -1149,7 +1014,7 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     conversations: globalSection('conversations'),
   }
 
-  // The Dev sidebar renders the same accordion from the same cloud queries,
+  // The Dev sidebar renders the same projects from the same cloud queries,
   // joined with the desktop runtime's local bindings (ADR 0011).
   // The signed-in label is the owner of a new workspace. Guests and unknown identities
   // get no owner, so the creation draft keeps its generic wording.
@@ -1159,15 +1024,11 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     globalNav,
     client: props.client,
     activeWorkspace: () => props.activeWorkspace,
-    creationContext: creationOwner,
     workspaces: () => orderedWorkspaces(),
     // Dev renders the sidebar; desktop Chat renders it outside the Kanban board.
     active: () =>
       view() === 'dev' ||
       (props.chatEntry !== undefined && view() !== 'virtual' && activeAppId() !== 'kanban'),
-    switchToWorkspace,
-    openWorkspaceSettings: () => openWorkspaceSettings(),
-    devSummary: () => props.devSummary?.(),
   })
 
   // One create-project flow everywhere a runtime can back it: when this host
@@ -1205,10 +1066,10 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
 
   const [hashSettingsOpen, setHashSettingsOpen] = createSignal(false)
   const settingsOpen = () => globalPanel() === 'settings' || hashSettingsOpen()
-  const [hashWorkspaceSettingsOpen, setHashWorkspaceSettingsOpen] = createSignal(false)
-  const workspaceSettingsOpen = () =>
-    globalPanel() === 'workspace-settings' || hashWorkspaceSettingsOpen()
-  // Opens the workspace a restore created; retired whenever the dialog closes.
+  const [creatingWorkspace, setCreatingWorkspace] = createSignal(false)
+  const createWorkspace = useCreateWorkspaceMutation(props.client)
+  const reorderWorkspaces = useReorderWorkspacesMutation(props.client)
+  // Opens the workspace a restore created; retired whenever Settings closes.
   const restoredWorkspaceOpener = createRestoredWorkspaceOpener<WorkspaceSummary>({
     loaded: () => orderedWorkspaces(),
     refetch: async () => (await workspaceList.refetch()).data,
@@ -1220,12 +1081,12 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       return current ? props.onAuthorizeWorkspace?.(current) : undefined
     },
     onOpened: () => {
-      setHashWorkspaceSettingsOpen(false)
+      setHashSettingsOpen(false)
       workspaceStore.getState().setGlobalPanel(null)
     },
   })
   createEffect(
-    on(workspaceSettingsOpen, (isOpen) => {
+    on(settingsOpen, (isOpen) => {
       if (!isOpen) restoredWorkspaceOpener.cancel()
     })
   )
@@ -1258,16 +1119,13 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     // Captures the component's settings-open signal and the workspace store setter.
     // oxlint-disable-next-line unicorn/consistent-function-scoping
     const openDeepLinkedSettings = () => {
-      // `#workspace-settings/<section>` opens the workspace settings dialog,
-      // and so do the retired `#settings/workspace|memory|skills|connections`
-      // links (the dialog rewrites them to the canonical hash). Every other
-      // `#settings/<section>` opens app Settings.
-      const workspaceSection = workspaceSettingsSectionFromHash(window.location.hash)
-      const appSettings = !workspaceSection && window.location.hash.startsWith('#settings')
-      setHashWorkspaceSettingsOpen(workspaceSection !== undefined)
+      // Workspace settings are Settings sections now: `#settings/<section>`
+      // opens Settings, and the retired `#workspace-settings/<section>` and
+      // `#settings/workspace|memory|skills|connections` links open it too (the
+      // dialog rewrites them to the canonical hash).
+      const appSettings = isSettingsHash(window.location.hash)
       setHashSettingsOpen(appSettings)
-      if (workspaceSection) workspaceStore.getState().setGlobalPanel('workspace-settings')
-      else if (appSettings) workspaceStore.getState().setGlobalPanel('settings')
+      if (appSettings) workspaceStore.getState().setGlobalPanel('settings')
     }
     openDeepLinkedSettings()
     window.addEventListener('hashchange', openDeepLinkedSettings)
@@ -1344,7 +1202,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       embedded={embedded}
       taskBoardOnly={activeAppId() === 'kanban'}
       client={props.client}
-      creationContext={creationOwner()}
       createProjectFlow={devProjectFlowHost}
       deepLink={deepLink}
       manageSettings={false}
@@ -1378,34 +1235,6 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       } as never,
       hash: '',
       replace,
-    })
-  }
-
-  // The account-wide client shares the existing per-request desktop identity
-  // resolution and account cache fences. The global lists now mount inside
-  // the existing Agents and Conversations surfaces.
-  const accountDirectoryClient = createMemo<AccountDirectoryApiClient>(
-    () => props.accountDirectoryClient?.() ?? new AccountDirectoryApiClient()
-  )
-  const openDirectoryAgent = (agent: AccountDirectoryAgent) => {
-    const select = () => {
-      const store = workspaceStore.getState()
-      store.setSelectedAgentId(agent.id)
-      store.setActiveSurface('agents')
-      store.setGlobalPanel(null)
-      if (activeAppId() !== 'chat' || libraryOpen()) changeApp('chat')
-    }
-    if (agent.workspaceId === props.activeWorkspace?.id) {
-      select()
-      return
-    }
-    // The ordered workspace list (the live server-side order) is the canonical
-    // membership source, so a directory jump reaches workspaces the lane
-    // bootstrap snapshot may not include yet.
-    const workspace = orderedWorkspaces().find(({ id }) => id === agent.workspaceId)
-    if (!workspace) return
-    void switchToWorkspace(workspace).then((switched) => {
-      if (switched) select()
     })
   }
 
@@ -1502,21 +1331,26 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
     window.dispatchEvent(new PopStateEvent('popstate'))
     if (enabled && view() !== 'virtual') void setViewParam('virtual')
   }
-  const openSettings = (section: 'account' | 'input-notifications' | 'integrations') => {
+  const openSettings = (
+    section: 'account' | 'input-notifications' | 'integrations' | 'workspaces' | 'workspace-general'
+  ) => {
     window.history.replaceState(null, '', `#settings/${section}`)
-    setHashWorkspaceSettingsOpen(false)
     setHashSettingsOpen(true)
     // Settings is a global overlay. Keep the current surface mounted so the
     // virtual scene does not disappear before its dialog can open.
     workspaceStore.getState().setGlobalPanel('settings')
   }
-  // The sidebar's workspace gear: the active workspace's own settings dialog,
-  // a global overlay like app Settings, deep-linked the same way.
-  const openWorkspaceSettings = (section: WorkspaceSettingsSection = 'general') => {
-    window.history.replaceState(null, '', workspaceSettingsHash(section))
-    setHashSettingsOpen(false)
-    setHashWorkspaceSettingsOpen(true)
-    workspaceStore.getState().setGlobalPanel('workspace-settings')
+  // A new workspace needs a name; the switcher and Settings share one dialog,
+  // and the new workspace becomes the active one.
+  const createNamedWorkspace = async (name: string) => {
+    const result = await createWorkspace.mutateAsync({
+      // A fresh key per attempt: a retry after a failure is a new request,
+      // while a network replay of this one stays a single create.
+      idempotencyKey: globalThis.crypto.randomUUID(),
+      name,
+      scene: 'home',
+    })
+    await switchToWorkspace(result.workspace)
   }
   const openSearch = () => {
     // Source control keeps its pull-request search in the leading toolbar
@@ -1573,6 +1407,14 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
       <WorkspaceTopBar
         hideSidebarToggle={designerActive() || chatShellBootstrapFallback()}
         platform={props.platform}
+        workspaces={orderedWorkspaces()}
+        activeWorkspaceId={props.activeWorkspace?.id}
+        onSwitchWorkspace={(workspace) => void switchToWorkspace(workspace)}
+        onCreateWorkspace={() => setCreatingWorkspace(true)}
+        onReorderWorkspaces={async (ids) => {
+          await reorderWorkspaces.mutateAsync(ids)
+        }}
+        onManageWorkspace={() => openSettings('workspace-general')}
         title={libraryOpen() ? 'App Library' : (props.activeWorkspace?.name ?? 'Adea')}
         breadcrumbs={topBarBreadcrumbs()}
         onOpenNotifications={() => openSettings('input-notifications')}
@@ -1865,57 +1707,59 @@ export function WorkspaceNavigation(props: WorkspaceNavigationProps) {
         <WorkspaceSettingsOverlay
           accountAuthenticated={props.account.authenticated}
           accountLabel={props.account.label}
+          accountPrincipalId={() =>
+            props.account.authenticated ? props.accountPrincipalId?.() : null
+          }
           busy={props.account.busy}
           client={props.client}
           onClose={() => {
             setHashSettingsOpen(false)
             workspaceStore.getState().setGlobalPanel(null)
           }}
+          onCreateWorkspace={() => setCreatingWorkspace(true)}
           onOpenAgents={() => {
             workspaceStore.getState().setActiveSurface('agents')
             workspaceStore.getState().setGlobalPanel(null)
             changeView('chat')
           }}
-          onSignIn={props.account.onSignIn}
-          onSignOut={() => void props.account.onSignOut()}
-          open
-          restoreFocusRef={settingsOpener}
-          services={props.services}
-          workspace={props.activeWorkspace!}
-        />
-      </Show>
-      <Show when={props.activeWorkspace && workspaceSettingsOpen()}>
-        <WorkspaceDetailsOverlay
-          accountPrincipalId={() =>
-            props.account.authenticated ? props.accountPrincipalId?.() : null
-          }
-          workspaceOrder={orderedWorkspaces()}
-          client={props.client}
-          onClose={() => {
-            setHashWorkspaceSettingsOpen(false)
-            workspaceStore.getState().setGlobalPanel(null)
-          }}
           onOpenWorkspace={(workspaceId) => {
             const owner = props.activeWorkspace?.id
             return restoredWorkspaceOpener.open(
               workspaceId,
-              () => workspaceSettingsOpen() && props.activeWorkspace?.id === owner
+              () => settingsOpen() && props.activeWorkspace?.id === owner
             )
           }}
+          onSignIn={props.account.onSignIn}
+          onSignOut={() => void props.account.onSignOut()}
+          onSwitchWorkspace={(workspace) => switchToWorkspace(workspace)}
           open
+          restoreFocusRef={settingsOpener}
           services={props.services}
           workspace={props.activeWorkspace!}
+          workspaces={orderedWorkspaces()}
+        />
+      </Show>
+      <Show when={creatingWorkspace()}>
+        <CreateWorkspaceDialog
+          busy={createWorkspace.isPending}
+          context={creationOwner()}
+          onClose={() => setCreatingWorkspace(false)}
+          onCreate={createNamedWorkspace}
+          open
         />
       </Show>
       {/* Both dialogs mount only when their panel opens: an always-mounted
           lazyComponent fetches its chunk at startup, which silently defeats
           the code split these boundaries exist to create. */}
       <Show when={globalPanel() === 'plugins' && props.activeWorkspace}>
-        <PluginsDialog
-          open
-          onClose={() => workspaceStore.getState().setGlobalPanel(null)}
-          provider={props.services.plugins}
-        />
+        {(workspace) => (
+          <PluginsDialog
+            open
+            onClose={() => workspaceStore.getState().setGlobalPanel(null)}
+            provider={props.services.plugins}
+            skills={{ client: props.client, workspaceId: workspace().id }}
+          />
+        )}
       </Show>
       <Show when={globalPanel() === 'about'}>
         <WorkspaceAboutDialog
