@@ -36,6 +36,8 @@ export type AuthServiceConsumer = Readonly<{
    * service uses the fail-closed default, which rejects every message.
    */
   delivery?: AuthDelivery
+  /** Trusted platform pooler connection supplied by the hosting adapter. */
+  databaseConnectionString?: string
 }>
 
 /**
@@ -47,12 +49,13 @@ export type AuthServiceConsumer = Readonly<{
  */
 export function createBetterAuthService(
   environment: AuthEnvironment = process.env,
-  delivery: AuthDelivery = createUnconfiguredDelivery()
+  delivery: AuthDelivery = createUnconfiguredDelivery(),
+  databaseConnectionString?: string
 ): BetterAuthService {
   const settings = readBetterAuthConfig(environment)
-  // `readBetterAuthConfig` verifies the URL opts into TLS for hosted databases.
-  // Keep its SSL query parameters intact so `pg` applies that exact policy.
-  const database = createPostgresAuthDatabase(settings.databaseUrl)
+  // Validate canonical configuration even when the hosting adapter supplies a
+  // request-owned Hyperdrive connection. Hyperdrive verifies origin TLS.
+  const database = createPostgresAuthDatabase(databaseConnectionString ?? settings.databaseUrl)
   return {
     auth: createBetterAuthServer({ config: settings, database: database.database, delivery }),
     close: database.close,
@@ -71,7 +74,11 @@ export function createAuthServerAdapter(
   environment: AuthEnvironment = process.env,
   consumer: AuthServiceConsumer = {}
 ): AuthAdapter {
-  const service = createBetterAuthService(environment, consumer.delivery)
+  const service = createBetterAuthService(
+    environment,
+    consumer.delivery,
+    consumer.databaseConnectionString
+  )
   consumer.registerCleanup?.(service.close)
   return createBetterAuthContextAdapter(service.auth, context)
 }
@@ -83,7 +90,11 @@ export async function handleAuthRequest(
   environment: AuthEnvironment = process.env,
   consumer: AuthServiceConsumer = {}
 ): Promise<Response> {
-  const service = createBetterAuthService(environment, consumer.delivery)
+  const service = createBetterAuthService(
+    environment,
+    consumer.delivery,
+    consumer.databaseConnectionString
+  )
   try {
     return await handleBetterAuthRequest(service.auth, method, request, service.config)
   } finally {

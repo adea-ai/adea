@@ -1,3 +1,4 @@
+import { authDatabaseConnectionForRequest } from './auth-database'
 import 'server-only'
 
 import type { AuthResult } from '@adea-ai/auth'
@@ -76,6 +77,7 @@ export async function resolveWorkspacePrincipal(
     const { createStartRequestContext } = await import('./auth-request-context')
     authentication = await createAuthServerAdapter(createStartRequestContext, undefined, {
       registerCleanup: registerRequestCleanup,
+      databaseConnectionString: authDatabaseConnectionForRequest(),
     }).getSession()
   } catch {
     // Account persistence is optional. A missing provider configuration must not block guests.

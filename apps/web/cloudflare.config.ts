@@ -12,6 +12,7 @@ import { bindings, defineConfig } from 'cf/config'
 // The account Secrets Store is the source of truth for secret values (see
 // CLOUDFLARE.md); plain identifiers stay in `text` bindings because they are
 // not secrets.
+const productionAuthHyperdriveId = '9a8c286d8b374a8c83cf05534195a53a'
 const productionHyperdriveId = '5faad934a0a14a29bbb4780ca2f53fa6'
 const ACCOUNT_ID = 'aa2dc82d7e02aff12b77800a8201df3f'
 const controlPlaneStore = 'b3a1b4e8427a4d23ac7925cc18a7a2ac'
@@ -112,6 +113,7 @@ export function productionEnv() {
     AUTH_EMAIL: bindings.sendEmail({ allowedSenderAddresses: ['team@adea.dev'] }),
     ASSETS: bindings.assets(),
     HYPERDRIVE: bindings.hyperdrive({ id: productionHyperdriveId }),
+    AUTH_HYPERDRIVE: bindings.hyperdrive({ id: productionAuthHyperdriveId }),
     // Marketplace proxy: production Control Plane (Railway).
     CONTROL_PLANE_ORIGIN: bindings.text(
       'https://control-planecontrol-api-production.up.railway.app'

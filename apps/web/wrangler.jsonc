@@ -37,6 +37,10 @@
   // `compose up` (or any Postgres on 127.0.0.1:55432) for DB-backed pages.
   "hyperdrive": [
     {
+      "binding": "AUTH_HYPERDRIVE",
+      "id": "9a8c286d8b374a8c83cf05534195a53a",
+    },
+    {
       "binding": "HYPERDRIVE",
       "id": "5faad934a0a14a29bbb4780ca2f53fa6",
       "localConnectionString": "postgresql://agent_hq_local_app:agent_hq_local_app@127.0.0.1:55432/agent_hq?sslmode=disable",

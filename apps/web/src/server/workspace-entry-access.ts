@@ -1,3 +1,4 @@
+import { authDatabaseConnectionForRequest } from './auth-database'
 import 'server-only'
 
 import { createAuthServerAdapter } from '@adea-ai/auth/server'
@@ -23,7 +24,10 @@ export function readWorkspaceEntryAccess() {
         await createAuthServerAdapter(
           gateScope() ? createGateRequestContext : createStartRequestContext,
           undefined,
-          { registerCleanup: registerRequestCleanup }
+          {
+            registerCleanup: registerRequestCleanup,
+            databaseConnectionString: authDatabaseConnectionForRequest(),
+          }
         ).getSession()
       )?.profile.email,
     isAllowed: isAllowedEmail,
