@@ -7,13 +7,13 @@ import { join } from 'node:path'
 import {
   CHILD_SCOPES,
   FORBIDDEN_MIGRATION_MARKERS,
-  GATED_ACCEPTANCE,
+  REMAINING_ACCEPTANCE,
   RELATED_PULL_REQUESTS,
   FRESHNESS_QUALIFICATION,
   SOURCE_SCAN_EXTENSIONS,
   SOURCE_SCAN_ROOTS,
   SourceScanScopeError,
-  inventoryNeonProviderDependencies,
+  inventoryDatabaseDependencies,
   railwayMigrationAcceptanceInventory,
   scanForbiddenMigrationMarkers,
   scanSourceTree,
@@ -36,8 +36,8 @@ function readerRefusing(paths: readonly string[]): SourceScanReader {
 }
 
 describe('the Railway migration acceptance inventory', () => {
-  test('the remaining Neon and provider-auth dependencies are inventoried', () => {
-    const dependencies = inventoryNeonProviderDependencies()
+  test('database and account-auth references are inventoried', () => {
+    const dependencies = inventoryDatabaseDependencies()
     expect(Array.isArray(dependencies.hits)).toBe(true)
     expect(dependencies.hits.length).toBeGreaterThan(0)
     for (const path of dependencies.hits) {
@@ -45,12 +45,12 @@ describe('the Railway migration acceptance inventory', () => {
     }
   })
 
-  test('the approved source scope covers the auth package provider configuration and driver', () => {
-    // These two files name the provider and its authentication, and an
+  test('the approved source scope covers the auth configuration and database service', () => {
+    // These files define the account database boundary, and an
     // apps-only scan could not see them.
-    const dependencies = inventoryNeonProviderDependencies()
+    const dependencies = inventoryDatabaseDependencies()
     expect(dependencies.hits).toContain('packages/auth/src/config.ts')
-    expect(dependencies.hits).toContain('packages/auth/src/neon-driver.ts')
+    expect(dependencies.hits).toContain('packages/auth/src/better-auth-server.ts')
   })
 
   test('the scan coverage is explicit, and names what it skipped', () => {
@@ -75,10 +75,10 @@ describe('the Railway migration acceptance inventory', () => {
       mkdirSync(join(root, 'packages', 'auth', 'src'), { recursive: true })
       writeFileSync(
         join(root, 'packages', 'auth', 'src', 'config.ts'),
-        'export const provider = process.env.NEON_AUTH_TOKEN\n'
+        'export const database = process.env.AUTH_DATABASE_URL\n'
       )
       // The narrowed scan itself succeeds.
-      const dependencies = inventoryNeonProviderDependencies({ root, roots: ['packages'] })
+      const dependencies = inventoryDatabaseDependencies({ root, roots: ['packages'] })
       expect(dependencies.hits).toEqual([join('packages', 'auth', 'src', 'config.ts')])
       expect(dependencies.unreadable).toEqual([])
       // And the coverage it reports is the narrowed one, not the approved one.
@@ -138,20 +138,44 @@ describe('the Railway migration acceptance inventory', () => {
       const scan = scanSourceTree({ root, reader, roots: ['apps'] })
       expect(scan.files.length).toBe(1)
       expect(scan.unreadable).toEqual([join('apps', 'locked')])
-      const dependencies = inventoryNeonProviderDependencies({ root, reader, roots: ['apps'] })
+      const dependencies = inventoryDatabaseDependencies({ root, reader, roots: ['apps'] })
       expect(dependencies.unreadable.length).toBeGreaterThan(0)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  test('a temporary source root is scanned for both the provider and the markers', () => {
+  test('an unreadable file remains visible even when both scanners find no references', () => {
+    const root = mkdtempSync(join(tmpdir(), 'adea-inventory-file-read-'))
+    try {
+      mkdirSync(join(root, 'apps'), { recursive: true })
+      mkdirSync(join(root, 'packages'), { recursive: true })
+      writeFileSync(
+        join(root, 'apps', 'database.ts'),
+        'export const url = process.env.DATABASE_URL'
+      )
+      const base = readerRefusing([])
+      const reader = {
+        ...base,
+        readFile() {
+          throw new Error('EACCES')
+        },
+      }
+      const record = railwayMigrationAcceptanceInventory({ root, reader })
+      expect(record.databaseDependencies).toEqual([])
+      expect(record.scanIncomplete).toEqual([join('apps', 'database.ts')])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a temporary source root is scanned for both database bindings and the markers', () => {
     const root = mkdtempSync(join(tmpdir(), 'adea-inventory-temporary-'))
     try {
       mkdirSync(join(root, 'packages', 'auth', 'src'), { recursive: true })
       writeFileSync(
         join(root, 'packages', 'auth', 'src', 'config.ts'),
-        'export const provider = process.env.NEON_AUTH_TOKEN\n'
+        'export const database = process.env.AUTH_DATABASE_URL\n'
       )
       writeFileSync(
         join(root, 'packages', 'auth', 'src', 'migration.ts'),
@@ -159,7 +183,7 @@ describe('the Railway migration acceptance inventory', () => {
       )
       // The temporary root holds the packages part of the scope only, so the
       // scan is rooted at that part; a root that is not there would be reported.
-      const dependencies = inventoryNeonProviderDependencies({ root, roots: ['packages'] })
+      const dependencies = inventoryDatabaseDependencies({ root, roots: ['packages'] })
       expect(dependencies.hits).toEqual([join('packages', 'auth', 'src', 'config.ts')])
       expect(dependencies.unreadable).toEqual([])
       const markers = scanForbiddenMigrationMarkers({ root, roots: ['packages'] })
@@ -177,38 +201,42 @@ describe('the Railway migration acceptance inventory', () => {
     // inventory records that dependency instead of re-implementing it, so it
     // asserts the declaration and never the child's acceptance.
     expect(FRESHNESS_QUALIFICATION.scope).toBe('#1562')
-    expect(FRESHNESS_QUALIFICATION.branch).toBe(
-      'recovery/issue-1562-cloudflare-cpu-hyperdrive-qualification'
+    expect(FRESHNESS_QUALIFICATION.sourceProof).toBe('scripts/cache-database-isolation.test.ts')
+    expect(FRESHNESS_QUALIFICATION.liveReceipt).toBe(
+      'docs/evidence/railway-production-readiness.md'
     )
-    expect(FRESHNESS_QUALIFICATION.path).toBe('scripts/cloudflare-cpu-hyperdrive-qualification.ts')
-    expect(FRESHNESS_QUALIFICATION.rule).toBe('authority-reads-not-cache-disabled')
+    expect(FRESHNESS_QUALIFICATION.rule).toBe(
+      'authentication-session-permission-query-caching-disabled'
+    )
   })
 
   test('the child scopes and the related pull requests are recorded', () => {
     expect(CHILD_SCOPES.map((scope) => scope.issue)).toEqual(['#1560', '#1561', '#1562'])
-    expect(RELATED_PULL_REQUESTS.map((pull) => pull.number)).toEqual([1515, 1525])
-    for (const pull of RELATED_PULL_REQUESTS) expect(pull.head.length).toBeGreaterThan(7)
+    expect(RELATED_PULL_REQUESTS.map((pull) => pull.number)).toEqual([1515, 1525, 1559])
+    for (const pull of RELATED_PULL_REQUESTS) expect(pull.head).toMatch(/^[a-f0-9]{40}$/)
   })
 
-  test('every live acceptance stays gated', () => {
-    for (const gate of GATED_ACCEPTANCE) {
-      expect(['gated', 'not authorized']).toContain(gate.state)
+  test('remaining acceptance distinguishes deployment, mail and observation proofs', () => {
+    for (const gate of REMAINING_ACCEPTANCE) {
+      expect(['pending-deployment', 'pending-email-setup', 'pending-observation']).toContain(
+        gate.state
+      )
     }
-    expect(GATED_ACCEPTANCE.length).toBeGreaterThanOrEqual(4)
+    expect(REMAINING_ACCEPTANCE.length).toBeGreaterThanOrEqual(4)
   })
 
   test('the inventory record is complete', () => {
     const record = railwayMigrationAcceptanceInventory()
     // The inventory reports what is left; it does not assert a count, because
     // the count moves with the other lanes' source work.
-    expect(Array.isArray(record.neonProviderDependencies)).toBe(true)
+    expect(Array.isArray(record.databaseDependencies)).toBe(true)
     expect(record.forbiddenMigrationMarkers).toEqual([])
     // The scan saw the whole approved scope: nothing was unreadable, so the
     // record is complete rather than incomplete-by-silence.
     expect(record.scanIncomplete).toEqual([])
     expect(record.freshnessQualification).toEqual(FRESHNESS_QUALIFICATION)
     expect(record.childScopes.length).toBe(3)
-    expect(record.relatedPullRequests.length).toBe(2)
-    expect(record.gatedAcceptance.length).toBeGreaterThanOrEqual(4)
+    expect(record.relatedPullRequests.length).toBe(3)
+    expect(record.remainingAcceptance.length).toBeGreaterThanOrEqual(4)
   })
 })

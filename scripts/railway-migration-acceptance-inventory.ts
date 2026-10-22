@@ -1,16 +1,8 @@
 /**
- * The Railway migration acceptance inventory (issue #1564).
- *
- * #1564 is the PARENT coordination issue: its implementation stays with the
- * reconciled child scopes - #1560 (source identity and adapter contract),
- * #1561 (separately gated provider/readback) and #1562 (freshness and
- * resource safeguards). This module does not duplicate them: it inventories
- * what is left, records the reviewed source heads and the applicable tests,
- * and names the acceptance that stays gated.
- *
- * Source/tests/documentation only: no credential, no paid resource, no
- * production read, no deployment, no cutover, no migration, no Neon deletion
- * and no permission change.
+ * Railway acceptance inventory for #1564. Source discovery reports its exact
+ * coverage and unreadable paths. Dated operational receipts and remaining
+ * deployment, email and observation proofs stay separate from this scan.
+ * This module performs no infrastructure, credential or permission changes.
  */
 import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
@@ -22,8 +14,7 @@ export const REPOSITORY_ROOT = join(import.meta.dirname, '..')
  *
  * The scan reads the whole tree of every root, so the coverage is explicit
  * rather than implied: the web and desktop application sources, and the
- * workspace packages, including the auth package whose configuration and
- * Neon driver still name the provider.
+ * workspace packages, including the auth configuration and database adapters.
  */
 export const SOURCE_SCAN_ROOTS = ['apps', 'packages'] as const
 
@@ -67,47 +58,46 @@ function defaultSourceReader(): SourceScanReader {
   }
 }
 
-/** The child scopes whose acceptance this parent coordinates. */
+/** The issue scopes coordinated by the acceptance inventory. */
 export const CHILD_SCOPES = [
-  {
-    issue: '#1560',
-    subject: 'Railway source identity and adapter qualification',
-    branch: 'recovery/issue-1560-w9-20261021',
-  },
-  {
-    issue: '#1561',
-    subject: 'separately gated provider and readback acceptance',
-    branch: 'recovery/issue-1561-fresh-account-readback-plan',
-  },
-  {
-    issue: '#1562',
-    subject: 'freshness and resource safeguards',
-    branch: 'recovery/issue-1562-cloudflare-cpu-hyperdrive-qualification',
-  },
+  { issue: '#1560', subject: 'source identity and adapter qualification', pullRequest: 1559 },
+  { issue: '#1561', subject: 'effective bindings and fresh-account acceptance', pullRequest: 1515 },
+  { issue: '#1562', subject: 'authority freshness and resource safeguards', pullRequest: 1515 },
 ] as const
 
-/** The related open pull requests, by their exact reviewed head. */
+/** Reviewed source snapshots; these are audit references, not live deployment identities. */
 export const RELATED_PULL_REQUESTS = [
   {
     number: 1515,
-    head: '312c49db2e77371cf38a5397c386439494e53019',
-    subject: 'provider-coupling removal',
+    head: '77b25d89cb72b53143bd7a9a1ea06e7dc27e24a3',
+    subject: 'production database and account auth',
   },
-  { number: 1525, head: 'f37411f4d', subject: 'auth transport-loss classification' },
+  {
+    number: 1525,
+    head: 'f37411f4d0aed067c66a37b40d1d30af9bd85a37',
+    subject: 'auth transport-loss classification',
+  },
+  {
+    number: 1559,
+    head: 'd4ce1fcdefb30aa836347225100fa6bdbc7ba483',
+    subject: 'production source qualification',
+  },
 ] as const
 
-/** The acceptance that stays gated until separate authorization exists. */
-export const GATED_ACCEPTANCE = [
+/** Remaining proofs; approved infrastructure changes are recorded in the dated receipts. */
+export const REMAINING_ACCEPTANCE = [
   {
-    gate: 'fresh web and desktop login, PKCE, origin/CSRF, logout/revocation, reset and verification',
-    state: 'gated',
+    gate: 'effective Worker bindings and fresh web/desktop login, PKCE, origin/CSRF and revocation',
+    state: 'pending-deployment',
   },
-  { gate: 'live Railway target and readback', state: 'gated' },
-  { gate: 'provider qualification', state: 'gated' },
-  { gate: 'operational cutover and the one-week cost observation', state: 'gated' },
+  { gate: 'account verification and password-reset delivery', state: 'pending-email-setup' },
   {
-    gate: 'production data copying, Neon deletion and permission changes',
-    state: 'not authorized',
+    gate: 'protected Control Plane promotion and private database readiness',
+    state: 'pending-deployment',
+  },
+  {
+    gate: 'one-week production cost observation after verified cutover',
+    state: 'pending-observation',
   },
 ] as const
 
@@ -163,30 +153,30 @@ export function scanSourceTree(options: SourceScanOptions = {}): SourceScan {
 
 function readScannedFile(
   file: string,
+  root: string,
   reader: SourceScanReader,
   unreadable: string[]
 ): string | undefined {
   try {
     return reader.readFile(file)
   } catch {
-    unreadable.push(file)
+    unreadable.push(relative(root, file))
     return undefined
   }
 }
 
-/** The source paths that still name the Neon provider or its authentication. */
-export function inventoryNeonProviderDependencies(
-  options: SourceScanOptions = {}
-): SourceScanResult {
+/** Lexical database/auth binding references in the explicitly reported source scope. */
+export function inventoryDatabaseDependencies(options: SourceScanOptions = {}): SourceScanResult {
   const root = options.root ?? REPOSITORY_ROOT
   const reader = options.reader ?? defaultSourceReader()
   const scan = scanSourceTree({ ...options, reader })
   const unreadable = [...scan.unreadable]
   const hits: string[] = []
   for (const file of scan.files) {
-    const source = readScannedFile(file, reader, unreadable)
+    const source = readScannedFile(file, root, reader, unreadable)
     if (source === undefined) continue
-    if (/NEON_|neon\.|neonAuth|NeonAuth/i.test(source)) hits.push(relative(root, file))
+    if (/DATABASE_URL|HYPERDRIVE|@adea-ai\/(?:auth|db)|better-auth/.test(source))
+      hits.push(relative(root, file))
   }
   return { hits: hits.toSorted(), unreadable: unreadable.toSorted() }
 }
@@ -202,7 +192,7 @@ export function scanForbiddenMigrationMarkers(options: SourceScanOptions = {}): 
     // A test may legitimately name a forbidden marker to assert its absence;
     // the migration itself must not carry one.
     if (file.includes('.test.')) continue
-    const source = readScannedFile(file, reader, unreadable)
+    const source = readScannedFile(file, root, reader, unreadable)
     if (source === undefined) continue
     for (const marker of FORBIDDEN_MIGRATION_MARKERS) {
       if (source.includes(marker)) hits.push(`${relative(root, file)}: ${marker}`)
@@ -211,19 +201,12 @@ export function scanForbiddenMigrationMarkers(options: SourceScanOptions = {}): 
   return { hits: hits.toSorted(), unreadable: unreadable.toSorted() }
 }
 
-/**
- * The freshness qualification this parent depends on.
- *
- * It belongs to the #1562 scope branch, so this parent records the dependency
- * instead of re-implementing or re-verifying it: the stale-cache proof is
- * that scope own suite, and duplicating it here would overlap the parent and
- * the child implementation ownership.
- */
+/** Source proof and dated live readback are separate inputs to authority freshness. */
 export const FRESHNESS_QUALIFICATION = {
   scope: '#1562',
-  branch: 'recovery/issue-1562-cloudflare-cpu-hyperdrive-qualification',
-  path: 'scripts/cloudflare-cpu-hyperdrive-qualification.ts',
-  rule: 'authority-reads-not-cache-disabled',
+  sourceProof: 'scripts/cache-database-isolation.test.ts',
+  liveReceipt: 'docs/evidence/railway-production-readiness.md',
+  rule: 'authentication-session-permission-query-caching-disabled',
 } as const
 
 /** What a scan actually covered. */
@@ -261,7 +244,7 @@ export function sourceScanCoverage(options: SourceScanOptions = {}): SourceScanC
     // A hidden entry, and everything under it, is never read.
     skippedHiddenEntries: true,
     // The scan reads the working tree and does not consult git, so a generated
-    // declaration that names the provider is listed as well.
+    // declaration that names a database binding is listed as well.
     readsWorkingTree: true,
     testFilesInDependencyInventory: true,
     testFilesInMarkerScan: false,
@@ -281,14 +264,14 @@ export class SourceScanScopeError extends Error {
 
 /** The inventory record, assembled from the repository's own sources. */
 export function railwayMigrationAcceptanceInventory(options: SourceScanOptions = {}): {
-  neonProviderDependencies: string[]
+  databaseDependencies: string[]
   forbiddenMigrationMarkers: string[]
   scanCoverage: SourceScanCoverage
   scanIncomplete: string[]
   freshnessQualification: typeof FRESHNESS_QUALIFICATION
   childScopes: typeof CHILD_SCOPES
   relatedPullRequests: typeof RELATED_PULL_REQUESTS
-  gatedAcceptance: typeof GATED_ACCEPTANCE
+  remainingAcceptance: typeof REMAINING_ACCEPTANCE
 } {
   const coverage = sourceScanCoverage(options)
   // An acceptance record describes the approved scope. A narrowed scan may be
@@ -296,10 +279,10 @@ export function railwayMigrationAcceptanceInventory(options: SourceScanOptions =
   // record: a record that claimed the approved scope over a narrower scan
   // would report coverage the scan never had.
   if (coverage.narrowed) throw new SourceScanScopeError(coverage)
-  const dependencies = inventoryNeonProviderDependencies(options)
+  const dependencies = inventoryDatabaseDependencies(options)
   const markers = scanForbiddenMigrationMarkers(options)
   return {
-    neonProviderDependencies: dependencies.hits,
+    databaseDependencies: dependencies.hits,
     forbiddenMigrationMarkers: markers.hits,
     scanCoverage: coverage,
     // Every path the scan could not read. A non-empty list means the scan did
@@ -309,6 +292,6 @@ export function railwayMigrationAcceptanceInventory(options: SourceScanOptions =
     freshnessQualification: FRESHNESS_QUALIFICATION,
     childScopes: CHILD_SCOPES,
     relatedPullRequests: RELATED_PULL_REQUESTS,
-    gatedAcceptance: GATED_ACCEPTANCE,
+    remainingAcceptance: REMAINING_ACCEPTANCE,
   }
 }
