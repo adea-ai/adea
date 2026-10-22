@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.101.0](https://github.com/adea-ai/adea/compare/v0.100.0...v0.101.0) (2026-10-22)
+
+
+### Features
+
+* **db:** list tenant-authorized foreign-Agent candidates ([#1178](https://github.com/adea-ai/adea/issues/1178)) ([#1555](https://github.com/adea-ai/adea/issues/1555)) ([b551aae](https://github.com/adea-ai/adea/commit/b551aae62b422d6f9df928d78ee5864bd9bb0d7f))
+* **types:** add the agent profile projection consumer ([#41](https://github.com/adea-ai/adea/issues/41)) ([#1572](https://github.com/adea-ai/adea/issues/1572)) ([ca819e7](https://github.com/adea-ai/adea/commit/ca819e7370a2491a0e9bba2496a0a48cec98106b))
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adea-ai/ui to v0.146.0 ([#1558](https://github.com/adea-ai/adea/issues/1558)) ([d3c24c1](https://github.com/adea-ai/adea/commit/d3c24c1c1960ea04692eefae9b827de0dd9e0d0d))
+* **runtime:** derive attachment quota from sealed records ([#1573](https://github.com/adea-ai/adea/issues/1573)) ([5d3f8d7](https://github.com/adea-ai/adea/commit/5d3f8d7dd5ad9d71375343a47c1e029111bbc364))
+* **types:** classify an uncatalogued management operation instead of crashing ([#1176](https://github.com/adea-ai/adea/issues/1176)) ([#1575](https://github.com/adea-ai/adea/issues/1575)) ([f011ffc](https://github.com/adea-ai/adea/commit/f011ffc6928bb6ac676070e4c0cf6813a371de37))
+
+
+### Tests
+
+* **db:** hold the native session family with the comparator's field-drift cases ([#1557](https://github.com/adea-ai/adea/issues/1557)) ([f3cf912](https://github.com/adea-ai/adea/commit/f3cf912d093fbf163a107c3b197e237c81f2c2bb))
+
 ## [0.100.0](https://github.com/adea-ai/adea/compare/v0.99.0...v0.100.0) (2026-10-21)
 
 

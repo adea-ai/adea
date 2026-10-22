@@ -215,6 +215,9 @@
     "packages/types": {
       "name": "@adea-ai/types",
       "version": "0.100.0",
+      "dependencies": {
+        "@noble/hashes": "2.4.0",
+      },
     },
     "packages/ui": {
       "name": "@adea-ai/app-ui",
