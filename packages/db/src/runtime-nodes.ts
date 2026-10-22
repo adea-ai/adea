@@ -6,7 +6,7 @@
 
 import { createHash } from 'node:crypto'
 
-import { and, asc, desc, eq, inArray, isNull, lt } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { mintControlPlaneIdentifier } from './control-plane-identifiers'
@@ -489,6 +489,71 @@ export async function revokeRuntimeNode(
     await appendWorkspaceEvent(transaction, {
       eventType: 'runtime_node.revoked',
       payload: { actorUserId: input.actorUserId, reason, runtimeNodeId: node.id },
+      workspaceId: input.workspaceId,
+    })
+    return readRuntimeNode(transaction, input.workspaceId, node.id)
+  })
+}
+
+/**
+ * Renames a registered host for this workspace.
+ *
+ * The name is a product label for a registration, not a change to the host's identity or
+ * keys: the host keeps its own name, and this is the name people see in this workspace.
+ * A revoked identity is not renamed, and two hosts in one workspace may never share a
+ * name, because a shared name is how hosts get confused.
+ */
+export async function renameRuntimeNode(
+  database: AgentHqDatabase,
+  input: Readonly<{
+    actorUserId: string
+    displayName: string
+    runtimeNodeId: string
+    workspaceId: string
+  }>
+): Promise<RuntimeNodeView> {
+  const displayName = input.displayName.trim()
+  if (!displayName) throw new RuntimeNodeError('invalid', 'A host name is required')
+  if (displayName.length > 120)
+    throw new RuntimeNodeError('invalid', 'A host name may use 120 characters at most')
+  for (const character of displayName) {
+    const code = character.codePointAt(0) ?? 0
+    if (code <= 0x1f || code === 0x7f)
+      throw new RuntimeNodeError('invalid', 'A host name may not contain control characters')
+  }
+  return inTransaction(database, async (transaction) => {
+    const node = await requireNode(transaction, input.workspaceId, input.runtimeNodeId, true)
+    if (node.pairingState === 'revoked') {
+      throw new RuntimeNodeError('revoked', 'A revoked host cannot be renamed')
+    }
+    const clash = await transaction
+      .select({ id: runtimeNodes.id })
+      .from(runtimeNodes)
+      .where(
+        and(
+          eq(runtimeNodes.workspaceId, input.workspaceId),
+          ne(runtimeNodes.id, node.id),
+          sql`lower(${runtimeNodes.displayName}) = ${displayName.toLowerCase()}`
+        )
+      )
+    if (clash.length > 0) {
+      throw new RuntimeNodeError(
+        'conflict',
+        'Another host in this workspace already uses that name'
+      )
+    }
+    const now = new Date()
+    await transaction
+      .update(runtimeNodes)
+      .set({ displayName, updatedAt: now })
+      .where(eq(runtimeNodes.id, node.id))
+    await appendWorkspaceEvent(transaction, {
+      eventType: 'runtime_node.renamed',
+      payload: {
+        actorUserId: input.actorUserId,
+        displayName,
+        runtimeNodeId: node.id,
+      },
       workspaceId: input.workspaceId,
     })
     return readRuntimeNode(transaction, input.workspaceId, node.id)
