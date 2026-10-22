@@ -117,14 +117,16 @@ being read as one. Validating the adapter against an authoritative provider sche
 piece of work that would need a recorded provider capture; this document does not claim it.
 
 The adapter side of that boundary is a contract of its own:
-[`railway-production-source-contract.md`](railway-production-source-contract.md) names the
-public, non-secret schema provenance the adapter normalizes against, the two read shapes, and
-the mapping from the provider's field names to the ones the plan reads, and it is proven
-against the planner itself by `scripts/railway-production-source-contract.test.ts`. That
-provenance is a citation of the published schema, **not** a captured provider payload: the
-contract records `capturedProviderOutput: false` and `identityEvidence: none`, so nothing in
-it may be read as live provider acceptance, and the identity values in its fixtures are
-placeholders.
+[`railway-production-source-contract.md`](../railway-production-source-contract.md) names the
+internal normalized contract the adapter normalizes into, the two read shapes, and the mapping
+from the provider's field names to the ones the plan reads, and it is proven against the
+planner itself by `scripts/railway-production-source-contract.test.ts`. That contract is **this
+repository's own**, not a published provider schema: a generic API overview is not a schema
+citation, so the contract records `schemaCitation: null`, `providerQualification: pending` and
+`capturedProviderOutput: false`, and `identityEvidence: none`. Nothing in it may be read as live
+provider acceptance, and the identity values in its fixtures are placeholders. Qualifying the
+adapter against an authoritative provider schema stays pending until an authorized owner records
+a provider capture.
 
 The reads are JSON, and the plan refuses a read it cannot parse rather than plan on a payload
 it did not understand. A status read answers with the candidate targets and the deployment
@@ -137,6 +139,10 @@ values below are placeholders:
     { "project": "example-project", "service": "example-service", "environment": "production" }
   ],
   "deployment": {
+    "id": "d_2",
+    "project": "example-project",
+    "service": "example-service",
+    "environment": "production",
     "release": "v0.99.0-dev.488",
     "imageDigest": "sha256:…",
     "region": "iad1",
@@ -164,6 +170,20 @@ Every deployment in the history names the project, the service **and the environ
 to. That is the binding: the history is only the history of the target that was read if each of
 its deployments says so, on all three.
 
+The metadata the status read publishes belongs to **one** deployment, and the history is what
+says which deployment is in service. So the metadata is authorized only by a history that names the
+same deployment, and by nothing else:
+
+- metadata that names no deployment is `RAILWAY_PRODUCTION_METADATA_UNBOUND`;
+- metadata that names a deployment the history does not contain is
+  `RAILWAY_PRODUCTION_METADATA_UNBOUND`;
+- metadata that names a deployment other than the one in service is
+  `RAILWAY_PRODUCTION_METADATA_CONTRADICTORY`;
+- metadata that names another target is `RAILWAY_PRODUCTION_METADATA_CONTRADICTORY`.
+
+A healthy, bound history therefore cannot authorize another deployment's metadata: the plan
+reports the deployment the history proves is in service, not the one it was handed.
+
 The environment is part of the binding, not a detail of it. The same project and the same service
 exist in more than one environment, so a history staged in another environment names the same
 project and the same service and is still not the history of this target. A deployment that names
@@ -177,26 +197,27 @@ its history to its target has not established anything.
 Every refusal carries a fixed code, one sentence that says what was refused, and the evidence
 it was refused on:
 
-| Code                                            | What it refuses                                               |
-| ----------------------------------------------- | ------------------------------------------------------------- |
-| `RAILWAY_PRODUCTION_SOURCE_UNREADABLE`          | the repository declares no production source that can be read |
-| `RAILWAY_PRODUCTION_SOURCE_INVALID`             | the declaration is not shaped as a declaration                |
-| `RAILWAY_PRODUCTION_SOURCE_UNCONFIGURED`        | the repository has configured no production identity          |
-| `RAILWAY_PRODUCTION_TARGET_MISSING`             | no production target is named                                 |
-| `RAILWAY_PRODUCTION_TARGET_AMBIGUOUS`           | more than one production target is named                      |
-| `RAILWAY_PRODUCTION_TARGET_IDENTITY_MISSING`    | the live target names no project and no service               |
-| `RAILWAY_PRODUCTION_TARGET_CONTRADICTORY`       | the live target contradicts the declaration                   |
-| `RAILWAY_PRODUCTION_METADATA_MISSING`           | the deployment does not publish the required metadata         |
-| `RAILWAY_PRODUCTION_METADATA_CONTRADICTORY`     | the deployment contradicts the pinned metadata                |
-| `RAILWAY_PRODUCTION_HISTORY_MISSING`            | the deployment history is empty                               |
-| `RAILWAY_PRODUCTION_HISTORY_UNHEALTHY`          | the newest deployment is not in service                       |
-| `RAILWAY_PRODUCTION_HISTORY_UNBOUND`            | the history does not bind its deployments to the target       |
-| `RAILWAY_PRODUCTION_HISTORY_CONTRADICTORY`      | the history belongs to another target                         |
-| `RAILWAY_PRODUCTION_COMMAND_FAILED`             | a read failed                                                 |
-| `RAILWAY_PRODUCTION_COMMAND_TIMED_OUT`          | a read timed out                                              |
-| `RAILWAY_PRODUCTION_COMMAND_RUNNER_UNAVAILABLE` | no command runner was supplied, so no live read was made      |
-| `RAILWAY_PRODUCTION_READ_UNPARSABLE`            | a read did not parse as JSON                                  |
-| `RAILWAY_PRODUCTION_READ_UNNORMALIZED`          | a read is not the normalized read the plan reads              |
+| Code                                            | What it refuses                                                                            |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `RAILWAY_PRODUCTION_SOURCE_UNREADABLE`          | the repository declares no production source that can be read                              |
+| `RAILWAY_PRODUCTION_SOURCE_INVALID`             | the declaration is not shaped as a declaration                                             |
+| `RAILWAY_PRODUCTION_SOURCE_UNCONFIGURED`        | the repository has configured no production identity                                       |
+| `RAILWAY_PRODUCTION_TARGET_MISSING`             | no production target is named                                                              |
+| `RAILWAY_PRODUCTION_TARGET_AMBIGUOUS`           | more than one production target is named                                                   |
+| `RAILWAY_PRODUCTION_TARGET_IDENTITY_MISSING`    | the live target names no project and no service                                            |
+| `RAILWAY_PRODUCTION_TARGET_CONTRADICTORY`       | the live target contradicts the declaration                                                |
+| `RAILWAY_PRODUCTION_METADATA_MISSING`           | the deployment does not publish the required metadata                                      |
+| `RAILWAY_PRODUCTION_METADATA_CONTRADICTORY`     | the deployment contradicts the pinned metadata, or belongs to another deployment or target |
+| `RAILWAY_PRODUCTION_METADATA_UNBOUND`           | the deployment metadata cannot be bound to the history                                     |
+| `RAILWAY_PRODUCTION_HISTORY_MISSING`            | the deployment history is empty                                                            |
+| `RAILWAY_PRODUCTION_HISTORY_UNHEALTHY`          | the newest deployment is not in service                                                    |
+| `RAILWAY_PRODUCTION_HISTORY_UNBOUND`            | the history does not bind its deployments to the target                                    |
+| `RAILWAY_PRODUCTION_HISTORY_CONTRADICTORY`      | the history belongs to another target                                                      |
+| `RAILWAY_PRODUCTION_COMMAND_FAILED`             | a read failed                                                                              |
+| `RAILWAY_PRODUCTION_COMMAND_TIMED_OUT`          | a read timed out                                                                           |
+| `RAILWAY_PRODUCTION_COMMAND_RUNNER_UNAVAILABLE` | no command runner was supplied, so no live read was made                                   |
+| `RAILWAY_PRODUCTION_READ_UNPARSABLE`            | a read did not parse as JSON                                                               |
+| `RAILWAY_PRODUCTION_READ_UNNORMALIZED`          | a read is not the normalized read the plan reads                                           |
 
 The evidence is hashed with SHA-256 over the code, the sentence and the evidence itself, so a
 receipt can name the refusal it saw without repeating the whole payload, and the same input
@@ -229,11 +250,19 @@ read, a missing target, a contradictory target, a target outside the production 
 target that names no project and no service, a declaration whose target names neither, a history
 that binds no deployment to the target, a history whose deployment names no environment, a history
 staged in another environment, a history that belongs to another project and a history that
-belongs to another service, missing and contradictory deployment metadata, a stopped, an
-errored and an empty history, a failed command, a timed-out command, a runner that throws, a read
-that is not JSON, a read that is not the normalized read the plan reads, a plan without a runner,
-a declaration that is not shaped as one, and the determinism of the plan and of the evidence
-digest.
+belongs to another service, missing and contradictory deployment metadata, deployment metadata
+that belongs to another deployment, that names a deployment outside the history, that names no
+deployment and that names another target, a stopped, an errored and an empty history, a failed
+command, a timed-out command, a runner that throws, a read that is not JSON, a read that is not
+the normalized read the plan reads, a plan without a runner, a declaration that is not shaped as
+one, and the determinism of the plan and of the evidence digest.
+
+The contract's own suite proves the boundary between the two files: it runs the planner over the
+contract's own output and shows the **genuine positive** — the verdict is `planned` and no refusal
+is carried — alongside the provider's field names being refused on the content, a payload that is
+not the normalized shape being refused as unnormalized, a deployment of another project, service
+or environment being refused against the target, and a record that names both aliases with
+different values being refused instead of resolved.
 
 The shipped declaration is covered as well, and it is covered as what it is: the repository has
 configured no production identity, so the plan against the repository's own declaration refuses

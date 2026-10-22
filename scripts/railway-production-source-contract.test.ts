@@ -6,10 +6,15 @@
  * Railway call, and no production read is involved.
  */
 import { describe, expect, test } from 'bun:test'
-import { planProductionDeployment, repositoryRoot } from './railway-production-plan.mjs'
+import {
+  HEALTHY_DEPLOYMENT_STATUSES,
+  planProductionDeployment,
+  repositoryRoot,
+} from './railway-production-plan.mjs'
 import { readFileSync } from 'node:fs'
 
 import {
+  NORMALIZED_DEPLOYMENT_STATUSES,
   RAILWAY_PLAN_REFUSALS,
   RAILWAY_SOURCE_SCHEMA_PROVENANCE,
   UNCONFIGURED_RAILWAY_SOURCE_IDENTITY,
@@ -26,7 +31,12 @@ const IDENTITY: RailwaySourceIdentity = {
   environmentId: 'environment-production',
 }
 
-/** A normalized placeholder, not captured provider output. */
+/**
+ * A normalized placeholder, not captured provider output.
+ *
+ * The status is part of the normalized shape: the planner's in-service rule
+ * reads it, so a payload that does not carry one cannot be normalized.
+ */
 const SOURCE = {
   deployments: [
     {
@@ -34,6 +44,7 @@ const SOURCE = {
       projectId: 'project-production',
       serviceId: 'service-production',
       environmentId: 'environment-production',
+      status: 'success',
       createdAt: '2026-01-02T03:04:05.000Z',
     },
   ],
@@ -104,12 +115,103 @@ describe('the Railway production-source contract', () => {
     if (!plan.ok) expect(plan.refusal).toBe('empty-source')
   })
 
-  test('the provenance cites a public source and claims no captured output', () => {
-    expect(RAILWAY_SOURCE_SCHEMA_PROVENANCE.source).toMatch(/^https:\/\//)
-    expect(RAILWAY_SOURCE_SCHEMA_PROVENANCE.source).toContain('docs.railway.com')
+  test('the provenance records an internal contract and a pending qualification', () => {
+    // The contract is this repository's own normalized contract, not a
+    // published provider schema: a generic API overview is not a schema
+    // citation, so none is claimed, and the provider qualification stays
+    // pending until an authorized owner records a provider capture.
+    expect(RAILWAY_SOURCE_SCHEMA_PROVENANCE.contract).toContain('internal contract')
+    expect(RAILWAY_SOURCE_SCHEMA_PROVENANCE.schemaCitation).toBeNull()
+    expect(RAILWAY_SOURCE_SCHEMA_PROVENANCE.providerQualification).toBe('pending')
+    expect(RAILWAY_SOURCE_SCHEMA_PROVENANCE.referenceOverview).toMatch(/^https:\/\//)
     expect(RAILWAY_SOURCE_SCHEMA_PROVENANCE.capturedProviderOutput).toBe(false)
     expect(RAILWAY_SOURCE_SCHEMA_PROVENANCE.identityEvidence).toContain('none')
     expect(RAILWAY_PLAN_REFUSALS).toContain('identity-unconfigured')
+  })
+
+  test("the normalized status vocabulary is the planner's in-service rule", () => {
+    // The contract and the planner must agree on what "in service" means, or
+    // the boundary between them would refuse a healthy deployment.
+    expect([...NORMALIZED_DEPLOYMENT_STATUSES.inService]).toEqual([...HEALTHY_DEPLOYMENT_STATUSES])
+  })
+
+  test('the normalized deployment keeps the status the read published', () => {
+    const normalized = normalizeRailwaySource(SOURCE)
+
+    expect(normalized.ok).toBe(true)
+    expect(normalized.source?.deployments[0]?.status).toBe('success')
+  })
+
+  test('a status outside the normalized vocabulary is refused', () => {
+    const normalized = normalizeRailwaySource({
+      deployments: [{ ...SOURCE.deployments[0], status: 'BUILDING' }],
+    })
+
+    expect(normalized.ok).toBe(false)
+    expect(normalized.message).toContain('not one of the normalized statuses')
+  })
+
+  test('a deployment that names no status is refused', () => {
+    const { status: _dropped, ...withoutStatus } = SOURCE.deployments[0]
+
+    const normalized = normalizeRailwaySource({ deployments: [withoutStatus] })
+
+    expect(normalized.ok).toBe(false)
+    expect(normalized.message).toContain('names no status')
+  })
+
+  test('a record that names both aliases with different values is refused', () => {
+    for (const conflict of [
+      { id: 'deployment-0002' },
+      { project: 'project-other' },
+      { service: 'service-other' },
+      { environment: 'environment-other' },
+    ]) {
+      const normalized = normalizeRailwaySource({
+        deployments: [{ ...SOURCE.deployments[0], ...conflict }],
+      })
+
+      expect(normalized.ok).toBe(false)
+      expect(normalized.message).toContain('different values')
+    }
+  })
+
+  test('a record that names both aliases with the same value is accepted', () => {
+    const normalized = normalizeRailwaySource({
+      deployments: [{ ...SOURCE.deployments[0], id: 'deployment-0001' }],
+    })
+
+    expect(normalized.ok).toBe(true)
+    expect(normalized.source?.deployments[0]?.id).toBe('deployment-0001')
+  })
+
+  test('a target that names both aliases with different values is refused', () => {
+    const normalized = normalizeRailwayStatus({
+      targets: [
+        {
+          projectId: 'example-project',
+          project: 'example-other-project',
+          serviceId: 'example-service',
+          environmentId: 'production',
+        },
+      ],
+      deployment: { deploymentId: 'd_2' },
+    })
+
+    expect(normalized.ok).toBe(false)
+    expect(normalized.message).toContain('different values')
+  })
+
+  test('deployment metadata that names both aliases with different values is refused', () => {
+    const normalized = normalizeRailwayStatus({
+      targets: [
+        { projectId: 'example-project', serviceId: 'example-service', environmentId: 'production' },
+      ],
+      deployment: { deploymentId: 'd_2', id: 'd_3' },
+    })
+
+    expect(normalized.ok).toBe(false)
+    expect(normalized.message).toContain('different values')
   })
 
   test('the contract and the fixtures carry no secret-shaped values', () => {
@@ -158,7 +260,13 @@ describe('the contract and the planner agree on the normalization boundary', () 
     targets: [
       { projectId: 'example-project', serviceId: 'example-service', environmentId: 'production' },
     ],
+    // The metadata names the deployment it belongs to, in the provider's own
+    // field name, and the target it belongs to.
     deployment: {
+      deploymentId: 'd_2',
+      projectId: 'example-project',
+      serviceId: 'example-service',
+      environmentId: 'production',
       release: 'v0.99.0-dev.488',
       imageDigest: 'sha256:1f0a',
       region: 'eu-west-1',
@@ -185,7 +293,13 @@ describe('the contract and the planner agree on the normalization boundary', () 
       root: repositoryRoot(),
       run: (request: { kind: string }) =>
         request.kind === 'status' ? staged(reads.status) : staged(reads.deployments),
-    }) as { ok: boolean; refusals?: { code: string }[]; target?: unknown; history?: unknown }
+    }) as {
+      ok: boolean
+      refusals?: { code: string }[]
+      target?: unknown
+      history?: unknown
+      verdict: string
+    }
   }
 
   test('the planner accepts the shape the contract normalizes into', () => {
@@ -197,11 +311,18 @@ describe('the contract and the planner agree on the normalization boundary', () 
       status: status.status,
       deployments: deployments.source,
     })
-    // The plan is not refused as unnormalized: the boundary holds.
+    // The boundary holds: the plan is not refused as unnormalized, and the
+    // genuine positive is a plan - the verdict is planned and no refusal is
+    // carried. The status the read published survives the normalization, so
+    // the deployment is not mistaken for one that is not in service.
     const codes = (plan.refusals ?? []).map((refusal) => refusal.code)
     expect(codes).not.toContain('RAILWAY_PRODUCTION_READ_UNNORMALIZED')
     expect(codes).not.toContain('RAILWAY_PRODUCTION_HISTORY_UNBOUND')
     expect(codes).not.toContain('RAILWAY_PRODUCTION_TARGET_CONTRADICTORY')
+    expect(codes).not.toContain('RAILWAY_PRODUCTION_HISTORY_UNHEALTHY')
+    expect(codes).not.toContain('RAILWAY_PRODUCTION_METADATA_UNBOUND')
+    expect(plan.verdict).toBe('planned')
+    expect(plan.refusals).toEqual([])
   })
 
   test("the provider's own field names are not the planner's field names", () => {

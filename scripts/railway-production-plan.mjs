@@ -48,6 +48,7 @@ export const REFUSAL_CODES = Object.freeze({
   targetContradictory: 'RAILWAY_PRODUCTION_TARGET_CONTRADICTORY',
   metadataMissing: 'RAILWAY_PRODUCTION_METADATA_MISSING',
   metadataContradictory: 'RAILWAY_PRODUCTION_METADATA_CONTRADICTORY',
+  metadataUnbound: 'RAILWAY_PRODUCTION_METADATA_UNBOUND',
   historyMissing: 'RAILWAY_PRODUCTION_HISTORY_MISSING',
   historyUnhealthy: 'RAILWAY_PRODUCTION_HISTORY_UNHEALTHY',
   historyUnbound: 'RAILWAY_PRODUCTION_HISTORY_UNBOUND',
@@ -700,6 +701,57 @@ export function planProductionDeployment({ source, root = repositoryRoot(), run 
         healthy: [...HEALTHY_DEPLOYMENT_STATUSES],
       })
     )
+  }
+
+  // The metadata the status read published belongs to one deployment, and the
+  // history is what says which deployment is in service. So the metadata is
+  // authorized only by a history that names the same deployment: a valid
+  // history must not authorize another deployment's metadata, and metadata
+  // that names no deployment cannot be bound to any history at all.
+  if (deployment) {
+    const observedId = deployment.id
+    if (typeof observedId !== 'string' || observedId.length === 0) {
+      refusals.push(
+        refusal(
+          REFUSAL_CODES.metadataUnbound,
+          'the live deployment metadata does not name a deployment, so it cannot be bound to the history',
+          { fields: ['id'] }
+        )
+      )
+    } else if (!history.some((entry) => entry.id === observedId)) {
+      refusals.push(
+        refusal(
+          REFUSAL_CODES.metadataUnbound,
+          'the live deployment metadata names a deployment that is not in the history that was read',
+          { observed: observedId, deployments: history.map((entry) => entry.id ?? null) }
+        )
+      )
+    } else if (newest && newest.id !== observedId) {
+      refusals.push(
+        refusal(
+          REFUSAL_CODES.metadataContradictory,
+          'the live deployment metadata belongs to a deployment other than the one in service',
+          { expected: newest.id ?? null, observed: observedId }
+        )
+      )
+    }
+    // The target the metadata names must be the target that was read. A
+    // metadata object that names another target is another target's metadata,
+    // whatever the history says.
+    if (identity) {
+      for (const field of HISTORY_BINDING_FIELDS) {
+        const value = deployment[field]
+        if (value !== undefined && value !== identity[field]) {
+          refusals.push(
+            refusal(
+              REFUSAL_CODES.metadataContradictory,
+              'the live deployment metadata names a target other than the one that was read',
+              { field, expected: identity[field], observed: value ?? null }
+            )
+          )
+        }
+      }
+    }
   }
 
   return finish(declaration, target, deployment, { newest, count: history.length }, refusals)

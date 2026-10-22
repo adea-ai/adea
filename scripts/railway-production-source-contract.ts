@@ -3,29 +3,79 @@
  *
  * PR #1559 adds an offline, fail-closed Railway production-source planner.
  * This module establishes the part that issue needs from the adapter side:
- * an authoritative, non-secret schema provenance, the normalized contract the
- * planner binds to, and the fail-closed rules that keep the shipped
- * declaration unconfigured while the production identity is unproven.
+ * an honest, non-secret provenance of an **internal** normalized contract, the
+ * normalized contract the planner binds to, and the fail-closed rules that keep
+ * the shipped declaration unconfigured while the production identity is
+ * unproven.
  *
  * Nothing here reads a credential, contacts Railway, or reads production.
  * The fixtures are normalized placeholders, not captured provider output.
  */
 
-/** The public, non-secret provenance of the contract this adapter normalizes. */
+/**
+ * The provenance of the contract this adapter normalizes.
+ *
+ * The contract is **this repository's own normalized contract**, not a
+ * published provider schema. A generic API overview is not a schema citation:
+ * it names the provider's API, but it does not state the fields a deployment
+ * carries, and nothing here has read them. So the provenance records that
+ * honestly:
+ *
+ * - `schemaCitation` is null, because no exact public schema or query is
+ *   cited here, and no fixture in this repository matches a captured one;
+ * - `referenceOverview` is a pointer to the provider's API reference, kept so
+ *   a later owner can look for the exact schema - it is not evidence;
+ * - `providerQualification` is pending, because qualifying the adapter against
+ *   an authoritative provider schema needs a recorded provider capture, which
+ *   this repository has not taken.
+ */
 export const RAILWAY_SOURCE_SCHEMA_PROVENANCE = {
   provider: 'Railway',
-  contract: 'the public API reference: the deployments query and the Deployment type',
-  source: 'https://docs.railway.com/reference/public-api',
+  contract:
+    "this repository's own normalized adapter contract - an internal contract, not a published provider schema",
+  referenceOverview: 'https://docs.railway.com/reference/public-api',
+  schemaCitation: null,
+  providerQualification: 'pending',
   retrievedOn: '2026-10-21',
   /**
    * The fixtures in this repository are normalized placeholders shaped like
-   * the published schema. They are NOT captured provider output, and nothing
-   * here may be read as live provider acceptance.
+   * this contract. They are NOT captured provider output, and nothing here may
+   * be read as live provider acceptance.
    */
   capturedProviderOutput: false,
   identityEvidence:
     'none - the production project, service and environment are not established in this repository',
 } as const
+
+/**
+ * The deployment statuses the normalized contract defines.
+ *
+ * The status is a **normalized** field: these are this repository's own
+ * values, not the provider's. An adapter maps the provider's deployment status
+ * onto one of them before the payload reaches this contract, so a status
+ * outside the vocabulary is malformed rather than normalized - a status this
+ * contract does not define cannot be read as in service.
+ */
+export const NORMALIZED_DEPLOYMENT_STATUSES = Object.freeze({
+  inService: Object.freeze(['success', 'running', 'active'] as readonly string[]),
+  notInService: Object.freeze([
+    'failed',
+    'error',
+    'stopped',
+    'building',
+    'deploying',
+    'removed',
+    'unknown',
+  ] as readonly string[]),
+})
+
+/** True when a value is one of the normalized deployment statuses. */
+export function isNormalizedDeploymentStatus(value: string): boolean {
+  return (
+    NORMALIZED_DEPLOYMENT_STATUSES.inService.includes(value) ||
+    NORMALIZED_DEPLOYMENT_STATUSES.notInService.includes(value)
+  )
+}
 
 /** The three-part identity a production plan has to bind to. */
 export type RailwaySourceIdentity = {
@@ -56,12 +106,17 @@ export const UNCONFIGURED_RAILWAY_SOURCE_IDENTITY: RailwaySourceIdentity = {
  * `serviceId` and `environmentId`. The planner reads `id`, `project`,
  * `service` and `environment`. The mapping between the two is the
  * normalization boundary, and it is stated here rather than left implicit.
+ *
+ * The status is part of the normalized shape: the planner's in-service rule
+ * reads it, so a deployment whose status is dropped would read as one that is
+ * not in service.
  */
 export type NormalizedRailwayDeployment = {
   id: string
   project: string
   service: string
   environment: string
+  status: string
   createdAt: string
 }
 
@@ -112,6 +167,52 @@ function isText(value: unknown): value is string {
 }
 
 /**
+ * Reads a field that may be named either way.
+ *
+ * The contract reads the provider's field names and the planner's field names.
+ * A record that carries **both** names is accepted only when the two agree: a
+ * record that names two different values for one field is contradictory, and
+ * choosing one of them would pick a value the record does not agree with. So a
+ * contradiction is reported rather than resolved.
+ */
+function readAliasedField(
+  record: Record<string, unknown>,
+  name: string,
+  alias: string
+): { ok: true; value: string } | { ok: false; message: string } {
+  const primary = record[name]
+  const secondary = record[alias]
+  if (primary !== undefined && secondary !== undefined && primary !== secondary) {
+    return { ok: false, message: `the entry names ${name} and ${alias} with different values` }
+  }
+  const value = primary !== undefined ? primary : secondary
+  if (!isText(value)) {
+    return { ok: false, message: `the entry names no ${name}` }
+  }
+  return { ok: true, value }
+}
+
+/**
+ * Reads the normalized status of a deployment.
+ *
+ * The status is preserved, not dropped: the planner's in-service rule reads
+ * it, and a deployment whose status is dropped would read as not in service
+ * even when the read said it was serving.
+ */
+function readStatus(value: unknown): { ok: true; value: string } | { ok: false; message: string } {
+  if (!isText(value)) {
+    return { ok: false, message: 'the entry names no status' }
+  }
+  if (!isNormalizedDeploymentStatus(value)) {
+    return {
+      ok: false,
+      message: `the entry names the status '${value}', which is not one of the normalized statuses`,
+    }
+  }
+  return { ok: true, value }
+}
+
+/**
  * Normalizes a provider payload into the contract.
  *
  * The payload shape follows the published schema; a payload that does not
@@ -137,24 +238,29 @@ export function normalizeRailwaySource(payload: unknown): {
     }
     const record = entry as Record<string, unknown>
     // The provider's field names and the planner's field names are both read,
-    // and the normalized record always carries the planner's.
-    const id = record.id ?? record.deploymentId
-    const project = record.project ?? record.projectId
-    const service = record.service ?? record.serviceId
-    const environment = record.environment ?? record.environmentId
-    if (
-      !isText(id) ||
-      !isText(project) ||
-      !isText(service) ||
-      !isText(environment) ||
-      !isText(record.createdAt)
-    ) {
-      return {
-        ok: false,
-        message: 'a deployment entry does not carry the declared schema fields',
-      }
+    // and the normalized record always carries the planner's. A record that
+    // carries both names for one field is accepted only when they agree.
+    const id = readAliasedField(record, 'id', 'deploymentId')
+    if (!id.ok) return { ok: false, message: id.message }
+    const project = readAliasedField(record, 'project', 'projectId')
+    if (!project.ok) return { ok: false, message: project.message }
+    const service = readAliasedField(record, 'service', 'serviceId')
+    if (!service.ok) return { ok: false, message: service.message }
+    const environment = readAliasedField(record, 'environment', 'environmentId')
+    if (!environment.ok) return { ok: false, message: environment.message }
+    const status = readStatus(record.status)
+    if (!status.ok) return { ok: false, message: status.message }
+    if (!isText(record.createdAt)) {
+      return { ok: false, message: 'the entry names no creation timestamp' }
     }
-    normalized.push({ id, project, service, environment, createdAt: record.createdAt })
+    normalized.push({
+      id: id.value,
+      project: project.value,
+      service: service.value,
+      environment: environment.value,
+      status: status.value,
+      createdAt: record.createdAt,
+    })
   }
   return { ok: true, source: { deployments: normalized } }
 }
@@ -190,21 +296,64 @@ export function normalizeRailwayStatus(payload: unknown): {
       return { ok: false, message: 'a target entry is not an object' }
     }
     const candidate = entry as Record<string, unknown>
-    const project = candidate.project ?? candidate.projectId
-    const service = candidate.service ?? candidate.serviceId
-    const environment = candidate.environment ?? candidate.environmentId
-    if (!isText(project) || !isText(service) || !isText(environment)) {
-      return {
-        ok: false,
-        message: 'a target entry does not name a project, a service and an environment',
-      }
-    }
-    normalized.push({ project, service, environment })
+    const project = readAliasedField(candidate, 'project', 'projectId')
+    if (!project.ok) return { ok: false, message: project.message }
+    const service = readAliasedField(candidate, 'service', 'serviceId')
+    if (!service.ok) return { ok: false, message: service.message }
+    const environment = readAliasedField(candidate, 'environment', 'environmentId')
+    if (!environment.ok) return { ok: false, message: environment.message }
+    normalized.push({
+      project: project.value,
+      service: service.value,
+      environment: environment.value,
+    })
   }
+  const normalizedDeployment = normalizeDeploymentMetadata(deployment as Record<string, unknown>)
+  if (!normalizedDeployment.ok) return { ok: false, message: normalizedDeployment.message }
   return {
     ok: true,
-    status: { targets: normalized, deployment: deployment as Record<string, unknown> },
+    status: { targets: normalized, deployment: normalizedDeployment.value },
   }
+}
+
+/**
+ * The deployment metadata a status read published, with its identity normalized.
+ *
+ * The published metadata is preserved as it is. The deployment it belongs to
+ * is named: the id is the deployment the plan binds the metadata to, and the
+ * target it names is normalized so the plan can compare it with the target that
+ * was read. A status read whose deployment names no id is malformed, because
+ * metadata that names no deployment cannot be bound to any history.
+ */
+function normalizeDeploymentMetadata(
+  deployment: Record<string, unknown>
+): { ok: true; value: Record<string, unknown> } | { ok: false; message: string } {
+  const id = readAliasedField(deployment, 'id', 'deploymentId')
+  if (!id.ok) {
+    return { ok: false, message: `the deployment metadata names no deployment: ${id.message}` }
+  }
+  const normalized: Record<string, unknown> = { ...deployment, id: id.value }
+  for (const [name, alias] of [
+    ['project', 'projectId'],
+    ['service', 'serviceId'],
+    ['environment', 'environmentId'],
+  ] as const) {
+    const primary = deployment[name]
+    const secondary = deployment[alias]
+    if (primary !== undefined && secondary !== undefined && primary !== secondary) {
+      return {
+        ok: false,
+        message: `the deployment metadata names ${name} and ${alias} with different values`,
+      }
+    }
+    const value = primary !== undefined ? primary : secondary
+    if (value === undefined) continue
+    if (!isText(value)) {
+      return { ok: false, message: `the deployment metadata names no ${name}` }
+    }
+    normalized[name] = value
+  }
+  return { ok: true, value: normalized }
 }
 
 /**

@@ -75,7 +75,15 @@ const observedTarget = {
   environment: 'production',
 }
 
+/**
+ * The deployment metadata the status read published.
+ *
+ * The metadata names the deployment it belongs to, because the plan binds it
+ * to the history that proves which deployment is in service. `d_2` is the
+ * newest deployment of the healthy history below.
+ */
 const observedDeployment = {
+  id: 'd_2',
   release: 'v0.99.0-dev.488',
   imageDigest: 'sha256:1f0a',
   region: 'iad1',
@@ -191,6 +199,9 @@ describe('the Railway production source plan', () => {
     expect(plan.refusals).toEqual([])
     expect(plan.target).toEqual(observedTarget)
     expect(plan.deployment).toEqual(observedDeployment)
+    // The metadata was bound to the deployment the history proves is in
+    // service, and the plan names that deployment.
+    expect(plan.deployment!.id).toBe('d_2')
     expect(plan.history!.count).toBe(2)
     expect(run.calls.map((call) => call.kind)).toEqual(['status', 'deployments'])
     expect(run.calls[0].command).toEqual([...LIVE_READS.status.command])
@@ -504,8 +515,82 @@ describe('the Railway production source plan', () => {
     })
   })
 
+  test('refuses deployment metadata that belongs to another deployment', () => {
+    // The history is healthy and bound to the target, but the metadata the
+    // status read published belongs to a different deployment. A valid history
+    // must not authorize another deployment's metadata.
+    const reads = healthyReads()
+    reads.status = read({
+      targets: [observedTarget],
+      deployment: { ...observedDeployment, id: 'd_1' },
+    })
+
+    const plan = planFor({ source: declaration, run: fakeRunner(reads) })
+
+    expect(plan.verdict).toBe('refused')
+    expect(codes(plan)).toContain(REFUSAL_CODES.metadataContradictory)
+    const refusal = refusalFor(plan, REFUSAL_CODES.metadataContradictory)
+    expect(refusal.evidence).toEqual({ expected: 'd_2', observed: 'd_1' })
+  })
+
+  test('refuses deployment metadata that names a deployment outside the history', () => {
+    const reads = healthyReads()
+    reads.status = read({
+      targets: [observedTarget],
+      deployment: { ...observedDeployment, id: 'd_9' },
+    })
+
+    const plan = planFor({ source: declaration, run: fakeRunner(reads) })
+
+    expect(plan.verdict).toBe('refused')
+    expect(codes(plan)).toContain(REFUSAL_CODES.metadataUnbound)
+    const refusal = refusalFor(plan, REFUSAL_CODES.metadataUnbound)
+    expect(refusal.evidence.observed).toBe('d_9')
+    expect(refusal.evidence.deployments).toEqual(['d_2', 'd_1'])
+  })
+
+  test('refuses deployment metadata that names no deployment', () => {
+    const reads = healthyReads()
+    const { id: _unnamed, ...unnamed } = observedDeployment
+    reads.status = read({ targets: [observedTarget], deployment: unnamed })
+
+    const plan = planFor({ source: declaration, run: fakeRunner(reads) })
+
+    expect(plan.verdict).toBe('refused')
+    expect(codes(plan)).toContain(REFUSAL_CODES.metadataUnbound)
+    const refusal = refusalFor(plan, REFUSAL_CODES.metadataUnbound)
+    expect(refusal.evidence.fields).toEqual(['id'])
+  })
+
+  test('refuses deployment metadata that names another target', () => {
+    // A mixed read: the target and the history are the production target's,
+    // but the metadata the status read published names another project.
+    const reads = healthyReads()
+    reads.status = read({
+      targets: [observedTarget],
+      deployment: { ...observedDeployment, project: 'example-other-project' },
+    })
+
+    const plan = planFor({ source: declaration, run: fakeRunner(reads) })
+
+    expect(plan.verdict).toBe('refused')
+    expect(codes(plan)).toContain(REFUSAL_CODES.metadataContradictory)
+    const refusal = refusalFor(plan, REFUSAL_CODES.metadataContradictory)
+    expect(refusal.evidence).toEqual({
+      expected: 'example-project',
+      field: 'project',
+      observed: 'example-other-project',
+    })
+  })
+
   test('refuses a stopped deployment history', () => {
     const reads = healthyReads()
+    // The history's newest deployment is d_3, so the metadata names d_3: the
+    // only thing wrong with this plan is the health of the deployment.
+    reads.status = read({
+      targets: [observedTarget],
+      deployment: { ...observedDeployment, id: 'd_3' },
+    })
     reads.deployments = read({
       deployments: [deployment('d_3', 'stopped', { createdAt: '2026-10-21T00:00:00Z' })],
     })
@@ -521,6 +606,12 @@ describe('the Railway production source plan', () => {
 
   test('refuses an errored deployment history', () => {
     const reads = healthyReads()
+    // The history's newest deployment is d_3, so the metadata names d_3: the
+    // only thing wrong with this plan is the health of the deployment.
+    reads.status = read({
+      targets: [observedTarget],
+      deployment: { ...observedDeployment, id: 'd_3' },
+    })
     reads.deployments = read({
       deployments: [deployment('d_3', 'error', { createdAt: '2026-10-21T00:00:00Z' })],
     })
@@ -897,6 +988,10 @@ describe('the Railway production source plan', () => {
 
   test('the refusal evidence digest covers the refusal and is stable', () => {
     const reads = healthyReads()
+    reads.status = read({
+      targets: [observedTarget],
+      deployment: { ...observedDeployment, id: 'd_3' },
+    })
     reads.deployments = read({
       deployments: [deployment('d_3', 'stopped', { createdAt: '2026-10-21T00:00:00Z' })],
     })
@@ -911,10 +1006,18 @@ describe('the Railway production source plan', () => {
 
   test('two refusals with the same code and different evidence have different digests', () => {
     const stopped = healthyReads()
+    stopped.status = read({
+      targets: [observedTarget],
+      deployment: { ...observedDeployment, id: 'd_3' },
+    })
     stopped.deployments = read({
       deployments: [deployment('d_3', 'stopped', { createdAt: '2026-10-21T00:00:00Z' })],
     })
     const errored = healthyReads()
+    errored.status = read({
+      targets: [observedTarget],
+      deployment: { ...observedDeployment, id: 'd_3' },
+    })
     errored.deployments = read({
       deployments: [deployment('d_3', 'error', { createdAt: '2026-10-21T00:00:00Z' })],
     })
