@@ -20,6 +20,7 @@ import {
   inventoryOwnedResources,
   planWorktreeReuse,
   preservationProof,
+  unknownIgnoredPaths,
 } from './dev-resource-reuse.mjs'
 import { RESOURCE_KIND, leaseDirectory, scanLeases } from './integration-resource-lease.mjs'
 
@@ -68,6 +69,39 @@ function git(args, cwd) {
   return { ok: true, stdout: result.stdout.trim() }
 }
 
+/**
+ * The ignored paths of a checkout.
+ *
+ * `git status --porcelain` does not list them, so a checkout that holds an
+ * ignored receipt is indistinguishable from one that holds nothing. They are
+ * read here, and the ones that are not known build output are reported as
+ * content the checkout holds.
+ */
+function ignoredPaths(path) {
+  // The ignored paths are read collapsed, one entry per ignored directory or
+  // file: the per-file listing of a checkout with a dependency tree is not
+  // usable, and the collapsed listing still names every ignored path.
+  const result = git(['status', '--porcelain', '--ignored=matching'], path)
+  if (!result.ok) return null
+  return parseIgnoredPaths(result.stdout)
+}
+
+/**
+ * The ignored paths in one porcelain listing.
+ *
+ * Only the `!!` entries are ignored paths. The listing also carries the
+ * modified and untracked entries, and those are local work, not ignored
+ * content: reading one as the other would report a dirty checkout as holding
+ * an unknown artifact.
+ */
+export function parseIgnoredPaths(stdout) {
+  return String(stdout)
+    .split('\n')
+    .filter((line) => line.startsWith('!! '))
+    .map((line) => line.slice('!! '.length).trim())
+    .filter((line) => line !== '')
+}
+
 /** The size of a directory in bytes, or null when it cannot be read. */
 function directoryBytes(path) {
   const result = spawnSync('du', ['-sk', path], { encoding: 'utf8', timeout: 60_000 })
@@ -77,8 +111,34 @@ function directoryBytes(path) {
 }
 
 /**
+ * Refreshes the remote-tracking refs and reports what actually happened.
+ *
+ * A fetch that fails is not a fetch that succeeded quietly: the report says
+ * so, and the origin stays unverified so that nothing is judged fresh.
+ */
+function fetchOrigin(repo) {
+  const result = spawnSync('git', ['fetch', '--quiet', 'origin'], {
+    cwd: repo,
+    encoding: 'utf8',
+    timeout: 120_000,
+  })
+  if (result.error) {
+    return { requested: true, ok: false, error: result.error.message }
+  }
+  if (result.status !== 0) {
+    return {
+      requested: true,
+      ok: false,
+      error: (result.stderr || result.stdout || 'the fetch failed').trim(),
+    }
+  }
+  return { requested: true, ok: true, error: null }
+}
+
+/**
  * The registered worktrees of one repository, with the facts a reuse decision
- * needs: the head, whether the checkout carries local work, whether the
+ * needs: the head, whether the checkout carries local work, whether it
+ * carries ignored artifacts that are not known build output, whether the
  * fetched origin ref contains the head, and whether the commits are published.
  *
  * A fact that cannot be read is reported as the pessimistic answer, so an
@@ -88,15 +148,9 @@ function worktreesOf(repo, { refresh = false } = {}) {
   // The origin freshness check is only as fresh as the last fetch. Refreshing
   // is opt-in, because it writes remote-tracking refs; without it the report
   // uses the last fetched state and refuses anything it cannot prove.
-  if (refresh) {
-    spawnSync('git', ['fetch', '--quiet', 'origin'], {
-      cwd: repo,
-      encoding: 'utf8',
-      timeout: 120_000,
-    })
-  }
+  const fetch = refresh ? fetchOrigin(repo) : { requested: false, ok: false, error: null }
   const listed = git(['worktree', 'list', '--porcelain'], repo)
-  if (!listed.ok) return []
+  if (!listed.ok) return { worktrees: [], fetch }
   const entries = []
   let current = null
   for (const line of listed.stdout.split('\n')) {
@@ -111,11 +165,12 @@ function worktreesOf(repo, { refresh = false } = {}) {
       current.detached = true
     }
   }
-  return entries
+  const worktrees = entries
     .filter((entry) => entry.path && entry.path !== repo)
     .map((entry) => {
       const status = git(['status', '--porcelain'], entry.path)
       const localChanges = status.ok ? status.stdout !== '' : true
+      const ignored = ignoredPaths(entry.path)
       const branch = entry.branch ?? null
       const origin = branch
         ? git(['rev-parse', '--verify', `refs/remotes/origin/${branch}`], repo)
@@ -142,11 +197,34 @@ function worktreesOf(repo, { refresh = false } = {}) {
         head: entry.head ?? null,
         branch,
         localChanges,
+        // An unreadable ignored list is not an empty one: it is content this
+        // report cannot account for, so the checkout is not free.
+        ignoredUnknown: ignored === null ? [] : unknownIgnoredPaths(ignored),
+        ignoredUnreadable: ignored === null,
         published,
-        origin: { fresh: origin.ok, containsHead },
+        // A failed fetch leaves the local refs stale, so the origin is not
+        // verified and nothing may be judged fresh.
+        origin: {
+          fresh: fetch.ok && origin.ok,
+          containsHead: fetch.ok && containsHead,
+        },
         sizeBytes: directoryBytes(entry.path),
       }
     })
+  return { worktrees, fetch }
+}
+
+/**
+ * The plan for every checkout, with the verified origin facts carried into it.
+ *
+ * The origin travels with the checkout, so the planner sees what the runner
+ * actually observed instead of assuming it.
+ */
+export function planWorktrees(worktrees = [], leases = []) {
+  return worktrees.map((worktree) => ({
+    ...worktree,
+    plan: planWorktreeReuse({ worktree, origin: worktree.origin, leases }),
+  }))
 }
 
 function parseArgs(argv) {
@@ -181,11 +259,10 @@ function main() {
     dockerResources: dockerResources(),
     identity: null,
   })
-  const worktrees = args.repo ? worktreesOf(args.repo, { refresh: args.fetch }) : []
-  const plans = worktrees.map((worktree) => ({
-    ...worktree,
-    plan: planWorktreeReuse({ worktree, leases }),
-  }))
+  const { worktrees, fetch } = args.repo
+    ? worktreesOf(args.repo, { refresh: args.fetch })
+    : { worktrees: [], fetch: { requested: false, ok: false, error: null } }
+  const plans = planWorktrees(worktrees, leases)
   const report = eligibilityReport({
     resources: resources.resources,
     worktrees: plans,
@@ -198,7 +275,19 @@ function main() {
   // so nothing may be reclaimed on their account.
   report.unreadableLeaseRecords = unreadableLeases
   report.repository = args.repo
-  report.originRefreshed = args.fetch
+  // What the reuse decision was made from, and what it could not see. The
+  // lease records are the only ownership this report knows; a checkout held by
+  // a session or a task outside the lease model is invisible here, so an
+  // eligible checkout is not a clearance to remove it.
+  report.ownershipSources = ['lease']
+  report.ownershipBoundary =
+    'the reuse decision is made from the lease records alone; a checkout held by an owner outside the lease model is not visible here, so an eligible checkout is not a clearance to remove it'
+  // What the fetch actually did, not what was asked of it. A fetch that was
+  // not requested refreshed nothing, and a fetch that failed left the local
+  // refs stale, so neither is reported as a refresh.
+  report.originRefreshed = fetch.requested && fetch.ok
+  report.fetchRequested = fetch.requested
+  report.fetchError = fetch.error
   report.preservation = preservationProof({
     resources: report.resources,
     worktrees: report.worktrees,
@@ -216,6 +305,10 @@ function main() {
   }
   // The report is the output. Nothing is removed here, and nothing may be.
   if (!report.preservation.ok) process.exitCode = 1
+  // A refresh that was asked for and did not happen leaves the origin
+  // unverified, so the report says nothing is fresh. It fails closed, and it
+  // says so in its exit status.
+  if (fetch.requested && !fetch.ok) process.exitCode = 1
 }
 
-main()
+if (import.meta.main) main()

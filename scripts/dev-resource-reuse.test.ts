@@ -8,9 +8,11 @@ import {
   diskTelemetry,
   eligibilityReport,
   inventoryOwnedResources,
+  isRegenerableIgnored,
   planWorktreeReuse,
   preservationProof,
   reuseDiskAdmission,
+  unknownIgnoredPaths,
 } from './dev-resource-reuse.mjs'
 import {
   DISK_PRESSURE,
@@ -286,11 +288,33 @@ describe('the preservation proof', () => {
           eligibility: ELIGIBILITY.ineligible,
           disposition: RESOURCE_DISPOSITION.removable,
           reason: 'contradictory',
+          // The inventory proved it reclaimable and the report called it
+          // ineligible: the two answers cannot both be true.
+          reclaimable: true,
+          evidence: { leaseMatched: true },
         },
       ],
     })
     expect(proof.ok).toBe(false)
     expect(proof.violations).toHaveLength(1)
+  })
+
+  test('a removable disposition without a lease is a fail-closed case, not a contradiction', () => {
+    const proof = preservationProof({
+      resources: [
+        {
+          kind: RESOURCE_KIND.volume,
+          name: 'unproven',
+          eligibility: ELIGIBILITY.ineligible,
+          disposition: RESOURCE_DISPOSITION.removable,
+          reason: 'no lease of this run names the resource',
+          reclaimable: false,
+          evidence: { leaseMatched: false },
+        },
+      ],
+    })
+    expect(proof.ok).toBe(true)
+    expect(proof.preserved).toHaveLength(1)
   })
 })
 
@@ -436,5 +460,266 @@ describe('the concurrent owner regressions', () => {
 
   test('two owners cannot both pass the concurrency bound', () => {
     expect(concurrencyAdmission({ running: 1, limit: 1 }).admitted).toBe(false)
+  })
+})
+
+describe('the ignored paths a checkout holds', () => {
+  test('a known build output is regenerable and is not local work', () => {
+    expect(isRegenerableIgnored('node_modules/')).toBe(true)
+    expect(isRegenerableIgnored('apps/web/dist/')).toBe(true)
+    expect(isRegenerableIgnored('apps/web/cloudflare-env.d.ts')).toBe(true)
+    expect(isRegenerableIgnored('apps/web/test/fixtures/source-contracts/.runtime/index.ts')).toBe(
+      true
+    )
+    expect(isRegenerableIgnored('apps/web/public/assets/logo.png')).toBe(true)
+    expect(isRegenerableIgnored('tsconfig.tsbuildinfo')).toBe(true)
+  })
+
+  test('an ignored path that is not a build output is content the checkout holds', () => {
+    expect(isRegenerableIgnored('docs/evals/calibration-verdicts/grader-verdicts.json')).toBe(false)
+    expect(isRegenerableIgnored('apps/web/start/.checks/fixture/loopback-key.pem')).toBe(false)
+    expect(unknownIgnoredPaths(['node_modules/', 'docs/evals/verdicts.json'])).toEqual([
+      'docs/evals/verdicts.json',
+    ])
+  })
+
+  test('a checkout that holds an ignored artifact is not free to reuse', () => {
+    const plan = planWorktreeReuse({
+      worktree: {
+        path: '/tmp/worktrees/ignored',
+        head: 'abc',
+        branch: 'b',
+        localChanges: false,
+        published: true,
+        ignoredUnknown: ['docs/evals/calibration-verdicts/grader-verdicts.json'],
+        origin: { fresh: true, containsHead: true },
+      },
+      leases: [],
+    })
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.unknownIgnored)
+    expect(plan.evidence.ignoredUnknown).toHaveLength(1)
+  })
+})
+
+describe('the origin facts travel with the checkout', () => {
+  const worktree = {
+    path: '/tmp/worktrees/verified',
+    head: 'abc',
+    branch: 'b',
+    localChanges: false,
+    published: true,
+    origin: { fresh: true, containsHead: true },
+  }
+
+  test('a verified origin is read from the checkout when none is passed', () => {
+    const plan = planWorktreeReuse({ worktree, leases: [] })
+    expect(plan.decision).toBe(REUSE_DECISION.reuse)
+    expect(plan.evidence.originFresh).toBe(true)
+    expect(plan.evidence.headInOrigin).toBe(true)
+  })
+
+  test('a checkout with no verified origin is refused', () => {
+    const plan = planWorktreeReuse({
+      worktree: { ...worktree, origin: { fresh: false, containsHead: false } },
+      leases: [],
+    })
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.originStale)
+  })
+})
+
+describe('every lease that names a checkout is read', () => {
+  const worktree = {
+    path: '/tmp/worktrees/contended',
+    head: 'abc',
+    branch: 'b',
+    localChanges: false,
+    published: true,
+    origin: { fresh: true, containsHead: true },
+  }
+  const named = (runId, pid) => ({
+    ...lease({ runId, pid }),
+    identity: { ...identity, worktree: worktree.path },
+  })
+
+  test('a stale lease does not speak for a live one that follows it', () => {
+    const plan = planWorktreeReuse({
+      worktree,
+      leases: [named('run-stale', 1111), named('run-live', 2222)],
+      isProcessAlive: (pid) => pid === 2222,
+    })
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.owned)
+    expect(plan.evidence.matchingLeases.map((entry) => entry.state)).toEqual([
+      LEASE_STATE.stale,
+      LEASE_STATE.active,
+    ])
+  })
+
+  test('an owner whose state cannot be established is an owner, not an absence', () => {
+    const plan = planWorktreeReuse({
+      worktree,
+      leases: [
+        {
+          version: 99,
+          runId: 'run-unreadable',
+          identity: { ...identity, worktree: worktree.path },
+        },
+      ],
+      isProcessAlive: () => true,
+    })
+    expect(plan.decision).toBe(REUSE_DECISION.refuse)
+    expect(plan.reasons).toContain(REUSE_REFUSAL.uncertainOwner)
+  })
+
+  test('a shared or unknown scope is preserved and never authorises anything', () => {
+    const plan = planWorktreeReuse({
+      worktree,
+      leases: [{ ...lease({ runId: 'run-shared' }), identity: { ...identity, worktree: null } }],
+      isProcessAlive: () => true,
+    })
+    expect(plan.evidence.preservedScopes).toHaveLength(1)
+    expect(plan.evidence.preservedScopes[0]?.scope).toBeNull()
+    expect(plan.decision).toBe(REUSE_DECISION.reuse)
+  })
+})
+
+describe('the report carries the ownership evidence end to end', () => {
+  test('a removable disposition without a matching lease is not eligible', () => {
+    const inventory = inventoryOwnedResources({
+      runId: 'run-a',
+      identity,
+      leases: [],
+      dockerResources: [
+        { kind: RESOURCE_KIND.container, name: identity.container, label: identity.project },
+      ],
+      isProcessAlive: dead,
+    })
+    expect(inventory.resources[0]?.disposition).toBe(RESOURCE_DISPOSITION.removable)
+    expect(inventory.resources[0]?.reclaimable).toBe(false)
+
+    const report = eligibilityReport({ resources: inventory.resources })
+    expect(report.resources[0]?.eligibility).toBe(ELIGIBILITY.ineligible)
+    expect(report.resources[0]?.reclaimable).toBe(false)
+    expect(report.resources[0]?.evidence.leaseMatched).toBe(false)
+    expect(report.summary.eligibleResources).toBe(0)
+  })
+
+  test('a resource the inventory proved reclaimable is eligible and carries the lease', () => {
+    const inventory = inventoryOwnedResources({
+      runId: 'run-a',
+      identity,
+      leases: [lease()],
+      dockerResources: [
+        { kind: RESOURCE_KIND.container, name: identity.container, label: identity.project },
+      ],
+      isProcessAlive: dead,
+    })
+    const report = eligibilityReport({ resources: inventory.resources })
+    expect(report.resources[0]?.eligibility).toBe(ELIGIBILITY.eligible)
+    expect(report.resources[0]?.reclaimable).toBe(true)
+    expect(report.resources[0]?.evidence.leaseMatched).toBe(true)
+    expect(report.resources[0]?.evidence.leaseEvidence).toHaveLength(1)
+  })
+})
+
+describe('the preservation proof examines every item', () => {
+  test('an eligible resource that contradicts its own evidence is a violation', () => {
+    const proof = preservationProof({
+      resources: [
+        {
+          kind: RESOURCE_KIND.volume,
+          name: 'contradiction',
+          eligibility: ELIGIBILITY.eligible,
+          disposition: RESOURCE_DISPOSITION.protected,
+          reason: 'contradictory',
+          reclaimable: false,
+          evidence: { leaseMatched: false },
+        },
+      ],
+    })
+    expect(proof.ok).toBe(false)
+    expect(proof.violations.length).toBeGreaterThan(0)
+  })
+
+  test('an eligible checkout without a verified origin is a violation', () => {
+    const proof = preservationProof({
+      worktrees: [
+        {
+          path: '/tmp/worktrees/eligible',
+          eligibility: ELIGIBILITY.eligible,
+          decision: REUSE_DECISION.reuse,
+          reason: 'stated',
+          evidence: { originFresh: false, ownerLive: false },
+        },
+      ],
+    })
+    expect(proof.ok).toBe(false)
+  })
+
+  test('a consistent report proves nothing protected was scheduled', () => {
+    const proof = preservationProof({
+      resources: [
+        {
+          kind: RESOURCE_KIND.container,
+          name: 'held',
+          eligibility: ELIGIBILITY.ineligible,
+          disposition: RESOURCE_DISPOSITION.protected,
+          reason: 'held by a live run',
+          reclaimable: false,
+          evidence: { leaseMatched: true },
+        },
+      ],
+      worktrees: [
+        {
+          path: '/tmp/worktrees/local',
+          eligibility: ELIGIBILITY.ineligible,
+          decision: REUSE_DECISION.refuse,
+          reason: 'the checkout carries local work',
+          evidence: { originFresh: true, ownerLive: false },
+        },
+      ],
+    })
+    expect(proof.ok).toBe(true)
+    expect(proof.preserved).toHaveLength(2)
+  })
+})
+
+describe('the end-to-end report', () => {
+  test('an unproven resource and a dirty checkout are both preserved', () => {
+    const inventory = inventoryOwnedResources({
+      runId: 'run-a',
+      identity,
+      leases: [],
+      dockerResources: [
+        { kind: RESOURCE_KIND.container, name: identity.container, label: identity.project },
+      ],
+      isProcessAlive: dead,
+    })
+    const report = eligibilityReport({
+      resources: inventory.resources,
+      worktrees: [
+        {
+          path: '/tmp/worktrees/dirty',
+          head: 'abc',
+          branch: 'b',
+          localChanges: true,
+          published: true,
+          ignoredUnknown: ['docs/evals/verdicts.json'],
+          origin: { fresh: true, containsHead: true },
+        },
+      ],
+    })
+    const proof = preservationProof({
+      resources: report.resources,
+      worktrees: report.worktrees,
+    })
+    expect(report.summary.eligibleResources).toBe(0)
+    expect(report.summary.eligibleWorktrees).toBe(0)
+    expect(report.summary.preserved).toBe(2)
+    expect(proof.ok).toBe(true)
+    expect(report.worktrees[0]?.reasons).toContain(REUSE_REFUSAL.localWork)
+    expect(report.worktrees[0]?.reasons).toContain(REUSE_REFUSAL.unknownIgnored)
   })
 })

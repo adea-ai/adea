@@ -73,26 +73,53 @@ bun scripts/dev-resource-reuse-report.mjs --repo <repo> --fetch \
   --lease-dir <lease dir> --report <path>
 ```
 
-| Field                     | Value          |
-| ------------------------- | -------------- |
-| Docker resources seen     | 27             |
-| Eligible resources        | **0**          |
-| Registered checkouts seen | 38             |
-| Reusable checkouts        | **0**          |
-| Preserved                 | 65             |
-| Preservation violations   | 0              |
-| Checkout bytes reported   | 41,003,118,592 |
+The counts move with the host: the fleet adds and retires checkouts while it runs, so the
+numbers below are one run's, and the report is the authority for any later run.
 
-Nothing was eligible, and every reason is recorded. The Docker resources are protected
-because this run owns no project; the checkouts are refused because they carry local
-work, because the fetched origin ref does not contain their head, or because their
-commits are published nowhere else. No lease record was present in the inspected
-directory, so no resource was provably owned by any run.
+| Field                        | Value              |
+| ---------------------------- | ------------------ |
+| Docker resources seen        | 29                 |
+| Eligible resources           | **0**              |
+| Registered checkouts seen    | 16                 |
+| Reusable checkouts           | **1**              |
+| Preserved                    | 44                 |
+| Preservation violations      | 0                  |
+| Fetch requested and observed | succeeded          |
+| Ownership sources read       | lease records only |
+
+Every reason is recorded. The Docker resources are protected because this run owns no
+project and no lease record was present in the inspected directory, so no resource was
+provably owned by any run. The checkouts are refused because they carry local work, or
+because the fetched origin ref does not contain their head, or because their commits are
+published nowhere else, or because they carry an ignored artifact that is not a known
+build output.
+
+One checkout was reusable: clean, its head in the fetched origin ref, published, and no
+lease naming it. That is a statement about the leases the tooling read. The shared
+ownership index records a live owner for that checkout outside the lease model, so the
+report does not treat it as free — the report says what it saw, and the permission
+decision stays with the operator.
 
 ## Boundaries
 
 No blanket `docker system prune`, no volume or data deletion, and no secret or history
-removal. The report is a permission, not an action: nothing in this tooling removes
-anything, and a caller that holds the applicable permission acts on the eligible items
-after reading the reasons. This record claims no live acceptance, no native acceptance
-and no production readiness.
+removal. The report is evidence, not a permission and not an action: nothing in this tooling
+removes anything, and the report records what the tooling found about the resources and
+checkouts it could see. The permission to remove anything remains with the operator who
+holds it, and it is applied to the eligible items only after every reason has been read.
+
+The report also states what it could not see. Its ownership comes from the lease records
+alone, so a checkout held by a session or a task outside the lease model is invisible to
+it. An eligible checkout is therefore a statement about the resources and leases the
+tooling read; it is not a clearance to remove a checkout that another owner holds.
+Symmetrically, zero eligible items is not a proof that nothing is unsafe: it says that
+nothing the tooling saw had verified ownership. A resource with no lease at all is
+protected, and a checkout that carries an ignored artifact that is not a known build
+output is preserved rather than reused.
+
+`git status --porcelain` does not list ignored paths, so the tooling reads them
+separately. An ignored path that is not a known regenerable output — a calibration
+verdict, a receipt, a key — is content the checkout holds, and it is preserved: the
+checkout is refused for reuse, and the artifact is named in the report so it can be
+recovered. This record claims no live acceptance, no native acceptance and no production
+readiness.

@@ -3,7 +3,7 @@
 // The reported problem is repeated Docker growth and stale worktrees after a
 // cleanup. This file is the source tooling that decides what may be reused,
 // what may be reclaimed and what must be preserved, and it produces the
-// dry-run eligibility report that a cleanup is authorised from.
+// dry-run eligibility report that records those decisions.
 //
 // It is deliberately built on the ownership model that #1543 already owns
 // (`integration-resource-lease.mjs`): a lease is the ownership proof, a claim
@@ -21,13 +21,17 @@
 //     live owner holds it. Local work is never overwritten: a checkout with
 //     changes is preserved, and a checkout whose origin is behind is refused
 //     until the owner refreshes it.
+//   * Every ownership question is answered by every record that bears on it.
+//     One stale lease does not speak for a second live one, and an owner whose
+//     state cannot be established is an owner, not an absence.
 //   * Nothing here reaches Docker, Git or a process boundary. Every input is
 //     injected, so the whole model can be exercised without a daemon, a
 //     container, a volume or a network.
 //
-// It is not a cleanup command. It decides and reports; a caller that holds
-// the applicable permission performs the removal, and the report is the
-// evidence that the removal was authorised.
+// It is not a cleanup command, and it grants nothing. It decides and reports;
+// the report is evidence of what the tooling found, and the permission to
+// remove anything remains with the operator who holds it, applied to the
+// eligible items after reading every reason.
 
 import {
   CLEANUP_REFUSAL,
@@ -61,10 +65,14 @@ export const PRESERVATION = {
 export const REUSE_REFUSAL = {
   // The checkout carries work that is not committed anywhere.
   localWork: 'local_work',
+  // The checkout carries ignored artifacts that are not known generated output.
+  unknownIgnored: 'unknown_ignored',
   // The fetched origin ref does not contain the checkout's head.
   originStale: 'origin_stale',
   // Another live owner holds the checkout.
   owned: 'owned',
+  // An owner's state could not be established, so the checkout is not free.
+  uncertainOwner: 'uncertain_owner',
   // The checkout's commits exist nowhere else.
   unpublished: 'unpublished',
   // The checkout could not be read, so nothing may be done with it.
@@ -79,6 +87,55 @@ export const REUSE_REFUSAL = {
  * resource to a second run.
  */
 const UNKNOWN_LIVENESS_IS_ALIVE = () => true
+
+/**
+ * The ignored paths that a build regenerates from the checkout's own sources.
+ *
+ * `git status --porcelain` does not list ignored paths at all, so a checkout
+ * that carries an ignored artifact is indistinguishable from one that carries
+ * nothing. That distinction decides whether a checkout may be reused, so it is
+ * made here rather than assumed: a path in this set is a build output, and any
+ * other ignored path is content the checkout holds and nobody else has.
+ */
+const REGENERABLE_IGNORED_DIRECTORIES = new Set([
+  '.hutch',
+  '.wrangler',
+  'coverage',
+  'dist',
+  'dist-desktop',
+  'node_modules',
+  'test-results',
+])
+const REGENERABLE_IGNORED_FILES = new Set(['cloudflare-env.d.ts'])
+
+/**
+ * Whether one ignored path is a known regenerable build output.
+ *
+ * The answer is deliberately narrow. A path that is merely ignored is not
+ * evidence of anything: it may be a build output, and it may equally be the
+ * only copy of an evaluation result or a receipt. An unknown ignored path is
+ * treated as content the checkout holds.
+ */
+export function isRegenerableIgnored(entry) {
+  if (typeof entry !== 'string' || entry === '') return false
+  const trimmed = entry.replace(/\/+$/u, '')
+  if (trimmed === '') return false
+  const segments = trimmed.split('/')
+  const name = segments[segments.length - 1]
+  if (REGENERABLE_IGNORED_FILES.has(name)) return true
+  if (name.endsWith('tsbuildinfo')) return true
+  if (REGENERABLE_IGNORED_DIRECTORIES.has(name)) return true
+  // The pinned source-contract runtime and the synced public assets are both
+  // written by a repository script from tracked sources.
+  if (segments.includes('.runtime') && trimmed.includes('source-contracts')) return true
+  if (segments.includes('assets') && segments.includes('public')) return true
+  return false
+}
+
+/** The ignored paths of a checkout that are not known regenerable output. */
+export function unknownIgnoredPaths(entries = []) {
+  return entries.filter((entry) => !isRegenerableIgnored(entry))
+}
 
 /**
  * Inventories every Docker resource the caller can see, with the ownership
@@ -112,37 +169,50 @@ export function inventoryOwnedResources({
       leases,
       isProcessAlive,
     })
-    const lease =
-      leases.find((candidate) => candidate?.identity?.project === resource.label) ?? null
+    // Every lease that names this resource is read, not the first one: a stale
+    // lease does not speak for a live one that follows it.
+    const matching = leases.filter((candidate) => candidate?.identity?.project === resource.label)
+    const lease = matching[0] ?? null
     const leaseState = lease
       ? classifyLease(lease, { isProcessAlive, expectedIdentity: identity })
       : LEASE_STATE.uncertain
-    const owned = lease !== null && runId !== null && lease.runId === runId
+    // A resource this run's label covers is not reclaimable unless a lease of
+    // this run names it. A removable disposition without that lease is a
+    // fail-closed case, and it is reported as such.
+    const leaseMatched = runId !== null && matching.some((candidate) => candidate.runId === runId)
     let reason = classification.reason
-    if (classification.disposition === RESOURCE_DISPOSITION.removable && !owned) {
+    if (classification.disposition === RESOURCE_DISPOSITION.removable && !leaseMatched) {
       reason =
         runId === null
           ? 'the caller named no run, so no lease proves this run owns the resource'
           : 'the resource carries this run’s label but no lease of this run proves it owns the resource'
     } else if (
       classification.disposition === RESOURCE_DISPOSITION.removable &&
-      owned &&
+      leaseMatched &&
       leaseState !== LEASE_STATE.stale
     ) {
       reason = `the lease of this run is ${leaseState}, so the resource is not provably reclaimable`
     }
+    const reclaimable =
+      classification.disposition === RESOURCE_DISPOSITION.removable &&
+      leaseMatched &&
+      leaseState === LEASE_STATE.stale
     return {
       kind: resource.kind ?? RESOURCE_KIND.container,
       name: resource.name ?? null,
       label: resource.label ?? null,
       leaseRunId: lease?.runId ?? null,
       leaseState,
+      leaseMatched,
       disposition: classification.disposition,
       reason,
-      reclaimable:
-        classification.disposition === RESOURCE_DISPOSITION.removable &&
-        owned &&
-        leaseState === LEASE_STATE.stale,
+      reclaimable,
+      // The ownership evidence travels with the decision, so a reader can
+      // re-check it instead of believing it.
+      leaseEvidence: matching.map((candidate) => ({
+        runId: candidate.runId ?? null,
+        state: classifyLease(candidate, { isProcessAlive, expectedIdentity: identity }),
+      })),
     }
   })
   return {
@@ -162,11 +232,20 @@ export function inventoryOwnedResources({
  * is recorded so the decision can be re-checked rather than believed:
  *
  *   * the checkout carries no local work (nothing is overwritten);
+ *   * the checkout carries no ignored artifact that is not a known build
+ *     output, because `git status --porcelain` does not list ignored paths and
+ *     an ignored receipt is the only copy of itself;
  *   * the fetched origin ref contains the checkout's head (the origin is fresh
  *     for this branch);
  *   * the checkout's commits are published, so nothing is lost if the
  *     checkout is rebuilt;
- *   * no live owner holds it.
+ *   * no owner holds it: not a live one, not an uncertain one, and not a
+ *     foreign one.
+ *
+ * Every lease that names the checkout is read. One stale lease does not speak
+ * for a live lease that follows it, and an owner whose state cannot be
+ * established is an owner, not an absence. Leases that name a shared or an
+ * unknown scope are preserved and reported, and they never authorise anything.
  *
  * A refusal names which condition failed, so the owner is told what to do
  * rather than only that it failed.
@@ -180,10 +259,15 @@ export function planWorktreeReuse({
   const refusals = []
   const evidence = {
     localWork: null,
+    ignoredUnknown: [],
     originFresh: null,
     headInOrigin: null,
     published: null,
     ownerLive: null,
+    ownerUncertain: null,
+    ownerForeign: null,
+    matchingLeases: [],
+    preservedScopes: [],
   }
   if (!worktree || typeof worktree.path !== 'string' || worktree.path === '') {
     return {
@@ -198,20 +282,48 @@ export function planWorktreeReuse({
   if (evidence.localWork) {
     refusals.push(REUSE_REFUSAL.localWork)
   }
-  evidence.originFresh = Boolean(origin?.fresh)
+  // The ignored paths are read from the checkout's own record, and anything
+  // that is not a known build output is content the checkout holds.
+  evidence.ignoredUnknown = Array.isArray(worktree.ignoredUnknown)
+    ? [...worktree.ignoredUnknown]
+    : []
+  if (evidence.ignoredUnknown.length > 0) {
+    refusals.push(REUSE_REFUSAL.unknownIgnored)
+  }
+  // The origin facts travel with the checkout, so a caller that has already
+  // verified them does not have to repeat them, and a caller that has not
+  // gets the pessimistic answer.
+  const originFacts = origin ?? worktree.origin ?? null
+  evidence.originFresh = Boolean(originFacts?.fresh)
   if (!evidence.originFresh) {
     refusals.push(REUSE_REFUSAL.originStale)
   } else {
-    evidence.headInOrigin = Boolean(origin?.containsHead)
+    evidence.headInOrigin = Boolean(originFacts?.containsHead)
     if (!evidence.headInOrigin) refusals.push(REUSE_REFUSAL.originStale)
   }
   evidence.published = Boolean(worktree.published)
   if (!evidence.published) refusals.push(REUSE_REFUSAL.unpublished)
-  const owner = leases.find((lease) => lease?.identity?.worktree === worktree.path) ?? null
-  evidence.ownerLive = owner
-    ? classifyLease(owner, { isProcessAlive }) === LEASE_STATE.active
-    : false
+
+  // Every lease that names this checkout is read, and every lease that names
+  // something else is preserved rather than discarded.
+  const matching = leases.filter((lease) => lease?.identity?.worktree === worktree.path)
+  const preserved = leases.filter((lease) => lease?.identity?.worktree !== worktree.path)
+  evidence.matchingLeases = matching.map((lease) => ({
+    runId: lease?.runId ?? null,
+    state: classifyLease(lease, { isProcessAlive }),
+  }))
+  evidence.preservedScopes = preserved.map((lease) => ({
+    runId: lease?.runId ?? null,
+    scope: lease?.identity?.worktree ?? null,
+    state: classifyLease(lease, { isProcessAlive }),
+  }))
+  const states = evidence.matchingLeases.map((lease) => lease.state)
+  evidence.ownerLive = states.includes(LEASE_STATE.active)
+  evidence.ownerUncertain = states.includes(LEASE_STATE.uncertain)
+  evidence.ownerForeign = states.includes(LEASE_STATE.foreign)
   if (evidence.ownerLive) refusals.push(REUSE_REFUSAL.owned)
+  if (evidence.ownerUncertain) refusals.push(REUSE_REFUSAL.uncertainOwner)
+  if (evidence.ownerForeign) refusals.push(REUSE_REFUSAL.owned)
 
   if (refusals.length > 0) {
     return {
@@ -226,8 +338,7 @@ export function planWorktreeReuse({
     path: worktree.path,
     decision: REUSE_DECISION.reuse,
     reasons: [],
-    reason:
-      'the checkout is clean, its head is in the fetched origin ref and no live owner holds it',
+    reason: 'the checkout is clean, its head is in the fetched origin ref and no owner holds it',
     evidence,
   }
 }
@@ -238,10 +349,14 @@ export function describeRefusals(refusals) {
   for (const refusal of refusals) {
     if (refusal === REUSE_REFUSAL.localWork) {
       parts.push('the checkout carries local work that is not committed anywhere')
+    } else if (refusal === REUSE_REFUSAL.unknownIgnored) {
+      parts.push('the checkout carries ignored artifacts that are not known build output')
     } else if (refusal === REUSE_REFUSAL.originStale) {
       parts.push('the fetched origin ref does not contain the checkout head')
     } else if (refusal === REUSE_REFUSAL.owned) {
-      parts.push('a live owner holds the checkout')
+      parts.push('another owner holds the checkout')
+    } else if (refusal === REUSE_REFUSAL.uncertainOwner) {
+      parts.push('an owner of the checkout could not be established')
     } else if (refusal === REUSE_REFUSAL.unpublished) {
       parts.push('the checkout commits are published nowhere else')
     } else {
@@ -255,9 +370,15 @@ export function describeRefusals(refusals) {
  * The dry-run eligibility report.
  *
  * Every item carries its decision, its reason and the evidence the decision
- * rests on, so the report is a permission, not a summary. Nothing in the
- * report is an instruction to delete: a caller that holds the applicable
- * permission acts on the eligible items, and every other item is preserved.
+ * rests on, so the report can be re-checked rather than believed. The report
+ * is evidence of what the tooling found; it grants nothing, and every other
+ * item is preserved.
+ *
+ * A resource is eligible only when the inventory proved it reclaimable: the
+ * lane's own disposition says this run created it, a lease of this run names
+ * it, and that lease's owner is gone. A removable disposition without a
+ * matching lease is a fail-closed case, and it is reported as ineligible with
+ * the reason that decided it.
  */
 export function eligibilityReport({
   resources = [],
@@ -265,21 +386,33 @@ export function eligibilityReport({
   disk = null,
   now = null,
 } = {}) {
-  const resourceItems = resources.map((resource) => ({
-    kind: resource.kind,
-    name: resource.name,
-    eligibility:
-      resource.disposition === RESOURCE_DISPOSITION.removable
-        ? ELIGIBILITY.eligible
-        : ELIGIBILITY.ineligible,
-    disposition: resource.disposition,
-    reason: resource.reason,
-    evidence: {
-      label: resource.label ?? null,
-      leaseRunId: resource.leaseRunId ?? null,
-      leaseState: resource.leaseState ?? null,
-    },
-  }))
+  const resourceItems = resources.map((resource) => {
+    const leaseMatched = resource.leaseMatched === true
+    const removable = resource.disposition === RESOURCE_DISPOSITION.removable
+    // The inventory's own answer travels end to end. A resource the inventory
+    // did not prove reclaimable is never eligible, whatever its disposition
+    // says on its own.
+    const eligible = removable && leaseMatched && resource.reclaimable === true
+    let reason = resource.reason
+    if (removable && !leaseMatched) {
+      reason = 'no lease of this run names the resource, so it is not provably reclaimable'
+    }
+    return {
+      kind: resource.kind,
+      name: resource.name,
+      eligibility: eligible ? ELIGIBILITY.eligible : ELIGIBILITY.ineligible,
+      disposition: resource.disposition,
+      reason,
+      reclaimable: resource.reclaimable === true,
+      evidence: {
+        label: resource.label ?? null,
+        leaseRunId: resource.leaseRunId ?? null,
+        leaseState: resource.leaseState ?? null,
+        leaseMatched,
+        leaseEvidence: resource.leaseEvidence ?? [],
+      },
+    }
+  })
   const worktreeItems = worktrees.map((worktree) => {
     const plan = worktree.plan ?? planWorktreeReuse({ worktree })
     return {
@@ -312,19 +445,47 @@ export function eligibilityReport({
 }
 
 /**
- * Proves that nothing protected was scheduled for reclamation.
+ * Proves that nothing protected was scheduled for reclamation, and that
+ * nothing eligible contradicts its own evidence.
  *
- * An active, shared, foreign or unknown resource, and any checkout with
- * unique work, must survive. A violation is a reportable failure of the
- * model, not a warning.
+ * Every item is examined, eligible ones included: an item that was marked
+ * eligible while its own evidence says otherwise is a failure of the model, not
+ * a summary detail, and a report that hides it is not a proof of anything.
  */
 export function preservationProof({ resources = [], worktrees = [] } = {}) {
   const violations = []
   const preserved = []
   for (const resource of resources) {
-    if (resource.eligibility === ELIGIBILITY.eligible) continue
-    preserved.push({ kind: resource.kind, name: resource.name, reason: resource.reason })
-    if (resource.disposition === RESOURCE_DISPOSITION.removable) {
+    const eligible = resource.eligibility === ELIGIBILITY.eligible
+    if (!eligible) {
+      preserved.push({ kind: resource.kind, name: resource.name, reason: resource.reason })
+    }
+    if (eligible) {
+      // An eligible resource must agree with its own evidence.
+      if (resource.disposition !== RESOURCE_DISPOSITION.removable) {
+        violations.push({
+          kind: resource.kind,
+          name: resource.name,
+          reason: 'a resource marked eligible is not removable',
+        })
+      }
+      if (resource.reclaimable !== true) {
+        violations.push({
+          kind: resource.kind,
+          name: resource.name,
+          reason: 'a resource marked eligible was not proven reclaimable by its lease',
+        })
+      }
+      if (resource.evidence?.leaseMatched !== true) {
+        violations.push({
+          kind: resource.kind,
+          name: resource.name,
+          reason: 'a resource marked eligible has no matching lease',
+        })
+      }
+      continue
+    }
+    if (resource.disposition === RESOURCE_DISPOSITION.removable && resource.reclaimable === true) {
       violations.push({
         kind: resource.kind,
         name: resource.name,
@@ -333,8 +494,31 @@ export function preservationProof({ resources = [], worktrees = [] } = {}) {
     }
   }
   for (const worktree of worktrees) {
-    if (worktree.eligibility === ELIGIBILITY.eligible) continue
-    preserved.push({ path: worktree.path, reason: worktree.reason })
+    const eligible = worktree.eligibility === ELIGIBILITY.eligible
+    if (!eligible) {
+      preserved.push({ path: worktree.path, reason: worktree.reason })
+    }
+    if (eligible) {
+      if (worktree.decision !== REUSE_DECISION.reuse) {
+        violations.push({
+          path: worktree.path,
+          reason: 'a checkout marked eligible does not carry a reuse decision',
+        })
+      }
+      if (worktree.evidence?.originFresh !== true) {
+        violations.push({
+          path: worktree.path,
+          reason: 'a checkout marked eligible does not carry a verified origin',
+        })
+      }
+      if (worktree.evidence?.ownerLive !== false) {
+        violations.push({
+          path: worktree.path,
+          reason: 'a checkout marked eligible still carries an owner',
+        })
+      }
+      continue
+    }
     if (worktree.decision === REUSE_DECISION.reuse) {
       violations.push({
         path: worktree.path,
