@@ -26,6 +26,7 @@ import { join, resolve } from 'node:path'
 import {
   chatAttachmentLimits,
   decodeChatAttachment,
+  decodeChatAttachmentReference,
   decodeChatAttachmentUpload,
   type ChatAttachment,
   type ChatAttachmentOpenResult,
@@ -97,6 +98,28 @@ export function createChatAttachmentStore(input: {
     input.scope.runtimeNodeId,
   ])
   const scopeHash = createHash('sha256').update(scopeText).digest('hex')
+  /**
+   * Verified row metadata, memoised for the lifetime of this store.
+   *
+   * The quota is computed from sealed-record values, so a retained record only
+   * counts once its row has been authenticated against its sealed record.
+   * Authenticating every record on every upload is quadratic in the record
+   * count, which made the record-count and live-byte quota checks time out.
+   *
+   * The memo keeps the verified metadata of a record whose row is unchanged, so
+   * an unchanged record is not decrypted again. The key covers the record's
+   * current payload as well as the columns the authentication compares, so a
+   * row whose payload changed is authenticated again and a row that no longer
+   * agrees with its sealed record is still refused. The quota never reads a
+   * value from an unauthenticated row: it reads the metadata the
+   * authentication produced.
+   *
+   * The memo is bound to the scope secret. A different secret (a rotated
+   * device key) empties it, so a verdict reached under another secret is never
+   * reused.
+   */
+  const verifiedRows = new Map<string, { key: string; attachment: ChatAttachment }>()
+  let verifiedSecret: Buffer | undefined
   const requestedRoot = resolve(input.dataDir)
   let root = requestedRoot
   try {
@@ -250,6 +273,10 @@ export function createChatAttachmentStore(input: {
       hkdfSync('sha256', deviceKey, 'adea-chat-attachment:v1', scopeText, 32)
     )
     deviceKey.fill(0)
+    if (verifiedSecret === undefined || Buffer.compare(verifiedSecret, secret) !== 0) {
+      verifiedSecret = Buffer.from(secret)
+      verifiedRows.clear()
+    }
     let db: Database | undefined
     let failed = false
     let failure: unknown
@@ -416,6 +443,146 @@ export function createChatAttachmentStore(input: {
         throw new AttachmentError('corrupt_state')
     return rows
   }
+  /**
+   * The cache key of one record.
+   *
+   * The key must cover the bytes the verdict was reached from, not only the
+   * plaintext columns: an edit to the sealed payload that leaves the columns
+   * alone would otherwise keep a verdict that was reached from different
+   * bytes. The digest is computed from the payload now in the row, inside the
+   * operation's transaction, so it is a statement about the current bytes and
+   * not a stored claim about them. Hashing the payload is enough: a changed
+   * payload changes the digest, so the record is authenticated again, and it
+   * is the authentication, not the digest, that refuses a corrupt record.
+   *
+   * Every field enters the key length-framed, and the payload is framed by
+   * its own byte length. A separator alone is not a frame: a field that ends
+   * in the separator byte followed by a payload that starts with it hashes to
+   * the same input as the untouched field and the untouched payload, so one
+   * record's key could be reproduced by another record's columns. Framing
+   * every field by its length makes the encoding unambiguous in both
+   * directions: no field can be read as the start of the next one, and no
+   * payload byte can be read as a field.
+   */
+  function rowCacheKey(row: Row): string {
+    const digest = createHash('sha256')
+    const frame = (label: string, value: string): void => {
+      digest.update(`${label}\0${Buffer.byteLength(value, 'utf8')}\0${value}\0`)
+    }
+    frame('id', row.id)
+    frame('binding', row.binding)
+    frame('state', row.state)
+    frame('byte_length', String(row.byte_length))
+    frame('upload_key', row.upload_key)
+    frame('fingerprint', row.fingerprint)
+    digest.update(`sealed\0${row.sealed.byteLength}\0`)
+    digest.update(row.sealed)
+    return digest.digest('hex')
+  }
+
+  function attachmentUsage(
+    db: Database,
+    secret: Buffer,
+    options: { readonly authenticateAll?: boolean } = {}
+  ): Readonly<{ recordCount: number; liveBytes: number }> {
+    // The whole row is read, payload included: the cache key is a digest of
+    // the payload now in the row, so a payload that changed is authenticated
+    // again instead of keeping an earlier verdict.
+    const rows = db.query<Row, []>('SELECT * FROM attachments').all()
+    const records = new Map<string, { row: Row; attachment: ChatAttachment }>()
+    let liveBytes = 0
+    for (const row of rows) {
+      const cacheKey = rowCacheKey(row)
+      const verified = options.authenticateAll ? undefined : verifiedRows.get(row.id)
+      let attachment: ChatAttachment
+      if (verified !== undefined && verified.key === cacheKey) {
+        attachment = verified.attachment
+      } else {
+        attachment = record(row, secret).attachment
+        verifiedRows.set(row.id, { key: cacheKey, attachment })
+      }
+      if (attachment.state === 'available') liveBytes += attachment.byteLength
+      records.set(attachment.attachmentId, { row, attachment })
+    }
+
+    const outbox = authenticatedOutbox(db, secret)
+    if (outbox.length > chatAttachmentLimits.maxRecordsPerScope * 2)
+      throw new AttachmentError('corrupt_state')
+    const events = new Map<
+      string,
+      {
+        added?: { event: Pending; reference: ChatAttachmentReference }
+        removed?: { event: Pending; reference: ChatAttachmentReference }
+      }
+    >()
+    for (const event of outbox) {
+      const match = /^host:attachment:([0-9a-f-]{36}):(available|removed)$/.exec(event.id)
+      if (!match || !uuidPattern.test(match[1]!)) throw new AttachmentError('corrupt_state')
+      const attachmentId = match[1]!
+      const state = match[2]!
+      if (
+        event.kind !== (state === 'available' ? 'attachment.added' : 'attachment.removed') ||
+        !Number.isSafeInteger(event.generation) ||
+        event.generation < 0
+      )
+        throw new AttachmentError('corrupt_state')
+      let identity: unknown
+      let reference: ChatAttachmentReference
+      try {
+        identity = JSON.parse(event.binding)
+        const payload: unknown = JSON.parse(event.payload)
+        if (!payload || typeof payload !== 'object' || !('attachment' in payload))
+          throw new Error('invalid event payload')
+        reference = decodeChatAttachmentReference(
+          (payload as { attachment: unknown }).attachment,
+          'attachmentOutbox.payload.attachment'
+        )
+      } catch {
+        throw new AttachmentError('corrupt_state')
+      }
+      if (
+        !Array.isArray(identity) ||
+        identity.length !== 2 ||
+        identity[0] !== event.session_id ||
+        identity[1] !== event.generation ||
+        JSON.stringify(identity) !== event.binding ||
+        reference.attachmentId !== attachmentId ||
+        reference.state !== state
+      )
+        throw new AttachmentError('corrupt_state')
+      const entry = events.get(attachmentId) ?? {}
+      if (state === 'available') {
+        if (entry.added) throw new AttachmentError('corrupt_state')
+        entry.added = { event, reference }
+      } else {
+        if (entry.removed) throw new AttachmentError('corrupt_state')
+        entry.removed = { event, reference }
+      }
+      events.set(attachmentId, entry)
+    }
+
+    if (events.size !== records.size) throw new AttachmentError('corrupt_state')
+    for (const [attachmentId, { row, attachment }] of records) {
+      const entry = events.get(attachmentId)
+      const added = entry?.added
+      if (
+        !added ||
+        added.event.binding !== row.binding ||
+        added.reference.mediaType !== attachment.mediaType ||
+        added.reference.byteLength !== attachment.byteLength ||
+        (attachment.state === 'available' && entry.removed) ||
+        (attachment.state === 'removed' &&
+          (!entry.removed ||
+            entry.removed.event.binding !== row.binding ||
+            entry.removed.event.occurred_at !== attachment.removedAt ||
+            entry.removed.reference.mediaType !== attachment.mediaType ||
+            entry.removed.reference.byteLength !== attachment.byteLength)) ||
+        added.event.occurred_at !== attachment.createdAt
+      )
+        throw new AttachmentError('corrupt_state')
+    }
+    return { recordCount: rows.length, liveBytes }
+  }
   function flush(db: Database, binding: AttachmentBinding, secret: Buffer): void {
     const pending = authenticatedOutbox(db, secret).filter(
       (event) => event.binding === bind(binding)
@@ -519,14 +686,10 @@ export function createChatAttachmentStore(input: {
           if (previous.state !== 'available') throw new AttachmentError('invalid_state')
           return previous
         }
-        const quota = db
-          .query<{ count: number; bytes: number }, []>(
-            "SELECT COUNT(*) AS count, COALESCE(SUM(CASE WHEN state='available' THEN byte_length ELSE 0 END),0) AS bytes FROM attachments"
-          )
-          .get()!
+        const quota = attachmentUsage(db, secret)
         if (
-          quota.count >= chatAttachmentLimits.maxRecordsPerScope ||
-          quota.bytes + bytes.length > chatAttachmentLimits.maxLiveBytesPerScope
+          quota.recordCount >= chatAttachmentLimits.maxRecordsPerScope ||
+          quota.liveBytes + bytes.length > chatAttachmentLimits.maxLiveBytesPerScope
         )
           throw new AttachmentError('limit_exceeded')
         const next: ChatAttachment = {
@@ -697,11 +860,14 @@ export function createChatAttachmentStore(input: {
     }
     return database(false, (db, secret) =>
       transaction(db, undefined, () => {
-        const rows = db.query<Row, []>('SELECT * FROM attachments').all()
-        rows.forEach((row) => record(row, secret))
-        authenticatedOutbox(db, secret)
-        if (!validateOnly) db.exec('DELETE FROM attachment_outbox; DELETE FROM attachments;')
-        return rows.length
+        // A purge is rare and it decides what is destroyed, so every current
+        // row is authenticated here rather than read from the memo.
+        const usage = attachmentUsage(db, secret, { authenticateAll: true })
+        if (!validateOnly) {
+          db.exec('DELETE FROM attachment_outbox; DELETE FROM attachments;')
+          verifiedRows.clear()
+        }
+        return usage.recordCount
       })
     )
   }
