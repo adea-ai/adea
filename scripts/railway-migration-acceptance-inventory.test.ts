@@ -6,7 +6,7 @@ import {
   FORBIDDEN_MIGRATION_MARKERS,
   GATED_ACCEPTANCE,
   RELATED_PULL_REQUESTS,
-  freshnessQualificationPresent,
+  FRESHNESS_QUALIFICATION,
   inventoryNeonProviderDependencies,
   railwayMigrationAcceptanceInventory,
   scanForbiddenMigrationMarkers,
@@ -25,8 +25,16 @@ describe('the Railway migration acceptance inventory', () => {
     expect(FORBIDDEN_MIGRATION_MARKERS.length).toBeGreaterThan(0)
   })
 
-  test('the freshness qualification this parent depends on is present', () => {
-    expect(freshnessQualificationPresent()).toBe(true)
+  test('the freshness qualification this parent depends on is recorded, not re-verified', () => {
+    // The stale-cache proof belongs to the #1562 scope's own suite. This
+    // inventory records that dependency instead of re-implementing it, so it
+    // asserts the declaration and never the child's acceptance.
+    expect(FRESHNESS_QUALIFICATION.scope).toBe('#1562')
+    expect(FRESHNESS_QUALIFICATION.branch).toBe(
+      'recovery/issue-1562-cloudflare-cpu-hyperdrive-qualification'
+    )
+    expect(FRESHNESS_QUALIFICATION.path).toBe('scripts/cloudflare-cpu-hyperdrive-qualification.ts')
+    expect(FRESHNESS_QUALIFICATION.rule).toBe('authority-reads-not-cache-disabled')
   })
 
   test('the child scopes and the related pull requests are recorded', () => {
@@ -48,7 +56,7 @@ describe('the Railway migration acceptance inventory', () => {
     // the count moves with the other lanes' source work.
     expect(Array.isArray(record.neonProviderDependencies)).toBe(true)
     expect(record.forbiddenMigrationMarkers).toEqual([])
-    expect(record.freshnessQualificationPresent).toBe(true)
+    expect(record.freshnessQualification).toEqual(FRESHNESS_QUALIFICATION)
     expect(record.childScopes.length).toBe(3)
     expect(record.relatedPullRequests.length).toBe(2)
     expect(record.gatedAcceptance.length).toBeGreaterThanOrEqual(4)

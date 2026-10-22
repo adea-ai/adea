@@ -12,7 +12,7 @@
  * production read, no deployment, no cutover, no migration, no Neon deletion
  * and no permission change.
  */
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
 export const REPOSITORY_ROOT = join(import.meta.dirname, '..')
@@ -122,26 +122,26 @@ export function scanForbiddenMigrationMarkers(): string[] {
   return hits.toSorted()
 }
 
-/** The freshness qualification this parent depends on, by its exact path. */
-export const FRESHNESS_QUALIFICATION = 'scripts/cloudflare-cpu-hyperdrive-qualification.ts'
-
-/** Whether the freshness qualification this parent depends on is present. */
-export function freshnessQualificationPresent(): boolean {
-  try {
-    statSync(join(REPOSITORY_ROOT, FRESHNESS_QUALIFICATION))
-    return readFileSync(join(REPOSITORY_ROOT, FRESHNESS_QUALIFICATION), 'utf8').includes(
-      'authority-reads-not-cache-disabled'
-    )
-  } catch {
-    return false
-  }
-}
+/**
+ * The freshness qualification this parent depends on.
+ *
+ * It belongs to the #1562 scope branch, so this parent records the dependency
+ * instead of re-implementing or re-verifying it: the stale-cache proof is
+ * that scope own suite, and duplicating it here would overlap the parent and
+ * the child implementation ownership.
+ */
+export const FRESHNESS_QUALIFICATION = {
+  scope: '#1562',
+  branch: 'recovery/issue-1562-cloudflare-cpu-hyperdrive-qualification',
+  path: 'scripts/cloudflare-cpu-hyperdrive-qualification.ts',
+  rule: 'authority-reads-not-cache-disabled',
+} as const
 
 /** The inventory record, assembled from the repository's own sources. */
 export function railwayMigrationAcceptanceInventory(): {
   neonProviderDependencies: string[]
   forbiddenMigrationMarkers: string[]
-  freshnessQualificationPresent: boolean
+  freshnessQualification: typeof FRESHNESS_QUALIFICATION
   childScopes: typeof CHILD_SCOPES
   relatedPullRequests: typeof RELATED_PULL_REQUESTS
   gatedAcceptance: typeof GATED_ACCEPTANCE
@@ -149,7 +149,7 @@ export function railwayMigrationAcceptanceInventory(): {
   return {
     neonProviderDependencies: inventoryNeonProviderDependencies(),
     forbiddenMigrationMarkers: scanForbiddenMigrationMarkers(),
-    freshnessQualificationPresent: freshnessQualificationPresent(),
+    freshnessQualification: FRESHNESS_QUALIFICATION,
     childScopes: CHILD_SCOPES,
     relatedPullRequests: RELATED_PULL_REQUESTS,
     gatedAcceptance: GATED_ACCEPTANCE,
