@@ -43,9 +43,8 @@ Configure the proxy with:
   There is no static-token fallback: without the signing key every proxy
   request fails closed with `CONTROL_PLANE_UNAVAILABLE`.
 
-The example configuration points to the online production catalog API. Railway staging
-is an on-demand reference environment and normally has no running services. For local
-Docker testing, override `CONTROL_PLANE_ORIGIN` with your mapped Control Plane origin
+The example configuration points to the online production catalog API on Railway.
+Use disposable sandboxes for testing. For local Docker testing, override `CONTROL_PLANE_ORIGIN` with your mapped Control Plane origin
 and use a development signing key that the local instance trusts. Keep these
 values server-only; production HTTPS remains required.
 
