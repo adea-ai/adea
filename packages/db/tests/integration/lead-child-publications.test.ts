@@ -24,6 +24,8 @@ import {
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 
 const databaseUrl = process.env.DATABASE_URL
+// DDL belongs to the table owner: the application role has no CREATE on schema app.
+const migrationUrl = process.env.DATABASE_MIGRATION_URL
 const id = (prefix: string, digit: string) => `${prefix}_${digit.repeat(26)}`
 const completed: LeadChildTerminalEvidence = {
   delegationId: id('dlg', '1'),
@@ -37,10 +39,15 @@ const completed: LeadChildTerminalEvidence = {
 
 describe.skipIf(!databaseUrl)('Adea child terminal publication receipt', () => {
   let connection: DatabaseConnection
+  let tableOwner: DatabaseConnection
   beforeAll(() => {
     connection = createDatabase(databaseUrl!)
+    tableOwner = createDatabase(migrationUrl!)
   })
-  afterAll(() => connection.close())
+  afterAll(async () => {
+    await connection.close()
+    await tableOwner?.close()
+  })
 
   async function fixture() {
     const token = crypto
@@ -252,12 +259,12 @@ describe.skipIf(!databaseUrl)('Adea child terminal publication receipt', () => {
     const functionName = `pi_child_receipt_fail_${suffix}`
     const triggerName = `pi_child_receipt_fail_${suffix}`
     if (!/^[0-9a-f-]{36}$/.test(f.pin.intentId)) throw new Error('invalid fixture intent')
-    await connection.db.$client.unsafe(`
+    await tableOwner.db.$client.unsafe(`
       CREATE FUNCTION app.${functionName}() RETURNS trigger LANGUAGE plpgsql AS $$
       BEGIN RAISE EXCEPTION 'PI_CHILD_TEST_RECEIPT_FAILURE'; END $$
     `)
     try {
-      await connection.db.$client.unsafe(`
+      await tableOwner.db.$client.unsafe(`
         CREATE TRIGGER ${triggerName} BEFORE INSERT ON app.lead_child_publications
         FOR EACH ROW WHEN (NEW.intent_id = '${f.pin.intentId}')
         EXECUTE FUNCTION app.${functionName}()
@@ -291,12 +298,12 @@ describe.skipIf(!databaseUrl)('Adea child terminal publication receipt', () => {
           ).filter((event) => event.eventType === 'message.created')
         ).toHaveLength(1)
       } finally {
-        await connection.db.$client.unsafe(
+        await tableOwner.db.$client.unsafe(
           `DROP TRIGGER ${triggerName} ON app.lead_child_publications`
         )
       }
     } finally {
-      await connection.db.$client.unsafe(`DROP FUNCTION app.${functionName}()`)
+      await tableOwner.db.$client.unsafe(`DROP FUNCTION app.${functionName}()`)
     }
     const recovered = await f.publish()
     expect(recovered).toBe(await f.publish())
