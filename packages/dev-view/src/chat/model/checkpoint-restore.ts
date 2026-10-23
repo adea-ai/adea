@@ -85,6 +85,8 @@ export function createCheckpointRestorePort(
 export type CheckpointRestoreResult = Readonly<
   | { status: 'resolved'; restoredGeneration: number; restoredAt: string }
   | { status: 'failed'; code?: DevError['code']; message: string }
+  // The conversation closed before the answer came back. Nothing here may act on it.
+  | { status: 'closed' }
 >
 
 export type CheckpointRestorer = Readonly<{
@@ -154,6 +156,7 @@ export function createCheckpointRestorer(input: {
           idempotencyKey: key,
         })
         pendingKey = undefined
+        if (disposed) return { status: 'closed' }
         if (outcome.status === 'resolved')
           return {
             status: 'resolved',
@@ -173,6 +176,7 @@ export function createCheckpointRestorer(input: {
               ? (error as { code: DevError['code'] }).code
               : undefined
         if (code && DEFINITE_FAILURES.includes(code)) pendingKey = undefined
+        if (disposed) return { status: 'closed' }
         return {
           status: 'failed',
           ...(code ? { code } : {}),
@@ -185,5 +189,49 @@ export function createCheckpointRestorer(input: {
     dispose() {
       disposed = true
     },
+  }
+}
+
+export type CheckpointRestored = Readonly<{
+  runtimeSessionId: string
+  /** The generation the restore was asked from. */
+  previousGeneration: number
+  restoredGeneration: number
+}>
+
+/**
+ * Turns one restore into the one thing the surface may do with its answer: tell the owner, and
+ * only while this conversation is still the one that asked.
+ *
+ * - An answer that settles after the conversation closed, switched or moved to another
+ *   generation is dropped: no success, no error, no callback.
+ * - A resolved answer that does not name a later generation is an error, not a restore.
+ * - The callback names the session and generation it answers for, so an owner can check it too.
+ */
+export function bindCheckpointRestore(input: {
+  restorer: CheckpointRestorer
+  identity: CheckpointRestoreIdentity
+  /** The conversation the surface shows now. */
+  current: () => CheckpointRestoreIdentity
+  onRestored?: (restored: CheckpointRestored) => void
+}) {
+  const { identity } = input
+  return async (checkpointEventId: string): Promise<void> => {
+    const result = await input.restorer.restore(checkpointEventId)
+    if (result.status === 'closed') return
+    const now = input.current()
+    if (
+      now.runtimeSessionId !== identity.runtimeSessionId ||
+      now.generation !== identity.generation
+    )
+      return
+    if (result.status === 'failed') throw new Error(result.message)
+    if (!(result.restoredGeneration > identity.generation))
+      throw new Error('The host answered with a generation that does not follow this one.')
+    input.onRestored?.({
+      runtimeSessionId: identity.runtimeSessionId,
+      previousGeneration: identity.generation,
+      restoredGeneration: result.restoredGeneration,
+    })
   }
 }

@@ -5,8 +5,10 @@ import {
   createTranscriptAccumulator,
   latestQueueVersion,
   transcriptWindow,
+  bindCheckpointRestore,
   createCheckpointRestorer,
   type CheckpointRestorePort,
+  type CheckpointRestored,
   type FollowUpQueuePort,
 } from './model'
 import {
@@ -99,7 +101,7 @@ export type ChatViewProps = Readonly<{
    * The host restored the conversation: it continues as `restoredGeneration`. The surface does
    * not move itself; the parent loads the session the host now publishes.
    */
-  onCheckpointRestored?: (restored: Readonly<{ restoredGeneration: number }>) => void
+  onCheckpointRestored?: (restored: CheckpointRestored) => void
   authority?: ChatInputAuthority
   connected?: boolean
   awaitingApproval?: boolean
@@ -568,6 +570,17 @@ export function ChatView(props: ChatViewProps): JSX.Element {
             ? createCheckpointRestorer({ port: restorePort, identity: readingIdentity })
             : undefined
           onCleanup(() => restorer?.dispose())
+          const restoreCheckpoint = restorer
+            ? bindCheckpointRestore({
+                restorer,
+                identity: readingIdentity,
+                current: () => ({
+                  runtimeSessionId: props.conversation.runtimeSessionId,
+                  generation: props.conversation.generation,
+                }),
+                onRestored: (restored) => props.onCheckpointRestored?.(restored),
+              })
+            : undefined
           return (
             <ChatTranscript
               events={transcript().events}
@@ -579,14 +592,8 @@ export function ChatView(props: ChatViewProps): JSX.Element {
               onResolveApproval={props.onResolveApproval}
               onResolveQuestion={props.onResolveQuestion}
               onRestoreCheckpoint={
-                restorer
-                  ? async (checkpoint) => {
-                      const result = await restorer.restore(checkpoint.checkpointEventId)
-                      if (result.status === 'failed') throw new Error(result.message)
-                      props.onCheckpointRestored?.({
-                        restoredGeneration: result.restoredGeneration,
-                      })
-                    }
+                restoreCheckpoint
+                  ? (checkpoint) => restoreCheckpoint(checkpoint.checkpointEventId)
                   : undefined
               }
               hasOlder={history().hasOlder}

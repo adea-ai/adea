@@ -4,6 +4,7 @@ import type { DevCommand, DevReply, Scope } from '@adea-ai/types/dev-runtime'
 import type { CheckpointRestoreOutcome } from '@adea-ai/types/dev-runtime'
 import type { DevRuntimeService } from '../src/platform'
 import {
+  bindCheckpointRestore,
   ChatRuntimeError,
   createCheckpointRestorePort,
   createCheckpointRestorer,
@@ -167,5 +168,111 @@ describe('checkpoint restorer', () => {
     expect((await first).status).toBe('resolved')
     restorer.dispose()
     expect((await restorer.restore('event-9')).status).toBe('failed')
+  })
+
+  test('an answer that settles after dispose is closed, never a success or a failure', async () => {
+    let release!: (value: CheckpointRestoreOutcome) => void
+    const port: CheckpointRestorePort = {
+      restore: () => new Promise((resolve) => (release = resolve)),
+    }
+    const restorer = createCheckpointRestorer({ port, identity: IDENTITY })
+    const pending = restorer.restore('event-9')
+    restorer.dispose()
+    release(resolved)
+    expect(await pending).toEqual({ status: 'closed' })
+
+    let fail!: (error: Error) => void
+    const failing: CheckpointRestorePort = {
+      restore: () => new Promise((_resolve, rejectWith) => (fail = rejectWith)),
+    }
+    const other = createCheckpointRestorer({ port: failing, identity: IDENTITY })
+    const late = other.restore('event-9')
+    other.dispose()
+    fail(new Error('boom'))
+    expect(await late).toEqual({ status: 'closed' })
+  })
+})
+
+function deferred() {
+  let release!: (value: CheckpointRestoreOutcome) => void
+  const port: CheckpointRestorePort = {
+    restore: () => new Promise((resolve) => (release = resolve)),
+  }
+  const restorer = createCheckpointRestorer({ port, identity: IDENTITY })
+  const restored: unknown[] = []
+  let shown = IDENTITY
+  const bound = bindCheckpointRestore({
+    restorer,
+    identity: IDENTITY,
+    current: () => shown,
+    onRestored: (value) => restored.push(value),
+  })
+  return {
+    restorer,
+    restored,
+    bound,
+    release: (value: CheckpointRestoreOutcome) => release(value),
+    show: (next: typeof IDENTITY) => (shown = next),
+  }
+}
+
+describe('bound checkpoint restore', () => {
+  test('a resolved answer for the conversation still shown reaches the owner with its identity', async () => {
+    const { bound, release, restored } = deferred()
+    const pending = bound('event-9')
+    release(resolved)
+    await pending
+    expect(restored).toEqual([
+      {
+        runtimeSessionId: IDENTITY.runtimeSessionId,
+        previousGeneration: IDENTITY.generation,
+        restoredGeneration: 5,
+      },
+    ])
+  })
+
+  test('disposed during the await: no callback, no error', async () => {
+    const { bound, release, restorer, restored } = deferred()
+    const pending = bound('event-9')
+    restorer.dispose()
+    release(resolved)
+    await expect(pending).resolves.toBeUndefined()
+    expect(restored).toEqual([])
+  })
+
+  test('switched to another session or generation during the await: no callback, no error', async () => {
+    for (const next of [
+      { runtimeSessionId: 'other-session', generation: IDENTITY.generation },
+      { runtimeSessionId: IDENTITY.runtimeSessionId, generation: IDENTITY.generation + 1 },
+    ]) {
+      const { bound, release, show, restored } = deferred()
+      const pending = bound('event-9')
+      show(next)
+      release(resolved)
+      await expect(pending).resolves.toBeUndefined()
+      expect(restored).toEqual([])
+    }
+  })
+
+  test('a stale failure for a conversation no longer shown is dropped, a current one is raised', async () => {
+    const stale = deferred()
+    const staleRun = stale.bound('event-9')
+    stale.show({ runtimeSessionId: 'other-session', generation: 1 })
+    stale.release(failed)
+    await expect(staleRun).resolves.toBeUndefined()
+
+    const current = deferred()
+    const currentRun = current.bound('event-9')
+    current.release(failed)
+    await expect(currentRun).rejects.toThrow('moved on')
+    expect(current.restored).toEqual([])
+  })
+
+  test('a resolved answer that does not follow this generation is an error, not a restore', async () => {
+    const { bound, release, restored } = deferred()
+    const pending = bound('event-9')
+    release({ ...resolved, restoredGeneration: IDENTITY.generation })
+    await expect(pending).rejects.toThrow('does not follow')
+    expect(restored).toEqual([])
   })
 })
