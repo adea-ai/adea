@@ -64,19 +64,23 @@ function fakeDocker(root: string, body: string) {
 function invokeMain(options: Parameters<typeof main>[0]) {
   const previousExitCode = process.exitCode
   let output = ''
-  let written: { path: string; report: Record<string, any> } | null = null
+  // The callback writes into a holder: a variable assigned only inside a callback is narrowed to
+  // its initial `null` at the return below.
+  const captured: { written: { path: string; report: Record<string, any> } | null } = {
+    written: null,
+  }
   process.exitCode = 0
   try {
     main({
       ...options,
       writeReport: (path, content) => {
-        written = { path, report: JSON.parse(content) }
+        captured.written = { path, report: JSON.parse(content) }
       },
       writeOutput: (text) => {
         output += text
       },
     })
-    return { exitCode: process.exitCode, output, written }
+    return { exitCode: process.exitCode, output, written: captured.written }
   } finally {
     process.exitCode = previousExitCode ?? 0
   }
@@ -239,7 +243,7 @@ describe('resource report command boundaries', () => {
       ].join('\n'),
       stderr: '',
     }))
-    expect([...heads.entries()]).toEqual([['main', 'abc']])
+    expect([...(heads?.entries() ?? [])]).toEqual([['main', 'abc']])
     expect(
       remoteBranchHeads('/repo', () => ({ status: 1, stdout: '', stderr: 'offline' }))
     ).toBeNull()
@@ -373,7 +377,7 @@ describe('resource report command boundaries', () => {
     expect(dockerResult.status).toBe(1)
     expect(dockerReport.inventoryComplete).toBe(false)
     expect(dockerReport.preservation.ok).toBe(false)
-    expect(dockerReport.inventoryErrors.map(({ source }) => source)).toEqual([
+    expect(dockerReport.inventoryErrors.map(({ source }: { source: string }) => source)).toEqual([
       'docker containers',
       'docker volumes',
     ])

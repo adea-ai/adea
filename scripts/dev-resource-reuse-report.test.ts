@@ -366,7 +366,7 @@ describe('the runner reads the checkout it is given', () => {
 
     const { worktrees } = worktreesOf(repo, { refresh: false })
     const digest = worktrees[0]?.ignoredContent?.['dist/']?.digest
-    expect(typeof digest).toBe('string')
+    if (digest === undefined) throw new Error('the checkout reported no digest for dist/')
 
     const rebuilt = worktreesOf(repo, {
       refresh: false,

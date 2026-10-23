@@ -36,7 +36,7 @@ const identity = resourceIdentity({
 })
 
 /** A liveness probe that cannot answer. */
-function failingProbe() {
+function failingProbe(): never {
   throw new Error('the probe could not run')
 }
 
@@ -264,10 +264,11 @@ describe('the dry-run eligibility report', () => {
         {
           kind: RESOURCE_KIND.container,
           name: 'container-a',
-          eligibility: ELIGIBILITY.ineligible,
           disposition: RESOURCE_DISPOSITION.protected,
           reason: 'the resource belongs to another project',
-          evidence: { label: 'other', leaseRunId: null, leaseState: LEASE_STATE.foreign },
+          label: 'other',
+          leaseRunId: null,
+          leaseState: LEASE_STATE.foreign,
         },
       ],
       worktrees: [
@@ -763,7 +764,7 @@ describe('every lease that names a checkout is read', () => {
     published: true,
     origin: { fresh: true, containsHead: true },
   }
-  const named = (runId, pid) => ({
+  const named = (runId: string, pid: number) => ({
     ...lease({ runId, pid }),
     identity: { ...identity, worktree: worktree.path },
   })
