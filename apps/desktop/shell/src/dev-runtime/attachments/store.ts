@@ -107,9 +107,10 @@ export function createChatAttachmentStore(input: {
    * count, which made the record-count and live-byte quota checks time out.
    *
    * The memo keeps the verified metadata of a record whose row is unchanged, so
-   * an unchanged record is not decrypted again. The key covers the record's
-   * current payload as well as the columns the authentication compares, so a
-   * row whose payload changed is authenticated again and a row that no longer
+   * an unchanged record is not decrypted again. The memo keeps the row as it
+   * was authenticated and is matched against the row now in the database by
+   * every column, including the sealed payload byte for byte, so a row whose
+   * payload changed is authenticated again and a row that no longer
    * agrees with its sealed record is still refused. The quota never reads a
    * value from an unauthenticated row: it reads the metadata the
    * authentication produced.
@@ -118,7 +119,7 @@ export function createChatAttachmentStore(input: {
    * device key) empties it, so a verdict reached under another secret is never
    * reused.
    */
-  const verifiedRows = new Map<string, { key: string; attachment: ChatAttachment }>()
+  const verifiedRows = new Map<string, { row: Row; attachment: ChatAttachment }>()
   let verifiedSecret: Buffer | undefined
   const requestedRoot = resolve(input.dataDir)
   let root = requestedRoot
@@ -444,40 +445,32 @@ export function createChatAttachmentStore(input: {
     return rows
   }
   /**
-   * The cache key of one record.
+   * Whether `current` is the row the memo authenticated.
    *
-   * The key must cover the bytes the verdict was reached from, not only the
-   * plaintext columns: an edit to the sealed payload that leaves the columns
-   * alone would otherwise keep a verdict that was reached from different
-   * bytes. The digest is computed from the payload now in the row, inside the
-   * operation's transaction, so it is a statement about the current bytes and
-   * not a stored claim about them. Hashing the payload is enough: a changed
-   * payload changes the digest, so the record is authenticated again, and it
-   * is the authentication, not the digest, that refuses a corrupt record.
-   *
-   * Every field enters the key length-framed, and the payload is framed by
-   * its own byte length. A separator alone is not a frame: a field that ends
-   * in the separator byte followed by a payload that starts with it hashes to
-   * the same input as the untouched field and the untouched payload, so one
-   * record's key could be reproduced by another record's columns. Framing
-   * every field by its length makes the encoding unambiguous in both
-   * directions: no field can be read as the start of the next one, and no
-   * payload byte can be read as a field.
+   * The comparison is exact on every column, and on the sealed payload byte
+   * for byte, so it is a statement about the bytes now in the row and not a
+   * stored claim about them. A row that differs in any column or any payload
+   * byte is authenticated again, and it is the authentication that refuses a
+   * corrupt record. Each column is compared on its own, so no field can be
+   * read as the start of the next one. A byte comparison replaces a digest of
+   * the payload: hashing every retained payload on every upload was quadratic
+   * in the retained bytes and dominated the byte-quota test, while the
+   * comparison is a memory compare and accepts exactly the rows the digest did.
    */
-  function rowCacheKey(row: Row): string {
-    const digest = createHash('sha256')
-    const frame = (label: string, value: string): void => {
-      digest.update(`${label}\0${Buffer.byteLength(value, 'utf8')}\0${value}\0`)
-    }
-    frame('id', row.id)
-    frame('binding', row.binding)
-    frame('state', row.state)
-    frame('byte_length', String(row.byte_length))
-    frame('upload_key', row.upload_key)
-    frame('fingerprint', row.fingerprint)
-    digest.update(`sealed\0${row.sealed.byteLength}\0`)
-    digest.update(row.sealed)
-    return digest.digest('hex')
+  function sameRow(verified: Row, current: Row): boolean {
+    return (
+      verified.id === current.id &&
+      verified.binding === current.binding &&
+      verified.state === current.state &&
+      verified.byte_length === current.byte_length &&
+      verified.upload_key === current.upload_key &&
+      verified.fingerprint === current.fingerprint &&
+      Buffer.from(
+        verified.sealed.buffer,
+        verified.sealed.byteOffset,
+        verified.sealed.byteLength
+      ).equals(current.sealed)
+    )
   }
 
   function attachmentUsage(
@@ -492,14 +485,13 @@ export function createChatAttachmentStore(input: {
     const records = new Map<string, { row: Row; attachment: ChatAttachment }>()
     let liveBytes = 0
     for (const row of rows) {
-      const cacheKey = rowCacheKey(row)
       const verified = options.authenticateAll ? undefined : verifiedRows.get(row.id)
       let attachment: ChatAttachment
-      if (verified !== undefined && verified.key === cacheKey) {
+      if (verified !== undefined && sameRow(verified.row, row)) {
         attachment = verified.attachment
       } else {
         attachment = record(row, secret).attachment
-        verifiedRows.set(row.id, { key: cacheKey, attachment })
+        verifiedRows.set(row.id, { row, attachment })
       }
       if (attachment.state === 'available') liveBytes += attachment.byteLength
       records.set(attachment.attachmentId, { row, attachment })
@@ -591,19 +583,22 @@ export function createChatAttachmentStore(input: {
       input.assertBinding(binding)
       if (!input.events) throw new AttachmentError('capability_unavailable')
       if (event.delivered === 1) continue
-      const retained = input.events
-        .events()
-        .filter(
-          (item) =>
-            item.runtimeSessionId === binding.runtimeSessionId &&
-            item.generation === binding.generation
-        )
-      const existing = retained.some(
-        (item) => item.source === 'host' && item.sourceEventId === event.id
-      )
       // Authenticated prepared rows have never attempted publication, regardless
-      // of the retained floor. Only an attempted row needs retained dedupe proof.
-      if (!existing && event.delivered === 2) throw new AttachmentError('recovery_required')
+      // of the retained floor, so only an attempted row needs retained dedupe
+      // proof. Reading and filtering the event history for a prepared row would
+      // be a scan whose result nothing consults.
+      if (event.delivered === 2) {
+        const existing = input.events
+          .events()
+          .some(
+            (item) =>
+              item.runtimeSessionId === binding.runtimeSessionId &&
+              item.generation === binding.generation &&
+              item.source === 'host' &&
+              item.sourceEventId === event.id
+          )
+        if (!existing) throw new AttachmentError('recovery_required')
+      }
       // Persist an authenticated attempt BEFORE crossing the separate event-log
       // commit boundary. A missing retained fact after an attempt is ambiguous,
       // including when retention has removed every event in this generation.
