@@ -26,8 +26,9 @@ afterEach(() => {
 
 function claimedLease(worktree: string) {
   return {
+    version: 1,
     runId: 'active-run',
-    identity: { worktree },
+    identity: { worktree, label: 'test-project' },
     owner: { pid: 123, hostname: 'test-host' },
     state: 'claimed',
     createdAt: 0,
