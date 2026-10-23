@@ -216,7 +216,7 @@ describe('the runner reads the checkout it is given', () => {
   test('a remote that was rewritten away from the head is not publication', () => {
     const { root, repo } = tempRepo('rewritten-remote')
     const remote = join(root, 'remote.git')
-    git(['init', '--bare', remote], root)
+    git(['-c', 'init.defaultBranch=main', 'init', '--bare', remote], root)
     git(['remote', 'add', 'origin', remote], repo)
     git(['push', 'origin', 'main'], repo)
     git(['push', 'origin', 'feature/case'], repo)
