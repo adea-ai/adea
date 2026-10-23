@@ -47,7 +47,12 @@ import {
 } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { environmentKey, planCache, readVitePlusVersion } from './vp-local-run.mjs'
+import {
+  environmentKey,
+  planCache,
+  readVitePlusVersion,
+  withGitExcludesFile,
+} from './vp-local-run.mjs'
 import { matchesPattern, parseVpOutput } from './vite-plus-proof.mjs'
 
 const repoRoot = resolve(import.meta.dirname, '..')
@@ -227,7 +232,7 @@ function disposableCheckout(
     // as dirty without an exclusion. The exclusion is per run and lives outside the repository.
     const excludeFile = join(base, 'exclude')
     writeFileSync(excludeFile, 'node_modules\n')
-    entry.env = { GIT_EXCLUDE_FILE: excludeFile }
+    entry.env = withGitExcludesFile(process.env, excludeFile)
   } catch (error) {
     // The setup failed, so the cleanup that was registered before it runs now: a failed setup must
     // not leave a checkout or a worktree registration behind.
