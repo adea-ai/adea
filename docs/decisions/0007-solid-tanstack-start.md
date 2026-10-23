@@ -145,11 +145,7 @@ router={router} />, document)`; the root document renders
 
 ## Known, documented React presence
 
-`@neondatabase/auth` (the hosted Neon Auth SDK) ships a React UI kit
-(`@neondatabase/auth-ui`) as a transitive dependency. No workspace code imports
 it: `packages/auth/src/client.ts` uses the framework-neutral
-`BetterAuthVanillaAdapter` from `@neondatabase/auth/vanilla`, and the server
-paths use `@neondatabase/auth/server`. The desktop client build proves the
 separation — `apps/web/start/client-policy.mjs` now rejects React, Radix, Base
 UI, and the React-only libraries from the browser graph, and
 `apps/web/dist-desktop/.checks/client-modules.json` (the build's module

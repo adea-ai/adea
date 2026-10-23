@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "issue": 1224,
-  "inventorySha256": "1853165573ee59047fb2ef0b70285fdc25b3a4cdc782dbc80afdbb51cd645bbc",
+  "inventorySha256": "7f993c373dd671f4d0b85a4920c63e641804d3535e031846b70c92f5d26270fb",
   "revisions": {
     "main": "449568904e99718cf52e63fadad6dac58db7e277",
     "pr-1227": "065590ae673ad44b958cb297e79eb086118549d7",
@@ -1039,7 +1039,7 @@
       "category": "cost",
       "kind": "unavailable",
       "status": "unavailable",
-      "reason": "Requires billing exports from Cloudflare, Neon, Railway and model providers for the rollout window. None are accessible to this repository or session. No cost is estimated or inferred here."
+      "reason": "Requires billing exports from Cloudflare and Railway and model providers for the rollout window. None are accessible to this repository or session. No cost is estimated or inferred here."
     },
     {
       "id": "COST-07",
@@ -2393,5 +2393,10 @@
       "status": "not-claimed",
       "reason": "Unresolved gates above (ACC-06, ACC-07, COST-05, COST-06, OPS-06, OPS-11 to OPS-14) prevent any readiness claim."
     }
-  ]
+  ],
+  "inventoryEditorialUpdate": {
+    "date": "2026-10-22",
+    "previousInventorySha256": "1853165573ee59047fb2ef0b70285fdc25b3a4cdc782dbc80afdbb51cd645bbc",
+    "scope": "Only the unavailable billing-provider wording changed; measured revisions, criteria, methods and outcomes are unchanged. No measurement was rerun or promoted."
+  }
 }

@@ -1,14 +1,14 @@
 import 'server-only'
 
 import type { AuthMessageTransport } from '@adea-ai/auth/server'
+import { createCloudflareAuthTransport } from './auth-email'
+import { workerBindings } from './worker-bindings'
 
-/**
- * The verification and password-reset transport for the auth route. This
- * repository configures none: no mail provider, credential, or production
- * transport is wired here, so every message is refused and the flow fails
- * closed. A deployment that adds a transport supplies it in this one place.
- *
- * The fixture build replaces this module at build time only (see
- * `vite.config.ts`), so the production output never contains a recorder.
- */
-export const authMessageTransport: AuthMessageTransport | undefined = undefined
+/** Production sends through its Worker binding; unavailable sending fails closed. */
+export const authMessageTransport: AuthMessageTransport = {
+  async send(kind, message) {
+    const email = workerBindings()?.AUTH_EMAIL
+    if (!email) throw new Error('Authentication email binding is unavailable')
+    await createCloudflareAuthTransport(email).send(kind, message)
+  },
+}

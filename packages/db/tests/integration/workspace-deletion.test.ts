@@ -401,7 +401,7 @@ describe.skipIf(!process.env.DATABASE_URL)('permanent workspace deletion', () =>
 
   for (const claimPath of ['identity', 'principal'] as const) {
     test(`guest deletion receipts survive an existing account claim via ${claimPath}`, async () => {
-      const identity = { provider: 'neon', subject: crypto.randomUUID() }
+      const identity = { provider: 'better-auth', subject: crypto.randomUUID() }
       const registered = await createUserWithAuthIdentity(connection.db, { identity })
       const credentialDigest = crypto.randomUUID()
       const temporary = await createTemporaryUserSession(connection.db, {

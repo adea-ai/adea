@@ -71,7 +71,7 @@ describe('the database proof lane proves only a disposable local instance', () =
     expect(run.run).toContain('scripts/disposable-postgres-cli.ts')
     const bun = stepNamed(proof, 'Install Bun')
     expect(bun.uses).toBe('oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6')
-    expect(bun.with?.['bun-version']).toBe('1.4.3')
+    expect(bun.with?.['bun-version']).toBe('1.4.4')
     expect(stepNamed(proof, 'Install dependencies').run).toBe('bun install --frozen-lockfile')
   })
 
@@ -96,20 +96,20 @@ describe('the database proof lane proves only a disposable local instance', () =
     const proof = jobs.disposable_postgres_proof!
     const body = JSON.stringify(proof)
     expect(body).not.toContain('secrets.')
-    expect(body).not.toContain('console.neon.tech')
-    expect(body).not.toContain('NEON_')
+    expect(body).not.toContain('console.legacy-db.example.invalid')
+    expect(body).not.toContain('LEGACY_')
   })
 
   test('the whole lane names no database vendor secret, variable or endpoint', () => {
     expect(workflowText).not.toContain('secrets.')
     expect(workflowText).not.toContain('vars.')
-    expect(workflowText).not.toContain('console.neon.tech')
-    expect(workflowText).not.toContain('neondatabase/')
-    expect(workflowText).not.toContain('NEON_')
-    expect(workflowText).not.toContain('neon')
+    expect(workflowText).not.toContain('console.legacy-db.example.invalid')
+    expect(workflowText).not.toContain('external-providerdatabase/')
+    expect(workflowText).not.toContain('LEGACY_')
+    expect(workflowText).not.toContain('better-auth')
     // The whole workflow names no provider at all, in any case: the lane has
     // no provider to name.
-    expect(workflowText.toLowerCase()).not.toContain('neon')
+    expect(workflowText.toLowerCase()).not.toContain('better-auth')
   })
 
   test('it has its own fail-closed gate', () => {
@@ -287,9 +287,9 @@ describe('the fresh-account acceptance job wires the acceptance lane into CI', (
     const body = JSON.stringify(job)
     expect(body).not.toContain('secrets.')
     expect(body).not.toContain('vars.')
-    expect(body).not.toContain('console.neon.tech')
-    expect(body).not.toContain('NEON_')
-    expect(body.toLowerCase()).not.toContain('neon')
+    expect(body).not.toContain('console.legacy-db.example.invalid')
+    expect(body).not.toContain('LEGACY_')
+    expect(body.toLowerCase()).not.toContain('better-auth')
   })
 
   test('the gate it calls is the CI gate this lane owns', () => {
@@ -492,7 +492,7 @@ describe('the built-Worker desktop auth job wires the qualification into CI', ()
     // still the clean tree the run happened in.
     expect(run.run).toContain('$RUNNER_TEMP/built-worker-desktop-auth.out')
     const bun = stepNamed(worker, 'Install Bun')
-    expect(bun.with?.['bun-version']).toBe('1.4.3')
+    expect(bun.with?.['bun-version']).toBe('1.4.4')
     const node = stepNamed(worker, 'Install the repository Node runtime')
     expect(node.with?.['node-version']).toBe('24.21.0')
     expect(stepNamed(worker, 'Install dependencies').run).toBe('bun install --frozen-lockfile')

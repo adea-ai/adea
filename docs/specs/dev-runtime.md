@@ -5358,7 +5358,11 @@ facts, never filenames, content, encoded bytes or host paths.
 
 Each scope retains at most 256 records, including removal tombstones, and at
 most 16 MiB of live decoded bytes. Quotas are checked inside the write
-transaction. Removal frees live-byte budget, seals a metadata-only tombstone,
+transaction. Before counting, the host authenticates every retained record and
+checks its sealed state and byte length against the SQLite row; it also
+reconciles attachment identities with the authenticated durable outbox. Edited
+row metadata, a missing row with retained outbox evidence, or mismatched counts
+refuse with `corrupt_state` instead of reducing the quota count. Removal frees live-byte budget, seals a metadata-only tombstone,
 and removes byte access; it does not free the record/idempotency slot. Reusing a
 removed upload key never resurrects content. These are bounded local storage
 limits; there is no automatic retention/GC promise. The existing owner-proven

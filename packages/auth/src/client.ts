@@ -51,14 +51,12 @@ export type BetterAuthBrowserClient = {
 
 /**
  * The client talks to the app's same-origin `/api/auth/*` proxy, which serves
- * the self-hosted Better Auth handler. The factory name is retained for the
- * existing Solid call sites; the implementation no longer uses a hosted Neon
- * Auth client.
+ * the self-hosted Better Auth handler. The implementation uses Better Auth.
  *
  * Pass a client to exercise the credential flows against Better Auth's real
  * response shapes; production callers use the default same-origin client.
  */
-export function createNeonClientAdapter(
+export function createAuthClientAdapter(
   client: BetterAuthBrowserClient = createAuthClient()
 ): AuthAdapter {
   // `signIn.email` / `signUp.email` return the credential payload, never a
@@ -107,6 +105,3 @@ export function createNeonClientAdapter(
     { provider: 'better-auth' }
   )
 }
-
-/** Provider-neutral alias for {@link createNeonClientAdapter}. */
-export const createAuthClientAdapter = createNeonClientAdapter

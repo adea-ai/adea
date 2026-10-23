@@ -14,6 +14,9 @@
  * runs the real build and always proves against the real bundle.
  */
 import { describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 import { runPackagedLane } from './test-dev-runtime-packaged.mjs'
 
@@ -168,6 +171,39 @@ describe('the packaged lane fails closed when the dev bundle is unusable', () =>
 })
 
 describe('the packaged lane still launches its proofs when the bundle is usable', () => {
+  test('the real filesystem selection accepts bundle directories and ignores app-shaped files', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-packaged-selection-'))
+    const channel = join(directory, 'dev-macos-arm64')
+    const bundle = join(channel, 'Adea-dev.app')
+    const spawns: string[][] = []
+    const summaries: Array<{ status: string }> = []
+    try {
+      mkdirSync(bundle, { recursive: true })
+      writeFileSync(join(channel, 'Decoy.app'), 'not a bundle directory')
+      await runPackagedLane({
+        buildRoot: directory,
+        spawn: (_command: string, args: string[]) => {
+          spawns.push(args)
+          return { status: 0, signal: null }
+        },
+        writeSummary: async (_lane: string, summary: { status: string }) => {
+          summaries.push(summary)
+        },
+        exit: (code: number) => {
+          expect(code).toBe(0)
+        },
+      })
+      expect(summaries.at(-1)?.status).toBe('passed')
+      expect(spawns).toHaveLength(6)
+      for (const args of spawns.slice(1)) {
+        expect(args).toContain(bundle)
+        expect(args).not.toContain(join(channel, 'Decoy.app'))
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   test('a usable bundle launches every proof and exits zero', async () => {
     const lane = runLane({
       buildStatus: 0,

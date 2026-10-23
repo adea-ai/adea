@@ -184,7 +184,7 @@ Control Plane compares exactly with the `issuer` claim. Adea's
 `cf deploy` replaces the Worker's whole binding set (see
 [CLOUDFLARE.md](../apps/web/CLOUDFLARE.md)). A `wrangler secret put` value
 would therefore vanish on the next deploy. Store the key in the
-`control-plane-neon` Secrets Store instead:
+account Secrets Store instead:
 
 ```bash
 bunx wrangler secrets-store secret create b3a1b4e8427a4d23ac7925cc18a7a2ac \
@@ -282,4 +282,4 @@ Remaining owner actions, after the change above is deployed:
    (`adea-web-2026-10`) from `CONTROL_PLANE_SERVICE_AUTH_TRUSTED_KEYS`, and
    redeploy `control-api`.
 4. Delete the `AGENT_HQ_CONTROL_PLANE_PRODUCTION_SERVICE_TOKEN` record from
-   the `control-plane-neon` Secrets Store. No binding references it any more.
+   the account Secrets Store. No binding references it any more.

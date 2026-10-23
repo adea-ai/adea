@@ -38,8 +38,6 @@ failure is not browser-suite acceptance. The integrated candidate therefore
 restores 114 KiB raw / 39,200 gzip bytes before publication and preserves the
 other CI and fixture fixes below. Fresh exact-head CI remains required.
 
-## Managed Neon preview integration
-
 Retention candidate `0ef675f96bf53c9f24fcd2ea7b30799cc29e25bf` [run 37700345381](https://github.com/adea-ai/adea/actions/runs/37700345381/job/113062064906)
 verified 40 applied migrations, database role health, and passing application
 integration cases before cancellation. GitHub's annotation states that the job
@@ -73,7 +71,6 @@ isolation, not a change to application resource behavior.
 
 Candidate `5e817ffa611e383032e22710a7cc3cd359bad9a6` passed the
 [hosted bundle check](https://github.com/adea-ai/adea/actions/runs/37705244741)
-and [Neon preview job](https://github.com/adea-ai/adea/actions/runs/37705244770/job/113077976351).
 The preview verified 42 migrations and completed 111 integration tests / 1,827
 assertions with no failures. This is the CI repair candidate's receipt; it does
 not exercise the retention operator candidate's additional cases or establish
@@ -106,7 +103,6 @@ required; no timing assertion or deadline has been relaxed.
 ## Global nonce-pruning fixture
 
 Candidate `4fddad36519d3482803d548b03d5f24fcb1fcef9` completed the
-[Neon preview job](https://github.com/adea-ai/adea/actions/runs/37712023080/job/113099884204)
 within the 35-minute window: 42 migrations verified and 111 integration cases
 completed in 1,182.21 seconds, with 110 passing and one failing. The failure
 was the expired target row remaining in the bounded nonce cleanup test. Its
@@ -127,7 +123,6 @@ timestamps failed the exact target-deletion assertion (0 passing / 1 failing).
 The corrected fixture passed (1 test / 5 assertions). This local PostgreSQL
 version also completed the root `bun run test:integration` command: database
 role health, 42 migration verification/replay, and 111 tests / 1,829 assertions
-passed. These local receipts are supplementary; fresh hosted Neon qualification
 remains required.
 Owned Docker fixtures stalled before database startup and ran no tests; their
 recorded containers, networks and volumes were removed. The native fixtures

@@ -118,7 +118,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: '1.4.3'
+          bun-version: '1.4.4'
 
       - run: bun install --frozen-lockfile
 
@@ -278,12 +278,14 @@ jobs:
           set -uo pipefail
           # Every suite the change can affect runs, and one failing suite does
           # not hide the other: both results land in the same log.
+          # Playwright cleans its output directory before each invocation.
+          # Separate roots retain the workspace trace even if chat runs next.
           status=0
           if [[ "$RUN_WORKSPACE" == 'true' ]]; then
-            bun run test:e2e:visual || status=1
+            bun run test:e2e:visual --output=test-results/workspace || status=1
           fi
           if [[ "$RUN_CHAT" == 'true' ]]; then
-            bun run test:e2e:visual:chat || status=1
+            bun run test:e2e:visual:chat --output=test-results/chat || status=1
           fi
           exit "$status"
 

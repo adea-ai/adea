@@ -73,7 +73,7 @@ describe('principal boundary', () => {
     for (const directory of protectedDirectories) {
       for (const file of await sourceFiles(directory)) {
         const source = await readFile(file, 'utf8')
-        expect(source).not.toMatch(/neon(?:Auth)?(?:User)?Id/i)
+        expect(source).not.toMatch(/external-provider(?:Auth)?(?:User)?Id/i)
         expect(source).not.toMatch(/providerSubject/i)
       }
     }

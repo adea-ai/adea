@@ -496,7 +496,6 @@ zero modules added or removed in every comparison**. It includes individual
 raw/gzip bytes and module-set hashes, not only the workspace union. In the
 paired builds the initial client index drops from 67,444 to 66,096 static gzip,
 desktop-auth completion from 71,511 to 70,158, workspace mount from 136,552 to
-133,423, and navigation entry from 204,390 to 201,027. The Neon client SDK
 closure is unchanged at 21,508 gzip bytes.
 
 Actual compiled baseline and candidate Workers/client both pass auth form and

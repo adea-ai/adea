@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { assertLocalTestTargets } from '../../../scripts/test-target-guard.mjs'
 
 // Hosted acceptance for the account/session flows the migration gates on.
-// Runs against an isolated Worker + Neon branch; never production.
+// Runs against an isolated Worker + external provider branch; never production.
 // The acceptance origin must be loopback or a host named in
 // ADEA_ALLOW_REMOTE_TEST_TARGET; production hosts are refused outright.
 assertLocalTestTargets()
@@ -96,7 +96,7 @@ const json = async (response) => {
   record('guest.rotation.temporary', payload.principal?.temporary === true)
 }
 
-// 3. Account sign-up through the real Neon Auth proxy, then session lookup.
+// 3. Account sign-up through the real external provider Auth proxy, then session lookup.
 const email = `acceptance+${randomUUID().slice(0, 8)}@example.test`
 const password = `Acc-${randomUUID().slice(0, 18)}`
 const accountJar = createJar()

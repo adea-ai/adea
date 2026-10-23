@@ -1002,7 +1002,7 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
     // Signing into an existing account hands the workspace to that user. The node
     // keeps its id, keys, and eligibility: its scope is the workspace, and the
     // principal that paired it stays on the row as provenance.
-    const identity = { provider: 'neon', subject: `runtime-claim-${crypto.randomUUID()}` }
+    const identity = { provider: 'better-auth', subject: `runtime-claim-${crypto.randomUUID()}` }
     const registered = await createUserWithAuthIdentity(connection.db, { identity })
     const claimed = await claimTemporaryUserSession(connection.db, { credentialDigest, identity })
     expect(claimed.userId).toBe(registered.userId)

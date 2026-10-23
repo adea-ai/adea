@@ -90,8 +90,13 @@ describe('relay retention operator target', () => {
   })
 
   test('requires TLS and a direct connection for a hosted target', () => {
-    const options = { ...parseRelayRetentionArguments(args), host: 'ep-host.neon.tech', port: 5432 }
-    const hosted = 'postgresql://fixture_app:PRIVATE_PASSWORD_SENTINEL@ep-host.neon.tech/agent_hq'
+    const options = {
+      ...parseRelayRetentionArguments(args),
+      host: 'ep-host.legacy-db.example.invalid',
+      port: 5432,
+    }
+    const hosted =
+      'postgresql://fixture_app:PRIVATE_PASSWORD_SENTINEL@ep-host.legacy-db.example.invalid/agent_hq'
     expect(() => relayRetentionDatabaseUrl(options, { DATABASE_URL_UNPOOLED: hosted })).toThrow(
       'invalid_database'
     )
@@ -100,7 +105,7 @@ describe('relay retention operator target', () => {
     ).toBe(`${hosted}?sslmode=require`)
     expect(() =>
       relayRetentionDatabaseUrl(
-        { ...options, host: 'ep-host-pooler.neon.tech' },
+        { ...options, host: 'ep-host-pooler.legacy-db.example.invalid' },
         {
           DATABASE_URL_UNPOOLED: hosted.replace('ep-host.', 'ep-host-pooler.') + '?sslmode=require',
         }

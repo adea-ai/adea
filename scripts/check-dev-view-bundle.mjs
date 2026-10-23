@@ -147,16 +147,16 @@ export function inspectDevViewChunks(chunks) {
   return { entry, layout }
 }
 
-async function main() {
-  const files = await readdir(assets)
+export async function inspectDevViewAssets(directory = assets) {
+  const files = await readdir(directory)
   const scripts = files.filter((file) => file.endsWith('.js'))
   const contents = await Promise.all(
     scripts.map(async (file) => {
-      const source = await readFile(path.join(assets, file), 'utf8')
+      const source = await readFile(path.join(directory, file), 'utf8')
       return {
         file,
         source,
-        bytes: (await stat(path.join(assets, file))).size,
+        bytes: (await stat(path.join(directory, file))).size,
         gzipBytes: gzipSync(source).byteLength,
       }
     })
@@ -166,8 +166,9 @@ async function main() {
   console.log(
     `Dev View entry: ${entry.file} (${entry.bytes} bytes, ${entry.gzipBytes} gzip); layout renderer: ${layout.file} (${layout.bytes} bytes, ${layout.gzipBytes} gzip); combined: ${totalBytes} bytes, ${entry.gzipBytes + layout.gzipBytes} gzip`
   )
+  return { entry, layout }
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  await main()
+  await inspectDevViewAssets()
 }

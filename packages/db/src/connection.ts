@@ -9,7 +9,7 @@ import { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
 import { PostgresJsSession } from 'drizzle-orm/postgres-js/session'
 import postgres, { type Sql } from 'postgres'
 
-import { classifyDatabaseUrl, readDatabaseUrl } from './config'
+import { readDatabaseUrl } from './config'
 import * as schema from './schema'
 
 type AppSchema = typeof schema
@@ -130,44 +130,57 @@ function isWorkersRuntime(): boolean {
 }
 
 /**
- * Driver tuning for one connection URL, split out so it can be asserted without
- * opening a socket.
+ * Driver tuning for one database connection, split out so it can be asserted
+ * without opening a socket.
  *
- * `prepare` follows the connection role, not a blanket toggle: a Neon `-pooler`
- * endpoint is the only host that keeps `prepare: false`, while a direct Railway
- * PostgreSQL connection and a Cloudflare Hyperdrive connection prepare
- * statements. Cloudflare documents `prepare: true` for Hyperdrive and warns that
- * `prepare: false` can hang or fail under its transaction pooling. The option
- * alone does not reach the ORM (see `preparedStatementView`), so
- * `createDatabase` also applies it to the drizzle session. No `cache` option is
- * set: the drizzle database below owns `$cache: undefined`, and no database-level
- * query cache backs auth, session or permission reads. Hyperdrive's own query
- * cache is configured on the Hyperdrive binding, outside this package.
+ * `prepare` is true for every connection this deployment can open. Cloudflare
+ * documents `prepare: true` for Hyperdrive and warns that `prepare: false` can
+ * hang or fail under its transaction pooling, and a direct managed PostgreSQL
+ * connection prepares statements too. The transaction-pooled endpoint shape that
+ * required the unprepared mode belonged to the provider this deployment has
+ * left, so there is no longer a hosted host to detect and exempt; a host name
+ * is not a statement-capability contract. If a deployment ever needs a
+ * transaction-pooled origin, it must declare that explicitly here rather than be
+ * inferred from a hostname. The option alone does not reach the ORM (see
+ * `preparedStatementView`), so `createDatabase` also applies it to the drizzle
+ * session. No `cache` option is set: the drizzle database below owns
+ * `$cache: undefined`, and no database-level query cache backs auth, session or
+ * permission reads. Hyperdrive's own query cache is configured on the Hyperdrive
+ * binding, outside this package.
  */
 export interface CreateDatabaseOptions {
   maxConnections?: number
   connectTimeoutSeconds?: number
   idleTimeoutSeconds?: number
+  /** Defaults to true. Only a declared transaction-pooled origin may turn it off. */
   preparedStatements?: boolean
+  /** Explicit verified TLS policy for a reviewed transport/peer mapping. */
+  tls?: { readonly rejectUnauthorized: true; readonly servername: string; readonly ca: string }
 }
 
-export function databaseConnectionOptions(
-  connectionUrl: string,
-  options: CreateDatabaseOptions = {}
-): {
+export function databaseConnectionOptions(options: CreateDatabaseOptions = {}): {
   max: number
   connect_timeout: number
   idle_timeout: number
   prepare: boolean
+  ssl?: CreateDatabaseOptions['tls']
 } {
-  const { preparedStatements } = classifyDatabaseUrl(connectionUrl)
+  if (
+    options.tls &&
+    (options.tls.rejectUnauthorized !== true ||
+      !/^[a-z0-9.-]+$/.test(options.tls.servername) ||
+      !options.tls.ca.includes('-----BEGIN CERTIFICATE-----'))
+  ) {
+    throw new Error('Database TLS requires a trusted CA and verified peer identity')
+  }
   return {
     max:
       options.maxConnections ??
       (isWorkersRuntime() ? WORKERS_MAX_CONNECTIONS : SERVER_MAX_CONNECTIONS),
     connect_timeout: options.connectTimeoutSeconds ?? 10,
     idle_timeout: options.idleTimeoutSeconds ?? 20,
-    prepare: options.preparedStatements ?? preparedStatements,
+    prepare: options.preparedStatements ?? true,
+    ...(options.tls ? { ssl: options.tls } : {}),
   }
 }
 
@@ -175,7 +188,7 @@ export function createDatabase(
   connectionUrl = readDatabaseUrl(),
   options: CreateDatabaseOptions = {}
 ) {
-  const driverOptions = databaseConnectionOptions(connectionUrl, options)
+  const driverOptions = databaseConnectionOptions(options)
   const client = postgres(connectionUrl, driverOptions)
 
   return {

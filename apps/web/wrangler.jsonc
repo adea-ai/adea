@@ -14,6 +14,7 @@
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public", "enable_request_signal"],
   "no_bundle": true,
+  "send_email": [{ "name": "AUTH_EMAIL", "allowed_sender_addresses": ["team@adea.dev"] }],
   "rules": [{ "type": "ESModule", "globs": ["**/*.js", "**/*.mjs"] }],
   "assets": {
     "directory": "dist/client",
@@ -26,14 +27,20 @@
     "run_worker_first": ["/api/*"],
     "not_found_handling": "none",
   },
-  // Hyperdrive (Neon connection pooling) `adea-db`, pointed at the
-  // production Neon branch (direct/unpooled origin; Hyperdrive pools itself).
+  // Hyperdrive `adea-db`: the edge connection pooler in front of the
+  // Railway-managed PostgreSQL. Hyperdrive pools at the edge, so the origin
+  // is the database's own direct endpoint.
   // See CLOUDFLARE.md.
   // Local emulation target for `wrangler dev` (see compose.yaml and
   // .env.example). Non-secret dev default; production uses the origin
   // connection string from `wrangler hyperdrive create`. Requires
   // `compose up` (or any Postgres on 127.0.0.1:55432) for DB-backed pages.
   "hyperdrive": [
+    {
+      "binding": "AUTH_HYPERDRIVE",
+      "id": "9a8c286d8b374a8c83cf05534195a53a",
+      "localConnectionString": "postgresql://auth_fixture:auth_fixture@127.0.0.1:55432/agent_hq?sslmode=disable",
+    },
     {
       "binding": "HYPERDRIVE",
       "id": "5faad934a0a14a29bbb4780ca2f53fa6",
@@ -42,13 +49,12 @@
   ],
   // Hosted configuration that must survive worker recreation. The 2026-10-01
   // release cascade recreated the Worker and every dashboard-managed secret
-  // was lost with it, which took the marketplace proxy (and Neon Auth) down
-  // until the values were restored. Keep every hosted value here so a fresh
-  // upload can never ship without them:
+  // was lost with it, which took the marketplace proxy down until the values
+  // were restored. Keep every hosted value here so a fresh upload can never
+  // ship without them:
   // - `vars` are non-secret identifiers and origins;
-  // - `secrets_store_secrets` reference the account Secrets Store
-  //   (`control-plane-neon`), the source of truth per CLOUDFLARE.md, so the
-  //   values never live in this repository.
+  // - `secrets_store_secrets` reference the account Secrets Store, the source
+  //   of truth per CLOUDFLARE.md, so the values never live in this repository.
   // Secrets that cannot come from the store yet are set with
   // `wrangler secret put` and listed in CLOUDFLARE.md.
   "vars": {
@@ -68,22 +74,27 @@
     {
       "binding": "DATABASE_URL",
       "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
-      "secret_name": "AGENT_HQ_NEON_PRODUCTION_DATABASE_URL",
+      "secret_name": "ADEA_RAILWAY_PRODUCTION_DATABASE_URL",
     },
     {
-      "binding": "NEON_AUTH_BASE_URL",
+      "binding": "AUTH_BASE_URL",
       "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
-      "secret_name": "AGENT_HQ_NEON_PRODUCTION_AUTH_BASE_URL",
+      "secret_name": "ADEA_RAILWAY_PRODUCTION_AUTH_BASE_URL",
     },
     {
-      "binding": "NEON_AUTH_COOKIE_SECRET",
+      "binding": "AUTH_SECRET",
       "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
-      "secret_name": "AGENT_HQ_WORKER_AUTH_COOKIE_SECRET",
+      "secret_name": "ADEA_RAILWAY_PRODUCTION_AUTH_SECRET",
+    },
+    {
+      "binding": "AUTH_DATABASE_URL",
+      "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
+      "secret_name": "ADEA_RAILWAY_PRODUCTION_AUTH_DATABASE_URL",
     },
     {
       "binding": "AUTH_TRUSTED_ORIGINS",
       "store_id": "b3a1b4e8427a4d23ac7925cc18a7a2ac",
-      "secret_name": "AGENT_HQ_WORKER_AUTH_TRUSTED_ORIGINS",
+      "secret_name": "ADEA_RAILWAY_PRODUCTION_AUTH_TRUSTED_ORIGINS",
     },
   ],
   "observability": {

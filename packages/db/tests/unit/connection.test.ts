@@ -149,13 +149,11 @@ describe('createDatabase construction', () => {
 })
 
 describe('databaseConnectionOptions', () => {
-  const LOCAL = 'postgresql://app:secret@127.0.0.1:55432/agent_hq?sslmode=disable'
-  const DIRECT_HOSTED = 'postgresql://app:secret@db.example.com:5432/agent_hq?sslmode=require'
-  const NEON_POOLED =
-    'postgresql://app:secret@ep-cool-1234-pooler.us-east-2.aws.neon.tech/agent_hq?sslmode=require'
+  const RETIRED_POOLED_ENDPOINT =
+    'postgresql://app:secret@ep-cool-1234-pooler.us-east-2.aws.legacy-db.example.invalid/agent_hq?sslmode=require'
 
   test('prepares statements for a direct connection and bounds the pool', () => {
-    expect(databaseConnectionOptions(DIRECT_HOSTED)).toEqual({
+    expect(databaseConnectionOptions()).toEqual({
       max: 10,
       connect_timeout: 10,
       idle_timeout: 20,
@@ -164,18 +162,19 @@ describe('databaseConnectionOptions', () => {
   })
 
   test('keeps the previous ceilings for local development', () => {
-    expect(databaseConnectionOptions(LOCAL)).toMatchObject({ max: 10, prepare: true })
+    expect(databaseConnectionOptions()).toMatchObject({ max: 10, prepare: true })
   })
 
-  test('leaves statements unprepared only for a Neon transaction-pooled endpoint', () => {
-    expect(databaseConnectionOptions(NEON_POOLED)).toMatchObject({ prepare: false })
-    // A Hyperdrive connection string is not a Neon pooler and prepares statements even though it
-    // has no explicit sslmode.
-    expect(
-      databaseConnectionOptions(
-        'postgresql://app:secret@db.hyperdrive.cloudflare.com:5432/agent_hq'
-      )
-    ).toMatchObject({ prepare: true })
+  test('prepares statements for every origin, including a retired provider endpoint', async () => {
+    // No hostname decides the statement mode any more. The endpoint shape that used to force
+    // `prepare: false` belonged to the provider this deployment has left, so a client opened
+    // against it prepares statements like every other origin.
+    const { client, close } = createDatabase(RETIRED_POOLED_ENDPOINT)
+    try {
+      expect((client.options as { prepare: boolean }).prepare).toBe(true)
+    } finally {
+      await close()
+    }
   })
 
   test('caps a Cloudflare Worker client at five edge connections', () => {
@@ -186,7 +185,7 @@ describe('databaseConnectionOptions', () => {
         configurable: true,
         writable: true,
       })
-      expect(databaseConnectionOptions(DIRECT_HOSTED)).toMatchObject({ max: 5, prepare: true })
+      expect(databaseConnectionOptions()).toMatchObject({ max: 5, prepare: true })
     } finally {
       if (original) Object.defineProperty(globalThis, 'navigator', original)
     }
@@ -194,13 +193,19 @@ describe('databaseConnectionOptions', () => {
 
   test('honors explicit overrides for tests, fixtures and migration roles', () => {
     expect(
-      databaseConnectionOptions(NEON_POOLED, {
+      databaseConnectionOptions({
         maxConnections: 1,
         preparedStatements: true,
         connectTimeoutSeconds: 3,
         idleTimeoutSeconds: 5,
       })
     ).toEqual({ max: 1, connect_timeout: 3, idle_timeout: 5, prepare: true })
+  })
+
+  test('lets a declared transaction-pooled origin turn preparation off', () => {
+    expect(databaseConnectionOptions({ preparedStatements: false })).toMatchObject({
+      prepare: false,
+    })
   })
 })
 
@@ -220,8 +225,6 @@ function stubScopes(client: Sql, scope: Sql) {
 // option and the query option agree). The wrapped call answers with a stub, so nothing connects.
 describe('prepared statements on the drizzle path', () => {
   const HOSTED = 'postgresql://app:secret@db.example.com:5432/agent_hq?sslmode=require'
-  const NEON_POOLED =
-    'postgresql://app:secret@ep-cool-1234-pooler.us-east-2.aws.neon.tech/agent_hq?sslmode=require'
 
   type Statement = { sql: string; prepared: boolean }
 
@@ -244,7 +247,7 @@ describe('prepared statements on the drizzle path', () => {
     const outer: Statement[] = []
     const scoped: Statement[] = []
     const { client, db } = createDatabase(url)
-    const scope = postgres(url, databaseConnectionOptions(url))
+    const scope = postgres(url, databaseConnectionOptions())
     record(client, outer)
     record(scope, scoped)
     stubScopes(client, scope)
@@ -310,8 +313,18 @@ describe('prepared statements on the drizzle path', () => {
     }
   })
 
-  test('a Neon pooler stays unprepared on every path', async () => {
-    const { db, outer, scoped, close } = build(NEON_POOLED)
+  test('a declared transaction-pooled origin stays unprepared on every path', async () => {
+    const outer: Statement[] = []
+    const scoped: Statement[] = []
+    const { client, db } = createDatabase(HOSTED, { preparedStatements: false })
+    const scope = postgres(HOSTED, databaseConnectionOptions({ preparedStatements: false }))
+    record(client, outer)
+    record(scope, scoped)
+    stubScopes(client, scope)
+    const close = async () => {
+      await client.end({ timeout: 0 })
+      await scope.end({ timeout: 0 })
+    }
     try {
       await db.execute(sql`select 1`)
       await db.transaction(async (tx) => {

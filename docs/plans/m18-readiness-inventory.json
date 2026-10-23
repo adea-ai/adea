@@ -422,7 +422,7 @@
       "threshold": "reconciled to invoices",
       "method": {
         "kind": "unavailable",
-        "reason": "Requires billing exports from Cloudflare, Neon, Railway and model providers for the rollout window. None are accessible to this repository or session. No cost is estimated or inferred here."
+        "reason": "Requires billing exports from Cloudflare and Railway and model providers for the rollout window. None are accessible to this repository or session. No cost is estimated or inferred here."
       }
     },
     {

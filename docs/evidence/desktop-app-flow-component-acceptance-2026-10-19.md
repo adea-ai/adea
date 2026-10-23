@@ -5,7 +5,6 @@ submission; the pull request now targets `main` at `b968e5d6d22d10cbe19fad9e0f77
 Predecessor publication: PR #1487 at `10690c2df7cd85b0d2518a7dfcefebbde8529957`.
 Review repaired here: PR #1496, review `5577527842`.
 
-Toolchain: Bun 1.4.3 and Node 24.21.0 (the versions `.mise.toml` pins). No Neon or
 production database, no remote service, no external account, no native
 Chrome/Chromium, no keychain prompt, and no app install or launch were used at
 any point.
@@ -144,7 +143,6 @@ performed and are therefore unproven:
 - a native Chrome/Chromium run — so the **mounted** `AddProjectForm` and
   `WorkspaceNavigation`, their observable navigation/history/field state, and
   every Chromium-only e2e flow stay unverified here;
-- a real account, an external service, and any production or Neon database.
 
 What is proven here is limited to the controller lane plus the wiring guard.
 The mounted components and the installed app are not qualified, and this record

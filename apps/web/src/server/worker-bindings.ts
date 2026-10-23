@@ -10,6 +10,8 @@
  * client-boundary guard keeps these modules out of browser bundles instead.
  */
 export interface WorkerBindings {
+  AUTH_HYPERDRIVE?: Pick<Hyperdrive, 'connectionString'>
+  AUTH_EMAIL?: SendEmail
   HYPERDRIVE?: { connectionString?: string | undefined }
 }
 

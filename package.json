@@ -1,6 +1,6 @@
 {
   "name": "adea",
-  "version": "0.100.0",
+  "version": "0.101.0",
   "private": true,
   "license": "Apache-2.0",
   "workspaces": [
@@ -8,7 +8,7 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "node scripts/vp-local-run.mjs orch:build",
+    "build": "if [ -n \"$CI\" ]; then vp run orch:build; else node scripts/vp-local-run.mjs orch:build; fi",
     "build:web-deps": "vp run orch:deps-of-web:build",
     "build:cloudflare": "bun scripts/build-cloudflare.mjs",
     "dev": "bun run --cwd apps/web dev",
@@ -18,7 +18,7 @@
     "lint": "vp run orch:lint && oxlint --deny-warnings",
     "test": "bun run test:unit",
     "test:unit": "vp run orch:test && bun run test:coverage",
-    "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit packages/auth/tests/integration/adapter.test.ts packages/auth/tests/integration/neon-driver.test.ts apps/web/test/client-policy.test.ts packages/types/tests/workspace-primitives.test.ts apps/web/test/cloudflare-config.test.ts packages/types/tests/execution-location.test.ts packages/types/tests/migration-snapshot.test.ts packages/types/tests/artifact-reference.test.ts packages/types/tests/desktop-permissions.test.ts packages/types/tests/group-participation.test.ts packages/types/tests/management.test.ts scripts/*.test.ts --coverage",
+    "test:coverage": "bun test packages/auth/tests/unit packages/db/tests/unit packages/auth/tests/integration/adapter.test.ts apps/web/test/client-policy.test.ts packages/types/tests/workspace-primitives.test.ts apps/web/test/cloudflare-config.test.ts packages/types/tests/execution-location.test.ts packages/types/tests/migration-snapshot.test.ts packages/types/tests/artifact-reference.test.ts packages/types/tests/desktop-permissions.test.ts packages/types/tests/group-participation.test.ts packages/types/tests/management.test.ts packages/types/tests/agent-profile-execution.test.ts scripts/*.test.ts --coverage",
     "test:bundle:dev-view": "bun run --cwd apps/web build && node scripts/check-dev-view-bundle.mjs",
     "test:integration": "bun scripts/test-integration.mjs",
     "test:integration:control-plane-child": "bun --conditions=react-server test apps/web/test/control-plane-child-joined/child-allocation.test.mjs apps/web/test/control-plane-child-joined/allowance-omitted.test.mjs",
@@ -61,7 +61,7 @@
     "axe-core": "^4.13.0",
     "babel-preset-solid": "^1.9.15",
     "bun-types": "^1.4.3",
-    "code-foundry": "1.48.1",
+    "code-foundry": "1.48.4",
     "oxfmt": "^0.71.0",
     "oxlint": "^1.86.0",
     "release-please": "17.11.2",
@@ -86,5 +86,5 @@
   "engines": {
     "node": "24.21.0"
   },
-  "packageManager": "bun@1.4.3"
+  "packageManager": "bun@1.4.4"
 }
