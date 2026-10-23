@@ -31,6 +31,7 @@
 // Nothing here touches shared repository state: the disposable checkouts borrow the dependencies they need
 // through a per-run exclusion file outside the repository, they are removed with a worktree-scoped command,
 // and the repository-wide `info/exclude` and a repository-wide `worktree prune` are never used.
+// Git worktrees are created under `worktreeFixtureRoot()` (`~/Developer/.worktrees/` by default).
 import { afterAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -38,6 +39,7 @@ import {
   chmodSync,
   existsSync,
   lstatSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -45,7 +47,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   environmentKey,
@@ -182,6 +184,18 @@ interface DisposableCheckout {
 }
 
 /**
+ * Where the disposable Git worktrees live. New worktrees go under `~/Developer/.worktrees/` on the
+ * Mac, not under the system temporary directory, so they sit with the other owners' worktrees where
+ * the worktree consolidation scope looks for them. `ADEA_WORKTREE_FIXTURE_ROOT` overrides it (a
+ * hosted runner, a container). Ordinary scratch, the cache homes and the key fixtures stay in
+ * `tmpdir()`: they are not Git worktrees.
+ */
+function worktreeFixtureRoot(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.ADEA_WORKTREE_FIXTURE_ROOT?.trim()
+  return configured ? resolve(configured) : join(homedir(), 'Developer', '.worktrees')
+}
+
+/**
  * A disposable checkout of this repository at the current head.
  *
  * The cleanup is registered before any fallible step, so a failure while adding the worktree or
@@ -199,7 +213,10 @@ function disposableCheckout(
     readonly occupy?: boolean
   } = {}
 ): DisposableCheckout {
-  const base = mkdtempSync(join(tmpdir(), `adea-cache-${name}-`))
+  const root = worktreeFixtureRoot()
+  mkdirSync(root, { recursive: true })
+  // `base` is this fixture's own directory under the shared root; only it is ever removed.
+  const base = mkdtempSync(join(root, `adea-cache-${name}-`))
   const path = join(base, 'checkout')
   const entry: DisposableCheckout = {
     path,
@@ -311,6 +328,19 @@ function scanCacheHome(
   return { contents, uninspected }
 }
 
+/**
+ * A qualification that read only part of the cache home does not qualify. Every artifact the scan
+ * could not read is named with its reason in the failure, so an incomplete scan fails visibly and
+ * cannot read as a clean one.
+ */
+function assertScanComplete(scan: CacheScan): void {
+  if (scan.uninspected.length === 0) return
+  const evidence = scan.uninspected.map((entry) => `  ${entry.path}: ${entry.reason}`).join('\n')
+  throw new Error(
+    `the cache-home scan did not read ${scan.uninspected.length} artifact(s), so it cannot qualify non-leakage:\n${evidence}`
+  )
+}
+
 describe('the pinned toolchain this qualification runs on', () => {
   test('the real cases run on the pinned toolchain, and a different one is not accepted', () => {
     if (!clientInstalled) {
@@ -389,6 +419,37 @@ describe('the cache key separates every build-relevant identity', () => {
 })
 
 describe('the disposable fixtures', () => {
+  test('worktree fixtures are rooted under ~/Developer/.worktrees by default and the root is configurable', () => {
+    expect(worktreeFixtureRoot({})).toBe(join(homedir(), 'Developer', '.worktrees'))
+    expect(worktreeFixtureRoot({ ADEA_WORKTREE_FIXTURE_ROOT: '  ' })).toBe(
+      join(homedir(), 'Developer', '.worktrees')
+    )
+    expect(worktreeFixtureRoot({ ADEA_WORKTREE_FIXTURE_ROOT: '/tmp/some-root' })).toBe(
+      '/tmp/some-root'
+    )
+  })
+
+  test('a worktree fixture is created under the fixture root and its cleanup removes only itself', () => {
+    const root = worktreeFixtureRoot()
+    mkdirSync(root, { recursive: true })
+    const sibling = mkdtempSync(join(root, 'adea-cache-sibling-'))
+    const checkout = disposableCheckout('rooted')
+    try {
+      const base = resolve(checkout.path, '..')
+      expect(resolve(base, '..')).toBe(root)
+      expect(existsSync(checkout.path)).toBe(true)
+      checkout.remove()
+      expect(existsSync(base)).toBe(false)
+      expect(worktreePaths()).not.toContain(checkout.path)
+      // The shared root and another fixture's directory are left alone.
+      expect(existsSync(root)).toBe(true)
+      expect(existsSync(sibling)).toBe(true)
+    } finally {
+      checkout.remove()
+      rmSync(sibling, { recursive: true, force: true })
+    }
+  })
+
   test('a checkout whose worktree step fails is cleaned up anyway', () => {
     const before = worktreePaths()
     // The checkout path is already taken, so the worktree step fails.
@@ -422,6 +483,28 @@ describe('the disposable fixtures', () => {
       const permitted = scanCacheHome(home, () => 'scanned')
       expect(permitted.uninspected).toEqual([])
       expect(permitted.contents).toContain('scanned')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  test('an unread artifact fails the qualification with its path and reason, and a complete scan passes', () => {
+    const home = disposableCacheHome('scan-complete')
+    try {
+      writeFileSync(join(home, 'entry.json'), '{"ok":true}')
+      expect(() => assertScanComplete(scanCacheHome(home))).not.toThrow()
+      // An otherwise clean cache home that holds one unread artifact must not pass.
+      const large = join(home, 'large.bin')
+      writeFileSync(large, 'x'.repeat(MAX_SCANNED_BYTES))
+      const scan = scanCacheHome(home)
+      expect(scan.contents.join('\n')).not.toContain('secret')
+      expect(() => assertScanComplete(scan)).toThrow(large)
+      expect(() => assertScanComplete(scan)).toThrow('byte scan limit')
+      // A read the platform refuses fails the same way.
+      const refused = scanCacheHome(home, () => {
+        throw new Error('EACCES: permission denied')
+      })
+      expect(() => assertScanComplete(refused)).toThrow('unreadable: EACCES')
     } finally {
       rmSync(home, { recursive: true, force: true })
     }
@@ -652,9 +735,9 @@ describe.skipIf(!real)('the real client qualifies cache correctness and reuse', 
       expect(contents).not.toContain(token)
       expect(contents).not.toContain(bunToken)
       expect(contents).not.toContain(npmAuthSrc)
-      // The scan is complete over the artifacts it supports; anything it did not read is reported, so an
-      // incomplete scan can never read as a clean one.
-      for (const entry of scan.uninspected) expect(entry.reason).not.toBe('')
+      // The scan must have read everything it found: an unread artifact fails the qualification and is
+      // named with its reason, so it cannot silently count as clean.
+      assertScanComplete(scan)
     } finally {
       checkout.remove()
       rmSync(home, { recursive: true, force: true })
