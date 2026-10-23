@@ -509,9 +509,10 @@ export class GroupPublicationHoldError extends Error {
 }
 
 /**
- * The frozen authorization of an addressed turn's late result: the exact
- * participation grant (id and revision) that admitted the work, together with
- * the group it was admitted in.
+ * The authorization of an addressed turn's late result as read at one moment:
+ * the exact participation grant (id and revision) that admitted the work,
+ * together with the group it was admitted in. Only a read made under the
+ * channel lock is authoritative.
  */
 type AddressedTurnPublication = Readonly<{
   channelId: string
@@ -664,13 +665,16 @@ async function explainGroupPublicationHold(
 }
 
 /**
- * Bind the addressed turn's retained authorization and decide it against the
- * current roster, in one transaction that takes the canonical lock order
- * (CHANNEL before the roster's admissions and grants).
+ * Preflight: read the addressed turn's retained authorization and decide it
+ * against the current roster, in one transaction that takes the canonical lock
+ * order (CHANNEL before the roster's admissions and grants).
  *
  * This runs BEFORE the publication transaction so a superseded binding lands
  * as the typed group hold instead of the generic version conflict the
- * channel pin would raise for the same roster change.
+ * channel pin would raise for the same roster change. It is an explanation,
+ * not the authority: the claims are read before the channel lock is taken, so
+ * the publication transaction reloads them under its own locks and decides
+ * again.
  */
 async function bindAndAuthorizeAddressedTurnPublication(
   database: AgentHqDatabase,
@@ -746,16 +750,27 @@ export async function publishLeadTurnResult(
             await assertLeadTurnNotFenced(publicationTx, admitted.id, 'share')
             // Trusted adapter rechecks current selection/payer/grant inside these held canonical locks.
             await assertCurrentGrant(publicationTx)
-            // The FROZEN authorization is re-decided inside the publication
-            // transaction, whose canonical locks (channel, roster and grants) are
-            // already held: a roster mutation between the bind and the
-            // publication lands as a typed hold instead of publishing under
-            // superseded authority.
-            if (bound)
+            // The addressed claims are RE-READ here, under the channel lock this
+            // transaction holds, and decided against the roster read under the
+            // same locks. The preflight's snapshot is not authoritative: a
+            // dispatch that waited for the channel lock can bind a legacy claim
+            // to this intent after that snapshot was read, and the claims for
+            // one intent only authorize together when they all agree. Claims
+            // appear only through writers that take the channel lock first, so
+            // what is read here cannot change before this transaction commits.
+            const current = await loadAddressedTurnPublication(
+              publicationTx,
+              workspaceId,
+              admitted.id
+            )
+            // The preflight proved claims existed: none now is not a state to
+            // publish under.
+            if (bound && !current) throw new Error('PUBLICATION_WITHHELD')
+            if (current)
               await assertAddressedTurnPublication(
                 publicationTx,
                 workspaceId,
-                bound,
+                current,
                 new Date().toISOString()
               )
             const digest = createHash('sha256')

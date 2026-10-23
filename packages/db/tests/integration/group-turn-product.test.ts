@@ -3,7 +3,7 @@ import type { UserPrincipalRef } from '@adea-ai/types'
 import { and, eq, sql } from 'drizzle-orm'
 
 import { createAgent } from '../../src/agents'
-import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
 import {
   createGroupChannelWithGrants,
   groupCreationCandidatesFromGrants,
@@ -230,7 +230,7 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
   }
 
   /** Drives a dispatched lead intent through the existing runtime path to a publishable result. */
-  async function complete(f: Fixture, intentId: string) {
+  async function complete(f: Fixture, intentId: string, database: AgentHqDatabase = connection.db) {
     const [canonicalWorkspace] = await connection.db
       .select()
       .from(schema.workspaces)
@@ -267,7 +267,7 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
     })
     return () =>
       publishLeadTurnResult(
-        connection.db,
+        database,
         f.workspace.id,
         intentId,
         f.owner,
@@ -1083,6 +1083,80 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
         expect(state.runtime?.state).toBe('completed')
         expect(state.runtime?.publishedMessageId).toBeNull()
       }
+    }
+  )
+
+  /**
+   * The publication preflight reads the claims BEFORE it takes the channel
+   * lock, so a dispatch can bind a legacy (null-bound) claim to the same intent
+   * in that gap. The publication transaction must reload every claim under its
+   * own channel lock: deciding against the preflight's snapshot would publish
+   * for a bound claim while a legacy claim now carries the same intent.
+   *
+   * The interleaving is forced, not raced: the database handle given to the
+   * publisher runs the legacy redispatch the first time the publisher opens a
+   * transaction, which is exactly after its unlocked claim read and before any
+   * lock is taken.
+   */
+  T(
+    'a legacy claim redispatched after the preflight read still holds the late result',
+    async () => {
+      const f = await fixture()
+      const { turn } = await address(f, f.lead.id, 1)
+      const intentId = turn.leadTurnIntentId!
+      // A claim persisted before the binding existed, not yet dispatched.
+      const legacyInput = {
+        addressedBy: { kind: 'user', userId: f.owner.userId },
+        agentId: f.lead.id,
+        channelId: f.channelId,
+        dispatchRevision: 2,
+        parentTurnId: null,
+        triggerMessageId: f.trigger.id,
+      } as const
+      const legacy = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, legacyInput)
+      await connection.db
+        .update(schema.addressedAgentTurns)
+        .set({ authGrantId: null, authRevision: null })
+        .where(eq(schema.addressedAgentTurns.id, legacy.turn.id))
+      let redispatched = false
+      const interleaved = new Proxy(connection.db, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target)
+          if (property !== 'transaction')
+            return typeof value === 'function' ? value.bind(target) : value
+          return async (...args: unknown[]) => {
+            if (!redispatched) {
+              redispatched = true
+              // Admission takes the channel lock first, then binds the legacy
+              // claim to the existing intent, exactly as a recovery dispatch does.
+              await address(f, f.lead.id, 2)
+            }
+            return (value as (...transactionArgs: unknown[]) => unknown).apply(target, args)
+          }
+        },
+      })
+      const publish = await complete(f, intentId, interleaved)
+      await expect(publish()).rejects.toMatchObject({
+        name: 'GroupPublicationHoldError',
+        reason: 'publication_binding_mismatch',
+      })
+      // The interleaving really happened: two claims now carry one intent, one unbound.
+      expect(redispatched).toBe(true)
+      const rows = await connection.db
+        .select({
+          authGrantId: schema.addressedAgentTurns.authGrantId,
+          intentId: schema.addressedAgentTurns.intentId,
+        })
+        .from(schema.addressedAgentTurns)
+        .where(eq(schema.addressedAgentTurns.channelId, f.channelId))
+      expect(rows).toHaveLength(2)
+      expect(new Set(rows.map((row) => row.intentId))).toEqual(new Set([intentId]))
+      expect(rows.filter((row) => row.authGrantId === null)).toHaveLength(1)
+      // Nothing entered the group, and the job survived the hold.
+      const state = await publicationState(f, intentId)
+      expect(state.messages).toHaveLength(1)
+      expect(state.runtime?.state).toBe('completed')
+      expect(state.runtime?.publishedMessageId).toBeNull()
     }
   )
 
