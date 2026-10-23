@@ -572,7 +572,9 @@ finished, then plants its own rows and asserts on those. The rows a run removes 
 its own insert returned; a leftover that was already there (the condition under test) and every
 row that belongs to anyone else are left in place, and the presence assertions are unchanged.
 
-A self-test of the helper uses ids and a lock name of its own run, so it cannot touch the real
+The self-tests start their callers through `runWithSettledCallers` (see [The third review
+round](#the-third-review-round)), so a failure of one caller cannot leave another running when the
+fixture rows are deleted. A self-test of the helper uses ids and a lock name of its own run, so it cannot touch the real
 legacy rows or another run's lock. It shows that a second connection cannot take the lock while the
 first run holds it; that a second caller started during the first run does not enter until the
 first has left, and then plants its own row (the first run's row is gone) while the leftover is
@@ -1112,3 +1114,44 @@ is not claimed as evidence for them.
 pre-commit type check, the route-flow lane and the Docker provisioning runner were not run; and the
 review of this document as a whole is not complete, so nothing here is a claim of approval,
 readiness or issue closure.
+
+## The third review round
+
+The head when this round started was `1d93a5c7a6354e945408c7885c0ff8903bb09283`, a draft with
+auto-merge off. Root's complete review of that head found one more source defect, in the helper
+self-test added in the second round: it started run B inside run A, awaited A, and awaited B only
+afterwards. If A rejected, the `await runB` line was skipped and the `finally` deleted the fixture
+rows while B could still be waiting for, or holding, the lock, and B's rejection was never observed.
+This is a defect in the test code only; the helper under test was not wrong.
+
+**Repair (the channel-bounds test file and this document only).**
+
+- `runWithSettledCallers(scenario, teardown)` runs a scenario that starts callers through a `start`
+  function. `start` attaches a rejection observer the moment a caller starts, so no rejection can go
+  unhandled, and keeps the original promise. Whatever the scenario does, including throwing before it
+  awaits a caller, every started caller is settled before the teardown deletes anything.
+- The scenario's own failure is the primary error. A started caller's rejection that is not that
+  same error, and a failing teardown, are cleanup errors. A lone primary error is rethrown as it was;
+  otherwise one `AggregateError` carries the primary first and then every cleanup error.
+- The teardown of the main self-test removes the fixture rows and then asserts the advisory lock is
+  free (`assertAdvisoryLockFree`, which takes and releases the lock on a connection of its own, so a
+  forgotten lock is a named failure, not a hang). Callers that the scenario awaits on the spot (the
+  failing body and the bounded wait) are not registered, because they cannot be abandoned.
+- A new test, `a failing first caller is settled together with the second one before teardown`,
+  makes run A fail while B is waiting for the lock and has the scenario throw before it ever awaits
+  B. At teardown B had entered, finished and removed its own row, the leftover row was still the
+  original, the lock was free, and the harness rethrew exactly A's error. Another new test checks the
+  harness itself: a lone primary comes back as itself after an abandoned caller settled; the
+  primary, an abandoned caller's rejection and a failing teardown arrive together, in that order; a
+  failing teardown fails a passing scenario; and a caller that rejects after a passing scenario is
+  not swallowed.
+
+**Measurements** (PostgreSQL 18.4, the same local build as before). The channel-bounds file passes 14
+tests with 132 assertions, and no advisory lock or run-scoped fixture row remained in the database
+afterwards. `oxfmt --check` and `oxlint --deny-warnings` are clean. As a mutation, the harness was
+changed to stop settling started callers (`await Promise.allSettled(started)` replaced by `[]`): the
+failing-first-caller test failed, naming the lock as still held, and the harness test failed too.
+The mutation was reverted. The residual file was not changed in this round.
+
+**Still open.** As in the second round: hosted CI has not run on this head, and the document review
+is not claimed complete. Nothing here is a claim of approval, readiness or issue closure.

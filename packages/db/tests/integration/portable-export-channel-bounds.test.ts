@@ -173,6 +173,74 @@ async function withLegacyChannelSeed<T>(
   }
 }
 
+/**
+ * Fails when the named advisory lock is held by any session. It takes the lock itself on a
+ * connection of its own, so a lock a caller forgot to release is a failure here, not a hang.
+ */
+async function assertAdvisoryLockFree(client: postgres.Sql, lockName: string) {
+  const probe = await client.reserve()
+  try {
+    const [row] = await probe<
+      { locked: boolean }[]
+    >`select pg_try_advisory_lock(hashtextextended(${lockName}::text, 0)) as locked`
+    if (row?.locked !== true) throw new Error(`advisory lock ${lockName} is still held`)
+    await probe`select pg_advisory_unlock(hashtextextended(${lockName}::text, 0))`
+  } finally {
+    probe.release()
+  }
+}
+
+/**
+ * Runs a scenario that starts callers, and settles every caller it started before the teardown
+ * deletes anything, whether the scenario passed, failed, or abandoned a caller by throwing before
+ * it awaited it. Each started caller gets a rejection observer the moment it starts, so none can
+ * become an unhandled rejection, and the original promise is kept to be settled later.
+ *
+ * The scenario's own failure is the primary error. A rejection of a started caller that is not
+ * that same error, and a failing teardown, are cleanup errors. When both kinds exist they are
+ * reported together, primary first, in one AggregateError; a lone primary is rethrown as it was.
+ */
+async function runWithSettledCallers(
+  scenario: (start: <T>(caller: Promise<T>) => Promise<T>) => Promise<void>,
+  teardown: () => Promise<void>
+): Promise<void> {
+  const started: Promise<unknown>[] = []
+  const start = <T>(caller: Promise<T>): Promise<T> => {
+    caller.catch(() => {})
+    started.push(caller)
+    return caller
+  }
+  let primary: unknown
+  let failed = false
+  try {
+    await scenario(start)
+  } catch (error) {
+    primary = error
+    failed = true
+  }
+  const cleanupErrors: unknown[] = []
+  for (const result of await Promise.allSettled(started))
+    if (result.status === 'rejected' && !(failed && result.reason === primary))
+      cleanupErrors.push(result.reason)
+  try {
+    await teardown()
+  } catch (error) {
+    cleanupErrors.push(error)
+  }
+  if (failed) {
+    if (cleanupErrors.length === 0) throw primary
+    throw new AggregateError(
+      [primary, ...cleanupErrors],
+      'the scenario failed and so did its cleanup'
+    )
+  }
+  if (cleanupErrors.length > 0)
+    throw new AggregateError(cleanupErrors, 'the scenario cleanup failed')
+}
+
+const slowReject = (error: Error) =>
+  new Promise<never>((_resolve, reject) => setTimeout(() => reject(error), 50))
+
 type QueryTrace = {
   channelPageReads: number
   channelIdSnapshotReads: number
@@ -831,24 +899,24 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     )
   }, 300_000)
 
-  test('the legacy seed is held for its whole lifetime and only its own rows are removed', async () => {
-    // The helper under test is the one the regression above uses, here with a lock name and ids of
-    // this run's own so it cannot touch the real legacy rows or another run's lock. "Run B" is a
-    // second caller on a second connection that starts while run A still holds the seed.
-    const lockName = `${LEGACY_SEED_LOCK_NAME}:self-test:${run}`
+  const seedRow = (id: string, title: string): ChannelSeed => ({
+    id,
+    idempotencyKey: `portable-channel-seed-lifetime-${title}-${run}`,
+    agentId: agentIds[0]!,
+    kind: 'direct_agent',
+    sortOrder: 10_100,
+    title,
+    visibility: 'participants',
+    workspaceId: workspaceId!,
+  })
+
+  /**
+   * The fixture ids and rows the helper self-tests plant. They are run-scoped synthetic ids, not the
+   * legacy ones, so the self-tests cannot touch the real legacy rows or another run's seed.
+   */
+  function selfTestFixture() {
     const ownedId = runScopedLowChannelId(901)
     const leftoverId = runScopedLowChannelId(902)
-    const seedRow = (id: string, title: string): ChannelSeed => ({
-      id,
-      idempotencyKey: `portable-channel-seed-lifetime-${title}-${run}`,
-      agentId: agentIds[0]!,
-      kind: 'direct_agent',
-      sortOrder: 10_100,
-      title,
-      visibility: 'participants',
-      workspaceId: workspaceId!,
-    })
-    const rows = [seedRow(ownedId, 'owned'), seedRow(leftoverId, 'leftover')]
     const present = async () =>
       (
         await db
@@ -858,83 +926,223 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
       )
         .map(({ id }) => id)
         .toSorted()
+    return {
+      leftoverId,
+      ownedId,
+      present,
+      removeFixtures: async () => {
+        await db.delete(channels).where(inArray(channels.id, [ownedId, leftoverId]))
+      },
+      rows: [seedRow(ownedId, 'owned'), seedRow(leftoverId, 'leftover')],
+    }
+  }
+
+  test('the legacy seed is held for its whole lifetime and only its own rows are removed', async () => {
+    // The helper under test is the one the regression above uses, here with a lock name and ids of
+    // this run's own so it cannot touch the real legacy rows or another run's lock. "Run B" is a
+    // second caller on a second connection that starts while run A still holds the seed. Every
+    // caller is started through `runWithSettledCallers`, which settles all of them before the
+    // fixture rows are deleted, so a failure of run A cannot leave B running under the teardown.
+    const lockName = `${LEGACY_SEED_LOCK_NAME}:self-test:${run}`
+    const { present, rows, ownedId, leftoverId, removeFixtures } = selfTestFixture()
 
     // A leftover that some earlier or other run owns: planted outside the helper, with its own key.
     await db.insert(channels).values(seedRow(leftoverId, 'leftover-original'))
     const events: string[] = []
-    let runB: Promise<void> | undefined
-    try {
-      const runA = withLegacyChannelSeed(
-        { client, database: db, lockName, rows },
-        async ({ insertedIds, preexistingIds }) => {
-          events.push('a:enter')
-          expect(insertedIds).toEqual([ownedId])
-          expect(preexistingIds).toEqual([leftoverId])
-          // While A holds the seed, a second connection cannot take the lock.
-          const probe = await client.reserve()
-          try {
-            const [taken] = await probe<
-              { locked: boolean }[]
-            >`select pg_try_advisory_lock(hashtextextended(${lockName}::text, 0)) as locked`
-            expect(taken?.locked).toBe(false)
-          } finally {
-            probe.release()
-          }
-          // Run B starts now and has to wait; A keeps working on its rows meanwhile.
-          runB = withLegacyChannelSeed({ client, database: db, lockName, rows }, async (seed) => {
-            events.push('b:enter')
-            // A removed the row it planted, so B plants its own instead of reusing A's, and the
-            // leftover that was never A's is still the leftover.
-            expect(seed.insertedIds).toEqual([ownedId])
-            expect(seed.preexistingIds).toEqual([leftoverId])
-            expect(await present()).toEqual([ownedId, leftoverId].toSorted())
-            events.push('b:leave')
+    await runWithSettledCallers(
+      async (start) => {
+        const runA = start(
+          withLegacyChannelSeed(
+            { client, database: db, lockName, rows },
+            async ({ insertedIds, preexistingIds }) => {
+              events.push('a:enter')
+              expect(insertedIds).toEqual([ownedId])
+              expect(preexistingIds).toEqual([leftoverId])
+              // While A holds the seed, a second connection cannot take the lock.
+              await expect(assertAdvisoryLockFree(client, lockName)).rejects.toThrow(/still held/)
+              // Run B starts now and has to wait; A keeps working on its rows meanwhile.
+              start(
+                withLegacyChannelSeed(
+                  { client, database: db, lockName, rows, waitMs: 10_000 },
+                  async (seed) => {
+                    events.push('b:enter')
+                    // A removed the row it planted, so B plants its own instead of reusing A's, and
+                    // the leftover that was never A's is still the leftover.
+                    expect(seed.insertedIds).toEqual([ownedId])
+                    expect(seed.preexistingIds).toEqual([leftoverId])
+                    expect(await present()).toEqual([ownedId, leftoverId].toSorted())
+                    events.push('b:leave')
+                  }
+                )
+              )
+              await new Promise((resolve) => setTimeout(resolve, 400))
+              expect(events).toEqual(['a:enter'])
+              expect(await present()).toEqual([ownedId, leftoverId].toSorted())
+              events.push('a:leave')
+            }
+          )
+        )
+        await runA
+        // B was started inside A and is awaited only by the harness; wait for it here as well so the
+        // assertions below see the finished sequence.
+        for (let waited = 0; !events.includes('b:leave') && waited < 10_000; waited += 50)
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(events).toEqual(['a:enter', 'a:leave', 'b:enter', 'b:leave'])
+        // Both runs removed what they planted and neither removed the leftover.
+        expect(await present()).toEqual([leftoverId])
+        const [leftover] = await db.select().from(channels).where(eq(channels.id, leftoverId))
+        expect(leftover?.title).toBe('leftover-original')
+
+        // The lock is released on a failing body as well, and the rows planted are still removed.
+        // These callers are awaited on the spot, so they cannot be abandoned and need no
+        // registration with the harness.
+        await expect(
+          withLegacyChannelSeed({ client, database: db, lockName, rows }, async () => {
+            throw new Error('body failed')
           })
-          await new Promise((resolve) => setTimeout(resolve, 400))
-          expect(events).toEqual(['a:enter'])
-          expect(await present()).toEqual([ownedId, leftoverId].toSorted())
-          events.push('a:leave')
+        ).rejects.toThrow('body failed')
+        expect(await present()).toEqual([leftoverId])
+        await withLegacyChannelSeed(
+          { client, database: db, lockName, rows, waitMs: 1_000 },
+          async () => undefined
+        )
+
+        // A lock that is never released surfaces as a bounded wait, not as a hang.
+        const holder = await client.reserve()
+        try {
+          await holder`select pg_advisory_lock(hashtextextended(${lockName}::text, 0))`
+          await expect(
+            withLegacyChannelSeed(
+              { client, database: db, lockName, rows, waitMs: 300 },
+              async () => {}
+            )
+          ).rejects.toThrow(/timed out waiting/)
+          expect(await present()).toEqual([leftoverId])
+        } finally {
+          await holder`select pg_advisory_unlock_all()`
+          holder.release()
+        }
+      },
+      async () => {
+        await removeFixtures()
+        await assertAdvisoryLockFree(client, lockName)
+      }
+    )
+  }, 300_000)
+
+  test('a failing first caller is settled together with the second one before teardown', async () => {
+    // The scenario abandons run B: run A rejects while B is still waiting for the lock, so the
+    // scenario throws before it ever awaits B. The teardown must still not run until B has
+    // finished, and by then neither the lock nor B's planted row may be left behind.
+    const lockName = `${LEGACY_SEED_LOCK_NAME}:self-test-failure:${run}`
+    const { present, rows, ownedId, leftoverId, removeFixtures } = selfTestFixture()
+    await db.insert(channels).values(seedRow(leftoverId, 'leftover-original'))
+    const failure = new Error('run A failed')
+    const events: string[] = []
+    let atTeardown: { events: string[]; present: string[] } | undefined
+
+    await expect(
+      runWithSettledCallers(
+        async (start) => {
+          const runA = start(
+            withLegacyChannelSeed({ client, database: db, lockName, rows }, async () => {
+              events.push('a:enter')
+              start(
+                withLegacyChannelSeed(
+                  { client, database: db, lockName, rows, waitMs: 10_000 },
+                  async (seed) => {
+                    events.push('b:enter')
+                    expect(seed.insertedIds).toEqual([ownedId])
+                    await new Promise((resolve) => setTimeout(resolve, 200))
+                    events.push('b:leave')
+                  }
+                )
+              )
+              // B is waiting on the lock now; A fails while holding it.
+              await new Promise((resolve) => setTimeout(resolve, 300))
+              events.push('a:throw')
+              throw failure
+            })
+          )
+          await runA
+          // Never reached: the line that used to be skipped, `await runB`, is not here at all.
+        },
+        async () => {
+          atTeardown = { events: [...events], present: await present() }
+          await removeFixtures()
+          await assertAdvisoryLockFree(client, lockName)
         }
       )
-      await runA
-      await runB
-      expect(events).toEqual(['a:enter', 'a:leave', 'b:enter', 'b:leave'])
-      // Both runs removed what they planted and neither removed the leftover.
-      expect(await present()).toEqual([leftoverId])
-      const [leftover] = await db.select().from(channels).where(eq(channels.id, leftoverId))
-      expect(leftover?.title).toBe('leftover-original')
+    ).rejects.toBe(failure)
 
-      // The lock is released on a failing body as well, and the rows planted are still removed.
-      await expect(
-        withLegacyChannelSeed({ client, database: db, lockName, rows }, async () => {
-          throw new Error('body failed')
-        })
-      ).rejects.toThrow('body failed')
-      expect(await present()).toEqual([leftoverId])
-      await withLegacyChannelSeed(
-        { client, database: db, lockName, rows, waitMs: 1_000 },
-        async () => undefined
-      )
-
-      // A lock that is never released surfaces as a bounded wait, not as a hang.
-      const holder = await client.reserve()
-      try {
-        await holder`select pg_advisory_lock(hashtextextended(${lockName}::text, 0))`
-        await expect(
-          withLegacyChannelSeed(
-            { client, database: db, lockName, rows, waitMs: 300 },
-            async () => {}
-          )
-        ).rejects.toThrow(/timed out waiting/)
-        expect(await present()).toEqual([leftoverId])
-      } finally {
-        await holder`select pg_advisory_unlock_all()`
-        holder.release()
-      }
-    } finally {
-      await db.delete(channels).where(inArray(channels.id, [ownedId, leftoverId]))
-    }
+    // B had entered, finished and removed its own row before the teardown ran, and the teardown
+    // found the lock free.
+    expect(atTeardown?.events).toEqual(['a:enter', 'a:throw', 'b:enter', 'b:leave'])
+    expect(atTeardown?.present).toEqual([leftoverId])
+    expect(await present()).toEqual([])
   }, 300_000)
+
+  test('the settling harness keeps the primary error and every cleanup error', async () => {
+    const primary = new Error('scenario failed')
+    const lateCaller = new Error('abandoned caller failed')
+    const teardownFailure = new Error('teardown failed')
+    // A lone primary error comes back as itself, after the abandoned caller has settled.
+    let settled = false
+    await expect(
+      runWithSettledCallers(
+        async (start) => {
+          start(
+            new Promise<void>((resolve) =>
+              setTimeout(() => {
+                settled = true
+                resolve()
+              }, 50)
+            )
+          )
+          throw primary
+        },
+        async () => {
+          expect(settled).toBe(true)
+        }
+      )
+    ).rejects.toBe(primary)
+
+    // The primary error, an abandoned caller's rejection and a failing teardown are all kept.
+    const combined = await runWithSettledCallers(
+      async (start) => {
+        start(slowReject(lateCaller))
+        throw primary
+      },
+      async () => {
+        throw teardownFailure
+      }
+    ).then(
+      () => undefined,
+      (error: unknown) => error
+    )
+    expect(combined).toBeInstanceOf(AggregateError)
+    expect((combined as AggregateError).errors).toEqual([primary, lateCaller, teardownFailure])
+
+    // A passing scenario with a failing teardown still fails.
+    await expect(
+      runWithSettledCallers(
+        async () => {},
+        async () => {
+          throw teardownFailure
+        }
+      )
+    ).rejects.toMatchObject({ errors: [teardownFailure] })
+
+    // A caller that fails after the scenario passed is not swallowed either.
+    await expect(
+      runWithSettledCallers(
+        async (start) => {
+          start(slowReject(lateCaller))
+        },
+        async () => {}
+      )
+    ).rejects.toMatchObject({ errors: [lateCaller] })
+  })
 
   test('mid-export project grants cannot expand channel or participant reads past the snapshot', async () => {
     const reader = await createTemporaryUserSession(db, {
