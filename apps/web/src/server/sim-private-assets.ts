@@ -51,12 +51,48 @@ export const SIM_LICENCE_WITHHELD_PREFIXES: readonly string[] = [
   'packages/pets/assets/',
 ]
 
-/** True when the key falls under a withheld prefix. */
+const MAX_DECODE_PASSES = 8
+
+/**
+ * Every spelling of a key an adapter could read, from the key as given to the fully decoded one.
+ *
+ * A storage adapter that decodes keys reads the decoded spelling, so a prefix check on the raw text
+ * alone is bypassed by an encoded ordinary letter (`%70ackages`). Only ASCII escapes are decoded:
+ * the withheld prefixes are ASCII, the decode is lenient so a stray malformed escape elsewhere in
+ * the key cannot stop it, and it repeats so a double encoding cannot hide a prefix.
+ *
+ * Returns null when a spelling is not a safe key (an escape that decodes into a separator, dot or
+ * NUL on a later pass), or when the key is still changing after the pass limit. The caller refuses
+ * the key in both cases.
+ */
+export function simAssetKeyForms(key: string): string[] | null {
+  const forms = [key]
+  let current = key
+  for (let pass = 0; pass < MAX_DECODE_PASSES; pass += 1) {
+    const next = current.replace(/%([0-7][0-9a-f])/giu, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16))
+    )
+    if (next === current) return forms
+    if (simPrivateAssetKey(next) === null) return null
+    forms.push(next)
+    current = next
+  }
+  return null
+}
+
+/**
+ * True when the key, in any spelling an adapter could read, falls under a withheld prefix. A key
+ * with no safe spelling is withheld too.
+ */
 export function simAssetKeyWithheld(key: string, withheld: readonly string[]): boolean {
-  const lower = key.toLowerCase()
-  return withheld.some((prefix) => {
-    const needle = prefix.toLowerCase()
-    return lower.startsWith(needle) || lower.includes(`/${needle}`)
+  const forms = simAssetKeyForms(key)
+  if (forms === null) return true
+  return forms.some((form) => {
+    const lower = form.toLowerCase()
+    return withheld.some((prefix) => {
+      const needle = prefix.toLowerCase()
+      return lower.startsWith(needle) || lower.includes(`/${needle}`)
+    })
   })
 }
 

@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   createSimPrivateAssetReader,
   SIM_LICENCE_WITHHELD_PREFIXES,
+  simAssetKeyForms,
   simAssetKeyWithheld,
   simPrivateAssetKey,
   SIM_PRIVATE_ASSET_LOCATION,
@@ -315,5 +316,81 @@ describe('the licence backstop', () => {
     })
     expect(await reader('packages/pets/assets/cat.glb')).toEqual(object)
     expect(await reader('packages/rooms/assets/room.glb')).toBeNull()
+  })
+})
+
+describe('the licence backstop against encoded names', () => {
+  // A storage adapter that decodes keys reads the decoded spelling. This store holds the withheld
+  // pack under its plain name and decodes ASCII escapes the way such an adapter would, so a key
+  // that slips past the prefix check would be served.
+  function decodingStore(objects: Record<string, typeof object>) {
+    const requests: string[] = []
+    return {
+      requests,
+      read: async ({ key }: { location: string; key: string }) => {
+        requests.push(key)
+        let decoded = key
+        for (let pass = 0; pass < 4; pass += 1) {
+          decoded = decoded.replace(/%([0-7][0-9a-f])/giu, (_, hex: string) =>
+            String.fromCharCode(Number.parseInt(hex, 16))
+          )
+        }
+        return objects[decoded] ?? null
+      },
+    }
+  }
+
+  const objects = {
+    'packages/pets/assets/cat.glb': object,
+    'scenes/sim/assets/tile a.png': object,
+    'engine min.js': object,
+  }
+
+  test('an encoded withheld pack path causes zero reads', async () => {
+    const store = decodingStore(objects)
+    const reader = createSimPrivateAssetReader({ location: 'agent-sim-export', read: store.read })
+    for (const encoded of [
+      '%70ackages/pets/assets/cat.glb',
+      '%50ACKAGES/pets/assets/cat.glb',
+      'packages/%70ets/assets/cat.glb',
+      'packages/pets/%61ssets/cat.glb',
+      'export/%70ackages/pets/assets/cat.glb',
+      // A double encoding, and a stray malformed escape that a lenient adapter ignores.
+      '%2570ackages/pets/assets/cat.glb',
+      '%70ackages/pets/assets/cat.glb%zz',
+    ]) {
+      expect(await reader(encoded)).toBeNull()
+    }
+    expect(store.requests).toEqual([])
+  })
+
+  test('a double-encoded separator or dot has no safe spelling', async () => {
+    const store = decodingStore(objects)
+    const reader = createSimPrivateAssetReader({ location: 'agent-sim-export', read: store.read })
+    for (const refused of ['packages%252fpets%252fassets%252fcat.glb', '%252e%252e/escape.js']) {
+      expect(simAssetKeyForms(refused)).toBeNull()
+      expect(await reader(refused)).toBeNull()
+    }
+    expect(store.requests).toEqual([])
+  })
+
+  test('approved keys, plain or with harmless escapes, are still read as given', async () => {
+    const store = decodingStore(objects)
+    const reader = createSimPrivateAssetReader({ location: 'agent-sim-export', read: store.read })
+    expect(await reader('scenes/sim/assets/tile%20a.png')).toEqual(object)
+    expect(await reader('engine%20min.js')).toEqual(object)
+    expect(store.requests).toEqual(['scenes/sim/assets/tile%20a.png', 'engine%20min.js'])
+  })
+
+  test('the spellings of a key run from the given one to the decoded one', () => {
+    expect(simAssetKeyForms('engine.js')).toEqual(['engine.js'])
+    expect(simAssetKeyForms('%2570ets')).toEqual(['%2570ets', '%70ets', 'pets'])
+  })
+
+  test('the plain path is still withheld when it is the only spelling', async () => {
+    const store = decodingStore(objects)
+    const reader = createSimPrivateAssetReader({ location: 'agent-sim-export', read: store.read })
+    expect(await reader('packages/pets/assets/cat.glb')).toBeNull()
+    expect(store.requests).toEqual([])
   })
 })
