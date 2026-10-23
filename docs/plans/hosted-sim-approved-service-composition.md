@@ -79,6 +79,18 @@ session up in durable storage, asks the entitlement policy about the workspace a
 - `createSimRedemptionStore` refuses to issue codes. Only the Adea backend issues them, and a code
   issued by the hosted service would have no verified workspace to bind to.
 
+### The Worker entry
+
+`apps/web/src/server/sim-host-worker.ts` is the Worker entry for the hosted service, and it is inert.
+The default export composes nothing, so every request answers `503 not_configured` and no private
+object is read. `createSimHostWorker(compose)` takes a composition that turns the Worker environment
+into the service ports. A missing, throwing or malformed composition answers the same closed
+response without sending the error text, and an omitted entitlement policy defaults to
+`denyAllSimEntitlement`, which answers `not_entitled` for every workspace and surface.
+
+No deployment configuration points at this module. It names no binding, hostname, storage engine or
+credential; choosing and wiring those stays with the decisions below.
+
 ### The private asset location
 
 `apps/web/src/server/sim-private-assets.ts` reads the engine export from one named private
