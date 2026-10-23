@@ -53,7 +53,7 @@ import {
 import { createProcessAdapter } from '../supervision/process-adapter'
 import type { SupervisionAdapter, SupervisionEvent } from '../supervision/supervisor'
 import type { SidecarClient } from '../dev-runtime/terminal/sidecar/client'
-import { createBunSecretsVaultKeyStore, createSystemVaultKeyStore } from '../dev-runtime/vault'
+import { createInMemoryVaultKeyStore } from '../dev-runtime/vault'
 import { windowTransparentFor } from '../window-surface'
 import {
   adoptShellTerminalSidecar,
@@ -141,10 +141,8 @@ const approvalVerifier = createOwnerApprovalVerifier({ dataDir: DATA_DIR })
 // graph; unsupported packaged Bun versions retain the legacy `security` path.
 // Migration never deletes the legacy slot and fails closed on any ambiguous
 // native-store result, so a runtime upgrade cannot fabricate a replacement key.
-const credentialStore = await createBunSecretsVaultKeyStore({
-  legacyStore: createSystemVaultKeyStore(),
-  runtimeVersion: Bun.version,
-})
+// QUALIFICATION OVERLAY (scratch only): never touch the real login keychain.
+const credentialStore = createInMemoryVaultKeyStore()
 
 let host: DevRuntimeHost | undefined
 let workspaceCleanup: WorkspaceCleanup | undefined
