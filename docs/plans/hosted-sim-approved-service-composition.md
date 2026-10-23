@@ -79,6 +79,18 @@ session up in durable storage, asks the entitlement policy about the workspace a
 - `createSimRedemptionStore` refuses to issue codes. Only the Adea backend issues them, and a code
   issued by the hosted service would have no verified workspace to bind to.
 
+### The Worker entry
+
+`apps/web/src/server/sim-host-worker.ts` is the Worker entry for the hosted service, and it is inert.
+The default export composes nothing, so every request answers `503 not_configured` and no private
+object is read. `createSimHostWorker(compose)` takes a composition that turns the Worker environment
+into the service ports. A missing, throwing or malformed composition answers the same closed
+response without sending the error text, and an omitted entitlement policy defaults to
+`denyAllSimEntitlement`, which answers `not_entitled` for every workspace and surface.
+
+No deployment configuration points at this module. It names no binding, hostname, storage engine or
+credential; choosing and wiring those stays with the decisions below.
+
 ### The private asset location
 
 `apps/web/src/server/sim-private-assets.ts` reads the engine export from one named private
@@ -127,13 +139,31 @@ The database integration suite (`packages/db/tests/integration/sim-launch-sessio
 covers the transactional behaviour against a real PostgreSQL: replay, concurrent consumption,
 expiry, a foreign bridge or origin, a failed session save and the revocation of a live session.
 
+## Decisions recorded on 2026-10-23
+
+Andrew settled these design questions. They decide what the source does. They do not authorize any
+live step, which stays gated (see the end of this section).
+
+| Gate | Decision                                                               | Source effect                                                                                                                                                                                                                                                                                                       |
+| ---- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1   | Entitlement is a deny-by-default per-workspace allowlist.              | `createSimAllowlistPolicy` in `apps/web/src/server/sim-allowlist.ts`. The allowlist is a lookup port. Only a literal `true` entitles; a missing row denies and a throwing lookup resolves to `unavailable`. Membership still never entitles, and temporary users have no row unless an operator adds one.           |
+| G2   | The target is the Railway Postgres the app already uses.               | No new provider. `0059_sim_launch_sessions.sql` stays unapplied. The allowlist table is not written yet: its migration number and owner wait for the migration queue.                                                                                                                                               |
+| G3   | A dedicated Worker on its own hostname.                                | The inert entry in `apps/web/src/server/sim-host-worker.ts` is that Worker's source. No hostname, route or binding exists.                                                                                                                                                                                          |
+| G4   | Assets marked no-redistribution are not served until counsel confirms. | `createSimPrivateAssetReader` withholds the six third-party pack prefixes by default and never asks the store for them. Adea-owned `scenes/sim/assets/` is not withheld. This is a request-side backstop, not a licence audit: the export layout has to be checked against the provenance record before any upload. |
+| G5   | The next stable desktop release is online-only for Virtual.            | The engine is already out of the desktop build, and the desktop answers an explicit unavailable or offline state. Nothing to build; no offline pack is planned.                                                                                                                                                     |
+| G7   | Plan a non-production rehearsal with teardown first.                   | [hosted-sim-nonproduction-rehearsal.md](hosted-sim-nonproduction-rehearsal.md). It is a plan only.                                                                                                                                                                                                                  |
+
+Still gated, each needing its own authorization naming the step: applying migration 0059 to any
+database, any DNS or hostname change, secrets or credentials and bindings, private asset upload
+and ACL changes, deployment, and the live rehearsal itself.
+
 ## What the approved service still needs from root
 
 These are decisions and actions, not source. None of them has been made here.
 
-1. **The entitlement policy.** The authoritative source that answers `entitled` for a workspace and
-   a surface, and its policy for signed-in users, temporary users, workspace membership and the
-   three surfaces. No such source exists in this repository today.
+1. **The entitlement allowlist.** The policy is decided (G1) and exists as source, but its lookup
+   port has no store: the allowlist rows, their table and the operator who adds them do not exist
+   yet.
 2. **The hosting destination.** The exact origin of the separately hosted service, its DNS, its
    cookie host separation from the app origin, and the deployment of that service. The host
    configuration refuses a parent on the same cookie host, so the destination cannot be a sibling
