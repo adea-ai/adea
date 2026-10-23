@@ -465,7 +465,10 @@ describe.skipIf(!provisioned)(
       expect(after.removedAgentPublish).toEqual({ denied: 'Channel unavailable' })
     })
 
-    test('upgrade, after quarantine: a quarantined member of the archived group is denied its history and publication', async () => {
+    test('upgrade, after quarantine: the archived group keeps read-only history for its retained participant, and refuses publication', async () => {
+      // #1222 (approved 2026-10-18): archiving does not revoke a previously authorized participant.
+      // The quarantine still withdraws the canonical admission (`group_channel_not_active`), but the
+      // read path keeps the retained roster's read-only history; every write still denies.
       const read = await settle(() =>
         listGroupChannelMessagesForUser(
           upgrade.runtime.db,
@@ -475,7 +478,8 @@ describe.skipIf(!provisioned)(
           {}
         )
       )
-      expect('denied' in read).toBe(true)
+      expect('denied' in read).toBe(false)
+      expect('denied' in read ? [] : visibleSequences(read.value)).toEqual([])
       const write = await settle(() =>
         groupPost(
           upgrade.runtime.db,

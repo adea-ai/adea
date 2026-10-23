@@ -33,10 +33,12 @@ import {
 import {
   admissionInForce,
   admissionForParticipant,
+  archivedGroupReadAllowedForUser,
   loadGroupAdmission,
   groupChannelIdsInForce,
   loadGroupRoster,
   loadGroupSharingGrants,
+  retainedArchivedGroupParticipants,
 } from './group-participation-store'
 import {
   canReadProject,
@@ -370,6 +372,12 @@ export async function groupParticipantsInForce(
       options.authorizationRecordLimit
     )
   const roster = await loadGroupRoster(database, row.workspaceId, row.id)
+  // An archived legacy group has no canonical admissions; its retained, still-admissible roster is
+  // the read-only audience its listing shows (#1222).
+  if (row.lifecycleState === 'archived' && roster.length === 0)
+    return (await retainedArchivedGroupParticipants(database, row.workspaceId, row.id)).toSorted(
+      compareByStableKey
+    )
   return roster
     .filter((admission) => admissionInForce(admission, row.id, now))
     .map((admission) => admission.participant)
@@ -415,7 +423,12 @@ export async function requireChannelAccess(
     principal,
     'Channel unavailable'
   )
-  const channel = await requireChannel(database, workspaceId, channelId, { includeArchived })
+  // A read may serve an archived group read-only (#1222), so reads resolve the row without the
+  // lifecycle filter and apply the archived rule explicitly; every other case keeps the filter.
+  const channel = await requireChannel(database, workspaceId, channelId, {
+    includeArchived: includeArchived || mode === 'read',
+  })
+  const archived = channel.lifecycleState !== 'active'
   if (!canReadProject(scope, channel.projectId)) throw new Error('Channel unavailable')
   if (mode === 'write' && !canWriteProject(scope, channel.projectId))
     throw new Error('Project read-only')
@@ -433,23 +446,41 @@ export async function requireChannelAccess(
           channelId,
           authorizationRecordLimit
         )
-      if (!(await groupAdmissionInForce(database, workspaceId, channelId, principal.userId, now)))
-        throw new Error('Channel unavailable')
+      // An archived group keeps its history read-only for the audience its records still prove
+      // (#1222); an active group requires an in-force canonical admission, as before.
+      const allowed = archived
+        ? await archivedGroupReadAllowedForUser(
+            database,
+            workspaceId,
+            channelId,
+            principal.userId,
+            now
+          )
+        : await groupAdmissionInForce(database, workspaceId, channelId, principal.userId, now)
+      if (!allowed) throw new Error('Channel unavailable')
+    } else if (archived) {
+      // Writes never reach a frozen group.
+      throw new Error('Channel unavailable')
     }
-  } else if (channel.visibility === 'participants') {
-    const [participant] = await database
-      .select({ id: channelParticipants.id })
-      .from(channelParticipants)
-      .where(
-        and(
-          eq(channelParticipants.workspaceId, workspaceId),
-          eq(channelParticipants.channelId, channelId),
-          eq(channelParticipants.principalKind, 'user'),
-          eq(channelParticipants.userId, principal.userId)
+  } else {
+    // A non-group archived channel is served only to a caller that explicitly asked for archived
+    // rows, matching the pre-existing lifecycle rule.
+    if (archived && !includeArchived) throw new Error('Channel unavailable')
+    if (channel.visibility === 'participants') {
+      const [participant] = await database
+        .select({ id: channelParticipants.id })
+        .from(channelParticipants)
+        .where(
+          and(
+            eq(channelParticipants.workspaceId, workspaceId),
+            eq(channelParticipants.channelId, channelId),
+            eq(channelParticipants.principalKind, 'user'),
+            eq(channelParticipants.userId, principal.userId)
+          )
         )
-      )
-      .limit(1)
-    if (!participant) throw new Error('Channel unavailable')
+        .limit(1)
+      if (!participant) throw new Error('Channel unavailable')
+    }
   }
   return channel
 }
@@ -2028,7 +2059,8 @@ async function projectGroupHistoryVisibleRows(
   principal: UserPrincipalRef,
   rows: readonly MessageRow[],
   now: string,
-  authorizationRecordLimit?: number
+  authorizationRecordLimit?: number,
+  archivedGroupRead = false
 ): Promise<MessageRow[]> {
   if (!rows.length) return []
   if (authorizationRecordLimit !== undefined)
@@ -2037,8 +2069,15 @@ async function projectGroupHistoryVisibleRows(
     loadGroupRoster(database, workspaceId, channelId),
     loadGroupSharingGrants(database, workspaceId, channelId),
   ])
-  const admission = admissionForParticipant(roster, { kind: 'user', userId: principal.userId })
+  // An archived legacy group has no canonical admission to gate on, so the caller's archived read
+  // authorization is the whole audience and the frozen history is readable in full (#1222). An
+  // archived group that reached the grant model keeps its normal join-point history policy.
+  const legacyArchivedRead = archivedGroupRead && roster.length === 0
+  const admission = legacyArchivedRead
+    ? null
+    : admissionForParticipant(roster, { kind: 'user', userId: principal.userId })
   const historyAllowed = (row: Pick<MessageRow, 'createdAt' | 'sequence'>) =>
+    legacyArchivedRead ||
     decideGroupHistoryRead({
       admission,
       entry: { occurredAt: row.createdAt.toISOString(), sequence: row.sequence },
@@ -2205,7 +2244,8 @@ async function projectMessageRowsForUser(
           principal,
           jobVisibleRows,
           now ?? new Date().toISOString(),
-          authorizationRecordLimit
+          authorizationRecordLimit,
+          channel.lifecycleState !== 'active'
         )
       : jobVisibleRows
   const reads = await readMessageChildReads(
@@ -2462,7 +2502,9 @@ async function getMessageForUserInSnapshot(
     message.channelId,
     principal,
     [message],
-    now
+    now,
+    undefined,
+    channel.lifecycleState !== 'active'
   )
   if (!visible.length) throw new Error('Message unavailable')
   return messageSummary(database, visible[0]!)

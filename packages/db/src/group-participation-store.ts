@@ -363,6 +363,123 @@ export function admissionInForce(
   return admission !== null && decideGroupTurn({ admission, groupId, now }).action === 'allow'
 }
 
+/**
+ * Read-only standing in an ARCHIVED group (#1222). Archiving freezes a conversation; by itself it
+ * does not revoke an audience. A user keeps read-only access when either:
+ *
+ * - they still hold an in-force canonical admission — a group that reached the grant model and was
+ *   archived afterwards; or
+ * - the group never received canonical admissions at all (the 0050 backfill admitted active groups
+ *   only), and their retained legacy roster row still proves a live principal: a current member of
+ *   the channel's workspace.
+ *
+ * A revoked admission is never revived from the retained roster: the presence of ANY canonical
+ * admission row for the group puts the canonical model in charge, so a principal the canonical
+ * records no longer admit stays denied. This helper grants no turn and no write — every write path
+ * still requires an active channel and its own standing check.
+ */
+export async function archivedGroupReadAllowedForUser(
+  database: GroupStoreDatabase,
+  workspaceId: string,
+  channelId: string,
+  userId: string,
+  now: string
+): Promise<boolean> {
+  if (
+    admissionInForce(
+      await loadGroupAdmission(database, workspaceId, channelId, { kind: 'user', userId }),
+      channelId,
+      now
+    )
+  )
+    return true
+  const [canonical] = await database
+    .select({ id: groupAdmissions.id })
+    .from(groupAdmissions)
+    .where(
+      and(eq(groupAdmissions.workspaceId, workspaceId), eq(groupAdmissions.channelId, channelId))
+    )
+    .limit(1)
+  if (canonical) return false
+  const [retained] = await database
+    .select({ id: channelParticipants.id })
+    .from(channelParticipants)
+    .innerJoin(
+      workspaceMemberships,
+      and(
+        eq(workspaceMemberships.workspaceId, workspaceId),
+        eq(workspaceMemberships.userId, userId)
+      )
+    )
+    .where(
+      and(
+        eq(channelParticipants.workspaceId, workspaceId),
+        eq(channelParticipants.channelId, channelId),
+        eq(channelParticipants.principalKind, 'user'),
+        eq(channelParticipants.userId, userId)
+      )
+    )
+    .limit(1)
+  return Boolean(retained)
+}
+
+/**
+ * The retained, still-admissible audience of an archived legacy group: the principals its roster
+ * rows prove are live in the workspace, for a read-only listing. Consulted only when the group has
+ * no canonical admissions at all, matching `archivedGroupReadAllowedForUser`.
+ */
+export async function retainedArchivedGroupParticipants(
+  database: GroupStoreDatabase,
+  workspaceId: string,
+  channelId: string
+): Promise<ConversationParticipantRef[]> {
+  const [userRows, agentRows] = await Promise.all([
+    database
+      .select({ userId: channelParticipants.userId })
+      .from(channelParticipants)
+      .innerJoin(
+        workspaceMemberships,
+        and(
+          eq(workspaceMemberships.workspaceId, workspaceId),
+          eq(workspaceMemberships.userId, channelParticipants.userId)
+        )
+      )
+      .where(
+        and(
+          eq(channelParticipants.workspaceId, workspaceId),
+          eq(channelParticipants.channelId, channelId),
+          eq(channelParticipants.principalKind, 'user')
+        )
+      ),
+    database
+      .select({ agentId: channelParticipants.agentId })
+      .from(channelParticipants)
+      .innerJoin(
+        agents,
+        and(
+          eq(agents.id, channelParticipants.agentId),
+          eq(agents.workspaceId, workspaceId),
+          eq(agents.lifecycleState, 'active')
+        )
+      )
+      .where(
+        and(
+          eq(channelParticipants.workspaceId, workspaceId),
+          eq(channelParticipants.channelId, channelId),
+          eq(channelParticipants.principalKind, 'agent')
+        )
+      ),
+  ])
+  return [
+    ...userRows
+      .filter((row): row is { userId: string } => row.userId !== null)
+      .map((row): ConversationParticipantRef => ({ kind: 'user', userId: row.userId })),
+    ...agentRows
+      .filter((row): row is { agentId: string } => row.agentId !== null)
+      .map((row): ConversationParticipantRef => ({ agentId: row.agentId, kind: 'agent' })),
+  ]
+}
+
 /** Group ids whose retained user admission resolves to a live, matching grant. */
 export async function groupChannelIdsInForce(
   database: GroupStoreDatabase,
