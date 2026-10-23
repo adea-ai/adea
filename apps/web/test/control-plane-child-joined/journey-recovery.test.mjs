@@ -1,8 +1,8 @@
-// Opt-in joined proof for #1173: failures at the message->dispatch, terminal receipt and publication
-// boundaries. Adea's side runs as its own OS process and is SIGKILLed at each boundary, so every
-// recovery starts a new process that has only PostgreSQL and the CP control API to go on. CP's side
-// is reopened in-process only (its fixture cannot reopen a composition in a new process), which is
-// said wherever it is used. See README.md "Lead-to-child journey".
+// Opt-in joined proof for #1173: failures at the message->dispatch, child acceptance, terminal
+// receipt and publication boundaries. Adea's side runs as its own OS process and is SIGKILLed at
+// each boundary, so every recovery starts a new process that has only PostgreSQL and the CP control
+// API to go on. CP's side is reopened in-process only (its fixture cannot reopen a composition in a
+// new process), which is said wherever it is used. See README.md "Lead-to-child journey".
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { startJourney, verifyJourneyPackages, finalText } from './journey-support.mjs'
 
@@ -76,6 +76,57 @@ describe('crash and restart recovery across the journey boundaries', () => {
     expect(retried.exitCode).toBe(0)
     expect((await journey.runtimeRow()).dispatchId).toBe(row.dispatchId)
     expect((await control('evidence')).canonical).toEqual(during.canonical)
+  }, 120000)
+
+  test('a process killed while the accepted child is in flight loses nothing; a restart reads the same binding', async () => {
+    // The child's provider send is held so the acceptance is observable in flight, then the lead
+    // is released to delegate. CP accepts and starts the child exactly once.
+    await control('hold', { name: 'child-send' })
+    await control('release', { name: 'lead-first' })
+    const accepted = await journey.waitFor(
+      () => control('evidence'),
+      (e) => e.childStarts === 1 && e.delegations.length === 1 && Boolean(e.child),
+      'child accepted and started once'
+    )
+    expect(accepted.lead).toMatchObject(ids)
+    expect(accepted.leadSends).toBe(1)
+    expect(accepted.childSends).toBe(1)
+    expect(accepted.canonical).toMatchObject({
+      commands: 1,
+      executions: 2,
+      attempts: 2,
+      budgets: 2,
+    })
+    expect(await journey.publishedMessages()).toHaveLength(0)
+    const beforeKill = await journey.runtimeRow()
+    expect(beforeKill.publishedMessageId).toBeNull()
+
+    // The Adea process reads the accepted child and dies before storing the observation.
+    const killed = await journey.driver('status', { fault: 'child-acceptance-lost' })
+    expect(killed.killed).toBe(true)
+    expect(killed.result).toBeUndefined()
+    // Nothing durable moved: the same binding, no message, no extra CP work, one child start.
+    expect(await journey.runtimeRow()).toEqual(beforeKill)
+    expect(await journey.publishedMessages()).toHaveLength(0)
+    expect(await journey.channelMessages()).toHaveLength(1)
+    const afterKill = await control('evidence')
+    expect(afterKill.canonical).toEqual(accepted.canonical)
+    expect(afterKill.childStarts).toBe(1)
+    expect(afterKill.physicalSends).toBe(accepted.physicalSends)
+    expect(afterKill.publications).toHaveLength(0)
+
+    // A restarted process re-reads the same binding without dispatching, preparing or sending.
+    const recovered = await journey.driver('status')
+    expect(recovered.exitCode).toBe(0)
+    expect(['starting', 'running']).toContain(recovered.result.state)
+    expect(await journey.runtimeRow()).toEqual(beforeKill)
+    const afterRecover = await control('evidence')
+    expect(afterRecover.canonical).toEqual(accepted.canonical)
+    expect(afterRecover.childStarts).toBe(1)
+    expect(afterRecover.physicalSends).toBe(accepted.physicalSends)
+
+    // The child's held reply is released so the journey can continue to its terminal receipt.
+    await control('release', { name: 'child-send' })
   }, 120000)
 
   test('the child is accepted once; a terminal receipt lost to Adea is read again after a restart', async () => {
