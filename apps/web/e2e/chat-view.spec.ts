@@ -887,3 +887,58 @@ test('offers no queue when the host does not provide one', async ({ page }) => {
   await expect(page.locator('[data-chat-follow-ups]')).toHaveCount(0)
   expect(errors).toEqual([])
 })
+
+// Checkpoint restore (part of #1383): a checkpoint offers Restore only when the host marked it
+// restorable and gave the canvas a restore operation, asks first, and reports only the host's
+// typed outcome. The fixture stands in for the host.
+async function openRestoreFixture(page: Page, mode?: 'ok' | 'fail') {
+  await mockBootstrap(page)
+  await page.goto(
+    `/?view=chat&chatE2e=visual&chatState=results${mode ? `&chatRestore=${mode}` : ''}`
+  )
+  await expect(page.locator('[data-chat-visual-state="results"]')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('[data-dev-chat]')).toBeVisible()
+}
+
+test('a checkpoint the host did not mark restorable is only a marker', async ({ page }) => {
+  const errors = trackPageErrors(page)
+  await openRestoreFixture(page)
+  await expect(page.getByText('Before the journal fix')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Restore', exact: true })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('restoring asks first and the conversation continues as the host’s new generation', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openRestoreFixture(page, 'ok')
+  const fixture = page.locator('[data-chat-visual-state="results"]')
+  await expect(fixture).toHaveAttribute('data-chat-generation', '3')
+  await page.getByRole('button', { name: 'Restore', exact: true }).click()
+  const dialog = page.getByRole('alertdialog')
+  await expect(dialog.getByText('Restore to “Before the journal fix”?')).toBeVisible()
+  // Declining changes nothing.
+  await dialog.getByRole('button', { name: 'Do not restore' }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(fixture).toHaveAttribute('data-chat-generation', '3')
+  await page.getByRole('button', { name: 'Restore', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Restore', exact: true }).click()
+  await expect(fixture).toHaveAttribute('data-chat-generation', '4')
+  expect(errors).toEqual([])
+})
+
+test('a restore the host failed is reported as failed, not as a restore', async ({ page }) => {
+  const errors = trackPageErrors(page)
+  await openRestoreFixture(page, 'fail')
+  const fixture = page.locator('[data-chat-visual-state="results"]')
+  await page.getByRole('button', { name: 'Restore', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Restore', exact: true }).click()
+  await expect(
+    page.getByText(
+      'Restore failed: The host no longer holds this checkpoint, so it cannot be restored.'
+    )
+  ).toBeVisible()
+  await expect(fixture).toHaveAttribute('data-chat-generation', '3')
+  expect(errors).toEqual([])
+})

@@ -5,6 +5,10 @@ import {
   createTranscriptAccumulator,
   latestQueueVersion,
   transcriptWindow,
+  bindCheckpointRestore,
+  createCheckpointRestorer,
+  type CheckpointRestorePort,
+  type CheckpointRestored,
   type FollowUpQueuePort,
 } from './model'
 import {
@@ -76,7 +80,11 @@ export type ChatViewProps = Readonly<{
     Partial<
       Pick<
         ChatConversationModel,
-        'draftRevision' | 'setDraftIfCurrent' | 'createPasteBlockId' | 'followUps'
+        | 'draftRevision'
+        | 'setDraftIfCurrent'
+        | 'createPasteBlockId'
+        | 'followUps'
+        | 'checkpointRestore'
       >
     >
   /**
@@ -84,6 +92,16 @@ export type ChatViewProps = Readonly<{
    * offered: queueing is a host capability, not something the surface can assume.
    */
   followUps?: FollowUpQueuePort
+  /**
+   * The host's checkpoint restore, when it is not the model's. Without either, no checkpoint
+   * offers a restore even if the host marked it restorable.
+   */
+  checkpointRestore?: CheckpointRestorePort
+  /**
+   * The host restored the conversation: it continues as `restoredGeneration`. The surface does
+   * not move itself; the parent loads the session the host now publishes.
+   */
+  onCheckpointRestored?: (restored: CheckpointRestored) => void
   authority?: ChatInputAuthority
   connected?: boolean
   awaitingApproval?: boolean
@@ -547,6 +565,22 @@ export function ChatView(props: ChatViewProps): JSX.Element {
             runtimeSessionId: props.conversation.runtimeSessionId,
             generation: props.conversation.generation,
           }
+          const restorePort = props.checkpointRestore ?? props.model?.checkpointRestore
+          const restorer = restorePort
+            ? createCheckpointRestorer({ port: restorePort, identity: readingIdentity })
+            : undefined
+          onCleanup(() => restorer?.dispose())
+          const restoreCheckpoint = restorer
+            ? bindCheckpointRestore({
+                restorer,
+                identity: readingIdentity,
+                current: () => ({
+                  runtimeSessionId: props.conversation.runtimeSessionId,
+                  generation: props.conversation.generation,
+                }),
+                onRestored: (restored) => props.onCheckpointRestored?.(restored),
+              })
+            : undefined
           return (
             <ChatTranscript
               events={transcript().events}
@@ -557,6 +591,11 @@ export function ChatView(props: ChatViewProps): JSX.Element {
               awaitingApproval={props.awaitingApproval}
               onResolveApproval={props.onResolveApproval}
               onResolveQuestion={props.onResolveQuestion}
+              onRestoreCheckpoint={
+                restoreCheckpoint
+                  ? (checkpoint) => restoreCheckpoint(checkpoint.checkpointEventId)
+                  : undefined
+              }
               hasOlder={history().hasOlder}
               loadingOlder={history().loading}
               onLoadOlder={historyControl.load}

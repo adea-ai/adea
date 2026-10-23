@@ -45,7 +45,11 @@ import {
   retentionTurnScript,
   richEvents,
 } from './visual-fixture-data'
-import { createFixtureFollowUpHost, type FixtureFollowUpMode } from './visual-fixture-follow-ups'
+import {
+  createFixtureCheckpointRestore,
+  createFixtureFollowUpHost,
+  type FixtureFollowUpMode,
+} from './visual-fixture-follow-ups'
 import './visual-fixture.css'
 
 export type ChatVisualFixtureState =
@@ -590,7 +594,22 @@ function retainingModel(
 
 export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureState }>) {
   const state = props.state ?? 'conversation'
-  const events = state === 'attention' ? attentionEvents : (STATE_EVENTS[state] ?? transcriptEvents)
+  // `chatRestore=ok|fail` marks the fixture checkpoint restorable and stands up a stand-in for the
+  // host's restore; without it the checkpoint is the marker the host reported (restore unavailable).
+  const restoreMode = new URLSearchParams(window.location.search).get('chatRestore')
+  const baseEvents =
+    state === 'attention' ? attentionEvents : (STATE_EVENTS[state] ?? transcriptEvents)
+  const events =
+    restoreMode === 'ok' || restoreMode === 'fail'
+      ? baseEvents.map((item) =>
+          item.kind === 'checkpoint.observed'
+            ? {
+                ...item,
+                payload: { ...(item.payload as object), restore: { supported: true } },
+              }
+            : item
+        )
+      : baseEvents
   const model =
     state === 'reconnect'
       ? reconnectModel()
@@ -732,6 +751,15 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                   new URLSearchParams(window.location.search).has('chatHandoff') ? {} : undefined
                 }
                 followUps={followUps}
+                checkpointRestore={
+                  restoreMode === 'ok' || restoreMode === 'fail'
+                    ? createFixtureCheckpointRestore(restoreMode)
+                    : undefined
+                }
+                onCheckpointRestored={({ restoredGeneration }) => {
+                  setGeneration(restoredGeneration)
+                  setMountKey((key) => key + 1)
+                }}
                 usageModel={
                   state === 'results-edge'
                     ? { providerId: 'anthropic', modelId: 'fixture-model' }
