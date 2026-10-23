@@ -119,8 +119,12 @@ Child outcome delivery needs the exact admitted parent/child mapping and retaine
 inbox artifact. The opt-in child reconciler calls the versioned Control Plane child
 publication operation for each retained terminal child, verifies the exact parent
 and child attempts, then rechecks that operation while holding the current Adea
-reader, original actor, runtime-binding and rollback locks. PostgreSQL migration
-0061 commits one canonical channel message and an independent
+reader, original actor, runtime-binding and rollback locks. Under the same canonical
+channel lock it also decides every addressed claim that carries the lead intent, before
+any message or receipt replay: a legacy claim without a retained grant binding, or claims
+that disagree on the grant id or revision, hold the outcome exactly as they hold a lead
+result. PostgreSQL migration
+0063 commits one canonical channel message and an independent
 `lead_child_publications` receipt in the same transaction. Duplicate delivery and
 process reconnect replay the receipt; contradictory evidence is refused. The
 desktop child poll retries the explicit publication command on reconnect. Its
@@ -136,13 +140,13 @@ child artifacts. The installed SDK must export
 `getPiDurableChildPublication`; older releases leave this path unavailable.
 
 A retained child's role and failure code are owned by the Control Plane, whose published
-schema types both as free strings. One bounded grammar in `@adea-ai/types` therefore
-governs every Adea path: a role is a bounded token, a failure code is bounded plain
-text, and neither may carry a control or format character or run away in length. The
-SDK adapter refuses an unbounded or non-terminal publication before it becomes evidence,
-the publication transaction refuses the same values, and the mounted surface shows an
-unbounded role as an unknown role and omits an unbounded failure code. A value the
-surface may show is therefore a value the product may publish.
+schema types both as free strings. One canonical token grammar in `@adea-ai/types` therefore
+governs every Adea path: a role and a failure code are each a token of 1 to 256 characters
+that starts with an ASCII letter or digit and then uses only ASCII letters, digits, `.`, `_`,
+`:`, `/` and `-`. The SDK adapter refuses a non-canonical or non-terminal publication before
+it becomes evidence, the publication transaction refuses the same values, and the mounted
+surface shows a non-canonical role as an unknown role and omits a non-canonical failure
+code. A value the surface may show is therefore a value the product may publish.
 
 The display read and the server projector order children by the instant they were
 accepted and by delegation id within one instant, so the same instant spelled with a
@@ -150,7 +154,7 @@ different precision is one ordered page and not a regression. An unavailable chi
 keeps the Control Plane's own reason for it: a lead that was never dispatched is not an
 unusable response. The receipt digest of a published outcome is computed over canonical
 JSON, so two deliveries of the same outcome hash the same however their evidence was
-constructed, and a changed outcome still conflicts. Migration 0061 is new in this change,
+constructed, and a changed outcome still conflicts. Migration 0063 is new in this change,
 so no released receipt depends on the previous digest.
 
 ## Reproducible local checks

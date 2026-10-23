@@ -633,6 +633,25 @@ async function assertAddressedTurnPublication(
 }
 
 /**
+ * Holds a publication for one lead intent unless every addressed claim that carries the intent
+ * agrees on a provable participation binding that is still current.
+ *
+ * The caller must already hold the canonical channel lock on `transaction`, so the claims read
+ * here cannot change before that transaction commits. An intent with no addressed claim, or one
+ * in a channel that is not a group, has nothing to hold. Publication paths call this before any
+ * message or receipt replay, so a replay cannot outlive the authority that admitted the work.
+ */
+export async function assertAddressedTurnClaimsPublishable(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  intentId: string,
+  now: string
+): Promise<void> {
+  const current = await loadAddressedTurnPublication(transaction, workspaceId, intentId)
+  if (current) await assertAddressedTurnPublication(transaction, workspaceId, current, now)
+}
+
+/**
  * Name the group fence behind a refused publication.
  *
  * The channel pin and the lead resolution refuse the same roster change the

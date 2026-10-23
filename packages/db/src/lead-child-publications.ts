@@ -9,7 +9,10 @@ import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { createRuntimeResultMessage } from './conversations'
 import { leadChildOutcomeDigest } from './lead-child-outcome-digest'
 import { assertLeadTurnNotFenced } from './lead-turn-rollback'
-import type { LeadTurnRuntimeBinding } from './lead-turn-runtime'
+import {
+  assertAddressedTurnClaimsPublishable,
+  type LeadTurnRuntimeBinding,
+} from './lead-turn-runtime'
 import { withAuthorizedLeadTurn } from './lead-turns'
 import { leadChildPublications } from './schema/lead-child-publications'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
@@ -109,6 +112,14 @@ export function publishLeadChildTerminal(
           throw new Error('CHILD_PUBLICATION_WITHHELD')
         await assertLeadTurnNotFenced(publicationTx, admitted.id, 'share')
         await assertCurrentGrant(publicationTx)
+        // The addressed claims that carry this intent are decided under the canonical channel lock
+        // this transaction holds, before any message or receipt replay, as the lead result is.
+        await assertAddressedTurnClaimsPublishable(
+          publicationTx,
+          workspaceId,
+          admitted.id,
+          new Date().toISOString()
+        )
         const digest = leadChildOutcomeDigest(binding, evidence)
         const [existing] = await publicationTx
           .select()
