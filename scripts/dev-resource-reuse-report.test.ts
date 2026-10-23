@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -472,6 +472,13 @@ describe('the command itself', () => {
     const leases = join(root, 'leases')
     mkdirSync(leases)
     const reportPath = join(root, 'report.json')
+    // A Docker daemon that lists nothing, so this success path does not depend on the host's
+    // Docker. A Docker that cannot be read fails the command closed, and the boundary tests
+    // assert that.
+    const bin = join(root, 'bin')
+    mkdirSync(bin)
+    writeFileSync(join(bin, 'docker'), '#!/bin/sh\nexit 0\n')
+    chmodSync(join(bin, 'docker'), 0o755)
 
     const result = spawnSync(
       process.execPath,
@@ -484,7 +491,7 @@ describe('the command itself', () => {
         '--report',
         reportPath,
       ],
-      { encoding: 'utf8' }
+      { encoding: 'utf8', env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ''}` } }
     )
     expect(result.status).toBe(0)
     const report = JSON.parse(readFileSync(reportPath, 'utf8'))
