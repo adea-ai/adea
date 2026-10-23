@@ -6,6 +6,7 @@ import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
 import { createEffect, createMemo, createSignal, onCleanup, onMount, Show } from 'solid-js'
 import {
   createLeadTurnViewController,
+  leadChildAllowanceText,
   leadFundingBinding,
   leadPreparationCurrent,
   leadTurnCanCancel,
@@ -260,6 +261,9 @@ export function LeadTurnControls(props: {
                 {value().fundingOwner.kind}, {value().fundingOwner.ownerRef})
               </p>
               <p>Authorization expires: {value().expiresAt}</p>
+              <Show when={view().turn?.state === 'prepared'}>
+                <p>{leadChildAllowanceText(view().turn?.childAllowance)}</p>
+              </Show>
               <Show when={view().turn?.state === 'prepared' && !view().requiresNewAdmission}>
                 <Button
                   size="sm"

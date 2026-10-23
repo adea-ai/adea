@@ -32,6 +32,16 @@ export type LeadTurnReasonCode =
   | 'FUNDING_CONFIRMATION_REQUIRED'
   | 'REQUESTED_MODEL_MISMATCH'
   | 'MODEL_NOT_READY'
+/** What the accepted lead plan holds back for child executions. Absent means not disclosed. */
+export type ApiLeadChildAllowance =
+  | Readonly<{
+      state: 'stated'
+      executionPlanDigest: string
+      currency: 'USD'
+      maximumMicrounits: number
+      maximumTokens: number
+    }>
+  | Readonly<{ state: 'not_stated'; executionPlanDigest: string }>
 export type ApiLeadTurnStatus = Readonly<{
   schemaVersion: 'adea-lead-turn/v1'
   intentId: string
@@ -49,6 +59,8 @@ export type ApiLeadTurnStatus = Readonly<{
   selectionRevision?: number
   preparationRef?: string
   preparationExpiresAt?: string
+  /** Present only for a preparation the control plane disclosed a child allowance for. */
+  childAllowance?: ApiLeadChildAllowance
   /** Reference to the canonical runtime session, not a second session record. */
   runtimeSessionId?: string
   /** Exact admission target retained on the intent; absent for legacy admissions. */

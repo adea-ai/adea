@@ -10,6 +10,17 @@ import { withAuthorizedLeadTurn, withHistoricalLeadTurn } from './lead-turns'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
 import { leadTurnIntents } from './schema/lead-turns'
 
+/** What the accepted lead plan holds back for child executions, as the control plane disclosed it. */
+export type LeadTurnChildAllowance = Readonly<
+  | {
+      state: 'stated'
+      executionPlanDigest: string
+      currency: 'USD'
+      maximumMicrounits: number
+      maximumTokens: number
+    }
+  | { state: 'not_stated'; executionPlanDigest: string }
+>
 export type LeadTurnAcceptedSelection = Readonly<{
   workspaceId: string
   intentId: string
@@ -19,6 +30,8 @@ export type LeadTurnAcceptedSelection = Readonly<{
   selectionRevision: number
   preparationRef: string
   expiresAt: string
+  /** Absent when the control plane predates the disclosure; absence is not `not_stated`. */
+  childAllowance?: LeadTurnChildAllowance
 }>
 export type LeadTurnRuntimeBinding = Readonly<{
   intentId: string
@@ -40,6 +53,26 @@ export type LeadTurnObservedState =
 type Row = typeof leadTurnRuntime.$inferSelect
 const terminal = (state: string) =>
   ['completed', 'failed', 'cancelled', 'timed_out'].includes(state)
+function childAllowanceOf(row: Row): LeadTurnChildAllowance {
+  if (row.childAllowanceState === 'stated') {
+    if (
+      row.childAllowancePlanDigest === null ||
+      row.childAllowanceMaximumMicrounits === null ||
+      row.childAllowanceMaximumTokens === null
+    )
+      throw new Error('RUNTIME_RESPONSE_INVALID')
+    return {
+      state: 'stated',
+      executionPlanDigest: row.childAllowancePlanDigest,
+      currency: 'USD',
+      maximumMicrounits: row.childAllowanceMaximumMicrounits,
+      maximumTokens: row.childAllowanceMaximumTokens,
+    }
+  }
+  if (row.childAllowanceState !== 'not_stated' || row.childAllowancePlanDigest === null)
+    throw new Error('RUNTIME_RESPONSE_INVALID')
+  return { state: 'not_stated', executionPlanDigest: row.childAllowancePlanDigest }
+}
 function summary(row: Row, messageId: string) {
   return {
     intentId: row.intentId,
@@ -51,6 +84,7 @@ function summary(row: Row, messageId: string) {
     selectionRevision: row.selectionRevision,
     preparationRef: row.preparationRef,
     preparationExpiresAt: row.preparationExpiresAt.toISOString(),
+    ...(row.childAllowanceState ? { childAllowance: childAllowanceOf(row) } : {}),
     ...(row.dispatchId ? { dispatchId: row.dispatchId } : {}),
     ...(row.runtimeSessionId ? { runtimeSessionId: row.runtimeSessionId } : {}),
     ...(row.observedAt ? { observedAt: row.observedAt.toISOString() } : {}),
@@ -210,6 +244,38 @@ export async function authorizeLeadTurnFundingBinding(
     return false
   }
 }
+function childAllowanceColumns(value: LeadTurnChildAllowance | undefined) {
+  if (value === undefined)
+    return {
+      childAllowanceState: null,
+      childAllowancePlanDigest: null,
+      childAllowanceMaximumMicrounits: null,
+      childAllowanceMaximumTokens: null,
+    }
+  if (!/^sha256:[a-f0-9]{64}$/.test(value.executionPlanDigest))
+    throw new Error('RUNTIME_RESPONSE_INVALID')
+  if (value.state === 'not_stated')
+    return {
+      childAllowanceState: 'not_stated',
+      childAllowancePlanDigest: value.executionPlanDigest,
+      childAllowanceMaximumMicrounits: null,
+      childAllowanceMaximumTokens: null,
+    }
+  if (
+    value.currency !== 'USD' ||
+    !Number.isSafeInteger(value.maximumMicrounits) ||
+    value.maximumMicrounits < 0 ||
+    !Number.isSafeInteger(value.maximumTokens) ||
+    value.maximumTokens < 0
+  )
+    throw new Error('RUNTIME_RESPONSE_INVALID')
+  return {
+    childAllowanceState: 'stated',
+    childAllowancePlanDigest: value.executionPlanDigest,
+    childAllowanceMaximumMicrounits: value.maximumMicrounits,
+    childAllowanceMaximumTokens: value.maximumTokens,
+  }
+}
 export function prepareLeadTurnRuntime(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -245,6 +311,7 @@ export function prepareLeadTurnRuntime(
           selectionRevision: selection.selectionRevision,
           preparationRef: selection.preparationRef,
           preparationExpiresAt: new Date(selection.expiresAt),
+          ...childAllowanceColumns(selection.childAllowance),
         })
         .onConflictDoNothing()
       const [row] = await tx

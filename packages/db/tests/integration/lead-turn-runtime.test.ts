@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { ensureWorkspaceLead } from '../../src/agents'
 import { createDatabase, type DatabaseConnection } from '../../src/connection'
 import { createDirectAgentTopic } from '../../src/conversations'
@@ -81,6 +81,130 @@ describe.skipIf(!databaseUrl)('trusted lead runtime observation/publication', ()
     }
     return { owner, workspace, lead, topic, admitted, pin, binding }
   }
+  test('prepare persists the child allowance disclosure and reads it back; absence stays absent', async () => {
+    const digest = `sha256:${'d'.repeat(64)}`
+    const stated = await fixture()
+    await prepareLeadTurnRuntime(
+      connection.db,
+      stated.workspace.id,
+      stated.pin.intentId,
+      stated.owner.principal,
+      {
+        ...stated.pin,
+        childAllowance: {
+          state: 'stated',
+          executionPlanDigest: digest,
+          currency: 'USD',
+          maximumMicrounits: 2_500_000,
+          maximumTokens: 120_000,
+        },
+      }
+    )
+    expect(
+      await readLeadTurnRuntime(
+        connection.db,
+        stated.workspace.id,
+        stated.pin.intentId,
+        stated.owner.principal
+      )
+    ).toMatchObject({
+      childAllowance: {
+        state: 'stated',
+        executionPlanDigest: digest,
+        currency: 'USD',
+        maximumMicrounits: 2_500_000,
+        maximumTokens: 120_000,
+      },
+    })
+    const notStated = await fixture()
+    await prepareLeadTurnRuntime(
+      connection.db,
+      notStated.workspace.id,
+      notStated.pin.intentId,
+      notStated.owner.principal,
+      {
+        ...notStated.pin,
+        childAllowance: { state: 'not_stated', executionPlanDigest: digest },
+      }
+    )
+    expect(
+      await readLeadTurnRuntime(
+        connection.db,
+        notStated.workspace.id,
+        notStated.pin.intentId,
+        notStated.owner.principal
+      )
+    ).toMatchObject({ childAllowance: { state: 'not_stated', executionPlanDigest: digest } })
+    const absent = await fixture()
+    await prepareLeadTurnRuntime(
+      connection.db,
+      absent.workspace.id,
+      absent.pin.intentId,
+      absent.owner.principal,
+      absent.pin
+    )
+    const read = await readLeadTurnRuntime(
+      connection.db,
+      absent.workspace.id,
+      absent.pin.intentId,
+      absent.owner.principal
+    )
+    expect(read).toMatchObject({ state: 'prepared' })
+    expect(read).not.toHaveProperty('childAllowance')
+  })
+  test('the child allowance CHECK rejects every partial disclosure and keeps legacy rows valid', async () => {
+    const digest = `'sha256:${'d'.repeat(64)}'`
+    const f = await fixture()
+    await prepareLeadTurnRuntime(
+      connection.db,
+      f.workspace.id,
+      f.pin.intentId,
+      f.owner.principal,
+      f.pin
+    )
+    const setDisclosure = (assignments: string) =>
+      connection.db.execute(
+        sql.raw(
+          `update app.lead_turn_runtime set ${assignments} where intent_id = '${f.pin.intentId}'`
+        )
+      )
+    const rejection = async (assignments: string) => {
+      try {
+        await setDisclosure(assignments)
+      } catch (error) {
+        return `${error} ${(error as { cause?: unknown }).cause}`
+      }
+      return null
+    }
+    const partial = [
+      "child_allowance_state = 'stated'",
+      `child_allowance_state = 'stated', child_allowance_plan_digest = ${digest}`,
+      `child_allowance_state = 'stated', child_allowance_plan_digest = ${digest}, child_allowance_maximum_microunits = 1`,
+      `child_allowance_state = 'stated', child_allowance_maximum_microunits = 1, child_allowance_maximum_tokens = 1`,
+      "child_allowance_state = 'not_stated'",
+      `child_allowance_plan_digest = ${digest}`,
+      'child_allowance_maximum_tokens = 5',
+      `child_allowance_state = 'bogus', child_allowance_plan_digest = ${digest}`,
+    ]
+    for (const assignments of partial) {
+      expect(await rejection(assignments)).toContain('lead_turn_runtime_child_allowance_valid')
+    }
+    expect(
+      await rejection(
+        `child_allowance_state = 'not_stated', child_allowance_plan_digest = ${digest}`
+      )
+    ).toBeNull()
+    expect(
+      await rejection(
+        `child_allowance_state = 'stated', child_allowance_plan_digest = ${digest}, child_allowance_maximum_microunits = 0, child_allowance_maximum_tokens = 0`
+      )
+    ).toBeNull()
+    expect(
+      await rejection(
+        'child_allowance_state = NULL, child_allowance_plan_digest = NULL, child_allowance_maximum_microunits = NULL, child_allowance_maximum_tokens = NULL'
+      )
+    ).toBeNull()
+  })
   test('prepare persists no runtime session; retry cannot swap the accepted selection or attempt', async () => {
     const f = await fixture()
     await prepareLeadTurnRuntime(
