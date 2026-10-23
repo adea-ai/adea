@@ -76,7 +76,7 @@ export const leadTurnRuntime = appSchema.table(
     ),
     check(
       'lead_turn_runtime_child_allowance_valid',
-      sql`(${table.childAllowanceState} is null and ${table.childAllowancePlanDigest} is null and ${table.childAllowanceMaximumMicrounits} is null and ${table.childAllowanceMaximumTokens} is null) or (${table.childAllowanceState} = 'not_stated' and ${table.childAllowancePlanDigest} ~ '^sha256:[a-f0-9]{64}$' and ${table.childAllowanceMaximumMicrounits} is null and ${table.childAllowanceMaximumTokens} is null) or (${table.childAllowanceState} = 'stated' and ${table.childAllowancePlanDigest} ~ '^sha256:[a-f0-9]{64}$' and ${table.childAllowanceMaximumMicrounits} between 0 and 9007199254740991 and ${table.childAllowanceMaximumTokens} between 0 and 9007199254740991)`
+      sql`((${table.childAllowanceState} is null and ${table.childAllowancePlanDigest} is null and ${table.childAllowanceMaximumMicrounits} is null and ${table.childAllowanceMaximumTokens} is null) or (${table.childAllowanceState} = 'not_stated' and ${table.childAllowancePlanDigest} ~ '^sha256:[a-f0-9]{64}$' and ${table.childAllowanceMaximumMicrounits} is null and ${table.childAllowanceMaximumTokens} is null) or (${table.childAllowanceState} = 'stated' and ${table.childAllowancePlanDigest} ~ '^sha256:[a-f0-9]{64}$' and ${table.childAllowanceMaximumMicrounits} between 0 and 9007199254740991 and ${table.childAllowanceMaximumTokens} between 0 and 9007199254740991)) is true`
     ),
   ]
 )
