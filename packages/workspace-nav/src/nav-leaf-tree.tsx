@@ -345,7 +345,7 @@ export function NavLeafTree(props: NavLeafTreeProps) {
                   </Show>
                   <Show when={checkout() && others().length > 0}>
                     <div aria-hidden="true" class="workspace-nav-divider">
-                      <span class="text-2xs font-medium tracking-wide text-sidebar-muted-foreground/60 uppercase">
+                      <span class="text-2xs font-medium tracking-wide text-sidebar-muted-foreground uppercase">
                         Worktrees
                       </span>
                       <span class="h-px flex-1 bg-sidebar-border" />
