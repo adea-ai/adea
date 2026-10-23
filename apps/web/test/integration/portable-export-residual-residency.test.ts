@@ -122,11 +122,11 @@ function scratchNameFor(label: string) {
 }
 
 function assertDisposableScratch(name: string) {
-  if (!/^portable_residual_(owner|outsider|refusal)_[0-9a-f]{12}$/.test(name))
+  if (!/^portable_residual_(owner|outsider|refusal|forged)_[0-9a-f]{12}$/.test(name))
     throw new Error(`refusing to use ${name}`)
 }
 
-type ScratchLabel = 'owner' | 'outsider' | 'refusal'
+type ScratchLabel = 'owner' | 'outsider' | 'refusal' | 'forged'
 type ScratchConnection = { close(): Promise<unknown> }
 type OwnedScratch<T extends ScratchConnection> = { connection?: T; name: string }
 
@@ -256,6 +256,41 @@ async function dumpStores(
   return dump
 }
 
+/**
+ * Every row of every app table, one canonical string per row, sorted. Unlike `dumpStores` it is
+ * not scoped to one workspace: a refusal that wrote into some other workspace's rows, or into a
+ * table nobody listed, still changes it.
+ */
+type StoreSnapshot = Readonly<Record<string, readonly string[]>>
+
+async function snapshotStores(db: agentHq.AgentHqDatabase): Promise<StoreSnapshot> {
+  const snapshot: Record<string, string[]> = {}
+  for (const entry of appTables) {
+    const rows = await db.select().from(entry.table)
+    snapshot[entry.name] = rows
+      .map((row) =>
+        JSON.stringify(row, (_key, value: unknown) =>
+          typeof value === 'bigint' ? `${value}n` : value
+        )
+      )
+      .toSorted()
+  }
+  return snapshot
+}
+
+/** The names of the tables whose rows differ between two snapshots, sorted. */
+function changedStores(before: StoreSnapshot, after: StoreSnapshot): string[] {
+  const names = new Set([...Object.keys(before), ...Object.keys(after)])
+  return [...names]
+    .filter((name) => JSON.stringify(before[name] ?? null) !== JSON.stringify(after[name] ?? null))
+    .toSorted()
+}
+
+/** Fails, naming the tables, when any row of any app table differs between the two snapshots. */
+function expectNoStoreWrites(before: StoreSnapshot, after: StoreSnapshot) {
+  expect(changedStores(before, after)).toEqual([])
+}
+
 function assertAbsent(text: string, values: readonly string[]) {
   for (const value of values) expect(text).not.toContain(value)
 }
@@ -302,6 +337,7 @@ describe('residual portable export and residency acceptance', () => {
   let ownerDestination: agentHq.DatabaseConnection | undefined
   let outsiderDestination: agentHq.DatabaseConnection | undefined
   let refusalDestination: agentHq.DatabaseConnection | undefined
+  let forgedDestination: agentHq.DatabaseConnection | undefined
   const ownedScratches: Partial<Record<ScratchLabel, OwnedScratch<agentHq.DatabaseConnection>>> = {}
 
   let owner: Session
@@ -376,6 +412,7 @@ describe('residual portable export and residency acceptance', () => {
   let ownerDestinationPromise: Promise<agentHq.DatabaseConnection> | undefined
   let outsiderDestinationPromise: Promise<agentHq.DatabaseConnection> | undefined
   let refusalDestinationPromise: Promise<agentHq.DatabaseConnection> | undefined
+  let forgedDestinationPromise: Promise<agentHq.DatabaseConnection> | undefined
 
   async function ensureOwnerDestination(): Promise<agentHq.DatabaseConnection> {
     ownerDestinationPromise ??= createOwnerDestination()
@@ -390,6 +427,11 @@ describe('residual portable export and residency acceptance', () => {
   async function ensureRefusalDestination(): Promise<agentHq.DatabaseConnection> {
     refusalDestinationPromise ??= createRefusalDestination()
     return refusalDestinationPromise
+  }
+
+  async function ensureForgedDestination(): Promise<agentHq.DatabaseConnection> {
+    forgedDestinationPromise ??= createForgedDestination()
+    return forgedDestinationPromise
   }
 
   async function createOwnerDestination(): Promise<agentHq.DatabaseConnection> {
@@ -413,10 +455,49 @@ describe('residual portable export and residency acceptance', () => {
     return destination
   }
 
+  /**
+   * The refusal destination is provisioned the way a real restore target is, with every user the
+   * bundle names, so an import that was not refused would succeed. No test restores a workspace
+   * into it: nothing here writes to it except a refusal that should not, and `refuse` compares
+   * every app table before and after each one.
+   */
   async function createRefusalDestination(): Promise<agentHq.DatabaseConnection> {
     const scratch = await createScratch('refusal')
     refusalDestination = scratch.created
+    await provisionUsers(refusalDestination, ownerBundle, owner.principal)
     return refusalDestination
+  }
+
+  /**
+   * A destination of its own for the cases that restore a workspace successfully: a bundle whose
+   * manifest claims another exporter's authority is restored into it. Keeping the restore out of
+   * the refusal destination is what lets the refusal cases assert that destination holds no
+   * workspace.
+   */
+  async function createForgedDestination(): Promise<agentHq.DatabaseConnection> {
+    const scratch = await createScratch('forged')
+    forgedDestination = scratch.created
+    await provisionUsers(forgedDestination, ownerBundle, owner.principal)
+    const forged = mutableCopy(ownerBundle)
+    forged.exportedBy = { role: 'owner', userId: member.principal.userId }
+    const restored = await importInto(forgedDestination, forged, owner.principal)
+    expect(restored.response.status).toBe(201)
+    return forgedDestination
+  }
+
+  /**
+   * Post a bundle that must be refused, and prove the refusal wrote nothing: the destination holds
+   * no workspace before the attempt, and every row of every app table is the same afterwards.
+   * The comparison runs after each refusal, so a refusal that wrote and a later one that did not
+   * cannot hide behind a single census at the end.
+   */
+  async function refuse(destination: agentHq.DatabaseConnection, bundle: unknown, status: number) {
+    const before = await snapshotStores(destination.db)
+    expect(before.workspaces).toEqual([])
+    const refused = await importInto(destination, bundle, owner.principal)
+    expect(refused.response.status).toBe(status)
+    expectNoStoreWrites(before, await snapshotStores(destination.db))
+    return refused
   }
 
   beforeAll(async () => {
@@ -856,6 +937,7 @@ describe('residual portable export and residency acceptance', () => {
       ownerDestination,
       outsiderDestination,
       refusalDestination,
+      forgedDestination,
       ...scratchRecords.map((record) => record.connection),
     ])) {
       if (!destination) continue
@@ -1582,8 +1664,7 @@ describe('residual portable export and residency acceptance', () => {
       },
     ]
     for (const refusal of refusals) {
-      const response = await importInto(destination, refusal.bundle, owner.principal)
-      expect(response.response.status).toBe(422)
+      const response = await refuse(destination, refusal.bundle, 422)
       const body = JSON.parse(response.text) as {
         error: string
         issues: { code: string; path: string }[]
@@ -1597,8 +1678,7 @@ describe('residual portable export and residency acceptance', () => {
     const tampered = mutableCopy(ownerBundle)
     const target = tampered.content.messages.find((message) => message.body.kind === 'text')
     target!.body = { kind: 'text', text: `TAMPERED-${run}` }
-    const mismatch = await importInto(destination, tampered, owner.principal)
-    expect(mismatch.response.status).toBe(422)
+    const mismatch = await refuse(destination, tampered, 422)
     expect((JSON.parse(mismatch.text) as { error: string }).error).toBe('digest_mismatch')
     assertAbsent(mismatch.text, [`TAMPERED-${run}`])
 
@@ -1609,17 +1689,20 @@ describe('residual portable export and residency acceptance', () => {
       value: { polluted: 'yes' },
       writable: true,
     })
-    const pollution = await importInto(destination, polluted, owner.principal)
-    expect(pollution.response.status).toBe(422)
+    await refuse(destination, polluted, 422)
     expect((Object.prototype as Record<string, unknown>).polluted).toBeUndefined()
 
+    // The destination still holds no workspace and nothing but the provisioned identities.
     const counts = await workspaceCensus(destination.db, workspaceId)
     for (const [name, count] of Object.entries(counts))
       expect({ name, count }).toEqual({ name, count: 0 })
     const globalCounts = await globalCensus(destination.db)
     expect(globalCounts.messages).toBeUndefined()
     expect(globalCounts.workspaces).toBe(0)
-    expect(globalCounts.users).toBe(0)
+    expect(globalCounts.users).toBe(
+      new Set([...ownerBundle.content.users.map((user) => user.userId), owner.principal.userId])
+        .size
+    )
     // This case creates a disposable destination database and migrates the repository's schema
     // into it, which is the slowest work in this file. The other portable integration files
     // give their migration-heavy cases an explicit timeout; without one this case runs against
@@ -1627,12 +1710,7 @@ describe('residual portable export and residency acceptance', () => {
   }, 300_000)
 
   test("a manifest claiming another exporter's authority does not transfer authority", async () => {
-    const destination = await ensureRefusalDestination()
-    const forged = mutableCopy(ownerBundle)
-    forged.exportedBy = { role: 'owner', userId: member.principal.userId }
-    await provisionUsers(destination, ownerBundle, owner.principal)
-    const restored = await importInto(destination, forged, owner.principal)
-    expect(restored.response.status).toBe(201)
+    const destination = await ensureForgedDestination()
     const memberships = await destination.db
       .select()
       .from(agentHq.workspaceMemberships)
@@ -1645,7 +1723,7 @@ describe('residual portable export and residency acceptance', () => {
       .from(agentHq.workspaces)
       .where(eq(agentHq.workspaces.id, workspaceId))
     expect(workspace[0]?.ownerUserId).toBe(owner.principal.userId)
-  })
+  }, 300_000)
 
   test('ordering and collision errors are refused and write nothing', async () => {
     const destination = await ensureRefusalDestination()
@@ -1686,14 +1764,53 @@ describe('residual portable export and residency acceptance', () => {
       { bundle: selfDependency, code: 'invariant' },
       { bundle: brokenRun, code: 'invariant' },
     ]
+    // Each case has to differ from the authorized bundle, or its refusal would prove nothing.
+    for (const testCase of cases)
+      expect(JSON.stringify(testCase.bundle)).not.toBe(JSON.stringify(ownerBundle))
     for (const testCase of cases) {
-      const response = await importInto(destination, testCase.bundle, owner.principal)
-      expect(response.response.status).toBe(422)
+      const response = await refuse(destination, testCase.bundle, 422)
       const body = JSON.parse(response.text) as { error: string; issues: { code: string }[] }
       expect(body.error).toBe('invalid_document')
       expect(body.issues.map((issue) => issue.code)).toContain(testCase.code)
     }
-  })
+  }, 300_000)
+
+  test('the no-write comparison notices a write, and only a write', async () => {
+    // The refusal cases above are only as strong as the comparison they run. Prove that the
+    // comparison fails when a row changes, names the table, and stays quiet when nothing did.
+    const untouched = await ensureRefusalDestination()
+    const imported = await ensureForgedDestination()
+    const importedRows = await snapshotStores(imported.db)
+    expect(importedRows.workspaces.length).toBe(1)
+
+    // A restore that was not refused changes the stores the refusal cases watch.
+    const untouchedRows = await snapshotStores(untouched.db)
+    expect(untouchedRows.workspaces).toEqual([])
+    const restoredStores = changedStores(untouchedRows, importedRows)
+    for (const name of ['channels', 'messages', 'workspace_memberships', 'workspaces'])
+      expect(restoredStores).toContain(name)
+    expect(() => expectNoStoreWrites(untouchedRows, importedRows)).toThrow()
+
+    // One inserted row in one table is noticed, named, and its removal restores equality.
+    const before = await snapshotStores(imported.db)
+    expectNoStoreWrites(before, await snapshotStores(imported.db))
+    const strayUserId = randomUUID()
+    await imported.db.insert(agentHq.users).values({ displayName: `stray-${run}`, id: strayUserId })
+    const inserted = await snapshotStores(imported.db)
+    expect(changedStores(before, inserted)).toEqual(['users'])
+    expect(() => expectNoStoreWrites(before, inserted)).toThrow()
+
+    // One changed column of one existing row is noticed too.
+    await imported.db
+      .update(agentHq.users)
+      .set({ displayName: `renamed-${run}` })
+      .where(eq(agentHq.users.id, strayUserId))
+    const renamed = await snapshotStores(imported.db)
+    expect(changedStores(inserted, renamed)).toEqual(['users'])
+
+    await imported.db.delete(agentHq.users).where(eq(agentHq.users.id, strayUserId))
+    expectNoStoreWrites(before, await snapshotStores(imported.db))
+  }, 300_000)
 
   test('the secret canaries are in the source and in no bundle and in no destination', async () => {
     const source = JSON.stringify({

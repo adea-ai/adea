@@ -11,11 +11,14 @@ carry, what a destination ends up holding, and which stores were never touched a
 
 This file records that round trip. It is the evidence for a new test file and nothing else:
 
-- `apps/web/test/integration/portable-export-residual-residency.test.ts` (19 tests)
+- `apps/web/test/integration/portable-export-residual-residency.test.ts` (22 tests, 694 assertions at the head this update produces; see [The refusal proof repair](#the-refusal-proof-repair))
 - this document
 
 No product source, no shared group or migration file, no UI, no credential and no deployment
-changed. The base was `ee31982e70406ab5de447a79603d6545ac11359f` on branch
+changed. Every secret-shaped value in this file's fixture is a synthetic canary: a string the test
+generates for the run (`SESSION-DIGEST-<run>`, `ARTIFACT-LOCATOR-<run>` and so on, an `example.test`
+invitation email, an invitation token the test mints itself) inside a disposable database. None is a
+real credential, a digest of one, or a value taken from a live system. The base was `ee31982e70406ab5de447a79603d6545ac11359f` on branch
 `codex/f3w4-adea-20261021`, verified clean before the first edit and after the last.
 
 ## The fixture
@@ -49,10 +52,11 @@ credential digest. Every one of them is asserted to be present in the source bef
 anywhere else is asserted, so an absent canary is a real exclusion rather than a value that was
 never there.
 
-Three disposable destination databases are created on the lane's throwaway provisioning instance,
+Four disposable destination databases are created on the lane's throwaway provisioning instance,
 migrated from the repository's migrations, and dropped again. The owner's bundle is restored into
-one, the outsider's bundle into a second, and the third stays empty for the refusal cases. Each is
-created when the first test that needs it runs, because a full schema migration is heavy work and
+one, the outsider's bundle into a second, and a forged-exporter bundle into a third. The fourth is
+provisioned with the users a restore needs and never has a workspace restored into it: it is the
+destination every refusal case is posted to. Each is created when the first test that needs it runs, because a full schema migration is heavy work and
 the route-flow lane runs its files in parallel against one database instance; the reason is
 recorded under the commands below.
 
@@ -71,7 +75,8 @@ files is cited, not repeated.
 | E6    | The source's grants are never transplanted; the restore issues its own                                                                                                                                | `the source grants are never transplanted; the restore issues its own`                                                                                             |
 | E7    | The residency classification, and the actual stores the restored workspace occupies                                                                                                                   | `the restored workspace lives in an enumerated set of stores and nowhere else`, `the stores without a workspace column hold only the provisioned identities`       |
 | E8    | Offline and withheld content is stated honestly, and every external domain is reported unavailable                                                                                                    | `the withheld external domains are reported unavailable and the offline bodies are stated honestly`                                                                |
-| E9    | Malicious manifests, ordering and collision errors are refused and write nothing                                                                                                                      | `a malicious manifest is refused and writes nothing`, `ordering and collision errors are refused and write nothing`                                                |
+| E9    | Malicious manifests, ordering and collision errors are refused and write nothing: every row of every app table is compared before and after each refusal                                              | `a malicious manifest is refused and writes nothing`, `ordering and collision errors are refused and write nothing`                                                |
+| E9b   | The before and after comparison itself detects a write: a restore, one inserted row and one changed column each fail it, and it stays quiet when nothing changed                                      | `the no-write comparison notices a write, and only a write`                                                                                                        |
 | E10   | A manifest that claims another exporter's authority transfers no authority                                                                                                                            | `a manifest claiming another exporter's authority does not transfer authority`                                                                                     |
 | E11   | Secret canaries are in the source and in no bundle and in no destination; private plaintext reaches the authorized reader and nobody else                                                             | `the secret canaries are in the source and in no bundle and in no destination`, `the private plaintext reaches the authorized reader and no one else`              |
 | E12   | The source, the document and the restored workspace agree on the order of every channel, and the document's own position is that order                                                                | `the source, the export and the import agree on the order of every channel`                                                                                        |
@@ -168,8 +173,18 @@ and each named by the ledger the bundle carries.
 
 ### E9 and E10, refusals
 
-Every refusal case is posted to a destination that does not hold the workspace, so a refusal is
-shown to happen before any write, and the destination is then shown to be empty.
+Every refusal case is posted to the refusal destination, which holds the provisioned users a
+restore needs and no workspace, so a bundle that was not refused would restore into it. No test
+restores a workspace into that destination. The forged-exporter case, which does restore, has a
+destination of its own.
+
+Each refusal is wrapped by one helper that reads every row of every app table before the attempt,
+asserts the destination holds no workspace, posts the bundle, asserts the status, and reads every
+row of every app table again. The two snapshots must be equal, and a difference names the tables
+that changed. The comparison is not scoped to the restored workspace: a refusal that wrote into a
+provisioned user, another workspace's rows or a table nobody listed fails it. It runs after every
+refusal, so an earlier refusal that wrote cannot be masked by a later one that did not. Sequence
+counters are not part of the snapshot; only row contents are claimed.
 
 Malicious manifests: an unknown top-level field, a wrong format version, an extra ledger class,
 an unknown field inside a record, a tampered body, and a document carrying an own `__proto__`
@@ -179,7 +194,17 @@ afterwards. A refusal names the offending path and never the value it found.
 
 Ordering and collision errors: a duplicated message, a `channelOrder` gap, a duplicated channel, a
 content reference that resolves to nothing, a task that depends on itself, and a channel run that
-is broken across the list. Each is `invalid_document` with `duplicate`, `invariant` or `closure`.
+is broken across the list. Each is `invalid_document` with `duplicate`, `invariant` or `closure`,
+each is asserted to differ from the authorized bundle, and each is held to the same before and
+after comparison as the manifests.
+
+The comparison is shown to be sensitive by its own test (E9b): a restored workspace changes
+`channels`, `messages`, `workspace_memberships` and `workspaces`; one inserted user changes only
+`users` and the comparison fails; one changed column of that row changes only `users`; removing the
+row restores equality. Two throwaway mutations of the importer's refusal path were also run against
+the repaired file and are recorded under [The refusal proof repair](#the-refusal-proof-repair).
+No production importer write defect is established by any of this: the mutations were local and
+were reverted, and the importer was not changed.
 
 A forged `exportedBy` is accepted as data and ignored as authority: the importer becomes the
 owner, and the bundle's claim about another user transfers nothing.
@@ -790,6 +815,12 @@ and left this worktree's verified artifact byte-identical, at sha256 `9b5e7188â€
 
 ## Current main and the pull request
 
+> **Historical.** This section, and the publication table below, describe the third phase, when the
+> branch's newest commits were local and could not be pushed. They are kept as recorded. The pull
+> request's published head has since advanced to `658b262312cbddb576b17190db2e768250d6edc8`, which
+> carries those commits; the head and main as of the refusal proof repair are under
+> [The refusal proof repair](#the-refusal-proof-repair).
+
 `origin/main` has moved on since the base commit. It is now
 `f3cf912d093fbf163a107c3b197e237c81f2c2bb`, eleven commits ahead, and the base commit
 `ee31982e70406ab5de447a79603d6545ac11359f` is an ancestor of it, so this branch is behind main
@@ -895,8 +926,9 @@ error.
 | Body           | this document, verbatim                                                                                                                                                                            |
 | Reviewer state | no readiness claimed, no merge, no production action                                                                                                                                               |
 
-The counts this packet quotes are the ones this document records: the residual acceptance file at
-**19 tests and 638 assertions**, the repaired channel-bounds file at **11 tests and 105
+The counts this packet quoted in the third phase were: the residual acceptance file at
+**19 tests and 638 assertions** (superseded: 22 tests and 694 assertions after the refusal proof
+repair), the repaired channel-bounds file at **11 tests and 105
 assertions**, the five neighbouring portable integration files at **50 tests and 233 assertions**,
 and the bounded reproduction of the lane collision as the five rows of the two tables above (the
 three steps A, B and C and the two controls C0 and C3).
@@ -919,3 +951,62 @@ task-owned disposable instance and reproduced the same three steps and both cont
 Q11 and Q12), so that gate is closed twice over, on two independent instances. This phase closed it
 a third time, on a third instance, with the seed extended to the third fixed-identifier family, and
 the pre-repair fixture now fails on one member of every family (Q14, Q15, Q16).
+
+## The refusal proof repair
+
+Head the repair started from: `658b262312cbddb576b17190db2e768250d6edc8` (pull request #1549, a
+draft with auto-merge off, read through the REST API before any change; `codex/f3w4-adea-20261021`
+had no newer commit). The pull request's body had still quoted the earlier head
+`7afd68613d4e3d70401c2e74a144ed8ce97636ff` and the first phase's 16 pass / 346 assertion count;
+it is corrected with this update.
+
+**What was wrong.** The old refusal cases did not prove what the evidence said they proved. The
+forged-exporter case restored a workspace into the same destination the other refusal cases used,
+and its position in the file decided whether the ordering and collision cases ran against an
+empty destination or a populated one. The six ordering and collision bundles were then posted with
+a status and an issue-code assertion each and no assertion about state after any of them, so the
+claim "refused and write nothing" rested on nothing for that test. The malicious-manifest case
+asserted emptiness once, at its end, against a destination that held no provisioned users, so a
+refusal that rewrote a provisioned identity would not have been seen.
+
+**What changed (the test file and this document only).**
+
+- The refusal destination is provisioned with the users a restore needs and never restored into.
+  The forged-exporter restore moved to a destination of its own.
+- Every refusal is wrapped by `refuse(...)`: no workspace before, the expected status, and an
+  equal snapshot of every row of every app table after.
+- `the no-write comparison notices a write, and only a write` shows the comparison fails on a
+  restore, on one inserted row and on one changed column, and passes again once the row is gone.
+- The test header counts, the destination description, the refusal section above and the
+  synthetic-canary wording at the top of this file are corrected.
+
+**Measurements** (PostgreSQL 18.4, a local `embedded-postgres` 18.4 build, because Docker was not
+available in this environment; the schema was migrated with `packages/db/src/verify-migrations.ts`,
+61 migrations; `DATABASE_URL` was the application role and
+`MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL` a superuser URL on the same instance, supplied directly
+instead of through `scripts/run-with-capture-provisioning.mjs`; the pinned container image was not
+used):
+
+| Run                                                                                                        | Result                                                                                |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| the residual file at `658b262`, before the repair                                                          | 21 pass, 0 fail, 650 assertions                                                       |
+| the repaired file, twice in a row                                                                          | 22 pass, 0 fail, 694 assertions, both times                                           |
+| mutation M6: the importer's `invalid_document` / `digest_mismatch` path rewrites every user's display name | 21 pass, 1 fail: `a malicious manifest is refused and writes nothing`, naming `users` |
+| mutation M7: the same path inserts one stray user per refusal                                              | 20 pass, 2 fail: the malicious-manifest case and the ordering and collision case      |
+| `oxfmt --check` and `oxlint --deny-warnings` on the test file                                              | clean                                                                                 |
+| standalone `tsc --ignoreConfig` of the test file, base and repaired                                        | the same single error count (1) both times; the file itself reports none              |
+
+M6 and M7 were applied to `apps/web/src/server/portable-workspace-request.ts` for one run each and
+reverted; the importer is unchanged in this update. M6 matters because it changes a provisioned row without changing any row count, which a census of counts cannot see; M7 matters because it repeats, so each refusal has to be checked on its own.
+
+**Main.** `origin/main` is `65e3880a11c97660ddfc42cce5024dbc6bee148a`, 29 commits past
+`beb62c2b0d25f057f9de3cbb681e60f365bfe433`, the base GitHub records for the pull request. Over the
+test file, this document, the channel-bounds test, `portable-workspace-request.ts` and
+`packages/db/src/portable*`, the difference between those two commits is empty. The branch is not
+rebased and not updated from main here.
+
+**Not run, so not claimed:** the repository's pre-commit type check (it generates
+`apps/web/cloudflare-env.d.ts`, which this environment cannot do honestly), the six portable
+route-flow files in parallel, the Docker provisioning runner, and hosted CI. The broad integration,
+coverage, packaged and native gates remain open as stated above. No live data, credential or
+deployment was used.
