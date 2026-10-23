@@ -180,7 +180,7 @@
     "@adea-ai/app-ui": "workspace:*",
     "@adea-ai/state": "workspace:*",
     "@adea-ai/types": "workspace:*",
-    "@adea-ai/ui": "0.146.3",
+    "@adea-ai/ui": "0.146.7",
     "@adea-ai/workspace-nav": "workspace:*",
     "@codemirror/commands": "^6.11.1",
     "@codemirror/language": "^6.12.4",
