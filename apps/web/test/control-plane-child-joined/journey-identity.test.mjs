@@ -94,9 +94,9 @@ describe('package identity gate refuses what is not the reviewed registry payloa
     expect(result.installKind).toBe('registry')
     expect(result.head).toBe(pin.revision)
     expect(result.packages.map((entry) => `${entry.name}@${entry.version}`)).toEqual([
-      '@adea-ai/contracts@1.21.4',
-      '@adea-ai/runtime-sdk@1.17.0',
-      '@adea-ai/sdk@1.20.0',
+      '@adea-ai/contracts@1.21.6',
+      '@adea-ai/runtime-sdk@1.17.1',
+      '@adea-ai/sdk@1.20.1',
     ])
     for (const entry of result.packages) expect(entry).not.toHaveProperty('differingFiles')
   }, 60000)
@@ -135,7 +135,7 @@ describe('package identity gate refuses what is not the reviewed registry payloa
   }, 60000)
 
   test('a floating dependency range instead of an exact lockfile pin is refused', async () => {
-    const install = copyInstall({ '@adea-ai/sdk': '^1.20.0' })
+    const install = copyInstall({ '@adea-ai/sdk': '^1.20.1' })
     await expect(gate(install)).rejects.toThrow(/@adea-ai\/sdk must be an exact pin/)
   }, 60000)
 })
