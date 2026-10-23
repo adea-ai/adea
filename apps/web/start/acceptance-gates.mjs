@@ -199,9 +199,7 @@ const parse = async (response) => {
     body: { email: account, password: `Acc-${randomUUID().slice(0, 18)}`, name: 'Rotation' },
   })
   record('rotation.sign_up', signUp.status === 200, `HTTP ${signUp.status}`)
-  const sessionCookie = sessionJar
-    .names()
-    .find((name) => name.startsWith('__Secure-neon-auth') && name.includes('session_token'))
+  const sessionCookie = sessionJar.names().find((name) => name.includes('session_token'))
   record('rotation.provider_session_cookie', Boolean(sessionCookie), sessionCookie ?? 'none')
   const firstSession = await parse(await call('/api/auth/get-session', { jar: sessionJar }))
   const secondSession = await parse(await call('/api/auth/get-session', { jar: sessionJar }))

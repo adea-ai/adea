@@ -58,7 +58,7 @@ The schema enforces positive revisions/schema versions, SHA-256 digest shape,
 floor, kind/key-epoch consistency, deletion consistency, workspace and
 ContentRef foreign keys, and partial unique indexes for epoch and no-epoch
 physical identities. Integration fixtures use an encoded ciphertext canary and
-assert that the persisted Neon-shaped rows contain no plaintext or key material.
+assert that the persisted PostgreSQL-shaped rows contain no plaintext or key material.
 
 Malformed metadata returns a client error, while unexpected storage failures
 return a retryable 503 response; unavailable ContentRefs remain explicit 404s.

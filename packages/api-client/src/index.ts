@@ -225,6 +225,7 @@ export type {
   ApiLeadTurnChildrenPage,
   ApiLeadTurnChildrenResponse,
   ApiHandoffTarget,
+  ApiLeadChildAllowance,
   ApiLeadTurnStatus,
   ApiRequestedRoleModelSelections,
   ApiLeadTurnResponse,
@@ -1040,6 +1041,22 @@ export class AgentHqApiClient {
         })
       ),
     }
+  }
+
+  /**
+   * Renames one registered execution host for this workspace. The name is a product
+   * label: the host keeps its own identity and keys. The host list is re-read after a
+   * rename, so this call carries no projection of its own.
+   */
+  async renameRuntimeNode(
+    workspaceId: string,
+    runtimeNodeId: string,
+    displayName: string
+  ): Promise<void> {
+    await this.request<unknown>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/runtime-nodes/${encodeURIComponent(runtimeNodeId)}/rename`,
+      { method: 'POST', body: JSON.stringify({ displayName }) }
+    )
   }
 
   /** Normalized discovery for exactly one registered execution host (M11 #37). */

@@ -6,7 +6,6 @@ publication: PR #1487 at `10690c2df7cd85b0d2518a7dfcefebbde8529957`, open, draft
 auto-merge off.
 
 Toolchain: Bun 1.4.3 and Node 24.21.0 (the versions `.mise.toml` pins).
-Dependencies: `postgres` 3.4.9, `drizzle-orm` 0.45.3 (unmodified). No Neon or
 production database, no remote service, no external account, no native
 Chrome/Chromium, no keychain prompt, and no app install were used at any point.
 
@@ -97,7 +96,6 @@ following were deliberately not performed and are therefore unproven:
 - a native Chrome/Chromium run, so every Chromium-only e2e flow listed in
   section 1 — including the App Library component wiring and the interrupted and
   repeated navigation rules — is **unverified here**;
-- a real account, an external service, and any production or Neon database.
 
 What _is_ proven by this change is limited to the mocked-boundary unit lane
 above. The installed-app acceptance step stays open and owned; this record

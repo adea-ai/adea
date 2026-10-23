@@ -45,6 +45,202 @@ const HIDDEN_CHANNELS = 64
 const HEAVY_PARTICIPANTS = 64
 const HEAVY_SCALE_CHANNELS = 157
 
+/**
+ * `channels.id` is a global primary key, not a per-workspace one, so a fixture that reuses a fixed
+ * id collides with the row an interrupted or concurrent run left behind in the same database. A
+ * run of this file that was interrupted before its cleanup, or two runs of this file against one
+ * shared lane database, both produce exactly that: `23505 duplicate channels_pkey`.
+ *
+ * Every channel fixture id below is therefore scoped to this run's marker, and each fixture gets
+ * its own index inside that id, so two fixtures of one run cannot share a primary key either. The
+ * three id families the file used before are kept here as the regression's subject: this run has to
+ * survive finding them still in the database, because that is the condition a leftover row creates.
+ *
+ * The three families are the ones the file used before the repair: the late-project channel, the
+ * participant-boundary channel, and the heavy visible scale range. The scale range wrote one id
+ * per row, so a leftover row carries whichever member of the range it was, and the first member is
+ * the one planted below.
+ */
+const LEGACY_LATE_PROJECT_CHANNEL_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+const LEGACY_BOUNDARY_CHANNEL_ID = '00000000-0000-4000-8000-000000000000'
+const LEGACY_SCALE_CHANNEL_ID = '00000000-0000-4000-8000-000000000001'
+
+/**
+ * The identifier shape the file's fixtures have always had, with the run marker in place of the
+ * constant part and the fixture's own index in the last group. The shape is not cosmetic: the
+ * channel page cursor is the channel id and the participant reads are ordered by channel id, so
+ * the *order* of these identifiers decides which channels a reader meets first, where the
+ * participant-row bound splits a batch, and which page first exceeds that bound. The low family
+ * keeps the leading `00000000` group and the high family the trailing `ffffffff` group for exactly
+ * that reason.
+ */
+const runScopedLowChannelId = (index: number) =>
+  `00000000-4${index.toString(16).padStart(3, '0')}-8000-0000-${run}`
+
+const runScopedHighChannelId = () => `ffffffff-ffff-4fff-8fff-${run}`
+
+/**
+ * The late-project channel of the mid-export case, scoped to this run. It keeps the highest
+ * identifier of the workspace, the position it has always had.
+ */
+const lateProjectChannelId = () => runScopedHighChannelId()
+
+/**
+ * The participant-boundary channel of the 10,000-participant case, scoped to this run. It keeps
+ * the lowest identifier of the workspace, the position it has always had: the export has to meet
+ * that channel on its first page to refuse on the participant bound before it reads any
+ * participant row.
+ */
+const participantBoundaryChannelId = () => runScopedLowChannelId(0)
+
+/**
+ * The heavy visible scale channel of the given index, scoped to this run. The scale rows keep the
+ * lowest identifiers of the workspace and their order among themselves, so the participant-row
+ * bound still splits a page at the same place.
+ */
+const heavyVisibleChannelId = (index: number) => runScopedLowChannelId(index + 1)
+
+/**
+ * The legacy channel ids are fixed and global, so the regression that plants them is the one place
+ * two runs of this file can still meet. Planting with `onConflictDoNothing` and reading the rows
+ * back is not safe on its own: a concurrent run B that finds run A's rows asserts on A's rows, and
+ * A's teardown then removes them under B. The seed therefore has a lifetime of its own.
+ *
+ * `withLegacyChannelSeed` holds one session-level PostgreSQL advisory lock for the whole lifetime
+ * of the seed: acquire, plant, assert, remove, release. A second run waits for the first to be
+ * finished before it plants, so it plants its own rows and asserts on them. The rows it removes
+ * are exactly the ones its own insert returned. A row that was already there (a leftover from an
+ * interrupted run, which is the condition under test) is left in place, and so is every row that
+ * belongs to anyone else. The presence assertions stay in the caller, unweakened.
+ *
+ * Only runs of this file that go through this helper are serialized. A run of the pre-repair
+ * fixture, or any other writer of these ids, is outside what a lock this file takes can protect.
+ */
+const LEGACY_SEED_LOCK_NAME = 'portable-export-channel-bounds:legacy-channel-seed'
+const LEGACY_SEED_LOCK_WAIT_MS = 120_000
+const LEGACY_SEED_LOCK_POLL_MS = 50
+
+type ChannelSeed = typeof channels.$inferInsert
+
+async function withLegacyChannelSeed<T>(
+  options: {
+    client: postgres.Sql
+    database: AgentHqDatabase
+    lockName?: string
+    rows: readonly ChannelSeed[]
+    waitMs?: number
+  },
+  body: (seed: { insertedIds: readonly string[]; preexistingIds: readonly string[] }) => Promise<T>
+): Promise<T> {
+  const lockName = options.lockName ?? LEGACY_SEED_LOCK_NAME
+  const deadline = Date.now() + (options.waitMs ?? LEGACY_SEED_LOCK_WAIT_MS)
+  // The lock is session-level, so it is taken and released on one reserved connection.
+  const reserved = await options.client.reserve()
+  let locked = false
+  try {
+    while (!locked) {
+      const [row] = await reserved<
+        { locked: boolean }[]
+      >`select pg_try_advisory_lock(hashtextextended(${lockName}::text, 0)) as locked`
+      locked = row?.locked === true
+      if (locked) break
+      if (Date.now() >= deadline)
+        throw new Error(`timed out waiting for the legacy channel seed lock ${lockName}`)
+      await new Promise((resolve) => setTimeout(resolve, LEGACY_SEED_LOCK_POLL_MS))
+    }
+    const wanted = options.rows.map(({ id }) => id!)
+    const inserted = await options.database
+      .insert(channels)
+      .values([...options.rows])
+      .onConflictDoNothing()
+      .returning({ id: channels.id })
+    const insertedIds = inserted.map(({ id }) => id)
+    try {
+      return await body({
+        insertedIds,
+        preexistingIds: wanted.filter((id) => !insertedIds.includes(id)),
+      })
+    } finally {
+      if (insertedIds.length > 0)
+        await options.database.delete(channels).where(inArray(channels.id, insertedIds))
+    }
+  } finally {
+    try {
+      if (locked) await reserved`select pg_advisory_unlock(hashtextextended(${lockName}::text, 0))`
+    } finally {
+      reserved.release()
+    }
+  }
+}
+
+/**
+ * Fails when the named advisory lock is held by any session. It takes the lock itself on a
+ * connection of its own, so a lock a caller forgot to release is a failure here, not a hang.
+ */
+async function assertAdvisoryLockFree(client: postgres.Sql, lockName: string) {
+  const probe = await client.reserve()
+  try {
+    const [row] = await probe<
+      { locked: boolean }[]
+    >`select pg_try_advisory_lock(hashtextextended(${lockName}::text, 0)) as locked`
+    if (row?.locked !== true) throw new Error(`advisory lock ${lockName} is still held`)
+    await probe`select pg_advisory_unlock(hashtextextended(${lockName}::text, 0))`
+  } finally {
+    probe.release()
+  }
+}
+
+/**
+ * Runs a scenario that starts callers, and settles every caller it started before the teardown
+ * deletes anything, whether the scenario passed, failed, or abandoned a caller by throwing before
+ * it awaited it. Each started caller gets a rejection observer the moment it starts, so none can
+ * become an unhandled rejection, and the original promise is kept to be settled later.
+ *
+ * The scenario's own failure is the primary error. A rejection of a started caller that is not
+ * that same error, and a failing teardown, are cleanup errors. When both kinds exist they are
+ * reported together, primary first, in one AggregateError; a lone primary is rethrown as it was.
+ */
+async function runWithSettledCallers(
+  scenario: (start: <T>(caller: Promise<T>) => Promise<T>) => Promise<void>,
+  teardown: () => Promise<void>
+): Promise<void> {
+  const started: Promise<unknown>[] = []
+  const start = <T>(caller: Promise<T>): Promise<T> => {
+    caller.catch(() => {})
+    started.push(caller)
+    return caller
+  }
+  let primary: unknown
+  let failed = false
+  try {
+    await scenario(start)
+  } catch (error) {
+    primary = error
+    failed = true
+  }
+  const cleanupErrors: unknown[] = []
+  for (const result of await Promise.allSettled(started))
+    if (result.status === 'rejected' && !(failed && result.reason === primary))
+      cleanupErrors.push(result.reason)
+  try {
+    await teardown()
+  } catch (error) {
+    cleanupErrors.push(error)
+  }
+  if (failed) {
+    if (cleanupErrors.length === 0) throw primary
+    throw new AggregateError(
+      [primary, ...cleanupErrors],
+      'the scenario failed and so did its cleanup'
+    )
+  }
+  if (cleanupErrors.length > 0)
+    throw new AggregateError(cleanupErrors, 'the scenario cleanup failed')
+}
+
+const slowReject = (error: Error) =>
+  new Promise<never>((_resolve, reject) => setTimeout(() => reject(error), 50))
+
 type QueryTrace = {
   channelPageReads: number
   channelIdSnapshotReads: number
@@ -580,6 +776,374 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     }
   })
 
+  test("this run's channel fixtures cannot collide with the fixed rows an earlier run left behind", async () => {
+    // Reproduce the historical condition exactly: the rows the previous fixed channel ids left in
+    // the lane database are still present when this run creates its own fixtures. `channels.id` is
+    // a global primary key, so a leftover row with one of those ids is what makes the next run
+    // fail with `23505 duplicate channels_pkey` before it asserts anything.
+    //
+    // All three fixed families are planted, one row each: the late-project channel, the
+    // participant-boundary channel, and one member of the heavy visible scale range. The recorded
+    // lane failure named the first of them, but the defect was a family, so the regression covers
+    // the family and not only the member the receipt happened to carry.
+    //
+    // The leftover rows are participant-only channels: the collision is on the primary key alone,
+    // and a participant-only channel with no participants is invisible to every other assertion in
+    // this file, so the leftovers cannot perturb the cases that follow. The insert tolerates a
+    // leftover that is already there, because "already there" is the condition under test.
+    expect(LEGACY_SCALE_CHANNEL_ID).toMatch(/^00000000-0000-4000-8000-[0-9]{12}$/)
+    await withLegacyChannelSeed(
+      {
+        client,
+        database: db,
+        rows: [
+          {
+            id: LEGACY_LATE_PROJECT_CHANNEL_ID,
+            idempotencyKey: `portable-channel-legacy-late-project-${run}`,
+            agentId: agentIds[0]!,
+            kind: 'direct_agent' as const,
+            sortOrder: 10_000,
+            title: 'Leftover late-project channel',
+            visibility: 'participants' as const,
+            workspaceId: workspaceId!,
+          },
+          {
+            id: LEGACY_BOUNDARY_CHANNEL_ID,
+            idempotencyKey: `portable-channel-legacy-boundary-${run}`,
+            agentId: agentIds[0]!,
+            kind: 'direct_agent' as const,
+            sortOrder: 10_001,
+            title: 'Leftover boundary channel',
+            visibility: 'participants' as const,
+            workspaceId: workspaceId!,
+          },
+          {
+            id: LEGACY_SCALE_CHANNEL_ID,
+            idempotencyKey: `portable-channel-legacy-scale-${run}`,
+            agentId: agentIds[0]!,
+            kind: 'direct_agent' as const,
+            sortOrder: 10_002,
+            title: 'Leftover scale channel',
+            visibility: 'participants' as const,
+            workspaceId: workspaceId!,
+          },
+        ],
+      },
+      async ({ insertedIds, preexistingIds }) => {
+        // The lock is held, so nothing here can be another run's row being removed under this one:
+        // every legacy row is either planted by this run or a leftover that was already there.
+        expect(insertedIds.length + preexistingIds.length).toBe(3)
+
+        // The planted condition is real, not merely tolerated: all three leftover rows are present.
+        const leftovers = await db
+          .select({ id: channels.id })
+          .from(channels)
+          .where(
+            inArray(channels.id, [
+              LEGACY_LATE_PROJECT_CHANNEL_ID,
+              LEGACY_BOUNDARY_CHANNEL_ID,
+              LEGACY_SCALE_CHANNEL_ID,
+            ])
+          )
+        expect(leftovers.map(({ id }) => id).toSorted()).toEqual(
+          [
+            LEGACY_LATE_PROJECT_CHANNEL_ID,
+            LEGACY_BOUNDARY_CHANNEL_ID,
+            LEGACY_SCALE_CHANNEL_ID,
+          ].toSorted()
+        )
+
+        // Every fixture id this run creates is scoped to this run, so none of them is a fixed id an
+        // earlier or concurrent run could have left behind. The run marker is in the id, which is what
+        // makes it this run's own. The scale family is covered at both of its ends, because that is
+        // where a collision with a fixed member of the old family would be most likely.
+        const legacyIds = [
+          LEGACY_LATE_PROJECT_CHANNEL_ID,
+          LEGACY_BOUNDARY_CHANNEL_ID,
+          LEGACY_SCALE_CHANNEL_ID,
+        ]
+        const productionIds = [
+          lateProjectChannelId(),
+          participantBoundaryChannelId(),
+          heavyVisibleChannelId(0),
+          heavyVisibleChannelId(HEAVY_SCALE_CHANNELS - 1),
+        ]
+        for (const id of productionIds) expect(id).toContain(run)
+        for (const legacyId of legacyIds) expect(productionIds).not.toContain(legacyId)
+        expect(new Set(productionIds).size).toBe(productionIds.length)
+
+        // And a run-scoped id inserts cleanly while the leftover rows are present. The probe keeps the
+        // low family's shape but takes an index no case below uses, so it never takes an identifier
+        // one of them needs.
+        const probeId = runScopedLowChannelId(900)
+        expect(probeId).toContain(run)
+        expect(legacyIds).not.toContain(probeId)
+        await db.insert(channels).values({
+          id: probeId,
+          idempotencyKey: `portable-channel-run-scoped-probe-${run}`,
+          agentId: agentIds[0]!,
+          kind: 'direct_agent' as const,
+          sortOrder: 10_003,
+          title: 'Run-scoped probe channel',
+          visibility: 'participants' as const,
+          workspaceId: workspaceId!,
+        })
+        const rows = await db
+          .select({ id: channels.id })
+          .from(channels)
+          .where(inArray(channels.id, [probeId, LEGACY_LATE_PROJECT_CHANNEL_ID]))
+        expect(rows.map(({ id }) => id).toSorted()).toEqual(
+          [probeId, LEGACY_LATE_PROJECT_CHANNEL_ID].toSorted()
+        )
+      }
+    )
+  }, 300_000)
+
+  const seedRow = (id: string, title: string): ChannelSeed => ({
+    id,
+    idempotencyKey: `portable-channel-seed-lifetime-${title}-${run}`,
+    agentId: agentIds[0]!,
+    kind: 'direct_agent',
+    sortOrder: 10_100,
+    title,
+    visibility: 'participants',
+    workspaceId: workspaceId!,
+  })
+
+  /**
+   * The fixture ids and rows the helper self-tests plant. They are run-scoped synthetic ids, not the
+   * legacy ones, so the self-tests cannot touch the real legacy rows or another run's seed.
+   */
+  function selfTestFixture() {
+    const ownedId = runScopedLowChannelId(901)
+    const leftoverId = runScopedLowChannelId(902)
+    const present = async () =>
+      (
+        await db
+          .select({ id: channels.id })
+          .from(channels)
+          .where(inArray(channels.id, [ownedId, leftoverId]))
+      )
+        .map(({ id }) => id)
+        .toSorted()
+    return {
+      leftoverId,
+      ownedId,
+      present,
+      removeFixtures: async () => {
+        await db.delete(channels).where(inArray(channels.id, [ownedId, leftoverId]))
+      },
+      rows: [seedRow(ownedId, 'owned'), seedRow(leftoverId, 'leftover')],
+    }
+  }
+
+  test('the legacy seed is held for its whole lifetime and only its own rows are removed', async () => {
+    // The helper under test is the one the regression above uses, here with a lock name and ids of
+    // this run's own so it cannot touch the real legacy rows or another run's lock. "Run B" is a
+    // second caller on a second connection that starts while run A still holds the seed. Every
+    // caller is started through `runWithSettledCallers`, which settles all of them before the
+    // fixture rows are deleted, so a failure of run A cannot leave B running under the teardown.
+    const lockName = `${LEGACY_SEED_LOCK_NAME}:self-test:${run}`
+    const { present, rows, ownedId, leftoverId, removeFixtures } = selfTestFixture()
+
+    // A leftover that some earlier or other run owns: planted outside the helper, with its own key.
+    await db.insert(channels).values(seedRow(leftoverId, 'leftover-original'))
+    const events: string[] = []
+    await runWithSettledCallers(
+      async (start) => {
+        const runA = start(
+          withLegacyChannelSeed(
+            { client, database: db, lockName, rows },
+            async ({ insertedIds, preexistingIds }) => {
+              events.push('a:enter')
+              expect(insertedIds).toEqual([ownedId])
+              expect(preexistingIds).toEqual([leftoverId])
+              // While A holds the seed, a second connection cannot take the lock.
+              await expect(assertAdvisoryLockFree(client, lockName)).rejects.toThrow(/still held/)
+              // Run B starts now and has to wait; A keeps working on its rows meanwhile.
+              start(
+                withLegacyChannelSeed(
+                  { client, database: db, lockName, rows, waitMs: 10_000 },
+                  async (seed) => {
+                    events.push('b:enter')
+                    // A removed the row it planted, so B plants its own instead of reusing A's, and
+                    // the leftover that was never A's is still the leftover.
+                    expect(seed.insertedIds).toEqual([ownedId])
+                    expect(seed.preexistingIds).toEqual([leftoverId])
+                    expect(await present()).toEqual([ownedId, leftoverId].toSorted())
+                    events.push('b:leave')
+                  }
+                )
+              )
+              await new Promise((resolve) => setTimeout(resolve, 400))
+              expect(events).toEqual(['a:enter'])
+              expect(await present()).toEqual([ownedId, leftoverId].toSorted())
+              events.push('a:leave')
+            }
+          )
+        )
+        await runA
+        // B was started inside A and is awaited only by the harness; wait for it here as well so the
+        // assertions below see the finished sequence.
+        for (let waited = 0; !events.includes('b:leave') && waited < 10_000; waited += 50)
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(events).toEqual(['a:enter', 'a:leave', 'b:enter', 'b:leave'])
+        // Both runs removed what they planted and neither removed the leftover.
+        expect(await present()).toEqual([leftoverId])
+        const [leftover] = await db.select().from(channels).where(eq(channels.id, leftoverId))
+        expect(leftover?.title).toBe('leftover-original')
+
+        // The lock is released on a failing body as well, and the rows planted are still removed.
+        // These callers are awaited on the spot, so they cannot be abandoned and need no
+        // registration with the harness.
+        await expect(
+          withLegacyChannelSeed({ client, database: db, lockName, rows }, async () => {
+            throw new Error('body failed')
+          })
+        ).rejects.toThrow('body failed')
+        expect(await present()).toEqual([leftoverId])
+        await withLegacyChannelSeed(
+          { client, database: db, lockName, rows, waitMs: 1_000 },
+          async () => undefined
+        )
+
+        // A lock that is never released surfaces as a bounded wait, not as a hang.
+        const holder = await client.reserve()
+        try {
+          await holder`select pg_advisory_lock(hashtextextended(${lockName}::text, 0))`
+          await expect(
+            withLegacyChannelSeed(
+              { client, database: db, lockName, rows, waitMs: 300 },
+              async () => {}
+            )
+          ).rejects.toThrow(/timed out waiting/)
+          expect(await present()).toEqual([leftoverId])
+        } finally {
+          await holder`select pg_advisory_unlock_all()`
+          holder.release()
+        }
+      },
+      async () => {
+        await removeFixtures()
+        await assertAdvisoryLockFree(client, lockName)
+      }
+    )
+  }, 300_000)
+
+  test('a failing first caller is settled together with the second one before teardown', async () => {
+    // The scenario abandons run B: run A rejects while B is still waiting for the lock, so the
+    // scenario throws before it ever awaits B. The teardown must still not run until B has
+    // finished, and by then neither the lock nor B's planted row may be left behind.
+    const lockName = `${LEGACY_SEED_LOCK_NAME}:self-test-failure:${run}`
+    const { present, rows, ownedId, leftoverId, removeFixtures } = selfTestFixture()
+    await db.insert(channels).values(seedRow(leftoverId, 'leftover-original'))
+    const failure = new Error('run A failed')
+    const events: string[] = []
+    let atTeardown: { events: string[]; present: string[] } | undefined
+
+    await expect(
+      runWithSettledCallers(
+        async (start) => {
+          const runA = start(
+            withLegacyChannelSeed({ client, database: db, lockName, rows }, async () => {
+              events.push('a:enter')
+              start(
+                withLegacyChannelSeed(
+                  { client, database: db, lockName, rows, waitMs: 10_000 },
+                  async (seed) => {
+                    events.push('b:enter')
+                    expect(seed.insertedIds).toEqual([ownedId])
+                    await new Promise((resolve) => setTimeout(resolve, 200))
+                    events.push('b:leave')
+                  }
+                )
+              )
+              // B is waiting on the lock now; A fails while holding it.
+              await new Promise((resolve) => setTimeout(resolve, 300))
+              events.push('a:throw')
+              throw failure
+            })
+          )
+          await runA
+          // Never reached: the line that used to be skipped, `await runB`, is not here at all.
+        },
+        async () => {
+          atTeardown = { events: [...events], present: await present() }
+          await removeFixtures()
+          await assertAdvisoryLockFree(client, lockName)
+        }
+      )
+    ).rejects.toBe(failure)
+
+    // B had entered, finished and removed its own row before the teardown ran, and the teardown
+    // found the lock free.
+    expect(atTeardown?.events).toEqual(['a:enter', 'a:throw', 'b:enter', 'b:leave'])
+    expect(atTeardown?.present).toEqual([leftoverId])
+    expect(await present()).toEqual([])
+  }, 300_000)
+
+  test('the settling harness keeps the primary error and every cleanup error', async () => {
+    const primary = new Error('scenario failed')
+    const lateCaller = new Error('abandoned caller failed')
+    const teardownFailure = new Error('teardown failed')
+    // A lone primary error comes back as itself, after the abandoned caller has settled.
+    let settled = false
+    await expect(
+      runWithSettledCallers(
+        async (start) => {
+          start(
+            new Promise<void>((resolve) =>
+              setTimeout(() => {
+                settled = true
+                resolve()
+              }, 50)
+            )
+          )
+          throw primary
+        },
+        async () => {
+          expect(settled).toBe(true)
+        }
+      )
+    ).rejects.toBe(primary)
+
+    // The primary error, an abandoned caller's rejection and a failing teardown are all kept.
+    const combined = await runWithSettledCallers(
+      async (start) => {
+        start(slowReject(lateCaller))
+        throw primary
+      },
+      async () => {
+        throw teardownFailure
+      }
+    ).then(
+      () => undefined,
+      (error: unknown) => error
+    )
+    expect(combined).toBeInstanceOf(AggregateError)
+    expect((combined as AggregateError).errors).toEqual([primary, lateCaller, teardownFailure])
+
+    // A passing scenario with a failing teardown still fails.
+    await expect(
+      runWithSettledCallers(
+        async () => {},
+        async () => {
+          throw teardownFailure
+        }
+      )
+    ).rejects.toMatchObject({ errors: [teardownFailure] })
+
+    // A caller that fails after the scenario passed is not swallowed either.
+    await expect(
+      runWithSettledCallers(
+        async (start) => {
+          start(slowReject(lateCaller))
+        },
+        async () => {}
+      )
+    ).rejects.toMatchObject({ errors: [lateCaller] })
+  })
+
   test('mid-export project grants cannot expand channel or participant reads past the snapshot', async () => {
     const reader = await createTemporaryUserSession(db, {
       credentialDigest: `portable-channel-reader-${run}`,
@@ -612,7 +1176,7 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
       'members'
     )
 
-    const newlyVisibleChannelId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const newlyVisibleChannelId = lateProjectChannelId()
     await db.insert(channels).values({
       id: newlyVisibleChannelId,
       idempotencyKey: `portable-channel-late-project-${run}`,
@@ -747,7 +1311,7 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
 
     const heavyVisibleIds = Array.from(
       { length: Math.min(HEAVY_SCALE_CHANNELS, visibleToAdd) },
-      (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`
+      (_, index) => heavyVisibleChannelId(index)
     )
     const visibleRows = Array.from({ length: visibleToAdd }, (_, index) => ({
       id: heavyVisibleIds[index] ?? randomUUID(),
@@ -934,7 +1498,7 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     expect(channelToReplace).toBeDefined()
     await db.delete(channels).where(eq(channels.id, channelToReplace!.id))
 
-    const boundaryChannelId = '00000000-0000-4000-8000-000000000000'
+    const boundaryChannelId = participantBoundaryChannelId()
     await db.insert(channels).values({
       id: boundaryChannelId,
       idempotencyKey: `portable-channel-participant-bound-${run}`,

@@ -60,12 +60,12 @@ trip), hashed assets are served by the Cloudflare asset layer without invoking
 the Worker, and there is no OpenNext request-routing layer or Next client
 runtime in the bundle.
 
-## Hosted acceptance (isolated Worker + isolated Neon branch)
+## Hosted acceptance (isolated Worker + isolated database branch)
 
 Run against a production-built Worker deployed under the distinct name
-`adea-web-pr324-acceptance` with secrets scoped to the PR's Neon branch
-(`preview/pr-324-refactor/tanstack-start-web`) and that branch's Neon Auth
-instance. Neither the production `adea-web` Worker, the production branch, its
+`adea-web-pr324-acceptance` with secrets scoped to that run's isolated
+database branch and key-discovery instance. Neither the production `adea-web`
+Worker, the production database, its
 secrets, nor its DNS were modified. Evidence is written to the ignored
 `start/.checks/hosted/`.
 
@@ -102,7 +102,7 @@ ADEA_ACCEPTANCE_URL=https://<isolated-worker>.workers.dev \
 
 With `ADEA_ALLOWED_EMAILS` configured, a **signed-in** visitor was redirected
 to `/auth/sign-in` instead of being admitted. The Worker entry runs before
-TanStack Start establishes its request storage, so the gate's Neon Auth context
+TanStack Start establishes its request storage, so the gate's auth context
 resolved no session cookie and every account failed closed. The gate now reads
 the session through a request-bound context (`src/server/gate-request-context.ts`)
 and propagates any refreshed session cookie onto its own response. This also

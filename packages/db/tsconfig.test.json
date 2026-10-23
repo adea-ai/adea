@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "types": ["bun-types"]
+  },
+  "include": ["src"],
+  "files": ["tests/integration/runtime-nodes.test.ts"]
+}

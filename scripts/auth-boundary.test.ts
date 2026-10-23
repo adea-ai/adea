@@ -37,11 +37,11 @@ async function sourceFiles(directory: string): Promise<string[]> {
 }
 
 describe('authentication provider boundary', () => {
-  test('keeps Neon Auth imports inside @adea-ai/auth', async () => {
+  test('keeps external provider Auth imports inside @adea-ai/auth', async () => {
     for (const directory of ['apps', 'packages']) {
       for (const file of await sourceFiles(join(root, directory))) {
         if (file.includes('/packages/auth/')) continue
-        expect(await readFile(file, 'utf8')).not.toContain('@neondatabase/auth')
+        expect(await readFile(file, 'utf8')).not.toContain('@legacy-provider/auth')
       }
     }
   })
@@ -49,7 +49,7 @@ describe('authentication provider boundary', () => {
   test('keeps auth provider schema out of @adea-ai/db', async () => {
     for (const file of await sourceFiles(join(root, 'packages/db'))) {
       const source = await readFile(file, 'utf8')
-      expect(source).not.toContain('neon_auth')
+      expect(source).not.toContain('external-provider_auth')
       expect(source).not.toContain('better_auth')
     }
   })

@@ -1,4 +1,4 @@
-import type { ApiLeadTurnChildrenQuery } from '@adea-ai/api-client'
+import type { ApiLeadChildAllowance, ApiLeadTurnChildrenQuery } from '@adea-ai/api-client'
 import type { LeadChildTerminalEvidence } from '@adea-ai/db'
 import {
   isRetainedChildFailureCode,
@@ -35,6 +35,38 @@ export type LeadSdkCandidateTransport = Readonly<{
 }>
 const record = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+/**
+ * Projects the control plane's `pi-lead-child-allowance/v1` disclosure. Absent input stays absent:
+ * an older control plane that omits the field is not the same as `not_stated`.
+ */
+function childAllowanceDisclosure(value: unknown): ApiLeadChildAllowance | undefined {
+  if (value === undefined) return undefined
+  if (
+    !record(value) ||
+    value.schemaVersion !== 'pi-lead-child-allowance/v1' ||
+    typeof value.executionPlanDigest !== 'string' ||
+    !/^sha256:[a-f0-9]{64}$/.test(value.executionPlanDigest)
+  )
+    throw new Error('RUNTIME_RESPONSE_INVALID')
+  if (value.state === 'not_stated')
+    return { state: 'not_stated', executionPlanDigest: value.executionPlanDigest }
+  if (
+    value.state !== 'stated' ||
+    value.currency !== 'USD' ||
+    !Number.isSafeInteger(value.maximumMicrounits) ||
+    (value.maximumMicrounits as number) < 0 ||
+    !Number.isSafeInteger(value.maximumTokens) ||
+    (value.maximumTokens as number) < 0
+  )
+    throw new Error('RUNTIME_RESPONSE_INVALID')
+  return {
+    state: 'stated',
+    executionPlanDigest: value.executionPlanDigest,
+    currency: 'USD',
+    maximumMicrounits: value.maximumMicrounits as number,
+    maximumTokens: value.maximumTokens as number,
+  }
+}
 export function createLeadTurnSdkAdapter(
   transport: LeadSdkCandidateTransport,
   assertPublicationCurrent?: LeadRuntimeAdapter['assertPublicationCurrent']
@@ -144,6 +176,7 @@ export function createLeadTurnSdkAdapter(
               Date.parse(value.expiresAt) > Date.parse(value.funding.expiresAt)
             )
               throw new Error('RUNTIME_RESPONSE_INVALID')
+            const childAllowance = childAllowanceDisclosure(value.childAllowance)
             return {
               workspaceId: transport.workspaceId,
               intentId: authority.intentId,
@@ -153,6 +186,7 @@ export function createLeadTurnSdkAdapter(
               selectionRevision: value.selectionRevision as number,
               preparationRef: value.preparationRef,
               expiresAt: value.expiresAt,
+              ...(childAllowance ? { childAllowance } : {}),
             }
           },
         }

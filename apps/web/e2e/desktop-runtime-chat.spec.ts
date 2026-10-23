@@ -66,6 +66,8 @@ test('returning desktop Chat mounts canonical sessions and retains draft through
         // The shared sidebar's bounded reads: worktree rows and leaf status.
         'dev.worktree.list',
         'dev.harness.runs',
+        // The composer's one read of the host follow-up queue, to decide whether to offer Queue.
+        'dev.session.followUps',
       ].includes(operation)
     )
   ).toBe(true)

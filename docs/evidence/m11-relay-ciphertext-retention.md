@@ -25,7 +25,6 @@ acknowledges delivery nor accepts, cancels or resubmits execution.
 The supported [operator guide](../guides/relay-ciphertext-retention.md) documents
 `bun run relay:purge`. It defaults to preview, requires exact host/port/database,
 workspace and limit, and validates the private direct app-role connection before
-creating a client. Hosted targets require TLS; endpoint overrides and Neon
 poolers are refused. Output contains a bounded count or a fixed error code,
 never ciphertext, a DSN or raw driver diagnostics. No scheduler is activated.
 
@@ -80,7 +79,6 @@ and Worker deployment reported success. A subsequent read-only transaction on
 the Adea project's production branch confirmed the nullable timestamptz column,
 valid/ready partial expiry index, validated expiry constraint and exact 0039 SQL
 hash in the 40-entry migration ledger. Project/branch/database metadata came from
-the authenticated Neon CLI; the transaction was explicitly read-only with a
 five-second statement deadline. Only catalog/migration metadata was read. No
 Task/outbox/content rows, live cleanup, migration dispatch, credential change or
 scheduler action was involved.

@@ -131,7 +131,7 @@ describe.skipIf(!connectionUrl)('cloud-safe ContentRef metadata', () => {
       sender: owner.principal,
     })
     expect(message).not.toHaveProperty('bodyText')
-    const neonShaped = await connection.db.transaction(async (transaction) => ({
+    const postgresShaped = await connection.db.transaction(async (transaction) => ({
       contentRefs: await transaction
         .select()
         .from(contentRefs)
@@ -142,7 +142,7 @@ describe.skipIf(!connectionUrl)('cloud-safe ContentRef metadata', () => {
         .where(eq(messages.workspaceId, workspace.id)),
       tasks: await transaction.select().from(tasks).where(eq(tasks.workspaceId, workspace.id)),
     }))
-    expect(JSON.stringify(neonShaped)).not.toContain(canary)
+    expect(JSON.stringify(postgresShaped)).not.toContain(canary)
 
     await connection.db.delete(messages).where(eq(messages.workspaceId, workspace.id))
     await connection.db.delete(channels).where(eq(channels.workspaceId, workspace.id))

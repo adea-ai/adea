@@ -166,7 +166,7 @@ const sequences = (text: string) =>
 
 beforeEach(() => {
   process.env.DATABASE_URL = 'postgresql://app:secret@127.0.0.1:1/agent_hq'
-  process.env.NEON_AUTH_COOKIE_SECRET = 'x'.repeat(48)
+  process.env.AUTH_SECRET = 'x'.repeat(48)
   Object.assign(ctl.log, { poll: 0, list: 0, window: 0, principal: 0, authorize: 0, mark: 0 })
   ctl.head = 0
   ctl.principalGone = false

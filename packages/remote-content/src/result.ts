@@ -1,6 +1,7 @@
 import {
   RemoteContentEnvelopeError,
   createRemoteContentAad,
+  deriveRemoteCommandKeyPair,
   MAX_REMOTE_CONTENT_TTL_MS,
   openRemoteContent,
   parseRemoteContentEnvelope,
@@ -73,9 +74,62 @@ export async function createRemoteResultReceiver(
     issuedAt: aad.issuedAt,
     expiresAt: aad.expiresAt,
   })
-  const receiver = Object.freeze({ recipient })
-  receivers.set(receiver, { privateKey: pair.privateKey, status: 'open' })
-  return receiver
+  return registerReceiver(recipient, pair.privateKey)
+}
+
+/**
+ * Derive a deterministic request-bound return receiver for interoperability
+ * fixtures only.
+ *
+ * It reuses the package's existing RFC 9180 KEM derivation and keeps the
+ * generated receiver's nonextractable private-key boundary, so a checked-in
+ * vector replays byte for byte in another runtime. It is not a production key
+ * source and grants no authority, key class or lifecycle that a generated
+ * receiver does not already hold. A derived epoch is only as unique as its
+ * input material, so fixtures must use distinct material per epoch and must
+ * supply the KEM's minimum input material for X25519.
+ */
+export async function deriveRemoteResultReceiver(
+  input: RemoteResultScope &
+    Readonly<{
+      keyId: string
+      ikm: ArrayBufferLike | ArrayBufferView
+      issuedAt: string
+      expiresAt: string
+      now?: number
+    }>
+): Promise<RemoteResultReceiver> {
+  if (!RETURN_KEY_PATTERN.test(input.keyId)) invalid()
+  const aad = createRemoteContentAad(
+    {
+      ...scope(input),
+      payloadType: RESULT_PAYLOAD_TYPE,
+      schemaVersion: 1,
+      issuedAt: input.issuedAt,
+      expiresAt: input.expiresAt,
+    },
+    input.keyId
+  )
+  assertLive(aad.issuedAt, aad.expiresAt, input.now ?? Date.now())
+  let publicKey: string
+  let privateKey: CryptoKey
+  try {
+    const pair = await deriveRemoteCommandKeyPair(input.ikm)
+    privateKey = await importNonextractablePrivateKey(pair.privateKey)
+    publicKey = encodePublicKey(await crypto.subtle.exportKey('raw', pair.publicKey))
+  } catch {
+    throw new RemoteContentEnvelopeError('encryption_failed')
+  }
+  assertLive(aad.issuedAt, aad.expiresAt, input.now ?? Date.now())
+  const recipient: RemoteResultRecipient = Object.freeze({
+    version: 1,
+    keyId: input.keyId,
+    publicKey,
+    ...scope(aad),
+    issuedAt: aad.issuedAt,
+    expiresAt: aad.expiresAt,
+  })
+  return registerReceiver(recipient, privateKey)
 }
 
 /** Drop the private key reference when the request is cancelled or its client scope changes. */
@@ -231,6 +285,25 @@ function scope(value: RemoteResultScope): RemoteResultScope {
     workspaceId: value.workspaceId,
     runtimeNodeId: value.runtimeNodeId,
     requestId: value.requestId,
+  }
+}
+
+function registerReceiver(
+  recipient: RemoteResultRecipient,
+  privateKey: CryptoKey
+): RemoteResultReceiver {
+  const receiver = Object.freeze({ recipient })
+  receivers.set(receiver, { privateKey, status: 'open' })
+  return receiver
+}
+
+/** Re-import a derived private key so the held capability stays nonextractable. */
+async function importNonextractablePrivateKey(key: CryptoKey): Promise<CryptoKey> {
+  const pkcs8 = await crypto.subtle.exportKey('pkcs8', key)
+  try {
+    return await crypto.subtle.importKey('pkcs8', pkcs8, { name: 'X25519' }, false, ['deriveBits'])
+  } finally {
+    new Uint8Array(pkcs8).fill(0)
   }
 }
 

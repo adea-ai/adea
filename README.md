@@ -10,7 +10,7 @@ fallback for builds without an engine pack.
 ## Stack
 
 - Vite+ (`vp run` task graph), TanStack Start, SolidJS, and TypeScript
-- Bun 1.4.3 for installation, scripts, tests, and TypeScript checking
+- Bun 1.4.4 for installation, scripts, tests, and TypeScript checking
 - Scene manifests and telemetry schema via `@adea-ai/spatial`
   (the Three.js runtime, scenes, and asset pipeline live in Agent Sim)
 - TanStack Query's Solid bindings for server state and `solid-js/store` for
@@ -149,9 +149,9 @@ point runs the provider-neutral and PostgreSQL cases together. When no database
 variables are exported, it starts the repository's local PostgreSQL Compose
 service, verifies the restricted migration/runtime roles, applies migrations
 deterministically, and runs the complete integration suite. CI and explicit
-Neon runs must provide all three canonical variables (`DATABASE_URL`,
+hosted runs must provide all three canonical variables (`DATABASE_URL`,
 `DATABASE_URL_UNPOOLED`, and `DATABASE_MIGRATION_URL`) for an isolated test
-branch; production or owner credentials are not valid test targets.
+target; production or owner credentials are not valid test targets.
 
 `bun run build` covers the workspace packages and the TanStack Start
 production build. Packaged macOS desktop evidence uses `bun run test:packaged`,

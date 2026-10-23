@@ -287,10 +287,10 @@ are tracked separately; this section's commands do not depend on them.
 
 One workspace lead, one direct topic, one pinned BYO selection, one real Pi child and one logical
 outcome, through Adea's production lead product and the installed SDK, over HTTP to CP's actual
-control API, against **CP main `0a453d8`**, the squash merge of CP #1134 (reviewed head
-`421f225d`; `source-journey.json`). It carries the production child bridge builder and
-`PiChildTerminalSettlement` (CP #1137). It is a merged source revision, not a published release.
-The installed SDK comes from Adea's lockfile (sdk 1.18.1, runtime-sdk 1.15.1, contracts 1.21.3) and
+control API, against **CP release `bda8b852`** (1.106.6), the merge commit of CP #1258
+(`source-journey.json`). It carries the governed child dispatch qualification (CP #1134), the
+production child bridge builder and `PiChildTerminalSettlement` (CP #1137). The installed SDK comes
+from Adea's lockfile (sdk 1.20.1, runtime-sdk 1.17.1, contracts 1.21.6) and
 is compared, file by file, with the packages that revision builds (the same three versions) before
 any database connection is opened. Every file is **byte-identical**, so there is no allowed drift:
 the gate (install kind `registry`) fails on any differing or missing file, a changed load field or a
@@ -301,13 +301,21 @@ same gate to refuse each one. A stale install (an older SDK/contracts than the l
 the gate until `bun install --frozen-lockfile` is run; an earlier revision of this branch recorded
 its drift hashes from such a stale install.
 
-This is a merged CP source revision, not a published release: the release-parity gap stays open (a
-published CP release carrying #1123 and #1131 and an Adea bump to it). See `RECEIPT.md` for the
-recorded run and the exact prerequisites; the lane is opt-in and is not wired into CI.
+Provenance for this pin: `@adea-ai/contracts` 1.21.6 was published from CP release 1.106.6
+(`bda8b852`, CP #1258); `@adea-ai/sdk` 1.20.1 and `@adea-ai/runtime-sdk` 1.17.1 were published from
+CP release 1.106.5 (`776688270`, CP #1257), and `packages/control-sdk` plus `packages/runtime-sdk`
+are byte-identical between those two release commits (only `packages/contracts` changed in #1258:
+version, changelog and a test). One revision therefore builds all three registry versions Adea's
+lockfile installs, and each lockfile `dist.integrity` equals the npm registry `dist.integrity` for
+its version.
+
+This is a published CP release revision; the release-parity gap described earlier (a published CP
+release carrying #1123 and #1131 and an Adea bump to it) has since been closed. See `RECEIPT.md`
+for the recorded run and the exact prerequisites; the lane is opt-in and is not wired into CI.
 
 ```sh
-# manifest: node scripts/pack-pi-durable-candidate.mjs <dir> in a clean, built CP checkout at 0a453d8
-ADEA_CONTROL_PLANE_SOURCE=<CP checkout at 0a453d8> PI_FACTORY_BUN=<abs bun> \
+# manifest: node scripts/pack-pi-durable-candidate.mjs <dir> in a clean, built CP checkout at bda8b852
+ADEA_CONTROL_PLANE_SOURCE=<CP checkout at bda8b852> PI_FACTORY_BUN=<abs bun> \
 PI_FACTORY_MANIFEST=<dir>/manifest.json DATABASE_URL=<local postgres> \
   bun run test:integration:control-plane-journey
 ```
@@ -320,13 +328,13 @@ named in `JOURNEY_FAULT` SIGKILLs the driver at one boundary, so the next run is
 restart. CP's side is reopened **in-process only** (`reopen`): CP's fixture cannot reopen its
 composition in a new OS process, so CP process-restart recovery is **not** claimed.
 
-| File                                      | Proves                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `journey.test.mjs` (6)                    | An accepted message, snapshot, status and progress start nothing. Prepare discloses the payer with no inference and replays as the same preparation. Dispatch runs the lead once; the child is allocated, funded and started once. The exact answer bytes are published once with the identity chain intent, execution, attempt, native session and child. Retries and a CP reopen change no durable row. An ordinary direct message creates no intent or CP work. |
-| `journey-recovery.test.mjs` (6)           | Prepare reply lost (SIGKILL); dispatch accepted by CP but lost to Adea, recovered by lookup with no second dispatch; terminal receipt lost; killed inside the publication transaction (nothing published); killed after commit (same message, same digest on every retry). Counters at the end.                                                                                                                                                                    |
-| `journey-identity.test.mjs` (6)           | The package identity gate: the real lockfile install passes with no allowed drift, and a changed byte (contracts, runtime-sdk lead contract), a missing file, a changed load field or a floating range in a tampered copy is refused.                                                                                                                                                                                                                              |
-| `journey-automatic-recovery.test.mjs` (1) | With a short test-local periodic interval (`PI_FACTORY_PERIODIC_RECOVERY_MS`), CP's periodic recovery pass alone settles the child cost and delegation, and `delegation.completed` is published once at revision 1. A later window of periodic passes leaves the publication record unchanged. The test requests no scan, reopen or settle. It does not check lead terminal accounting, which this composition runs only in the periodic pass and does not expose. |
-| `journey-authority.test.mjs` (8)          | A lead stop retried from a new process is one CP stop, does not cancel the child, and an acknowledgement is not termination. CP's publication authority withdrawn: result withheld, then published once when restored. A stop after completion is refused and changes nothing. A revoked audience gets no result and no projection.                                                                                                                                |
+| File                                      | Proves                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `journey.test.mjs` (6)                    | An accepted message, snapshot, status and progress start nothing. Prepare discloses the payer with no inference and replays as the same preparation. Dispatch runs the lead once; the child is allocated, funded and started once. The exact answer bytes are published once with the identity chain intent, execution, attempt, native session and child. Retries and a CP reopen change no durable row. An ordinary direct message creates no intent or CP work.                                      |
+| `journey-recovery.test.mjs` (7)           | Prepare reply lost (SIGKILL); dispatch accepted by CP but lost to Adea, recovered by lookup with no second dispatch; a process killed while CP's child acceptance is in flight with the child's provider send held (no durable row, message or CP work moves; a restart reads the same binding and exactly one child start); terminal receipt lost; killed inside the publication transaction (nothing published); killed after commit (same message, same digest on every retry). Counters at the end. |
+| `journey-identity.test.mjs` (6)           | The package identity gate: the real lockfile install passes with no allowed drift, and a changed byte (contracts, runtime-sdk lead contract), a missing file, a changed load field or a floating range in a tampered copy is refused.                                                                                                                                                                                                                                                                   |
+| `journey-automatic-recovery.test.mjs` (1) | With a short test-local periodic interval (`PI_FACTORY_PERIODIC_RECOVERY_MS`), CP's periodic recovery pass alone settles the child cost and delegation, and `delegation.completed` is published once at revision 1. A later window of periodic passes leaves the publication record unchanged. The test requests no scan, reopen or settle. It does not check lead terminal accounting, which this composition runs only in the periodic pass and does not expose.                                      |
+| `journey-authority.test.mjs` (8)          | A lead stop retried from a new process is one CP stop, does not cancel the child, and an acknowledgement is not termination. CP's publication authority withdrawn: result withheld, then published once when restored. A stop after completion is refused and changes nothing. A revoked audience gets no result and no projection.                                                                                                                                                                     |
 
 Results at the final head (Bun 1.4.2, Node 22.22.0; scripted provider, synthetic accounts):
 
@@ -339,6 +347,16 @@ Results at the final head (Bun 1.4.2, Node 22.22.0; scripted provider, synthetic
   during the manual-scan stages. This is a test-host setting only; production keeps CP's 30 s
   default. `journey-automatic-recovery.test.mjs` sets a short test-local interval to observe that
   pass alone.
+- **Run 5 is blocked, not passed:** on Adea main `043425c5a` (the #1580 pins: sdk 1.20.1, contracts
+  1.21.6, runtime-sdk 1.17.1) with `source-journey.json` repinned to CP release 1.106.6 `bda8b852`,
+  Bun 1.4.4 and PostgreSQL 16.15 on a disposable cluster, the lane stopped in `beforeAll` at the
+  identity gate's installed-root path assertion before a single journey test ran (0 pass, 12 fail):
+  Bun 1.4.4 resolves the installed packages into
+  `~/.bun/install/cache/links/@adea-ai+<name>@<version>-<hash>/…`, which the gate's
+  `node_modules/.bun/@adea-ai+<name>@<version>/node_modules/` pattern refuses. The byte identity
+  the gate never reached was proven separately (174 files, all equal); details and the exact
+  assertion are recorded as run 5 in `RECEIPT.md`. Nothing in this lane is claimed passing at run 5,
+  and the new child-acceptance crash test has not executed.
 - Counters at the end of the recovery journey: CP canonical commands 1, executions 2 (lead, child),
   attempts 2, budgets 2; physical provider sends 3 (lead 2, child 1); child starts 1, executor
   calls 1, funding writes 1, one reservation `runtime-attempt:<childAttempt>`; one

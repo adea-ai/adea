@@ -23,6 +23,44 @@ Coverage kinds are `primary`, `runtime_state`, `index`, `cache`, `object_version
 and `replica`, from REQ 142. The per-category sets are a proposal in code and
 need review.
 
+The sets are pinned independently of the implementation by
+`packages/db/tests/unit/retention-policy-completeness.test.ts`: that file states
+the reviewed coverage of every category in its own table, so a change to a
+category's policy is a visible diff in the test rather than a silent edit of a
+data table, and the review of these sets is a review of that diff. The same file
+proves, per category, that complete trusted evidence verifies that category, that
+one missing store keeps it pending, that an offline store keeps it pending, that
+an incomplete store inventory keeps it pending, that another category's evidence
+never verifies it, and that an unset period refuses it.
+
+## The policy set is total
+
+`retentionCategoryRule(category)` resolves exactly one rule per category, and a
+category without a rule is not a policy: it is refused with
+`RetentionPolicyError` and code `invalid_candidate`. The gate never dereferences
+an undefined rule, so a category that was added without its policy fails closed
+with a typed code instead of raising an untyped error inside the transaction.
+The pure module refuses malformed input the same way: a non-array receipt list
+is `invalid_receipt`, a non-map executor set or a non-object input is
+`invalid_input`, a non-object period set is `invalid_periods`, and a
+non-object candidate is `invalid_candidate`. The durable gate maps every
+`RetentionPolicyError` to its own typed `invalid_input` refusal.
+
+Membership is checked as an own property of the policy table before the lookup.
+The table is an ordinary object, so an inherited name such as `__proto__`,
+`constructor` or `toString` would otherwise resolve to an object or a function
+that is not a policy, and the caller would dereference a missing
+`requiredCoverage` instead of reading a typed refusal. The resolver, the
+coverage inventory parser and the cleanup executor all refuse such a name with
+`invalid_candidate`; the regression for it lives in
+`packages/db/tests/unit/retention-policy-completeness.test.ts`.
+
+A period is read the same way, as an own property of the period set. A period
+inherited from a prototype is not a decision the caller stated, so it is
+refused with `invalid_periods` rather than standing in for a stated period. A
+category without a stated period is not configured, and the status view reports
+it as unset rather than configured.
+
 ## Periods and holds
 
 - Every period is `null` (unset) until approved. An unset period refuses deletion
@@ -300,6 +338,10 @@ neither.
 - Existing workspace deletion refuses to proceed while holds, authorities, or
   receipts exist (`restrict` foreign keys).
 - Changes to the existing relay ciphertext purge (`relay:purge`).
+- Approval of the per-category coverage sets. Pinning them and making the policy
+  set total does not approve them: the sets remain the proposal above, and the
+  periods, anchors and backup durations remain unset. Nothing here certifies a
+  live qualified cleanup.
 
 ## Decisions needed before general release
 

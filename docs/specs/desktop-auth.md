@@ -1,7 +1,7 @@
 # Spec: desktop authentication
 
 The native shell's half of the desktop sign-in handoff: what it accepts, what it
-stores, and what it refuses. The cloud half (endpoints, Neon Auth, digest
+stores, and what it refuses. The cloud half (endpoints, the auth service, digest
 storage) lives in [Authentication boundary](../authentication.md); this page is
 the contract to read before touching the desktop flows in
 `packages/auth/src/desktop.ts`, the shell command family in

@@ -156,6 +156,32 @@ describe('shared management gateway (#1215)', () => {
     ])
   })
 
+  test('an operation the inventory does not name is refused with a typed reason, never executed', async () => {
+    const harness = dependencies()
+    const gateway = gatewayFor(harness, humanCaller())
+    const outcome = await gateway.run(
+      'project.not-a-catalogue-operation' as ManagementOperationId,
+      { principal: PRINCIPAL, workspaceId: MANAGEMENT_WORKSPACE },
+      async () => {
+        harness.countExecution()
+        return { projectId: MANAGEMENT_PROJECT, updated: true }
+      }
+    )
+    expect(outcome).toEqual({
+      failure: {
+        code: 'unsupported',
+        message: 'Management operation is not available on this lane',
+        operation: 'project.not-a-catalogue-operation',
+        reason: 'not_implemented',
+      },
+      ok: false,
+    })
+    // Nothing was authorized, audited or executed.
+    expect(harness.authorized).toEqual([])
+    expect(harness.audited).toEqual([])
+    expect(harness.executed()).toBe(0)
+  })
+
   test('a decision bound to another workspace, target, operation or input never executes', async () => {
     const cases = [
       await managementAuthorityDecision({

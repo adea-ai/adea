@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 
-import { normalizeNeonSession } from '../../src/session'
+import { normalizeProviderSession } from '../../src/session'
 
 describe('session normalization', () => {
   test('keeps provider identity distinct from a domain user ID', () => {
-    const result = normalizeNeonSession(
+    const result = normalizeProviderSession(
       {
         session: { expiresAt: new Date('2030-01-01T00:00:00.000Z'), id: 'session-1' },
         user: {
@@ -14,11 +14,11 @@ describe('session normalization', () => {
           name: 'Operator',
         },
       },
-      new Date('2029-01-01T00:00:00.000Z')
+      { now: new Date('2029-01-01T00:00:00.000Z') }
     )
 
     expect(result).toEqual({
-      identity: { provider: 'neon', subject: 'provider-subject' },
+      identity: { provider: 'better-auth', subject: 'provider-subject' },
       session: { expiresAt: '2030-01-01T00:00:00.000Z', id: 'session-1' },
       profile: { displayName: 'Operator', email: 'operator@example.com' },
     })
@@ -26,7 +26,7 @@ describe('session normalization', () => {
   })
 
   test('withholds the email until the mailbox is verified', () => {
-    const result = normalizeNeonSession(
+    const result = normalizeProviderSession(
       {
         session: { expiresAt: new Date('2030-01-01T00:00:00.000Z'), id: 'session-1' },
         user: {
@@ -36,7 +36,7 @@ describe('session normalization', () => {
           name: 'Operator',
         },
       },
-      new Date('2029-01-01T00:00:00.000Z')
+      { now: new Date('2029-01-01T00:00:00.000Z') }
     )
 
     // Email-based authority (allowlists, invitations) must not see an unproven
@@ -46,13 +46,13 @@ describe('session normalization', () => {
   })
 
   test('fails closed for missing, expired, or malformed sessions', () => {
-    expect(normalizeNeonSession(null)).toBeNull()
+    expect(normalizeProviderSession(null)).toBeNull()
     expect(() =>
-      normalizeNeonSession({
+      normalizeProviderSession({
         session: { expiresAt: new Date('2020-01-01T00:00:00.000Z'), id: 'expired' },
         user: { id: 'provider-subject' },
       })
     ).toThrow('expired')
-    expect(() => normalizeNeonSession({ session: {}, user: {} })).toThrow('malformed')
+    expect(() => normalizeProviderSession({ session: {}, user: {} })).toThrow('malformed')
   })
 })
