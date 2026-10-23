@@ -160,7 +160,11 @@ export function parseIgnoredPaths(stdout) {
  * inspect is reported as truncated, and a truncated path is never
  * reproducible - it is content the checkout holds.
  */
-export function ignoredContent(worktreePath, entry, limits = {}) {
+export function ignoredContent(worktreePath, entry, limits = {}, io = {}) {
+  const readDirectory = io.readdirSync ?? readdirSync
+  const readStatus = io.lstatSync ?? lstatSync
+  const readLink = io.readlinkSync ?? readlinkSync
+  const readContent = io.readFileSync ?? readFileSync
   const fileLimit = limits.fileLimit ?? 2000
   const byteLimit = limits.byteLimit ?? 32 * 1024 * 1024
   const root = join(worktreePath, entry)
@@ -171,7 +175,7 @@ export function ignoredContent(worktreePath, entry, limits = {}) {
     if (truncated) return
     let entries
     try {
-      entries = readdirSync(directory, { withFileTypes: true })
+      entries = readDirectory(directory, { withFileTypes: true })
     } catch {
       truncated = true
       return
@@ -182,7 +186,7 @@ export function ignoredContent(worktreePath, entry, limits = {}) {
       const absolute = join(directory, item.name)
       let stats
       try {
-        stats = lstatSync(absolute)
+        stats = readStatus(absolute)
       } catch {
         truncated = true
         return
@@ -190,7 +194,7 @@ export function ignoredContent(worktreePath, entry, limits = {}) {
       if (stats.isSymbolicLink()) {
         let target = ''
         try {
-          target = readlinkSync(absolute)
+          target = readLink(absolute)
         } catch {
           truncated = true
           return
@@ -209,7 +213,7 @@ export function ignoredContent(worktreePath, entry, limits = {}) {
       }
       let content
       try {
-        content = readFileSync(absolute)
+        content = readContent(absolute)
       } catch {
         truncated = true
         return
@@ -221,11 +225,11 @@ export function ignoredContent(worktreePath, entry, limits = {}) {
     }
   }
   try {
-    const stats = lstatSync(root)
+    const stats = readStatus(root)
     if (stats.isDirectory()) {
       walk(root, '')
     } else if (stats.isFile()) {
-      const content = readFileSync(root)
+      const content = readContent(root)
       bytes = content.length
       files.push(`\0file\0${stats.size}\0${createHash('sha256').update(content).digest('hex')}`)
     } else {
@@ -676,27 +680,34 @@ function parseArgs(argv) {
   return args
 }
 
-function main() {
-  const args = parseArgs(process.argv.slice(2))
-  const dockerInventory = dockerResourceInventory()
+export function main({
+  argv = process.argv.slice(2),
+  env = process.env,
+  runCommand = spawnSync,
+  writeReport = writeFileSync,
+  writeOutput = (text) => process.stdout.write(text),
+} = {}) {
+  const args = parseArgs(argv)
+  const dockerInventory = dockerResourceInventory(runCommand)
   const { report, fetch, inventoryErrors } = collectReport({
     repo: args.repo,
     leaseDir: args.leaseDir,
     refresh: args.fetch,
     dockerResources: dockerInventory.resources,
     inventoryErrors: dockerInventory.errors,
-    runId: process.env.ADEA_INTEGRATION_RUN_ID ?? null,
+    runId: env.ADEA_INTEGRATION_RUN_ID ?? null,
+    runCommand,
   })
   const serialized = `${JSON.stringify(report, null, 2)}\n`
   if (args.report) {
-    writeFileSync(args.report, serialized)
-    process.stdout.write(
+    writeReport(args.report, serialized)
+    writeOutput(
       `wrote ${args.report}: ${report.summary.eligibleResources} eligible resource(s), ` +
         `${report.summary.eligibleWorktrees} reusable checkout(s), ` +
         `${report.summary.preserved} preserved\n`
     )
   } else {
-    process.stdout.write(serialized)
+    writeOutput(serialized)
   }
   // The report is the output. Nothing is removed here, and nothing may be.
   if (!report.preservation.ok) process.exitCode = 1
