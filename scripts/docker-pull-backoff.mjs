@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 // Container registries reject anonymous pulls from shared hosted-runner IPs with
@@ -177,6 +177,43 @@ export async function ensureImage(image, options = {}) {
   return { result, image: used }
 }
 
+// Whether any process of group `pgid` can still run. `kill(-pgid, 0)` succeeds for a zombie, a
+// killed process whose parent has not collected it yet. A killed group's orphans are collected by
+// the container's init, which can take longer than the reap window, so a group that holds only
+// zombies is gone for every purpose that matters here: none of its members can execute or hold a
+// side effect. Only Linux's `/proc` can tell a zombie from a running member; anywhere else, or when
+// `/proc` cannot be read, a group that `kill` still sees is reported as live.
+export function processGroupHasLiveMember(pgid, procRoot = '/proc') {
+  if (process.platform !== 'linux' && procRoot === '/proc') return true
+  let entries
+  try {
+    entries = readdirSync(procRoot)
+  } catch {
+    return true
+  }
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue
+    let stat
+    try {
+      stat = readFileSync(join(procRoot, entry, 'stat'), 'utf8')
+    } catch (readError) {
+      // The process ended between the listing and the read.
+      if (readError.code === 'ENOENT' || readError.code === 'ESRCH') continue
+      return true
+    }
+    // `comm` is parenthesised and may itself contain spaces and parentheses, so the fields that
+    // follow are located from the last closing parenthesis: state, parent, then process group.
+    const fields = stat
+      .slice(stat.lastIndexOf(')') + 1)
+      .trim()
+      .split(/\s+/)
+    if (fields.length < 3) return true
+    if (Number(fields[2]) !== pgid) continue
+    if (fields[0] !== 'Z' && fields[0] !== 'X') return true
+  }
+  return false
+}
+
 // Runs one command and captures its output without blocking the event loop, so
 // signal handling and child cleanup keep running while the command is in flight.
 // `processGroup` opts into an owned detached session for commands that may spawn
@@ -235,7 +272,7 @@ export function captureCommand(
       if (!processGroup || child.pid === undefined) return true
       try {
         process.kill(-child.pid, 0)
-        return false
+        return !processGroupHasLiveMember(child.pid)
       } catch (groupError) {
         if (groupError.code === 'ESRCH') return true
         if (groupError.code === 'EPERM') return false

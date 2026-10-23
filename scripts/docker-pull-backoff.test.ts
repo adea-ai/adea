@@ -14,6 +14,7 @@ import {
   ensureImage,
   fallbackImages,
   isRegistryRateLimit,
+  processGroupHasLiveMember,
   runWithPullBackoff,
   runWithPullFallback,
   withComposeImage,
@@ -290,6 +291,66 @@ test.skipIf(process.platform === 'win32')(
   },
   8_000
 )
+
+// A fake `/proc`: one `<pid>/stat` per process, in the kernel's layout, so the zombie decision is
+// exercised without needing a process that init has not collected.
+async function fakeProc(
+  dir: string,
+  processes: Array<{ pid: number; comm?: string; state: string; ppid?: number; pgrp: number }>
+) {
+  for (const { pid, comm = 'node', state, ppid = 1, pgrp } of processes) {
+    await mkdir(join(dir, String(pid)), { recursive: true })
+    await writeFile(
+      join(dir, String(pid), 'stat'),
+      `${pid} (${comm}) ${state} ${ppid} ${pgrp} ${pgrp} 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 1 0 5 1000 100`
+    )
+  }
+}
+
+test('a process group that holds only zombies has no live member', async () => {
+  await withTempDir(async (dir) => {
+    await fakeProc(dir, [
+      { pid: 4100, state: 'Z', pgrp: 4100 },
+      { pid: 4101, state: 'Z', pgrp: 4100 },
+      { pid: 4200, state: 'S', pgrp: 4200 },
+    ])
+    assert.equal(processGroupHasLiveMember(4100, dir), false)
+  })
+})
+
+test('a process group with a running, sleeping or stopped member is still live', async () => {
+  for (const state of ['R', 'S', 'D', 'T', 't']) {
+    await withTempDir(async (dir) => {
+      await fakeProc(dir, [
+        { pid: 4100, state: 'Z', pgrp: 4100 },
+        { pid: 4101, state, pgrp: 4100 },
+      ])
+      assert.equal(processGroupHasLiveMember(4100, dir), true, `state ${state}`)
+    })
+  }
+})
+
+test('the group check reads the process group, not the parent, and survives a hostile command name', async () => {
+  await withTempDir(async (dir) => {
+    await fakeProc(dir, [
+      // Live, parented to the group leader but in another group: not a member.
+      { pid: 4300, state: 'S', ppid: 4100, pgrp: 4300 },
+      // A zombie whose command name contains spaces and parentheses, as a process can set.
+      { pid: 4101, state: 'Z', comm: 'a) S 1 4300 (b', pgrp: 4100 },
+    ])
+    assert.equal(processGroupHasLiveMember(4100, dir), false)
+    assert.equal(processGroupHasLiveMember(4300, dir), true)
+  })
+})
+
+test('an unreadable or malformed process table is reported as live, never as gone', async () => {
+  await withTempDir(async (dir) => {
+    assert.equal(processGroupHasLiveMember(4100, join(dir, 'missing')), true)
+    await mkdir(join(dir, '4100'), { recursive: true })
+    await writeFile(join(dir, '4100', 'stat'), 'garbage')
+    assert.equal(processGroupHasLiveMember(4100, dir), true)
+  })
+})
 
 test('native disconnect fixture reaps interrupted commands before bounded Compose teardown', async () => {
   const source = await readFile(disconnectFixture, 'utf8')
