@@ -45,6 +45,7 @@ import {
   retentionTurnScript,
   richEvents,
 } from './visual-fixture-data'
+import { createFixtureFollowUpHost, type FixtureFollowUpMode } from './visual-fixture-follow-ups'
 import './visual-fixture.css'
 
 export type ChatVisualFixtureState =
@@ -636,6 +637,11 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   const deferred = new URLSearchParams(window.location.search).has('chatDraftTest')
   const fallbackDraftModel = new URLSearchParams(window.location.search).has('chatDraftFallback')
   const pending: Set<PendingSend> = new Set()
+  // `chatQueue=busy|ready|ambiguous|unavailable` stands up a stand-in for the host's follow-up queue.
+  const queueMode = new URLSearchParams(window.location.search).get('chatQueue')
+  const followUps = ['busy', 'ready', 'ambiguous', 'unavailable'].includes(queueMode ?? '')
+    ? createFixtureFollowUpHost(queueMode as FixtureFollowUpMode)
+    : undefined
   const activeConversation = createMemo(() =>
     conversation(state, events, draft().text, generation(), draft().blocks)
   )
@@ -725,6 +731,7 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                 handoff={
                   new URLSearchParams(window.location.search).has('chatHandoff') ? {} : undefined
                 }
+                followUps={followUps}
                 usageModel={
                   state === 'results-edge'
                     ? { providerId: 'anthropic', modelId: 'fixture-model' }

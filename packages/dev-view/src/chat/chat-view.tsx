@@ -1,7 +1,12 @@
 import { createEffect, For, on, onCleanup, onMount, Show, createSignal, type JSX } from 'solid-js'
 
 import type { ChatConversation, ChatConversationModel, TranscriptAccumulator } from './model'
-import { createTranscriptAccumulator, transcriptWindow } from './model'
+import {
+  createTranscriptAccumulator,
+  latestQueueVersion,
+  transcriptWindow,
+  type FollowUpQueuePort,
+} from './model'
 import {
   ChatComposer,
   type ChatComposerProps,
@@ -9,6 +14,7 @@ import {
   type ChatInputAuthority,
 } from './chat-composer'
 import { ChatTranscript, ChatTranscriptNotices, type ChatTranscriptProps } from './chat-transcript'
+import { createFollowUpsBinding } from './chat-follow-ups'
 import { DirectSessionHandoffControls } from './handoff-controls'
 import {
   deriveDirectSessionHandoff,
@@ -68,8 +74,16 @@ export type ChatViewProps = Readonly<{
   conversation: ChatConversation
   model?: Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> &
     Partial<
-      Pick<ChatConversationModel, 'draftRevision' | 'setDraftIfCurrent' | 'createPasteBlockId'>
+      Pick<
+        ChatConversationModel,
+        'draftRevision' | 'setDraftIfCurrent' | 'createPasteBlockId' | 'followUps'
+      >
     >
+  /**
+   * The host's queued-message port, when it is not the model's. Without either, no queue is
+   * offered: queueing is a host capability, not something the surface can assume.
+   */
+  followUps?: FollowUpQueuePort
   authority?: ChatInputAuthority
   connected?: boolean
   awaitingApproval?: boolean
@@ -472,36 +486,58 @@ export function ChatView(props: ChatViewProps): JSX.Element {
       }
       composer={
         <For each={[`${props.conversation.runtimeSessionId}:${props.conversation.generation}`]}>
-          {() => (
-            <ChatComposer
-              conversation={props.conversation}
-              usage={latestUsageFigures(
-                transcript().events,
-                props.conversation.generation,
-                props.usageModel
-              )}
-              authority={props.authority}
-              connected={connected()}
-              awaitingApproval={props.awaitingApproval}
-              busy={props.conversation.status === 'active'}
-              onSend={props.onSend || props.model ? send : undefined}
-              onSteer={props.onSteer}
-              onStop={props.onStop || props.model ? stop : undefined}
-              onDraftChange={changeDraft}
-              decisionRequest={props.decisionRequest}
-              decisionConsumer={props.decisionConsumer}
-              createPasteBlockId={() =>
-                props.model?.createPasteBlockId?.(
-                  props.conversation.runtimeSessionId,
-                  props.conversation.generation
-                ) ?? `chat-paste-${++fallbackPasteBlockId}`
-              }
-              draftRevision={
-                props.draftRevision ??
-                props.model?.draftRevision?.(props.conversation.runtimeSessionId)
-              }
-            />
-          )}
+          {() => {
+            const queuePort = props.followUps ?? props.model?.followUps
+            const followUps = queuePort
+              ? createFollowUpsBinding({
+                  port: queuePort,
+                  identity: {
+                    runtimeSessionId: props.conversation.runtimeSessionId,
+                    generation: props.conversation.generation,
+                  },
+                })
+              : undefined
+            // A prompt-free `queue.updated` event in the displayed window says the host's queue
+            // changed; the binding re-reads when its version is newer than the one shown.
+            createEffect(() => {
+              const version = latestQueueVersion(transcript().events, {
+                runtimeSessionId: props.conversation.runtimeSessionId,
+                generation: props.conversation.generation,
+              })
+              if (version !== undefined) followUps?.observeVersion(version)
+            })
+            return (
+              <ChatComposer
+                followUps={followUps}
+                conversation={props.conversation}
+                usage={latestUsageFigures(
+                  transcript().events,
+                  props.conversation.generation,
+                  props.usageModel
+                )}
+                authority={props.authority}
+                connected={connected()}
+                awaitingApproval={props.awaitingApproval}
+                busy={props.conversation.status === 'active'}
+                onSend={props.onSend || props.model ? send : undefined}
+                onSteer={props.onSteer}
+                onStop={props.onStop || props.model ? stop : undefined}
+                onDraftChange={changeDraft}
+                decisionRequest={props.decisionRequest}
+                decisionConsumer={props.decisionConsumer}
+                createPasteBlockId={() =>
+                  props.model?.createPasteBlockId?.(
+                    props.conversation.runtimeSessionId,
+                    props.conversation.generation
+                  ) ?? `chat-paste-${++fallbackPasteBlockId}`
+                }
+                draftRevision={
+                  props.draftRevision ??
+                  props.model?.draftRevision?.(props.conversation.runtimeSessionId)
+                }
+              />
+            )
+          }}
         </For>
       }
     >

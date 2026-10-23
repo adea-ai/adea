@@ -122,7 +122,7 @@ Adea chat does not draw it because no producer supplies its data.
 | Activity     | Subagent         | Live             | `subagent.observed` calls nest children by `parentCallId`; legacy events stay lines                                                    |
 | Activity     | Task             | Live             | `task.observed` (#1394)                                                                                                                |
 | Activity     | Plan             | Live             | `plan.observed` (#1394); progress is computed only when the producer marks the list complete                                           |
-| Activity     | Queue            | Available        | `dev.session.followUps` exists host-side but no dev-view conversation model or platform action exposes it                              |
+| Activity     | Queue            | Live             | `dev.session.followUps` (#1393): Queue control and list only after a successful read; explicit one-at-a-time delivery, never automatic |
 | Results      | Terminal         | Live             | `terminal.output` chunks, ordered, joined, control-stripped, redacted once                                                             |
 | Results      | Stack Trace      | Live             | `failure.observed`                                                                                                                     |
 | Results      | Test Results     | Live             | `test_run.observed`; counts as sent, each suite's reported status listed apart from the tests it holds, running states only while live |
@@ -136,8 +136,8 @@ Adea chat does not draw it because no producer supplies its data.
 
 Questionnaire is live for `question.requested` (free text only). Attachment is not
 drawn: `dev.session.attachment*` exists host-side but no dev-view model or platform
-action reaches the canvas, so no attach control is shown. The same holds for Queue
-and checkpoint restore. Suggestion has no producer.
+action reaches the canvas, so no attach control is shown. The same holds for
+checkpoint restore. Suggestion has no producer.
 
 ## Backend and contract dependencies
 
@@ -153,7 +153,7 @@ work. Until it exists the canvas shows the honest fallback in the right-hand col
 | Restorable checkpoints                                                                                                                       | [#1390](https://github.com/adea-ai/adea/issues/1390) | consumed as a marker only; restore is not offered                                                                                           |
 | Token and context usage with a documented payload                                                                                            | [#1391](https://github.com/adea-ai/adea/issues/1391) | consumed: Context trigger from the newest accepted `usage.observed`                                                                         |
 | Attachments with a working upload/open path                                                                                                  | [#1392](https://github.com/adea-ai/adea/issues/1392) | none                                                                                                                                        |
-| Queued follow-ups (a queue operation)                                                                                                        | [#1393](https://github.com/adea-ai/adea/issues/1393) | none; Steer and Stop only where authorized                                                                                                  |
+| Queued follow-ups (a queue operation)                                                                                                        | [#1393](https://github.com/adea-ai/adea/issues/1393) | consumed: Queue control and list after a successful host read; Send next is explicit and one at a time                                      |
 | Test-run, terminal, stack-trace, changed-file, plan and task payload schemas                                                                 | [#1394](https://github.com/adea-ai/adea/issues/1394) | consumed: Terminal, Test Results, Stack Trace, File Tree, Plan, Task                                                                        |
 | Question schema (options, multi-question) and approval outcome/request correlation (`approval.resolved` naming the request and the decision) | [#1395](https://github.com/adea-ai/adea/issues/1395) | consumed: free-text questions and paired approval outcomes; an unpaired outcome stays a quiet line                                          |
 | Older-history loading (a checkpoint that returns earlier events) and production `turn.user_input` text                                       | [#1396](https://github.com/adea-ai/adea/issues/1396) | consumed: history control loads earlier events through the scroller; production `turn.user_input` text is still only what the event carries |
@@ -182,9 +182,11 @@ work. Until it exists the canvas shows the honest fallback in the right-hand col
 - **The unmarked count is per span.** Spans that end together share one marker; the
   note counts producer spans whose end received a marker (`placeCitationMarkers`
   returns `ends`), not marker positions.
-- **Still absent on purpose.** Queue, attachments, checkpoint restore and prompt
-  suggestions (#1392 and #1393 are not wired: no operation reaches the canvas, and
-  no producer exists for suggestions). Nothing here claims a producer streams these
+- **Still absent on purpose.** Attachments, checkpoint restore and prompt
+  suggestions (#1392 is not wired: no operation reaches the canvas, and
+  no producer exists for suggestions). Queued follow-ups (#1393) are wired: the
+  host's snapshot is the only source, `accepted` is never worded as read, an
+  ambiguous delivery is never retried. Nothing here claims a producer streams these
   events in production.
 
 ## Status band, evidence strip and child delegations (#1173/#1177)

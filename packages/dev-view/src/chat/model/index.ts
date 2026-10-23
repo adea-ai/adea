@@ -29,6 +29,7 @@ import type {
 } from './types'
 import { normalizeChatDraft } from '../draft'
 import { eventIdentity, openRuntimeEventStream, type RuntimeEventStream } from './event-stream'
+import { createFollowUpQueuePort, type FollowUpQueuePort } from './follow-ups'
 
 export * from './commands'
 export * from './handoff'
@@ -37,6 +38,7 @@ export * from './handoff-observation'
 export * from './transcript'
 export * from './types'
 export * from './history'
+export * from './follow-ups'
 
 const lifecycleByEvent: Readonly<Record<string, ChatConversationStatus>> = {
   'session.starting': 'preparing',
@@ -256,6 +258,8 @@ export type ChatConversationModel = Readonly<{
   archive(runtimeSessionId: string, reason?: string): Promise<ChatConversation>
   unarchive(runtimeSessionId: string): Promise<ChatConversation>
   send(runtimeSessionId: string, text: string): Promise<void>
+  /** The authorized host follow-up queue (#1393). Reads and changes only what the host answers. */
+  followUps: FollowUpQueuePort
   openTranscript(
     runtimeSessionId: string,
     options?: { fromSequence?: string; source?: RuntimeEvent['source'] }
@@ -739,6 +743,10 @@ export function createChatConversationModel(
     archive,
     unarchive,
     send,
+    followUps: createFollowUpQueuePort(service, scope, {
+      now,
+      randomId,
+    }),
     openTranscript,
   }
 }
