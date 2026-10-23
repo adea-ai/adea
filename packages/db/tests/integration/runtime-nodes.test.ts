@@ -27,6 +27,8 @@ import {
   fingerprintOf,
   listRuntimeNodesForUser,
   PAIRING_CHALLENGE_LIFETIME_MS,
+  renameRuntimeNode,
+  workspaceHostRenameLock,
   pruneRuntimeNodeCredentials,
   readRuntimeNode,
   recordRuntimeNodeProof,
@@ -62,6 +64,84 @@ function keys(signingSeed: string, encryptionSeed: string) {
       role: 'command_encryption' as const,
     },
   ]
+}
+
+/**
+ * A promise and the handle that settles it.
+ *
+ * The barrier and the test acknowledge each other with these, so nothing waits for a fixed
+ * duration to find out that the other side has got there.
+ */
+function deferred(): { promise: Promise<void>; release: () => void } {
+  const settle: { resolve?: () => void } = {}
+  const promise = new Promise<void>((resolve) => {
+    settle.resolve = resolve
+  })
+  return {
+    promise,
+    release: () => settle.resolve?.(),
+  }
+}
+
+/**
+ * The backend a connection runs on.
+ *
+ * The pool is narrowed to one connection for the sessions this test names, so the backend it
+ * reports is the one the renames and the barrier actually run on.
+ */
+async function backendPid(database: DatabaseConnection): Promise<number> {
+  const rows = await database.client<{ pid: number }[]>`select pg_backend_pid() as pid`
+  return rows[0]?.pid ?? 0
+}
+
+/**
+ * Waits until the intended renames are queued behind the intended workspace's rename lock.
+ *
+ * The wait is for a condition, not for a duration: until the renames are queued behind the lock,
+ * they could both read "no clash" and both commit the same name. The deadline only bounds the
+ * failure, so a rename that never queues fails the test instead of hanging it.
+ *
+ * The proof is scoped twice. Only the sessions that run the renames count, and only the lock the
+ * barrier holds counts: the barrier holds exactly this workspace's rename lock, so a waiting
+ * session is queued behind this workspace's lock only when it waits for that same lock. Any other
+ * advisory lock in the database, and any other session waiting on one, is not this test's
+ * evidence.
+ */
+async function waitForQueuedRenames(
+  observer: DatabaseConnection,
+  input: { readonly sessions: readonly number[]; readonly holder: number }
+): Promise<void> {
+  const deadline = Date.now() + 10_000
+  for (;;) {
+    // The session ids come from the database itself and are whole numbers, so they are written
+    // into the statement rather than bound.
+    const sessions = input.sessions.join(', ')
+    const rows = await observer.client.unsafe<{ pid: number }[]>(`
+      select waiting.pid as pid
+      from pg_locks waiting
+      where waiting.locktype = 'advisory'
+        and not waiting.granted
+        and waiting.pid in (${sessions})
+        and exists (
+          select 1
+          from pg_locks held
+          where held.locktype = 'advisory'
+            and held.granted
+            and held.pid = ${input.holder}
+            and held.classid = waiting.classid
+            and held.objid = waiting.objid
+            and held.objsubid = waiting.objsubid
+        )
+    `)
+    const waiting = rows.length
+    if (waiting >= input.sessions.length) return
+    if (Date.now() > deadline) {
+      throw new Error(
+        `expected ${input.sessions.length} renames to wait for the workspace lock, the database showed ${waiting}`
+      )
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
 }
 
 /** `RuntimeNodeError.code` is the stable part of a refusal; the message is not. */
@@ -218,6 +298,126 @@ describe.skipIf(!connectionUrl)('runtime nodes', () => {
     const refs = [...rows].map((row) => row.ref)
     expect(new Set(refs).size).toBe(500)
     for (const ref of refs) expect(ref).toMatch(/^rnr_[0-9A-HJKMNP-TV-Z]{26}$/u)
+  })
+
+  test('two renames of different hosts to the same name cannot both take it', async () => {
+    const { owner, workspace } = await fixture('runtime-rename-race')
+    const first = await registerRuntimeNode(connection.db, {
+      challengeId: (await challenge(workspace.id, owner.principal.userId, 'remote_host'))
+        .challengeId,
+      displayName: 'Host A',
+      keys: keys('signing-a', 'encryption-a'),
+      kind: 'remote_host',
+      ownerUserId: owner.principal.userId,
+      platform: 'Linux 6.1',
+      softwareVersion: '0.20.0',
+      workspaceId: workspace.id,
+    })
+    const second = await registerRuntimeNode(connection.db, {
+      challengeId: (await challenge(workspace.id, owner.principal.userId, 'remote_host'))
+        .challengeId,
+      displayName: 'Host B',
+      keys: keys('signing-b', 'encryption-b'),
+      kind: 'remote_host',
+      ownerUserId: owner.principal.userId,
+      platform: 'Linux 6.1',
+      softwareVersion: '0.20.0',
+      workspaceId: workspace.id,
+    })
+
+    // Four more connections, so the two renames really overlap instead of being pipelined by one
+    // client, and so the barrier and the observer are not the renames' own connections. Each of
+    // them holds a single backend, so the wait can name the sessions the renames run on.
+    const firstRename = createDatabase(connectionUrl!, {
+      maxConnections: 1,
+      idleTimeoutSeconds: 600,
+    })
+    const secondRename = createDatabase(connectionUrl!, {
+      maxConnections: 1,
+      idleTimeoutSeconds: 600,
+    })
+    const barrierConnection = createDatabase(connectionUrl!, {
+      maxConnections: 1,
+      idleTimeoutSeconds: 600,
+    })
+    const observer = createDatabase(connectionUrl!)
+    let releaseBarrier: (() => void) | undefined
+    let barrier: Promise<unknown> | undefined
+    let outcomes: Promise<PromiseSettledResult<unknown>[]> | undefined
+    try {
+      // The barrier holds the workspace's rename lock and says so. The renames then queue behind
+      // it, which the observer confirms before the barrier is released: every step waits for an
+      // acknowledgment, and none of them waits for a fixed duration.
+      // The sessions the renames run on, and the session that holds the lock. They are read
+      // before anything is opened: each pool holds one connection, and a pid cannot be read
+      // from a pool whose only connection a transaction already holds.
+      const [firstPid, secondPid, barrierPid] = await Promise.all([
+        backendPid(firstRename),
+        backendPid(secondRename),
+        backendPid(barrierConnection),
+      ])
+
+      const released = deferred()
+      const held = deferred()
+      releaseBarrier = released.release
+      barrier = barrierConnection.db.transaction(async (transaction) => {
+        await transaction.execute(workspaceHostRenameLock(workspace.id))
+        held.release()
+        await released.promise
+      })
+      await held.promise
+
+      outcomes = Promise.allSettled([
+        renameRuntimeNode(firstRename.db, {
+          actorUserId: owner.principal.userId,
+          displayName: 'Shared name',
+          runtimeNodeId: first.id,
+          workspaceId: workspace.id,
+        }),
+        renameRuntimeNode(secondRename.db, {
+          actorUserId: owner.principal.userId,
+          displayName: 'Shared name',
+          runtimeNodeId: second.id,
+          workspaceId: workspace.id,
+        }),
+      ])
+
+      // The acknowledgment that both renames are queued behind the workspace's lock. Until they
+      // are, they could both read "no clash" and both commit the same name.
+      await waitForQueuedRenames(observer, {
+        sessions: [firstPid, secondPid],
+        holder: barrierPid,
+      })
+
+      released.release()
+      const settled = await outcomes
+      await barrier
+      const fulfilled = settled.filter((outcome) => outcome.status === 'fulfilled')
+      const rejected = settled.filter((outcome) => outcome.status === 'rejected')
+      expect(fulfilled).toHaveLength(1)
+      expect(rejected).toHaveLength(1)
+      const reason = (rejected[0] as PromiseRejectedResult).reason
+      expect(reason).toBeInstanceOf(RuntimeNodeError)
+      expect((reason as InstanceType<typeof RuntimeNodeError>).code).toBe('conflict')
+
+      // Exactly one host carries the name, and the other kept its own.
+      const nodes = await listRuntimeNodesForUser(connection.db, workspace.id)
+      const named = nodes.filter((node) => node.displayName === 'Shared name')
+      expect(named).toHaveLength(1)
+      expect(
+        nodes.filter((node) => node.displayName === 'Host A' || node.displayName === 'Host B')
+      ).toHaveLength(1)
+    } finally {
+      // The barrier is released and the renames are settled before anything is closed, so the
+      // teardown is a normal close: there is nothing left in flight for it to force.
+      releaseBarrier?.()
+      await outcomes?.catch(() => undefined)
+      await barrier?.catch(() => undefined)
+      await firstRename.close()
+      await secondRename.close()
+      await barrierConnection.close()
+      await observer.close()
+    }
   })
 
   test('a self-hosted host registers once with its exchange credential', async () => {

@@ -110,6 +110,11 @@ export const WORKSPACE_EVENT_CONTRACTS = {
     aggregateType: 'runtime_node',
     aggregateIdKey: 'runtimeNodeId',
   },
+  'runtime_node.renamed': {
+    schemaVersion: 1,
+    aggregateType: 'runtime_node',
+    aggregateIdKey: 'runtimeNodeId',
+  },
   'runtime_node.revoked': {
     schemaVersion: 1,
     aggregateType: 'runtime_node',

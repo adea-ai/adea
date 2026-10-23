@@ -27,6 +27,8 @@ import {
   diagnoseHost,
   executionAuthority,
   historyAuthority,
+  hostChoiceCopy,
+  hostChoiceHealthCopy,
   hostHeadline,
   hostIdentityLabel,
   hostSelectability,
@@ -42,6 +44,17 @@ import {
 import type { HostActionsProps } from './self-hosted-host-actions'
 import { PairingUnavailable, SelfHostedSetupGuideShell } from './self-hosted-setup-guide-shell'
 import type { SetupGuideProps } from './self-hosted-setup-guide'
+
+/**
+ * A host list refresh.
+ *
+ * A refresh that can hand back the list it read lets the caller say what the list shows, instead
+ * of reporting a name the list never confirmed. A refresh that cannot is still a refresh.
+ */
+export type HostListRefresh = () =>
+  | void
+  | readonly ApiRuntimeNode[]
+  | Promise<void | readonly ApiRuntimeNode[]>
 
 /** Effects. An undefined operation is not connected, and its control says so. */
 export type SelfHostedOperations = Readonly<{
@@ -71,11 +84,14 @@ export type SelfHostedPanelProps = Readonly<{
   inspectedId: string | undefined
   onInspect: (hostId: string | undefined) => void
   /** Resolves when the refreshed list has settled. */
-  onRefreshHosts: () => void | Promise<void>
+  onRefreshHosts: HostListRefresh
   /** Re-reads one host; resolves when the read has settled. */
   onCheckHost: (hostId: string) => void | Promise<void>
   operations: SelfHostedOperations
-  /** The host chosen for new work. The caller owns where this is stored. */
+  /**
+   * The host this browser remembers. No submission path reads it, so it is a local note and
+   * not a routing decision. The caller owns where it is stored.
+   */
   chosenHostId?: string
   /** Undefined means choosing a host is not connected in this build. */
   onChooseHost?: (hostId: string | undefined) => void
@@ -389,7 +405,7 @@ function HostList(props: {
                   </div>
                   <div class="flex flex-wrap items-center gap-3">
                     <Show when={props.chosenHostId === entry.key}>
-                      <StatusChip tone="info" label="Chosen for new work" />
+                      <StatusChip tone="info" label="Remembered in this browser" />
                     </Show>
                     <StatusChip tone={headline().tone} label={headline().label} />
                     <Button
@@ -458,7 +474,7 @@ function HostDetail(props: {
   onFailure: (failure: FailureGuidance, retry?: () => void) => void
   onRegisterAgain: () => void
   operations: SelfHostedOperations
-  refreshHosts: () => void | Promise<void>
+  refreshHosts: HostListRefresh
   currentHost: (hostId: string) => ApiRuntimeNode | undefined
   notify: (notice: Notice) => void
   markUnconfirmed: (hostId: string, unconfirmed: boolean) => void
@@ -472,6 +488,16 @@ function HostDetail(props: {
   const steps = createMemo(() => remediationSteps(diagnostics()))
   const selectable = createMemo(() => hostSelectability(props.input, props.now()))
   const revoked = () => diagnostics().find((item) => item.id === 'registration')?.tone === 'danger'
+  // The remembered host is a local note. The copy says so, because no submission path reads it.
+  const choice = createMemo(() => hostChoiceCopy({ chosen: props.chosen }))
+  const choiceHealth = createMemo(() =>
+    hostChoiceHealthCopy({
+      allowed: selectable().allowed,
+      blockers: selectable().blockers,
+      chosen: props.chosen,
+      revoked: revoked(),
+    })
+  )
 
   const check = async () => {
     if (checking()) return
@@ -550,14 +576,7 @@ function HostDetail(props: {
         </Show>
       </SettingsSection>
       <SettingsSection title="Manage this host" bodyLayout="content">
-        <SettingsRow
-          label="Use for new work"
-          description={
-            props.chosen
-              ? 'New work is directed here. Adea never falls back to another host, and checks this one again at submission.'
-              : 'Pick this host on purpose. Adea never chooses between hosts for you.'
-          }
-        >
+        <SettingsRow label={choice().label} description={choice().description}>
           <Button
             type="button"
             variant={props.chosen ? 'secondary' : 'outline'}
@@ -566,7 +585,7 @@ function HostDetail(props: {
             aria-describedby="choose-reason"
             onClick={() => props.onChoose?.(props.chosen ? undefined : props.node.id)}
           >
-            {props.chosen ? 'Stop using this host' : 'Use this host'}
+            {choice().action}
           </Button>
         </SettingsRow>
         <p
@@ -576,29 +595,9 @@ function HostDetail(props: {
         >
           <Show
             when={props.onChoose}
-            fallback="Not available yet: choosing a host is not connected in this build."
+            fallback="Not available yet: remembering a host is not connected in this build."
           >
-            <Show
-              when={!revoked()}
-              fallback={
-                props.chosen
-                  ? 'This host is still chosen but its execution was revoked, so Adea will not send it work. Stop using it to clear the choice.'
-                  : 'A revoked host cannot be chosen.'
-              }
-            >
-              <Show
-                when={props.chosen && !selectable().allowed}
-                fallback={
-                  selectable().allowed
-                    ? 'Every check Adea can make passed. Admission is checked again when work is submitted.'
-                    : `Not selectable yet. ${selectable().blockers.join('; ')}.`
-                }
-              >
-                This host is still chosen, but it would not pass today’s checks:{' '}
-                {selectable().blockers.join('; ')}. New work will wait or be refused rather than
-                move to another host.
-              </Show>
-            </Show>
+            {choiceHealth()}
           </Show>
         </p>
         <Show
