@@ -9,8 +9,26 @@ import { startJourney, verifyJourneyPackages, finalText } from './journey-suppor
 const manifestPath = process.env.PI_FACTORY_MANIFEST
 if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
 
+const publicationIds = (evidence) => evidence.publications.map((record) => record.id)
 const publicationTypes = (evidence) =>
-  evidence.publications.map((r) => r.value.event.type).toSorted()
+  evidence.publications.map((record) => record.value.event.type).toSorted()
+
+// The binding a restart must re-read unchanged. A status read refreshes the observation timestamps, so
+// those are left out; every identity and state column must still match.
+const bindingOf = (row) =>
+  Object.fromEntries(
+    Object.entries(row).filter(([key]) => key !== 'observedAt' && key !== 'updatedAt')
+  )
+// Releases both held provider replies and returns the first failure, so the caller decides how it counts.
+const releaseHeldGates = async (control) => {
+  let cleanupError
+  for (const name of ['lead-final', 'child-send']) {
+    await control('release', { name }).catch((error) => {
+      cleanupError ??= error
+    })
+  }
+  return cleanupError
+}
 
 describe('crash and restart recovery across the journey boundaries', () => {
   let journey, control, ids, finished
@@ -85,8 +103,9 @@ describe('crash and restart recovery across the journey boundaries', () => {
     // The child's provider send is held so the acceptance is observable in flight, then the lead
     // is released to delegate. CP accepts and starts the child exactly once. The hold is released in
     // `finally`, so a failure in this test cannot leave the child stuck for the tests after it.
+    // The lead's post-delegation request is held too, so the lead stays running while the child is in flight.
     await control('hold', { name: 'child-send' })
-    let bodyFailed = false
+    await control('hold', { name: 'lead-final' })
     try {
       await control('release', { name: 'lead-first' })
       const accepted = await journey.waitFor(
@@ -129,8 +148,8 @@ describe('crash and restart recovery across the journey boundaries', () => {
       expect(afterKill.physicalSends).toBe(accepted.physicalSends)
       // CP publishes the delegation's request and dispatch when the child is accepted. The kill adds
       // none, and nothing is published for completion yet.
-      evidence.publications.map((r) => r.value.event.type).toSorted()
       expect(publicationTypes(accepted)).toEqual(['delegation.dispatched', 'delegation.requested'])
+      expect(publicationIds(afterKill)).toEqual(publicationIds(accepted))
       expect(publicationTypes(afterKill)).toEqual(publicationTypes(accepted))
       expect(publicationTypes(afterKill)).not.toContain('delegation.completed')
 
@@ -138,22 +157,22 @@ describe('crash and restart recovery across the journey boundaries', () => {
       const recovered = await journey.driver('status')
       expect(recovered.exitCode).toBe(0)
       expect(['starting', 'running']).toContain(recovered.result.state)
-      expect(await journey.runtimeRow()).toEqual(beforeKill)
+      expect(bindingOf(await journey.runtimeRow())).toEqual(bindingOf(beforeKill))
       const afterRecover = await control('evidence')
       expect(afterRecover.canonical).toEqual(accepted.canonical)
       expect(afterRecover.childStarts).toBe(1)
       expect(afterRecover.physicalSends).toBe(accepted.physicalSends)
+      expect(publicationIds(afterRecover)).toEqual(publicationIds(accepted))
+      expect(publicationTypes(afterRecover)).not.toContain('delegation.completed')
     } catch (error) {
-      bodyFailed = true
+      // The original failure is kept; a cleanup error after it is reported, not thrown.
+      const cleanupError = await releaseHeldGates(control)
+      if (cleanupError)
+        console.error(`held gate release failed after a test failure: ${cleanupError.message}`)
       throw error
-    } finally {
-      // Releases the held child reply on success and failure alike. A cleanup error replaces the
-      // result only when the body passed; after a failure the original error is kept.
-      await control('release', { name: 'child-send' }).catch((cleanupError) => {
-        if (!bodyFailed) throw cleanupError
-        console.error(`child-send release failed after a test failure: ${cleanupError.message}`)
-      })
     }
+    const cleanupError = await releaseHeldGates(control)
+    if (cleanupError) throw cleanupError
   }, 120000)
 
   test('the child is accepted once; a terminal receipt lost to Adea is read again after a restart', async () => {
