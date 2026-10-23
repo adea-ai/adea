@@ -193,6 +193,11 @@ export function createChannelGateway(input: {
     streamHandlers.set(protocol, provider)
   }
 
+  /** Retires a stream handler only while it is still the registered one. */
+  function unregisterStreamHandler(protocol: string, provider: StreamProvider): void {
+    if (streamHandlers.get(protocol) === provider) streamHandlers.delete(protocol)
+  }
+
   function closeStream(
     socket: ChannelSocket,
     data: SocketData,
@@ -489,6 +494,7 @@ export function createChannelGateway(input: {
     websockets,
     publish,
     registerStreamHandler,
+    unregisterStreamHandler,
     LEGACY_INVOKE_PROOF_CONTEXT,
   }
 }

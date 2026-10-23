@@ -39,6 +39,7 @@ import {
 } from '../dev-runtime/channel/identity'
 import { createIdentityCommandSurface } from '../dev-runtime/channel/identity-commands'
 import { createChannelAuthority } from '../dev-runtime/channel/authority'
+import { createRuntimeRegistrar } from './runtime-registrations'
 import {
   createChannelGateway,
   type ChannelGateway,
@@ -363,7 +364,15 @@ const gatewayView: ChannelGateway = {
     hostStreamProviders.set(protocol, provider)
     gateway.registerStreamHandler(protocol, provider)
   },
+  unregisterStreamHandler: (protocol, provider) => {
+    if (hostStreamProviders.get(protocol) === provider) hostStreamProviders.delete(protocol)
+    gateway.unregisterStreamHandler(protocol, provider)
+  },
 }
+// Owns what each Dev Runtime host composition registers on the long-lived
+// authority and gateway, so a recomposition (or a failed one) never leaves the
+// previous runtime's providers callable.
+const runtimeRegistrar = createRuntimeRegistrar({ authority, gateway: gatewayView })
 const fileStreamRelay = createFileStreamRelay({
   authority,
   providerFor: (protocol) => hostStreamProviders.get(protocol),
@@ -418,65 +427,67 @@ function composeHost(scope = identity.currentScope()): {
   })
   let nextHost: DevRuntimeHost
   try {
-    nextHost = createDevRuntimeHost({
-      authority,
-      gateway: gatewayView,
-      dataDir: DATA_DIR,
-      credentialStore,
-      scope,
-      identity,
-      approvalVerifier,
-      memory: memoryStore,
-      runtimeRoot: join(DATA_DIR, 'dev-runtime', 'runtime'),
-      // #185: the packaged manifest feeds the one supervision engine; absent
-      // (dev run) or failed load keeps the truthful no-supervision composition.
-      ...(packagedManifest.ok ? { componentManifest: packagedManifest.manifest } : {}),
-      // #185: the engine spawns packaged components through the real bundled
-      // layout (dev runs have no adapter — the engine itself never starts).
-      ...(supervisionAdapter ? { supervisionAdapter } : {}),
-      // #396: the terminal lane runs on the adopted sidecar; without one the
-      // terminal operations stay typed-unavailable.
-      ...(sidecarClient ? { sidecar: sidecarClient } : {}),
-      // #31 consumer zero-config (the handoff the managed-Pi lane pinned): the
-      // production boot opts into the managed Pi warm — fire-and-forget, every
-      // failure a typed durable driver state, skipped for injected drivers.
-      managedPiAutoInstall: !workspaceCleanup?.isPaused(scope),
-      // M10 #30: the harness selector's explicit rescan probes this machine's
-      // installed harness executables (fixed-argv version probes, no shell).
-      discoverySources: [
-        createLocalExecutableDiscoverySource({ specs: harnessFamilySpecs, env: process.env }),
-      ],
-      runLsof: async () => {
-        const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
-          stdout: 'pipe',
-          stderr: 'ignore',
-        })
-        const text = await new Response(proc.stdout).text()
-        await proc.exited
-        return text
-      },
-      resolveDns: async (hostname) => {
-        try {
-          const [a, aaaa] = await Promise.all([
-            dns.resolve4(hostname).catch(() => [] as string[]),
-            dns.resolve6(hostname).catch(() => [] as string[]),
-          ])
-          return [
-            ...a.map((address) => ({ address, family: 4 as const })),
-            ...aaaa.map((address) => ({ address, family: 6 as const })),
-          ]
-        } catch {
-          return []
-        }
-      },
-      publish: (event, payload) => {
-        try {
-          gateway.publish(event, payload)
-        } finally {
-          notifications.onPublishedEvent(event, payload)
-        }
-      },
-    })
+    nextHost = runtimeRegistrar.compose((registered) =>
+      createDevRuntimeHost({
+        authority: registered.authority,
+        gateway: registered.gateway,
+        dataDir: DATA_DIR,
+        credentialStore,
+        scope,
+        identity,
+        approvalVerifier,
+        memory: memoryStore,
+        runtimeRoot: join(DATA_DIR, 'dev-runtime', 'runtime'),
+        // #185: the packaged manifest feeds the one supervision engine; absent
+        // (dev run) or failed load keeps the truthful no-supervision composition.
+        ...(packagedManifest.ok ? { componentManifest: packagedManifest.manifest } : {}),
+        // #185: the engine spawns packaged components through the real bundled
+        // layout (dev runs have no adapter — the engine itself never starts).
+        ...(supervisionAdapter ? { supervisionAdapter } : {}),
+        // #396: the terminal lane runs on the adopted sidecar; without one the
+        // terminal operations stay typed-unavailable.
+        ...(sidecarClient ? { sidecar: sidecarClient } : {}),
+        // #31 consumer zero-config (the handoff the managed-Pi lane pinned): the
+        // production boot opts into the managed Pi warm — fire-and-forget, every
+        // failure a typed durable driver state, skipped for injected drivers.
+        managedPiAutoInstall: !workspaceCleanup?.isPaused(scope),
+        // M10 #30: the harness selector's explicit rescan probes this machine's
+        // installed harness executables (fixed-argv version probes, no shell).
+        discoverySources: [
+          createLocalExecutableDiscoverySource({ specs: harnessFamilySpecs, env: process.env }),
+        ],
+        runLsof: async () => {
+          const proc = Bun.spawn(['lsof', '-iTCP', '-sTCP:LISTEN', '-P', '-n', '-F', 'pcn'], {
+            stdout: 'pipe',
+            stderr: 'ignore',
+          })
+          const text = await new Response(proc.stdout).text()
+          await proc.exited
+          return text
+        },
+        resolveDns: async (hostname) => {
+          try {
+            const [a, aaaa] = await Promise.all([
+              dns.resolve4(hostname).catch(() => [] as string[]),
+              dns.resolve6(hostname).catch(() => [] as string[]),
+            ])
+            return [
+              ...a.map((address) => ({ address, family: 4 as const })),
+              ...aaaa.map((address) => ({ address, family: 6 as const })),
+            ]
+          } catch {
+            return []
+          }
+        },
+        publish: (event, payload) => {
+          try {
+            gateway.publish(event, payload)
+          } finally {
+            notifications.onPublishedEvent(event, payload)
+          }
+        },
+      })
+    )
   } catch (error) {
     // The Dev Runtime host opens the credential vault during its composition.
     // When the OS credential store is unavailable, that composition cannot

@@ -964,6 +964,10 @@ export function createChannelAuthority(options?: {
     streamProviders.set(protocol, true)
   }
 
+  function unregisterStreamProvider(protocol: DevStreamProtocol): void {
+    streamProviders.delete(protocol)
+  }
+
   function hasStreamProvider(protocol: DevStreamProtocol): boolean {
     return streamProviders.get(protocol) === true
   }
@@ -1079,6 +1083,15 @@ export function createChannelAuthority(options?: {
   }
 
   /**
+   * Retires one command provider, only while it is still the registered one: a
+   * later registration for the same operation is never removed by a stale
+   * owner. The operation then refuses `capability_unavailable` again.
+   */
+  function unregisterCommandProvider(operation: DevOperation, handler: DevCommandHandler): void {
+    if (commandProviders.get(operation) === handler) commandProviders.delete(operation)
+  }
+
+  /**
    * Revokes every active channel (identity rebind, workspace switch, sign
    * out, session revocation). Each socket's next request fails
    * `channel_unauthenticated` and must complete a fresh trusted handshake
@@ -1135,7 +1148,9 @@ export function createChannelAuthority(options?: {
     mintEventsToken,
     consumeEventsToken,
     registerCommandProvider,
+    unregisterCommandProvider,
     registerStreamProvider,
+    unregisterStreamProvider,
     hasStreamProvider,
     mintStreamGrant,
     attachStream,
