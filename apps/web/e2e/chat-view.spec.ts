@@ -943,7 +943,15 @@ test('a restore the host failed is reported as failed, not as a restore', async 
   expect(errors).toEqual([])
 })
 
-type AttachMode = 'ok' | 'lost' | 'remove-fail' | 'commit-stale' | 'remove-lost' | 'held'
+type AttachMode =
+  | 'ok'
+  | 'lost'
+  | 'remove-fail'
+  | 'commit-stale'
+  | 'remove-lost'
+  | 'held'
+  | 'lost-then-refused'
+  | 'remove-lost-then-refused'
 
 async function openAttachFixture(page: Page, mode?: AttachMode) {
   await mockBootstrap(page)
@@ -1056,6 +1064,9 @@ test('a lost removal answer is not "not removed", and removing again settles it'
   await expect(page.getByText('We could not confirm whether the file was removed.')).toBeVisible()
   await expect(page.getByText('The file was not removed.')).toHaveCount(0)
   await expect(list.getByText('notes.txt')).toBeVisible()
+  // Not a ready chip and not "stored on this device": the removal may have committed.
+  await expect(list.getByText('Removal not confirmed')).toBeVisible()
+  await expect(page.locator('[data-chat-attachments-status]')).toHaveCount(0)
   await page.getByRole('button', { name: 'Remove notes.txt' }).click()
   await expect(list).toHaveCount(0)
   expect(errors).toEqual([])
@@ -1195,6 +1206,41 @@ test('selecting another conversation and back keeps the attempt, and never shows
   await page.getByRole('button', { name: 'Try again' }).click()
   await expect(page.locator('[data-chat-attachments-status]')).toBeVisible()
   await expect(list.getByText('notes.txt')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+test('a refusal after a lost upload answer does not turn it into "Not stored"', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'lost-then-refused')
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await expect(list.getByText('Not confirmed')).toBeVisible()
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.getByText('That does not show the earlier attempt failed')).toBeVisible()
+  await expect(list.getByText('Not stored')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Dismiss notes.txt' })).toHaveCount(0)
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.locator('[data-chat-attachments-status]')).toBeVisible()
+  await expect(list.getByText('notes.txt')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+test('a refusal after a lost removal answer does not claim "not removed"', async ({ page }) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'remove-lost-then-refused')
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await page.getByRole('button', { name: 'Remove notes.txt' }).click()
+  await expect(list.getByText('Removal not confirmed')).toBeVisible()
+  await page.getByRole('button', { name: 'Remove notes.txt' }).click()
+  await expect(page.getByText('That does not show the earlier removal failed')).toBeVisible()
+  await expect(page.getByText('The file was not removed.')).toHaveCount(0)
+  await expect(list.getByText('Removal not confirmed')).toBeVisible()
+  await expect(page.locator('[data-chat-attachments-status]')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Remove notes.txt' }).click()
+  await expect(list).toHaveCount(0)
   expect(errors).toEqual([])
 })
 

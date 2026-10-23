@@ -295,8 +295,17 @@ export type TrayItem = Readonly<{
    * `failed`: the host definitely did not store it. `unconfirmed`: the host may have stored it;
    * it stays here, and Try again replays the same key. `unreconciled`: the host may have stored
    * (or removed) it and this conversation can no longer ask, so it can only be dismissed.
+   * `removalUnconfirmed`: the file was stored and a removal may have committed but its answer
+   * never arrived; it is not "stored" any more, and removing it again (the same id) is safe.
    */
-  state: 'uploading' | 'stored' | 'removing' | 'failed' | 'unconfirmed' | 'unreconciled'
+  state:
+    | 'uploading'
+    | 'stored'
+    | 'removing'
+    | 'failed'
+    | 'unconfirmed'
+    | 'removalUnconfirmed'
+    | 'unreconciled'
   attachmentId?: string
   /** Why, in words, for an item that is not plainly stored; or a failed removal of a stored one. */
   message?: string
@@ -378,10 +387,14 @@ export function createAttachmentTray(input: {
   }
 
   const mismatches = new Map<string, number>()
+  // An upload whose outcome was ever unknown: the host may have committed it. Uncertainty only
+  // ends with the host's own receipt (or a recovery that settles it), never with a later refusal.
+  const possiblyStored = new Set<string>()
   const forget = (id: string) => {
     uploads.delete(id)
     keys.delete(id)
     mismatches.delete(id)
+    possiblyStored.delete(id)
   }
 
   const send = async (id: string) => {
@@ -405,9 +418,20 @@ export function createAttachmentTray(input: {
         error instanceof Error ? error.message : '',
         definite ? 'refused' : 'unknown'
       )
-      if (definite) {
+      if (definite && !possiblyStored.has(id)) {
         forget(id)
         patch(id, (item) => ({ ...withoutMessage(item), state: 'failed', message: reason }))
+        return
+      }
+      possiblyStored.add(id)
+      if (definite) {
+        // A refusal of the retry says nothing about the attempt before it.
+        patch(id, (item) => ({
+          ...withoutMessage(item),
+          state: 'unconfirmed',
+          message: `${reason} That does not show the earlier attempt failed: we still could not confirm whether the file was stored, so trying again will not store it twice.`,
+          retryable: true,
+        }))
         return
       }
       const seen = code === 'identity_mismatch' ? (mismatches.get(id) ?? 0) + 1 : 0
@@ -471,6 +495,8 @@ export function createAttachmentTray(input: {
         return
       }
       const attachmentId = item.attachmentId
+      // An earlier removal whose outcome was unknown stays possible whatever a retry answers.
+      const earlierUnknown = removalUncertain.has(id)
       removalUncertain.add(id)
       patch(id, (current) => ({ ...withoutMessage(current), state: 'removing' }))
       try {
@@ -488,29 +514,45 @@ export function createAttachmentTray(input: {
           }))
           return
         }
-        // Only a definite refusal is "not removed"; anything else may have committed, and the
-        // host treats a repeated removal of the same id as the same request.
+        // Only a definite refusal of a first attempt is "not removed"; anything else may have
+        // committed, and the host treats a repeated removal of the same id as the same request.
         const refused = code !== undefined && DEFINITE_FAILURES.includes(code)
-        if (refused) removalUncertain.delete(id)
+        const reason = attachmentFailureText(
+          code,
+          error instanceof Error ? error.message : '',
+          refused ? 'refused' : 'unknown'
+        )
+        if (refused && !earlierUnknown) {
+          removalUncertain.delete(id)
+          patch(id, (current) => ({
+            ...withoutMessage(current),
+            state: 'stored',
+            message: `The file was not removed. ${reason}`,
+          }))
+          return
+        }
         patch(id, (current) => ({
           ...withoutMessage(current),
-          state: 'stored',
+          state: 'removalUnconfirmed',
           message: refused
-            ? `The file was not removed. ${attachmentFailureText(code, error instanceof Error ? error.message : '', 'refused')}`
+            ? `${reason} That does not show the earlier removal failed. ${UNCONFIRMED_REMOVAL_TEXT}`
             : UNCONFIRMED_REMOVAL_TEXT,
         }))
       }
     },
     unresolved() {
       return items.flatMap((item): UnresolvedAttachment[] => {
-        const settled = item.state === 'stored' && !removalUncertain.has(item.id)
-        if (settled || item.state === 'failed') return []
+        if (item.state === 'stored' || item.state === 'failed') return []
         return [
           {
             name: item.name,
             byteLength: item.byteLength,
             about:
-              item.state === 'removing' || removalUncertain.has(item.id) ? 'removal' : 'upload',
+              item.state === 'removing' ||
+              item.state === 'removalUnconfirmed' ||
+              removalUncertain.has(item.id)
+                ? 'removal'
+                : 'upload',
           },
         ]
       })

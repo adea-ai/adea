@@ -150,8 +150,12 @@ host's own binding check can fail after it committed (`stale_generation`, `not_f
 and a receipt this surface rejects can be for a write that happened
 (`identity_mismatch`, retried once): those are "Not confirmed" without Try again,
 saying the file may still be stored on this device, and can only be dismissed. A
-removal that is refused says "not removed"; one whose answer is lost says it could not
-confirm, and removing again is the host's same-id retry. A generation switch carries
+removal that is refused says "not removed"; one whose answer is lost is "Removal not
+confirmed": it is no longer shown as stored (no ready chip, no "stored on this device"
+line), and removing again is the host's same-id retry. Uncertainty only ever grows: a
+later refusal of a retry (unavailable, denied, unauthorized) after a timeout never turns
+the earlier upload into "Not stored" or the earlier removal into "not removed"; the key
+and the removal id are kept until the host's own receipt or a recovery that settles it. A generation switch carries
 whatever was unconfirmed into the next generation as the same unreconciled item, never
 silently dropping it. Only a real generation advance does that: a remount of the same
 generation, or selecting another conversation and coming back, finds the same tray with

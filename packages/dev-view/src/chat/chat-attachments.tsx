@@ -141,7 +141,9 @@ export function ChatAttachments(props: { binding: AttachmentsBinding }): JSX.Ele
                       ? 'Not stored'
                       : item.state === 'unconfirmed' || item.state === 'unreconciled'
                         ? 'Not confirmed'
-                        : undefined
+                        : item.state === 'removalUnconfirmed'
+                          ? 'Removal not confirmed'
+                          : undefined
                   }
                   removeLabel={
                     item.state === 'failed' || item.state === 'unreconciled'
@@ -149,6 +151,7 @@ export function ChatAttachments(props: { binding: AttachmentsBinding }): JSX.Ele
                       : `Remove ${item.name}`
                   }
                   {...(item.state === 'stored' ||
+                  item.state === 'removalUnconfirmed' ||
                   item.state === 'failed' ||
                   item.state === 'unreconciled'
                     ? { onRemove: () => void props.binding.remove(item.id) }
@@ -158,6 +161,7 @@ export function ChatAttachments(props: { binding: AttachmentsBinding }): JSX.Ele
                   when={
                     (item.state === 'failed' ||
                       item.state === 'unconfirmed' ||
+                      item.state === 'removalUnconfirmed' ||
                       item.state === 'unreconciled') &&
                     item.message
                   }

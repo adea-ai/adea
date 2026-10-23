@@ -132,6 +132,10 @@ export type FixtureAttachmentMode =
   | 'remove-lost'
   /** Uploads commit but stay unanswered until `chat-visual:release-attachments`. */
   | 'held'
+  /** The first upload commits and times out, the retry is refused, the next retry is answered. */
+  | 'lost-then-refused'
+  /** The first removal commits and times out, the retry is refused, the next is answered. */
+  | 'remove-lost-then-refused'
 
 export const FIXTURE_ATTACHMENT_MODES: readonly FixtureAttachmentMode[] = [
   'ok',
@@ -140,6 +144,8 @@ export const FIXTURE_ATTACHMENT_MODES: readonly FixtureAttachmentMode[] = [
   'commit-stale',
   'remove-lost',
   'held',
+  'lost-then-refused',
+  'remove-lost-then-refused',
 ]
 
 /**
@@ -154,10 +160,15 @@ export function createFixtureAttachments(
   const stored = new Map<string, string>()
   const byKey = new Map<string, import('@adea-ai/types/dev-runtime').ChatAttachment>()
   const removedIds = new Map<string, import('@adea-ai/types/dev-runtime').ChatAttachment>()
-  let failNextUpload = mode === 'lost' || mode === 'commit-stale'
-  let failNextRemoval = mode === 'remove-lost'
+  let failNextUpload = mode === 'lost' || mode === 'commit-stale' || mode === 'lost-then-refused'
+  let failNextRemoval = mode === 'remove-lost' || mode === 'remove-lost-then-refused'
+  let uploadCalls = 0
+  let removalCalls = 0
   return {
     async upload(identity, input) {
+      uploadCalls += 1
+      if (mode === 'lost-then-refused' && uploadCalls === 2)
+        throw refuse('capability_unavailable', 'The host cannot store files right now.')
       const existing = byKey.get(input.idempotencyKey)
       if (existing) return existing
       n += 1
@@ -183,6 +194,9 @@ export function createFixtureAttachments(
       return made
     },
     async remove(identity, attachmentId) {
+      removalCalls += 1
+      if (mode === 'remove-lost-then-refused' && removalCalls === 2)
+        throw refuse('capability_unavailable', 'The host cannot remove files right now.')
       if (mode === 'remove-fail')
         throw refuse('capability_unavailable', 'The host cannot remove files right now.')
       const already = removedIds.get(attachmentId)

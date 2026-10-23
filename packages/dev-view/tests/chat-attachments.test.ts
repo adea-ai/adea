@@ -331,7 +331,8 @@ describe('attachment tray', () => {
     expect(refused.message).toContain('not removed')
     await tray.remove('id1')
     const unknown = latest().items[0]!
-    expect(unknown.state).toBe('stored')
+    // Not "stored" any more: the removal may have committed.
+    expect(unknown.state).toBe('removalUnconfirmed')
     expect(unknown.message).not.toContain('not removed')
     expect(unknown.message).toContain('could not confirm')
     expect(unknown.attachmentId).toBe(ATTACHMENT_ID)
@@ -498,6 +499,95 @@ const lostThenStored = () => {
 const at = (generation: number, runtimeSessionId = 'session-1') => ({
   runtimeSessionId,
   generation,
+})
+
+describe('uncertainty is monotonic across retry refusals', () => {
+  const refusals = ['capability_unavailable', 'capability_denied', 'unauthorized'] as const
+
+  test('an upload that timed out is not shown as failed by a later refusal, and keeps its key', async () => {
+    for (const refusal of refusals) {
+      const { tray, uploads, latest } = scripted([reject('timeout'), reject(refusal), stored])
+      await tray.add(file('notes.txt', 'hello'))
+      await settle()
+      expect(latest().items[0]!.state).toBe('unconfirmed')
+      await tray.retry('id1')
+      const item = latest().items[0]!
+      expect(item.state).toBe('unconfirmed')
+      expect(item.retryable).toBe(true)
+      expect(item.message).toContain('does not show the earlier attempt failed')
+      expect(item.message).not.toContain('Not stored')
+      // Still not dismissable: dismissing would drop the key that finds the file.
+      await tray.remove('id1')
+      expect(latest().items).toHaveLength(1)
+      // Recovery under the same key settles it from the host's own receipt.
+      await tray.retry('id1')
+      expect(latest().items.map((candidate) => candidate.state)).toEqual(['stored'])
+      expect(uploads).toHaveLength(3)
+      expect(new Set(uploads.map((upload) => upload.idempotencyKey)).size).toBe(1)
+    }
+  })
+
+  test('an upload refused on its first attempt is still definite', async () => {
+    const { tray, latest } = scripted([reject('capability_denied')])
+    await tray.add(file('notes.txt', 'hello'))
+    await settle()
+    expect(latest().items[0]!.state).toBe('failed')
+  })
+
+  test('an upload whose refusal follows a timeout can still end unreconciled, never failed', async () => {
+    const { tray, latest } = scripted([
+      reject('timeout'),
+      reject('unauthorized'),
+      reject('stale_generation'),
+    ])
+    await tray.add(file('notes.txt', 'hello'))
+    await settle()
+    await tray.retry('id1')
+    await tray.retry('id1')
+    expect(latest().items[0]!.state).toBe('unreconciled')
+  })
+
+  test('a removal that timed out is not "not removed" after a later refusal, and recovers by the same id', async () => {
+    for (const refusal of refusals) {
+      const calls: string[] = []
+      const answers: Array<ChatAttachment | Error> = [reject('timeout'), reject(refusal), removed]
+      const port: AttachmentPort = {
+        upload: async () => stored,
+        remove: async (_identity, attachmentId) => {
+          calls.push(attachmentId)
+          const next = answers.shift()!
+          if (next instanceof Error) throw next
+          return next
+        },
+      }
+      const tray = createAttachmentTray({ port, identity: IDENTITY, randomId: () => 'id1' })
+      await tray.add(file('notes.txt', 'hello'))
+      await settle()
+      await tray.remove('id1')
+      expect(tray.view().items[0]!.state).toBe('removalUnconfirmed')
+      await tray.remove('id1')
+      const item = tray.view().items[0]!
+      expect(item.state).toBe('removalUnconfirmed')
+      expect(item.attachmentId).toBe(ATTACHMENT_ID)
+      expect(item.message).toContain('does not show the earlier removal failed')
+      expect(item.message).not.toContain('The file was not removed.')
+      // Still carried as an unsettled removal.
+      expect(tray.unresolved().map((entry) => entry.about)).toEqual(['removal'])
+      await tray.remove('id1')
+      expect(tray.view().items).toHaveLength(0)
+      expect(calls).toEqual([ATTACHMENT_ID, ATTACHMENT_ID, ATTACHMENT_ID])
+    }
+  })
+
+  test('removal-unknown is a distinct public state: it is not stored', async () => {
+    const { tray, latest } = scripted([stored], [reject('timeout')])
+    await tray.add(file('notes.txt', 'hello'))
+    await settle()
+    expect(latest().items[0]!.state).toBe('stored')
+    await tray.remove('id1')
+    expect(latest().items.map((item) => item.state)).toEqual(['removalUnconfirmed'])
+    expect(latest().items.some((item) => item.state === 'stored')).toBe(false)
+  })
 })
 
 describe('attachment trays across remounts and conversation switches', () => {
