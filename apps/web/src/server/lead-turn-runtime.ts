@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type {
+  ApiLeadChildAllowance,
   ApiLeadTurnChildrenQuery,
   ApiLeadTurnChildrenResponse,
   ApiLeadTurnStatus,
@@ -49,6 +50,8 @@ export type LeadPreparedSelection = Readonly<{
   selectionRevision: number
   preparationRef: string
   expiresAt: string
+  /** Absent when the control plane predates the disclosure; shown as not disclosed. */
+  childAllowance?: ApiLeadChildAllowance
 }>
 export type LeadRuntimeObservation = LeadRuntimeBinding &
   Readonly<{
@@ -272,6 +275,7 @@ export function createLeadTurnRuntime(
       ...(stored?.preparationExpiresAt
         ? { preparationExpiresAt: stored.preparationExpiresAt }
         : {}),
+      ...(stored?.childAllowance ? { childAllowance: stored.childAllowance } : {}),
       ...(stored?.runtimeSessionId ? { runtimeSessionId: stored.runtimeSessionId } : {}),
       ...(stored?.observedAt ? { observedAt: stored.observedAt } : {}),
       ...(stored?.cancelRequestedAt ? { cancelRequestedAt: stored.cancelRequestedAt } : {}),

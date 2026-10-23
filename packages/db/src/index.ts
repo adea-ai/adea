@@ -240,6 +240,7 @@ export {
   readRuntimeNode,
   recordRuntimeNodeProof,
   registerRuntimeNode,
+  renameRuntimeNode,
   requireEligibleRuntimeNode,
   revokeRuntimeNode,
   rotateRuntimeNodeKeys,
