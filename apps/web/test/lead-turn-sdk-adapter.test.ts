@@ -133,6 +133,96 @@ test('prepare decodes actual SDK response data and retains only bound references
   expect(JSON.stringify(await adapter.prepare!(authority))).not.toContain('private-funding-ref')
 })
 
+const digest = `sha256:${'c'.repeat(64)}`
+const preparedWith = (childAllowance?: unknown) => {
+  const transport = {
+    workspaceId: authority.controlPlaneWorkspaceId,
+    async prepare() {
+      return {
+        data: {
+          schemaVersion: 'pi-lead-preparation/v1',
+          ...selection,
+          replayed: false,
+          ...(childAllowance === undefined ? {} : { childAllowance }),
+          funding: {
+            schemaVersion: 'model-funding-display/v1',
+            state: 'ready',
+            workspaceId: selection.workspaceId,
+            executionId: selection.executionId,
+            attemptId: selection.attemptId,
+            selectionRef: selection.selectionRef,
+            selectionRevision: selection.selectionRevision,
+            expiresAt: selection.expiresAt,
+          },
+        },
+      }
+    },
+    async dispatch() {
+      return {}
+    },
+    async status() {
+      return {}
+    },
+    async progress() {
+      return {}
+    },
+    async cancel() {
+      return {}
+    },
+  }
+  return createLeadTurnSdkAdapter({
+    ...transport,
+    preparationSchema: { parse: (value) => value },
+  }).prepare!(authority)
+}
+const stated = {
+  schemaVersion: 'pi-lead-child-allowance/v1',
+  executionPlanDigest: digest,
+  profile: { profileId: 'p', profileVersionId: 'pv', version: 1, revision: 1 },
+  state: 'stated',
+  currency: 'USD',
+  maximumMicrounits: 2_500_000,
+  maximumTokens: 120_000,
+}
+test('prepare projects the child allowance disclosure and keeps an absent one absent', async () => {
+  expect(await preparedWith(stated)).toEqual({
+    ...selection,
+    childAllowance: {
+      state: 'stated',
+      executionPlanDigest: digest,
+      currency: 'USD',
+      maximumMicrounits: 2_500_000,
+      maximumTokens: 120_000,
+    },
+  })
+  expect(
+    await preparedWith({
+      schemaVersion: 'pi-lead-child-allowance/v1',
+      executionPlanDigest: digest,
+      profile: stated.profile,
+      state: 'not_stated',
+    })
+  ).toEqual({
+    ...selection,
+    childAllowance: { state: 'not_stated', executionPlanDigest: digest },
+  })
+  const absent = await preparedWith()
+  expect(absent).toEqual(selection)
+  expect('childAllowance' in absent).toBe(false)
+})
+
+test('prepare fails closed on a malformed child allowance disclosure', async () => {
+  for (const bad of [
+    { ...stated, schemaVersion: 'pi-lead-child-allowance/v2' },
+    { ...stated, executionPlanDigest: 'sha256:short' },
+    { ...stated, currency: 'EUR' },
+    { ...stated, maximumMicrounits: -1 },
+    { ...stated, maximumTokens: 1.5 },
+    { ...stated, state: 'unknown' },
+  ])
+    await expect(preparedWith(bad)).rejects.toThrow('RUNTIME_RESPONSE_INVALID')
+})
+
 test('lookup uses actual strict response decoder and opaque intent only; absent decoder remains disabled', async () => {
   const calls: unknown[] = []
   const data = {

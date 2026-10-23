@@ -225,6 +225,7 @@ export type {
   ApiLeadTurnChildrenPage,
   ApiLeadTurnChildrenResponse,
   ApiHandoffTarget,
+  ApiLeadChildAllowance,
   ApiLeadTurnStatus,
   ApiRequestedRoleModelSelections,
   ApiLeadTurnResponse,

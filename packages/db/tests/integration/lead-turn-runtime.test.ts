@@ -81,6 +81,77 @@ describe.skipIf(!databaseUrl)('trusted lead runtime observation/publication', ()
     }
     return { owner, workspace, lead, topic, admitted, pin, binding }
   }
+  test('prepare persists the child allowance disclosure and reads it back; absence stays absent', async () => {
+    const digest = `sha256:${'d'.repeat(64)}`
+    const stated = await fixture()
+    await prepareLeadTurnRuntime(
+      connection.db,
+      stated.workspace.id,
+      stated.pin.intentId,
+      stated.owner.principal,
+      {
+        ...stated.pin,
+        childAllowance: {
+          state: 'stated',
+          executionPlanDigest: digest,
+          currency: 'USD',
+          maximumMicrounits: 2_500_000,
+          maximumTokens: 120_000,
+        },
+      }
+    )
+    expect(
+      await readLeadTurnRuntime(
+        connection.db,
+        stated.workspace.id,
+        stated.pin.intentId,
+        stated.owner.principal
+      )
+    ).toMatchObject({
+      childAllowance: {
+        state: 'stated',
+        executionPlanDigest: digest,
+        currency: 'USD',
+        maximumMicrounits: 2_500_000,
+        maximumTokens: 120_000,
+      },
+    })
+    const notStated = await fixture()
+    await prepareLeadTurnRuntime(
+      connection.db,
+      notStated.workspace.id,
+      notStated.pin.intentId,
+      notStated.owner.principal,
+      {
+        ...notStated.pin,
+        childAllowance: { state: 'not_stated', executionPlanDigest: digest },
+      }
+    )
+    expect(
+      await readLeadTurnRuntime(
+        connection.db,
+        notStated.workspace.id,
+        notStated.pin.intentId,
+        notStated.owner.principal
+      )
+    ).toMatchObject({ childAllowance: { state: 'not_stated', executionPlanDigest: digest } })
+    const absent = await fixture()
+    await prepareLeadTurnRuntime(
+      connection.db,
+      absent.workspace.id,
+      absent.pin.intentId,
+      absent.owner.principal,
+      absent.pin
+    )
+    const read = await readLeadTurnRuntime(
+      connection.db,
+      absent.workspace.id,
+      absent.pin.intentId,
+      absent.owner.principal
+    )
+    expect(read).toMatchObject({ state: 'prepared' })
+    expect(read).not.toHaveProperty('childAllowance')
+  })
   test('prepare persists no runtime session; retry cannot swap the accepted selection or attempt', async () => {
     const f = await fixture()
     await prepareLeadTurnRuntime(

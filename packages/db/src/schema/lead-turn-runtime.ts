@@ -30,6 +30,13 @@ export const leadTurnRuntime = appSchema.table(
       onDelete: 'restrict',
     }),
     publicationDigest: text('publication_digest'),
+    /** Disclosure of what the accepted lead plan holds back for children; null when not disclosed. */
+    childAllowanceState: text('child_allowance_state'),
+    childAllowancePlanDigest: text('child_allowance_plan_digest'),
+    childAllowanceMaximumMicrounits: bigint('child_allowance_maximum_microunits', {
+      mode: 'number',
+    }),
+    childAllowanceMaximumTokens: bigint('child_allowance_maximum_tokens', { mode: 'number' }),
     ...timestampColumns(),
   },
   (table) => [
@@ -66,6 +73,10 @@ export const leadTurnRuntime = appSchema.table(
     check(
       'lead_turn_runtime_publication_valid',
       sql`(${table.publishedMessageId} is null and ${table.publicationDigest} is null) or (${table.publishedMessageId} is not null and ${table.publicationDigest} is not null and ${table.publicationDigest} ~ '^[a-f0-9]{64}$' and ${table.state} = 'completed')`
+    ),
+    check(
+      'lead_turn_runtime_child_allowance_valid',
+      sql`(${table.childAllowanceState} is null and ${table.childAllowancePlanDigest} is null and ${table.childAllowanceMaximumMicrounits} is null and ${table.childAllowanceMaximumTokens} is null) or (${table.childAllowanceState} = 'not_stated' and ${table.childAllowancePlanDigest} ~ '^sha256:[a-f0-9]{64}$' and ${table.childAllowanceMaximumMicrounits} is null and ${table.childAllowanceMaximumTokens} is null) or (${table.childAllowanceState} = 'stated' and ${table.childAllowancePlanDigest} ~ '^sha256:[a-f0-9]{64}$' and ${table.childAllowanceMaximumMicrounits} between 0 and 9007199254740991 and ${table.childAllowanceMaximumTokens} between 0 and 9007199254740991)`
     ),
   ]
 )
