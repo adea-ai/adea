@@ -80,56 +80,72 @@ describe('crash and restart recovery across the journey boundaries', () => {
 
   test('a process killed while the accepted child is in flight loses nothing; a restart reads the same binding', async () => {
     // The child's provider send is held so the acceptance is observable in flight, then the lead
-    // is released to delegate. CP accepts and starts the child exactly once.
+    // is released to delegate. CP accepts and starts the child exactly once. The hold is released in
+    // `finally`, so a failure in this test cannot leave the child stuck for the tests after it.
     await control('hold', { name: 'child-send' })
-    await control('release', { name: 'lead-first' })
-    const accepted = await journey.waitFor(
-      () => control('evidence'),
-      // The child's physical request is recorded before its held send, but CP's start record can
-      // land first. Wait for the held request too, so the counts below are read after it arrives.
-      (e) =>
-        e.childStarts === 1 && e.childSends === 1 && e.delegations.length === 1 && Boolean(e.child),
-      'child accepted and started once'
-    )
-    expect(accepted.lead).toMatchObject(ids)
-    expect(accepted.leadSends).toBe(1)
-    expect(accepted.childSends).toBe(1)
-    expect(accepted.canonical).toMatchObject({
-      commands: 1,
-      executions: 2,
-      attempts: 2,
-      budgets: 2,
-    })
-    expect(await journey.publishedMessages()).toHaveLength(0)
-    const beforeKill = await journey.runtimeRow()
-    expect(beforeKill.publishedMessageId).toBeNull()
+    let bodyFailed = false
+    try {
+      await control('release', { name: 'lead-first' })
+      const accepted = await journey.waitFor(
+        () => control('evidence'),
+        // The child's physical request is recorded before its held send, and CP's start record and the
+        // lead's post-delegation request can land in either order. Wait for all of them, so the counts
+        // below are read after they arrive.
+        (e) =>
+          e.childStarts === 1 &&
+          e.childSends === 1 &&
+          e.leadSends === 2 &&
+          e.delegations.length === 1 &&
+          Boolean(e.child),
+        'child accepted and started once'
+      )
+      expect(accepted.lead).toMatchObject(ids)
+      expect(accepted.leadSends).toBe(2)
+      expect(accepted.childSends).toBe(1)
+      expect(accepted.canonical).toMatchObject({
+        commands: 1,
+        executions: 2,
+        attempts: 2,
+        budgets: 2,
+      })
+      expect(await journey.publishedMessages()).toHaveLength(0)
+      const beforeKill = await journey.runtimeRow()
+      expect(beforeKill.publishedMessageId).toBeNull()
 
-    // The Adea process reads the accepted child and dies before storing the observation.
-    const killed = await journey.driver('status', { fault: 'child-acceptance-lost' })
-    expect(killed.killed).toBe(true)
-    expect(killed.result).toBeUndefined()
-    // Nothing durable moved: the same binding, no message, no extra CP work, one child start.
-    expect(await journey.runtimeRow()).toEqual(beforeKill)
-    expect(await journey.publishedMessages()).toHaveLength(0)
-    expect(await journey.channelMessages()).toHaveLength(1)
-    const afterKill = await control('evidence')
-    expect(afterKill.canonical).toEqual(accepted.canonical)
-    expect(afterKill.childStarts).toBe(1)
-    expect(afterKill.physicalSends).toBe(accepted.physicalSends)
-    expect(afterKill.publications).toHaveLength(0)
+      // The Adea process reads the accepted child and dies before storing the observation.
+      const killed = await journey.driver('status', { fault: 'child-acceptance-lost' })
+      expect(killed.killed).toBe(true)
+      expect(killed.result).toBeUndefined()
+      // Nothing durable moved: the same binding, no message, no extra CP work, one child start.
+      expect(await journey.runtimeRow()).toEqual(beforeKill)
+      expect(await journey.publishedMessages()).toHaveLength(0)
+      expect(await journey.channelMessages()).toHaveLength(1)
+      const afterKill = await control('evidence')
+      expect(afterKill.canonical).toEqual(accepted.canonical)
+      expect(afterKill.childStarts).toBe(1)
+      expect(afterKill.physicalSends).toBe(accepted.physicalSends)
+      expect(afterKill.publications).toHaveLength(0)
 
-    // A restarted process re-reads the same binding without dispatching, preparing or sending.
-    const recovered = await journey.driver('status')
-    expect(recovered.exitCode).toBe(0)
-    expect(['starting', 'running']).toContain(recovered.result.state)
-    expect(await journey.runtimeRow()).toEqual(beforeKill)
-    const afterRecover = await control('evidence')
-    expect(afterRecover.canonical).toEqual(accepted.canonical)
-    expect(afterRecover.childStarts).toBe(1)
-    expect(afterRecover.physicalSends).toBe(accepted.physicalSends)
-
-    // The child's held reply is released so the journey can continue to its terminal receipt.
-    await control('release', { name: 'child-send' })
+      // A restarted process re-reads the same binding without dispatching, preparing or sending.
+      const recovered = await journey.driver('status')
+      expect(recovered.exitCode).toBe(0)
+      expect(['starting', 'running']).toContain(recovered.result.state)
+      expect(await journey.runtimeRow()).toEqual(beforeKill)
+      const afterRecover = await control('evidence')
+      expect(afterRecover.canonical).toEqual(accepted.canonical)
+      expect(afterRecover.childStarts).toBe(1)
+      expect(afterRecover.physicalSends).toBe(accepted.physicalSends)
+    } catch (error) {
+      bodyFailed = true
+      throw error
+    } finally {
+      // Releases the held child reply on success and failure alike. A cleanup error replaces the
+      // result only when the body passed; after a failure the original error is kept.
+      await control('release', { name: 'child-send' }).catch((cleanupError) => {
+        if (!bodyFailed) throw cleanupError
+        console.error(`child-send release failed after a test failure: ${cleanupError.message}`)
+      })
+    }
   }, 120000)
 
   test('the child is accepted once; a terminal receipt lost to Adea is read again after a restart', async () => {
