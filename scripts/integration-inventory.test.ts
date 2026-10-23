@@ -53,6 +53,17 @@ describe('integration test file discovery', () => {
     }
   })
 
+  test('the real retention executor boundary runs exactly once in the required DB integration lane', () => {
+    const file = 'packages/db/tests/integration/retention-policy-executor-boundary.test.ts'
+    const inventory = discoverIntegrationInventory(root)
+    expect(inventory.packageFiles.filter((entry) => entry === file)).toEqual([file])
+    expect(planIntegrationRun(inventory, null).packageFiles).toContain(file)
+    const selected = [1, 2].flatMap(
+      (index) => planIntegrationRun(inventory, { index, total: 2 }).packageFiles
+    )
+    expect(selected.filter((entry) => entry === file)).toEqual([file])
+  })
+
   test('picks up new test files from disk, skipping helpers and non-integration suites', () => {
     const fixture = mkdtempSync(join(tmpdir(), 'adea-integration-inventory-'))
     const write = (path: string) => {

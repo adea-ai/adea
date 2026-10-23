@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { createHash, randomBytes } from 'node:crypto'
+import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'node:crypto'
 import {
   chmodSync,
   copyFileSync,
@@ -54,6 +54,11 @@ function code(run: () => unknown, expected: string) {
     return
   }
   throw new Error(`expected ${expected}`)
+}
+function flipBit(sealed: Buffer, index: number): Buffer {
+  const next = Buffer.from(sealed)
+  next[index] ^= 0x01
+  return next
 }
 function fixture(run: (context: ReturnType<typeof context>) => void | Promise<void>) {
   const ctx = context()
@@ -467,6 +472,275 @@ describe('attachment transaction and recovery hardening', () => {
       ctx.store.remove(binding, first.attachmentId)
       expect(ctx.store.upload(binding, payload, 'after-remove').byteLength).toBe(
         chatAttachmentLimits.maxBytes
+      )
+    }))
+
+  test('quota checks authenticate stored row metadata before trusting byte counts', () =>
+    fixture((ctx) => {
+      ctx.store.upload(binding, upload('original'), 'tampered-metadata')
+      const db = new Database(ctx.dbPath())
+      db.query("UPDATE attachments SET state='removed'").run()
+      db.close(true)
+
+      code(() => ctx.make().upload(binding, upload('another'), 'after-tamper'), 'corrupt_state')
+      expect(ctx.events.events()).toHaveLength(1)
+    }))
+
+  test('quota checks refuse deleted rows while authenticated attachment events remain', () =>
+    fixture((ctx) => {
+      const attachment = ctx.store.upload(binding, upload('original'), 'deleted-row')
+      const db = new Database(ctx.dbPath())
+      db.query('DELETE FROM attachments WHERE id=?').run(attachment.attachmentId)
+      db.close(true)
+
+      code(() => ctx.make().upload(binding, upload('another'), 'after-delete'), 'corrupt_state')
+      expect(ctx.events.events()).toHaveLength(1)
+    }))
+
+  test('quota checks refuse a row whose stored byte length no longer matches its sealed record', () =>
+    fixture((ctx) => {
+      ctx.store.upload(binding, upload('original'), 'tampered-length')
+      const db = new Database(ctx.dbPath())
+      db.query('UPDATE attachments SET byte_length=0').run()
+      db.close(true)
+
+      code(
+        () => ctx.make().upload(binding, upload('another'), 'after-tamper-length'),
+        'corrupt_state'
+      )
+      expect(ctx.events.events()).toHaveLength(1)
+    }))
+
+  test('a cross-field edit that reproduces the hashed bytes is refused after the record was cached', () =>
+    fixture((ctx) => {
+      // The store seals a record under a random IV, so the collision this case
+      // needs would otherwise depend on that IV starting with a zero byte.
+      // The test owns the device key, so it derives the store's secret,
+      // decrypts the record the store wrote, and re-encrypts the identical
+      // plaintext under an IV it chooses. Nothing here is a stored claim: the
+      // resealed record is still a record the store authenticates.
+      const first = ctx.store.upload(binding, upload('original'), 'cross-field')
+      const scopeText = JSON.stringify([scope.accountId, scope.workspaceId, scope.runtimeNodeId])
+      const secret = Buffer.from(
+        hkdfSync('sha256', ctx.secret, 'adea-chat-attachment:v1', scopeText, 32)
+      )
+      const bound = JSON.stringify([binding.runtimeSessionId, binding.generation])
+      const aad = Buffer.from(
+        JSON.stringify(['adea-chat-attachment', 2, scopeText, bound, first.attachmentId])
+      )
+      const db = new Database(ctx.dbPath())
+      const row = db
+        .query<{ fingerprint: string; sealed: Uint8Array }, [string]>(
+          'SELECT fingerprint, sealed FROM attachments WHERE id=?'
+        )
+        .get(first.attachmentId)!
+      const sealed = Buffer.from(row.sealed)
+      const decipher = createDecipheriv('aes-256-gcm', secret, sealed.subarray(0, 12))
+      decipher.setAAD(aad)
+      decipher.setAuthTag(sealed.subarray(-16))
+      const plaintext = Buffer.concat([decipher.update(sealed.subarray(12, -16)), decipher.final()])
+      const iv = Buffer.from('00112233445566778899aabb', 'hex')
+      const cipher = createCipheriv('aes-256-gcm', secret, iv)
+      cipher.setAAD(aad)
+      const resealed = Buffer.concat([
+        iv,
+        cipher.update(plaintext, 'utf8'),
+        cipher.final(),
+        cipher.getAuthTag(),
+      ])
+      expect(resealed[0]).toBe(0)
+      db.query('UPDATE attachments SET sealed=? WHERE id=?').run(resealed, first.attachmentId)
+      db.close(true)
+
+      // A distinct upload authenticates the first record, so the store holds a
+      // verdict about the row as it now stands.
+      ctx.store.upload(binding, upload('distinct'), 'cross-field-distinct')
+
+      // The cross-field edit: the fingerprint gains the separator byte and the
+      // payload loses the byte that followed it. The columns and the payload
+      // are both different from the authenticated row.
+      const edited = new Database(ctx.dbPath())
+      edited
+        .query(
+          'UPDATE attachments SET fingerprint=fingerprint||char(0), sealed=substr(sealed,2) WHERE id=?'
+        )
+        .run(first.attachmentId)
+      edited.close(true)
+
+      // Byte-equality evidence: under a separator-only encoding the two rows
+      // hash to the very same input, which is why the key has to frame its
+      // fields instead of separating them.
+      const legacyBefore = Buffer.concat([
+        Buffer.from(row.fingerprint, 'utf8'),
+        Buffer.from([0]),
+        resealed,
+      ])
+      const legacyAfter = Buffer.concat([
+        Buffer.from(`${row.fingerprint}\0`, 'utf8'),
+        Buffer.from([0]),
+        resealed.subarray(1),
+      ])
+      expect(legacyAfter.equals(legacyBefore)).toBe(true)
+
+      code(
+        () => ctx.store.upload(binding, upload('another'), 'cross-field-upload'),
+        'corrupt_state'
+      )
+      code(() => ctx.store.validateWorkspacePurge(), 'corrupt_state')
+    }))
+
+  test('a tampered sealed payload is refused after the record was cached', () =>
+    fixture((ctx) => {
+      // The second upload authenticates the first record, so the store holds a
+      // verdict about it. Only the sealed payload changes below: the plaintext
+      // columns stay exactly as the authentication left them, so a verdict that
+      // is keyed on the columns alone would still be reused.
+      const first = ctx.store.upload(binding, upload('original'), 'tampered-payload')
+      ctx.store.upload(binding, upload('distinct'), 'distinct-payload')
+
+      const db = new Database(ctx.dbPath())
+      const row = db.query('SELECT sealed FROM attachments WHERE id=?').get(first.attachmentId)
+      const sealed = Buffer.from(row.sealed)
+      // One ciphertext byte, so the payload differs while the row's columns do not.
+      sealed[sealed.length - 17] ^= 0xff
+      db.query('UPDATE attachments SET sealed=? WHERE id=?').run(sealed, first.attachmentId)
+      db.close(true)
+
+      code(
+        () => ctx.store.upload(binding, upload('another'), 'after-payload-tamper'),
+        'corrupt_state'
+      )
+      code(() => ctx.store.validateWorkspacePurge(), 'corrupt_state')
+    }))
+
+  // The record memo compares the sealed bytes now in the row with the bytes it
+  // authenticated, so any ciphertext edit must reach authentication again and be
+  // refused, wherever in the sealed record the edit lands and whatever it does to
+  // the record's length. The store instance that cached the record is the one
+  // that must refuse, and the purge must refuse it too.
+  const sealedMutations: ReadonlyArray<readonly [string, (sealed: Buffer) => Buffer]> = [
+    ['the first IV byte', (sealed) => flipBit(sealed, 0)],
+    ['the last IV byte', (sealed) => flipBit(sealed, 11)],
+    ['the first ciphertext byte', (sealed) => flipBit(sealed, 12)],
+    ['a ciphertext byte in the middle', (sealed) => flipBit(sealed, sealed.length >> 1)],
+    ['the last ciphertext byte', (sealed) => flipBit(sealed, sealed.length - 17)],
+    ['the first tag byte', (sealed) => flipBit(sealed, sealed.length - 16)],
+    ['the last tag byte', (sealed) => flipBit(sealed, sealed.length - 1)],
+    ['a truncated final byte', (sealed) => sealed.subarray(0, -1)],
+    ['an appended byte', (sealed) => Buffer.concat([sealed, Buffer.from([0])])],
+  ]
+  for (const [label, mutate] of sealedMutations)
+    test(`an edit to ${label} of a cached sealed record is refused`, () =>
+      fixture((ctx) => {
+        const first = ctx.store.upload(binding, upload('original body'), 'mutated-sealed')
+        ctx.store.upload(binding, upload('distinct body'), 'mutated-sealed-distinct')
+
+        const db = new Database(ctx.dbPath())
+        const row = db
+          .query<{ sealed: Uint8Array }, [string]>('SELECT sealed FROM attachments WHERE id=?')
+          .get(first.attachmentId)!
+        db.query('UPDATE attachments SET sealed=? WHERE id=?').run(
+          mutate(Buffer.from(row.sealed)),
+          first.attachmentId
+        )
+        db.close(true)
+
+        code(() => ctx.store.upload(binding, upload('another'), 'after-mutation'), 'corrupt_state')
+        code(() => ctx.store.validateWorkspacePurge(), 'corrupt_state')
+        expect(ctx.events.events()).toHaveLength(2)
+      }))
+
+  test('a sealed record moved to another row is refused although its bytes were authenticated', () =>
+    fixture((ctx) => {
+      // Both records were authenticated by this store. Moving one record's
+      // sealed bytes into the other row leaves every plaintext column of that
+      // row alone and puts bytes there that are valid under a different record
+      // id; the row's own bytes changed, so it is authenticated again, and the
+      // record is bound to its id, so authentication refuses it.
+      const first = ctx.store.upload(binding, upload('same length 1'), 'moved-first')
+      const second = ctx.store.upload(binding, upload('same length 2'), 'moved-second')
+      const db = new Database(ctx.dbPath())
+      const donor = db
+        .query<{ sealed: Uint8Array }, [string]>('SELECT sealed FROM attachments WHERE id=?')
+        .get(second.attachmentId)!
+      db.query('UPDATE attachments SET sealed=? WHERE id=?').run(
+        Buffer.from(donor.sealed),
+        first.attachmentId
+      )
+      db.close(true)
+
+      code(() => ctx.store.upload(binding, upload('another'), 'after-move'), 'corrupt_state')
+      code(() => ctx.store.validateWorkspacePurge(), 'corrupt_state')
+    }))
+
+  test('restoring the authenticated bytes after an edit is accepted only through the same bytes', () =>
+    fixture((ctx) => {
+      // The memo accepts a row that is byte for byte the row it authenticated and
+      // nothing else: after a refused edit the original bytes are accepted again,
+      // and an edit that is then reverted is refused while it stands.
+      const first = ctx.store.upload(binding, upload('original body'), 'restore')
+      ctx.store.upload(binding, upload('distinct body'), 'restore-distinct')
+      const db = new Database(ctx.dbPath())
+      const row = db
+        .query<{ sealed: Uint8Array }, [string]>('SELECT sealed FROM attachments WHERE id=?')
+        .get(first.attachmentId)!
+      const original = Buffer.from(row.sealed)
+      const edit = (value: Buffer) =>
+        db.query('UPDATE attachments SET sealed=? WHERE id=?').run(value, first.attachmentId)
+
+      edit(flipBit(original, 12))
+      code(() => ctx.store.upload(binding, upload('another'), 'restore-refused'), 'corrupt_state')
+      edit(original)
+      expect(ctx.store.upload(binding, upload('another'), 'restore-accepted').byteLength).toBe(
+        'another'.length
+      )
+      db.close(true)
+    }))
+
+  test('a tampered row is refused after the record was cached', () =>
+    fixture((ctx) => {
+      const first = ctx.store.upload(binding, upload('original'), 'tampered-columns')
+      ctx.store.upload(binding, upload('distinct'), 'distinct-columns')
+
+      const db = new Database(ctx.dbPath())
+      db.query("UPDATE attachments SET state='removed' WHERE id=?").run(first.attachmentId)
+      db.close(true)
+
+      code(
+        () => ctx.store.upload(binding, upload('another'), 'after-column-tamper'),
+        'corrupt_state'
+      )
+      code(() => ctx.store.validateWorkspacePurge(), 'corrupt_state')
+    }))
+
+  test('a record cached under an earlier device key is not reused', () =>
+    fixture((ctx) => {
+      let key = ctx.secret
+      const store = ctx.make(scope, () => key)
+      store.upload(binding, upload('original'), 'rotated-key')
+
+      key = randomBytes(32)
+
+      code(() => store.upload(binding, upload('another'), 'rotated-key-upload'), 'corrupt_state')
+    }))
+
+  test('quota checks re-authenticate a record whose row changed under the same store', () =>
+    fixture((ctx) => {
+      // The same store instance already authenticated this record, so the
+      // changed column must invalidate that verdict: a remembered
+      // authentication is only valid for the row it was made against.
+      ctx.store.upload(binding, upload('original'), 'tampered-same-store')
+      const db = new Database(ctx.dbPath())
+      // The row claims a tombstone its sealed record does not contain. Only
+      // re-authenticating the row against its sealed record can see that: the
+      // outbox still holds the matching available event, so the reconciliation
+      // alone would not notice.
+      db.query("UPDATE attachments SET state='removed'").run()
+      db.close(true)
+
+      code(
+        () => ctx.store.upload(binding, upload('another'), 'after-tamper-same-store'),
+        'corrupt_state'
       )
     }))
 

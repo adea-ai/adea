@@ -1,0 +1,18 @@
+{
+  // Typecheck for the built-Worker acceptance scripts. The harness is a plain module
+  // script, so the program includes the script files themselves and resolves the
+  // harness's public surface through its declaration file. It is scoped to the files
+  // this lane owns; the wider integration lane has pre-existing errors of its own.
+  "extends": "../../config/tsconfig.base.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "types": ["bun-types"]
+  },
+  "include": [
+    "integration/better-auth-worker-local.mjs",
+    "integration/better-auth-worker-local.d.mts",
+    "integration/request-path-delivery.test.ts"
+  ]
+}

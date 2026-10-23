@@ -4,14 +4,14 @@ import { join } from 'node:path'
 
 import {
   assertFreshAccountOnly,
-  assertNoNeonInScope,
+  assertRailwaySourceInScope,
   freshAccountOnlyViolations,
   freshAccountScopeFiles,
   laneSourceFiles,
-  noNeonViolations,
+  railwaySourceViolations,
   normalizeForNeedle,
   scanFreshAccountScope,
-  scanNoNeonScope,
+  scanRailwaySourceScope,
   stripComments,
 } from './fresh-postgres-acceptance/fresh-account-only.mjs'
 
@@ -80,9 +80,9 @@ describe('the fresh-account rule stays linear on adversarial input', () => {
   })
 
   test('a long run of legacy markers is still refused', () => {
-    const source = `const value = process.env.${'NEON_'.repeat(MARKER_RUN)}AUTH_BASE_URL`
+    const source = `const value = process.env.${'LEGACY_'.repeat(MARKER_RUN)}AUTH_BASE_URL`
     const startedAt = Date.now()
-    const violations = noNeonViolations('adversarial.ts', source)
+    const violations = railwaySourceViolations('adversarial.ts', source)
     expect(elapsed(startedAt)).toBeLessThan(MAX_SCAN_MILLISECONDS)
     expect(violations.map((violation) => violation.kind)).toContain('legacy-environment')
   })
@@ -123,28 +123,28 @@ console.log(JSON.stringify(kinds))`
 
 describe('a marker inside a word never stops the scan', () => {
   test('a marker inside a word followed by punctuation does not stop the scan', () => {
-    const result = scanInChild('xNEON_FOO; NEON_AUTH_BASE_URL')
+    const result = scanInChild('xLEGACY_FOO; LEGACY_AUTH_BASE_URL')
     expect(result.error?.message ?? '').toBe('')
     expect(result.status, result.stderr).toBe(0)
     expect(JSON.parse(result.stdout.trim())).toEqual(['legacy-environment'])
   })
 
   test('a marker inside a word followed by whitespace does not stop the scan', () => {
-    const result = scanInChild('xNEON_FOO NEON_AUTH_BASE_URL')
+    const result = scanInChild('xLEGACY_FOO LEGACY_AUTH_BASE_URL')
     expect(result.error?.message ?? '').toBe('')
     expect(result.status, result.stderr).toBe(0)
     expect(JSON.parse(result.stdout.trim())).toEqual(['legacy-environment'])
   })
 
   test('a marker inside a word at the end of the text does not stop the scan', () => {
-    const result = scanInChild('xNEON_FOO')
+    const result = scanInChild('xLEGACY_FOO')
     expect(result.error?.message ?? '').toBe('')
     expect(result.status, result.stderr).toBe(0)
     expect(JSON.parse(result.stdout.trim())).toEqual([])
   })
 
   test('a long run of markers inside words does not stop the scan', () => {
-    const result = scanInChild('xNEON_FOO;'.repeat(MARKER_RUN))
+    const result = scanInChild('xLEGACY_FOO;'.repeat(MARKER_RUN))
     expect(result.error?.message ?? '').toBe('')
     expect(result.status, result.stderr).toBe(0)
     expect(JSON.parse(result.stdout.trim())).toEqual([])
@@ -165,7 +165,7 @@ describe('a candidate that does not match does not cost more as the text grows',
   })
 
   test('a legacy name inside one word does not rescan the word for every marker', () => {
-    const result = scanInChild(`x${'NEON_'.repeat(MARKER_RUN)}`)
+    const result = scanInChild(`x${'LEGACY_'.repeat(MARKER_RUN)}`)
     expect(result.error?.message ?? '').toBe('')
     expect(result.status, result.stderr).toBe(0)
     expect(JSON.parse(result.stdout.trim())).toEqual([])
@@ -198,7 +198,7 @@ describe('a candidate that matches is reported at once', () => {
   test('the first matching copy, environment name and import are reported', () => {
     const cases: [string, string][] = [
       ["await pool.query('COPY app.users FROM legacy.users')", 'row-copy'],
-      ['const url = process.env.NEON_AUTH_BASE_URL', 'legacy-environment'],
+      ['const url = process.env.LEGACY_AUTH_BASE_URL', 'legacy-environment'],
       ['await importLegacyIdentities(pool)', 'legacy-import'],
     ]
     for (const [source, kind] of cases) {
@@ -229,8 +229,8 @@ describe('the fresh-account rule reads source the way the language does', () => 
 
   test('every construct the rule refuses is refused', () => {
     const cases: [string, string][] = [
-      ['const url = process.env.NEON_AUTH_BASE_URL', 'legacy-environment'],
-      ["const host = 'db.neon.tech'", 'legacy-host'],
+      ['const url = process.env.LEGACY_AUTH_BASE_URL', 'legacy-environment'],
+      ["const host = 'db.legacy-db.example.invalid'", 'legacy-host'],
       ['await importLegacyIdentities(pool)', 'legacy-import'],
       ['await seedLegacyUsers(pool)', 'legacy-import'],
       ['const legacyUsersImport = 1', 'legacy-import'],
@@ -270,12 +270,14 @@ describe('the fresh-account rule reads source the way the language does', () => 
   })
 
   test('a legacy provider package is refused', () => {
-    const violations = noNeonViolations(
+    const violations = railwaySourceViolations(
       'behaviour.ts',
-      "import { neon } from '@neondatabase/serverless'"
+      "import { external-provider } from '@legacy-provider/serverless'"
     )
     expect(violations.map((violation) => violation.kind)).toContain('legacy-package')
-    expect(noNeonViolations('behaviour.ts', "import { postgres } from 'postgres'")).toEqual([])
+    expect(railwaySourceViolations('behaviour.ts', "import { postgres } from 'postgres'")).toEqual(
+      []
+    )
   })
 })
 
@@ -298,8 +300,8 @@ describe('the scope the rule covers', () => {
 
   test('the scope of the lane carries no rule violation and no legacy provider', () => {
     expect(scanFreshAccountScope(root)).toEqual([])
-    expect(scanNoNeonScope(root)).toEqual([])
+    expect(scanRailwaySourceScope(root)).toEqual([])
     expect(assertFreshAccountOnly(root)).toBe(true)
-    expect(assertNoNeonInScope(root)).toBe(true)
+    expect(assertRailwaySourceInScope(root)).toBe(true)
   })
 })

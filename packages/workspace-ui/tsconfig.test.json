@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "jsx": "preserve",
+    "jsxImportSource": "solid-js",
+    "types": ["bun-types"]
+  },
+  "include": ["src"],
+  "files": [
+    "tests/unit/self-hosted-host-interaction.test.tsx",
+    "tests/unit/self-hosted-host-preference.test.ts",
+    "tests/unit/self-hosted-rename-mounted-path.test.ts"
+  ]
+}

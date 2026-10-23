@@ -24,7 +24,6 @@ export const INTEGRATION_CYCLE_WEIGHTS = Object.freeze({
   'apps/web/test/integration/account-directory-routes.test.ts': 722,
   'packages/auth/tests/integration/adapter.test.ts': 0,
   'packages/auth/tests/integration/desktop-postgres.test.ts': 17,
-  'packages/auth/tests/integration/neon-driver.test.ts': 0,
   'packages/db/tests/integration/account-directory.test.ts': 1424,
   'packages/db/tests/integration/account-summary.test.ts': 729,
   'packages/db/tests/integration/agent-edit-revisions.test.ts': 240,

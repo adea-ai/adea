@@ -114,8 +114,8 @@ describe('preview availability', () => {
 
   test('a production or non-preview secret name fails closed', () => {
     for (const [name, value] of [
-      ['ADEA_PREVIEW_DATABASE_URL_SECRET', 'AGENT_HQ_NEON_PRODUCTION_DATABASE_URL'],
-      ['ADEA_PREVIEW_AUTH_COOKIE_SECRET_NAME', 'AGENT_HQ_WORKER_AUTH_COOKIE_SECRET'],
+      ['ADEA_PREVIEW_DATABASE_URL_SECRET', 'ADEA_RAILWAY_PRODUCTION_DATABASE_URL'],
+      ['ADEA_PREVIEW_AUTH_COOKIE_SECRET_NAME', 'ADEA_RAILWAY_PRODUCTION_AUTH_SECRET'],
       ['ADEA_PREVIEW_AUTH_BASE_URL_SECRET', 'SOME_OTHER_SECRET'],
     ] as const) {
       const result = runScript({ ...valid, [name]: value })

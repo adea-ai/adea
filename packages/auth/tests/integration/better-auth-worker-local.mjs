@@ -12,10 +12,6 @@ import { createRecordingAuthDelivery } from '../../src/delivery.ts'
 import { describeResponse } from './response-evidence.mjs'
 
 const mode = process.argv.at(-1)
-assert.ok(
-  ['--prepare', '--exercise', '--fixture-exercise'].includes(mode),
-  'choose --prepare, --exercise or --fixture-exercise'
-)
 
 const baseUrl = process.env.AUTH_BASE_URL
 const databaseUrl = process.env.AUTH_POSTGRES_TEST_URL
@@ -27,32 +23,19 @@ const caPath = process.env.ADEA_AUTH_WORKER_CA
 const secret = process.env.AUTH_SECRET
 const trustedOrigins = process.env.AUTH_TRUSTED_ORIGINS
 
-for (const [label, value] of Object.entries({
-  AUTH_BASE_URL: baseUrl,
-  AUTH_POSTGRES_TEST_URL: databaseUrl,
-  AUTH_DATABASE_URL: workerDatabaseUrl,
-  AUTH_TEST_SCHEMA: schema,
-  AUTH_WORKER_APPLICATION_NAME: workerApplicationName,
-  AUTH_SECRET: secret,
-  AUTH_TRUSTED_ORIGINS: trustedOrigins,
-})) {
-  assert.ok(value, `${label} is required`)
-}
+// This module is also imported by the transport-loss regression test, which needs the
+// request classifier but no Worker, schema or database. The script's own environment
+// checks and its run modes therefore live in main(), so importing this file has no
+// effect and the classifier can be exercised on its own.
+let localDatabaseUrl
+let workerDatabase
+let controlPool
 
 function assertLoopbackUrl(raw, label) {
   const url = new URL(raw)
   assert.ok(['127.0.0.1', 'localhost', '::1'].includes(url.hostname), `${label} must be loopback`)
   return url
 }
-
-const localDatabaseUrl = assertLoopbackUrl(databaseUrl, 'AUTH_POSTGRES_TEST_URL')
-assert.equal(localDatabaseUrl.protocol, 'postgresql:')
-const workerDatabase = assertLoopbackUrl(workerDatabaseUrl, 'AUTH_DATABASE_URL')
-assert.equal(workerDatabase.username, 'agent_hq_local_app')
-assert.match(schema, /^auth_worker_[a-f0-9]{32}$/)
-assert.match(workerApplicationName, /^adea_auth_worker_[a-f0-9]{12}$/)
-assert.equal(trustedOrigins, baseUrl)
-assert.equal(new URL(baseUrl).protocol, 'https:')
 
 function databaseUrlWithApplicationName(applicationName) {
   const url = new URL(workerDatabaseUrl)
@@ -63,12 +46,6 @@ function databaseUrlWithApplicationName(applicationName) {
   url.searchParams.set('application_name', applicationName)
   return url.toString()
 }
-
-const controlPool = new Pool({
-  connectionString: databaseUrl,
-  max: 1,
-  application_name: `${workerApplicationName}_control`,
-})
 
 async function assertNoWorkerBackends() {
   const result = await controlPool.query(
@@ -201,10 +178,98 @@ async function exerciseRecordingDelivery() {
   }
 }
 
-// Every request opens its own connection. Reusing a keep-alive socket through the local dev proxy
-// failed intermittently with "Network connection lost" on the next POST (6 of 12 reused runs,
-// 0 of 6 fresh runs), so the transport is kept out of the auth assertions.
-function requestWorker(path, { method = 'GET', cookie, body, origin = baseUrl } = {}) {
+// The local dev proxy answers a lost connection with its own error page, never with a
+// route response. The captured envelope of that page is:
+//
+//   Error: Network connection lost.
+//       at async Object.fetch (file:///.../node_modules/miniflare/dist/src/workers/core/entry.worker.js:5330:22)
+//
+// The signature is matched exactly, so an application response that merely mentions the
+// phrase — a JSON error body, or a route error with different words — is never mistaken
+// for a transport loss and is returned untouched.
+const TRANSPORT_LOSS_FIRST_LINE = 'Error: Network connection lost.'
+const TRANSPORT_LOSS_ATTEMPTS = 3
+
+// The proxy's own frame: the miniflare runtime's proxy entry worker, reached through
+// the package's own module path. The install prefix and the package version move with
+// the machine, so both are flexible; the function, the package, the module path and the
+// position in the file are not. A body that merely mentions the file name, or that
+// carries a different frame, is not the proxy's envelope.
+const TRANSPORT_LOSS_FRAME =
+  /at async Object\.fetch \(file:\/\/\/\S*\/node_modules\/miniflare\/dist\/src\/workers\/core\/entry\.worker\.js:\d+:\d+\)/
+
+/**
+ * Is this response the local ProxyWorker reporting that its own hop to the Worker was
+ * lost? Only the captured envelope qualifies: the status is 500, the body is not JSON,
+ * its first line is exactly that sentence, and it carries the proxy's own fetch frame.
+ */
+export function isTransportLoss(response) {
+  if (!response || response.status !== 500) return false
+  const text = typeof response.text === 'string' ? response.text : ''
+  if (!text) return false
+  const trimmed = text.trimStart()
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return false
+  const [firstLine] = text.split('\n', 1)
+  if (firstLine.replace(/\r$/, '') !== TRANSPORT_LOSS_FIRST_LINE) return false
+  return TRANSPORT_LOSS_FRAME.test(text)
+}
+
+/**
+ * A lost connection leaves the outcome of the request unknown. It is never reported as
+ * an application response: an infrastructure failure must not be readable as an
+ * application answer, and in particular must not satisfy a negative assertion such as
+ * "the old password must stop working".
+ */
+export class TransportInconclusiveError extends Error {
+  constructor(operation, attempts) {
+    super(
+      `the local Worker transport lost the connection during ${operation}; the outcome is unknown after ${attempts} attempt(s), and a later run starts from a fresh fixture`
+    )
+    this.name = 'TransportInconclusiveError'
+    this.operation = operation
+    this.attempts = attempts
+  }
+}
+
+/**
+ * Runs the attempts of one request under an explicit retry policy.
+ *
+ * `send` performs a single attempt and resolves a response-shaped object. `retry` is
+ * 'safe' only for an operation whose effect a lost response cannot hide, so the
+ * request may be sent again while the budget allows. Every other operation is
+ * 'unsafe': its outcome after a lost response is ambiguous — a reset can commit while
+ * its response is lost — so it is never sent again.
+ *
+ * The result is either the response, or an explicit transport-inconclusive outcome. The
+ * lost response itself is never returned.
+ */
+export async function sendUnderPolicy(
+  send,
+  { operation, retry = 'unsafe', attempts = TRANSPORT_LOSS_ATTEMPTS } = {}
+) {
+  let sent = 0
+  for (;;) {
+    sent += 1
+    const response = await send()
+    if (!isTransportLoss(response)) return { response, attempts: sent }
+    if (retry !== 'safe') break
+    if (sent >= attempts) break
+  }
+  return { inconclusive: true, operation, attempts: sent }
+}
+
+/**
+ * The response of an attempt, when the attempt produced one. A transport-inconclusive
+ * attempt throws here instead, before any application assertion can read it.
+ */
+export function applicationResponse(outcome) {
+  if (outcome.inconclusive) {
+    throw new TransportInconclusiveError(outcome.operation, outcome.attempts)
+  }
+  return outcome.response
+}
+
+function requestWorkerOnce(path, { method = 'GET', cookie, body, origin = baseUrl } = {}) {
   const url = new URL(path.startsWith('/') ? path : `/api/auth/${path}`, workerUrl)
   assert.ok(['127.0.0.1', 'localhost', '::1'].includes(url.hostname))
   assert.equal(url.protocol, 'https:')
@@ -253,6 +318,33 @@ function requestWorker(path, { method = 'GET', cookie, body, origin = baseUrl } 
   })
 }
 
+// The operation label names the route and the method only. A query string can carry a
+// one-use token, so it is never part of the label.
+function operationLabel(method, path) {
+  return `${method} ${String(path).split('?', 1)[0]}`
+}
+
+// Every request opens its own connection: reusing a keep-alive socket through the local
+// dev proxy failed intermittently with a lost connection on the next POST (6 of 12
+// reused runs). A fresh connection removed the reuse, but the same lost connection still
+// arrived on 3 of 14 runs, so the cause is the proxy's own hop to the Worker and not the
+// socket this harness opens.
+//
+// The retry policy is explicit. A request is only repeated when its effect cannot be
+// hidden by a lost response; every other request fails as transport-inconclusive, and a
+// later run starts from a fresh fixture.
+async function requestWorker(
+  path,
+  { method = 'GET', cookie, body, origin = baseUrl, retry = 'unsafe' } = {}
+) {
+  const operation = operationLabel(method, path)
+  const outcome = await sendUnderPolicy(
+    () => requestWorkerOnce(path, { method, cookie, body, origin }),
+    { operation, retry }
+  )
+  return applicationResponse(outcome)
+}
+
 function responseCookies(response) {
   const raw = response.headers['set-cookie']
   const values = Array.isArray(raw) ? raw : raw ? [raw] : []
@@ -264,7 +356,20 @@ function responseCookies(response) {
 
 async function trackedWorkerRequest(label, requests, expectedSessions = requests.length) {
   const before = await sessionCount()
-  const results = await Promise.all(requests.map((request) => requestWorker(...request)))
+  // Every request is settled before the outcome is judged, so the Worker is never torn
+  // down while a request is still in flight.
+  const settled = await Promise.allSettled(requests.map((request) => requestWorker(...request)))
+  // A lost connection leaves the outcome unknown, so it is reported before any
+  // application assertion and before the database checks. An inconclusive attempt is
+  // never read as an answer.
+  const inconclusive = settled.find(
+    (result) => result.status === 'rejected' && result.reason instanceof TransportInconclusiveError
+  )
+  if (inconclusive) throw inconclusive.reason
+  const results = settled.map((result) => {
+    if (result.status === 'rejected') throw result.reason
+    return result.value
+  })
   // Captured before the database wait, so a proxy-level failure is distinguishable from database inactivity.
   const observed = results.map(describeResponse)
   await assertDatabaseSessionsStarted(
@@ -279,7 +384,8 @@ async function trackedWorkerRequest(label, requests, expectedSessions = requests
 
 async function assertSession(email, cookie, label) {
   const [response] = await trackedWorkerRequest(label, [
-    ['get-session?disableCookieCache=true', { cookie }],
+    // A session read changes nothing, so a lost response may be retried.
+    ['get-session?disableCookieCache=true', { cookie, retry: 'safe' }],
   ])
   assert.equal(response.status, 200, `${label}: ${response.text}`)
   assert.equal(response.json?.user?.email, email, `${label} must resolve only its cookie's user`)
@@ -289,7 +395,8 @@ async function assertSession(email, cookie, label) {
 
 async function assertNoSession(cookie, label) {
   const [response] = await trackedWorkerRequest(label, [
-    ['get-session?disableCookieCache=true', { cookie }],
+    // A session read changes nothing, so a lost response may be retried.
+    ['get-session?disableCookieCache=true', { cookie, retry: 'safe' }],
   ])
   assert.equal(response.status, 200, `${label}: ${response.text}`)
   assert.equal(response.json, null, `${label} should observe the revocation from PostgreSQL`)
@@ -339,8 +446,9 @@ async function exerciseWorker() {
     const [sessionAResponse, sessionBResponse] = await trackedWorkerRequest(
       'parallel session reads',
       [
-        ['get-session?disableCookieCache=true', { cookie: cookieA }],
-        ['get-session?disableCookieCache=true', { cookie: cookieB }],
+        // Session reads change nothing, so a lost response may be retried.
+        ['get-session?disableCookieCache=true', { cookie: cookieA, retry: 'safe' }],
+        ['get-session?disableCookieCache=true', { cookie: cookieB, retry: 'safe' }],
       ]
     )
     assert.equal(sessionAResponse.status, 200, sessionAResponse.text)
@@ -649,6 +757,38 @@ async function fixtureExercise() {
   }
 }
 
-if (mode === '--prepare') await prepare()
-else if (mode === '--fixture-exercise') await fixtureExercise()
-else await exercise()
+async function main() {
+  assert.ok(
+    ['--prepare', '--exercise', '--fixture-exercise'].includes(mode),
+    'choose --prepare, --exercise or --fixture-exercise'
+  )
+  for (const [label, value] of Object.entries({
+    AUTH_BASE_URL: baseUrl,
+    AUTH_POSTGRES_TEST_URL: databaseUrl,
+    AUTH_DATABASE_URL: workerDatabaseUrl,
+    AUTH_TEST_SCHEMA: schema,
+    AUTH_WORKER_APPLICATION_NAME: workerApplicationName,
+    AUTH_SECRET: secret,
+    AUTH_TRUSTED_ORIGINS: trustedOrigins,
+  })) {
+    assert.ok(value, `${label} is required`)
+  }
+  localDatabaseUrl = assertLoopbackUrl(databaseUrl, 'AUTH_POSTGRES_TEST_URL')
+  assert.equal(localDatabaseUrl.protocol, 'postgresql:')
+  workerDatabase = assertLoopbackUrl(workerDatabaseUrl, 'AUTH_DATABASE_URL')
+  assert.equal(workerDatabase.username, 'agent_hq_local_app')
+  assert.match(schema, /^auth_worker_[a-f0-9]{32}$/)
+  assert.match(workerApplicationName, /^adea_auth_worker_[a-f0-9]{12}$/)
+  assert.equal(trustedOrigins, baseUrl)
+  assert.equal(new URL(baseUrl).protocol, 'https:')
+  controlPool = new Pool({
+    connectionString: databaseUrl,
+    max: 1,
+    application_name: `${workerApplicationName}_control`,
+  })
+  if (mode === '--prepare') await prepare()
+  else if (mode === '--fixture-exercise') await fixtureExercise()
+  else await exercise()
+}
+
+if (import.meta.main) await main()

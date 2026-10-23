@@ -6,7 +6,7 @@
 
 import { createHash } from 'node:crypto'
 
-import { and, asc, desc, eq, inArray, isNull, lt } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { mintControlPlaneIdentifier } from './control-plane-identifiers'
@@ -489,6 +489,101 @@ export async function revokeRuntimeNode(
     await appendWorkspaceEvent(transaction, {
       eventType: 'runtime_node.revoked',
       payload: { actorUserId: input.actorUserId, reason, runtimeNodeId: node.id },
+      workspaceId: input.workspaceId,
+    })
+    return readRuntimeNode(transaction, input.workspaceId, node.id)
+  })
+}
+
+/**
+ * The lock one workspace's host renames take before they check a name.
+ *
+ * It is a transaction-scoped advisory lock, so it is released when the transaction ends and it
+ * blocks nothing but the renames of that one workspace. The key is derived from the workspace id
+ * alone, so any other connection that wants to hold the same lock - a test that needs to observe a
+ * rename waiting for it, for instance - computes the same key from the same expression.
+ */
+export function workspaceHostRenameLock(workspaceId: string) {
+  return sql`select pg_advisory_xact_lock(hashtextextended(${workspaceId}, 0))`
+}
+
+/**
+ * Renames a registered host for this workspace.
+ *
+ * The name is a product label for a registration, not a change to the host's identity or
+ * keys: the host keeps its own name, and this is the name people see in this workspace.
+ * A revoked identity is not renamed. A name another host of this workspace already carries is
+ * refused, because a shared name is how hosts get confused - but that is a refusal of the name
+ * that is taken at that moment, not a promise that a workspace's names stay unique: registration
+ * and resume set a name of their own, and a name can still be taken later by a host that
+ * registers or resumes under it.
+ */
+export async function renameRuntimeNode(
+  database: AgentHqDatabase,
+  input: Readonly<{
+    actorUserId: string
+    displayName: string
+    runtimeNodeId: string
+    workspaceId: string
+  }>
+): Promise<RuntimeNodeView> {
+  const displayName = input.displayName.trim()
+  if (!displayName) throw new RuntimeNodeError('invalid', 'A host name is required')
+  if (displayName.length > 120)
+    throw new RuntimeNodeError('invalid', 'A host name may use 120 characters at most')
+  for (const character of displayName) {
+    const code = character.codePointAt(0) ?? 0
+    if (code <= 0x1f || code === 0x7f)
+      throw new RuntimeNodeError('invalid', 'A host name may not contain control characters')
+  }
+  return inTransaction(database, async (transaction) => {
+    // One lock for the renames of one workspace, taken before the name check. Two renames of two
+    // different hosts to the same name would otherwise both read "no clash" and both commit,
+    // leaving the workspace with two hosts called the same thing. The lock is held until the
+    // transaction ends, so the check and the write are one step and the second rename sees the
+    // first one's name.
+    //
+    // This makes concurrent renames atomic with each other, and it does it in one fixed order: the
+    // lock is keyed by the workspace alone, so every rename of a workspace takes the same lock and
+    // no two of them can wait for each other.
+    //
+    // It does not make a workspace's host names unique. Registration and resume set a name of their
+    // own without taking this lock, so a name can still be taken later by a host that registers or
+    // resumes under it, and the check below only refuses a name that another host carries at the
+    // moment it runs.
+    await transaction.execute(workspaceHostRenameLock(input.workspaceId))
+    const node = await requireNode(transaction, input.workspaceId, input.runtimeNodeId, true)
+    if (node.pairingState === 'revoked') {
+      throw new RuntimeNodeError('revoked', 'A revoked host cannot be renamed')
+    }
+    const clash = await transaction
+      .select({ id: runtimeNodes.id })
+      .from(runtimeNodes)
+      .where(
+        and(
+          eq(runtimeNodes.workspaceId, input.workspaceId),
+          ne(runtimeNodes.id, node.id),
+          sql`lower(${runtimeNodes.displayName}) = ${displayName.toLowerCase()}`
+        )
+      )
+    if (clash.length > 0) {
+      throw new RuntimeNodeError(
+        'conflict',
+        'Another host in this workspace already uses that name'
+      )
+    }
+    const now = new Date()
+    await transaction
+      .update(runtimeNodes)
+      .set({ displayName, updatedAt: now })
+      .where(eq(runtimeNodes.id, node.id))
+    await appendWorkspaceEvent(transaction, {
+      eventType: 'runtime_node.renamed',
+      payload: {
+        actorUserId: input.actorUserId,
+        displayName,
+        runtimeNodeId: node.id,
+      },
       workspaceId: input.workspaceId,
     })
     return readRuntimeNode(transaction, input.workspaceId, node.id)

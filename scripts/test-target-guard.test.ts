@@ -188,7 +188,7 @@ describe('assertLocalTestTargets', () => {
         DATABASE_MIGRATION_URL: local,
         PERF_BASE_URL: 'http://localhost:3000',
         ADEA_ACCEPTANCE_URL: 'http://127.0.0.1:8787',
-        NEON_AUTH_BASE_URL: 'http://127.0.0.1:8787/auth',
+        AUTH_BASE_URL: 'http://127.0.0.1:8787/auth',
         CONTROL_PLANE_ORIGIN: 'http://localhost:8080',
       })
     ).not.toThrow()
@@ -275,7 +275,7 @@ describe('assertLocalTestTargets', () => {
     for (const name of [
       'PERF_BASE_URL',
       'ADEA_ACCEPTANCE_URL',
-      'NEON_AUTH_BASE_URL',
+      'AUTH_BASE_URL',
       'CONTROL_PLANE_ORIGIN',
     ]) {
       expect(() => assertLocalTestTargets({ [name]: 'https://preview.example.com' })).toThrow(name)
@@ -287,7 +287,7 @@ describe('assertLocalTestTargets', () => {
 
   test('production hosts have no override', () => {
     for (const host of PRODUCTION_TARGET_HOSTS) {
-      for (const name of ['PERF_BASE_URL', 'ADEA_ACCEPTANCE_URL', 'NEON_AUTH_BASE_URL']) {
+      for (const name of ['PERF_BASE_URL', 'ADEA_ACCEPTANCE_URL', 'AUTH_BASE_URL']) {
         expect(() =>
           assertLocalTestTargets({
             [name]: `https://${host}/`,
@@ -306,25 +306,25 @@ describe('assertLocalTestTargets', () => {
     ).toThrow('no override')
   })
 
-  test('the legacy Neon Auth URL is refused unless it is loopback', () => {
+  test('the legacy external provider Auth URL is refused unless it is loopback', () => {
     // The variable is still a deployment credential the product reads, so the
     // guard refuses a hosted endpoint for it. Refusing is not a dependency: no
     // CI lane supplies this variable any more.
     const auth = 'https://legacy-auth.example.test/auth'
-    expect(() => assertLocalTestTargets({ NEON_AUTH_BASE_URL: auth })).toThrow('NEON_AUTH_BASE_URL')
+    expect(() => assertLocalTestTargets({ AUTH_BASE_URL: auth })).toThrow('AUTH_BASE_URL')
     expect(() =>
       assertLocalTestTargets({
         GITHUB_ACTIONS: 'true',
         ADEA_CI_AUTH_HOSTS: 'legacy-auth.example.test',
-        NEON_AUTH_BASE_URL: auth,
+        AUTH_BASE_URL: auth,
       })
-    ).toThrow('NEON_AUTH_BASE_URL')
+    ).toThrow('AUTH_BASE_URL')
     expect(() =>
       assertLocalTestTargets({
         ADEA_CI_AUTH_HOSTS: 'legacy-auth.example.test',
-        NEON_AUTH_BASE_URL: auth,
+        AUTH_BASE_URL: auth,
       })
-    ).toThrow('NEON_AUTH_BASE_URL')
+    ).toThrow('AUTH_BASE_URL')
     expect(() =>
       assertLocalTestTargets({
         GITHUB_ACTIONS: 'true',
@@ -383,12 +383,21 @@ describe('lanes that load the guard', () => {
 
   test('Playwright binds the dev Worker and Node fixtures to the same validated database', () => {
     const binding = 'CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE'
-    const scenarios = [{ env: { DATABASE_URL: local.replace(':55432/', ':55852/') } }, { env: {} }]
+    const authBinding = 'CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_AUTH_HYPERDRIVE'
+    const scenarios = [
+      {
+        env: {
+          DATABASE_URL: local.replace(':55432/', ':55852/'),
+          AUTH_DATABASE_URL: local.replace(':55432/', ':55853/'),
+        },
+      },
+      { env: {} },
+    ]
     for (const scenario of scenarios) {
       const code = `
         const { default: config } = await import(${JSON.stringify(join(root, 'playwright.config.ts'))});
         const env = config.webServer.env;
-        console.log(JSON.stringify({ database: env.DATABASE_URL, hyperdrive: env[${JSON.stringify(binding)}] }));
+        console.log(JSON.stringify({ database: env.DATABASE_URL, hyperdrive: env[${JSON.stringify(binding)}], authHyperdrive: env[${JSON.stringify(authBinding)}] }));
       `
       const result = spawnSync(process.execPath, ['--eval', code], {
         cwd: root,
@@ -400,8 +409,16 @@ describe('lanes that load the guard', () => {
       const targets = JSON.parse(result.stdout.trim()) as {
         database: string
         hyperdrive: string
+        authHyperdrive: string
       }
       expect(targets.hyperdrive).toBe(targets.database)
+      if (scenario.env.AUTH_DATABASE_URL) {
+        expect(targets.authHyperdrive).toBe(scenario.env.AUTH_DATABASE_URL)
+        expect(targets.authHyperdrive).not.toBe(targets.database)
+      } else {
+        expect(new URL(targets.authHyperdrive).hostname).toBe('127.0.0.1')
+        expect(new URL(targets.authHyperdrive).username).toBe('auth_fixture')
+      }
       expect(targets.database).toBe(scenario.env.DATABASE_URL ?? local + '?sslmode=disable')
     }
     // Each scenario starts a Node process that loads the Playwright config, so

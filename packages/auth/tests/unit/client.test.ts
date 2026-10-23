@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { createAuthClient } from 'better-auth/client'
 
-import { createNeonClientAdapter, type BetterAuthBrowserClient } from '../../src/client'
+import { createAuthClientAdapter, type BetterAuthBrowserClient } from '../../src/client'
 import { AUTH_ERROR_CODES } from '../../src/errors'
 
 // The response shapes the pinned Better Auth 1.6.23 browser client actually
@@ -47,7 +47,7 @@ async function capture(promise: Promise<unknown>): Promise<unknown> {
 
 describe('Better Auth browser client adapter', () => {
   test('sign-in normalizes the session read after the credential call', async () => {
-    const result = await createNeonClientAdapter(fakeClient()).signIn({
+    const result = await createAuthClientAdapter(fakeClient()).signIn({
       email: user.email,
       password: 'test password long enough',
     })
@@ -67,7 +67,7 @@ describe('Better Auth browser client adapter', () => {
         return { data: { session, user }, error: null }
       },
     })
-    await createNeonClientAdapter(client).signIn({
+    await createAuthClientAdapter(client).signIn({
       email: user.email,
       password: 'test password long enough',
     })
@@ -77,7 +77,7 @@ describe('Better Auth browser client adapter', () => {
   })
 
   test('sign-up normalizes the session read after the credential call', async () => {
-    const result = await createNeonClientAdapter(fakeClient()).signUp({
+    const result = await createAuthClientAdapter(fakeClient()).signUp({
       email: user.email,
       name: user.name,
       password: 'test password long enough',
@@ -108,7 +108,7 @@ describe('Better Auth browser client adapter', () => {
         return { data: { success: true }, error: null }
       },
     })
-    const adapter = createNeonClientAdapter(client)
+    const adapter = createAuthClientAdapter(client)
 
     expect((await adapter.getSession())?.session.id).toBe(session.id)
     expect((await adapter.refreshSession())?.session.id).toBe(session.id)
@@ -123,7 +123,7 @@ describe('Better Auth browser client adapter', () => {
   test('a successful credential call with no established session is refused', async () => {
     const client = fakeClient({ getSession: async () => ({ data: null, error: null }) })
     const failure = await capture(
-      createNeonClientAdapter(client).signIn({
+      createAuthClientAdapter(client).signIn({
         email: user.email,
         password: 'test password long enough',
       })
@@ -147,7 +147,7 @@ describe('Better Auth browser client adapter', () => {
       },
     })
     const failure = await capture(
-      createNeonClientAdapter(client).signUp({
+      createAuthClientAdapter(client).signUp({
         email: user.email,
         name: user.name,
         password: 'test password long enough',
@@ -168,7 +168,7 @@ describe('Better Auth browser client adapter', () => {
       getSession: async () => ({ data: { session: staleSession, user: staleUser }, error: null }),
     })
     const failure = await capture(
-      createNeonClientAdapter(client).signIn({
+      createAuthClientAdapter(client).signIn({
         email: user.email,
         password: 'test password long enough',
       })
@@ -186,7 +186,7 @@ describe('Better Auth browser client adapter', () => {
       },
     })
     const failure = await capture(
-      createNeonClientAdapter(client).signIn({
+      createAuthClientAdapter(client).signIn({
         email: user.email,
         password: 'not the right password',
       })
@@ -202,7 +202,7 @@ describe('Better Auth browser client adapter', () => {
         error: null,
       }),
     })
-    const result = await createNeonClientAdapter(client).signIn({
+    const result = await createAuthClientAdapter(client).signIn({
       email: user.email,
       password: 'test password long enough',
     })
@@ -231,7 +231,7 @@ describe('Better Auth browser client adapter', () => {
       },
     })
 
-    const result = await createNeonClientAdapter(client).signIn({
+    const result = await createAuthClientAdapter(client).signIn({
       email: user.email,
       password: 'test password long enough',
     })

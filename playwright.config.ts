@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 import { assertLocalTestTargets } from './scripts/test-target-guard.mjs'
 
-// Browser lanes reach only local servers and databases (or the CI-created Neon
+// Browser lanes reach only local servers and databases (or the CI-created
 // branch); a base URL or database URL inherited from the shell is checked first.
 assertLocalTestTargets()
 
@@ -84,6 +84,9 @@ export default defineConfig({
           // splitting Worker requests from the Node fixture's test database.
           // https://developers.cloudflare.com/hyperdrive/configuration/local-development/
           CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: e2eDatabaseUrl,
+          CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_AUTH_HYPERDRIVE:
+            process.env.AUTH_DATABASE_URL ??
+            'postgresql://auth_fixture:auth_fixture@127.0.0.1:55432/agent_hq?sslmode=disable',
         },
       },
 })

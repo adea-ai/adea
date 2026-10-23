@@ -152,12 +152,39 @@ async function main() {
     // an axe snapshot taken mid-transition measures a control at its
     // in-flight geometry and reports a target-size violation the settled
     // layout does not have. Let the transitions finish before scanning.
+    //
+    // Only animations that can end are waited for. A looping one, such as the
+    // status spinner on a running worktree row (`animate-spin`, infinite), has
+    // no settled state and changes no layout, so waiting for it hangs the lane
+    // forever. The wait is also bounded: if a finite animation does not end,
+    // the lane fails and names it instead of scanning an unsettled surface.
     await page.evaluate(
       () =>
-        new Promise((done) => {
+        new Promise((done, fail) => {
+          const deadline = performance.now() + 10_000
           const settled = () => {
-            if (document.getAnimations().every((animation) => animation.playState !== 'running')) {
+            const pending = document
+              .getAnimations()
+              .filter(
+                (animation) =>
+                  animation.playState === 'running' &&
+                  animation.effect?.getComputedTiming().endTime !== Infinity
+              )
+            if (pending.length === 0) {
               done(undefined)
+              return
+            }
+            if (performance.now() > deadline) {
+              fail(
+                new Error(
+                  `animations still running after 10 s: ${pending
+                    .map(
+                      (animation) =>
+                        animation.animationName ?? animation.transitionProperty ?? animation.id
+                    )
+                    .join(', ')}`
+                )
+              )
               return
             }
             requestAnimationFrame(settled)

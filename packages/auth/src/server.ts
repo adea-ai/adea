@@ -36,6 +36,8 @@ export type AuthServiceConsumer = Readonly<{
    * service uses the fail-closed default, which rejects every message.
    */
   delivery?: AuthDelivery
+  /** Trusted platform pooler connection supplied by the hosting adapter. */
+  databaseConnectionString?: string
 }>
 
 /**
@@ -47,12 +49,13 @@ export type AuthServiceConsumer = Readonly<{
  */
 export function createBetterAuthService(
   environment: AuthEnvironment = process.env,
-  delivery: AuthDelivery = createUnconfiguredDelivery()
+  delivery: AuthDelivery = createUnconfiguredDelivery(),
+  databaseConnectionString?: string
 ): BetterAuthService {
   const settings = readBetterAuthConfig(environment)
-  // `readBetterAuthConfig` verifies the URL opts into TLS for hosted databases.
-  // Keep its SSL query parameters intact so `pg` applies that exact policy.
-  const database = createPostgresAuthDatabase(settings.databaseUrl)
+  // Validate canonical configuration even when the hosting adapter supplies a
+  // request-owned Hyperdrive connection. Hyperdrive verifies origin TLS.
+  const database = createPostgresAuthDatabase(databaseConnectionString ?? settings.databaseUrl)
   return {
     auth: createBetterAuthServer({ config: settings, database: database.database, delivery }),
     close: database.close,
@@ -61,42 +64,43 @@ export function createBetterAuthService(
 }
 
 /**
- * The server-side auth adapter the application calls. The name is retained for
- * the existing web and desktop call sites; the implementation is now the
- * self-hosted Better Auth service rather than a hosted Neon Auth SDK. Pass a
+ * The server-side auth adapter the application calls. The implementation uses
+ * the self-hosted Better Auth service. Pass a
  * `consumer.registerCleanup` (for example the app's `registerRequestCleanup`)
  * so the request-owned connection is released with the request.
  */
-export function createNeonServerAdapter(
+export function createAuthServerAdapter(
   context: AuthRequestContextFactory,
   environment: AuthEnvironment = process.env,
   consumer: AuthServiceConsumer = {}
 ): AuthAdapter {
-  const service = createBetterAuthService(environment, consumer.delivery)
+  const service = createBetterAuthService(
+    environment,
+    consumer.delivery,
+    consumer.databaseConnectionString
+  )
   consumer.registerCleanup?.(service.close)
   return createBetterAuthContextAdapter(service.auth, context)
 }
 
-/** Provider-neutral alias for {@link createNeonServerAdapter}. */
-export const createAuthServerAdapter = createNeonServerAdapter
-
-export async function handleNeonAuthRequest(
+export async function handleAuthRequest(
   method: RouteMethod,
   request: Request,
   _path?: string,
   environment: AuthEnvironment = process.env,
   consumer: AuthServiceConsumer = {}
 ): Promise<Response> {
-  const service = createBetterAuthService(environment, consumer.delivery)
+  const service = createBetterAuthService(
+    environment,
+    consumer.delivery,
+    consumer.databaseConnectionString
+  )
   try {
     return await handleBetterAuthRequest(service.auth, method, request, service.config)
   } finally {
     await service.close()
   }
 }
-
-/** Provider-neutral alias for {@link handleNeonAuthRequest}. */
-export const handleAuthRequest = handleNeonAuthRequest
 
 export { createAuthAdapter, type AuthAdapter } from './adapter'
 export { createBetterAuthDriver, type BetterAuthServerApi } from './better-auth-driver'
@@ -107,13 +111,7 @@ export {
   type AuthRequestContextFactory,
   type BetterAuthInstance,
 } from './better-auth-server'
-export {
-  readAuthConfig,
-  readBetterAuthConfig,
-  type AuthConfig,
-  type AuthEnvironment,
-  type BetterAuthConfig,
-} from './config'
+export { readBetterAuthConfig, type AuthEnvironment, type BetterAuthConfig } from './config'
 export {
   AuthDeliveryUnavailableError,
   createRecordingAuthDelivery,
@@ -121,7 +119,7 @@ export {
   type AuthDelivery,
   type AuthDeliveryMessage,
 } from './delivery'
-export { normalizeNeonSession, normalizeProviderSession } from './session'
+export { normalizeProviderSession } from './session'
 export {
   assertTrustedOrigin,
   createAuthorizationState,

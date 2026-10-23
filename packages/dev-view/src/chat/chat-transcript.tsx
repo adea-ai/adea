@@ -93,6 +93,15 @@ export type ChatTranscriptProps = Readonly<{
     resolution: 'approved' | 'denied'
   ) => void | Promise<void>
   onResolveQuestion?: (event: RuntimeEvent, answer: string) => void | Promise<void>
+  /**
+   * Restores the conversation to a checkpoint the host marked restorable. Absent, no checkpoint
+   * offers a restore; present, only a checkpoint whose own payload says `restore.supported` does.
+   * Rejecting with a message shows it under the checkpoint; resolving means the host restored.
+   */
+  onRestoreCheckpoint?: (checkpoint: {
+    checkpointId: string
+    checkpointEventId: string
+  }) => void | Promise<void>
   onJumpToTerminal?: () => void
   /** There are earlier turns the host can load; absent or false draws no control. */
   hasOlder?: boolean
@@ -505,7 +514,13 @@ function SegmentView(props: {
   return (
     <>
       <Show when={activity()}>
-        {(entries) => <ActivityColumn entries={entries} live={props.live} />}
+        {(entries) => (
+          <ActivityColumn
+            entries={entries}
+            live={props.live}
+            onRestoreCheckpoint={props.chat.onRestoreCheckpoint}
+          />
+        )}
       </Show>
       <Show when={single()}>
         {(entry) => (
@@ -554,6 +569,7 @@ function WorkingLine(props: { awaitingApproval: boolean }): JSX.Element {
 function ActivityColumn(props: {
   entries: () => readonly PresentedColumnEntry[]
   live: () => boolean
+  onRestoreCheckpoint?: ChatTranscriptProps['onRestoreCheckpoint']
 }): JSX.Element {
   const ids = createMemo<readonly string[]>(() => props.entries().map((entry) => entry.key), [], {
     equals: sameIds,
@@ -573,7 +589,11 @@ function ActivityColumn(props: {
                 <CallLine entry={() => entry() as ChatTurnCall} live={props.live} />
               </Show>
               <Show when={entry()?.type === 'result'}>
-                <ResultLine entry={() => entry() as ChatTurnResult} live={props.live} />
+                <ResultLine
+                  entry={() => entry() as ChatTurnResult}
+                  live={props.live}
+                  onRestoreCheckpoint={props.onRestoreCheckpoint}
+                />
               </Show>
               <Show when={entry()?.type === 'reasoning'}>
                 <ReasoningLine entry={() => entry() as ChatTurnReasoning} live={props.live} />

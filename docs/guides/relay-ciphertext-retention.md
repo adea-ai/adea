@@ -18,7 +18,6 @@ Message/ContentReplica history. It never acknowledges delivery or cancels work.
 3. Supply `DATABASE_URL_UNPOOLED` securely in the server/operator environment.
    It must use the intended `_app` role, direct host, port and database.
    Hosted targets require TLS (`sslmode=require`, `verify-ca` or `verify-full`);
-   Neon pooler hosts are refused. Migration-role credentials are not accepted.
    Only `sslmode` is allowed as a URL query parameter; endpoint overrides are
    refused. Keep credentials out of argv, shell history and published logs.
 4. Choose one actual workspace UUID and a batch limit from 1 to 1,000. There

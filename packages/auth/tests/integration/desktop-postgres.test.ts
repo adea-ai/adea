@@ -31,7 +31,7 @@ describe.skipIf(!connectionUrl)('desktop authorization with PostgreSQL', () => {
 
   test('exchanges one PKCE code, rotates the credential, and revokes the session', async () => {
     const principal = await createUserWithAuthIdentity(connection.db, {
-      identity: { provider: 'neon', subject: `desktop-flow-${crypto.randomUUID()}` },
+      identity: { provider: 'better-auth', subject: `desktop-flow-${crypto.randomUUID()}` },
     })
     const now = Date.now()
     const sessions = createDesktopSessionService({

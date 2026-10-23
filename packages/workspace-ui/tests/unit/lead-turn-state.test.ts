@@ -4,6 +4,7 @@ import type { ApiModelFundingView } from '@adea-ai/api-client/model-connections'
 
 import {
   createLeadTurnViewController,
+  leadChildAllowanceText,
   type LeadTurnPort,
   type LeadTurnScope,
 } from '../../src/lead-turn-state'
@@ -604,4 +605,41 @@ test('a refusal without a named reason is held as unverifiable, never as a guess
   h.overrides.status = async () => ({ leadTurn: blockedTurn() })
   await h.controller.prepare()
   expect(h.controller.view.lastRefusal).toBe('READINESS_UNAVAILABLE')
+})
+
+test('child allowance text distinguishes stated, not stated and not disclosed', () => {
+  const digest = `sha256:${'a'.repeat(64)}`
+  expect(leadChildAllowanceText(undefined)).toBe(
+    'Child allowance: not disclosed by this control plane.'
+  )
+  expect(leadChildAllowanceText({ state: 'not_stated', executionPlanDigest: digest })).toBe(
+    'Child allowance: not stated by the lead plan.'
+  )
+  expect(
+    leadChildAllowanceText({
+      state: 'stated',
+      executionPlanDigest: digest,
+      currency: 'USD',
+      maximumMicrounits: 2_500_000,
+      maximumTokens: 120_000,
+    })
+  ).toBe('Child allowance: up to $2.50 and 120,000 tokens for child executions.')
+  expect(
+    leadChildAllowanceText({
+      state: 'stated',
+      executionPlanDigest: digest,
+      currency: 'USD',
+      maximumMicrounits: 1_234_567,
+      maximumTokens: 0,
+    })
+  ).toBe('Child allowance: up to $1.234567 and 0 tokens for child executions.')
+  expect(
+    leadChildAllowanceText({
+      state: 'stated',
+      executionPlanDigest: digest,
+      currency: 'USD',
+      maximumMicrounits: 0,
+      maximumTokens: 1,
+    })
+  ).toBe('Child allowance: up to $0.00 and 1 token for child executions.')
 })

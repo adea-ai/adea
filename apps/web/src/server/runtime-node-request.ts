@@ -176,6 +176,16 @@ export function parseRuntimeNodeRevocation(body: unknown) {
   return reason ? { reason } : null
 }
 
+/**
+ * A rename request: the product label people see for one registered host. The bounds
+ * mirror the server's own: a bounded name without control characters.
+ */
+export function parseRuntimeNodeRename(body: unknown) {
+  if (!body || typeof body !== 'object') return null
+  const displayName = boundedText((body as Record<string, unknown>).displayName, 120)
+  return displayName ? { displayName } : null
+}
+
 /** A challenge request: pairing for a kind, or rotate/proof for a node. */
 export function parseRuntimeNodeChallengeRequest(body: unknown) {
   if (!body || typeof body !== 'object') return null

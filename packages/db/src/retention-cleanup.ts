@@ -927,7 +927,11 @@ export async function readRetentionStatus(
 ): Promise<RetentionStatusView> {
   validateScope(input.workspaceId, input.category, input.subjectId)
   const periods = input.periods ?? UNSET_RETENTION_PERIODS
-  const periodConfigured = periods[input.category] !== null
+  // The period is read as an own property. A period inherited from a prototype is
+  // not a decision the caller stated, and a category without a stated period is
+  // not configured: both fail closed to the unset answer.
+  const periodConfigured =
+    Object.hasOwn(periods, input.category) && periods[input.category] !== null
   const authority = await liveAuthorization(
     database,
     input.workspaceId,

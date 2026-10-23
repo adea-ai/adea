@@ -89,12 +89,7 @@ for (const path of await filesUnder(clientDirectory)) {
     gzipBytes: gzipSync(content).byteLength,
   })
 }
-const SELF_HOSTED_WRITE_MARKERS = [
-  'revoke-effects',
-  'pairing-values',
-  'Host renamed',
-  'Clear these values',
-]
+const SELF_HOSTED_WRITE_MARKERS = ['revoke-effects', 'pairing-values', 'Clear these values']
 for (const marker of SELF_HOSTED_WRITE_MARKERS) {
   const carrier = chunks.find((chunk) => chunk.source.includes(marker))
   if (carrier) throw new Error(`Self-hosted write code (${marker}) in client chunk ${carrier.file}`)

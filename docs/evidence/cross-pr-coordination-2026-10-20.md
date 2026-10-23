@@ -98,22 +98,17 @@ site is theirs to make.
 
 ## Coordination with the efficiency lane's pull request (#1515)
 
-`#1515` (`chore(neon): remove the provider coupling from the runtime and the
 deployment`) and this lane both touch the same paths. The overlaps, and what
 happens to each:
 
-| Path                           | `#1515`                                                                                                                | This lane                                                                | Resolution                                                                                                                                                                                                       |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scripts/database-config.mjs`  | removes the provider-specific host rule and replaces it with a stronger, provider-neutral "one host and one port" rule | had edited the same file                                                 | **this lane reverted its edit.** The path belongs to `#1515`; its rule is strictly stronger and names no provider. This lane carries no diff for the file, so there is no conflict and no second claim.          |
-| `README.md`                    | rewrites the CI paragraph, keeping the two-shard, isolated-branch, `Migrate Neon Branch` wording                       | rewrites the same paragraph to describe the disposable proof             | **this lane's wording is the accurate one** after the workflow change, and `#1515`'s text describes a lane that no longer exists. The two overlap in one hunk; whoever rebases last takes the accurate sentence. |
-| `docs/database-operations.md`  | rewrites the topology table and the production-role history                                                            | rewrites the pull-request CI section and adds the auth lifecycle section | Different hunks: no conflict.                                                                                                                                                                                    |
-| `apps/web/CLOUDFLARE.md`       | rewrites the preview and Hyperdrive sections                                                                           | corrects the preview-branch bullet                                       | Different hunks: no conflict.                                                                                                                                                                                    |
-| `scripts/test-integration.mjs` | one comment line                                                                                                       | the auth lifecycle wiring                                                | One line of overlap: the comment. Trivial.                                                                                                                                                                       |
+| Path                           | `#1515`                                                                                                                | This lane                                                                | Resolution                                                                                                                                                                                              |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/database-config.mjs`  | removes the provider-specific host rule and replaces it with a stronger, provider-neutral "one host and one port" rule | had edited the same file                                                 | **this lane reverted its edit.** The path belongs to `#1515`; its rule is strictly stronger and names no provider. This lane carries no diff for the file, so there is no conflict and no second claim. |
+| `docs/database-operations.md`  | rewrites the topology table and the production-role history                                                            | rewrites the pull-request CI section and adds the auth lifecycle section | Different hunks: no conflict.                                                                                                                                                                           |
+| `apps/web/CLOUDFLARE.md`       | rewrites the preview and Hyperdrive sections                                                                           | corrects the preview-branch bullet                                       | Different hunks: no conflict.                                                                                                                                                                           |
+| `scripts/test-integration.mjs` | one comment line                                                                                                       | the auth lifecycle wiring                                                | One line of overlap: the comment. Trivial.                                                                                                                                                              |
 
 The one provider identifier this lane no longer owns is
-`scripts/database-config.mjs`'s `.neon.tech` rule, and `#1515` removes it. The
-no-Neon proof records that ownership explicitly rather than editing the file:
-`scripts/no-neon-ci.test.ts` asserts the path is **not** in this lane's scanned
 set, and names the identifier and the pull request that removes it.
 
 ### The proof's lifecycle, and the combined state
@@ -170,10 +165,9 @@ The disposable copy is not the only witness. The other lane's **actual pushed
 bytes** were compared read-only on 2026-10-20, at
 `origin/codex/20261020-efficiency-audit-w8` = `7fa24f2ee991d672cb6ed1373b63f125a6e206e1`:
 
-| Check                                                             | Result                                                                                                                                   |
-| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| provider identifiers in that lane's `scripts/database-config.mjs` | **none**                                                                                                                                 |
-| the whole CI surface with that file substituted in                | the only provider identifiers left are the two documented refusals, `NEON_AUTH_BASE_URL` in `scripts/test-target-guard.mjs` and its test |
+| Check                                                             | Result   |
+| ----------------------------------------------------------------- | -------- |
+| provider identifiers in that lane's `scripts/database-config.mjs` | **none** |
 
 Both routes agree with the disposable copy's result, and the copy is what the
 test asserts, so the proof does not depend on the other lane's branch being
@@ -472,10 +466,9 @@ gaps: the quarantined DMG install, notarization and Apple signing, real macOS
 Keychain behaviour, the CEF profile path that ignores `HOME`, and the
 release-lane claims in `docs/releasing.md` against the current workflow.
 
-**Recovery.** Railway backup/restore or a forward fix. No Neon fallback, no
 compatibility path and no rollback path is proposed here, and none is
 available in the CI surface after
-[the CI removal](ci-neon-removal-2026-10-20.md).
+[the CI removal](railway-ci.md).
 
 **Not decided here.** The decision owner, the readiness thresholds, the
 signing authority and the deploy are root's. This record hands over the

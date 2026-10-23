@@ -9,9 +9,10 @@ import { bindings, defineConfig } from 'cf/config'
 // value that only exists as a dashboard secret silently disappears on the
 // next `cf deploy`. That is how the 2026-10-01 migration lost the Control
 // Plane proxy configuration and took the Plugins marketplace down with it.
-// The Secrets Store (`control-plane-neon`) is the source of truth for
-// secret values (see CLOUDFLARE.md); plain identifiers stay in `text`
-// bindings because they are not secrets.
+// The account Secrets Store is the source of truth for secret values (see
+// CLOUDFLARE.md); plain identifiers stay in `text` bindings because they are
+// not secrets.
+const productionAuthHyperdriveId = '9a8c286d8b374a8c83cf05534195a53a'
 const productionHyperdriveId = '5faad934a0a14a29bbb4780ca2f53fa6'
 const ACCOUNT_ID = 'aa2dc82d7e02aff12b77800a8201df3f'
 const controlPlaneStore = 'b3a1b4e8427a4d23ac7925cc18a7a2ac'
@@ -20,7 +21,7 @@ const controlPlaneStore = 'b3a1b4e8427a4d23ac7925cc18a7a2ac'
 // preview with CLOUDFLARE_PREVIEW_BUILD=true). Nothing below swaps bindings by
 // itself, so this file does: a Preview Worker runs unreviewed pull-request code
 // and must never carry the production Hyperdrive, the production database and
-// auth secrets, the cookie secret, or the Control Plane signer. Without the
+// auth secrets, the auth secret, or the Control Plane signer. Without the
 // explicit preview selection below there is nothing safe to deploy, so the
 // build stops (see `previewEnv`): an assets-only Worker answers every API route
 // with a 500, and a preview that cannot work must not be reported as one.
@@ -35,11 +36,19 @@ export const PREVIEW_SELECTION = {
   trustedOrigins: 'ADEA_PREVIEW_AUTH_TRUSTED_ORIGINS_SECRET',
 } as const
 
+// The auth service reads its own database through `AUTH_DATABASE_URL`, and that
+// database is the one the auth schema lives in. A Preview Worker gets a
+// dedicated preview record in the preview store rather than a second selection
+// variable: the preview selection is all or nothing, and a second variable would
+// make a complete existing selection partial.
+export const PREVIEW_AUTH_DATABASE_SECRET = 'ADEA_PREVIEW_AUTH_DATABASE_URL'
+
 const productionSecretNames = [
-  'AGENT_HQ_NEON_PRODUCTION_DATABASE_URL',
-  'AGENT_HQ_NEON_PRODUCTION_AUTH_BASE_URL',
-  'AGENT_HQ_WORKER_AUTH_COOKIE_SECRET',
-  'AGENT_HQ_WORKER_AUTH_TRUSTED_ORIGINS',
+  'ADEA_RAILWAY_PRODUCTION_DATABASE_URL',
+  'ADEA_RAILWAY_PRODUCTION_AUTH_BASE_URL',
+  'ADEA_RAILWAY_PRODUCTION_AUTH_DATABASE_URL',
+  'ADEA_RAILWAY_PRODUCTION_AUTH_SECRET',
+  'ADEA_RAILWAY_PRODUCTION_AUTH_TRUSTED_ORIGINS',
   'ADEA_CONTROL_PLANE_SIGNING_KEY',
 ]
 
@@ -77,21 +86,34 @@ export function previewEnv(source: EnvSource = process.env) {
       throw new Error(`Preview secret "${name}" must be a dedicated preview secret`)
     }
   }
+  // The auth database record is fixed rather than selected, so it carries the same
+  // guarantee by inspection: it is a dedicated preview record and never a production one.
+  if (
+    productionSecretNames.includes(PREVIEW_AUTH_DATABASE_SECRET) ||
+    !/preview/i.test(PREVIEW_AUTH_DATABASE_SECRET)
+  ) {
+    throw new Error(
+      `Preview secret "${PREVIEW_AUTH_DATABASE_SECRET}" must be a dedicated preview secret`
+    )
+  }
   const secret = (secretName: string) => bindings.secretsStoreSecret({ storeId, secretName })
   return {
     ...assets,
     HYPERDRIVE: bindings.hyperdrive({ id: hyperdriveId }),
     DATABASE_URL: secret(databaseUrl),
-    NEON_AUTH_BASE_URL: secret(authBaseUrl),
-    NEON_AUTH_COOKIE_SECRET: secret(cookieSecret),
+    AUTH_BASE_URL: secret(authBaseUrl),
+    AUTH_SECRET: secret(cookieSecret),
+    AUTH_DATABASE_URL: secret(PREVIEW_AUTH_DATABASE_SECRET),
     AUTH_TRUSTED_ORIGINS: secret(trustedOrigins),
   }
 }
 
 export function productionEnv() {
   return {
+    AUTH_EMAIL: bindings.sendEmail({ allowedSenderAddresses: ['team@adea.dev'] }),
     ASSETS: bindings.assets(),
     HYPERDRIVE: bindings.hyperdrive({ id: productionHyperdriveId }),
+    AUTH_HYPERDRIVE: bindings.hyperdrive({ id: productionAuthHyperdriveId }),
     // Marketplace proxy: production Control Plane (Railway).
     CONTROL_PLANE_ORIGIN: bindings.text(
       'https://control-planecontrol-api-production.up.railway.app'
@@ -105,25 +127,37 @@ export function productionEnv() {
     }),
     CONTROL_PLANE_SIGNING_KEY_ID: bindings.text('adea-web-signer-2026-10'),
     CONTROL_PLANE_SIGNING_ISSUER: bindings.text('https://m9-certification.control-plane.invalid'),
-    // Neon production branch, pooled owner role (Worker fallback for the
-    // Hyperdrive connection) and the Neon Auth endpoint it pairs with.
+    // Railway-managed PostgreSQL: the runtime role's URL. The Worker prefers the
+    // Hyperdrive binding above and falls back to this one where the binding is
+    // absent (local development, tests).
     DATABASE_URL: bindings.secretsStoreSecret({
       storeId: controlPlaneStore,
-      secretName: 'AGENT_HQ_NEON_PRODUCTION_DATABASE_URL',
+      secretName: 'ADEA_RAILWAY_PRODUCTION_DATABASE_URL',
     }),
-    NEON_AUTH_BASE_URL: bindings.secretsStoreSecret({
+    // The self-hosted auth service reads its own configuration under these
+    // names. `AUTH_BASE_URL` is the public app origin that serves the
+    // same-origin `/api/auth/*` proxy, so Better Auth scopes its cookies to the
+    // app host; it is kept in the store so the value can follow the origin
+    // without a code change.
+    AUTH_BASE_URL: bindings.secretsStoreSecret({
       storeId: controlPlaneStore,
-      secretName: 'AGENT_HQ_NEON_PRODUCTION_AUTH_BASE_URL',
+      secretName: 'ADEA_RAILWAY_PRODUCTION_AUTH_BASE_URL',
     }),
-    // Rotating the cookie secret invalidates every Worker session.
-    NEON_AUTH_COOKIE_SECRET: bindings.secretsStoreSecret({
+    // Rotating the auth secret invalidates every Worker session.
+    AUTH_SECRET: bindings.secretsStoreSecret({
       storeId: controlPlaneStore,
-      secretName: 'AGENT_HQ_WORKER_AUTH_COOKIE_SECRET',
+      secretName: 'ADEA_RAILWAY_PRODUCTION_AUTH_SECRET',
+    }),
+    // The database the auth schema lives in. It is a separate schema on the
+    // same Railway-managed PostgreSQL, with its own runtime role.
+    AUTH_DATABASE_URL: bindings.secretsStoreSecret({
+      storeId: controlPlaneStore,
+      secretName: 'ADEA_RAILWAY_PRODUCTION_AUTH_DATABASE_URL',
     }),
     // Public origins allowed to talk to the auth endpoints.
     AUTH_TRUSTED_ORIGINS: bindings.secretsStoreSecret({
       storeId: controlPlaneStore,
-      secretName: 'AGENT_HQ_WORKER_AUTH_TRUSTED_ORIGINS',
+      secretName: 'ADEA_RAILWAY_PRODUCTION_AUTH_TRUSTED_ORIGINS',
     }),
   }
 }

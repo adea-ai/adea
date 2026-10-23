@@ -40,14 +40,13 @@ export type NormalizeSessionOptions = Readonly<{
 
 /**
  * Normalizes any provider session payload into the provider-neutral result.
- * The provider label defaults to the historical Neon name so existing callers
- * keep their identity key; a replacement provider passes its own label.
+ * Fresh accounts use the Better Auth identity namespace.
  */
 export function normalizeProviderSession(
   value: ProviderSessionInput | null | undefined,
   options: NormalizeSessionOptions = {}
 ): AuthResult | null {
-  const provider = options.provider ?? 'neon'
+  const provider = options.provider ?? 'better-auth'
   const now = options.now ?? new Date()
   if (!value) return null
 
@@ -75,11 +74,4 @@ export function normalizeProviderSession(
       ...(verifiedEmail ? { email: verifiedEmail } : {}),
     }),
   })
-}
-
-export function normalizeNeonSession(
-  value: ProviderSessionInput | null | undefined,
-  now = new Date()
-): AuthResult | null {
-  return normalizeProviderSession(value, { provider: 'neon', now })
 }
