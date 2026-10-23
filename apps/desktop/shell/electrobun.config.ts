@@ -6,7 +6,7 @@ import desktopPackage from '../package.json'
 export default {
   app: {
     name: 'Adea',
-    identifier: 'dev.adea.desktop',
+    identifier: 'dev.adea.qual1382',
     version: desktopPackage.version,
   },
   build: {
@@ -35,6 +35,8 @@ export default {
     },
     mac: {
       bundleCEF: true,
+      // QUALIFICATION OVERLAY (scratch only): no real-keychain Safe Storage item.
+      chromiumFlags: { 'use-mock-keychain': true },
     },
     linux: {
       bundleCEF: true,
