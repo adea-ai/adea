@@ -8,6 +8,7 @@ import {
   createAttachmentPort,
   createAttachmentTray,
   prepareAttachment,
+  stageSelection,
   type AttachmentFile,
   type AttachmentPort,
   type AttachmentTrayView,
@@ -214,7 +215,7 @@ describe('attachment tray', () => {
     expect(latest().items).toHaveLength(0)
   })
 
-  test('a lost answer is retried under the same key; a definite refusal is not', async () => {
+  test('a lost answer is unconfirmed and retried under the same key; a definite refusal is not', async () => {
     const { tray, uploads, latest } = scripted([
       reject('timeout', 'The host did not answer.'),
       stored,
@@ -223,7 +224,7 @@ describe('attachment tray', () => {
     await tray.add(file('notes.txt', 'hello'))
     await settle()
     const first = latest().items[0]!
-    expect(first.state).toBe('failed')
+    expect(first.state).toBe('unconfirmed')
     expect(first.retryable).toBe(true)
     expect(first.message).toContain('will not store it twice')
     await tray.retry('id1')
@@ -240,6 +241,69 @@ describe('attachment tray', () => {
     expect(uploads).toHaveLength(3)
   })
 
+  test('a reply lost after the host committed is found again under the same key, once', async () => {
+    const { tray, uploads, latest } = scripted([reject('timeout'), reject('timeout'), stored])
+    await tray.add(file('notes.txt', 'hello'))
+    await settle()
+    await tray.retry('id1')
+    expect(latest().items[0]!.state).toBe('unconfirmed')
+    await tray.retry('id1')
+    expect(latest().items.map((item) => item.state)).toEqual(['stored'])
+    expect(new Set(uploads.map((upload) => upload.idempotencyKey)).size).toBe(1)
+    expect(uploads).toHaveLength(3)
+  })
+
+  test('an unconfirmed upload cannot be dismissed, because that would drop the key', async () => {
+    const { tray, latest } = scripted([reject('timeout'), stored])
+    await tray.add(file('notes.txt', 'hello'))
+    await settle()
+    await tray.remove('id1')
+    expect(latest().items.map((item) => item.state)).toEqual(['unconfirmed'])
+    await tray.retry('id1')
+    expect(latest().items.map((item) => item.state)).toEqual(['stored'])
+  })
+
+  test('a post-commit stale_generation or not_found is unreconciled, never "not stored"', async () => {
+    for (const code of ['stale_generation', 'not_found']) {
+      const { tray, uploads, latest } = scripted([reject(code)])
+      await tray.add(file('notes.txt', 'hello'))
+      await settle()
+      const item = latest().items[0]!
+      expect(item.state).toBe('unreconciled')
+      expect(item.retryable).toBeUndefined()
+      expect(item.message).toContain('cannot confirm whether the host stored')
+      expect(item.message).not.toContain('not stored')
+      // Retrying cannot settle it, so it is not offered, and nothing is sent.
+      await tray.retry('id1')
+      expect(uploads).toHaveLength(1)
+      // It can be dismissed, in words that said it may still be stored.
+      await tray.remove('id1')
+      expect(latest().items).toHaveLength(0)
+    }
+  })
+
+  test('a receipt that does not match is asked for once more, then unreconciled', async () => {
+    const { tray, uploads, latest } = scripted([
+      reject('identity_mismatch'),
+      reject('identity_mismatch'),
+    ])
+    await tray.add(file('notes.txt', 'hello'))
+    await settle()
+    expect(latest().items[0]!.state).toBe('unconfirmed')
+    await tray.retry('id1')
+    expect(latest().items[0]!.state).toBe('unreconciled')
+    expect(uploads[1]!.idempotencyKey).toBe(uploads[0]!.idempotencyKey)
+  })
+
+  test('a malformed receipt from the port is never shown as stored', async () => {
+    const real = createAttachmentPort(service(() => ({ ...stored, generation: 3 })).fake, SCOPE)
+    const tray = createAttachmentTray({ port: real, identity: IDENTITY, randomId: () => 'x' })
+    await tray.add(file('notes.txt', 'hello'))
+    await settle()
+    expect(tray.view().items[0]!.state).toBe('unconfirmed')
+    expect(tray.view().items[0]!.attachmentId).toBeUndefined()
+  })
+
   test('removing a stored file asks the host; a failed file is only dismissed', async () => {
     const { tray, latest } = scripted([stored, reject('limit_exceeded')], [removed])
     await tray.add(file('notes.txt', 'hello'))
@@ -252,18 +316,57 @@ describe('attachment tray', () => {
     expect(latest().items).toHaveLength(0)
   })
 
-  test('a failed removal keeps the file and says so; a file the host no longer holds is dropped', async () => {
+  test('a refused removal says "not removed"; a lost one does not claim it', async () => {
     const { tray, latest } = scripted(
-      [stored, stored],
-      [reject('capability_unavailable'), reject('not_found')]
+      [stored],
+      [reject('capability_unavailable'), reject('timeout'), removed]
     )
     await tray.add(file('notes.txt', 'hello'))
     await settle()
     await tray.remove('id1')
-    const kept = latest().items[0]!
-    expect(kept.state).toBe('stored')
-    expect(kept.message).toContain('not removed')
+    const refused = latest().items[0]!
+    expect(refused.state).toBe('stored')
+    expect(refused.message).toContain('not removed')
     await tray.remove('id1')
+    const unknown = latest().items[0]!
+    expect(unknown.state).toBe('stored')
+    expect(unknown.message).not.toContain('not removed')
+    expect(unknown.message).toContain('could not confirm')
+    expect(unknown.attachmentId).toBe(ATTACHMENT_ID)
+    // The same removal is simply asked again, and the host answers it as the same request.
+    await tray.remove('id1')
+    expect(latest().items).toHaveLength(0)
+  })
+
+  test('a removal the old generation can no longer answer is unreconciled', async () => {
+    for (const code of ['stale_generation', 'not_found']) {
+      const { tray, latest } = scripted([stored], [reject(code)])
+      await tray.add(file('notes.txt', 'hello'))
+      await settle()
+      await tray.remove('id1')
+      const item = latest().items[0]!
+      expect(item.state).toBe('unreconciled')
+      expect(item.message).toContain('cannot confirm whether the host removed')
+      await tray.remove('id1')
+      expect(latest().items).toHaveLength(0)
+    }
+  })
+
+  test('a file that cannot be read is refused in words, with no contents and no throw', async () => {
+    const unreadable: AttachmentFile = {
+      name: 'gone.txt',
+      size: 4,
+      arrayBuffer: async () => {
+        throw new Error('NotReadableError: secret-contents')
+      },
+    }
+    const result = await prepareAttachment(unreadable)
+    expect(result.ok).toBe(false)
+    expect(!result.ok && result.reason).toContain('could not be read')
+    expect(!result.ok && result.reason).not.toContain('secret')
+    const { tray, uploads, latest } = scripted([])
+    expect((await tray.add(unreadable)).ok).toBe(false)
+    expect(uploads).toHaveLength(0)
     expect(latest().items).toHaveLength(0)
   })
 
@@ -289,7 +392,7 @@ describe('attachment tray', () => {
     })
   })
 
-  test('a file dismissed while its upload is unconfirmed cannot come back', async () => {
+  test('a file cannot be dismissed while it is storing, and one that lost its answer stays', async () => {
     let fail!: (error: Error) => void
     const port: AttachmentPort = {
       upload: () => new Promise((_resolve, rejectWith) => (fail = rejectWith)),
@@ -302,8 +405,104 @@ describe('attachment tray', () => {
     expect(tray.view().items).toHaveLength(1)
     fail(reject('timeout'))
     await settle()
-    expect(tray.view().items[0]!.state).toBe('failed')
+    expect(tray.view().items[0]!.state).toBe('unconfirmed')
     await tray.remove(tray.view().items[0]!.id)
-    expect(tray.view().items).toHaveLength(0)
+    expect(tray.view().items).toHaveLength(1)
+  })
+})
+
+describe('attachments across a generation switch', () => {
+  test('only what the host never confirmed is carried, and it arrives unreconciled', async () => {
+    const hold = new Promise<ChatAttachment>(() => {})
+    let call = 0
+    const port: AttachmentPort = {
+      upload: async () => {
+        call += 1
+        if (call === 1) return stored
+        if (call === 2) throw reject('limit_exceeded')
+        if (call === 3) throw reject('timeout')
+        return hold
+      },
+      remove: async () => {
+        throw reject('timeout')
+      },
+    }
+    let n = 0
+    const tray = createAttachmentTray({ port, identity: IDENTITY, randomId: () => `id${++n}` })
+    await tray.add(file('kept.txt', 'hello'))
+    await settle()
+    await tray.add(file('refused.txt', 'x'))
+    await settle()
+    await tray.add(file('lost.txt', 'x'))
+    await settle()
+    await tray.add(file('inflight.txt', 'x'))
+    await settle()
+    await tray.remove('id1')
+    await settle()
+    expect(tray.unresolved().map((entry) => [entry.name, entry.about])).toEqual([
+      ['kept.txt', 'removal'],
+      ['lost.txt', 'upload'],
+      ['inflight.txt', 'upload'],
+    ])
+
+    const next = createAttachmentTray({
+      port,
+      identity: { runtimeSessionId: 'session-1', generation: 5 },
+      carried: tray.unresolved(),
+    })
+    const items = next.view().items
+    expect(items.map((item) => [item.name, item.state])).toEqual([
+      ['kept.txt', 'unreconciled'],
+      ['lost.txt', 'unreconciled'],
+      ['inflight.txt', 'unreconciled'],
+    ])
+    expect(items[0]!.message).toContain('whether the host removed')
+    expect(items[1]!.message).toContain('whether the host stored')
+    // They can be dismissed, and a dismissed one is not carried again.
+    await next.remove(items[0]!.id)
+    expect(next.unresolved().map((entry) => entry.name)).toEqual(['lost.txt', 'inflight.txt'])
+  })
+
+  test('a removal the host answered definitively is not carried', async () => {
+    const port: AttachmentPort = {
+      upload: async () => stored,
+      remove: async () => {
+        throw reject('capability_unavailable')
+      },
+    }
+    const tray = createAttachmentTray({ port, identity: IDENTITY, randomId: () => 'id' })
+    await tray.add(file('kept.txt', 'hello'))
+    await settle()
+    await tray.remove('id')
+    expect(tray.view().items[0]!.state).toBe('stored')
+    expect(tray.unresolved()).toEqual([])
+  })
+})
+
+describe('attachment selection', () => {
+  test('one file that cannot be read never stops the rest of the selection', async () => {
+    const port: AttachmentPort = { upload: async () => stored, remove: async () => removed }
+    const tray = createAttachmentTray({ port, identity: IDENTITY })
+    const unreadable: AttachmentFile = {
+      name: 'gone.txt',
+      size: 4,
+      arrayBuffer: async () => {
+        throw new Error('NotReadableError')
+      },
+    }
+    const throwing = {
+      name: 'odd.txt',
+      size: 1,
+      arrayBuffer: () => {
+        throw new Error('boom')
+      },
+    } as unknown as AttachmentFile
+    const notice = await stageSelection(tray, [unreadable, throwing, file('ok.txt', 'hello')])
+    await settle()
+    expect(tray.view().items.map((item) => item.name)).toEqual(['ok.txt'])
+    expect(notice).toContain('gone.txt: This file could not be read.')
+    expect(notice).toContain('odd.txt')
+    expect(notice).not.toContain('NotReadableError')
+    expect(await stageSelection(tray, [file('b.txt', 'x')])).toBeUndefined()
   })
 })

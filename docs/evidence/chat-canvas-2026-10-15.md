@@ -141,7 +141,19 @@ port there is no attach control. A chip means the host stored the file on this d
 and nothing more: the host has no contract yet for tying a stored file to a sent
 message or delivering it to the assistant, so the surface says the assistant does not
 receive attachments yet. Only non-empty UTF-8 `.txt`, `.log`, `.md` and `.json` files
-up to 128 KiB are offered, and a refusal names the reason. Checkpoint restore is
+up to 128 KiB are offered, and a refusal names the reason; a file that cannot be read
+is refused the same way and never stops the rest of a selection. A reply that never
+arrives is "Not confirmed", never "Not stored": the host may have committed, so the
+item stays, cannot be dismissed (that would drop the replay key) and Try again replays
+the same key. Only a refusal that proves nothing was written is "Not stored". The
+host's own binding check can fail after it committed (`stale_generation`, `not_found`),
+and a receipt this surface rejects can be for a write that happened
+(`identity_mismatch`, retried once): those are "Not confirmed" without Try again,
+saying the file may still be stored on this device, and can only be dismissed. A
+removal that is refused says "not removed"; one whose answer is lost says it could not
+confirm, and removing again is the host's same-id retry. A generation switch carries
+whatever was unconfirmed into the next generation as the same unreconciled item, never
+silently dropping it. Checkpoint restore is
 offered only for a checkpoint whose own payload says `restore.supported` and only
 when the host supplies `dev.session.restoreCheckpoint`; the host adapter is absent in
 production at this revision, so a real checkpoint reports `supported: false` and is

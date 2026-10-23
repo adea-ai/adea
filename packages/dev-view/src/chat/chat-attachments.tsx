@@ -10,10 +10,12 @@ import {
   ATTACHMENT_LIMIT_TEXT,
   ATTACHMENT_STORED_TEXT,
   createAttachmentTray,
+  stageSelection,
   type AttachmentFile,
   type AttachmentIdentity,
   type AttachmentPort,
   type AttachmentTrayView,
+  type UnresolvedAttachment,
 } from './model'
 
 /**
@@ -30,16 +32,28 @@ export type AttachmentsBinding = Readonly<{
   dismissNotice(): void
 }>
 
+/**
+ * What a session's earlier generations could not settle, per port and session. It outlives a
+ * tray (and the view that mounted it) so the next generation can show it as unreconciled.
+ */
+const unsettled = new WeakMap<AttachmentPort, Map<string, readonly UnresolvedAttachment[]>>()
+
 /** One tray per session generation, disposed with the owner. */
 export function createAttachmentsBinding(input: {
   port: AttachmentPort
   identity: AttachmentIdentity
 }): AttachmentsBinding {
-  const tray = createAttachmentTray(input)
+  const sessions = unsettled.get(input.port) ?? new Map()
+  unsettled.set(input.port, sessions)
+  const session = input.identity.runtimeSessionId
+  const tray = createAttachmentTray({ ...input, carried: sessions.get(session) })
   const [view, setView] = createSignal<AttachmentTrayView>(tray.view())
   const [notice, setNotice] = createSignal<string | undefined>()
   const unsubscribe = tray.subscribe(setView)
   onCleanup(() => {
+    const open = tray.unresolved()
+    if (open.length > 0) sessions.set(session, open)
+    else sessions.delete(session)
     unsubscribe()
     tray.dispose()
   })
@@ -47,12 +61,7 @@ export function createAttachmentsBinding(input: {
     view,
     notice,
     async pick(files) {
-      const refusals: string[] = []
-      for (const file of files) {
-        const result = await tray.add(file)
-        if (!result.ok) refusals.push(`${file.name}: ${result.reason}`)
-      }
-      setNotice(refusals.length > 0 ? refusals.join(' ') : undefined)
+      setNotice(await stageSelection(tray, files))
     },
     retry: tray.retry,
     remove: tray.remove,
@@ -136,24 +145,41 @@ export function ChatAttachments(props: { binding: AttachmentsBinding }): JSX.Ele
                   status={
                     item.state === 'uploading' || item.state === 'removing'
                       ? 'uploading'
-                      : item.state === 'failed'
-                        ? 'error'
-                        : 'ready'
+                      : item.state === 'stored'
+                        ? 'ready'
+                        : 'error'
                   }
-                  statusLabel={item.state === 'failed' ? 'Not stored' : undefined}
+                  statusLabel={
+                    item.state === 'failed'
+                      ? 'Not stored'
+                      : item.state === 'unconfirmed' || item.state === 'unreconciled'
+                        ? 'Not confirmed'
+                        : undefined
+                  }
                   removeLabel={
-                    item.state === 'failed' ? `Dismiss ${item.name}` : `Remove ${item.name}`
+                    item.state === 'failed' || item.state === 'unreconciled'
+                      ? `Dismiss ${item.name}`
+                      : `Remove ${item.name}`
                   }
-                  {...(item.state === 'stored' || item.state === 'failed'
+                  {...(item.state === 'stored' ||
+                  item.state === 'failed' ||
+                  item.state === 'unreconciled'
                     ? { onRemove: () => void props.binding.remove(item.id) }
                     : {})}
                 />
-                <Show when={item.state === 'failed' && item.message}>
+                <Show
+                  when={
+                    (item.state === 'failed' ||
+                      item.state === 'unconfirmed' ||
+                      item.state === 'unreconciled') &&
+                    item.message
+                  }
+                >
                   <p class="m-0 px-1 text-xs text-muted-foreground" role="alert">
                     {item.message}
                   </p>
                 </Show>
-                <Show when={item.state === 'failed' && item.retryable}>
+                <Show when={item.state === 'unconfirmed' && item.retryable}>
                   <Button
                     type="button"
                     variant="outline"

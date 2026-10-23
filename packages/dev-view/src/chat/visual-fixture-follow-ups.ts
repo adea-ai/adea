@@ -122,19 +122,40 @@ const fixtureAttachment = (
 export type FixtureAttachmentMode =
   /** The host stores and removes every file. */
   | 'ok'
-  /** The first upload's answer is lost, then the retry under the same key is stored once. */
+  /** The first upload commits and its answer is lost; the retry under the same key is stored once. */
   | 'lost'
   /** The host refuses to remove a stored file. */
   | 'remove-fail'
+  /** The first upload commits, then the host's own binding check fails: `stale_generation`. */
+  | 'commit-stale'
+  /** The first removal commits and its answer is lost; asking again returns the same removal. */
+  | 'remove-lost'
+  /** Uploads commit but stay unanswered until `chat-visual:release-attachments`. */
+  | 'held'
 
-/** A stand-in for the host's attachment store: it answers with the real DTO shapes and nothing else. */
+export const FIXTURE_ATTACHMENT_MODES: readonly FixtureAttachmentMode[] = [
+  'ok',
+  'lost',
+  'remove-fail',
+  'commit-stale',
+  'remove-lost',
+  'held',
+]
+
+/**
+ * A stand-in for the host's attachment store: it answers with the real DTO shapes and nothing
+ * else. Like the real host it keys an upload by its idempotency key, treats a repeated removal
+ * of the same id as the same request, and can fail after it committed.
+ */
 export function createFixtureAttachments(
   mode: FixtureAttachmentMode
 ): import('./model').AttachmentPort {
   let n = 0
   const stored = new Map<string, string>()
   const byKey = new Map<string, import('@adea-ai/types/dev-runtime').ChatAttachment>()
-  let lost = mode === 'lost'
+  const removedIds = new Map<string, import('@adea-ai/types/dev-runtime').ChatAttachment>()
+  let failNextUpload = mode === 'lost' || mode === 'commit-stale'
+  let failNextRemoval = mode === 'remove-lost'
   return {
     async upload(identity, input) {
       const existing = byKey.get(input.idempotencyKey)
@@ -145,19 +166,37 @@ export function createFixtureAttachments(
       const made = fixtureAttachment(identity, id, input.upload.name, byteLength, 'available')
       stored.set(id, input.upload.name)
       byKey.set(input.idempotencyKey, made)
-      if (lost) {
-        lost = false
-        throw refuse('timeout', 'The host did not answer.')
+      if (mode === 'held') {
+        await new Promise<void>((release) =>
+          window.addEventListener('chat-visual:release-attachments', () => release(), {
+            once: true,
+          })
+        )
+        return made
+      }
+      if (failNextUpload) {
+        failNextUpload = false
+        throw mode === 'commit-stale'
+          ? refuse('stale_generation', 'The session moved to a new generation.')
+          : refuse('timeout', 'The host did not answer.')
       }
       return made
     },
     async remove(identity, attachmentId) {
       if (mode === 'remove-fail')
         throw refuse('capability_unavailable', 'The host cannot remove files right now.')
+      const already = removedIds.get(attachmentId)
+      if (already) return already
       const name = stored.get(attachmentId)
       if (name === undefined) throw refuse('not_found', 'No such attachment.')
       stored.delete(attachmentId)
-      return fixtureAttachment(identity, attachmentId, name, 1, 'removed')
+      const done = fixtureAttachment(identity, attachmentId, name, 1, 'removed')
+      removedIds.set(attachmentId, done)
+      if (failNextRemoval) {
+        failNextRemoval = false
+        throw refuse('timeout', 'The host did not answer.')
+      }
+      return done
     },
   }
 }

@@ -943,7 +943,9 @@ test('a restore the host failed is reported as failed, not as a restore', async 
   expect(errors).toEqual([])
 })
 
-async function openAttachFixture(page: Page, mode?: 'ok' | 'lost' | 'remove-fail') {
+type AttachMode = 'ok' | 'lost' | 'remove-fail' | 'commit-stale' | 'remove-lost' | 'held'
+
+async function openAttachFixture(page: Page, mode?: AttachMode) {
   await mockBootstrap(page)
   await page.goto(
     `/?view=chat&chatE2e=visual&chatState=conversation${mode ? `&chatAttach=${mode}` : ''}`
@@ -1004,17 +1006,131 @@ test('a file the host cannot take is refused in words and never staged', async (
   expect(errors).toEqual([])
 })
 
-test('a lost upload answer is retried once and stored once', async ({ page }) => {
+const nextGeneration = (page: Page) =>
+  page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:next-generation')))
+
+test('a lost upload answer is not confirmed, and trying again stores it once', async ({ page }) => {
   const errors = trackPageErrors(page)
   await openAttachFixture(page, 'lost')
   await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
   const list = page.getByRole('list', { name: 'Attached files' })
-  await expect(list.getByText('Not stored')).toBeVisible()
-  await expect(page.getByText('Trying again will not store it twice.')).toBeVisible()
+  await expect(list.getByText('Not confirmed')).toBeVisible()
+  await expect(list.getByText('Not stored')).toHaveCount(0)
+  await expect(page.getByText('trying again will not store it twice.')).toBeVisible()
+  // Dismissing would drop the key that finds the file.
+  await expect(page.getByRole('button', { name: 'Dismiss notes.txt' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Remove notes.txt' })).toHaveCount(0)
   await expect(page.locator('[data-chat-attachments-status]')).toHaveCount(0)
   await page.getByRole('button', { name: 'Try again' }).click()
   await expect(page.locator('[data-chat-attachments-status]')).toBeVisible()
   await expect(list.getByText('notes.txt')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+test('a host that fails after it committed is unreconciled: no retry, no "not stored"', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'commit-stale')
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await expect(list.getByText('Not confirmed')).toBeVisible()
+  await expect(page.getByText('We cannot confirm whether the host stored this file')).toBeVisible()
+  await expect(page.getByText('It may still be stored on this device.')).toBeVisible()
+  await expect(list.getByText('Not stored')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0)
+  await expect(page.locator('[data-chat-attachments-status]')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Dismiss notes.txt' }).click()
+  await expect(list).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('a lost removal answer is not "not removed", and removing again settles it', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'remove-lost')
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await page.getByRole('button', { name: 'Remove notes.txt' }).click()
+  await expect(page.getByText('We could not confirm whether the file was removed.')).toBeVisible()
+  await expect(page.getByText('The file was not removed.')).toHaveCount(0)
+  await expect(list.getByText('notes.txt')).toBeVisible()
+  await page.getByRole('button', { name: 'Remove notes.txt' }).click()
+  await expect(list).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('an unconfirmed upload is shown as unreconciled by the next generation, not dropped', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'lost')
+  const fixture = page.locator('[data-chat-visual-state="conversation"]')
+  await expect(fixture).toHaveAttribute('data-chat-generation', '3')
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await expect(list.getByText('Not confirmed')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible()
+
+  await nextGeneration(page)
+  await expect(fixture).toHaveAttribute('data-chat-generation', '4')
+  await expect(list.getByText('notes.txt')).toBeVisible()
+  await expect(list.getByText('Not confirmed')).toBeVisible()
+  await expect(page.getByText('We cannot confirm whether the host stored this file')).toBeVisible()
+  // The old generation can no longer be asked, so a retry is not offered.
+  await expect(page.getByRole('button', { name: 'Try again' })).toHaveCount(0)
+  await expect(page.locator('[data-chat-attachments-status]')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Dismiss notes.txt' }).click()
+  await expect(list).toHaveCount(0)
+  // A dismissed outcome is not carried into the generation after.
+  await nextGeneration(page)
+  await expect(fixture).toHaveAttribute('data-chat-generation', '5')
+  await expect(list).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('an answer that arrives after the generation switched changes nothing and throws nothing', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'held')
+  const fixture = page.locator('[data-chat-visual-state="conversation"]')
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await expect(list.getByText('notes.txt')).toBeVisible()
+  await nextGeneration(page)
+  await expect(fixture).toHaveAttribute('data-chat-generation', '4')
+  await expect(list.getByText('Not confirmed')).toBeVisible()
+  await page.evaluate(() => window.dispatchEvent(new Event('chat-visual:release-attachments')))
+  await expect(list.getByText('Not confirmed')).toBeVisible()
+  await expect(page.locator('[data-chat-attachments-status]')).toHaveCount(0)
+  await expect(list.getByText('notes.txt')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+test('a file that cannot be read is refused in words and the rest of the selection is attached', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'ok')
+  await page.evaluate(() => {
+    const read = File.prototype.arrayBuffer
+    File.prototype.arrayBuffer = function (this: File) {
+      return this.name === 'gone.txt'
+        ? Promise.reject(new DOMException('secret-contents', 'NotReadableError'))
+        : read.call(this)
+    }
+  })
+  await page
+    .locator('[data-chat-attach-input]')
+    .setInputFiles([textFile('gone.txt', 'secret'), textFile('ok.txt', 'hello')])
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await expect(list.getByText('ok.txt')).toBeVisible()
+  await expect(list.getByText('gone.txt')).toHaveCount(0)
+  const refusal = page.locator('[data-chat-attach-refusal]')
+  await expect(refusal).toContainText('gone.txt: This file could not be read.')
+  await expect(refusal).not.toContainText('secret')
   expect(errors).toEqual([])
 })
 

@@ -47,8 +47,10 @@ import {
 } from './visual-fixture-data'
 import {
   createFixtureAttachments,
+  FIXTURE_ATTACHMENT_MODES,
   createFixtureCheckpointRestore,
   createFixtureFollowUpHost,
+  type FixtureAttachmentMode,
   type FixtureFollowUpMode,
 } from './visual-fixture-follow-ups'
 import './visual-fixture.css'
@@ -662,10 +664,11 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   const followUps = ['busy', 'ready', 'ambiguous', 'unavailable'].includes(queueMode ?? '')
     ? createFixtureFollowUpHost(queueMode as FixtureFollowUpMode)
     : undefined
-  // `chatAttach=ok|lost|remove-fail` stands up a stand-in for the host's attachment store.
+  // `chatAttach=<mode>` stands up a stand-in for the host's attachment store (see
+  // `FIXTURE_ATTACHMENT_MODES`).
   const attachMode = new URLSearchParams(window.location.search).get('chatAttach')
-  const attachments = ['ok', 'lost', 'remove-fail'].includes(attachMode ?? '')
-    ? createFixtureAttachments(attachMode as 'ok' | 'lost' | 'remove-fail')
+  const attachments = FIXTURE_ATTACHMENT_MODES.includes(attachMode as FixtureAttachmentMode)
+    ? createFixtureAttachments(attachMode as FixtureAttachmentMode)
     : undefined
   const activeConversation = createMemo(() =>
     conversation(state, events, draft().text, generation(), draft().blocks)
