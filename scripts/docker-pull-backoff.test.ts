@@ -393,55 +393,119 @@ test('a record that cannot be read in full never excludes a process from the gro
 
 // The real kernel record for the leader-exited case: a Python process starts a worker thread and
 // then ends only its own thread with pthread_exit, which leaves a zombie leader and a live worker.
+// The fixture owns the process it starts: its lifecycle is observed from the moment it is spawned,
+// only a child that is still live is signalled, and teardown is not finished until the child has
+// been seen to exit and its group is gone. A teardown that cannot be verified fails the test.
 test.skipIf(process.platform !== 'linux' || spawnSync('python3', ['-V']).status !== 0)(
   'a real exited leader with a live worker thread keeps its group live',
   async () => {
-    await withTempDir(async (dir) => {
-      const pidFile = join(dir, 'leader.pid')
-      const script = `
-import ctypes, os, threading, time
-open(os.environ['PID_FILE'] + '.tmp', 'w').write(str(os.getpid()))
-os.rename(os.environ['PID_FILE'] + '.tmp', os.environ['PID_FILE'])
+    const script = `
+import ctypes, threading, time
 def worker():
     while True:
         time.sleep(0.05)
 threading.Thread(target=worker, daemon=True).start()
 ctypes.CDLL(None).pthread_exit(None)
 `
-      const result = spawn('python3', ['-c', script], {
-        detached: true,
-        stdio: 'ignore',
-        env: { ...process.env, PID_FILE: pidFile },
+    const child = spawn('python3', ['-c', script], { detached: true, stdio: 'ignore' })
+    let spawnError: Error | undefined
+    let exited = false
+    const hasExited = () => exited
+    const exit = new Promise<void>((resolve) => {
+      child.once('exit', () => {
+        exited = true
+        resolve()
       })
-      const pid = result.pid!
-      try {
-        let state = ''
-        let threads = ''
-        for (let attempt = 0; attempt < 100; attempt += 1) {
-          try {
-            const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
-            const fields = stat
-              .slice(stat.lastIndexOf(')') + 1)
-              .trim()
-              .split(/\s+/)
-            ;[state, threads] = [fields[0]!, fields[17]!]
-            if (state === 'Z' && Number(threads) > 1) break
-          } catch {}
-          await delay(50)
-        }
-        assert.equal(state, 'Z', 'The fixture leader must have exited as a zombie')
-        assert.ok(Number(threads) > 1, 'The fixture must still hold a live worker thread')
-        assert.doesNotThrow(() => process.kill(-pid, 0))
-        assert.equal(processGroupHasLiveMember(pid), true)
-      } finally {
+      child.once('error', (error) => {
+        spawnError = error
+        resolve()
+      })
+    })
+    let primary: unknown
+    try {
+      await Promise.race([delay(50), exit])
+      assert.equal(spawnError, undefined, `The fixture failed to start: ${spawnError?.message}`)
+      const pid = child.pid
+      assert.ok(pid !== undefined && pid > 0, 'The fixture must have a process id')
+      let state = ''
+      let threads = ''
+      for (let attempt = 0; attempt < 60 && !hasExited(); attempt += 1) {
+        try {
+          const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+          const fields = stat
+            .slice(stat.lastIndexOf(')') + 1)
+            .trim()
+            .split(/\s+/)
+          ;[state, threads] = [fields[0]!, fields[17]!]
+          if (state === 'Z' && Number(threads) > 1) break
+        } catch {}
+        await delay(50)
+      }
+      assert.equal(exited, false, 'The fixture must still be running')
+      assert.equal(state, 'Z', 'The fixture leader must have exited as a zombie')
+      assert.ok(Number(threads) > 1, 'The fixture must still hold a live worker thread')
+      assert.doesNotThrow(() => process.kill(-pid, 0))
+      assert.equal(processGroupHasLiveMember(pid), true)
+    } catch (error) {
+      primary = error
+    }
+    let teardownError: unknown
+    try {
+      const pid = child.pid
+      // Signal only a child this test still owns and has not seen exit.
+      if (pid !== undefined && !exited && child.exitCode === null && child.signalCode === null) {
         try {
           process.kill(-pid, 'SIGKILL')
-        } catch {}
+        } catch (killError) {
+          if ((killError as NodeJS.ErrnoException).code !== 'ESRCH') throw killError
+        }
       }
-    })
+      if (pid !== undefined) {
+        await Promise.race([exit, delay(3_000)])
+        assert.ok(
+          exited || spawnError !== undefined,
+          'The fixture did not exit within 3 s of SIGKILL'
+        )
+        assert.throws(
+          () => process.kill(-pid, 0),
+          { code: 'ESRCH' },
+          'The fixture group must be gone'
+        )
+      }
+    } catch (error) {
+      teardownError = error
+    }
+    if (teardownError !== undefined)
+      throw primary === undefined
+        ? teardownError
+        : new AggregateError(
+            [primary, teardownError],
+            'The assertion and the fixture teardown both failed'
+          )
+    if (primary !== undefined) throw primary
   },
   10_000
 )
+
+test('a record without a real pid and parenthesised command envelope is never trusted', async () => {
+  const tail = '4100 4100 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 1 0 5 1000 100'
+  const stats: Array<[string, string]> = [
+    ['no parentheses at all', `4100 node Z 1 ${tail}`],
+    ['a multiword command without parentheses', `4100 my node app Z 1 ${tail}`],
+    ['only a closing parenthesis', `4100 node) Z 1 ${tail}`],
+    ['no space after the envelope', `4100 (node)Z 1 ${tail}`],
+    ['a non-numeric pid', `abc (node) Z 1 ${tail}`],
+    ['a pid that is not this entry', `4999 (node) Z 1 ${tail}`],
+    ['text before the pid', `x 4100 (node) Z 1 ${tail}`],
+    ['an empty record', ''],
+  ]
+  for (const [label, stat] of stats)
+    await withTempDir(async (dir) => {
+      await mkdir(join(dir, '4100'), { recursive: true })
+      await writeFile(join(dir, '4100', 'stat'), stat)
+      assert.equal(processGroupHasLiveMember(4100, dir), true, label)
+    })
+})
 
 test('an unreadable or malformed process table is reported as live, never as gone', async () => {
   await withTempDir(async (dir) => {

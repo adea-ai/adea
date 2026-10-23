@@ -203,13 +203,14 @@ export function processGroupHasLiveMember(pgid, procRoot = '/proc') {
       if (readError.code === 'ENOENT' || readError.code === 'ESRCH') continue
       return true
     }
-    // `comm` is parenthesised and may itself contain spaces and parentheses, so the fields that
-    // follow are located from the last closing parenthesis. They are, from there: state, parent,
-    // process group, ... and, at index 17, the thread count (fields 3, 4, 5 and 20 of proc(5)).
-    const fields = stat
-      .slice(stat.lastIndexOf(')') + 1)
-      .trim()
-      .split(/\s+/)
+    // The record is `pid (comm) state ...`. `comm` is parenthesised and may itself contain spaces
+    // and parentheses, so the envelope is the pid, a space, and everything up to the last closing
+    // parenthesis followed by a space. A record whose pid is not this entry's, or that lacks the
+    // envelope, is not a record this check can read. The fields after it are, from there: state,
+    // parent, process group, ... and, at index 17, the thread count (3, 4, 5 and 20 in proc(5)).
+    const envelope = /^(\d+) \((.*)\) (.*)$/s.exec(stat.trimEnd())
+    if (envelope === null || envelope[1] !== entry) return true
+    const fields = envelope[3].trim().split(/\s+/)
     // A record that cannot be read in full says nothing about which group it is in or whether it
     // is dead, so it is never used to exclude a process.
     if (
