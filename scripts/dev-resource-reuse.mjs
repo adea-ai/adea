@@ -480,6 +480,7 @@ export function planWorktreeReuse({
   const refusals = []
   const evidence = {
     localWork: null,
+    pathIdentity: null,
     ignoredUnknown: [],
     // What each ignored path holds, with the digest a rebuild would have to
     // reproduce. The content is named and measured, not assumed.
@@ -504,6 +505,11 @@ export function planWorktreeReuse({
       reason: 'the checkout could not be read, so nothing may be done with it',
       evidence,
     }
+  }
+  evidence.pathIdentity =
+    worktree.physicalPathResolved === true ? (worktree.physicalPath ?? null) : null
+  if (worktree.physicalPathResolved === false) {
+    refusals.push(REUSE_REFUSAL.uncertain)
   }
   evidence.localWork = Boolean(worktree.localChanges)
   if (evidence.localWork) {
@@ -551,8 +557,10 @@ export function planWorktreeReuse({
 
   // Every lease that names this checkout is read, and every lease that names
   // something else is preserved rather than discarded.
-  const matching = leases.filter((lease) => lease?.identity?.worktree === worktree.path)
-  const preserved = leases.filter((lease) => lease?.identity?.worktree !== worktree.path)
+  const worktreeIdentity =
+    worktree.physicalPathResolved === true ? worktree.physicalPath : worktree.path
+  const matching = leases.filter((lease) => leaseWorktreePath(lease) === worktreeIdentity)
+  const preserved = leases.filter((lease) => leaseWorktreePath(lease) !== worktreeIdentity)
   evidence.matchingLeases = matching.map((lease) => ({
     runId: lease?.runId ?? null,
     state: classifyLease(lease, { isProcessAlive }),
@@ -575,7 +583,15 @@ export function planWorktreeReuse({
   // name this checkout. It cannot be attributed to a path, so it protects every
   // checkout until it can be.
   evidence.unreadableLeaseRecords = Array.isArray(unreadableLeases) ? [...unreadableLeases] : []
-  if (evidence.unreadableLeaseRecords.length > 0 || leaseScanFailed) {
+  const unresolvedLeasePaths = Array.isArray(worktree.unresolvedLeasePaths)
+    ? [...worktree.unresolvedLeasePaths]
+    : []
+  evidence.unresolvedLeasePaths = unresolvedLeasePaths
+  if (
+    evidence.unreadableLeaseRecords.length > 0 ||
+    leaseScanFailed ||
+    unresolvedLeasePaths.length > 0
+  ) {
     refusals.push(REUSE_REFUSAL.uncertainLeaseEvidence)
   }
 
@@ -596,6 +612,12 @@ export function planWorktreeReuse({
       'the checkout is clean, the remote’s current branch head contains its head and no owner holds it',
     evidence,
   }
+}
+
+function leaseWorktreePath(lease) {
+  return lease?.physicalWorktreePathResolved === true
+    ? lease.physicalWorktreePath
+    : lease?.identity?.worktree
 }
 
 /** The plain-language reason for a set of refusals. */
@@ -713,9 +735,15 @@ export function eligibilityReport({
  * eligible while its own evidence says otherwise is a failure of the model, not
  * a summary detail, and a report that hides it is not a proof of anything.
  */
-export function preservationProof({ resources = [], worktrees = [] } = {}) {
+export function preservationProof({ resources = [], worktrees = [], inventoryErrors = [] } = {}) {
   const violations = []
   const preserved = []
+  for (const error of inventoryErrors) {
+    violations.push({
+      source: error?.source ?? 'inventory',
+      reason: error?.reason ?? 'an inventory read failed, so preservation could not be established',
+    })
+  }
   for (const resource of resources) {
     const eligible = resource.eligibility === ELIGIBILITY.eligible
     if (!eligible) {

@@ -13,9 +13,16 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstatSync, readdirSync, readFileSync, readlinkSync, writeFileSync } from 'node:fs'
+import {
+  lstatSync,
+  readdirSync,
+  readFileSync,
+  readlinkSync,
+  realpathSync,
+  writeFileSync,
+} from 'node:fs'
 import { hostname } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 
 import {
   REGENERABLE_PROOF,
@@ -35,14 +42,22 @@ import {
   scanLeases,
 } from './integration-resource-lease.mjs'
 
-/** Reads one Docker listing. A failed read is an empty listing, never a guess. */
-function dockerLines(args) {
-  const result = spawnSync('docker', args, { encoding: 'utf8', timeout: 60_000 })
-  if (result.error || result.status !== 0) return []
-  return result.stdout
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
+/** Reads one Docker listing and carries failures so an empty answer cannot look complete. */
+function dockerLines(args, runCommand = spawnSync) {
+  const result = runCommand('docker', args, { encoding: 'utf8', timeout: 60_000 })
+  if (result.error || result.status !== 0) {
+    return {
+      lines: [],
+      error: (result.error?.message || result.stderr || 'Docker listing failed').trim(),
+    }
+  }
+  return {
+    lines: result.stdout
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line !== ''),
+    error: null,
+  }
 }
 
 /**
@@ -50,32 +65,50 @@ function dockerLines(args) {
  * ownership proof. A resource whose label cannot be read is reported without a
  * label, which protects it.
  */
-function dockerResources() {
+export function dockerResourceInventory(runCommand = spawnSync) {
   const resources = []
-  for (const line of dockerLines([
-    'ps',
-    '-a',
-    '--format',
-    '{{.Names}}\t{{.Label "com.docker.compose.project"}}',
-  ])) {
+  const errors = []
+  const containers = dockerLines(
+    ['ps', '-a', '--format', '{{.Names}}\t{{.Label "com.docker.compose.project"}}'],
+    runCommand
+  )
+  if (containers.error) errors.push({ source: 'docker containers', reason: containers.error })
+  for (const line of containers.lines) {
     const [name, label] = line.split('\t')
     resources.push({ kind: RESOURCE_KIND.container, name: name ?? null, label: label || null })
   }
-  for (const line of dockerLines([
-    'volume',
-    'ls',
-    '--format',
-    '{{.Name}}\t{{.Label "com.docker.compose.project"}}',
-  ])) {
+  const volumes = dockerLines(
+    ['volume', 'ls', '--format', '{{.Name}}\t{{.Label "com.docker.compose.project"}}'],
+    runCommand
+  )
+  if (volumes.error) errors.push({ source: 'docker volumes', reason: volumes.error })
+  for (const line of volumes.lines) {
     const [name, label] = line.split('\t')
     resources.push({ kind: RESOURCE_KIND.volume, name: name ?? null, label: label || null })
   }
-  return resources
+  return { resources, errors }
+}
+
+/** A real path is the ownership key; unresolved or relative paths never match. */
+export function physicalWorktreePath(path) {
+  if (typeof path !== 'string' || path === '' || !isAbsolute(path)) return null
+  try {
+    return realpathSync(path)
+  } catch {
+    return null
+  }
+}
+
+/** Exclude the primary checkout by physical identity, including symlink aliases. */
+export function isPrimaryWorktreePath(entryPath, repoPath, resolvePath = physicalWorktreePath) {
+  const entryIdentity = resolvePath(entryPath)
+  const repoIdentity = resolvePath(repoPath)
+  return entryIdentity !== null && repoIdentity !== null && entryIdentity === repoIdentity
 }
 
 /** Reads one Git fact. A failed read is `ok: false`, never a guess. */
-function git(args, cwd) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: 60_000 })
+function git(args, cwd, runCommand = spawnSync) {
+  const result = runCommand('git', args, { cwd, encoding: 'utf8', timeout: 60_000 })
   if (result.error || result.status !== 0) return { ok: false, stdout: '' }
   return { ok: true, stdout: result.stdout.trim() }
 }
@@ -251,8 +284,8 @@ export function originIsBound(remoteSha, fetchedSha) {
  * remote does not hold is not there, and a branch it holds at another commit
  * is there at that commit.
  */
-export function remoteBranchHeads(repo) {
-  const result = git(['ls-remote', '--heads', 'origin'], repo)
+export function remoteBranchHeads(repo, runCommand = spawnSync) {
+  const result = git(['ls-remote', '--heads', 'origin'], repo, runCommand)
   if (!result.ok) return null
   const heads = new Map()
   for (const line of result.stdout.split('\n')) {
@@ -318,8 +351,8 @@ function directoryBytes(path) {
  * A fetch that fails is not a fetch that succeeded quietly: the report says
  * so, and the origin stays unverified so that nothing is judged fresh.
  */
-function fetchOrigin(repo) {
-  const result = spawnSync('git', ['fetch', '--quiet', 'origin'], {
+function fetchOrigin(repo, runCommand = spawnSync) {
+  const result = runCommand('git', ['fetch', '--quiet', 'origin'], {
     cwd: repo,
     encoding: 'utf8',
     timeout: 120_000,
@@ -346,17 +379,42 @@ function fetchOrigin(repo) {
  * A fact that cannot be read is reported as the pessimistic answer, so an
  * unreadable checkout is refused rather than reused.
  */
-export function worktreesOf(repo, { refresh = false, rebuildDigests = {} } = {}) {
+export function worktreesOf(
+  repo,
+  { refresh = false, rebuildDigests = {}, runCommand = spawnSync } = {}
+) {
   // The origin freshness check is only as fresh as the last fetch. Refreshing
   // is opt-in, because it writes remote-tracking refs; without it the report
   // uses the last fetched state and refuses anything it cannot prove.
-  const fetch = refresh ? fetchOrigin(repo) : { requested: false, ok: false, error: null }
-  const listed = git(['worktree', 'list', '--porcelain'], repo)
-  if (!listed.ok) return { worktrees: [], fetch }
+  const repoPhysicalPath = physicalWorktreePath(repo)
+  if (repoPhysicalPath === null) {
+    return {
+      worktrees: [],
+      fetch: { requested: refresh, ok: false, error: 'the repository path could not be resolved' },
+      inventoryError: {
+        source: 'git worktree list',
+        reason: 'the repository path could not be resolved',
+      },
+    }
+  }
+  const fetch = refresh
+    ? fetchOrigin(repo, runCommand)
+    : { requested: false, ok: false, error: null }
+  const listed = git(['worktree', 'list', '--porcelain'], repo, runCommand)
+  if (!listed.ok) {
+    return {
+      worktrees: [],
+      fetch,
+      inventoryError: {
+        source: 'git worktree list',
+        reason: 'the worktree inventory could not be read',
+      },
+    }
+  }
   // The remote's current branch heads, asked once. This is the remote's own
   // state; the local refs are compared with it below, so a ref that is behind
   // the remote cannot stand in for it.
-  const remoteHeads = fetch.ok ? remoteBranchHeads(repo) : null
+  const remoteHeads = fetch.ok ? remoteBranchHeads(repo, runCommand) : null
   const entries = []
   let current = null
   for (const line of listed.stdout.split('\n')) {
@@ -372,12 +430,12 @@ export function worktreesOf(repo, { refresh = false, rebuildDigests = {} } = {})
     }
   }
   const worktrees = entries
-    .filter((entry) => entry.path && entry.path !== repo)
+    .filter((entry) => entry.path && !isPrimaryWorktreePath(entry.path, repo))
     .map((entry) => {
       // The untracked files are listed explicitly: a repository that turns
       // `status.showUntrackedFiles` off would otherwise hide ordinary untracked
       // work, and the checkout would look clean when it is not.
-      const status = git(['status', '--porcelain', '--untracked-files=all'], entry.path)
+      const status = git(['status', '--porcelain', '--untracked-files=all'], entry.path, runCommand)
       const localChanges = status.ok ? status.stdout !== '' : true
       const ignored = ignoredPaths(entry.path)
       const branch = entry.branch ?? null
@@ -388,13 +446,13 @@ export function worktreesOf(repo, { refresh = false, rebuildDigests = {} } = {})
       // only a ref that *is* the remote's current commit speaks for the remote.
       const remoteSha = branch && remoteHeads ? (remoteHeads.get(branch) ?? null) : null
       const fetched = branch
-        ? git(['rev-parse', '--verify', `refs/remotes/origin/${branch}`], repo)
+        ? git(['rev-parse', '--verify', `refs/remotes/origin/${branch}`], repo, runCommand)
         : { ok: false, stdout: '' }
       const fetchedSha = fetched.ok ? fetched.stdout : null
       const bound = originIsBound(remoteSha, fetchedSha)
       const containsHead =
         bound && entry.head
-          ? git(['merge-base', '--is-ancestor', entry.head, fetchedSha], repo).ok
+          ? git(['merge-base', '--is-ancestor', entry.head, fetchedSha], repo, runCommand).ok
           : false
       // The head is published when the remote's current commit contains it.
       // A head that only a stale local ref contains is not published by the
@@ -416,8 +474,11 @@ export function worktreesOf(repo, { refresh = false, rebuildDigests = {} } = {})
         })
         if (proof) proofs[entryPath] = proof
       }
+      const physicalPath = physicalWorktreePath(entry.path)
       return {
         path: entry.path,
+        physicalPath,
+        physicalPathResolved: physicalPath !== null,
         head: entry.head ?? null,
         branch,
         localChanges,
@@ -458,19 +519,56 @@ export function worktreesOf(repo, { refresh = false, rebuildDigests = {} } = {})
 export function planWorktrees(worktrees = [], leases = [], options = {}) {
   const unreadableLeases = Array.isArray(options.unreadableLeases) ? options.unreadableLeases : []
   const leaseScanFailed = options.leaseScanFailed === true
-  return worktrees.map((worktree) => ({
-    ...worktree,
-    plan: planWorktreeReuse({
-      worktree,
-      origin: worktree.origin,
-      leases,
-      unreadableLeases,
-      leaseScanFailed,
-      isProcessAlive: options.isProcessAlive,
-      host: options.host,
-      probe: options.probe,
-    }),
-  }))
+  const resolvePath = options.physicalPathOf ?? physicalWorktreePath
+  const unresolvedLeasePaths = []
+  const physicalLeases = leases.map((lease) => {
+    const path = lease?.identity?.worktree
+    if (typeof path !== 'string' || path === '') return lease
+    let physicalPath = null
+    try {
+      physicalPath = resolvePath(path)
+    } catch {
+      // A custom resolver is still untrusted evidence: its failure protects all.
+    }
+    if (typeof physicalPath !== 'string' || physicalPath === '') {
+      unresolvedLeasePaths.push(lease.runId ?? 'unknown')
+      return { ...lease, physicalWorktreePathResolved: false }
+    }
+    return {
+      ...lease,
+      physicalWorktreePath: physicalPath,
+      physicalWorktreePathResolved: true,
+    }
+  })
+  return worktrees.map((worktree) => {
+    let physicalPath = worktree.physicalPathResolved ? worktree.physicalPath : null
+    if (!worktree.physicalPathResolved) {
+      try {
+        physicalPath = resolvePath(worktree.path)
+      } catch {
+        // An unresolved checkout path is refused by the planner below.
+      }
+    }
+    const physicalPathResolved = typeof physicalPath === 'string' && physicalPath !== ''
+    return {
+      ...worktree,
+      plan: planWorktreeReuse({
+        worktree: {
+          ...worktree,
+          physicalPath,
+          physicalPathResolved,
+          unresolvedLeasePaths,
+        },
+        origin: worktree.origin,
+        leases: physicalLeases,
+        unreadableLeases,
+        leaseScanFailed,
+        isProcessAlive: options.isProcessAlive,
+        host: options.host,
+        probe: options.probe,
+      }),
+    }
+  })
 }
 
 /**
@@ -487,10 +585,12 @@ export function collectReport({
   refresh = false,
   now = null,
   dockerResources: resources = [],
+  inventoryErrors = [],
   runId = null,
   host = hostname(),
   probe = processIsAlive,
   rebuildDigests = {},
+  runCommand = spawnSync,
 } = {}) {
   const directory = leaseDir ?? leaseDirectory(process.env)
   const evidence = readLeaseEvidence(directory)
@@ -512,9 +612,14 @@ export function collectReport({
     host,
     probe,
   })
-  const { worktrees, fetch } = repo
-    ? worktreesOf(repo, { refresh, rebuildDigests })
+  const worktreeInventory = repo
+    ? worktreesOf(repo, { refresh, rebuildDigests, runCommand })
     : { worktrees: [], fetch: { requested: false, ok: false, error: null } }
+  const { worktrees, fetch } = worktreeInventory
+  const readErrors = [
+    ...(Array.isArray(inventoryErrors) ? inventoryErrors : []),
+    ...(worktreeInventory.inventoryError ? [worktreeInventory.inventoryError] : []),
+  ]
   const plans = planWorktrees(worktrees, evidence.leases, {
     unreadableLeases,
     leaseScanFailed: evidence.scanError !== null,
@@ -536,6 +641,8 @@ export function collectReport({
   report.futureLeaseRecords = evidence.future
   report.leaseScanError = evidence.scanError
   report.repository = repo
+  report.inventoryErrors = readErrors
+  report.inventoryComplete = readErrors.length === 0
   // What the reuse decision was made from, and what it could not see. The
   // lease records are the only ownership this report knows; a checkout held by
   // a session or a task outside the lease model is invisible here, so an
@@ -552,8 +659,9 @@ export function collectReport({
   report.preservation = preservationProof({
     resources: report.resources,
     worktrees: report.worktrees,
+    inventoryErrors: readErrors,
   })
-  return { report, fetch }
+  return { report, fetch, inventoryErrors: readErrors }
 }
 
 function parseArgs(argv) {
@@ -570,11 +678,13 @@ function parseArgs(argv) {
 
 function main() {
   const args = parseArgs(process.argv.slice(2))
-  const { report, fetch } = collectReport({
+  const dockerInventory = dockerResourceInventory()
+  const { report, fetch, inventoryErrors } = collectReport({
     repo: args.repo,
     leaseDir: args.leaseDir,
     refresh: args.fetch,
-    dockerResources: dockerResources(),
+    dockerResources: dockerInventory.resources,
+    inventoryErrors: dockerInventory.errors,
     runId: process.env.ADEA_INTEGRATION_RUN_ID ?? null,
   })
   const serialized = `${JSON.stringify(report, null, 2)}\n`
@@ -597,6 +707,7 @@ function main() {
   // A lease directory that could not be read leaves the ownership unknown, so
   // nothing may be reclaimed on its account. It fails closed, and it says so.
   if (report.leaseScanError) process.exitCode = 1
+  if (inventoryErrors.length > 0) process.exitCode = 1
 }
 
 if (import.meta.main) main()
