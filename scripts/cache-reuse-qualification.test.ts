@@ -244,6 +244,16 @@ function disposableCheckout(
     // The pinned client and the workspace dependencies live in the main checkout; the disposable checkout
     // borrows them, so the runs are the repository's own toolchain and not a substitute.
     symlinkSync(join(repoRoot, 'node_modules'), join(path, 'node_modules'), 'dir')
+    // A workspace package's own dependencies live beside it, not in the root `node_modules`, so
+    // each workspace directory borrows its own as well; without them a build there cannot resolve
+    // a dependency only that package declares.
+    for (const group of ['apps', 'packages'])
+      for (const workspace of readdirSync(join(repoRoot, group))) {
+        const borrowed = join(repoRoot, group, workspace, 'node_modules')
+        const target = join(path, group, workspace)
+        if (existsSync(borrowed) && existsSync(target) && !existsSync(join(target, 'node_modules')))
+          symlinkSync(borrowed, join(target, 'node_modules'), 'dir')
+      }
     // The borrowed dependencies are not the checkout's own work. `.gitignore` ignores `node_modules/`,
     // which is a directory and not the symbolic link this checkout borrows, so the checkout would read
     // as dirty without an exclusion. The exclusion is per run and lives outside the repository.
