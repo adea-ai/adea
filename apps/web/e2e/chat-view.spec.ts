@@ -942,3 +942,90 @@ test('a restore the host failed is reported as failed, not as a restore', async 
   await expect(fixture).toHaveAttribute('data-chat-generation', '3')
   expect(errors).toEqual([])
 })
+
+async function openAttachFixture(page: Page, mode?: 'ok' | 'lost' | 'remove-fail') {
+  await mockBootstrap(page)
+  await page.goto(
+    `/?view=chat&chatE2e=visual&chatState=conversation${mode ? `&chatAttach=${mode}` : ''}`
+  )
+  await expect(page.locator('[data-chat-visual-state="conversation"]')).toBeVisible({
+    timeout: 30_000,
+  })
+  await expect(page.locator('[data-chat-composer]')).toBeVisible()
+}
+
+const textFile = (name: string, content: string) => ({
+  name,
+  mimeType: 'text/plain',
+  buffer: Buffer.from(content),
+})
+
+test('without a host attachment store there is no picker', async ({ page }) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page)
+  await expect(page.getByRole('button', { name: 'Attach a text file' })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('a text file is stored and the surface does not claim the assistant received it', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'ok')
+  const picker = page.getByRole('button', { name: 'Attach a text file' })
+  await expect(picker).toBeVisible()
+  await expect(
+    page.getByText('Text files only (.txt, .log, .md, .json), up to 128 KiB.')
+  ).toHaveCount(1)
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await expect(list.getByText('notes.txt')).toBeVisible()
+  await expect(list.getByText('5 B')).toBeVisible()
+  await expect(page.locator('[data-chat-attachments-status]')).toHaveText(
+    'Stored on this device only. The assistant does not receive attachments yet.'
+  )
+  await page.getByRole('button', { name: 'Remove notes.txt' }).click()
+  await expect(list).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('a file the host cannot take is refused in words and never staged', async ({ page }) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'ok')
+  await page.locator('[data-chat-attach-input]').setInputFiles({
+    name: 'photo.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
+  })
+  await expect(page.locator('[data-chat-attach-refusal]')).toContainText(
+    'photo.png: Only text files can be attached.'
+  )
+  await expect(page.getByRole('list', { name: 'Attached files' })).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('a lost upload answer is retried once and stored once', async ({ page }) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'lost')
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await expect(list.getByText('Not stored')).toBeVisible()
+  await expect(page.getByText('Trying again will not store it twice.')).toBeVisible()
+  await expect(page.locator('[data-chat-attachments-status]')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.locator('[data-chat-attachments-status]')).toBeVisible()
+  await expect(list.getByText('notes.txt')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+test('a removal the host refuses keeps the file and says so', async ({ page }) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'remove-fail')
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  await page.getByRole('button', { name: 'Remove notes.txt' }).click()
+  await expect(page.getByText('The file was not removed.')).toBeVisible()
+  await expect(
+    page.getByRole('list', { name: 'Attached files' }).getByText('notes.txt')
+  ).toBeVisible()
+  expect(errors).toEqual([])
+})

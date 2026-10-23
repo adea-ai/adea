@@ -100,3 +100,64 @@ export function createFixtureCheckpointRestore(
     },
   }
 }
+
+const fixtureAttachment = (
+  identity: import('./model').AttachmentIdentity,
+  id: string,
+  name: string,
+  byteLength: number,
+  state: 'available' | 'removed'
+): import('@adea-ai/types/dev-runtime').ChatAttachment => ({
+  attachmentId: id,
+  mediaType: 'text/plain',
+  byteLength,
+  state,
+  runtimeSessionId: identity.runtimeSessionId,
+  generation: identity.generation,
+  name,
+  digestSha256: '0'.repeat(64),
+  createdAt: '2026-10-23T10:00:00.000Z',
+  ...(state === 'removed' ? { removedAt: '2026-10-23T10:01:00.000Z' } : {}),
+})
+export type FixtureAttachmentMode =
+  /** The host stores and removes every file. */
+  | 'ok'
+  /** The first upload's answer is lost, then the retry under the same key is stored once. */
+  | 'lost'
+  /** The host refuses to remove a stored file. */
+  | 'remove-fail'
+
+/** A stand-in for the host's attachment store: it answers with the real DTO shapes and nothing else. */
+export function createFixtureAttachments(
+  mode: FixtureAttachmentMode
+): import('./model').AttachmentPort {
+  let n = 0
+  const stored = new Map<string, string>()
+  const byKey = new Map<string, import('@adea-ai/types/dev-runtime').ChatAttachment>()
+  let lost = mode === 'lost'
+  return {
+    async upload(identity, input) {
+      const existing = byKey.get(input.idempotencyKey)
+      if (existing) return existing
+      n += 1
+      const id = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+      const byteLength = atob(input.upload.contentBase64).length
+      const made = fixtureAttachment(identity, id, input.upload.name, byteLength, 'available')
+      stored.set(id, input.upload.name)
+      byKey.set(input.idempotencyKey, made)
+      if (lost) {
+        lost = false
+        throw refuse('timeout', 'The host did not answer.')
+      }
+      return made
+    },
+    async remove(identity, attachmentId) {
+      if (mode === 'remove-fail')
+        throw refuse('capability_unavailable', 'The host cannot remove files right now.')
+      const name = stored.get(attachmentId)
+      if (name === undefined) throw refuse('not_found', 'No such attachment.')
+      stored.delete(attachmentId)
+      return fixtureAttachment(identity, attachmentId, name, 1, 'removed')
+    },
+  }
+}
