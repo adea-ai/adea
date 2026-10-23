@@ -85,7 +85,10 @@ describe('crash and restart recovery across the journey boundaries', () => {
     await control('release', { name: 'lead-first' })
     const accepted = await journey.waitFor(
       () => control('evidence'),
-      (e) => e.childStarts === 1 && e.delegations.length === 1 && Boolean(e.child),
+      // The child's physical request is recorded before its held send, but CP's start record can
+      // land first. Wait for the held request too, so the counts below are read after it arrives.
+      (e) =>
+        e.childStarts === 1 && e.childSends === 1 && e.delegations.length === 1 && Boolean(e.child),
       'child accepted and started once'
     )
     expect(accepted.lead).toMatchObject(ids)
