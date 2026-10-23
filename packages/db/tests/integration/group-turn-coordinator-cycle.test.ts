@@ -14,12 +14,14 @@ import {
   groupCreationCandidatesFromGrants,
   postGroupChannelMessage,
   postGroupChannelMessageInTransaction,
+  setGroupChannelParticipantsWithGrants,
 } from '../../src/group-channels'
 import { ensureWorkspaceLead } from '../../src/agents'
 import {
   markLeadTurnDispatchPending,
   observeLeadTurnRuntime,
   prepareLeadTurnRuntime,
+  publishLeadTurnResult,
 } from '../../src/lead-turn-runtime'
 import { createTemporaryUserSession } from '../../src/identity'
 import * as schema from '../../src/schema'
@@ -1446,4 +1448,183 @@ describe.skipIf(!connectionUrl)('coordinator application-cycle reproduction', ()
       freshBodyDeadline
     )
   })
+
+  /**
+   * A late publication and a roster rewrite race on two connections. Both
+   * take the channel row first (the canonical order), so they serialize
+   * instead of deadlocking, and the outcome is exact in either order: the
+   * result is published, or it is held with a typed group reason.
+   */
+  T(
+    'a roster rewrite racing a late publication settles in one order, with no deadlock',
+    async () => {
+      const f = await leadGroup()
+      await connection.db
+        .update(schema.agents)
+        .set({ isWorkspaceLead: true })
+        .where(eq(schema.agents.id, f.lead.id))
+      const claimed = await claimAddressedTurn(
+        connection.db,
+        f.workspace.id,
+        f.owner,
+        claimInput(f.channelId, f.triggerMessageId, f.lead.id, f.owner),
+        { now: NOW }
+      )
+      await dispatchAddressedTurn(
+        connection.db,
+        f.workspace.id,
+        f.owner,
+        claimInput(f.channelId, f.triggerMessageId, f.lead.id, f.owner),
+        { now: NOW }
+      )
+      const [boundClaim] = await connection.db
+        .select({ intentId: schema.addressedAgentTurns.intentId })
+        .from(schema.addressedAgentTurns)
+        .where(eq(schema.addressedAgentTurns.id, claimed.turn.id))
+      const intentId = boundClaim?.intentId
+      expect(intentId).toBeString()
+      if (!intentId) throw new Error('Cycle claim carries no intent')
+      const [canonicalWorkspace] = await connection.db
+        .select()
+        .from(schema.workspaces)
+        .where(eq(schema.workspaces.id, f.workspace.id))
+      const execution = crypto
+        .randomUUID()
+        .replaceAll('-', '')
+        .slice(0, 26)
+        .toUpperCase()
+        .replace(/[ILOU]/g, '0')
+      const pin = {
+        attemptId: `att_${execution}`,
+        executionId: `exe_${execution}`,
+        expiresAt: new Date(Date.now() + 300_000).toISOString(),
+        intentId,
+        preparationRef: `prep_${crypto.randomUUID().replaceAll('-', '')}`,
+        selectionRef: `msel_${crypto.randomUUID().replaceAll('-', '')}`,
+        selectionRevision: 1,
+        workspaceId: canonicalWorkspace!.controlPlaneWorkspaceId,
+      }
+      const binding = {
+        attemptId: pin.attemptId,
+        dispatchId: `dispatch_${crypto.randomUUID().replaceAll('-', '')}`,
+        executionId: pin.executionId,
+        intentId,
+        runtimeSessionId: `ses_${execution}`,
+      }
+      await prepareLeadTurnRuntime(connection.db, f.workspace.id, intentId, f.owner, pin)
+      await markLeadTurnDispatchPending(connection.db, f.workspace.id, intentId, f.owner, pin)
+      await observeLeadTurnRuntime(connection.db, f.workspace.id, intentId, f.owner, {
+        ...binding,
+        observedAt: new Date().toISOString(),
+        state: 'completed',
+      })
+      /** Removes the lead and adds it again under a new, higher grant revision. */
+      const rewriteRoster = async (db: typeof connection.db) => {
+        const version = async () => {
+          const [channel] = await db
+            .select({ version: schema.channels.version })
+            .from(schema.channels)
+            .where(eq(schema.channels.id, f.channelId))
+            .limit(1)
+          if (!channel) throw new Error('Test channel missing')
+          return channel.version
+        }
+        await setGroupChannelParticipantsWithGrants(db, f.workspace.id, f.channelId, f.owner, {
+          candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+            audienceGrants: [
+              {
+                expiresAt: null,
+                grantId: 'gra_owner',
+                groupId: f.channelId,
+                issuedAt: ISSUED,
+                participant: f.owner,
+                revision: 1,
+                revokedAt: null,
+              },
+            ],
+            enlistmentGrants: [],
+          }),
+          expectedVersion: await version(),
+          now: new Date().toISOString(),
+        })
+        await setGroupChannelParticipantsWithGrants(db, f.workspace.id, f.channelId, f.owner, {
+          candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+            audienceGrants: [
+              {
+                expiresAt: null,
+                grantId: 'gra_owner',
+                groupId: f.channelId,
+                issuedAt: ISSUED,
+                participant: f.owner,
+                revision: 1,
+                revokedAt: null,
+              },
+            ],
+            enlistmentGrants: [
+              {
+                agent: { agentId: f.lead.id, workspaceId: f.workspace.id },
+                expiresAt: null,
+                grantId: 'gra_lead',
+                groupId: f.channelId,
+                issuedAt: ISSUED,
+                revision: 2,
+                revokedAt: null,
+              },
+            ],
+          }),
+          expectedVersion: await version(),
+          now: new Date().toISOString(),
+        })
+      }
+      const runner = createDatabase(connectionUrl!)
+      try {
+        const [published, rewritten] = await Promise.allSettled([
+          publishLeadTurnResult(
+            connection.db,
+            f.workspace.id,
+            intentId,
+            f.owner,
+            binding,
+            'The answer',
+            async () => {}
+          ),
+          rewriteRoster(runner.db),
+        ])
+        // The roster rewrite always lands: it owns the channel row and never
+        // waits on the publication.
+        expect(rewritten.status).toBe('fulfilled')
+        if (published.status === 'fulfilled') {
+          // The publication won the race: the answer is ordinary channel history.
+          expect(published.value).toBeString()
+          const [row] = await connection.db
+            .select()
+            .from(schema.addressedAgentTurns)
+            .where(eq(schema.addressedAgentTurns.id, claimed.turn.id))
+          expect(row).toMatchObject({ responseMessageId: published.value, state: 'responded' })
+        } else {
+          // The rewrite won: the late result is held with a typed group reason,
+          // never a deadlock, a timeout or an untyped failure.
+          expect(published.reason).toMatchObject({
+            name: 'GroupPublicationHoldError',
+            reason: expect.stringMatching(
+              /^publication_(binding_mismatch|unauthorized_at_completion|participation_stale|participation_revoked)$/
+            ),
+          })
+          const [row] = await connection.db
+            .select()
+            .from(schema.addressedAgentTurns)
+            .where(eq(schema.addressedAgentTurns.id, claimed.turn.id))
+          expect(row).toMatchObject({ responseMessageId: null })
+        }
+        // The independently owned job survives either way.
+        const [runtime] = await connection.db
+          .select({ state: schema.leadTurnRuntime.state })
+          .from(schema.leadTurnRuntime)
+          .where(eq(schema.leadTurnRuntime.intentId, intentId))
+        expect(runtime?.state).toBe('completed')
+      } finally {
+        await runner.close()
+      }
+    }
+  )
 })

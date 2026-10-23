@@ -52,7 +52,6 @@ import type {
   GroupHistoryEntryRef,
   GroupHistoryReadDecision,
   GroupPublicationDecision,
-  GroupPublicationHoldReason,
   GroupSharingGrant,
   GroupSummaryReadDecision,
   GroupTurnDecision,
@@ -69,6 +68,7 @@ import {
   supersedeAddressedTurns,
 } from './group-turn-coordinator'
 import { publishLeadTurnResult } from './lead-turn-runtime'
+import { GroupPublicationHoldError } from './lead-turn-runtime'
 import type { LeadTurnRuntimeBinding } from './lead-turn-runtime'
 import type { RequestedRoleModelSelections } from './lead-model-selections'
 import { createMessageInGroupFence, getMessageForUser, listMessagesForUser } from './conversations'
@@ -1098,16 +1098,12 @@ export async function shareGroupHistory(
   })
 }
 
-/** A held group publication, carrying the typed reason instead of failing silently. */
-export class GroupPublicationHoldError extends Error {
-  readonly reason: GroupPublicationHoldReason
-
-  constructor(reason: GroupPublicationHoldReason) {
-    super(`Group publication held: ${reason}`)
-    this.name = 'GroupPublicationHoldError'
-    this.reason = reason
-  }
-}
+/**
+ * A held group publication carries the typed reason instead of failing silently. The class lives with
+ * the publication boundary that raises it and is re-exported here so the package entry keeps one
+ * name for it.
+ */
+export { GroupPublicationHoldError } from './lead-turn-runtime'
 
 export type GroupLeadPublicationInput = Readonly<{
   /** Opaque runtime binding, forwarded verbatim to the job-outbound service. */

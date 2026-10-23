@@ -3,7 +3,7 @@ import type { UserPrincipalRef } from '@adea-ai/types'
 import { and, eq, sql } from 'drizzle-orm'
 
 import { createAgent } from '../../src/agents'
-import { createDatabase, type DatabaseConnection } from '../../src/connection'
+import { createDatabase, type AgentHqDatabase, type DatabaseConnection } from '../../src/connection'
 import {
   createGroupChannelWithGrants,
   groupCreationCandidatesFromGrants,
@@ -11,7 +11,7 @@ import {
   revokeGroupGrant,
   setGroupChannelParticipantsWithGrants,
 } from '../../src/group-channels'
-import { loadAddressedTurns } from '../../src/group-turn-coordinator'
+import { claimAddressedTurn, loadAddressedTurns } from '../../src/group-turn-coordinator'
 import {
   addressGroupTurn,
   cancelGroupTurn,
@@ -45,13 +45,19 @@ const audience = (channelId: string, participant: UserPrincipalRef, grantId: str
   revokedAt: null,
 })
 
-const enlistment = (channelId: string, agentId: string, workspaceId: string, grantId: string) => ({
+const enlistment = (
+  channelId: string,
+  agentId: string,
+  workspaceId: string,
+  grantId: string,
+  revision = 1
+) => ({
   agent: { agentId, workspaceId },
   expiresAt: null,
   grantId,
   groupId: channelId,
   issuedAt: ISSUED,
-  revision: 1,
+  revision,
   revokedAt: null,
 })
 
@@ -224,7 +230,7 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
   }
 
   /** Drives a dispatched lead intent through the existing runtime path to a publishable result. */
-  async function complete(f: Fixture, intentId: string) {
+  async function complete(f: Fixture, intentId: string, database: AgentHqDatabase = connection.db) {
     const [canonicalWorkspace] = await connection.db
       .select()
       .from(schema.workspaces)
@@ -261,7 +267,7 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
     })
     return () =>
       publishLeadTurnResult(
-        connection.db,
+        database,
         f.workspace.id,
         intentId,
         f.owner,
@@ -835,4 +841,495 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
       expect(rest.turns.map((turn) => turn.id)).toEqual([second.turn.id])
     }
   )
+
+  /**
+   * The roster rewrite removes the addressed Agent and adds it again: the
+   * grant id is the same, the revision is new. The work admitted under the
+   * old revision must not be authorized by the new one.
+   */
+  async function removeThenReaddLead(f: Fixture) {
+    const version = async () => {
+      const [channel] = await connection.db
+        .select({ version: schema.channels.version })
+        .from(schema.channels)
+        .where(eq(schema.channels.id, f.channelId))
+        .limit(1)
+      if (!channel) throw new Error('Test channel missing')
+      return channel.version
+    }
+    await setGroupChannelParticipantsWithGrants(
+      connection.db,
+      f.workspace.id,
+      f.channelId,
+      f.owner,
+      {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [
+            audience(f.channelId, f.owner, 'gra_owner'),
+            audience(f.channelId, f.member, 'gra_member'),
+          ],
+          enlistmentGrants: [enlistment(f.channelId, f.helper.id, f.workspace.id, 'gra_helper')],
+        }),
+        expectedVersion: await version(),
+        now: new Date().toISOString(),
+      }
+    )
+    await setGroupChannelParticipantsWithGrants(
+      connection.db,
+      f.workspace.id,
+      f.channelId,
+      f.owner,
+      {
+        candidates: groupCreationCandidatesFromGrants(f.workspace.id, {
+          audienceGrants: [
+            audience(f.channelId, f.owner, 'gra_owner'),
+            audience(f.channelId, f.member, 'gra_member'),
+          ],
+          enlistmentGrants: [
+            enlistment(f.channelId, f.helper.id, f.workspace.id, 'gra_helper'),
+            enlistment(f.channelId, f.lead.id, f.workspace.id, 'gra_lead', 2),
+          ],
+        }),
+        expectedVersion: await version(),
+        now: new Date().toISOString(),
+      }
+    )
+  }
+
+  /** The claim's retained grant binding, the durable authorization of the work. */
+  async function retainedBinding(f: Fixture, turnId: string) {
+    const [row] = await connection.db
+      .select({
+        authGrantId: schema.addressedAgentTurns.authGrantId,
+        authRevision: schema.addressedAgentTurns.authRevision,
+      })
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, turnId))
+    if (!row) throw new Error('Test turn missing')
+    return row
+  }
+
+  /** The publication's own state: the message it wrote and the runtime row it left behind. */
+  async function publicationState(f: Fixture, intentId: string) {
+    const [runtime] = await connection.db
+      .select({
+        publishedMessageId: schema.leadTurnRuntime.publishedMessageId,
+        state: schema.leadTurnRuntime.state,
+      })
+      .from(schema.leadTurnRuntime)
+      .where(eq(schema.leadTurnRuntime.intentId, intentId))
+    const messages = await connection.db
+      .select({
+        id: schema.messages.id,
+        senderKind: schema.messages.senderKind,
+        senderAgentId: schema.messages.senderAgentId,
+      })
+      .from(schema.messages)
+      .where(eq(schema.messages.channelId, f.channelId))
+    return { messages, runtime }
+  }
+
+  T('the claim retains the exact participation grant that admitted the work', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    expect(await retainedBinding(f, turn.id)).toEqual({
+      authGrantId: 'gra_lead',
+      authRevision: 1,
+    })
+  })
+
+  T(
+    'a removed and re-added Agent does not authorize the old work: the late result is held',
+    async () => {
+      const f = await fixture()
+      const { turn } = await address(f, f.lead.id)
+      const intentId = turn.leadTurnIntentId!
+      const publish = await complete(f, intentId)
+      await removeThenReaddLead(f)
+      // The new grant revision is live for the Agent, and the work admitted
+      // under the old one is still held.
+      await expect(publish()).rejects.toMatchObject({
+        name: 'GroupPublicationHoldError',
+        reason: 'publication_binding_mismatch',
+      })
+      const state = await publicationState(f, intentId)
+      // The hold keeps the result out of the group and says nothing about the
+      // independently owned job.
+      expect(state.runtime?.state).toBe('completed')
+      expect(state.runtime?.publishedMessageId).toBeNull()
+      expect(state.messages).toHaveLength(1)
+      const [row] = await connection.db
+        .select()
+        .from(schema.addressedAgentTurns)
+        .where(eq(schema.addressedAgentTurns.id, turn.id))
+      expect(row).toMatchObject({ responseMessageId: null, state: 'dispatching' })
+    }
+  )
+
+  T('a revoked enlistment holds the late result with the typed revocation reason', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    const intentId = turn.leadTurnIntentId!
+    const publish = await complete(f, intentId)
+    await revokeGroupGrant(connection.db, f.workspace.id, f.channelId, f.owner, {
+      grantId: 'gra_lead',
+      kind: 'enlistment',
+      revokedAt: new Date().toISOString(),
+    })
+    await expect(publish()).rejects.toMatchObject({
+      name: 'GroupPublicationHoldError',
+      reason: 'publication_participation_revoked',
+    })
+    expect((await publicationState(f, intentId)).messages).toHaveLength(1)
+  })
+
+  T('an expired enlistment holds the late result with the typed stale reason', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    const intentId = turn.leadTurnIntentId!
+    const publish = await complete(f, intentId)
+    await connection.db
+      .update(schema.groupEnlistmentGrants)
+      .set({ expiresAt: new Date(Date.now() - 1000).toISOString() })
+      .where(
+        and(
+          eq(schema.groupEnlistmentGrants.channelId, f.channelId),
+          eq(schema.groupEnlistmentGrants.grantId, 'gra_lead')
+        )
+      )
+    await expect(publish()).rejects.toMatchObject({
+      name: 'GroupPublicationHoldError',
+      reason: 'publication_participation_stale',
+    })
+    expect((await publicationState(f, intentId)).messages).toHaveLength(1)
+  })
+
+  T('a claim without a retained binding proves nothing and fails closed', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    const intentId = turn.leadTurnIntentId!
+    const publish = await complete(f, intentId)
+    // A claim persisted before the binding existed carries no provable
+    // authorization, so it authorizes nothing.
+    await connection.db
+      .update(schema.addressedAgentTurns)
+      .set({ authGrantId: null, authRevision: null })
+      .where(eq(schema.addressedAgentTurns.id, turn.id))
+    await expect(publish()).rejects.toMatchObject({
+      name: 'GroupPublicationHoldError',
+      reason: 'publication_binding_mismatch',
+    })
+    expect((await publicationState(f, intentId)).messages).toHaveLength(1)
+  })
+
+  /**
+   * Two claims can carry one intent: the first dispatch mints it, a later
+   * dispatch for the same trigger message and Agent reuses it and binds
+   * itself to it as well. The claim table has no unique key or index over
+   * `intent_id`, so a lookup of one claim can never prove which one admitted
+   * the work.
+   */
+  async function claimsSharingOneIntent(f: Fixture, revisions: readonly number[]) {
+    const turns = []
+    for (const revision of revisions) {
+      const addressed = await address(f, f.lead.id, revision)
+      turns.push(addressed.turn)
+    }
+    const intentIds = new Set(turns.map((turn) => turn.leadTurnIntentId))
+    // Both dispatches landed on ONE intent: that is the ambiguity.
+    expect(intentIds.size).toBe(1)
+    return { intentId: [...intentIds][0]!, turns }
+  }
+
+  T(
+    'claims that share one intent must agree on the binding, in either creation order',
+    async () => {
+      // The first claim created keeps its binding; the second is legacy and
+      // carries none. Which of the two a lookup reads must not change the
+      // outcome: the authorizing grant is unproven either way, so the late
+      // result is held instead of published under a binding that may never
+      // have admitted the work.
+      for (const revisions of [
+        [1, 2],
+        [2, 1],
+      ]) {
+        const f = await fixture()
+        const { intentId, turns } = await claimsSharingOneIntent(f, revisions)
+        await connection.db
+          .update(schema.addressedAgentTurns)
+          .set({ authGrantId: null, authRevision: null })
+          .where(eq(schema.addressedAgentTurns.id, turns[1]!.id))
+        const rows = await connection.db
+          .select({
+            authGrantId: schema.addressedAgentTurns.authGrantId,
+            intentId: schema.addressedAgentTurns.intentId,
+          })
+          .from(schema.addressedAgentTurns)
+          .where(eq(schema.addressedAgentTurns.channelId, f.channelId))
+        // The mixed state is real: two claims, one intent, one binding.
+        expect(rows).toHaveLength(2)
+        expect(new Set(rows.map((row) => row.intentId)).size).toBe(1)
+        expect(rows.filter((row) => row.authGrantId === null)).toHaveLength(1)
+        const publish = await complete(f, intentId)
+        await expect(publish()).rejects.toMatchObject({
+          name: 'GroupPublicationHoldError',
+          reason: 'publication_binding_mismatch',
+        })
+        // Nothing entered the group, and the job survived the hold.
+        const state = await publicationState(f, intentId)
+        expect(state.messages).toHaveLength(1)
+        // The hold keeps the result out of the group and says nothing about
+        // the independently owned job: it is neither cancelled nor reassigned.
+        expect(state.runtime?.state).toBe('completed')
+        expect(state.runtime?.publishedMessageId).toBeNull()
+      }
+    }
+  )
+
+  /**
+   * The publication preflight reads the claims BEFORE it takes the channel
+   * lock, so a dispatch can bind a legacy (null-bound) claim to the same intent
+   * in that gap. The publication transaction must reload every claim under its
+   * own channel lock: deciding against the preflight's snapshot would publish
+   * for a bound claim while a legacy claim now carries the same intent.
+   *
+   * The interleaving is forced, not raced: the database handle given to the
+   * publisher runs the legacy redispatch the first time the publisher opens a
+   * transaction, which is exactly after its unlocked claim read and before any
+   * lock is taken.
+   */
+  T(
+    'a legacy claim redispatched after the preflight read still holds the late result',
+    async () => {
+      const f = await fixture()
+      const { turn } = await address(f, f.lead.id, 1)
+      const intentId = turn.leadTurnIntentId!
+      // A claim persisted before the binding existed, not yet dispatched.
+      const legacyInput = {
+        addressedBy: { kind: 'user', userId: f.owner.userId },
+        agentId: f.lead.id,
+        channelId: f.channelId,
+        dispatchRevision: 2,
+        parentTurnId: null,
+        triggerMessageId: f.trigger.id,
+      } as const
+      const legacy = await claimAddressedTurn(connection.db, f.workspace.id, f.owner, legacyInput)
+      await connection.db
+        .update(schema.addressedAgentTurns)
+        .set({ authGrantId: null, authRevision: null })
+        .where(eq(schema.addressedAgentTurns.id, legacy.turn.id))
+      let redispatched = false
+      const interleaved = new Proxy(connection.db, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target)
+          if (property !== 'transaction')
+            return typeof value === 'function' ? value.bind(target) : value
+          return async (...args: unknown[]) => {
+            if (!redispatched) {
+              redispatched = true
+              // Admission takes the channel lock first, then binds the legacy
+              // claim to the existing intent, exactly as a recovery dispatch does.
+              await address(f, f.lead.id, 2)
+            }
+            return (value as (...transactionArgs: unknown[]) => unknown).apply(target, args)
+          }
+        },
+      })
+      const publish = await complete(f, intentId, interleaved)
+      await expect(publish()).rejects.toMatchObject({
+        name: 'GroupPublicationHoldError',
+        reason: 'publication_binding_mismatch',
+      })
+      // The interleaving really happened: two claims now carry one intent, one unbound.
+      expect(redispatched).toBe(true)
+      const rows = await connection.db
+        .select({
+          authGrantId: schema.addressedAgentTurns.authGrantId,
+          intentId: schema.addressedAgentTurns.intentId,
+        })
+        .from(schema.addressedAgentTurns)
+        .where(eq(schema.addressedAgentTurns.channelId, f.channelId))
+      expect(rows).toHaveLength(2)
+      expect(new Set(rows.map((row) => row.intentId))).toEqual(new Set([intentId]))
+      expect(rows.filter((row) => row.authGrantId === null)).toHaveLength(1)
+      // Nothing entered the group, and the job survived the hold.
+      const state = await publicationState(f, intentId)
+      expect(state.messages).toHaveLength(1)
+      expect(state.runtime?.state).toBe('completed')
+      expect(state.runtime?.publishedMessageId).toBeNull()
+    }
+  )
+
+  /**
+   * The second disagreement the reader names: two claims on one intent that
+   * retained DIFFERENT revisions of the same grant id.
+   *
+   * A roster rewrite that re-issues a grant also bumps the channel version,
+   * and the intent reuse path refuses a dispatch whose channel version moved
+   * (`assertPinned`), so the product does not mint this state on its own. It
+   * is still a state a claim table can hold — one claim written under a
+   * revision beside another written under a newer one — and the reader must
+   * not resolve the late result under either of them: the authorizing grant is
+   * unproven, so the result is held exactly as a missing binding is.
+   *
+   * The case pins the reader's contract — every claim is read, and a
+   * disagreement holds — rather than the order an unordered lookup happens to
+   * return: a disagreement means at most one of the two claims could
+   * authorize the result on its own, so which claim a single-row reader picked
+   * decides whether it published. The outcome under this reader does not
+   * depend on that order.
+   */
+  T('claims that share one intent and disagree on the grant revision are held', async () => {
+    const f = await fixture()
+    const { intentId, turns } = await claimsSharingOneIntent(f, [1, 2])
+    // The later claim was admitted under a newer revision of the same grant.
+    await connection.db
+      .update(schema.addressedAgentTurns)
+      .set({ authRevision: 2 })
+      .where(eq(schema.addressedAgentTurns.id, turns[1]!.id))
+    const rows = await connection.db
+      .select({
+        authGrantId: schema.addressedAgentTurns.authGrantId,
+        authRevision: schema.addressedAgentTurns.authRevision,
+        intentId: schema.addressedAgentTurns.intentId,
+      })
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.channelId, f.channelId))
+    // Two claims, one intent, one grant id, two revisions: the disagreement.
+    expect(rows).toHaveLength(2)
+    expect(new Set(rows.map((row) => row.intentId)).size).toBe(1)
+    expect(new Set(rows.map((row) => row.authGrantId)).size).toBe(1)
+    expect(new Set(rows.map((row) => row.authRevision)).size).toBe(2)
+    const publish = await complete(f, intentId)
+    await expect(publish()).rejects.toMatchObject({
+      name: 'GroupPublicationHoldError',
+      reason: 'publication_binding_mismatch',
+    })
+    const state = await publicationState(f, intentId)
+    // Nothing entered the group, and the job survived the hold.
+    expect(state.messages).toHaveLength(1)
+    expect(state.runtime?.state).toBe('completed')
+    expect(state.runtime?.publishedMessageId).toBeNull()
+  })
+
+  T('claims that share one intent and agree on the binding publish normally', async () => {
+    const f = await fixture()
+    const { intentId, turns } = await claimsSharingOneIntent(f, [1, 2])
+    // Both claims agree, so the binding is canonical and the work publishes.
+    for (const turn of turns)
+      expect(await retainedBinding(f, turn.id)).toEqual({
+        authGrantId: 'gra_lead',
+        authRevision: 1,
+      })
+    const publish = await complete(f, intentId)
+    const messageId = await publish()
+    expect(messageId).toBeString()
+    const state = await publicationState(f, intentId)
+    expect(state.messages).toHaveLength(2)
+    // The publisher is the Agent the intent pins, never whichever claim a
+    // lookup happened to read.
+    const published = state.messages.find((message) => message.id === messageId)
+    expect(published).toMatchObject({ senderKind: 'agent', senderAgentId: f.lead.id })
+  })
+
+  /**
+   * A retry must not re-bind the work to a newer grant revision.
+   *
+   * The claim is the record of what admitted the work. When the Agent is
+   * removed and added again, its grant id is the same and its revision is
+   * new, so a retry that re-read the roster would re-bind the old work to
+   * the new revision and quietly authorize it under authority it never had.
+   * The duplicate claim converges on the retained row instead, and the
+   * retained binding stays the one the work was admitted under — which is
+   * what keeps the late result held.
+   */
+  T('a retry keeps the grant revision the work was admitted under', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    const intentId = turn.leadTurnIntentId!
+    // The runtime is prepared while the admission still holds; the roster
+    // moves underneath it afterwards.
+    const publish = await complete(f, intentId)
+    // The Agent is removed and added again: same grant id, new revision.
+    await removeThenReaddLead(f)
+    // A retry of the SAME dispatch revision converges on the retained claim.
+    const retry = await claimAddressedTurn(
+      connection.db,
+      f.workspace.id,
+      f.owner,
+      {
+        addressedBy: f.owner,
+        agentId: f.lead.id,
+        channelId: f.channelId,
+        dispatchRevision: 1,
+        triggerMessageId: f.trigger.id,
+      },
+      { now: NOW }
+    )
+    expect(retry.status).toBe('duplicate')
+    expect(retry.turn.id).toBe(turn.id)
+    // The regrant really moved the revision: the Agent's current admission
+    // is revision 2 now, so the retained revision 1 is the only thing that
+    // keeps the late result held. The grant is read for THIS fixture's
+    // channel and workspace: other fixtures own grants with the same id.
+    const [current] = await connection.db
+      .select({ revision: schema.groupEnlistmentGrants.revision })
+      .from(schema.groupEnlistmentGrants)
+      .where(
+        and(
+          eq(schema.groupEnlistmentGrants.workspaceId, f.workspace.id),
+          eq(schema.groupEnlistmentGrants.channelId, f.channelId),
+          eq(schema.groupEnlistmentGrants.grantId, 'gra_lead')
+        )
+      )
+    expect(current?.revision).toBe(2)
+    // The retained binding is still the revision the work was admitted
+    // under, never the new one.
+    expect(await retainedBinding(f, turn.id)).toEqual({
+      authGrantId: 'gra_lead',
+      authRevision: 1,
+    })
+    // And the late result stays held: the retained binding no longer names
+    // the Agent's current admission.
+    await expect(publish()).rejects.toMatchObject({
+      name: 'GroupPublicationHoldError',
+      reason: 'publication_binding_mismatch',
+    })
+    expect((await publicationState(f, intentId)).messages).toHaveLength(1)
+  })
+
+  T(
+    'a replay converges on the same message while the binding holds, and is held once it does not',
+    async () => {
+      const f = await fixture()
+      const { turn } = await address(f, f.lead.id)
+      const intentId = turn.leadTurnIntentId!
+      const publish = await complete(f, intentId)
+      const messageId = await publish()
+      expect(await publish()).toBe(messageId)
+      expect((await publicationState(f, intentId)).messages).toHaveLength(2)
+      await removeThenReaddLead(f)
+      // A replay after the binding changed writes nothing new.
+      await expect(publish()).rejects.toMatchObject({
+        name: 'GroupPublicationHoldError',
+        reason: 'publication_binding_mismatch',
+      })
+      expect((await publicationState(f, intentId)).messages).toHaveLength(2)
+    }
+  )
+
+  T('concurrent publications of one addressed turn write exactly one message', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    const intentId = turn.leadTurnIntentId!
+    const publish = await complete(f, intentId)
+    const [first, second] = await Promise.all([publish(), publish()])
+    expect(first).toBe(second)
+    expect((await publicationState(f, intentId)).messages).toHaveLength(2)
+    const [row] = await connection.db
+      .select()
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, turn.id))
+    expect(row).toMatchObject({ responseMessageId: first, state: 'responded' })
+  })
 })
