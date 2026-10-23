@@ -5424,7 +5424,12 @@ on replay; no consumer may treat a transcript reference as an access grant.
 Open/remove always reauthorize the bound session at use time.
 
 The production host composition and authenticated local operations are wired.
-Composer picker/chips, request-to-message attachment association, harness delivery,
+The dev-view chat canvas consumes upload and remove: a picker and chips for files the
+host accepts, with the limits stated before a file is chosen, an upload retried under
+one idempotency key after a lost answer, and the words "Stored on this device only. The
+assistant does not receive attachments yet." beside stored files. It does not open
+stored content and keeps no list beyond what it staged in the current session generation.
+Request-to-message attachment association, harness delivery,
 image/binary/bulk transfer, remote/cloud storage and packaged owner-journey
 qualification remain separate integration work. The consumer must offer no
 unsupported action and make no delivered-to-agent claim from these events.

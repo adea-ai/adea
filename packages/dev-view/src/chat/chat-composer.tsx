@@ -12,6 +12,12 @@ import type { ChatDraftIdentity as ScopedChatDraftIdentity } from './draft'
 import { chatComposerDisabledReason } from './composer-availability'
 import { ChatFollowUps, followUpsReady, type FollowUpsBinding } from './chat-follow-ups'
 import {
+  attachmentsVisible,
+  ChatAttachButton,
+  ChatAttachments,
+  type AttachmentsBinding,
+} from './chat-attachments'
+import {
   chatDraftScopeKey,
   createChatSendRequests,
   expandChatDraftForSend,
@@ -59,6 +65,8 @@ export type ChatComposerProps = Readonly<{
    * first read succeeds, the composer offers no Queue control and draws no queue.
    */
   followUps?: FollowUpsBinding
+  /** The files staged for this conversation; the picker and chips appear only with a binding. */
+  attachments?: AttachmentsBinding
   onDraftChange?: ChatDraftChange
   createPasteBlockId: () => string
   draftRevision?: number
@@ -403,6 +411,11 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
         followUps={
           <Show when={props.followUps}>{(binding) => <ChatFollowUps binding={binding()} />}</Show>
         }
+        attachments={
+          <Show when={attachmentsVisible(props.attachments) ? props.attachments : undefined}>
+            {(binding) => <ChatAttachments binding={binding()} />}
+          </Show>
+        }
         context={
           <Show when={decisionReady()}>
             <div>
@@ -538,17 +551,24 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
           </div>
         }
         leadingActions={
-          <Show when={decisionReady()}>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={disabled() || resolving() || draft().text.trim().length === 0}
-              onClick={() => void resolve()}
-            >
-              {resolving() ? 'Resolving…' : 'Resolve & launch'}
-            </Button>
-          </Show>
+          <>
+            <Show when={props.attachments}>
+              {(binding) => (
+                <ChatAttachButton binding={binding()} disabled={disabledReason() !== undefined} />
+              )}
+            </Show>
+            <Show when={decisionReady()}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={disabled() || resolving() || draft().text.trim().length === 0}
+                onClick={() => void resolve()}
+              >
+                {resolving() ? 'Resolving…' : 'Resolve & launch'}
+              </Button>
+            </Show>
+          </>
         }
         trailingActions={
           <>

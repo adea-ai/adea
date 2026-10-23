@@ -100,3 +100,117 @@ export function createFixtureCheckpointRestore(
     },
   }
 }
+
+const fixtureAttachment = (
+  identity: import('./model').AttachmentIdentity,
+  id: string,
+  name: string,
+  byteLength: number,
+  state: 'available' | 'removed'
+): import('@adea-ai/types/dev-runtime').ChatAttachment => ({
+  attachmentId: id,
+  mediaType: 'text/plain',
+  byteLength,
+  state,
+  runtimeSessionId: identity.runtimeSessionId,
+  generation: identity.generation,
+  name,
+  digestSha256: '0'.repeat(64),
+  createdAt: '2026-10-23T10:00:00.000Z',
+  ...(state === 'removed' ? { removedAt: '2026-10-23T10:01:00.000Z' } : {}),
+})
+export type FixtureAttachmentMode =
+  /** The host stores and removes every file. */
+  | 'ok'
+  /** The first upload commits and its answer is lost; the retry under the same key is stored once. */
+  | 'lost'
+  /** The host refuses to remove a stored file. */
+  | 'remove-fail'
+  /** The first upload commits, then the host's own binding check fails: `stale_generation`. */
+  | 'commit-stale'
+  /** The first removal commits and its answer is lost; asking again returns the same removal. */
+  | 'remove-lost'
+  /** Uploads commit but stay unanswered until `chat-visual:release-attachments`. */
+  | 'held'
+  /** The first upload commits and times out, the retry is refused, the next retry is answered. */
+  | 'lost-then-refused'
+  /** The first removal commits and times out, the retry is refused, the next is answered. */
+  | 'remove-lost-then-refused'
+
+export const FIXTURE_ATTACHMENT_MODES: readonly FixtureAttachmentMode[] = [
+  'ok',
+  'lost',
+  'remove-fail',
+  'commit-stale',
+  'remove-lost',
+  'held',
+  'lost-then-refused',
+  'remove-lost-then-refused',
+]
+
+/**
+ * A stand-in for the host's attachment store: it answers with the real DTO shapes and nothing
+ * else. Like the real host it keys an upload by its idempotency key, treats a repeated removal
+ * of the same id as the same request, and can fail after it committed.
+ */
+export function createFixtureAttachments(
+  mode: FixtureAttachmentMode
+): import('./model').AttachmentPort {
+  let n = 0
+  const stored = new Map<string, string>()
+  const byKey = new Map<string, import('@adea-ai/types/dev-runtime').ChatAttachment>()
+  const removedIds = new Map<string, import('@adea-ai/types/dev-runtime').ChatAttachment>()
+  let failNextUpload = mode === 'lost' || mode === 'commit-stale' || mode === 'lost-then-refused'
+  let failNextRemoval = mode === 'remove-lost' || mode === 'remove-lost-then-refused'
+  let uploadCalls = 0
+  let removalCalls = 0
+  return {
+    async upload(identity, input) {
+      uploadCalls += 1
+      if (mode === 'lost-then-refused' && uploadCalls === 2)
+        throw refuse('capability_unavailable', 'The host cannot store files right now.')
+      const existing = byKey.get(input.idempotencyKey)
+      if (existing) return existing
+      n += 1
+      const id = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+      const byteLength = atob(input.upload.contentBase64).length
+      const made = fixtureAttachment(identity, id, input.upload.name, byteLength, 'available')
+      stored.set(id, input.upload.name)
+      byKey.set(input.idempotencyKey, made)
+      if (mode === 'held') {
+        await new Promise<void>((release) =>
+          window.addEventListener('chat-visual:release-attachments', () => release(), {
+            once: true,
+          })
+        )
+        return made
+      }
+      if (failNextUpload) {
+        failNextUpload = false
+        throw mode === 'commit-stale'
+          ? refuse('stale_generation', 'The session moved to a new generation.')
+          : refuse('timeout', 'The host did not answer.')
+      }
+      return made
+    },
+    async remove(identity, attachmentId) {
+      removalCalls += 1
+      if (mode === 'remove-lost-then-refused' && removalCalls === 2)
+        throw refuse('capability_unavailable', 'The host cannot remove files right now.')
+      if (mode === 'remove-fail')
+        throw refuse('capability_unavailable', 'The host cannot remove files right now.')
+      const already = removedIds.get(attachmentId)
+      if (already) return already
+      const name = stored.get(attachmentId)
+      if (name === undefined) throw refuse('not_found', 'No such attachment.')
+      stored.delete(attachmentId)
+      const done = fixtureAttachment(identity, attachmentId, name, 1, 'removed')
+      removedIds.set(attachmentId, done)
+      if (failNextRemoval) {
+        failNextRemoval = false
+        throw refuse('timeout', 'The host did not answer.')
+      }
+      return done
+    },
+  }
+}

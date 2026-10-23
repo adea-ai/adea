@@ -6,6 +6,7 @@ import {
   latestQueueVersion,
   transcriptWindow,
   bindCheckpointRestore,
+  type AttachmentPort,
   createCheckpointRestorer,
   type CheckpointRestorePort,
   type CheckpointRestored,
@@ -19,6 +20,7 @@ import {
 } from './chat-composer'
 import { ChatTranscript, ChatTranscriptNotices, type ChatTranscriptProps } from './chat-transcript'
 import { createFollowUpsBinding } from './chat-follow-ups'
+import { createAttachmentsBinding } from './chat-attachments'
 import { DirectSessionHandoffControls } from './handoff-controls'
 import {
   deriveDirectSessionHandoff,
@@ -85,6 +87,7 @@ export type ChatViewProps = Readonly<{
         | 'createPasteBlockId'
         | 'followUps'
         | 'checkpointRestore'
+        | 'attachments'
       >
     >
   /**
@@ -97,6 +100,8 @@ export type ChatViewProps = Readonly<{
    * offers a restore even if the host marked it restorable.
    */
   checkpointRestore?: CheckpointRestorePort
+  /** Local text-file attachments (`dev.session.attachmentUpload`); without a port there is no picker. */
+  attachments?: AttachmentPort
   /**
    * The host restored the conversation: it continues as `restoredGeneration`. The surface does
    * not move itself; the parent loads the session the host now publishes.
@@ -524,9 +529,20 @@ export function ChatView(props: ChatViewProps): JSX.Element {
               })
               if (version !== undefined) followUps?.observeVersion(version)
             })
+            const attachmentPort = props.attachments ?? props.model?.attachments
+            const attachments = attachmentPort
+              ? createAttachmentsBinding({
+                  port: attachmentPort,
+                  identity: {
+                    runtimeSessionId: props.conversation.runtimeSessionId,
+                    generation: props.conversation.generation,
+                  },
+                })
+              : undefined
             return (
               <ChatComposer
                 followUps={followUps}
+                attachments={attachments}
                 conversation={props.conversation}
                 usage={latestUsageFigures(
                   transcript().events,
