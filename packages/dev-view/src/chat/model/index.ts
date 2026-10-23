@@ -30,6 +30,7 @@ import type {
 import { normalizeChatDraft } from '../draft'
 import { eventIdentity, openRuntimeEventStream, type RuntimeEventStream } from './event-stream'
 import { createFollowUpQueuePort, type FollowUpQueuePort } from './follow-ups'
+import { createCheckpointRestorePort, type CheckpointRestorePort } from './checkpoint-restore'
 
 export * from './commands'
 export * from './handoff'
@@ -39,6 +40,7 @@ export * from './transcript'
 export * from './types'
 export * from './history'
 export * from './follow-ups'
+export * from './checkpoint-restore'
 
 const lifecycleByEvent: Readonly<Record<string, ChatConversationStatus>> = {
   'session.starting': 'preparing',
@@ -260,6 +262,8 @@ export type ChatConversationModel = Readonly<{
   send(runtimeSessionId: string, text: string): Promise<void>
   /** The authorized host follow-up queue (#1393). Reads and changes only what the host answers. */
   followUps: FollowUpQueuePort
+  /** The host's checkpoint restore (`dev.session.restoreCheckpoint`); the host decides and answers. */
+  checkpointRestore: CheckpointRestorePort
   openTranscript(
     runtimeSessionId: string,
     options?: { fromSequence?: string; source?: RuntimeEvent['source'] }
@@ -747,6 +751,7 @@ export function createChatConversationModel(
       now,
       randomId,
     }),
+    checkpointRestore: createCheckpointRestorePort(service, scope, { now, randomId }),
     openTranscript,
   }
 }

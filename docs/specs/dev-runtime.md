@@ -1810,8 +1810,11 @@ method-step summaries (`turn.reasoning_summary`, `turn.method_step_summary`,
 #1388) and cited answers (`references` on `turn.assistant_message`, #1389) are
 drawn only after `decodeRuntimeEvent` accepts them: one node per summary or
 step, replaced only by a higher revision, and citation markers placed only where
-the displayed text is the exact payload text. Checkpoints, attachments, context
-usage and test results are not drawn, because no producer supplies them; each is a separate backend dependency documented in
+the displayed text is the exact payload text. Attachments, context
+usage and test results are not drawn, because no producer supplies them. A checkpoint is a
+marker; it offers Restore (after a confirmation) only when its own payload says
+`restore.supported` and the host supplies `dev.session.restoreCheckpoint`, and a restore
+is reported only as the host's typed outcome; each is a separate backend dependency documented in
 `docs/evidence/chat-canvas-2026-10-15.md`.
 
 Adea's persisted appearance IDs are the complete published `@adea-ai/themes`

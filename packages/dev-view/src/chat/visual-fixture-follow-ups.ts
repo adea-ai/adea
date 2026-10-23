@@ -73,3 +73,30 @@ export function createFixtureFollowUpHost(mode: FixtureFollowUpMode): FollowUpQu
     },
   }
 }
+
+/** A stand-in for the host's checkpoint restore: it answers with a typed outcome and nothing else. */
+export function createFixtureCheckpointRestore(
+  mode: 'ok' | 'fail'
+): import('./model').CheckpointRestorePort {
+  return {
+    async restore(identity, input) {
+      const base = {
+        schemaVersion: 1 as const,
+        restoreId: 'fixture-restore-1',
+        checkpointId: 'checkpoint-1',
+        checkpointEventId: input.checkpointEventId,
+        requestedGeneration: identity.generation,
+        completedAt: '2026-10-23T10:00:00.000Z',
+      }
+      return mode === 'ok'
+        ? {
+            ...base,
+            status: 'resolved' as const,
+            restoredGeneration: identity.generation + 1,
+            providerRestoreId: 'fixture-provider-restore',
+            restoredAt: '2026-10-23T10:00:00.000Z',
+          }
+        : { ...base, status: 'failed' as const, code: 'resync_required' as const }
+    },
+  }
+}

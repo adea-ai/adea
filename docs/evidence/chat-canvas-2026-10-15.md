@@ -110,34 +110,37 @@ The shared components live in `adea-ai/ui` (coverage matrix:
 shared component exists and is demonstrated in `adea-ai/ui` stories, but the
 Adea chat does not draw it because no producer supplies its data.
 
-| Group        | Pattern          | Adea chat        | Binding or the missing contract                                                                                                        |
-| ------------ | ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| Conversation | Chat             | Live             | `ChatView` frame: header, notices, thread, composer                                                                                    |
-| Conversation | Message          | Live             | `buildChatTurns`; a streamed message and its final `turn.assistant_message` are one turn by `messageId`/`supersedes`                   |
-| Conversation | Prompt Input     | Live (existing)  | `AtomicChatComposer`, unchanged: draft, send, Stop/Steer where authorized                                                              |
-| Conversation | Suggestion       | Available        | no prompt-suggestion producer                                                                                                          |
-| Activity     | Chain of Thought | Live             | `turn.method_step_summary` (#1388): keyed steps, source-reported title, text, status and duration                                      |
-| Activity     | Reasoning        | Live             | `turn.reasoning_summary` (#1388): one node per summary id, replaced by a higher revision; never inferred                               |
-| Activity     | Tool             | Live             | `tool.*` with a validated versioned call (#1387): one node per `callId`, nested, redacted bounded input/output                         |
-| Activity     | Subagent         | Live             | `subagent.observed` calls nest children by `parentCallId`; legacy events stay lines                                                    |
-| Activity     | Task             | Live             | `task.observed` (#1394)                                                                                                                |
-| Activity     | Plan             | Live             | `plan.observed` (#1394); progress is computed only when the producer marks the list complete                                           |
-| Activity     | Queue            | Live             | `dev.session.followUps` (#1393): Queue control and list only after a successful read; explicit one-at-a-time delivery, never automatic |
-| Results      | Terminal         | Live             | `terminal.output` chunks, ordered, joined, control-stripped, redacted once                                                             |
-| Results      | Stack Trace      | Live             | `failure.observed`                                                                                                                     |
-| Results      | Test Results     | Live             | `test_run.observed`; counts as sent, each suite's reported status listed apart from the tests it holds, running states only while live |
-| Results      | File Tree        | Live             | `files.changed`; copied or untracked changes carry no mark the producer did not send                                                   |
-| Grounding    | Sources          | Live             | `turn.assistant_message` `references.sources` (#1389), shown with the answer they belong to                                            |
-| Grounding    | Inline Citation  | Live             | `references.citations` offsets, placed by `placeCitationMarkers` only where the text still is the payload text                         |
-| Controls     | Confirmation     | Live             | requested, approved, denied, expired or unavailable, paired by the correlated outcome (#1395)                                          |
-| Controls     | Checkpoint       | Live (marker)    | `checkpoint.observed` through `decodeConversationCheckpoint`; no restore control, the host op is not reachable                         |
-| Controls     | Context          | Live (read-only) | newest `usage.observed` of the named model in the generation; cost kept as the producer's decimal text, beside it                      |
-| Controls     | Model Selector   | Live (existing)  | the composer's harness/model pins                                                                                                      |
+| Group        | Pattern          | Adea chat        | Binding or the missing contract                                                                                                                                |
+| ------------ | ---------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Conversation | Chat             | Live             | `ChatView` frame: header, notices, thread, composer                                                                                                            |
+| Conversation | Message          | Live             | `buildChatTurns`; a streamed message and its final `turn.assistant_message` are one turn by `messageId`/`supersedes`                                           |
+| Conversation | Prompt Input     | Live (existing)  | `AtomicChatComposer`, unchanged: draft, send, Stop/Steer where authorized                                                                                      |
+| Conversation | Suggestion       | Available        | no prompt-suggestion producer                                                                                                                                  |
+| Activity     | Chain of Thought | Live             | `turn.method_step_summary` (#1388): keyed steps, source-reported title, text, status and duration                                                              |
+| Activity     | Reasoning        | Live             | `turn.reasoning_summary` (#1388): one node per summary id, replaced by a higher revision; never inferred                                                       |
+| Activity     | Tool             | Live             | `tool.*` with a validated versioned call (#1387): one node per `callId`, nested, redacted bounded input/output                                                 |
+| Activity     | Subagent         | Live             | `subagent.observed` calls nest children by `parentCallId`; legacy events stay lines                                                                            |
+| Activity     | Task             | Live             | `task.observed` (#1394)                                                                                                                                        |
+| Activity     | Plan             | Live             | `plan.observed` (#1394); progress is computed only when the producer marks the list complete                                                                   |
+| Activity     | Queue            | Live             | `dev.session.followUps` (#1393): Queue control and list only after a successful read; explicit one-at-a-time delivery, never automatic                         |
+| Results      | Terminal         | Live             | `terminal.output` chunks, ordered, joined, control-stripped, redacted once                                                                                     |
+| Results      | Stack Trace      | Live             | `failure.observed`                                                                                                                                             |
+| Results      | Test Results     | Live             | `test_run.observed`; counts as sent, each suite's reported status listed apart from the tests it holds, running states only while live                         |
+| Results      | File Tree        | Live             | `files.changed`; copied or untracked changes carry no mark the producer did not send                                                                           |
+| Grounding    | Sources          | Live             | `turn.assistant_message` `references.sources` (#1389), shown with the answer they belong to                                                                    |
+| Grounding    | Inline Citation  | Live             | `references.citations` offsets, placed by `placeCitationMarkers` only where the text still is the payload text                                                 |
+| Controls     | Confirmation     | Live             | requested, approved, denied, expired or unavailable, paired by the correlated outcome (#1395)                                                                  |
+| Controls     | Checkpoint       | Live             | `checkpoint.observed` through `decodeConversationCheckpoint`; Restore only when the checkpoint says `restore.supported` and the host gives a restore operation |
+| Controls     | Context          | Live (read-only) | newest `usage.observed` of the named model in the generation; cost kept as the producer's decimal text, beside it                                              |
+| Controls     | Model Selector   | Live (existing)  | the composer's harness/model pins                                                                                                                              |
 
 Questionnaire is live for `question.requested` (free text only). Attachment is not
 drawn: `dev.session.attachment*` exists host-side but no dev-view model or platform
-action reaches the canvas, so no attach control is shown. The same holds for
-checkpoint restore. Suggestion has no producer.
+action reaches the canvas, so no attach control is shown. Checkpoint restore is
+offered only for a checkpoint whose own payload says `restore.supported` and only
+when the host supplies `dev.session.restoreCheckpoint`; the host adapter is absent in
+production at this revision, so a real checkpoint reports `supported: false` and is
+a marker. Suggestion has no producer.
 
 ## Backend and contract dependencies
 
@@ -150,7 +153,7 @@ work. Until it exists the canvas shows the honest fallback in the right-hand col
 | Call identity and phase for `tool.*` and `subagent.*` events                                                                                 | [#1387](https://github.com/adea-ai/adea/issues/1387) | consumed: nested call tree, redacted bounded input/output                                                                                   |
 | User-visible reasoning summaries (contract merged on main; drawn)                                                                            | [#1388](https://github.com/adea-ai/adea/issues/1388) | drawn only from a validated, source-reported summary                                                                                        |
 | Sources and citations (contract merged on main; drawn)                                                                                       | [#1389](https://github.com/adea-ai/adea/issues/1389) | drawn only from producer references; text never creates a citation                                                                          |
-| Restorable checkpoints                                                                                                                       | [#1390](https://github.com/adea-ai/adea/issues/1390) | consumed as a marker only; restore is not offered                                                                                           |
+| Restorable checkpoints                                                                                                                       | [#1390](https://github.com/adea-ai/adea/issues/1390) | consumed: marker; Restore (asks first) only when the checkpoint is marked restorable and the host provides the operation                    |
 | Token and context usage with a documented payload                                                                                            | [#1391](https://github.com/adea-ai/adea/issues/1391) | consumed: Context trigger from the newest accepted `usage.observed`                                                                         |
 | Attachments with a working upload/open path                                                                                                  | [#1392](https://github.com/adea-ai/adea/issues/1392) | none                                                                                                                                        |
 | Queued follow-ups (a queue operation)                                                                                                        | [#1393](https://github.com/adea-ai/adea/issues/1393) | consumed: Queue control and list after a successful host read; Send next is explicit and one at a time                                      |
@@ -182,11 +185,13 @@ work. Until it exists the canvas shows the honest fallback in the right-hand col
 - **The unmarked count is per span.** Spans that end together share one marker; the
   note counts producer spans whose end received a marker (`placeCitationMarkers`
   returns `ends`), not marker positions.
-- **Still absent on purpose.** Attachments, checkpoint restore and prompt
+- **Still absent on purpose.** Attachments and prompt
   suggestions (#1392 is not wired: no operation reaches the canvas, and
   no producer exists for suggestions). Queued follow-ups (#1393) are wired: the
   host's snapshot is the only source, `accepted` is never worded as read, an
-  ambiguous delivery is never retried. Nothing here claims a producer streams these
+  ambiguous delivery is never retried. Checkpoint restore (#1390) is wired the same way:
+  success is only the host's typed `resolved` outcome naming the next generation; a
+  failed or missing outcome is never worded as a restore. Nothing here claims a producer streams these
   events in production.
 
 ## Status band, evidence strip and child delegations (#1173/#1177)
