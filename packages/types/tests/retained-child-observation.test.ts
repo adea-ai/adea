@@ -14,18 +14,30 @@ import {
   retainedChildUnknownRole,
 } from '../src/retained-child-observation'
 
+// The boundary pairs below were checked against the control plane's child publication schema at
+// e9c1e206 (packages/contracts/src/pi-child-publication.ts): its role and failureCode chain is
+// z.string().min(1).max(256).regex(/^[A-Za-z0-9][A-Za-z0-9._:/-]*$/). Over 62,000 generated and
+// boundary inputs the two agreed on every value, so these expectations are the control plane's own.
 describe('retained child role grammar', () => {
   test('accepts the bounded tokens a delegation role is named with', () => {
     for (const role of ['researcher', 'reviewer', 'research/reviewer', 'child.v2', 'a_b-c.d:e/f'])
       expect(isRetainedChildRole(role)).toBe(true)
   })
 
-  test('refuses prose, control characters and unbounded values', () => {
+  test('accepts the full control-plane length and refuses one character more', () => {
+    expect(isRetainedChildRole('a'.repeat(256))).toBe(true)
+    expect(isRetainedChildRole('a'.repeat(257))).toBe(false)
+  })
+
+  test('refuses prose, control characters, a leading mark and unbounded values', () => {
     for (const role of [
       'research reviewer',
       'researcher\u202E',
       'researcher\u0000',
       'researcher\n',
+      '_reviewer',
+      '.reviewer',
+      '-reviewer',
       '',
       'x'.repeat(257),
     ])
@@ -38,22 +50,33 @@ describe('retained child role grammar', () => {
 })
 
 describe('retained child failure code grammar', () => {
-  test('accepts a machine code and a readable reason', () => {
-    for (const code of ['CHILD_RUNTIME_FAILED', 'PROVIDER_FAILED', 'provider failed', 'timeout-2'])
+  test('accepts a canonical machine code', () => {
+    for (const code of ['CHILD_RUNTIME_FAILED', 'PROVIDER_FAILED', 'timeout-2', 'a/b:c.d-e_f'])
       expect(isRetainedChildFailureCode(code)).toBe(true)
   })
 
-  test('refuses control-bearing and unbounded values', () => {
-    for (const code of ['failed\u202E', 'failed\u0007', 'failed\nnext', '', 'x'.repeat(129)])
+  test('accepts the full control-plane length and refuses one character more', () => {
+    expect(isRetainedChildFailureCode('E'.repeat(256))).toBe(true)
+    expect(isRetainedChildFailureCode('E'.repeat(257))).toBe(false)
+  })
+
+  test('refuses a readable reason with spaces, control-bearing and unbounded values', () => {
+    // The control plane publishes only canonical tokens: a readable reason with a space is refused,
+    // so it is withheld rather than shown or copied.
+    for (const code of [
+      'provider failed',
+      'failed\u202E',
+      'failed\u0007',
+      'failed\nnext',
+      '_PROVIDER',
+      '',
+      'x'.repeat(257),
+    ])
       expect(isRetainedChildFailureCode(code)).toBe(false)
   })
 
-  test('a failure code grammar is its own, not the role grammar', () => {
-    // A code may contain a space where a role may not: the two are different
-    // vocabularies, and reusing one for the other is what made a readable
-    // failure code unpublishable.
-    expect(retainedChildFailureCodePattern.test('provider failed')).toBe(true)
-    expect(retainedChildRolePattern.test('provider failed')).toBe(false)
+  test('the failure code and the role share one canonical token grammar', () => {
+    expect(retainedChildFailureCodePattern.source).toBe(retainedChildRolePattern.source)
   })
 })
 

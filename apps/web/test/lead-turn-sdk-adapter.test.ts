@@ -205,20 +205,24 @@ test('a child terminal publication accepts only the bounded values the product m
     }
   }
   const port = respond(base)
-  // A readable failure code is a bounded value, so it is accepted: the surface
-  // may show it and the product may publish it.
-  port.set({ data: { publication: { ...base, failureCode: 'provider failed' } } })
-  expect(
-    await port.adapter.childPublicationCurrent!(
-      authority,
-      binding,
-      selection.preparationRef,
-      delegationId
-    )
-  ).toMatchObject({ state: 'failed', failureCode: 'provider failed' })
-  // A failure code that is not bounded is refused at the boundary, so no
-  // unbounded value can reach a surface or a receipt.
-  for (const failureCode of ['failed\u202E', 'failed\u0007', 'x'.repeat(129)]) {
+  // A canonical control-plane token is accepted at the full control-plane length: the surface may
+  // show it and the product may publish it. The control plane's schema (e9c1e206) accepts 256
+  // characters of this grammar and no others.
+  for (const failureCode of ['PROVIDER_FAILED', 'E'.repeat(256)]) {
+    port.set({ data: { publication: { ...base, failureCode } } })
+    expect(
+      await port.adapter.childPublicationCurrent!(
+        authority,
+        binding,
+        selection.preparationRef,
+        delegationId
+      )
+    ).toMatchObject({ state: 'failed', failureCode })
+  }
+  // A failure code outside that grammar is refused at the boundary, so no unbounded value and no
+  // readable reason with a space can reach a surface or a receipt. The control plane never
+  // publishes such a value, so a response that carries one is not a canonical response.
+  for (const failureCode of ['provider failed', 'failed\u202E', 'failed\u0007', 'E'.repeat(257)]) {
     port.set({ data: { publication: { ...base, failureCode } } })
     await expect(
       port.adapter.childPublicationCurrent!(

@@ -9,21 +9,26 @@
  * value the product may publish, and nothing unbounded or control-bearing
  * reaches a screen or a receipt.
  *
- * The rule is deliberately narrow. A role names the delegation's job, so it is
- * a token. A failure code names why a child failed, so it is bounded plain
- * text. Both stay inside printable ASCII: no format or control characters, so
- * a retained value can never reorder or hide the surface that reports it.
+ * Both values are canonical control-plane tokens. The control plane accepts a
+ * role and a failure code only as one ASCII alphanumeric character followed by
+ * ASCII letters, digits and `._:/-`, at most 256 characters in all, so a
+ * readable reason with a space is not a value it can publish. A value outside
+ * that grammar is withheld, never shown or copied.
  */
-
-/** A child role names the delegation's job. It is a bounded token, never prose. */
-export const retainedChildRolePattern = /^[A-Za-z0-9._:/-]{1,256}$/
 
 /**
- * A failure code names why a child failed. It is bounded plain text: a code
- * may contain spaces, because a control plane may report a readable reason,
- * but it may not carry control characters or run away in length.
+ * The control plane's token grammar, which a child role and a failure code
+ * share. It is the same definition as the control plane's child publication
+ * schema (`packages/contracts/src/pi-child-publication.ts` at e9c1e206): one
+ * ASCII alphanumeric, then `[A-Za-z0-9._:/-]`, 256 characters at most.
  */
-export const retainedChildFailureCodePattern = /^[-A-Za-z0-9._:/ ]{1,128}$/
+export const retainedChildTokenPattern = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/
+
+/** A child role names the delegation's job. It is a canonical control-plane token. */
+export const retainedChildRolePattern = retainedChildTokenPattern
+
+/** A failure code names why a child failed. It is a canonical control-plane token. */
+export const retainedChildFailureCodePattern = retainedChildTokenPattern
 
 /** The terminal states a retained child may report, and the only ones publishable. */
 export const retainedChildTerminalStates = ['completed', 'failed', 'cancelled'] as const
