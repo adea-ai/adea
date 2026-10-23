@@ -100,6 +100,79 @@ const participantBoundaryChannelId = () => runScopedLowChannelId(0)
  */
 const heavyVisibleChannelId = (index: number) => runScopedLowChannelId(index + 1)
 
+/**
+ * The legacy channel ids are fixed and global, so the regression that plants them is the one place
+ * two runs of this file can still meet. Planting with `onConflictDoNothing` and reading the rows
+ * back is not safe on its own: a concurrent run B that finds run A's rows asserts on A's rows, and
+ * A's teardown then removes them under B. The seed therefore has a lifetime of its own.
+ *
+ * `withLegacyChannelSeed` holds one session-level PostgreSQL advisory lock for the whole lifetime
+ * of the seed: acquire, plant, assert, remove, release. A second run waits for the first to be
+ * finished before it plants, so it plants its own rows and asserts on them. The rows it removes
+ * are exactly the ones its own insert returned. A row that was already there (a leftover from an
+ * interrupted run, which is the condition under test) is left in place, and so is every row that
+ * belongs to anyone else. The presence assertions stay in the caller, unweakened.
+ *
+ * Only runs of this file that go through this helper are serialized. A run of the pre-repair
+ * fixture, or any other writer of these ids, is outside what a lock this file takes can protect.
+ */
+const LEGACY_SEED_LOCK_NAME = 'portable-export-channel-bounds:legacy-channel-seed'
+const LEGACY_SEED_LOCK_WAIT_MS = 120_000
+const LEGACY_SEED_LOCK_POLL_MS = 50
+
+type ChannelSeed = typeof channels.$inferInsert
+
+async function withLegacyChannelSeed<T>(
+  options: {
+    client: postgres.Sql
+    database: AgentHqDatabase
+    lockName?: string
+    rows: readonly ChannelSeed[]
+    waitMs?: number
+  },
+  body: (seed: { insertedIds: readonly string[]; preexistingIds: readonly string[] }) => Promise<T>
+): Promise<T> {
+  const lockName = options.lockName ?? LEGACY_SEED_LOCK_NAME
+  const deadline = Date.now() + (options.waitMs ?? LEGACY_SEED_LOCK_WAIT_MS)
+  // The lock is session-level, so it is taken and released on one reserved connection.
+  const reserved = await options.client.reserve()
+  let locked = false
+  try {
+    while (!locked) {
+      const [row] = await reserved<
+        { locked: boolean }[]
+      >`select pg_try_advisory_lock(hashtextextended(${lockName}::text, 0)) as locked`
+      locked = row?.locked === true
+      if (locked) break
+      if (Date.now() >= deadline)
+        throw new Error(`timed out waiting for the legacy channel seed lock ${lockName}`)
+      await new Promise((resolve) => setTimeout(resolve, LEGACY_SEED_LOCK_POLL_MS))
+    }
+    const wanted = options.rows.map(({ id }) => id!)
+    const inserted = await options.database
+      .insert(channels)
+      .values([...options.rows])
+      .onConflictDoNothing()
+      .returning({ id: channels.id })
+    const insertedIds = inserted.map(({ id }) => id)
+    try {
+      return await body({
+        insertedIds,
+        preexistingIds: wanted.filter((id) => !insertedIds.includes(id)),
+      })
+    } finally {
+      if (insertedIds.length > 0)
+        await options.database.delete(channels).where(inArray(channels.id, insertedIds))
+    }
+  } finally {
+    try {
+      if (locked) await reserved`select pg_advisory_unlock(hashtextextended(${lockName}::text, 0))`
+    } finally {
+      reserved.release()
+    }
+  }
+}
+
 type QueryTrace = {
   channelPageReads: number
   channelIdSnapshotReads: number
@@ -651,104 +724,217 @@ describe.skipIf(!connectionUrl)('portable export bounds channel materialization'
     // this file, so the leftovers cannot perturb the cases that follow. The insert tolerates a
     // leftover that is already there, because "already there" is the condition under test.
     expect(LEGACY_SCALE_CHANNEL_ID).toMatch(/^00000000-0000-4000-8000-[0-9]{12}$/)
-    await db
-      .insert(channels)
-      .values([
-        {
-          id: LEGACY_LATE_PROJECT_CHANNEL_ID,
-          idempotencyKey: `portable-channel-legacy-late-project-${run}`,
-          agentId: agentIds[0]!,
-          kind: 'direct_agent' as const,
-          sortOrder: 10_000,
-          title: 'Leftover late-project channel',
-          visibility: 'participants' as const,
-          workspaceId: workspaceId!,
-        },
-        {
-          id: LEGACY_BOUNDARY_CHANNEL_ID,
-          idempotencyKey: `portable-channel-legacy-boundary-${run}`,
-          agentId: agentIds[0]!,
-          kind: 'direct_agent' as const,
-          sortOrder: 10_001,
-          title: 'Leftover boundary channel',
-          visibility: 'participants' as const,
-          workspaceId: workspaceId!,
-        },
-        {
-          id: LEGACY_SCALE_CHANNEL_ID,
-          idempotencyKey: `portable-channel-legacy-scale-${run}`,
-          agentId: agentIds[0]!,
-          kind: 'direct_agent' as const,
-          sortOrder: 10_002,
-          title: 'Leftover scale channel',
-          visibility: 'participants' as const,
-          workspaceId: workspaceId!,
-        },
-      ])
-      .onConflictDoNothing()
+    await withLegacyChannelSeed(
+      {
+        client,
+        database: db,
+        rows: [
+          {
+            id: LEGACY_LATE_PROJECT_CHANNEL_ID,
+            idempotencyKey: `portable-channel-legacy-late-project-${run}`,
+            agentId: agentIds[0]!,
+            kind: 'direct_agent' as const,
+            sortOrder: 10_000,
+            title: 'Leftover late-project channel',
+            visibility: 'participants' as const,
+            workspaceId: workspaceId!,
+          },
+          {
+            id: LEGACY_BOUNDARY_CHANNEL_ID,
+            idempotencyKey: `portable-channel-legacy-boundary-${run}`,
+            agentId: agentIds[0]!,
+            kind: 'direct_agent' as const,
+            sortOrder: 10_001,
+            title: 'Leftover boundary channel',
+            visibility: 'participants' as const,
+            workspaceId: workspaceId!,
+          },
+          {
+            id: LEGACY_SCALE_CHANNEL_ID,
+            idempotencyKey: `portable-channel-legacy-scale-${run}`,
+            agentId: agentIds[0]!,
+            kind: 'direct_agent' as const,
+            sortOrder: 10_002,
+            title: 'Leftover scale channel',
+            visibility: 'participants' as const,
+            workspaceId: workspaceId!,
+          },
+        ],
+      },
+      async ({ insertedIds, preexistingIds }) => {
+        // The lock is held, so nothing here can be another run's row being removed under this one:
+        // every legacy row is either planted by this run or a leftover that was already there.
+        expect(insertedIds.length + preexistingIds.length).toBe(3)
 
-    // The planted condition is real, not merely tolerated: all three leftover rows are present.
-    const leftovers = await db
-      .select({ id: channels.id })
-      .from(channels)
-      .where(
-        inArray(channels.id, [
+        // The planted condition is real, not merely tolerated: all three leftover rows are present.
+        const leftovers = await db
+          .select({ id: channels.id })
+          .from(channels)
+          .where(
+            inArray(channels.id, [
+              LEGACY_LATE_PROJECT_CHANNEL_ID,
+              LEGACY_BOUNDARY_CHANNEL_ID,
+              LEGACY_SCALE_CHANNEL_ID,
+            ])
+          )
+        expect(leftovers.map(({ id }) => id).toSorted()).toEqual(
+          [
+            LEGACY_LATE_PROJECT_CHANNEL_ID,
+            LEGACY_BOUNDARY_CHANNEL_ID,
+            LEGACY_SCALE_CHANNEL_ID,
+          ].toSorted()
+        )
+
+        // Every fixture id this run creates is scoped to this run, so none of them is a fixed id an
+        // earlier or concurrent run could have left behind. The run marker is in the id, which is what
+        // makes it this run's own. The scale family is covered at both of its ends, because that is
+        // where a collision with a fixed member of the old family would be most likely.
+        const legacyIds = [
           LEGACY_LATE_PROJECT_CHANNEL_ID,
           LEGACY_BOUNDARY_CHANNEL_ID,
           LEGACY_SCALE_CHANNEL_ID,
-        ])
-      )
-    expect(leftovers.map(({ id }) => id).toSorted()).toEqual(
-      [
-        LEGACY_LATE_PROJECT_CHANNEL_ID,
-        LEGACY_BOUNDARY_CHANNEL_ID,
-        LEGACY_SCALE_CHANNEL_ID,
-      ].toSorted()
+        ]
+        const productionIds = [
+          lateProjectChannelId(),
+          participantBoundaryChannelId(),
+          heavyVisibleChannelId(0),
+          heavyVisibleChannelId(HEAVY_SCALE_CHANNELS - 1),
+        ]
+        for (const id of productionIds) expect(id).toContain(run)
+        for (const legacyId of legacyIds) expect(productionIds).not.toContain(legacyId)
+        expect(new Set(productionIds).size).toBe(productionIds.length)
+
+        // And a run-scoped id inserts cleanly while the leftover rows are present. The probe keeps the
+        // low family's shape but takes an index no case below uses, so it never takes an identifier
+        // one of them needs.
+        const probeId = runScopedLowChannelId(900)
+        expect(probeId).toContain(run)
+        expect(legacyIds).not.toContain(probeId)
+        await db.insert(channels).values({
+          id: probeId,
+          idempotencyKey: `portable-channel-run-scoped-probe-${run}`,
+          agentId: agentIds[0]!,
+          kind: 'direct_agent' as const,
+          sortOrder: 10_003,
+          title: 'Run-scoped probe channel',
+          visibility: 'participants' as const,
+          workspaceId: workspaceId!,
+        })
+        const rows = await db
+          .select({ id: channels.id })
+          .from(channels)
+          .where(inArray(channels.id, [probeId, LEGACY_LATE_PROJECT_CHANNEL_ID]))
+        expect(rows.map(({ id }) => id).toSorted()).toEqual(
+          [probeId, LEGACY_LATE_PROJECT_CHANNEL_ID].toSorted()
+        )
+      }
     )
+  }, 300_000)
 
-    // Every fixture id this run creates is scoped to this run, so none of them is a fixed id an
-    // earlier or concurrent run could have left behind. The run marker is in the id, which is what
-    // makes it this run's own. The scale family is covered at both of its ends, because that is
-    // where a collision with a fixed member of the old family would be most likely.
-    const legacyIds = [
-      LEGACY_LATE_PROJECT_CHANNEL_ID,
-      LEGACY_BOUNDARY_CHANNEL_ID,
-      LEGACY_SCALE_CHANNEL_ID,
-    ]
-    const productionIds = [
-      lateProjectChannelId(),
-      participantBoundaryChannelId(),
-      heavyVisibleChannelId(0),
-      heavyVisibleChannelId(HEAVY_SCALE_CHANNELS - 1),
-    ]
-    for (const id of productionIds) expect(id).toContain(run)
-    for (const legacyId of legacyIds) expect(productionIds).not.toContain(legacyId)
-    expect(new Set(productionIds).size).toBe(productionIds.length)
-
-    // And a run-scoped id inserts cleanly while the leftover rows are present. The probe keeps the
-    // low family's shape but takes an index no case below uses, so it never takes an identifier
-    // one of them needs.
-    const probeId = runScopedLowChannelId(900)
-    expect(probeId).toContain(run)
-    expect(legacyIds).not.toContain(probeId)
-    await db.insert(channels).values({
-      id: probeId,
-      idempotencyKey: `portable-channel-run-scoped-probe-${run}`,
+  test('the legacy seed is held for its whole lifetime and only its own rows are removed', async () => {
+    // The helper under test is the one the regression above uses, here with a lock name and ids of
+    // this run's own so it cannot touch the real legacy rows or another run's lock. "Run B" is a
+    // second caller on a second connection that starts while run A still holds the seed.
+    const lockName = `${LEGACY_SEED_LOCK_NAME}:self-test:${run}`
+    const ownedId = runScopedLowChannelId(901)
+    const leftoverId = runScopedLowChannelId(902)
+    const seedRow = (id: string, title: string): ChannelSeed => ({
+      id,
+      idempotencyKey: `portable-channel-seed-lifetime-${title}-${run}`,
       agentId: agentIds[0]!,
-      kind: 'direct_agent' as const,
-      sortOrder: 10_003,
-      title: 'Run-scoped probe channel',
-      visibility: 'participants' as const,
+      kind: 'direct_agent',
+      sortOrder: 10_100,
+      title,
+      visibility: 'participants',
       workspaceId: workspaceId!,
     })
-    const rows = await db
-      .select({ id: channels.id })
-      .from(channels)
-      .where(inArray(channels.id, [probeId, LEGACY_LATE_PROJECT_CHANNEL_ID]))
-    expect(rows.map(({ id }) => id).toSorted()).toEqual(
-      [probeId, LEGACY_LATE_PROJECT_CHANNEL_ID].toSorted()
-    )
-  })
+    const rows = [seedRow(ownedId, 'owned'), seedRow(leftoverId, 'leftover')]
+    const present = async () =>
+      (
+        await db
+          .select({ id: channels.id })
+          .from(channels)
+          .where(inArray(channels.id, [ownedId, leftoverId]))
+      )
+        .map(({ id }) => id)
+        .toSorted()
+
+    // A leftover that some earlier or other run owns: planted outside the helper, with its own key.
+    await db.insert(channels).values(seedRow(leftoverId, 'leftover-original'))
+    const events: string[] = []
+    let runB: Promise<void> | undefined
+    try {
+      const runA = withLegacyChannelSeed(
+        { client, database: db, lockName, rows },
+        async ({ insertedIds, preexistingIds }) => {
+          events.push('a:enter')
+          expect(insertedIds).toEqual([ownedId])
+          expect(preexistingIds).toEqual([leftoverId])
+          // While A holds the seed, a second connection cannot take the lock.
+          const probe = await client.reserve()
+          try {
+            const [taken] = await probe<
+              { locked: boolean }[]
+            >`select pg_try_advisory_lock(hashtextextended(${lockName}::text, 0)) as locked`
+            expect(taken?.locked).toBe(false)
+          } finally {
+            probe.release()
+          }
+          // Run B starts now and has to wait; A keeps working on its rows meanwhile.
+          runB = withLegacyChannelSeed({ client, database: db, lockName, rows }, async (seed) => {
+            events.push('b:enter')
+            // A removed the row it planted, so B plants its own instead of reusing A's, and the
+            // leftover that was never A's is still the leftover.
+            expect(seed.insertedIds).toEqual([ownedId])
+            expect(seed.preexistingIds).toEqual([leftoverId])
+            expect(await present()).toEqual([ownedId, leftoverId].toSorted())
+            events.push('b:leave')
+          })
+          await new Promise((resolve) => setTimeout(resolve, 400))
+          expect(events).toEqual(['a:enter'])
+          expect(await present()).toEqual([ownedId, leftoverId].toSorted())
+          events.push('a:leave')
+        }
+      )
+      await runA
+      await runB
+      expect(events).toEqual(['a:enter', 'a:leave', 'b:enter', 'b:leave'])
+      // Both runs removed what they planted and neither removed the leftover.
+      expect(await present()).toEqual([leftoverId])
+      const [leftover] = await db.select().from(channels).where(eq(channels.id, leftoverId))
+      expect(leftover?.title).toBe('leftover-original')
+
+      // The lock is released on a failing body as well, and the rows planted are still removed.
+      await expect(
+        withLegacyChannelSeed({ client, database: db, lockName, rows }, async () => {
+          throw new Error('body failed')
+        })
+      ).rejects.toThrow('body failed')
+      expect(await present()).toEqual([leftoverId])
+      await withLegacyChannelSeed(
+        { client, database: db, lockName, rows, waitMs: 1_000 },
+        async () => undefined
+      )
+
+      // A lock that is never released surfaces as a bounded wait, not as a hang.
+      const holder = await client.reserve()
+      try {
+        await holder`select pg_advisory_lock(hashtextextended(${lockName}::text, 0))`
+        await expect(
+          withLegacyChannelSeed(
+            { client, database: db, lockName, rows, waitMs: 300 },
+            async () => {}
+          )
+        ).rejects.toThrow(/timed out waiting/)
+        expect(await present()).toEqual([leftoverId])
+      } finally {
+        await holder`select pg_advisory_unlock_all()`
+        holder.release()
+      }
+    } finally {
+      await db.delete(channels).where(inArray(channels.id, [ownedId, leftoverId]))
+    }
+  }, 300_000)
 
   test('mid-export project grants cannot expand channel or participant reads past the snapshot', async () => {
     const reader = await createTemporaryUserSession(db, {

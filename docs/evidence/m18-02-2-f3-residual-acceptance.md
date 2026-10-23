@@ -11,7 +11,7 @@ carry, what a destination ends up holding, and which stores were never touched a
 
 This file records that round trip. It is the evidence for a new test file and nothing else:
 
-- `apps/web/test/integration/portable-export-residual-residency.test.ts` (22 tests, 694 assertions at the head this update produces; see [The refusal proof repair](#the-refusal-proof-repair))
+- `apps/web/test/integration/portable-export-residual-residency.test.ts` (23 tests; see [The refusal proof repair](#the-refusal-proof-repair) and [The second review round](#the-second-review-round) for the current counts)
 - this document
 
 No product source, no shared group or migration file, no UI, no credential and no deployment
@@ -32,10 +32,10 @@ distinct answers:
 | Member            | workspace member, listed on both projects, participant of the group, holder of a group grant                                                                                                                                            |
 | Outsider          | workspace member, listed on neither project, not a participant of the group                                                                                                                                                             |
 | Revoked           | workspace member whose membership is removed mid-file                                                                                                                                                                                   |
-| Group             | participants-only channel with an audience grant per human and an enlistment grant for an Agent                                                                                                                                         |
-| Visible project   | workspace-visible, with a channel, seven messages, two tasks and one task dependency                                                                                                                                                    |
-| Members project   | members-only, with a channel, one message and one task                                                                                                                                                                                  |
-| Artifact          | an object-store artifact with a locator and provenance, and an external-harness artifact, both linked from one message and granted to a second workspace                                                                                |
+| Group             | participants-only channel with five messages, two human participants with an audience grant each, and one Agent participant with an enlistment grant                                                                                    |
+| Visible project   | workspace-visible, with its primary channel (no messages) and a conversation channel holding four messages, a job publication and a tombstone; two tasks and one task dependency                                                        |
+| Members project   | members-only, with its primary channel (no messages) and a conversation channel holding one message; one task                                                                                                                           |
+| Artifact          | an object-store artifact with a locator and provenance, and an external-harness artifact, both linked from one message; only the object-store artifact is granted to a second workspace                                                 |
 | Content refs      | a body the local authority holds, a body it holds but cannot serve, a body it does not hold, a deleted body, an E2E-synchronized body with a cloud replica, a task objective body and a task objective body in the members-only project |
 | Execution attempt | one cloud-location attempt on the task graph                                                                                                                                                                                            |
 | Invitation        | a workspace invitation, so a credential and an email exist in the source                                                                                                                                                                |
@@ -138,11 +138,15 @@ The other 28 hold zero rows for that workspace: `addressed_agent_turns`, `artifa
 
 The counts of the 18 are also tied to the bundle: messages, channels, content refs, projects,
 tasks, task dependencies, execution attempts, agents, project members, message mentions, channel
-participants, group admissions, group audience grants and group enlistment grants each hold
-exactly as many rows as the bundle carries records for. The three group tables and the four
-workspace-event tables are the destination's own: they are what the importer writes for itself
-(the importer's membership, its freshly issued grants and admissions, and its own
-`workspace.created` event), not the source's rows carried over.
+participants and group admissions each hold exactly as many rows as the bundle carries records for. The two group grant tables are tied to the
+bundle's participants, not to any grant record, because the bundle carries none: the destination
+holds one audience grant for each human group participant and one enlistment grant for each Agent
+group participant (here two and one), and the group admissions match the participants (here three).
+The three group tables, the three workspace-event tables and the membership row are the
+destination's own: they are what the importer writes for itself (the importer's membership, its
+freshly issued grants and admissions, and its own creation event), not the source's rows carried
+over. The destination's event log holds exactly one event, `workspace.created`, and exactly one
+membership, the importer's.
 
 The 11 tables with no `workspace_id` column are counted without a filter. `workspaces` holds
 exactly the one restored workspace, `users` holds exactly the two identities the destination
@@ -158,13 +162,16 @@ round-trip half: what a restored workspace actually occupies.
 
 ### E8, offline and unavailable content, stated honestly
 
-Four content references travel as metadata only. A body that is offline in the source's local
-authority travels as `bodyState: 'local_authority'` and arrives as `availability: 'missing'`; a
-body the local authority no longer holds travels as `bodyState: 'deleted'` and arrives as
-`availability: 'deleted'`. The `storagePolicy` stays `local_authority` and the
-`synchronizationPolicy` is never upgraded: an `agent_hq_e2ee_sync` reference stays
-`agent_hq_e2ee_sync` and a `local_only` reference stays `local_only`. No body, and no replica
-row, reaches the destination.
+The owner's document carries seven content references, and every one of them travels as metadata
+only: a body the local authority holds, a body it holds but cannot serve, a body it does not hold,
+a removed body, an E2E-synchronized body, a task objective body and a task objective body in the
+members-only project (the outsider's document carries fewer; see E14). Six of the seven travel as
+`bodyState: 'local_authority'` and arrive as `availability: 'missing'`; the one the authority
+removed travels as `bodyState: 'deleted'` and arrives as `availability: 'deleted'`. The test walks
+every restored row and compares it with its bundled reference: the count is the bundle's, the
+`storagePolicy` stays `local_authority`, and the `synchronizationPolicy` is exactly the bundled one,
+never upgraded: the one `agent_hq_e2ee_sync` reference stays `agent_hq_e2ee_sync` and the six
+`local_only` references stay `local_only`. No body, and no replica row, reaches the destination.
 
 Every withheld external domain is reported: `artifact_bytes_and_locations`,
 `control_plane_identifiers`, `e2e_ciphertext_replicas`, `remote_content_envelopes` and
@@ -213,7 +220,13 @@ owner, and the bundle's claim about another user transfers nothing.
 
 The secret canaries are asserted to be present in the source first, so their absence elsewhere is
 a real exclusion and not an absence that was never there. The invitation's raw token is never
-stored: its digest is, and the digest is the canary. The private plaintext canaries are present in
+stored: its digest is, and the digest is the canary. One scan helper checks every exported bundle
+(owner's, member's and outsider's) and every restored destination dump for all of them: the
+secret canaries, the invitation's raw token and the invitation's stored digest. It asserts the
+token and the digest are nonempty and distinct before it scans, so an unset value cannot pass as an
+absent one. A separate test leaks each secret into each bundle, as a field of its own and inside an
+ordinary message body, and requires the scan to fail on every one, with the unmodified bundle as the
+control. That mutation is at the level of the scan; the exporter itself was not mutated to leak. The private plaintext canaries are present in
 the owner's bundle and in the owner's destination, absent from the outsider's bundle, and absent
 from the outsider's destination, whose only workspace membership is the outsider, as owner.
 
@@ -234,8 +247,10 @@ type, digest, sensitivity, key version, schema version, storage policy, synchron
 revision and body state of each content reference; the title, kind, priority, lifecycle state,
 creator, version, creation time, objective and objective reference of each task; the name, profile
 pins, profile state and lead flag of each Agent; and the name, icon, visibility, lifecycle state,
-sort order and source kind of each project. Nothing in the document is invented and nothing is
-altered.
+sort order and source kind of each project. "Removed" for a message means its deletion time. The
+identifiers are compared as sets in the other direction too: the document names exactly the source's
+messages (less the withheld job publication), content references, tasks, Agents and projects, no
+more and no fewer, so nothing in the document is invented and nothing is altered.
 
 Two records the workspace holds are deliberately **not** carried, and the file says so rather than
 asserting them into the document:
@@ -262,7 +277,8 @@ The first three are indistinguishable in the document, and that is the honest li
 `bodyState` says where a body lives, not whether it is servable now, and the body never travels, so
 the destination reports every body that was not removed as missing. The removal time is kept for a
 removed body and absent for the others, and the storage and synchronization policies are never
-upgraded.
+upgraded. The removal time is asserted absent on every restored reference the authority did not
+remove, not only on one of them.
 
 The fourth case is a reference the reader may not know about: a task objective in the members-only
 project is present in the owner's document and absent from the outsider's, together with the task
@@ -435,6 +451,11 @@ the sensitivity of the new file was measured against the compiled output instead
 | M4       | the mapper reports every content ref's `bodyState` as `local_authority`       | exit 1; `the withheld external domains are reported unavailable and the offline bodies are stated honestly` fails (15 pass, 1 fail)                                                         |
 | M5       | the project visibility predicate returns no condition                         | exit 1; the export reads a channel the canonical reader refuses (`Channel unavailable`), so the round trip cannot be built (0 pass, 1 fail)                                                 |
 
+These five mutations were measured in an earlier phase, against the residual file as it stood then
+(16 tests, which is why the pass counts read 15, 7 and 0). They were not re-run against the current
+file. Every test name they cite still exists. The two later throwaway mutations of the importer's
+refusal path are recorded under [The refusal proof repair](#the-refusal-proof-repair).
+
 M5 is worth reading closely: removing the export's own project-visibility predicate did not leak a
 private record, because the canonical reader is a second, independent gate. It broke the export
 instead. That is the audience claim's shape, and it is recorded here as an observation about the
@@ -532,10 +553,37 @@ reproduces the historical condition inside the lane instead of hoping for it:
 4. it then creates the run's own fixtures **while the leftovers are present**, and asserts the rows
    exist.
 
-With the pre-repair fixture the case fails on the insert with `23505 duplicate channels_pkey`, the
-recorded error. With the repair it passes. The leftover rows are participant-only channels with no
+The plant, the assertions and the removal happen inside one seed lifetime, described next. With the
+pre-repair fixture the case fails on the insert with `23505 duplicate channels_pkey`, the recorded
+error. With the repair it passes. The leftover rows are participant-only channels with no
 participants: the collision is on the primary key alone, and such a row is invisible to every
 other assertion in the file, so the leftovers cannot perturb the cases that follow.
+
+#### The seed lifetime
+
+The legacy identifiers are fixed and global, so this case is the one place two runs of the file can
+still meet. Planting with `onConflictDoNothing` and reading the rows back was not safe by itself: a
+concurrent run B that finds run A's rows asserts on A's rows, and A's workspace-scoped teardown then
+removes them from under B before B's last assertion. The case now runs inside
+`withLegacyChannelSeed`, which holds one session-level PostgreSQL advisory lock for the whole
+lifetime of the seed: acquire (a bounded wait of 120 seconds, by polling, that fails with a named
+error rather than hanging), plant, assert, remove, release. A second run waits until the first has
+finished, then plants its own rows and asserts on those. The rows a run removes are exactly the ones
+its own insert returned; a leftover that was already there (the condition under test) and every
+row that belongs to anyone else are left in place, and the presence assertions are unchanged.
+
+A self-test of the helper uses ids and a lock name of its own run, so it cannot touch the real
+legacy rows or another run's lock. It shows that a second connection cannot take the lock while the
+first run holds it; that a second caller started during the first run does not enter until the
+first has left, and then plants its own row (the first run's row is gone) while the leftover is
+still the original one, untouched by either; that the lock is released and the planted rows are
+removed when the body throws; and that a lock nobody releases becomes a bounded, named failure. Three
+copies of the file were also run at the same time against one database and all passed. The previous
+fixture also passed three concurrent copies, so the race is narrow and was **not** reproduced
+against it; the claim made here is the deterministic one from the self-test, not that the old race
+was observed. The lock protects only runs of this file that go through the helper. A run of the
+pre-repair fixture, or any other writer of these ids, is outside what a lock this file takes can
+protect.
 
 ### The bounded reproduction, and its result
 
@@ -1010,3 +1058,57 @@ rebased and not updated from main here.
 route-flow files in parallel, the Docker provisioning runner, and hosted CI. The broad integration,
 coverage, packaged and native gates remain open as stated above. No live data, credential or
 deployment was used.
+
+## The second review round
+
+The pull request's head when this round started was `a51a819aec468a8508479f66d0abe13dd55a70dc`,
+still a draft with auto-merge off. Root's review of that head asked for two bounded test repairs and
+for the evidence document to be checked against the actual assertions and fixtures. Nothing in this
+round touches product source, claims a product defect, or closes an issue.
+
+**Test repairs.**
+
+- _Invitation secrets in the bundle scans._ The three exported-bundle scans checked the secret
+  canaries but not the invitation's raw token or stored digest, which only the restored dumps
+  checked. One scan helper now covers bundles and dumps alike, asserts the token and the digest are
+  nonempty and distinct first, and a new test (`a bundle that leaks any secret, including the
+invitation token or its digest, fails the scan`) leaks each secret into each bundle, twice, and
+  requires the scan to fail on all of them.
+- _Channel-bounds seed lifetime._ Described under [The seed
+  lifetime](#the-seed-lifetime): an advisory lock for the whole seed, removal of only the rows the
+  run inserted, and a self-test of the helper.
+
+**Claims checked against the tests.** Each claim in the sections that describe the fixture and the
+round trip was compared with the test code and with fixture facts logged from a run (table census,
+per-family record counts, per-channel message counts). Corrections and additions:
+
+| Claim as it stood                                                                                     | Finding                                                                                                                                                                                                                                 | Action                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| E7: group audience and enlistment grants each hold exactly as many rows as the bundle carries records | The bundle carries no grant records, and the test only required the two tables to be populated                                                                                                                                          | Wording corrected; assertions added: audience grants equal the human group participants, enlistment grants equal the Agent group participants          |
+| E7: "the four workspace-event tables"                                                                 | There are three (`workspace_event_dispatches`, `workspace_event_sequences`, `workspace_events`); the fourth table in that group is `workspace_memberships`                                                                              | Wording corrected                                                                                                                                      |
+| E7/boundary: the destination logs its own `workspace.created` event                                   | Only the row count was asserted                                                                                                                                                                                                         | Assertion added: the destination's events are exactly `['workspace.created']`, and exactly one membership                                              |
+| E8: "Four content references travel as metadata only"                                                 | The owner's document carries seven (the fixture makes seven); four is the number of body states E14 covers                                                                                                                              | Corrected to seven, with the 6/1 split by body state and the 1/6 split by synchronization policy; the per-row test already covered all seven           |
+| E8: "a body the local authority no longer holds travels as `deleted`"                                 | Only a body the authority removed is `deleted`; a body it does not hold is `local_authority` (E14)                                                                                                                                      | Wording corrected                                                                                                                                      |
+| Fixture: "Visible project ... a channel, seven messages"                                              | The visible project has a primary channel with no messages and a conversation channel with four messages, a job publication and a tombstone: six stored rows, five carried. The group channel carries five. The document carries eleven | Table corrected                                                                                                                                        |
+| Fixture: Artifact "both ... granted to a second workspace"                                            | One grant exists, for the object-store artifact                                                                                                                                                                                         | Table and the test's comment corrected                                                                                                                 |
+| E13: "Nothing in the document is invented"                                                            | The test compared source rows to the document, not the document to the source                                                                                                                                                           | Assertions added: the document's message, content reference, task, Agent and project identifiers equal the source's, less the withheld job publication |
+| E14: removal time "absent for the others"                                                             | Asserted for one reference only                                                                                                                                                                                                         | Assertion added for every reference the authority did not remove                                                                                       |
+| E11: invitation token and digest absent from bundles                                                  | Not asserted for bundles                                                                                                                                                                                                                | Covered by the scan helper above                                                                                                                       |
+| Mutation checks M1 to M5                                                                              | Measured on an earlier 16-test file                                                                                                                                                                                                     | Labelled as such; not re-run                                                                                                                           |
+
+Checked and found consistent with the tests: the 57 / 46 / 11 table census, the 18 populated and 28
+empty workspace-scoped tables (the lists were regenerated from a run), the two provisioned users,
+the nine empty unscoped tables, the E2 and E12 ordering rules, the E13 field lists, the E5 and E6
+descriptions, the E9 and E10 descriptions, and the "does not prove" list.
+
+**Measurements** (PostgreSQL 18.4, the same local build and setup as in the refusal proof repair):
+the residual file passes 23 tests with 1,533 assertions, and the channel-bounds file passes 12
+tests with 121 assertions. Format and lint are clean on the three changed files. A mutation of the
+importer that issues too few audience grants was tried and discarded: it broke the restore itself,
+through the admissions that reference the grants, so it did not isolate the new count assertions and
+is not claimed as evidence for them.
+
+**Still open.** Hosted CI has not run on this head (a draft skips most lanes); the repository's
+pre-commit type check, the route-flow lane and the Docker provisioning runner were not run; and the
+review of this document as a whole is not complete, so nothing here is a claim of approval,
+readiness or issue closure.

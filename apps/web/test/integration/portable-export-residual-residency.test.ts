@@ -377,6 +377,18 @@ describe('residual portable export and residency acceptance', () => {
     workspaceId: string
   }
 
+  /**
+   * Every secret canary, the invitation's raw token and the invitation's stored digest must be
+   * absent from `text`. The token and the digest are asserted nonempty first: they are set up by
+   * `beforeAll`, and a scan for an empty or unset value would prove nothing.
+   */
+  function assertNoSecrets(text: string) {
+    expect(inviteToken.length).toBeGreaterThan(0)
+    expect(inviteTokenDigest.length).toBeGreaterThan(0)
+    expect(inviteTokenDigest).not.toBe(inviteToken)
+    assertAbsent(text, [...secretCanaries, inviteToken, inviteTokenDigest])
+  }
+
   /** The bundle the production export helper serves to a principal, with its raw bytes. */
   async function exportAs(principal: Principal) {
     const response = await portableWorkspaceExportResponse(
@@ -696,8 +708,8 @@ describe('residual portable export and residency acceptance', () => {
     )
 
     // An artifact with an object-store locator and provenance, and a second one held by an
-    // external harness. Both are linked from a message and granted to a second workspace. Neither
-    // travels; the import must say so.
+    // external harness. Both are linked from one message; only the object-store artifact is
+    // granted to a second workspace. Neither travels; the import must say so.
     const artifact = await agentHq.createArtifact(connection.db, workspaceId, owner.principal, {
       checksumSha256: 'c'.repeat(64),
       executionRef: canary.executionRef,
@@ -1228,6 +1240,13 @@ describe('residual portable export and residency acceptance', () => {
     const tombstone = sourceMessages.find((row) => row.deletedAt !== null)
     expect(tombstone).toBeDefined()
     assertAbsent(JSON.stringify(ownerBundle), [tombstone!.bodyText ?? ''])
+    // Nothing is invented: the document names exactly the source's messages, minus the withheld one.
+    expect([...messagesById.keys()].toSorted()).toEqual(
+      sourceMessages
+        .filter((row) => row.senderKind !== 'system')
+        .map((row) => row.id)
+        .toSorted()
+    )
 
     const sourceRefs = await connection.db
       .select()
@@ -1250,6 +1269,7 @@ describe('residual portable export and residency acceptance', () => {
         row.availability === 'deleted' ? 'deleted' : 'local_authority'
       )
     }
+    expect([...refsById.keys()].toSorted()).toEqual(sourceRefs.map((row) => row.id).toSorted())
 
     const sourceTasks = await connection.db
       .select()
@@ -1270,6 +1290,7 @@ describe('residual portable export and residency acceptance', () => {
       expect(exported!.objective).toBe(row.objective)
       expect(exported!.objectiveContentRefId).toBe(row.objectiveContentRefId)
     }
+    expect([...tasksById.keys()].toSorted()).toEqual(sourceTasks.map((row) => row.id).toSorted())
 
     const sourceAgents = await connection.db
       .select()
@@ -1287,6 +1308,7 @@ describe('residual portable export and residency acceptance', () => {
       expect(exported!.profileState).toBe(row.profileState)
       expect(exported!.isWorkspaceLead).toBe(row.isWorkspaceLead)
     }
+    expect([...agentsById.keys()].toSorted()).toEqual(sourceAgents.map((row) => row.id).toSorted())
 
     const sourceProjects = await connection.db
       .select()
@@ -1306,6 +1328,9 @@ describe('residual portable export and residency acceptance', () => {
       expect(exported!.sortOrder).toBe(row.sortOrder)
       expect(exported!.sourceKind).toBe(row.sourceKind)
     }
+    expect([...projectsById.keys()].toSorted()).toEqual(
+      sourceProjects.map((row) => row.id).toSorted()
+    )
   })
 
   test('the body states and the unknown-to-the-reader case are stated exactly', async () => {
@@ -1331,6 +1356,7 @@ describe('residual portable export and residency acceptance', () => {
     // The removal time of a body the authority removed is kept; the others were never removed.
     expect(byId.get(deletedContentRefId)?.deletedAt).not.toBeNull()
     expect(byId.get(unknownContentRefId)?.deletedAt).toBeNull()
+    for (const row of rows) if (row.availability !== 'deleted') expect(row.deletedAt).toBeNull()
     // The synchronization policy is never upgraded, whatever the source's state was.
     expect(byId.get(availableContentRefId)?.synchronizationPolicy).toBe('local_only')
     expect(byId.get(unknownContentRefId)?.synchronizationPolicy).toBe('local_only')
@@ -1570,6 +1596,22 @@ describe('residual portable export and residency acceptance', () => {
       content.channels.reduce((total, channel) => total + channel.participants.length, 0)
     )
     expect(counts.group_admissions ?? 0).toBe(groupParticipants.length)
+    // The destination issues one audience grant for each human group participant and one
+    // enlistment grant for each Agent group participant. The bundle carries no grant record, so
+    // these counts are tied to its participants, not to any grant it names.
+    const groupUsers = groupParticipants.filter((participant) => participant.kind === 'user')
+    const groupAgents = groupParticipants.filter((participant) => participant.kind === 'agent')
+    expect(groupUsers.length).toBeGreaterThan(0)
+    expect(groupAgents.length).toBeGreaterThan(0)
+    expect(counts.group_audience_grants ?? 0).toBe(groupUsers.length)
+    expect(counts.group_enlistment_grants ?? 0).toBe(groupAgents.length)
+    // What the importer writes for itself: the importer's membership and its own creation event.
+    expect(counts.workspace_memberships).toBe(1)
+    const events = await destination.db
+      .select()
+      .from(agentHq.workspaceEvents)
+      .where(eq(agentHq.workspaceEvents.workspaceId, workspaceId))
+    expect(events.map((event) => event.eventType)).toEqual(['workspace.created'])
   })
 
   test('the stores without a workspace column hold only the provisioned identities', async () => {
@@ -1848,20 +1890,35 @@ describe('residual portable export and residency acceptance', () => {
       expect(source).toContain(secret)
 
     for (const bundle of [ownerBundle, memberBundle, outsiderBundle])
-      assertAbsent(JSON.stringify(bundle), secretCanaries)
+      assertNoSecrets(JSON.stringify(bundle))
 
     const ownerTarget = await ensureOwnerDestination()
     const outsiderTarget = await ensureOutsiderDestination()
     for (const destination of [ownerTarget, outsiderTarget]) {
       const dump = JSON.stringify(await dumpStores(destination.db, workspaceId))
-      assertAbsent(dump, secretCanaries)
-      assertAbsent(dump, [inviteToken, inviteTokenDigest])
+      assertNoSecrets(dump)
     }
     // This case creates a disposable destination database and migrates the repository's schema
     // into it, which is the slowest work in this file. The other portable integration files
     // give their migration-heavy cases an explicit timeout; without one this case runs against
     // bun's five-second default and fails on a loaded machine.
   }, 300_000)
+
+  test('a bundle that leaks any secret, including the invitation token or its digest, fails the scan', () => {
+    const secrets = [...secretCanaries, inviteToken, inviteTokenDigest]
+    for (const bundle of [ownerBundle, memberBundle, outsiderBundle]) {
+      // The unmodified bundle is the control: the same scan passes on it.
+      assertNoSecrets(JSON.stringify(bundle))
+      for (const secret of secrets) {
+        // A secret in a field of its own, and a secret inside an ordinary message body.
+        expect(() => assertNoSecrets(JSON.stringify({ ...bundle, leak: secret }))).toThrow()
+        const embedded = mutableCopy(bundle)
+        const target = embedded.content.messages.find((message) => message.body.kind === 'text')
+        target!.body = { kind: 'text', text: `${String(target!.body.text)} ${secret}` }
+        expect(() => assertNoSecrets(JSON.stringify(embedded))).toThrow()
+      }
+    }
+  })
 
   test('the private plaintext reaches the authorized reader and no one else', async () => {
     const ownerTarget = await ensureOwnerDestination()
