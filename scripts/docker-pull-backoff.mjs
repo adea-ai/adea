@@ -181,8 +181,10 @@ export async function ensureImage(image, options = {}) {
 // killed process whose parent has not collected it yet. A killed group's orphans are collected by
 // the container's init, which can take longer than the reap window, so a group that holds only
 // zombies is gone for every purpose that matters here: none of its members can execute or hold a
-// side effect. Only Linux's `/proc` can tell a zombie from a running member; anywhere else, or when
-// `/proc` cannot be read, a group that `kill` still sees is reported as live.
+// side effect. That holds only when the zombie is the whole task: a leader that exited while other
+// threads run is a zombie with a thread count above one, and the group is live. Only Linux's
+// `/proc` can tell a zombie from a running member; anywhere else, when `/proc` cannot be read, or
+// when a record cannot be read in full, a group that `kill` still sees is reported as live.
 export function processGroupHasLiveMember(pgid, procRoot = '/proc') {
   if (process.platform !== 'linux' && procRoot === '/proc') return true
   let entries
@@ -202,14 +204,26 @@ export function processGroupHasLiveMember(pgid, procRoot = '/proc') {
       return true
     }
     // `comm` is parenthesised and may itself contain spaces and parentheses, so the fields that
-    // follow are located from the last closing parenthesis: state, parent, then process group.
+    // follow are located from the last closing parenthesis. They are, from there: state, parent,
+    // process group, ... and, at index 17, the thread count (fields 3, 4, 5 and 20 of proc(5)).
     const fields = stat
       .slice(stat.lastIndexOf(')') + 1)
       .trim()
       .split(/\s+/)
-    if (fields.length < 3) return true
+    // A record that cannot be read in full says nothing about which group it is in or whether it
+    // is dead, so it is never used to exclude a process.
+    if (
+      fields.length < 18 ||
+      !/^[A-Za-z]$/.test(fields[0]) ||
+      !/^\d+$/.test(fields[1]) ||
+      !/^\d+$/.test(fields[2]) ||
+      !/^\d+$/.test(fields[17])
+    )
+      return true
     if (Number(fields[2]) !== pgid) continue
-    if (fields[0] !== 'Z' && fields[0] !== 'X') return true
+    // A thread-group leader that has exited stays a zombie while its other threads run, and
+    // `/proc` lists it as Z with a thread count above one. Only a lone zombie or dead task is gone.
+    if ((fields[0] !== 'Z' && fields[0] !== 'X') || Number(fields[17]) !== 1) return true
   }
   return false
 }
