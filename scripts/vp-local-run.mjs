@@ -506,6 +506,21 @@ export function vpRunArguments({ task, passthrough, cacheEnabled }) {
   return ['run', ...(cacheEnabled ? ['--cache'] : []), task, ...passthrough]
 }
 
+/** Add one per-process Git config entry without replacing entries supplied by the caller. */
+export function withGitExcludesFile(env, excludeFile) {
+  if (typeof excludeFile !== 'string' || excludeFile === '')
+    throw new TypeError('the Git exclusion file must be a non-empty path')
+  const count = env.GIT_CONFIG_COUNT === undefined ? 0 : Number(env.GIT_CONFIG_COUNT)
+  if (!Number.isSafeInteger(count) || count < 0)
+    throw new TypeError('GIT_CONFIG_COUNT must be a non-negative integer')
+  return {
+    ...env,
+    GIT_CONFIG_COUNT: String(count + 1),
+    [`GIT_CONFIG_KEY_${count}`]: 'core.excludesFile',
+    [`GIT_CONFIG_VALUE_${count}`]: excludeFile,
+  }
+}
+
 export function readVitePlusVersion(root) {
   const manifest = join(root, 'node_modules', 'vite-plus', 'package.json')
   return existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')).version : 'absent'
