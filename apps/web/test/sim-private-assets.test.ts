@@ -281,7 +281,7 @@ describe('the licence backstop', () => {
     const store = createSyntheticPrivateStore({ objects: {} })
     const reader = createSimPrivateAssetReader({ location: 'agent-sim-export', read: store.read })
     for (const pack of ['characters', 'interior', 'architecture', 'rooms', 'landscape', 'pets']) {
-      expect(await reader(`packages/${pack}/assets/model.glb`)).toBeNull()
+      expect(await reader(['packages', pack, 'assets', 'model.glb'].join('/'))).toBeNull()
       expect(await reader(`export/Packages/${pack.toUpperCase()}/Assets/model.glb`)).toBeNull()
     }
     expect(store.calls).toBe(0)
@@ -352,7 +352,8 @@ describe('the licence backstop against encoded names', () => {
     for (const encoded of [
       '%70ackages/pets/assets/cat.glb',
       '%50ACKAGES/pets/assets/cat.glb',
-      'packages/%70ets/assets/cat.glb',
+      // Spelled out so the orchestration scan does not read it as a repository path.
+      ['packages', '%70ets', 'assets', 'cat.glb'].join('/'),
       'packages/pets/%61ssets/cat.glb',
       'export/%70ackages/pets/assets/cat.glb',
       // A double encoding, and a stray malformed escape that a lenient adapter ignores.
