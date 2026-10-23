@@ -12,8 +12,8 @@
 //     ceilings in scripts/client-bundle-budgets.mjs.
 //   - axe results come from the artifact written by scripts/audit-a11y-dev-view.mjs,
 //     checked against that lane's contract before they count.
-//   - unit results run the named test files (only with --run-unit, and only from a
-//     clean tracked tree, so the run names one HEAD).
+//   - unit results run the criterion's own `bun test` command (only with --run-unit, and
+//     only from a clean tracked tree, so the run names one HEAD).
 //   - recorded results come from a JSON file keyed by criterion id, for runs made
 //     by hand (for example, the Playwright E2E run).
 //   - unavailable, not-measured and not-claimed criteria stay that way. No status
@@ -382,18 +382,35 @@ export function unitVerdict({ exitCode, pass, fail }) {
   return pass > 0 ? 'pass' : 'invalid'
 }
 
-/** Run the named unit test files under `cwd` and report the command and its exit code. */
-export function runUnit(files, cwd = ROOT) {
+/** The argv of a unit criterion's recorded `bun test` command. Inventory commands carry no quoting. */
+function unitArgv(command) {
+  return command.trim().split(/\s+/)
+}
+
+/**
+ * Run a unit criterion under `cwd` and report the command and its exit code. With a
+ * `command` (the criterion's own, which can carry flags such as `--conditions=browser`)
+ * that exact command runs; without one, the named files run under a plain `bun test`.
+ */
+export function runUnit(files, cwd = ROOT, command) {
   const started = Date.now()
-  const argv = ['test', ...files]
-  const run = spawnSync('bun', argv, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  const argv = command === undefined ? ['bun', 'test', ...files] : unitArgv(command)
+  if (argv.slice(0, 2).join(' ') !== 'bun test')
+    throw new Error(`a unit command must start with "bun test", got: ${command}`)
+  for (const file of files)
+    if (!argv.includes(file)) throw new Error(`the unit command does not name ${file}`)
+  const run = spawnSync('bun', argv.slice(1), {
+    cwd,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  })
   if (run.error) throw run.error
   if (run.status === null) throw new Error(`bun test ended by signal ${run.signal}`)
   const output = `${run.stdout}${run.stderr}`
   const count = (label) =>
     Number(output.match(new RegExp(`^\\s*(\\d+) ${label}\\b`, 'm'))?.[1] ?? 0)
   return {
-    command: ['bun', ...argv].join(' '),
+    command: argv.join(' '),
     exitCode: run.status,
     pass: count('pass'),
     fail: count('fail'),
@@ -681,7 +698,10 @@ async function runCli(argv) {
       const head = headRevision(ROOT)
       for (const criterion of inventory.criteria) {
         if (criterion.method.kind === 'unit')
-          unitRuns[criterion.id] = { revision: head, ...runUnit(criterion.method.files) }
+          unitRuns[criterion.id] = {
+            revision: head,
+            ...runUnit(criterion.method.files, ROOT, criterion.method.command),
+          }
       }
     }
     const measurements = buildMeasurements(inventory, {
