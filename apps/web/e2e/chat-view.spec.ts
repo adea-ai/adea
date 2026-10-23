@@ -1109,6 +1109,95 @@ test('an answer that arrives after the generation switched changes nothing and t
   expect(errors).toEqual([])
 })
 
+const remount = (page: Page) =>
+  page.evaluate(() => window.dispatchEvent(new CustomEvent('chat-visual:remount')))
+const switchSession = (page: Page, away: boolean) =>
+  page.evaluate(
+    (value) =>
+      window.dispatchEvent(
+        new CustomEvent('chat-visual:switch-session', { detail: { away: value } })
+      ),
+    away
+  )
+
+test('a same-generation remount keeps the attempt resumable and retries under the same key', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'lost')
+  const fixture = page.locator('[data-chat-visual-state="conversation"]')
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await expect(list.getByText('Not confirmed')).toBeVisible()
+  await remount(page)
+  await expect(fixture).toHaveAttribute('data-chat-generation', '3')
+  await expect(list.getByText('Not confirmed')).toBeVisible()
+  await expect(page.getByText('trying again will not store it twice.')).toBeVisible()
+  await expect(page.getByText('We cannot confirm whether the host stored')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.locator('[data-chat-attachments-status]')).toBeVisible()
+  await expect(list.getByText('notes.txt')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+test('a removal whose answer was lost is still removable after a same-generation remount', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'remove-lost')
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await page.getByRole('button', { name: 'Remove notes.txt' }).click()
+  await expect(page.getByText('We could not confirm whether the file was removed.')).toBeVisible()
+  await remount(page)
+  await expect(list.getByText('notes.txt')).toBeVisible()
+  await expect(page.getByText('We could not confirm whether the file was removed.')).toBeVisible()
+  await page.getByRole('button', { name: 'Remove notes.txt' }).click()
+  await expect(list).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('an answer that lands during a same-generation remount is shown, once, on return', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'held')
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  await expect(list.getByText('notes.txt')).toBeVisible()
+  await remount(page)
+  await page.evaluate(() => window.dispatchEvent(new Event('chat-visual:release-attachments')))
+  await expect(page.locator('[data-chat-attachments-status]')).toBeVisible()
+  await expect(list.getByText('notes.txt')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
+test('selecting another conversation and back keeps the attempt, and never shows it there', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openAttachFixture(page, 'lost')
+  const fixture = page.locator('[data-chat-visual-state="conversation"]')
+  await page.locator('[data-chat-attach-input]').setInputFiles(textFile('notes.txt', 'hello'))
+  const list = page.getByRole('list', { name: 'Attached files' })
+  await expect(list.getByText('Not confirmed')).toBeVisible()
+
+  await switchSession(page, true)
+  await expect(fixture).toHaveAttribute('data-chat-away', '')
+  await expect(list).toHaveCount(0)
+  await expect(page.getByText('notes.txt')).toHaveCount(0)
+
+  await switchSession(page, false)
+  await expect(fixture).not.toHaveAttribute('data-chat-away', '')
+  await expect(fixture).toHaveAttribute('data-chat-generation', '3')
+  await expect(list.getByText('Not confirmed')).toBeVisible()
+  await expect(page.getByText('We cannot confirm whether the host stored')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Try again' }).click()
+  await expect(page.locator('[data-chat-attachments-status]')).toBeVisible()
+  await expect(list.getByText('notes.txt')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
 test('a file that cannot be read is refused in words and the rest of the selection is attached', async ({
   page,
 }) => {

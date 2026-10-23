@@ -9,13 +9,12 @@ import {
   ATTACHMENT_EXTENSIONS,
   ATTACHMENT_LIMIT_TEXT,
   ATTACHMENT_STORED_TEXT,
-  createAttachmentTray,
+  acquireAttachmentTray,
   stageSelection,
   type AttachmentFile,
   type AttachmentIdentity,
   type AttachmentPort,
   type AttachmentTrayView,
-  type UnresolvedAttachment,
 } from './model'
 
 /**
@@ -32,30 +31,18 @@ export type AttachmentsBinding = Readonly<{
   dismissNotice(): void
 }>
 
-/**
- * What a session's earlier generations could not settle, per port and session. It outlives a
- * tray (and the view that mounted it) so the next generation can show it as unreconciled.
- */
-const unsettled = new WeakMap<AttachmentPort, Map<string, readonly UnresolvedAttachment[]>>()
-
-/** One tray per session generation, disposed with the owner. */
+/** A view of this session generation's tray, released with the owner. */
 export function createAttachmentsBinding(input: {
   port: AttachmentPort
   identity: AttachmentIdentity
 }): AttachmentsBinding {
-  const sessions = unsettled.get(input.port) ?? new Map()
-  unsettled.set(input.port, sessions)
-  const session = input.identity.runtimeSessionId
-  const tray = createAttachmentTray({ ...input, carried: sessions.get(session) })
+  const { tray, release } = acquireAttachmentTray(input.port, input.identity)
   const [view, setView] = createSignal<AttachmentTrayView>(tray.view())
   const [notice, setNotice] = createSignal<string | undefined>()
   const unsubscribe = tray.subscribe(setView)
   onCleanup(() => {
-    const open = tray.unresolved()
-    if (open.length > 0) sessions.set(session, open)
-    else sessions.delete(session)
     unsubscribe()
-    tray.dispose()
+    release()
   })
   return {
     view,

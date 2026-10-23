@@ -652,6 +652,8 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   const [draftRevision, setDraftRevision] = createSignal(0)
   const [generation, setGeneration] = createSignal(3)
   const [mountKey, setMountKey] = createSignal(0)
+  // Another conversation is selected: the same view, a different session (A -> B -> A).
+  const [away, setAway] = createSignal(false)
   const [cancelCount, setCancelCount] = createSignal(0)
   const [resolution, setResolution] = createSignal('')
   const [readingPosition, setReadingPosition] =
@@ -698,12 +700,19 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
     // Captures this component's signals and pending-send state.
     // oxlint-disable-next-line unicorn/consistent-function-scoping
     const rejectSend = () => resolvePending(new Error('visual send failed'))
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
+    const switchSession = (selection: Event) => {
+      setAway((selection as CustomEvent<{ away: boolean }>).detail.away)
+      setMountKey((key) => key + 1)
+    }
     window.addEventListener('chat-visual:remount', remount)
+    window.addEventListener('chat-visual:switch-session', switchSession)
     window.addEventListener('chat-visual:next-generation', nextGeneration)
     window.addEventListener('chat-visual:resolve-send', resolveSend)
     window.addEventListener('chat-visual:reject-send', rejectSend)
     onCleanup(() => {
       window.removeEventListener('chat-visual:remount', remount)
+      window.removeEventListener('chat-visual:switch-session', switchSession)
       window.removeEventListener('chat-visual:next-generation', nextGeneration)
       window.removeEventListener('chat-visual:resolve-send', resolveSend)
       window.removeEventListener('chat-visual:reject-send', rejectSend)
@@ -741,6 +750,7 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
       data-chat-visual-state={state}
       data-chat-session-id={sessionId}
       data-chat-generation={generation()}
+      data-chat-away={away() ? '' : undefined}
       data-chat-draft={draft().text}
       data-chat-cancel-count={cancelCount()}
       data-chat-resolution={resolution()}
@@ -750,7 +760,11 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
           {() => {
             return (
               <ChatView
-                conversation={activeConversation()}
+                conversation={
+                  away()
+                    ? { ...activeConversation(), runtimeSessionId: `${sessionId}-other` }
+                    : activeConversation()
+                }
                 model={currentModel}
                 authority="chat"
                 // The closable stream reports its own state; every other fixture is simply connected.

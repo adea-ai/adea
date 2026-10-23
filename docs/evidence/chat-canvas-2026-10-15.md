@@ -153,7 +153,12 @@ saying the file may still be stored on this device, and can only be dismissed. A
 removal that is refused says "not removed"; one whose answer is lost says it could not
 confirm, and removing again is the host's same-id retry. A generation switch carries
 whatever was unconfirmed into the next generation as the same unreconciled item, never
-silently dropping it. Checkpoint restore is
+silently dropping it. Only a real generation advance does that: a remount of the same
+generation, or selecting another conversation and coming back, finds the same tray with
+its upload key, bytes and removal id, so the attempt stays resumable. An answer that
+lands while no view is watching is kept and shown on return; it never writes a closed
+view. Failure wording for an unknown outcome is outcome-neutral ("The host did not give a
+usable answer."), never "not stored". Checkpoint restore is
 offered only for a checkpoint whose own payload says `restore.supported` and only
 when the host supplies `dev.session.restoreCheckpoint`; the host adapter is absent in
 production at this revision, so a real checkpoint reports `supported: false` and is

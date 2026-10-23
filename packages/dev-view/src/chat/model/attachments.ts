@@ -231,9 +231,23 @@ const FAILURE_TEXT: Partial<Record<DevError['code'], string>> = {
   recovery_required: 'The host needs to recover before it can store attachments here.',
 }
 
-/** What can be said when the host refused or failed, in its own terms and never as stored. */
-export function attachmentFailureText(code: DevError['code'] | undefined, hostMessage: string) {
-  return (code ? FAILURE_TEXT[code] : undefined) ?? (hostMessage || 'The file was not stored.')
+/**
+ * What can be said when the host refused or failed, in its own terms. The fallback never states
+ * an outcome: for a refusal it says only that the host refused, and for an unknown outcome it
+ * says only that no usable answer arrived, so it cannot contradict what may have been committed.
+ */
+export function attachmentFailureText(
+  code: DevError['code'] | undefined,
+  hostMessage: string,
+  outcome: 'refused' | 'unknown' = 'unknown'
+) {
+  return (
+    (code ? FAILURE_TEXT[code] : undefined) ??
+    (hostMessage ||
+      (outcome === 'refused'
+        ? 'The host refused the request.'
+        : 'The host did not give a usable answer.'))
+  )
 }
 
 /**
@@ -385,8 +399,13 @@ export function createAttachmentTray(input: {
       }))
     } catch (error) {
       const code = errorCode(error)
-      const reason = attachmentFailureText(code, error instanceof Error ? error.message : '')
-      if (code !== undefined && DEFINITE_FAILURES.includes(code)) {
+      const definite = code !== undefined && DEFINITE_FAILURES.includes(code)
+      const reason = attachmentFailureText(
+        code,
+        error instanceof Error ? error.message : '',
+        definite ? 'refused' : 'unknown'
+      )
+      if (definite) {
         forget(id)
         patch(id, (item) => ({ ...withoutMessage(item), state: 'failed', message: reason }))
         return
@@ -477,7 +496,7 @@ export function createAttachmentTray(input: {
           ...withoutMessage(current),
           state: 'stored',
           message: refused
-            ? `The file was not removed. ${attachmentFailureText(code, error instanceof Error ? error.message : '')}`
+            ? `The file was not removed. ${attachmentFailureText(code, error instanceof Error ? error.message : '', 'refused')}`
             : UNCONFIRMED_REMOVAL_TEXT,
         }))
       }
@@ -521,4 +540,57 @@ export async function stageSelection(
     }
   }
   return refusals.length > 0 ? refusals.join(' ') : undefined
+}
+
+type TrayEntry = { generation: number; tray: AttachmentTray; subscribers: number }
+
+/** The tray of each session's current generation, per port. */
+const trays = new WeakMap<AttachmentPort, Map<string, TrayEntry>>()
+
+/**
+ * Finds or creates the tray of a session generation. The tray outlives the view that uses it, so
+ * selecting another conversation and coming back, or remounting the surface, finds the same tray
+ * with its upload keys, bytes and removal ids: an attempt stays resumable. Only a real generation
+ * advance retires a tray, and what it could not settle is carried into the next generation as
+ * unreconciled, because the old generation can no longer be asked. `release` is called when a
+ * view is gone; a view that is gone has unsubscribed, so a late answer lands in the tray and never
+ * in a stale view. A tray with nothing staged and no viewers is dropped.
+ */
+export function acquireAttachmentTray(
+  port: AttachmentPort,
+  identity: AttachmentIdentity
+): { tray: AttachmentTray; release(): void } {
+  const sessions = trays.get(port) ?? new Map<string, TrayEntry>()
+  trays.set(port, sessions)
+  const session = identity.runtimeSessionId
+  let entry = sessions.get(session)
+  if (!entry || entry.generation !== identity.generation) {
+    const carried = entry?.tray.unresolved()
+    entry?.tray.dispose()
+    entry = {
+      generation: identity.generation,
+      tray: createAttachmentTray({ port, identity, carried }),
+      subscribers: 0,
+    }
+    sessions.set(session, entry)
+  }
+  const held = entry
+  held.subscribers += 1
+  let released = false
+  return {
+    tray: held.tray,
+    release() {
+      if (released) return
+      released = true
+      held.subscribers -= 1
+      if (
+        held.subscribers === 0 &&
+        held.tray.view().items.length === 0 &&
+        sessions.get(session) === held
+      ) {
+        sessions.delete(session)
+        held.tray.dispose()
+      }
+    },
+  }
 }
