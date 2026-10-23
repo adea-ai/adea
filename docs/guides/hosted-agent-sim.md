@@ -162,6 +162,12 @@ entitlement policy, the durable storage access and the hosting target; the
 [approved service composition](../plans/hosted-sim-approved-service-composition.md)
 lists each of those as a decision root owns.
 
+The first-cohort policy is decided: a deny-by-default per-workspace allowlist, written as
+`createSimAllowlistPolicy` over a lookup port that has no store yet. The hosted service withholds
+the third-party packs the provenance record marks no-redistribution until counsel confirms, and the
+next stable desktop release treats Virtual as online-only. See the decisions table in the approved
+service composition.
+
 Deployment, hostname/DNS, bindings, credentials, access changes, and any live
 rollout require separate explicit authorization. The local reference stores and
 entitlement fixture are not production substitutes. No live completion is claimed.

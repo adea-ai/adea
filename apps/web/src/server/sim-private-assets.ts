@@ -30,6 +30,36 @@ export const SIM_PRIVATE_ASSET_LOCATION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
  */
 const PERCENT_ESCAPE_PATH = /%(?:2e|2f|5c|00)/iu
 
+/**
+ * Key prefixes the hosted service never reads, whatever the entitlement says.
+ *
+ * These are the third-party packs that the asset provenance record marks "Redistribution allowed?
+ * No" (five seats, purchased direct from the vendor). Hosted delivery would reach beyond the seat
+ * holders, so they are withheld until counsel confirms otherwise. Adea-owned content
+ * (`scenes/sim/assets/`) is not listed. A key matches when it starts with a prefix or carries one
+ * after a path separator, in any letter case.
+ *
+ * This is a request-side backstop, not a licence audit. It cannot know how an export lays out its
+ * files, so the export has to be checked against the provenance record before any upload.
+ */
+export const SIM_LICENCE_WITHHELD_PREFIXES: readonly string[] = [
+  'packages/characters/assets/',
+  'packages/interior/assets/',
+  'packages/architecture/assets/',
+  'packages/rooms/assets/',
+  'packages/landscape/assets/',
+  'packages/pets/assets/',
+]
+
+/** True when the key falls under a withheld prefix. */
+export function simAssetKeyWithheld(key: string, withheld: readonly string[]): boolean {
+  const lower = key.toLowerCase()
+  return withheld.some((prefix) => {
+    const needle = prefix.toLowerCase()
+    return lower.startsWith(needle) || lower.includes(`/${needle}`)
+  })
+}
+
 export type SimPrivateAssetRequest = Readonly<{ location: string; key: string }>
 
 /** Reads one object from the named private location, or null when it is absent. */
@@ -121,13 +151,20 @@ export function createSimPrivateAssetReader(options: {
   location: string
   /** Reads one object from that location. */
   read: SimPrivateAssetStore
+  /**
+   * Key prefixes that are never read. Defaults to the third-party packs that are not cleared for
+   * hosted delivery. A withheld key answers as absent and the store is not asked.
+   */
+  withheld?: readonly string[]
 }): SimPrivateAssetReader {
+  const withheld = options.withheld ?? SIM_LICENCE_WITHHELD_PREFIXES
   const location = options.location
   const usable = typeof location === 'string' && SIM_PRIVATE_ASSET_LOCATION.test(location)
   return async (path) => {
     if (!usable) return null
     const key = simPrivateAssetKey(path)
     if (!key) return null
+    if (simAssetKeyWithheld(key, withheld)) return null
     const asset = await options.read({ location, key })
     if (asset === null || asset === undefined) return null
     return privateAsset(asset)

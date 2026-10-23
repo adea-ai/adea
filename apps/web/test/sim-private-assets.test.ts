@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test'
 
 import {
   createSimPrivateAssetReader,
+  SIM_LICENCE_WITHHELD_PREFIXES,
+  simAssetKeyWithheld,
   simPrivateAssetKey,
   SIM_PRIVATE_ASSET_LOCATION,
 } from '../src/server/sim-private-assets'
@@ -270,5 +272,48 @@ describe('the private reader', () => {
     // A caller that mutates its own options afterwards does not move the reader.
     options.location = 'https://public.example/agent-sim'
     expect(await reader('engine.js')).toEqual(object)
+  })
+})
+
+describe('the licence backstop', () => {
+  test('a third-party pack key is answered as absent and the store is not asked', async () => {
+    const store = createSyntheticPrivateStore({ objects: {} })
+    const reader = createSimPrivateAssetReader({ location: 'agent-sim-export', read: store.read })
+    for (const pack of ['characters', 'interior', 'architecture', 'rooms', 'landscape', 'pets']) {
+      expect(await reader(`packages/${pack}/assets/model.glb`)).toBeNull()
+      expect(await reader(`export/Packages/${pack.toUpperCase()}/Assets/model.glb`)).toBeNull()
+    }
+    expect(store.calls).toBe(0)
+  })
+
+  test('an Adea-owned key and an unrelated key still read', async () => {
+    const store = createSyntheticPrivateStore({
+      objects: { 'scenes/sim/assets/tile.png': object, 'packages/other/assets/x.js': object },
+    })
+    const reader = createSimPrivateAssetReader({ location: 'agent-sim-export', read: store.read })
+    expect(await reader('scenes/sim/assets/tile.png')).toEqual(object)
+    expect(await reader('packages/other/assets/x.js')).toEqual(object)
+  })
+
+  test('a name that only resembles a prefix is not withheld', () => {
+    expect(simAssetKeyWithheld('mypackages/pets/assets/x', SIM_LICENCE_WITHHELD_PREFIXES)).toBe(
+      false
+    )
+    expect(simAssetKeyWithheld('packages/pets/assets-extra/x', SIM_LICENCE_WITHHELD_PREFIXES)).toBe(
+      false
+    )
+  })
+
+  test('a caller can narrow the list once counsel clears a pack', async () => {
+    const store = createSyntheticPrivateStore({
+      objects: { 'packages/pets/assets/cat.glb': object },
+    })
+    const reader = createSimPrivateAssetReader({
+      location: 'agent-sim-export',
+      read: store.read,
+      withheld: SIM_LICENCE_WITHHELD_PREFIXES.filter((prefix) => !prefix.includes('/pets/')),
+    })
+    expect(await reader('packages/pets/assets/cat.glb')).toEqual(object)
+    expect(await reader('packages/rooms/assets/room.glb')).toBeNull()
   })
 })
