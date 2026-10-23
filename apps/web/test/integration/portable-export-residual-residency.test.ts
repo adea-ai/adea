@@ -126,6 +126,52 @@ function assertDisposableScratch(name: string) {
     throw new Error(`refusing to use ${name}`)
 }
 
+type ScratchLabel = 'owner' | 'outsider' | 'refusal'
+type ScratchConnection = { close(): Promise<unknown> }
+type OwnedScratch<T extends ScratchConnection> = { connection?: T; name: string }
+
+/**
+ * Record ownership as soon as CREATE succeeds. If opening or migration fails, attempt connection
+ * close and database drop independently, then rethrow the original failure. Failed cleanup remains
+ * in the registry for afterAll to retry.
+ */
+async function provisionOwnedScratch<T extends ScratchConnection>(options: {
+  drop: (name: string) => Promise<unknown>
+  label: ScratchLabel
+  migrate: (connection: T) => Promise<unknown>
+  open: (name: string) => T
+  owned: Partial<Record<ScratchLabel, OwnedScratch<T>>>
+  create: (name: string) => Promise<unknown>
+}): Promise<{ created: T; name: string }> {
+  const name = scratchNameFor(options.label)
+  assertDisposableScratch(name)
+  await options.create(name)
+  const record: OwnedScratch<T> = { name }
+  options.owned[options.label] = record
+
+  try {
+    const created = options.open(name)
+    record.connection = created
+    await options.migrate(created)
+    return { created, name }
+  } catch (error) {
+    let closed = record.connection === undefined
+    try {
+      await record.connection?.close()
+      closed = true
+    } catch {
+      // Preserve the open or migration error; afterAll will retry the recorded close.
+    }
+    try {
+      await options.drop(name)
+      if (closed) delete options.owned[options.label]
+    } catch {
+      // Preserve ownership so afterAll can retry this drop by the same guarded name.
+    }
+    throw error
+  }
+}
+
 function urlForDatabase(database: string): string {
   const url = new URL(provisioningUrl!)
   url.pathname = `/${database}`
@@ -256,9 +302,7 @@ describe('residual portable export and residency acceptance', () => {
   let ownerDestination: agentHq.DatabaseConnection | undefined
   let outsiderDestination: agentHq.DatabaseConnection | undefined
   let refusalDestination: agentHq.DatabaseConnection | undefined
-  let ownerScratch: string | undefined
-  let outsiderScratch: string | undefined
-  let refusalScratch: string | undefined
+  const ownedScratches: Partial<Record<ScratchLabel, OwnedScratch<agentHq.DatabaseConnection>>> = {}
 
   let owner: Session
   let member: Session
@@ -309,13 +353,15 @@ describe('residual portable export and residency acceptance', () => {
     return { bundle: text ? (JSON.parse(text) as PortableWorkspaceExport) : null, response, text }
   }
 
-  async function createScratch(label: 'owner' | 'outsider' | 'refusal') {
-    const name = scratchNameFor(label)
-    assertDisposableScratch(name)
-    await admin.client.unsafe(`create database "${name}"`)
-    const created = agentHq.createDatabase(urlForDatabase(name))
-    await migrate(created.db, { migrationsFolder })
-    return { created, name }
+  async function createScratch(label: ScratchLabel) {
+    return provisionOwnedScratch({
+      create: (name) => admin.client.unsafe(`create database "${name}"`),
+      drop: (name) => admin.client.unsafe(`drop database if exists "${name}" with (force)`),
+      label,
+      migrate: (created) => migrate(created.db, { migrationsFolder }),
+      open: (name) => agentHq.createDatabase(urlForDatabase(name)),
+      owned: ownedScratches,
+    })
   }
 
   /**
@@ -349,7 +395,6 @@ describe('residual portable export and residency acceptance', () => {
   async function createOwnerDestination(): Promise<agentHq.DatabaseConnection> {
     const scratch = await createScratch('owner')
     const destination = scratch.created
-    ownerScratch = scratch.name
     ownerDestination = destination
     await provisionUsers(destination, ownerBundle, owner.principal)
     const imported = await importInto(destination, ownerBundle, owner.principal)
@@ -361,7 +406,6 @@ describe('residual portable export and residency acceptance', () => {
   async function createOutsiderDestination(): Promise<agentHq.DatabaseConnection> {
     const scratch = await createScratch('outsider')
     const destination = scratch.created
-    outsiderScratch = scratch.name
     outsiderDestination = destination
     await provisionUsers(destination, outsiderBundle, outsider.principal)
     const imported = await importInto(destination, outsiderBundle, outsider.principal)
@@ -371,7 +415,6 @@ describe('residual portable export and residency acceptance', () => {
 
   async function createRefusalDestination(): Promise<agentHq.DatabaseConnection> {
     const scratch = await createScratch('refusal')
-    refusalScratch = scratch.name
     refusalDestination = scratch.created
     return refusalDestination
   }
@@ -805,14 +848,38 @@ describe('residual portable export and residency acceptance', () => {
   }, 900_000)
 
   afterAll(async () => {
-    const closers = [ownerDestination, outsiderDestination, refusalDestination]
-    for (const destination of closers) await destination?.close()
-    for (const scratch of [ownerScratch, outsiderScratch, refusalScratch]) {
-      if (!scratch) continue
-      assertDisposableScratch(scratch)
-      await admin.client.unsafe(`drop database if exists "${scratch}" with (force)`)
+    const cleanupErrors: unknown[] = []
+    const scratchRecords = Object.values(ownedScratches).filter(
+      (record): record is OwnedScratch<agentHq.DatabaseConnection> => record !== undefined
+    )
+    for (const destination of new Set([
+      ownerDestination,
+      outsiderDestination,
+      refusalDestination,
+      ...scratchRecords.map((record) => record.connection),
+    ])) {
+      if (!destination) continue
+      try {
+        await destination.close()
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
     }
-    await admin?.close()
+    for (const record of scratchRecords) {
+      try {
+        assertDisposableScratch(record.name)
+        await admin.client.unsafe(`drop database if exists "${record.name}" with (force)`)
+        for (const [label, owned] of Object.entries(ownedScratches))
+          if (owned === record) delete ownedScratches[label as ScratchLabel]
+      } catch (error) {
+        cleanupErrors.push(error)
+      }
+    }
+    try {
+      await admin?.close()
+    } catch (error) {
+      cleanupErrors.push(error)
+    }
     if (connection && workspaceId) {
       const db = connection.db
       await db
@@ -873,7 +940,88 @@ describe('residual portable export and residency acceptance', () => {
       await db.delete(agentHq.users).where(inArray(agentHq.users.id, userIds))
     }
     await connection?.close()
+    if (cleanupErrors.length > 0)
+      throw new AggregateError(cleanupErrors, 'failed to clean up disposable export databases')
   }, 600_000)
+
+  test('migration failure keeps scratch ownership and attempts independent cleanup', async () => {
+    const owned: Partial<Record<ScratchLabel, OwnedScratch<{ close(): Promise<void> }>>> = {}
+    const connectionCloseError = new Error('close failed')
+    const migrationError = new Error('migration failed')
+    const fakeConnection = {
+      close: async () => {
+        throw connectionCloseError
+      },
+    }
+    let createdName: string | undefined
+    let closed = false
+    let dropped = false
+    let ownedAtOpen: string | undefined
+    const openedConnection = {
+      close: async () => {
+        closed = true
+        await fakeConnection.close()
+      },
+    }
+
+    await expect(
+      provisionOwnedScratch({
+        create: async (name) => {
+          createdName = name
+        },
+        drop: async (name) => {
+          dropped = name === createdName
+          throw new Error('drop failed')
+        },
+        label: 'owner',
+        migrate: async () => {
+          throw migrationError
+        },
+        open: (name) => {
+          ownedAtOpen = owned.owner?.name
+          expect(ownedAtOpen).toBe(name)
+          return openedConnection
+        },
+        owned,
+      })
+    ).rejects.toBe(migrationError)
+
+    expect(closed).toBe(true)
+    expect(dropped).toBe(true)
+    expect(ownedAtOpen).toBe(createdName)
+    expect(owned.owner?.name).toBe(createdName)
+    expect(owned.owner?.connection).toBe(openedConnection)
+  })
+
+  test('open failure leaves the created scratch name registered for teardown', async () => {
+    const owned: Partial<Record<ScratchLabel, OwnedScratch<{ close(): Promise<void> }>>> = {}
+    const openError = new Error('open failed')
+    let createdName: string | undefined
+    let dropped = false
+
+    await expect(
+      provisionOwnedScratch({
+        create: async (name) => {
+          createdName = name
+        },
+        drop: async (name) => {
+          dropped = name === createdName
+          throw new Error('drop failed')
+        },
+        label: 'outsider',
+        migrate: async () => {},
+        open: (name) => {
+          expect(owned.outsider?.name).toBe(name)
+          throw openError
+        },
+        owned,
+      })
+    ).rejects.toBe(openError)
+
+    expect(dropped).toBe(true)
+    expect(owned.outsider?.name).toBe(createdName)
+    expect(owned.outsider?.connection).toBeUndefined()
+  })
 
   test('the authorized bundle is nonempty in every family the format claims to carry', () => {
     expect(validatePortableWorkspaceExport(ownerBundle).ok).toBe(true)
