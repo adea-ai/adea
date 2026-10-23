@@ -180,37 +180,37 @@ also writes a `.wrangler/deploy/config.json` redirect. The legacy
 no-store` with `X-Robots-Tag: noindex, nofollow, noarchive`
   (`src/start/http-policy.mjs`).
 
-## Scene manifests and the Agent Sim engine guard
+## Scene manifests and the hosted Agent Sim
 
-This repository ships manifests by default. The spatial engine (models,
-textures, audio, runtime code) lives in the private `agent-sim` repo, and the
-shell mounts it only for entitled deployments
-(`packages/spatial/src/engine.ts`):
+This repository ships manifests only. The spatial engine (models, textures,
+audio, runtime code) lives in the private `agent-sim` repo and is never built
+into, packed with, or served from this app's assets, on the web or on desktop.
+Agent Sim is an optional online-first surface served by a separately hosted
+origin behind a session gate; see
+[`docs/guides/hosted-agent-sim.md`](../../docs/guides/hosted-agent-sim.md) for the
+launch, session and private-asset boundaries.
 
-- **Official web domains** (`adea.dev`, `adea.io`, including subdomains): the
-  engine is served same-origin from `/assets/agent-sim/` and the virtual view
-  mounts it. Forked sites on other domains are refused by host before any
-  engine fetch.
-- **Packed builds:** `scripts/pack-agent-sim.mjs` stages an engine pack
-  (`ADEA_AGENT_SIM_DIST`) into the app assets, writing the same-origin
-  `engine.json` the loader probes. Desktop release builds pack via
-  `release-assets.yml` when `AGENT_SIM_REF` and `AGENT_SIM_DEPLOY_TOKEN` are
-  configured; local development can point `ADEA_AGENT_SIM_DIST` at a local
-  agent-sim checkout to exercise the mounted view.
-- **Everything else:** plain checkouts, forks, and previews stay
-  manifests-only and render the offline fallback. They do not fetch engine
-  code or require credentials.
+- **No engine in the build:** `scripts/pack-agent-sim.mjs` is a migration
+  refusal. Setting `ADEA_AGENT_SIM_DIST` fails the build instead of staging a
+  pack, and `/assets/agent-sim/` is not a mount of this app.
+- **Hosted surface:** the HQ, room designer and character designer entries
+  launch through `POST /api/sim/launch`. The production route issues nothing
+  until an entitlement authority and `ADEA_SIM_ORIGIN` are installed, and a
+  configured hostname alone grants nothing.
+- **Everything else:** plain checkouts, forks, previews and builds without a
+  configured Sim origin render the offline or unavailable notice. They do not
+  fetch engine code or require credentials, and Chat and Dev do not depend on
+  Sim availability.
 
 `scripts/sync-assets.mjs` stages the tracked protocol manifests
 (`packages/spatial/data`) into the app's public assets directory, so
 plain checkouts build and test with zero setup.
 
-- **Local dev:** nothing to fetch. `bun run dev` syncs manifests automatically
-  and renders the fallback unless a local engine pack was staged.
+- **Local dev:** nothing to fetch. `bun run dev` syncs manifests automatically.
 - **Cloudflare Builds:** no asset variables needed.
-- **GitHub release lanes:** `release-assets.yml` packs the engine into the
-  desktop bundle when `AGENT_SIM_REF`/`AGENT_SIM_DEPLOY_TOKEN` are set;
-  otherwise it builds manifests-only.
+- **GitHub release lanes:** `release-assets.yml` builds the desktop bundle
+  without the engine and runs `scripts/check-desktop-sim-payload.mjs --archive`
+  on the installed archive before publication.
 
 ## Release attribution (telemetry)
 
