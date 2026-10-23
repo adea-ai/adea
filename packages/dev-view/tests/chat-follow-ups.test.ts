@@ -305,6 +305,141 @@ describe('follow-up queue controller', () => {
   })
 })
 
+/** A port whose answers the test releases by hand, in any order. */
+function gatedPort() {
+  type Gate = { resolve(value: FollowUpQueueSnapshot): void; fail(error: Error): void }
+  const gates: Record<'read' | 'enqueue' | 'remove' | 'deliver', Gate[]> = {
+    read: [],
+    enqueue: [],
+    remove: [],
+    deliver: [],
+  }
+  const wait = (method: keyof typeof gates) =>
+    new Promise<FollowUpQueueSnapshot>((resolve, fail) => {
+      gates[method].push({ resolve, fail })
+    })
+  const port: FollowUpQueuePort = {
+    read: () => wait('read'),
+    enqueue: () => wait('enqueue'),
+    remove: () => wait('remove'),
+    deliver: () => wait('deliver'),
+  }
+  return { port, gates }
+}
+const settled = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+
+async function readyAt(version: number) {
+  const gated = gatedPort()
+  const made = ready(gated.port)
+  const first = made.controller.refresh()
+  gated.gates.read.shift()!.resolve(snapshot({ version }))
+  await first
+  return { ...gated, ...made }
+}
+
+describe('follow-up queue races', () => {
+  test('a refresh that lands during a change is not overwritten by the change answering late', async () => {
+    const { controller, gates } = await readyAt(3)
+    const adding = controller.enqueue('hello')
+    await settled()
+    // The event-prompted read finds v5 while our v4 is still on its way.
+    controller.observeVersion(5)
+    await settled()
+    gates.read.shift()!.resolve(snapshot({ version: 5, items: [item('x'), item('y')] }))
+    await settled()
+    expect(controller.view().snapshot?.version).toBe(5)
+    gates.enqueue.shift()!.resolve(snapshot({ version: 4, items: [item('x')] }))
+    expect(await adding).toBe(true)
+    expect(controller.view().snapshot?.version).toBe(5)
+    expect(controller.view().snapshot?.items.map((entry) => entry.id)).toEqual(['x', 'y'])
+    expect(controller.view().pending).toBeUndefined()
+  })
+
+  test('a failed change settles on the newest queue, not the one it started from', async () => {
+    const { controller, gates } = await readyAt(3)
+    const adding = controller.enqueue('hello')
+    await settled()
+    controller.observeVersion(5)
+    await settled()
+    gates.read.shift()!.resolve(snapshot({ version: 5, items: [item('x')] }))
+    await settled()
+    gates.enqueue.shift()!.fail(reject('invalid_state', 'Nothing can be queued right now.'))
+    expect(await adding).toBe(false)
+    const view = controller.view()
+    expect(view.snapshot?.version).toBe(5)
+    expect(view.pending).toBeUndefined()
+    expect(view.notice?.message).toBe('Nothing can be queued right now.')
+  })
+
+  test('stale_version while a newer read already landed keeps the newer queue', async () => {
+    const { controller, gates } = await readyAt(3)
+    const adding = controller.enqueue('hello')
+    await settled()
+    controller.observeVersion(5)
+    await settled()
+    gates.read.shift()!.resolve(snapshot({ version: 5, items: [item('x')] }))
+    await settled()
+    gates.enqueue.shift()!.fail(reject('stale_version'))
+    await settled()
+    // The re-read the stale answer asks for returns an older view than the one already shown.
+    gates.read.shift()!.resolve(snapshot({ version: 4 }))
+    expect(await adding).toBe(false)
+    expect(controller.view().snapshot?.version).toBe(5)
+    expect(controller.view().notice?.code).toBe('stale_version')
+  })
+
+  test('a permanent refusal during a change is not undone by the change answering', async () => {
+    for (const outcome of ['resolve', 'fail', 'stale'] as const) {
+      const { controller, gates } = await readyAt(3)
+      const adding = controller.enqueue('hello')
+      await settled()
+      const refreshing = controller.refresh()
+      gates.read.shift()!.fail(reject('capability_denied'))
+      await refreshing
+      expect(controller.view().status).toBe('unavailable')
+      if (outcome === 'resolve') gates.enqueue.shift()!.resolve(snapshot({ version: 4 }))
+      else if (outcome === 'fail') gates.enqueue.shift()!.fail(reject('invalid_state'))
+      else gates.enqueue.shift()!.fail(reject('stale_version'))
+      await adding
+      await settled()
+      expect(controller.view().status).toBe('unavailable')
+      expect(controller.view().snapshot).toBeUndefined()
+      expect(gates.read).toHaveLength(0)
+    }
+  })
+
+  test('a read that started before a refusal cannot bring the queue back; a new refresh can', async () => {
+    const { controller, gates } = await readyAt(3)
+    const late = controller.refresh()
+    const refusing = controller.refresh()
+    const [lateGate, refusingGate] = gates.read.splice(0)
+    refusingGate!.fail(reject('stale_generation'))
+    await refusing
+    expect(controller.view().status).toBe('unavailable')
+    lateGate!.resolve(snapshot({ version: 9 }))
+    await late
+    // The success was asked for before the refusal, so it is dropped.
+    expect(controller.view().status).toBe('unavailable')
+    const again = controller.refresh()
+    gates.read.shift()!.resolve(snapshot({ version: 9 }))
+    await again
+    expect(controller.view().status).toBe('ready')
+    expect(controller.view().snapshot?.version).toBe(9)
+  })
+
+  test('a late older read never lowers the version shown', async () => {
+    const { controller, gates } = await readyAt(3)
+    const older = controller.refresh()
+    const newer = controller.refresh()
+    const [olderGate, newerGate] = gates.read.splice(0)
+    newerGate!.resolve(snapshot({ version: 8 }))
+    await newer
+    olderGate!.resolve(snapshot({ version: 6 }))
+    await older
+    expect(controller.view().snapshot?.version).toBe(8)
+  })
+})
+
 describe('follow-up wording', () => {
   test('never claims more than the host said', () => {
     expect(followUpDeliveryText(snapshot())).toBe('')

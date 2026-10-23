@@ -205,26 +205,39 @@ export function createFollowUpQueueController(input: {
     for (const listener of listeners) listener(current)
   }
   const keep = (patch: Partial<FollowUpQueueView>) => set({ ...current, ...patch })
-  const settle = (snapshot: FollowUpQueueSnapshot, notice?: FollowUpNotice) =>
-    set({
-      status: 'ready',
-      snapshot,
-      ...(notice ? { notice } : {}),
-    })
+  // A permanent refusal ends this controller's queue until the person refreshes on purpose. Every
+  // answer that was still in flight when it happened belongs to an earlier epoch and is dropped,
+  // so a late success cannot bring a refused queue back.
+  let epoch = 0
+  const refuse = () => {
+    epoch += 1
+    lastAttempt = undefined
+    set({ status: 'unavailable' })
+  }
+  // The newer of two snapshots. Answers arrive in any order (a mutation, a read the event
+  // prompted, a refresh), so the state shown is always the highest version seen, not the last
+  // answer to land and not the snapshot a request happened to start from.
+  const newest = (incoming: FollowUpQueueSnapshot): FollowUpQueueSnapshot => {
+    const shown = current.snapshot
+    return shown && shown.version > incoming.version ? shown : incoming
+  }
 
   const read = async (): Promise<boolean> => {
+    const startedIn = epoch
     try {
       const snapshot = await input.port.read(input.identity)
-      if (disposed) return false
-      const previous = current.snapshot
-      // Never move to an older queue because a slow read arrived late.
-      if (previous && snapshot.version < previous.version) return true
-      set({ status: 'ready', snapshot, ...(current.pending ? { pending: current.pending } : {}) })
+      if (disposed || startedIn !== epoch) return false
+      set({
+        status: 'ready',
+        snapshot: newest(snapshot),
+        ...(current.pending ? { pending: current.pending } : {}),
+        ...(current.notice ? { notice: current.notice } : {}),
+      })
       return true
     } catch (error) {
-      if (disposed) return false
+      if (disposed || startedIn !== epoch) return false
       const code = errorCode(error)
-      if (code && REFUSED_FOR_GOOD.includes(code)) set({ status: 'unavailable' })
+      if (code && REFUSED_FOR_GOOD.includes(code)) refuse()
       else if (current.snapshot)
         keep({
           notice: {
@@ -263,41 +276,54 @@ export function createFollowUpQueueController(input: {
             messageId: `message-${randomId()}`.slice(0, 128),
           }
     lastAttempt = attempt
+    const startedIn = epoch
     set({ status: 'ready', snapshot, pending: action })
+    // Settles the view from what is current NOW: the change finished, so it is no longer
+    // pending, and the snapshot is the newest known, never the one this call started from.
+    const finish = (
+      patch: Partial<Pick<FollowUpQueueView, 'notice'>> & {
+        snapshot?: FollowUpQueueSnapshot
+      }
+    ) => {
+      const base = patch.snapshot ? newest(patch.snapshot) : current.snapshot
+      set({
+        status: 'ready',
+        ...(base ? { snapshot: base } : {}),
+        ...(patch.notice ? { notice: patch.notice } : {}),
+      })
+    }
     try {
       const next = await work(snapshot, attempt)
+      if (disposed || startedIn !== epoch) return false
       lastAttempt = undefined
-      if (disposed) return false
-      settle(next.version >= snapshot.version ? next : snapshot)
+      finish({ snapshot: next })
       return true
     } catch (error) {
-      if (disposed) return false
+      if (disposed || startedIn !== epoch) return false
       const code = errorCode(error)
       if (code === 'stale_version') {
         lastAttempt = undefined
-        set({ status: 'ready', snapshot })
+        finish({})
         await read()
-        keep({
-          notice: {
-            tone: 'info',
-            message: 'The queue changed. Review it, then try again.',
-            code: 'stale_version',
-          },
-        })
+        if (!disposed && startedIn === epoch && current.status === 'ready')
+          keep({
+            notice: {
+              tone: 'info',
+              message: 'The queue changed. Review it, then try again.',
+              code: 'stale_version',
+            },
+          })
         return false
       }
       if (code && REFUSED_FOR_GOOD.includes(code)) {
-        lastAttempt = undefined
-        set({ status: 'unavailable' })
+        refuse()
         return false
       }
-      // Anything else: the host's own words, the queue exactly as it was.
+      // Anything else: the host's own words, the queue as it now stands.
       // A definite refusal is final for this attempt; an unknown outcome keeps its key.
       if (code && code !== 'timeout' && code !== 'backpressure' && code !== 'unavailable')
         lastAttempt = undefined
-      set({
-        status: 'ready',
-        snapshot,
+      finish({
         notice: {
           tone: 'error',
           message: errorText(error, 'The queue could not be changed.'),
