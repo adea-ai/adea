@@ -1747,9 +1747,13 @@ paired blocks before awaiting and clears only the still-current matching draft.
 Shared UI owns input, IME handling, pending presentation, paste editing and
 action-row composition. Agent/profile, Auto/Customize pins, resolved location
 and authorized Stop/Steer/launch controls are host slots. The authorized
-`dev.session.followUps` host queue contract is defined below; no queue UI is
-mounted or advertised until a consumer binds the actual supported operation
-and its truthful delivery state.
+`dev.session.followUps` host queue contract is defined below. Chat draws a Queue
+control and the queued messages only after a `read` of that operation succeeds for
+the session generation; a host without it, a refused capability or a stale
+generation shows neither. Queued messages are never sent on their own: the person
+presses Send next, one message at a time, and only while the host reports delivery
+`ready`. An `accepted` hand-off is worded as the input accepting the bytes, not as
+the agent having read them, and an `ambiguous` one is never retried, only removed.
 Desktop Chat retains a bounded presentation-only reading-position snapshot per
 session and generation in the active authenticated model host. Scope replacement
 clears these snapshots and rejects late writes from the previous scope. A
@@ -1807,8 +1811,7 @@ method-step summaries (`turn.reasoning_summary`, `turn.method_step_summary`,
 drawn only after `decodeRuntimeEvent` accepts them: one node per summary or
 step, replaced only by a higher revision, and citation markers placed only where
 the displayed text is the exact payload text. Checkpoints, attachments, context
-usage, test results and queued follow-ups are not drawn, because no producer
-supplies them; each is a separate backend dependency documented in
+usage and test results are not drawn, because no producer supplies them; each is a separate backend dependency documented in
 `docs/evidence/chat-canvas-2026-10-15.md`.
 
 Adea's persisted appearance IDs are the complete published `@adea-ai/themes`

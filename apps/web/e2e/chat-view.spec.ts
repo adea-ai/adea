@@ -802,3 +802,88 @@ test('follows appended runtime rows only while the reader keeps follow intent', 
   await expect(transcript).toBeFocused()
   expect(errors).toEqual([])
 })
+
+// Queued follow-ups (#1393, #1383): the person queues messages while the agent works. The
+// fixture stands in for the host's `dev.session.followUps` queue; what is asserted is what the
+// surface says about it, including what it must not claim.
+async function openQueueFixture(page: Page, mode: 'busy' | 'ready' | 'ambiguous' | 'unavailable') {
+  await mockBootstrap(page)
+  await page.goto(`/?view=chat&chatE2e=visual&chatState=conversation&chatQueue=${mode}`)
+  await expect(page.locator('[data-chat-visual-state="conversation"]')).toBeVisible({
+    timeout: 30_000,
+  })
+  await expect(page.locator('[data-dev-chat]')).toBeVisible()
+}
+
+test('queues a message while the agent is busy and lets the person withdraw it', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openQueueFixture(page, 'busy')
+  const composer = page.getByRole('textbox', { name: 'Message runtime' })
+  const queue = page.getByRole('button', { name: 'Queue', exact: true })
+  await expect(queue).toBeVisible()
+  await expect(queue).toBeDisabled()
+
+  await composer.fill('After that, summarize the risks.')
+  await queue.click()
+  await expect(composer).toHaveValue('')
+
+  const list = page.getByRole('list', { name: 'Queued follow-ups' })
+  await expect(list).toBeVisible()
+  await expect(list.getByText('After that, summarize the risks.')).toBeVisible()
+  // Busy: nothing is delivered, and nothing is promised.
+  await expect(page.locator('[data-chat-follow-up-status]')).toContainText(
+    'Nothing is sent automatically'
+  )
+  await expect(page.getByRole('button', { name: 'Send next', exact: true })).toHaveCount(0)
+
+  await page.getByRole('button', { name: /^Remove queued message: After that/ }).click()
+  await expect(page.getByText('After that, summarize the risks.')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('delivers queued messages one at a time, only when the person chooses', async ({ page }) => {
+  const errors = trackPageErrors(page)
+  await openQueueFixture(page, 'ready')
+  const composer = page.getByRole('textbox', { name: 'Message runtime' })
+  for (const text of ['First follow-up.', 'Second follow-up.']) {
+    await composer.fill(text)
+    await page.getByRole('button', { name: 'Queue', exact: true }).click()
+    await expect(page.getByText(text, { exact: true })).toBeVisible()
+  }
+  // Ready is not a promise to send: both messages wait for the person.
+  await expect(page.locator('[data-chat-follow-up-status]')).toContainText('when you choose')
+  await page.getByRole('button', { name: 'Send next', exact: true }).click()
+  await expect(page.getByText('First follow-up.', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('Second follow-up.', { exact: true })).toBeVisible()
+  // Accepted is the transport's word, not proof the agent read it.
+  await expect(page.locator('[data-chat-follow-up-last]')).toContainText(
+    'does not confirm the agent has read it'
+  )
+  expect(errors).toEqual([])
+})
+
+test('an unconfirmed delivery is explained, cannot be sent again and can be removed', async ({
+  page,
+}) => {
+  const errors = trackPageErrors(page)
+  await openQueueFixture(page, 'ambiguous')
+  await expect(page.getByText('Also run the migration dry run.')).toBeVisible()
+  await expect(page.locator('[data-chat-follow-up-status]')).toContainText(
+    'not retried automatically'
+  )
+  await expect(page.getByRole('button', { name: 'Send next', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: /^Remove queued message: Also run/ }).click()
+  await expect(page.getByText('Also run the migration dry run.')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('offers no queue when the host does not provide one', async ({ page }) => {
+  const errors = trackPageErrors(page)
+  await openQueueFixture(page, 'unavailable')
+  await expect(page.getByRole('button', { name: 'Steer', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Queue', exact: true })).toHaveCount(0)
+  await expect(page.locator('[data-chat-follow-ups]')).toHaveCount(0)
+  expect(errors).toEqual([])
+})

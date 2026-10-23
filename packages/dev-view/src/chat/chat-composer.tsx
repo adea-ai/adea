@@ -10,6 +10,7 @@ import type { ChatUsageFigures } from './model/usage'
 import type { ChatDraftValue } from './model'
 import type { ChatDraftIdentity as ScopedChatDraftIdentity } from './draft'
 import { chatComposerDisabledReason } from './composer-availability'
+import { ChatFollowUps, followUpsReady, type FollowUpsBinding } from './chat-follow-ups'
 import {
   chatDraftScopeKey,
   createChatSendRequests,
@@ -53,6 +54,11 @@ export type ChatComposerProps = Readonly<{
   onSend?: (text: string) => void | Promise<void>
   onSteer?: (text: string) => void | Promise<void>
   onStop?: () => void | Promise<void>
+  /**
+   * The host's queued-message controller for this session generation. Absent, or until its
+   * first read succeeds, the composer offers no Queue control and draws no queue.
+   */
+  followUps?: FollowUpsBinding
   onDraftChange?: ChatDraftChange
   createPasteBlockId: () => string
   draftRevision?: number
@@ -291,15 +297,30 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
       if (mounted && requestRevision === latestDecisionRequestRevision) setResolving(false)
     }
   }
+  // Queueing resolves to false when the host or a local limit refused it; the draft then stays
+  // as typed and the reason the queue gave is shown, instead of reporting a send.
+  const queueMessage = (): ((text: string) => Promise<void>) | undefined => {
+    const binding = props.followUps
+    if (!binding || !followUpsReady(binding)) return undefined
+    return async (text) => {
+      if (await binding.enqueue(text)) return
+      throw new Error(binding.view().notice?.message ?? 'Message could not be queued.')
+    }
+  }
+  const queueUnavailable = () => !followUpsReady(props.followUps)
   const submit = async (input: {
     text: string
     blocks: ChatDraftValue['blocks']
     action: 'send' | 'steer' | 'queue'
   }) => {
-    if (input.action === 'queue') return
     const submitMode = input.action
     const submittedDraft = normalizeChatDraft({ text: input.text, blocks: input.blocks })
-    const deliver = submitMode === 'steer' ? props.onSteer : props.onSend
+    const deliver =
+      submitMode === 'queue'
+        ? queueMessage()
+        : submitMode === 'steer'
+          ? props.onSteer
+          : props.onSend
     if (disabled() || submittedDraft.text.trim().length === 0 || !deliver) return
     const submittedSendContextEpoch = sendContextEpoch()
     const isCurrentSend = () => mounted && submittedSendContextEpoch === sendContextEpoch()
@@ -379,6 +400,9 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
         sendableActions={{
           send: typeof props.onSend === 'function' && draft().text.trim().length > 0,
         }}
+        followUps={
+          <Show when={props.followUps}>{(binding) => <ChatFollowUps binding={binding()} />}</Show>
+        }
         context={
           <Show when={decisionReady()}>
             <div>
@@ -575,6 +599,19 @@ export function ChatComposer(props: ChatComposerProps): JSX.Element {
               >
                 Steer
               </Button>
+              <Show when={!queueUnavailable()}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled() || draft().text.trim().length === 0}
+                  onClick={() =>
+                    void submit({ text: draft().text, blocks: draft().blocks, action: 'queue' })
+                  }
+                >
+                  Queue
+                </Button>
+              </Show>
             </Show>
           </>
         }
