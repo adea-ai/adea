@@ -23,13 +23,13 @@
       "location": "https://github.com/adea-ai/adea/issues/1224"
     }
   },
-  "candidatePullRequests": [
-    1209, 1227, 1228, 1229, 1230, 1232, 1236, 1237, 1238, 1241, 1243, 1244, 1245
-  ],
+  "candidatePullRequests": [1548, 1549, 1550],
   "excludedPullRequests": {
-    "1240": "reserved for an external owner (fix/task-board-accessibility-1239); not read or measured here",
-    "1242": "dependency update (renovate), not an M18 readiness leaf",
-    "1246": "merged into main (34a3eaad); measured as part of main, not as a candidate"
+    "1518": "open draft owned by the Pi Durable UI thread (retained child outcomes); not measured as a candidate",
+    "1522": "open draft owned by the workspace redesign thread (installed desktop UI acceptance); not measured as a candidate",
+    "1570": "open draft, cache tooling qualification (#1565); not an M18 readiness leaf",
+    "1576": "open, development resource tooling (#1567); not an M18 readiness leaf",
+    "1584": "open, chat follow-up queue (UI); not an M18 readiness leaf"
   },
   "probes": {
     "metric-identifiers": {
@@ -252,7 +252,7 @@
       "threshold": "zero release-blocking defects on those flows",
       "method": {
         "kind": "not-measured",
-        "reason": "Those flows are not on main; they exist only on open candidate branches owned by their child issues. Not scanned in this PR."
+        "reason": "Only part of those flows is on main (the lead plan's child allowance, #1583). Retained child outcomes (#1518) are an open draft. No keyboard or assistive-technology scan of these flows was run."
       }
     },
     {
@@ -378,7 +378,7 @@
       "threshold": "zero inference before eligibility",
       "method": {
         "kind": "not-measured",
-        "reason": "Eligibility and picker behavior are in open candidate branches (for example PR #1238 and #1229), not on main."
+        "reason": "Eligibility and picker behavior are on main (#1190, #1229, #1238, #1583), but no test that asserts zero inference before eligibility was run for this record. The connected Control Plane production-factory journey of #1211 remains unproven."
       }
     },
     {
@@ -509,8 +509,9 @@
       "criterion": "One fenced owner per attempt; uncertain effects are reconciled before resume or restart.",
       "threshold": "A31 test passes",
       "method": {
-        "kind": "not-measured",
-        "reason": "Fencing and rollback rehearsal are on open candidate branches (issues #1220 and #1222), not on main."
+        "kind": "recorded-run",
+        "command": "bun test packages/db/tests/unit/lead-turn-rollback.test.ts, then in packages/db: bun --conditions=react-server test tests/integration/lead-turn-rollback.test.ts (PostgreSQL 18)",
+        "evidence": "docs/evidence/m18-1224-readiness-2026-10-23.md"
       }
     },
     {
