@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { rmSync } from 'node:fs'
+import { readFileSync, rmSync } from 'node:fs'
 import { eq, sql } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import postgres from 'postgres'
@@ -150,6 +150,30 @@ async function rowsOf(db: AgentHqDatabase, statement: ReturnType<typeof sql>) {
     string,
     unknown
   >[]
+}
+
+// The product reads under test bind addressed turns to their participation grant, so a fixture that
+// stops before 0058 still needs 0062's columns. Installing 0062's own SQL keeps the shape identical;
+// the fixture that goes on to run the production migrations removes it first, because the migrator
+// would skip 0058-0061 behind an already-applied 0062 entry and then re-add the columns.
+const GRANT_BINDING_SQL = `${DRIZZLE_DIR}/0062_addressed_turn_grant_binding.sql`
+
+async function installAddressedTurnGrantBinding(db: AgentHqDatabase): Promise<void> {
+  for (const statement of readFileSync(GRANT_BINDING_SQL, 'utf8').split(
+    '--> statement-breakpoint'
+  )) {
+    await db.execute(sql.raw(statement))
+  }
+}
+
+async function removeAddressedTurnGrantBinding(db: AgentHqDatabase): Promise<void> {
+  await rowsOf(
+    db,
+    sql`alter table app.addressed_agent_turns
+      drop constraint addressed_agent_turns_auth_binding_valid,
+      drop column auth_grant_id,
+      drop column auth_revision`
+  )
 }
 
 async function buildFreshGroup(fixture: Fixture) {
@@ -353,6 +377,7 @@ describe.skipIf(!provisioned)(
         rmSync(preQuarantineTail, { recursive: true, force: true })
       }
       await installLegacyAudienceQuarantine(upgrade.migration.db)
+      await installAddressedTurnGrantBinding(upgrade.migration.db)
       // Clean members write into the active group before the quarantine, as the legacy product allowed.
       for (const [sender, text] of [
         [seed.owner, 'legacy hello'],
@@ -526,6 +551,7 @@ describe.skipIf(!provisioned)(
         // The current readers need the quarantine schema while constructing the pre-0058 fixture.
         // It is empty, then removed so the unchanged production migration creates and populates it.
         await installLegacyAudienceQuarantine(fixture.migration.db)
+        await installAddressedTurnGrantBinding(fixture.migration.db)
         const group = await buildFreshGroup(fixture)
         const { channelId, workspaceId, owner, member } = group
         const db = fixture.runtime.db
@@ -563,6 +589,7 @@ describe.skipIf(!provisioned)(
         }
         await denied()
         await rowsOf(fixture.migration.db, sql`drop table app.legacy_audience_quarantine`)
+        await removeAddressedTurnGrantBinding(fixture.migration.db)
         await migrate(fixture.migration.db, { migrationsFolder: DRIZZLE_DIR })
         const withdrawals = await rowsOf(
           db,

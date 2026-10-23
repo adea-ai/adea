@@ -1,0 +1,3 @@
+ALTER TABLE "app"."addressed_agent_turns" ADD COLUMN "auth_grant_id" text;--> statement-breakpoint
+ALTER TABLE "app"."addressed_agent_turns" ADD COLUMN "auth_revision" integer;--> statement-breakpoint
+ALTER TABLE "app"."addressed_agent_turns" ADD CONSTRAINT "addressed_agent_turns_auth_binding_valid" CHECK (("app"."addressed_agent_turns"."auth_grant_id" is null and "app"."addressed_agent_turns"."auth_revision" is null) or ("app"."addressed_agent_turns"."auth_grant_id" is not null and length(btrim("app"."addressed_agent_turns"."auth_grant_id")) > 0 and "app"."addressed_agent_turns"."auth_revision" is not null and "app"."addressed_agent_turns"."auth_revision" > 0));

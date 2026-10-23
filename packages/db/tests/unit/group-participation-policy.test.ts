@@ -233,6 +233,60 @@ describe('malformed revocation timestamps fail closed on every path', () => {
     })
   })
 
+  test('late publication holds a result whose claim retained no grant binding', () => {
+    // A claim persisted before the grant binding existed carries no provable
+    // authorization, so it authorizes nothing: the late result is held with the
+    // binding-mismatch reason instead of publishing under authority the work
+    // never held.
+    expect(
+      decideGroupPublication({
+        admission: admission(),
+        job: { ...job, authorization: null },
+        now: NOW,
+        publisher: ALICE,
+      })
+    ).toEqual({
+      action: 'hold',
+      jobId: 'job_1',
+      reason: 'publication_binding_mismatch',
+    })
+  })
+
+  test('late publication holds a result whose retained binding is an older revision', () => {
+    // A remove-then-re-add issues a new, higher revision on the same grant id,
+    // so the retained binding of the admitted work no longer matches the
+    // Agent's CURRENT admission and the late result is held.
+    expect(
+      decideGroupPublication({
+        admission: admission({ authorization: { ...AUTHORIZATION, revision: 2 } }),
+        job: { ...job, authorization: { ...AUTHORIZATION, revision: 1 } },
+        now: NOW,
+        publisher: ALICE,
+      })
+    ).toEqual({
+      action: 'hold',
+      jobId: 'job_1',
+      reason: 'publication_binding_mismatch',
+    })
+  })
+
+  test('late publication of a result whose binding matches the current admission publishes', () => {
+    // The fail-closed rules above must not over-hold: an exact binding under
+    // an effective grant still publishes.
+    expect(
+      decideGroupPublication({
+        admission: admission(),
+        job,
+        now: NOW,
+        publisher: ALICE,
+      })
+    ).toEqual({
+      action: 'publish',
+      basis: 'participant_authorized',
+      jobId: 'job_1',
+    })
+  })
+
   test('a sharing grant with a malformed revokedAt authorizes nothing', () => {
     const decision = decideGroupHistoryRead({
       admission: admission(),
