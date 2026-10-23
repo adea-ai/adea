@@ -9,6 +9,9 @@ import { startJourney, verifyJourneyPackages, finalText } from './journey-suppor
 const manifestPath = process.env.PI_FACTORY_MANIFEST
 if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
 
+const publicationTypes = (evidence) =>
+  evidence.publications.map((r) => r.value.event.type).toSorted()
+
 describe('crash and restart recovery across the journey boundaries', () => {
   let journey, control, ids, finished
   beforeAll(async () => {
@@ -124,7 +127,12 @@ describe('crash and restart recovery across the journey boundaries', () => {
       expect(afterKill.canonical).toEqual(accepted.canonical)
       expect(afterKill.childStarts).toBe(1)
       expect(afterKill.physicalSends).toBe(accepted.physicalSends)
-      expect(afterKill.publications).toHaveLength(0)
+      // CP publishes the delegation's request and dispatch when the child is accepted. The kill adds
+      // none, and nothing is published for completion yet.
+      evidence.publications.map((r) => r.value.event.type).toSorted()
+      expect(publicationTypes(accepted)).toEqual(['delegation.dispatched', 'delegation.requested'])
+      expect(publicationTypes(afterKill)).toEqual(publicationTypes(accepted))
+      expect(publicationTypes(afterKill)).not.toContain('delegation.completed')
 
       // A restarted process re-reads the same binding without dispatching, preparing or sending.
       const recovered = await journey.driver('status')
