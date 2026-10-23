@@ -33,10 +33,14 @@ const WORKTREE = {
   origin: { fresh: true, containsHead: true },
   sizeBytes: 1024,
 }
+// These planner-only cases use virtual paths. Production reports keep the realpath resolver so
+// unresolved filesystem identities still fail closed, and the dedicated alias regression uses
+// actual symlink-backed paths.
+const virtualPathIdentity = (path: string) => path
 
 describe('the report runner plans from what it observed', () => {
   test('a verified origin reaches the planner', () => {
-    const [planned] = planWorktrees([WORKTREE], [])
+    const [planned] = planWorktrees([WORKTREE], [], { physicalPathOf: virtualPathIdentity })
     expect(planned?.plan.decision).toBe(REUSE_DECISION.reuse)
     expect(planned?.plan.evidence.originFresh).toBe(true)
     expect(planned?.plan.evidence.headInOrigin).toBe(true)
@@ -45,7 +49,8 @@ describe('the report runner plans from what it observed', () => {
   test('an origin the runner could not verify is refused', () => {
     const [planned] = planWorktrees(
       [{ ...WORKTREE, origin: { fresh: false, containsHead: false } }],
-      []
+      [],
+      { physicalPathOf: virtualPathIdentity }
     )
     expect(planned?.plan.decision).toBe(REUSE_DECISION.refuse)
     expect(planned?.plan.evidence.originFresh).toBe(false)
@@ -54,7 +59,8 @@ describe('the report runner plans from what it observed', () => {
   test('a checkout that holds an ignored artifact the runner read is refused', () => {
     const [planned] = planWorktrees(
       [{ ...WORKTREE, ignoredUnknown: ['docs/evals/calibration-verdicts/grader-verdicts.json'] }],
-      []
+      [],
+      { physicalPathOf: virtualPathIdentity }
     )
     expect(planned?.plan.decision).toBe(REUSE_DECISION.refuse)
     expect(planned?.plan.evidence.ignoredUnknown).toHaveLength(1)
@@ -72,7 +78,7 @@ describe('the report runner plans from what it observed', () => {
       updatedAt: 0,
       cleanup: null,
     }
-    const [planned] = planWorktrees([WORKTREE], [lease])
+    const [planned] = planWorktrees([WORKTREE], [lease], { physicalPathOf: virtualPathIdentity })
     expect(planned?.plan.decision).toBe(REUSE_DECISION.refuse)
     expect(planned?.plan.evidence.ownerLive).toBe(true)
   })
@@ -215,16 +221,40 @@ describe('the runner reads the checkout it is given', () => {
     git(['push', 'origin', 'main'], repo)
     git(['push', 'origin', 'feature/case'], repo)
     git(['fetch', 'origin'], repo)
+    const originalHead = git(['rev-parse', 'refs/remotes/origin/feature/case'], repo)
+    const mainHead = git(['rev-parse', 'refs/remotes/origin/main'], repo)
+    // The original checkout is reachable before the rewrite: main is its base.
+    expect(
+      spawnSync('git', ['merge-base', '--is-ancestor', mainHead, originalHead], {
+        cwd: repo,
+        encoding: 'utf8',
+      }).status
+    ).toBe(0)
     // Another party rewrites the branch to a history that does not contain the
     // checkout's head.
     const other = join(root, 'other')
     git(['clone', remote, other], root)
     git(['config', 'user.email', 'other@example.invalid'], other)
     git(['config', 'user.name', 'Other'], other)
-    git(['checkout', '-B', 'rewritten'], other)
+    git(['checkout', '--orphan', 'rewritten'], other)
+    git(['rm', '-rf', '.'], other)
     writeFileSync(join(other, 'b.txt'), 'b\n')
     git(['add', '.'], other)
     git(['commit', '-m', 'rewritten'], other)
+    const rewrittenHead = git(['rev-parse', 'HEAD'], other)
+    // The rewritten branch has a different root. Neither history contains the other.
+    expect(
+      spawnSync('git', ['merge-base', '--is-ancestor', originalHead, rewrittenHead], {
+        cwd: other,
+        encoding: 'utf8',
+      }).status
+    ).toBe(1)
+    expect(
+      spawnSync('git', ['merge-base', '--is-ancestor', rewrittenHead, originalHead], {
+        cwd: other,
+        encoding: 'utf8',
+      }).status
+    ).toBe(1)
     git(['push', '--force', 'origin', 'rewritten:feature/case'], other)
 
     // The runner's own fetch sees the rewrite, so the fetched ref is the
