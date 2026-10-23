@@ -1,3 +1,4 @@
+import { authDatabaseConnectionForRequest } from '../../../../server/auth-database'
 import { createFileRoute } from '@tanstack/solid-router'
 import { handleAuthRequest } from '@adea-ai/auth/server'
 
@@ -12,6 +13,7 @@ function proxy(method: RouteMethod) {
     withRequestScope(() =>
       handleAuthRequest(method, request, decodeURIComponent(params['_splat'] ?? ''), process.env, {
         delivery: authDeliveryForRequest(process.env),
+        databaseConnectionString: authDatabaseConnectionForRequest(),
       })
     )
 }

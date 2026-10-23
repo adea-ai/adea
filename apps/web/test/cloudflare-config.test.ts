@@ -41,6 +41,7 @@ describe('cloudflare.config.ts preview isolation', () => {
       'AUTH_BASE_URL',
       'AUTH_DATABASE_URL',
       'AUTH_EMAIL',
+      'AUTH_HYPERDRIVE',
       'AUTH_SECRET',
       'AUTH_TRUSTED_ORIGINS',
       'CONTROL_PLANE_ORIGIN',
@@ -50,6 +51,10 @@ describe('cloudflare.config.ts preview isolation', () => {
       'DATABASE_URL',
       'HYPERDRIVE',
     ])
+    expect(production.AUTH_HYPERDRIVE).toEqual({
+      type: 'hyperdrive',
+      id: '9a8c286d8b374a8c83cf05534195a53a',
+    })
     expect(production.HYPERDRIVE).toEqual({ type: 'hyperdrive', id: productionHyperdriveId })
     expect(production.DATABASE_URL).toMatchObject({
       type: 'secrets-store-secret',

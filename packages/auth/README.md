@@ -33,6 +33,17 @@ claiming, authorization, security, callbacks, observability, and provider-migrat
   credential call reads its own fresh cookie rather than the incoming one.
 - Better Auth response HTTP is `no-store`; auth/session/permission lookups are uncached.
 
+### Worker auth transport
+
+Production Workers use a separate `AUTH_HYPERDRIVE` binding backed by the auth-only
+Railway role. Hyperdrive authenticates the origin certificate against the reviewed Railway
+CA with `verify-full`, disables query caching, and limits origin connections to five.
+The hosting adapter passes its connection string into each request-owned auth service;
+the canonical `AUTH_DATABASE_URL` remains validated configuration. Hosted Workers fail
+closed when the auth binding is missing. Direct connections remain available to Node/Bun
+and disposable loopback Worker fixtures. Never substitute the application pool for auth.
+The auth runtime role defaults to the `auth` schema; pools are closed with each request.
+
 ### PostgreSQL adapter
 
 `createPostgresAuthDatabase()` supplies an auth-owned `pg.Pool` directly to Better Auth's built-in

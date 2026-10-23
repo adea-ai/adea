@@ -1,3 +1,4 @@
+import { authDatabaseConnectionForRequest } from '../../../../../server/auth-database'
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope, registerRequestCleanup } from '../../../../../server/request-scope'
 import { createAuthServerAdapter, parseDesktopAuthorizationRequest } from '@adea-ai/auth/server'
@@ -19,6 +20,7 @@ async function get(request: Request) {
     const authorization = parseDesktopAuthorizationRequest(request)
     const authentication = await createAuthServerAdapter(createStartRequestContext, undefined, {
       registerCleanup: registerRequestCleanup,
+      databaseConnectionString: authDatabaseConnectionForRequest(),
     }).getSession()
     if (!authentication) {
       const signIn = createDesktopSignInUrl(new URL(request.url))

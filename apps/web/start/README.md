@@ -163,7 +163,10 @@ The root Playwright config gives its managed dev Worker the same validated
 `DATABASE_URL` as the Node fixtures, using Hyperdrive's
 `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE` override. This keeps
 an isolated worktree database from being mixed with `wrangler.jsonc`'s default
-local port. With `PERF_BASE_URL`, the server is managed externally: set that
+local port. Its separate `AUTH_HYPERDRIVE` override uses the guarded
+`AUTH_DATABASE_URL` when selected; otherwise it points to an unused loopback
+auth fixture identity, so unrelated browser tests can boot without production access.
+With `PERF_BASE_URL`, the server is managed externally: set that
 override to the same test database when starting it.
 
 ### Visual regression

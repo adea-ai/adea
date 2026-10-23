@@ -383,12 +383,21 @@ describe('lanes that load the guard', () => {
 
   test('Playwright binds the dev Worker and Node fixtures to the same validated database', () => {
     const binding = 'CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE'
-    const scenarios = [{ env: { DATABASE_URL: local.replace(':55432/', ':55852/') } }, { env: {} }]
+    const authBinding = 'CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_AUTH_HYPERDRIVE'
+    const scenarios = [
+      {
+        env: {
+          DATABASE_URL: local.replace(':55432/', ':55852/'),
+          AUTH_DATABASE_URL: local.replace(':55432/', ':55853/'),
+        },
+      },
+      { env: {} },
+    ]
     for (const scenario of scenarios) {
       const code = `
         const { default: config } = await import(${JSON.stringify(join(root, 'playwright.config.ts'))});
         const env = config.webServer.env;
-        console.log(JSON.stringify({ database: env.DATABASE_URL, hyperdrive: env[${JSON.stringify(binding)}] }));
+        console.log(JSON.stringify({ database: env.DATABASE_URL, hyperdrive: env[${JSON.stringify(binding)}], authHyperdrive: env[${JSON.stringify(authBinding)}] }));
       `
       const result = spawnSync(process.execPath, ['--eval', code], {
         cwd: root,
@@ -400,8 +409,16 @@ describe('lanes that load the guard', () => {
       const targets = JSON.parse(result.stdout.trim()) as {
         database: string
         hyperdrive: string
+        authHyperdrive: string
       }
       expect(targets.hyperdrive).toBe(targets.database)
+      if (scenario.env.AUTH_DATABASE_URL) {
+        expect(targets.authHyperdrive).toBe(scenario.env.AUTH_DATABASE_URL)
+        expect(targets.authHyperdrive).not.toBe(targets.database)
+      } else {
+        expect(new URL(targets.authHyperdrive).hostname).toBe('127.0.0.1')
+        expect(new URL(targets.authHyperdrive).username).toBe('auth_fixture')
+      }
       expect(targets.database).toBe(scenario.env.DATABASE_URL ?? local + '?sslmode=disable')
     }
     // Each scenario starts a Node process that loads the Playwright config, so
