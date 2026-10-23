@@ -271,7 +271,10 @@ interface CacheScan {
  * read. A file it cannot read — a larger one, a symbolic link, or one the platform refuses — is
  * reported instead of skipped, so an incomplete scan can never read as a clean one.
  */
-function scanCacheHome(home: string): CacheScan {
+function scanCacheHome(
+  home: string,
+  read: (path: string) => string = (path) => readFileSync(path, 'utf8')
+): CacheScan {
   const contents: string[] = []
   const uninspected: { path: string; reason: string }[] = []
   const walk = (directory: string): void => {
@@ -298,7 +301,7 @@ function scanCacheHome(home: string): CacheScan {
       }
       contents.push(path)
       try {
-        contents.push(readFileSync(path, 'utf8'))
+        contents.push(read(path))
       } catch (error) {
         uninspected.push({ path, reason: `unreadable: ${(error as Error).message}` })
       }
@@ -406,6 +409,24 @@ describe('the disposable fixtures', () => {
     expect(worktreePaths()).toEqual(before)
   })
 
+  test('a refused read is reported and a permitted read is scanned, whatever the platform does', () => {
+    const home = disposableCacheHome('scan-reader')
+    const file = join(home, 'entry.json')
+    writeFileSync(file, '{"secret":"value"}')
+    try {
+      const refused = scanCacheHome(home, () => {
+        throw new Error('EACCES: permission denied')
+      })
+      expect(refused.uninspected.map((entry) => entry.path)).toEqual([file])
+      expect(refused.uninspected[0]?.reason).toContain('unreadable: EACCES')
+      const permitted = scanCacheHome(home, () => 'scanned')
+      expect(permitted.uninspected).toEqual([])
+      expect(permitted.contents).toContain('scanned')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
   test('a file the scan cannot read is reported instead of skipped', () => {
     const home = disposableCacheHome('scan-report')
     const unreadable = join(home, 'unreadable.json')
@@ -422,8 +443,15 @@ describe('the disposable fixtures', () => {
       expect(reported).toContain(large)
       expect(reported).toContain(link)
       for (const entry of scan.uninspected) expect(entry.reason).not.toBe('')
-      // The unreadable file is reported when the platform refuses to read it.
-      if (readable(unreadable)) expect(reported).toContain(unreadable)
+      // What the platform does with the unreadable file decides the outcome, and the test does not
+      // assume it: a refused read is reported, a permitted one (root ignores the mode) is scanned
+      // and so is not reported.
+      if (readable(unreadable)) {
+        expect(reported).not.toContain(unreadable)
+        expect(scan.contents).toContain('{"secret":"value"}')
+      } else {
+        expect(reported).toContain(unreadable)
+      }
     } finally {
       chmodSync(unreadable, 0o600)
       rmSync(home, { recursive: true, force: true })
