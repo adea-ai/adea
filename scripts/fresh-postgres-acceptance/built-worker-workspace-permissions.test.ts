@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
+import { publishedReceipt } from './built-worker-failures'
 
 import {
   createWorkspacePermissionDatabase,
@@ -68,6 +69,7 @@ type Fault =
   | 'cache-create'
   | 'cache-authorize'
   | 'cache-provider-read'
+  | 'address-mismatch'
 
 function fixture(fault?: Fault) {
   const accounts: Account[] = []
@@ -271,6 +273,8 @@ function fixture(fault?: Fault) {
         sessionId: account.sessionId,
         credentialDigest: digest(account.credential),
         revoked: account.revoked,
+        profileAddressPresent: fault === 'address-mismatch',
+        profileAddressCompatible: fault !== 'address-mismatch',
       }
       if (fault === 'digest') row.credentialDigest = 'wrong'
       if (fault === 'plain') row.credentialDigest = account.credential
@@ -366,6 +370,7 @@ describe('built Worker workspace permission proof', () => {
     'caller-credential',
     'password-credential',
     'provider-session',
+    'address-mismatch',
   ] as const) {
     test(`refuses a broken ${fault} boundary`, async () => {
       const { receipt } = await run(fault)
@@ -504,5 +509,150 @@ describe('combined built Worker receipt', () => {
     expect(combined.passed + combined.failed).toBe(combined.assertions.length)
     expect(combined.workspacePermissions).toBe(workspace)
     expect(combined.worker.routes).toContain('/api/workspaces/$workspaceId')
+  })
+})
+
+describe('bounded permission failure diagnostics', () => {
+  test('reports bootstrap SQL row count and failed join predicates without identities', async () => {
+    const setup = fixture()
+    setup.database.identity = async () => []
+    const receipt = await runBuiltWorkerWorkspacePermissions({ ...setup, baseUrl })
+    const failure = receipt.assertions.find((assertion) => !assertion.passed)!
+    const detail = receipt.diagnostics.find((entry) => entry.step === failure.name)!
+    expect(detail.phase).toBe('identity-readback')
+    expect(detail.account).toBe('first')
+    expect(detail.rowCount).toBe(0)
+    expect(detail.predicates.rowCountOne).toBe(false)
+    expect(detail.errorCategory).toBe('assertion')
+    for (const account of setup.accounts)
+      for (const value of [
+        account.email,
+        account.userId,
+        account.providerId,
+        account.token,
+        account.credential,
+      ])
+        expect(failure.detail).not.toContain(value)
+  })
+
+  test('reports digest comparison only as a boolean', async () => {
+    const { receipt } = await run('digest')
+    const detail = receipt.diagnostics.find((entry) => !entry.passed)!
+    expect(detail.phase).toBe('identity-join-check')
+    expect(detail.rowCount).toBe(1)
+    expect(detail.predicates.digestMatches).toBe(false)
+    expect(detail.predicates.subjectMatches).toBe(true)
+  })
+
+  test('reports an HTTP failure status without response content', async () => {
+    const setup = fixture()
+    const secret = 'secret-email-token-password-url-never-emit'
+    setup.transport = async () => json(502, { detail: secret })
+    const receipt = await runBuiltWorkerWorkspacePermissions({ ...setup, baseUrl })
+    const detail = receipt.diagnostics.find((entry) => !entry.passed)!
+    expect(detail.phase).toBe('account-signup')
+    expect(detail.status).toBe(502)
+    expect(detail.predicates.httpAccepted).toBe(false)
+    expect(JSON.stringify(receipt)).not.toContain(secret)
+  })
+
+  for (const [code, category, expectedState] of [
+    ['42501', 'sql', '42501'],
+    ['42P01', 'sql', '42P01'],
+    ['DEPTH_ZERO_SELF_SIGNED_CERT', 'tls-certificate', undefined],
+    ['ERR_TLS_CERT_ALTNAME_INVALID', 'tls-hostname', undefined],
+    ['CONNECT_TIMEOUT', 'connection', undefined],
+    ['private-unrecognized-code-with-password', 'database', undefined],
+  ] as const) {
+    test(`only emits approved classification for ${category}`, async () => {
+      const setup = fixture()
+      const secret = 'private-error-message-query-parameters-and-url'
+      setup.database.identity = async () => {
+        throw Object.assign(new Error(secret), { code, query: secret, parameters: [secret] })
+      }
+      const receipt = await runBuiltWorkerWorkspacePermissions({ ...setup, baseUrl })
+      const detail = receipt.diagnostics.find((entry) => !entry.passed)!
+      expect(detail.phase).toBe('identity-readback')
+      expect(detail.errorCategory).toBe(category)
+      expect(detail.sqlState).toBe(expectedState)
+      expect(JSON.stringify(receipt)).not.toContain(secret)
+      if (expectedState === undefined) expect(JSON.stringify(receipt)).not.toContain(code)
+    })
+  }
+})
+
+describe('intentional unverified desktop address readback', () => {
+  for (const [address, expected] of [
+    [null, 1],
+    ['other@example.test', 0],
+    ['provider@example.test', 1],
+  ] as const) {
+    test(`nullable join keeps authoritative provider/session bindings for address ${address === null ? 'absent' : expected ? 'matching' : 'mismatched'}`, async () => {
+      const row = {
+        providerSubject: 'provider-subject',
+        providerSessionId: 'provider-session',
+        userId: randomUUID(),
+        sessionId: randomUUID(),
+        credentialDigest: 'digest',
+        revoked: false,
+        profileAddressPresent: address !== null,
+        profileAddressCompatible: address === null || address === 'provider@example.test',
+      }
+      const database = createWorkspacePermissionDatabase(
+        {
+          unsafe: async (query, parameters) => {
+            expect(query).toContain('pu.id = ai.subject')
+            expect(query).toContain('ps.id = ds.provider_session_id and ps."userId" = pu.id')
+            expect(query).toContain('pa."userId" = pu.id')
+            expect(query).toContain('where ds.session_id = $1::uuid and pu.email = $2')
+            expect(parameters).toEqual([row.sessionId, 'provider@example.test'])
+            // Offline SQL contract oracle: SQL NULL equality is not TRUE. This is
+            // not claimed as an executed PostgreSQL query; the real lane confirms it.
+            const permitsAbsent = query.includes('(ds.email is null or ds.email = pu.email)')
+            return (address === null ? permitsAbsent : address === 'provider@example.test')
+              ? [row]
+              : []
+          },
+        },
+        'auth_ci'
+      )
+      const actual = await database.identity({
+        email: 'provider@example.test',
+        sessionId: row.sessionId,
+      })
+      expect(actual).toHaveLength(expected)
+      if (expected) expect(actual[0]!.profileAddressPresent).toBe(address !== null)
+    })
+  }
+
+  test('preserves measured successful address/join/digest booleans through receipt sanitization', async () => {
+    const { setup, receipt } = await run()
+    const sanitized = publishedReceipt({
+      receipt,
+      verdict: { workerStopped: true, containerRemoved: true, materialRemoved: true },
+      secrets: [],
+    })
+    expect(sanitized.status).toBe('passed')
+    const fresh = sanitized.diagnostics.filter((entry) => entry.step === 'fresh-identity-readback')
+    expect(fresh).toHaveLength(2)
+    for (const measurement of fresh) {
+      expect(measurement.rowCount).toBe(1)
+      expect(measurement.predicates.addressPresent).toBe(false)
+      expect(measurement.predicates.addressCompatible).toBe(true)
+      expect(measurement.predicates.subjectMatches).toBe(true)
+      expect(measurement.predicates.providerSessionMatches).toBe(true)
+      expect(measurement.predicates.digestMatches).toBe(true)
+      expect(measurement.predicates.revocationMatches).toBe(true)
+    }
+    for (const account of setup.accounts)
+      for (const value of [
+        account.email,
+        account.userId,
+        account.providerId,
+        account.token,
+        account.credential,
+        account.password,
+      ])
+        expect(JSON.stringify(sanitized)).not.toContain(value)
   })
 })

@@ -38,6 +38,8 @@ export type WorkspaceIdentityReadback = {
   sessionId: string
   credentialDigest: string
   revoked: boolean
+  profileAddressPresent: boolean
+  profileAddressCompatible: boolean
 }
 export type WorkspaceReadback = {
   readonly isPersonal: boolean
@@ -68,6 +70,116 @@ export type WorkspacePermissionReceipt = {
   readonly passed: number
   readonly failed: number
   readonly limitations: readonly string[]
+  readonly diagnostics: readonly WorkspacePermissionDiagnostic[]
+}
+
+type Phase =
+  | 'permission-assertion'
+  | 'account-signup'
+  | 'provider-session-read'
+  | 'desktop-authorize'
+  | 'desktop-exchange'
+  | 'identity-readback'
+  | 'identity-join-check'
+  | 'account-distinctness'
+type AccountOrdinal = 'first' | 'second' | 'none'
+type Predicate =
+  | 'httpAccepted'
+  | 'sessionPresent'
+  | 'cookiePresent'
+  | 'notCacheable'
+  | 'subjectMatches'
+  | 'addressMatches'
+  | 'materialShapeValid'
+  | 'materialCountValid'
+  | 'authorizationValid'
+  | 'corsTrusted'
+  | 'rowCountOne'
+  | 'providerSessionMatches'
+  | 'applicationUserValid'
+  | 'desktopSessionMatches'
+  | 'digestMatches'
+  | 'notPlain'
+  | 'revocationMatches'
+  | 'addressPresent'
+  | 'addressCompatible'
+  | 'addressShapeValid'
+  | 'subjectsDistinct'
+  | 'usersDistinct'
+  | 'sessionsDistinct'
+  | 'materialDistinct'
+export type WorkspacePermissionDiagnostic = {
+  readonly step: string
+  readonly phase: Phase
+  readonly account: AccountOrdinal
+  readonly status?: number
+  readonly rowCount?: number
+  readonly predicates: Readonly<Partial<Record<Predicate, boolean>>>
+  readonly passed: boolean
+  readonly errorCategory?:
+    | 'assertion'
+    | 'sql'
+    | 'database'
+    | 'transport'
+    | 'tls-certificate'
+    | 'tls-hostname'
+    | 'tls-protocol'
+    | 'connection'
+  readonly sqlState?: string
+}
+const approvedSqlStates = new Set([
+  '42501',
+  '42P01',
+  '42703',
+  '3F000',
+  '28P01',
+  '28000',
+  '08001',
+  '08003',
+  '08004',
+  '08006',
+  '57P01',
+  '53300',
+  '40001',
+  '40P01',
+  '23505',
+  '23503',
+  '22023',
+  '22P02',
+])
+function classifyFailure(
+  error: unknown,
+  boundary: 'assertion' | 'database' | 'http'
+): Pick<WorkspacePermissionDiagnostic, 'errorCategory' | 'sqlState'> {
+  // Never read message/query/parameters or stringify an unknown exception. Only
+  // exact source-owned allowlists can disclose a SQLSTATE or TLS category.
+  let code: unknown
+  try {
+    code = error && typeof error === 'object' ? (error as { code?: unknown }).code : undefined
+  } catch {
+    code = undefined
+  }
+  if (typeof code === 'string') {
+    if (approvedSqlStates.has(code)) return { errorCategory: 'sql', sqlState: code }
+    if (
+      [
+        'DEPTH_ZERO_SELF_SIGNED_CERT',
+        'SELF_SIGNED_CERT_IN_CHAIN',
+        'CERT_HAS_EXPIRED',
+        'UNABLE_TO_VERIFY_LEAF_SIGNATURE',
+      ].includes(code)
+    )
+      return { errorCategory: 'tls-certificate' }
+    if (code === 'ERR_TLS_CERT_ALTNAME_INVALID') return { errorCategory: 'tls-hostname' }
+    if (['ERR_SSL_TLSV1_ALERT_UNKNOWN_CA', 'ERR_SSL_WRONG_VERSION_NUMBER'].includes(code))
+      return { errorCategory: 'tls-protocol' }
+    if (['CONNECT_TIMEOUT', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE'].includes(code))
+      return { errorCategory: 'connection' }
+  }
+  return {
+    errorCategory:
+      boundary === 'database' ? 'database' : boundary === 'http' ? 'transport' : 'assertion',
+  }
 }
 
 type SqlReadback = {
@@ -88,11 +200,12 @@ export function createWorkspacePermissionDatabase(
         `
         select pu.id as "providerSubject", ps.id as "providerSessionId",
           u.id as "userId", ds.session_id as "sessionId",
-          ds.credential_digest as "credentialDigest", (ds.revoked_at is not null) as revoked
+          ds.credential_digest as "credentialDigest", (ds.revoked_at is not null) as revoked,
+          (ds.email is not null) as "profileAddressPresent", (ds.email is null or ds.email = pu.email) as "profileAddressCompatible"
         from app.desktop_sessions ds
         join app.users u on u.id = ds.user_id and u.disabled_at is null
         join app.auth_identities ai on ai.user_id = u.id and ai.provider = 'better-auth' and ai.revoked_at is null
-        join "${providerSchema}"."user" pu on pu.id = ai.subject and pu.email = ds.email
+        join "${providerSchema}"."user" pu on pu.id = ai.subject and (ds.email is null or ds.email = pu.email)
         join "${providerSchema}"."account" pa on pa."userId" = pu.id and pa."providerId" = 'credential'
         join "${providerSchema}"."session" ps on ps.id = ds.provider_session_id and ps."userId" = pu.id
         where ds.session_id = $1::uuid and pu.email = $2`,
@@ -102,7 +215,10 @@ export function createWorkspacePermissionDatabase(
         requireProof(
           ['providerSubject', 'providerSessionId', 'userId', 'sessionId', 'credentialDigest'].every(
             (field) => typeof row[field] === 'string'
-          ) && typeof row.revoked === 'boolean'
+          ) &&
+            typeof row.revoked === 'boolean' &&
+            typeof row.profileAddressPresent === 'boolean' &&
+            typeof row.profileAddressCompatible === 'boolean'
         )
         return {
           providerSubject: row.providerSubject as string,
@@ -111,6 +227,8 @@ export function createWorkspacePermissionDatabase(
           sessionId: row.sessionId as string,
           credentialDigest: row.credentialDigest as string,
           revoked: row.revoked,
+          profileAddressPresent: row.profileAddressPresent as boolean,
+          profileAddressCompatible: row.profileAddressCompatible as boolean,
         }
       })
     },
@@ -165,6 +283,7 @@ export function createWorkspacePermissionDatabase(
 }
 
 type Account = {
+  ordinal: 'first' | 'second'
   email: string
   providerId: string
   providerSessionId: string
@@ -210,6 +329,27 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
   readonly secrets?: readonly string[]
 }): Promise<WorkspacePermissionReceipt> {
   const assertions: DesktopEndpointAssertion[] = []
+  const diagnostics: WorkspacePermissionDiagnostic[] = []
+  let boundary: 'assertion' | 'database' | 'http' = 'assertion'
+  let diagnostic: Omit<WorkspacePermissionDiagnostic, 'step' | 'passed'> = {
+    phase: 'permission-assertion',
+    account: 'none',
+    predicates: {},
+  }
+  const phase = (name: Phase, account: AccountOrdinal = 'none') => {
+    diagnostic = { phase: name, account, predicates: {} }
+    boundary = 'assertion'
+  }
+  const predicates = (values: Partial<Record<Predicate, boolean>>) => {
+    diagnostic = { ...diagnostic, predicates: { ...diagnostic.predicates, ...values } }
+  }
+  const databaseCall = async <T>(read: () => Promise<T>): Promise<T> => {
+    boundary = 'database'
+    const value = await read()
+    boundary = 'assertion'
+    return value
+  }
+
   const responses: BuiltWorkerResponse[] = []
   const callerSecrets = new Set(input.secrets ?? [])
   const secrets = [...callerSecrets]
@@ -241,7 +381,11 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
     allowed.set(value, [...(allowed.get(value) ?? []), { index, ...exemption }])
   }
   const send = async (request: BuiltWorkerRequest) => {
+    boundary = 'http'
     const response = await input.transport(request)
+    boundary = 'assertion'
+    if (Number.isInteger(response.status) && response.status >= 100 && response.status <= 599)
+      diagnostic = { ...diagnostic, status: response.status }
     const index = responses.length
     responses.push(response)
     for (const value of rawCredentialValues(response.body)) secrets.push(value)
@@ -253,12 +397,15 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
   const step = async (name: string, run: () => Promise<void>) => {
     if (!active) return
     let passed = false
+    phase('permission-assertion')
     try {
       await run()
       passed = true
-    } catch {
+    } catch (error) {
+      diagnostic = { ...diagnostic, ...classifyFailure(error, boundary) }
       active = false
     }
+    diagnostics.push({ ...diagnostic, step: name, passed })
     assertions.push({
       name,
       passed,
@@ -276,12 +423,29 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
     origin,
   })
   const identity = async (account: Account, revoked: boolean) => {
-    const rows = await input.database.identity({
-      email: account.email,
-      sessionId: account.session.sessionId,
-    })
+    phase('identity-readback', account.ordinal)
+    const rows = await databaseCall(() =>
+      input.database.identity({ email: account.email, sessionId: account.session.sessionId })
+    )
+    diagnostic = { ...diagnostic, rowCount: Math.min(rows.length, 1000) }
+    predicates({ rowCountOne: rows.length === 1 })
     requireProof(rows.length === 1)
     const row = rows[0]!
+    diagnostic = { ...diagnostic, phase: 'identity-join-check' }
+    predicates({
+      subjectMatches: row.providerSubject === account.providerId,
+      providerSessionMatches: row.providerSessionId === account.providerSessionId,
+      applicationUserValid: uuid.test(row.userId),
+      desktopSessionMatches: row.sessionId === account.session.sessionId,
+      digestMatches: row.credentialDigest === hash(account.session.credential),
+      notPlain: row.credentialDigest !== account.session.credential,
+      revocationMatches: row.revoked === revoked,
+      addressPresent: row.profileAddressPresent === true,
+      addressCompatible: row.profileAddressCompatible === true,
+      addressShapeValid:
+        typeof row.profileAddressPresent === 'boolean' &&
+        typeof row.profileAddressCompatible === 'boolean',
+    })
     requireProof(
       row.providerSubject === account.providerId &&
         row.providerSessionId === account.providerSessionId &&
@@ -289,11 +453,19 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
         row.sessionId === account.session.sessionId &&
         row.credentialDigest === hash(account.session.credential) &&
         row.credentialDigest !== account.session.credential &&
-        row.revoked === revoked
+        row.revoked === revoked &&
+        row.profileAddressCompatible === true &&
+        typeof row.profileAddressPresent === 'boolean'
     )
+    diagnostics.push({
+      ...diagnostic,
+      step: revoked ? 'revoked-identity-readback' : 'fresh-identity-readback',
+      passed: true,
+    })
     return row
   }
-  const createAccount = async (): Promise<Account> => {
+  const createAccount = async (ordinal: 'first' | 'second'): Promise<Account> => {
+    phase('account-signup', ordinal)
     const email = `permission-${randomUUID()}@example.test`
     const password = randomBytes(24).toString('base64url')
     callerSecrets.add(password)
@@ -302,6 +474,11 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
       freshAccountSignUpRequest({ baseUrl: input.baseUrl, email, password })
     )
     const cookie = sessionCookieFrom(signup.response)
+    predicates({
+      httpAccepted: signup.response.status === 200,
+      cookiePresent: Boolean(cookie),
+      notCacheable: noStore(signup.response),
+    })
     requireProof(signup.response.status === 200 && cookie && noStore(signup.response))
     for (const value of sessionCookieValues(signup.response))
       observe(value, signup.index, { header: 'set-cookie' })
@@ -314,6 +491,7 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
     requireProof(user && typeof user === 'object' && !Array.isArray(user))
     const providerId = (user as Record<string, unknown>).id
     requireProof(typeof providerId === 'string' && providerId.length > 0)
+    phase('provider-session-read', ordinal)
     const readback = await send({
       method: 'GET',
       path: '/api/auth/get-session?disableCookieCache=true',
@@ -323,6 +501,11 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
     const providerPayload = record(readback.response.body)
     const providerUser = providerPayload.user as Record<string, unknown> | undefined
     const providerSession = providerPayload.session as Record<string, unknown> | undefined
+    predicates({
+      subjectMatches: providerUser?.id === providerId,
+      addressMatches: providerUser?.email === email,
+      sessionPresent: typeof providerSession?.id === 'string' && providerSession.id.length > 0,
+    })
     requireProof(
       providerUser?.id === providerId &&
         providerUser?.email === email &&
@@ -335,6 +518,11 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
         (typeof providerSession.token === 'string' && providerSession.token.length > 0)
     )
     const providerTokens = jsonMemberValues(readback.response.body, 'token')
+    predicates({
+      materialCountValid: providerSession.token
+        ? providerTokens.length === 1 && providerTokens[0] === providerSession.token
+        : providerTokens.length === 0,
+    })
     requireProof(
       providerSession.token
         ? providerTokens.length === 1 && providerTokens[0] === providerSession.token
@@ -344,6 +532,7 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
       observe(providerSession.token, readback.index, { providerSession: true })
     const pkce = desktopPkcePair()
     const { nonce, state } = desktopNonceAndState()
+    phase('desktop-authorize', ordinal)
     const authorization = await send({
       method: 'GET',
       path: desktopAuthorizePath({ challenge: pkce.challenge, nonce, state }),
@@ -356,11 +545,13 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
       expectedNonce: nonce,
       expectedState: state,
     })
+    predicates({ authorizationValid: validation.ok })
     requireProof(validation.ok)
     observe(validation.authorization.code, authorization.index, {
       header: 'location',
       fragment: true,
     })
+    phase('desktop-exchange', ordinal)
     const exchange = await send(
       desktopExchangeRequest({
         code: validation.authorization.code,
@@ -370,10 +561,18 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
       })
     )
     const session = readDesktopSession(exchange.response.body)
+    predicates({
+      httpAccepted: exchange.response.status === 200,
+      sessionPresent: Boolean(session),
+      notCacheable: noStore(exchange.response),
+      corsTrusted:
+        exchange.response.headers['access-control-allow-origin'] === DESKTOP_TRUSTED_ORIGIN,
+    })
     requireProof(exchange.response.status === 200 && session && noStore(exchange.response))
     trustedResponse(exchange.response)
     observe(session.credential, exchange.index, { bodyField: 'credential' })
     const account = {
+      ordinal,
       email,
       providerId,
       providerSessionId: providerSession.id,
@@ -389,8 +588,9 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
   let workspaceId = ''
   let membershipId = ''
   await step('two-fresh-http-accounts-map-to-distinct-persisted-desktop-principals', async () => {
-    a = await createAccount()
-    b = await createAccount()
+    a = await createAccount('first')
+    b = await createAccount('second')
+    phase('account-distinctness')
     requireProof(
       a.providerId !== b.providerId &&
         a.identity.userId !== b.identity.userId &&
@@ -425,7 +625,7 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
     )
   }
   const membership = async (member: boolean) => {
-    const measured = await input.database.workspace(workspaceId)
+    const measured = await databaseCall(() => input.database.workspace(workspaceId))
     requireProof(measured && !measured.isPersonal && measured.ownerUserId === a.identity.userId)
     requireProof(measured.members.length === (member ? 2 : 1))
     requireProof(
@@ -491,11 +691,13 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
     requireProof(noStore(response) && !response.headers['access-control-allow-origin'])
   })
   await step('owned-fixture-adds-exact-member-with-authoritative-readback', async () => {
-    const id = await input.database.addMember({
-      workspaceId,
-      ownerUserId: a.identity.userId,
-      userId: b.identity.userId,
-    })
+    const id = await databaseCall(() =>
+      input.database.addMember({
+        workspaceId,
+        ownerUserId: a.identity.userId,
+        userId: b.identity.userId,
+      })
+    )
     requireProof(id && uuid.test(id))
     membershipId = id
     await membership(true)
@@ -506,7 +708,9 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
   await step('new-member-can-read-the-workspace', async () => readable(b))
   await step('owned-fixture-removes-only-exact-member-with-authoritative-readback', async () => {
     requireProof(
-      await input.database.removeMember({ workspaceId, userId: b.identity.userId, membershipId })
+      await databaseCall(() =>
+        input.database.removeMember({ workspaceId, userId: b.identity.userId, membershipId })
+      )
     )
     await membership(false)
   })
@@ -618,6 +822,7 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
     assertions,
     passed: assertions.length - failed,
     failed,
+    diagnostics,
     limitations: [
       'local disposable built Worker; email verification remains disabled',
       'membership changes use the disposable database fixture, not the membership-management HTTP workflow',
