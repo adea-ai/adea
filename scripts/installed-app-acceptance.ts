@@ -606,9 +606,9 @@ export async function runInstalledAppPreflight(dependencies: {
       id: 'installed-bundle-identity',
       expected: `the installed bundle declares the ${INSTALLED_APP_SCHEME} URL scheme and carries its build target record`,
       actual: scheme
-        ? `the scheme is declared; the recorded target is ${target?.mode ?? 'missing'} (${target?.cloudOrigin ?? 'no origin'})`
+        ? `the scheme is declared; ${describeBuildTarget(target)}`
         : 'the bundle does not declare the URL scheme',
-      status: scheme && target !== null ? 'pass' : 'fail',
+      status: scheme && target?.kind === 'valid' ? 'pass' : 'fail',
       evidence: 'host',
     })
   )
@@ -759,17 +759,86 @@ function directoryMode(path: string): string | null {
   }
 }
 
-/** The bundle's own recorded build target (the cloud origin it was built for). */
-function readBuildTarget(installedApp: string): { mode?: string; cloudOrigin?: string } | null {
+/** The modes the desktop build records; anything else in the bundle is not echoed. */
+const BUILD_TARGET_MODES = ['release', 'local', 'hosted-dev'] as const
+/** The record is a tiny JSON file; a larger one is not read as a target at all. */
+const BUILD_TARGET_MAX_TEXT = 2048
+/** An origin longer than this is not a plausible one and is rejected, not truncated. */
+const BUILD_TARGET_MAX_ORIGIN = 200
+
+/**
+ * What the installed bundle's build target record yields for the artifact:
+ * a `valid` target whose origin is the origin ONLY, a `malformed` one whose
+ * contents are never repeated, or `null` when no record can be read.
+ */
+export type BuildTarget =
+  | { kind: 'valid'; mode: (typeof BUILD_TARGET_MODES)[number]; cloudOrigin: string }
+  | { kind: 'malformed' }
+
+/**
+ * Reduces a recorded target to the secret-free form the artifact may carry.
+ *
+ * The record comes from the bundle, so it is untrusted text. The mode must be
+ * one of the build's own modes. The origin must be an http(s) origin with no
+ * credentials, query, fragment or path, within a bounded length; it is emitted
+ * as `URL.origin`, never as the recorded string. A value that fails any of this
+ * is rejected whole: nothing of it is echoed, because a redaction pattern can
+ * miss a credential-bearing spelling that a rejection cannot.
+ */
+export function parseBuildTarget(value: unknown): BuildTarget {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return { kind: 'malformed' }
+  }
+  const { mode, cloudOrigin } = value as { mode?: unknown; cloudOrigin?: unknown }
+  const recordedMode = BUILD_TARGET_MODES.find((allowed) => allowed === mode)
+  if (recordedMode === undefined) return { kind: 'malformed' }
+  if (typeof cloudOrigin !== 'string' || cloudOrigin.length > BUILD_TARGET_MAX_TEXT) {
+    return { kind: 'malformed' }
+  }
+  let url: URL
   try {
-    const text = readFileSync(
+    url = new URL(cloudOrigin)
+  } catch {
+    return { kind: 'malformed' }
+  }
+  const originOnly =
+    (url.protocol === 'https:' || url.protocol === 'http:') &&
+    url.username === '' &&
+    url.password === '' &&
+    url.search === '' &&
+    url.hash === '' &&
+    url.pathname === '/' &&
+    url.origin.length <= BUILD_TARGET_MAX_ORIGIN
+  if (!originOnly) return { kind: 'malformed' }
+  return { kind: 'valid', mode: recordedMode, cloudOrigin: url.origin }
+}
+
+/** The bundle's own recorded build target (the cloud origin it was built for). */
+function readBuildTarget(installedApp: string): BuildTarget | null {
+  let text: string
+  try {
+    text = readFileSync(
       join(installedApp, 'Contents', 'Resources', 'app', 'client', 'adea-desktop-target.json'),
       'utf8'
     )
-    return JSON.parse(text) as { mode?: string; cloudOrigin?: string }
   } catch {
     return null
   }
+  if (text.length > BUILD_TARGET_MAX_TEXT) return { kind: 'malformed' }
+  try {
+    return parseBuildTarget(JSON.parse(text))
+  } catch {
+    return { kind: 'malformed' }
+  }
+}
+
+/** The artifact's wording for a target: only the validated mode and origin, or a fixed phrase. */
+function describeBuildTarget(target: BuildTarget | null): string {
+  if (target === null) return 'the recorded target is missing (no origin)'
+  if (target.kind === 'malformed') {
+    return 'the recorded target is malformed and its contents are not recorded here'
+  }
+  return `the recorded target is ${target.mode} (${target.cloudOrigin})`
 }
 
 /** The identifier the installed bundle carries. */
@@ -1354,9 +1423,10 @@ export async function runInstalledAppAcceptance(dependencies: {
       id: 'installed-bundle-identity',
       expected: `the installed bundle declares the ${INSTALLED_APP_SCHEME} URL scheme and carries its build target record`,
       actual: bundleDeclaresScheme(profile.installedApp)
-        ? `the scheme is declared; the recorded target is ${target?.mode ?? 'missing'} (${target?.cloudOrigin ?? 'no origin'})`
+        ? `the scheme is declared; ${describeBuildTarget(target)}`
         : 'the installed bundle does not declare the URL scheme',
-      status: bundleDeclaresScheme(profile.installedApp) && target !== null ? 'pass' : 'fail',
+      status:
+        bundleDeclaresScheme(profile.installedApp) && target?.kind === 'valid' ? 'pass' : 'fail',
       evidence: 'host',
     })
   )

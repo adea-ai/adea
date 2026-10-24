@@ -38,6 +38,7 @@ import {
   inspectProviderEnvironment,
   launchDependentRows,
   openAcceptanceLog,
+  parseBuildTarget,
   planApplicationSupportCleanup,
   redactRecordedText,
   removeOwnedRoot,
@@ -818,6 +819,157 @@ describe('the preflight has no side effects', () => {
     expect(preflight.artifact.launched).toBe(false)
     const isolation = preflight.artifact.isolation as { isolated: boolean }
     expect(isolation.isolated).toBe(false)
+  })
+})
+
+/** A bundle on disk that declares the scheme and records the given target text. */
+function bundleRecording(targetText: string): { bundle: string; cleanup: () => void } {
+  const parent = mkdtempSync(join(tmpdir(), 'adea-acceptance-target-'))
+  const bundle = join(parent, 'Adea-dev.app')
+  mkdirSync(join(bundle, 'Contents', 'Resources', 'app', 'client'), { recursive: true })
+  writeFileSync(join(bundle, 'Contents', 'Info.plist'), '<string>adea</string>')
+  writeFileSync(
+    join(bundle, 'Contents', 'Resources', 'app', 'client', 'adea-desktop-target.json'),
+    targetText
+  )
+  return { bundle, cleanup: () => rmSync(parent, { force: true, recursive: true }) }
+}
+
+describe('the recorded build target never carries a credential into the artifact', () => {
+  const realRoot = '/Users/operator/Library/Application Support/dev.adea.desktop'
+  // Synthetic sentinels only: nothing here is a real credential. Each one is a
+  // distinctive string a leak would reproduce verbatim.
+  const SENTINELS = {
+    userinfo: 'SENTINEL_USERINFO_7f3a91',
+    password: 'SENTINEL_PASSWORD_2c8d40',
+    token: 'SENTINEL_TOKEN_a51e66',
+    fragment: 'SENTINEL_FRAGMENT_90bb12',
+    mode: 'SENTINEL_MODE_d4c7e8',
+    path: 'SENTINEL_PATH_61f0aa',
+  }
+
+  async function artifactTextFor(targetText: string) {
+    const { bundle, cleanup } = bundleRecording(targetText)
+    try {
+      const preflight = await runInstalledAppPreflight({
+        bundle,
+        evidence: { profilePath: `${realRoot}/dev/CEF`, realRoot },
+      })
+      const identity = preflight.checks.find((row) => row.id === 'installed-bundle-identity')
+      return { everything: JSON.stringify(preflight), identity }
+    } finally {
+      cleanup()
+    }
+  }
+
+  const hostile = [
+    [
+      'userinfo, query and fragment on the origin',
+      JSON.stringify({
+        mode: 'hosted-dev',
+        cloudOrigin: `https://${SENTINELS.userinfo}:${SENTINELS.password}@adea.dev/?token=${SENTINELS.token}#${SENTINELS.fragment}`,
+      }),
+    ],
+    [
+      'a query that carries a token on an otherwise plain origin',
+      JSON.stringify({
+        mode: 'release',
+        cloudOrigin: `https://adea.dev?access_token=${SENTINELS.token}`,
+      }),
+    ],
+    [
+      'a path that carries a secret',
+      JSON.stringify({ mode: 'release', cloudOrigin: `https://adea.dev/${SENTINELS.path}` }),
+    ],
+    [
+      'an arbitrary mode string',
+      JSON.stringify({ mode: SENTINELS.mode, cloudOrigin: 'https://adea.dev' }),
+    ],
+    [
+      'an origin that is not a URL',
+      JSON.stringify({ mode: 'release', cloudOrigin: `not a url ${SENTINELS.token}` }),
+    ],
+    [
+      'text that is not JSON',
+      `{"mode": "release", "cloudOrigin": "https://adea.dev" ${SENTINELS.token}`,
+    ],
+    [
+      'an oversized origin',
+      JSON.stringify({
+        mode: 'release',
+        cloudOrigin: `https://${'a'.repeat(5000)}${SENTINELS.token}.dev`,
+      }),
+    ],
+  ] as const
+
+  for (const [name, targetText] of hostile) {
+    test(`${name} reaches no artifact text and fails the identity row`, async () => {
+      const { everything, identity } = await artifactTextFor(targetText)
+      for (const value of Object.values(SENTINELS)) expect(everything).not.toContain(value)
+      expect(everything).not.toContain('a'.repeat(300))
+      expect(identity?.status).toBe('fail')
+      expect(identity?.actual).toContain('malformed')
+    })
+  }
+
+  test('a valid target is recorded as its mode and origin alone', async () => {
+    const { identity, everything } = await artifactTextFor(
+      JSON.stringify({ mode: 'hosted-dev', cloudOrigin: 'https://adea.dev' })
+    )
+    expect(identity?.status).toBe('pass')
+    expect(identity?.actual).toBe(
+      'the scheme is declared; the recorded target is hosted-dev (https://adea.dev)'
+    )
+    expect(everything).not.toContain('malformed')
+  })
+
+  test('the parser emits URL.origin and rejects every credential-bearing spelling', () => {
+    expect(parseBuildTarget({ mode: 'local', cloudOrigin: 'http://localhost:3000/' })).toEqual({
+      kind: 'valid',
+      mode: 'local',
+      cloudOrigin: 'http://localhost:3000',
+    })
+    for (const cloudOrigin of [
+      'https://user@adea.dev',
+      'https://user:pass@adea.dev',
+      'https://adea.dev/?a=b',
+      'https://adea.dev/#frag',
+      'https://adea.dev/path',
+      'ftp://adea.dev',
+      'javascript:alert(1)',
+      '',
+    ]) {
+      expect(parseBuildTarget({ mode: 'release', cloudOrigin })).toEqual({ kind: 'malformed' })
+    }
+    for (const value of [
+      null,
+      [],
+      'release',
+      7,
+      { mode: 'release' },
+      { cloudOrigin: 'https://adea.dev' },
+    ]) {
+      expect(parseBuildTarget(value)).toEqual({ kind: 'malformed' })
+    }
+  })
+
+  test('the isolation registry stays empty and the preflight launches nothing', async () => {
+    const { bundle, cleanup } = bundleRecording(
+      JSON.stringify({ mode: 'release', cloudOrigin: 'https://adea.dev' })
+    )
+    try {
+      const recorded: string[] = []
+      const preflight = await runInstalledAppPreflight({
+        bundle,
+        evidence: { profilePath: `${realRoot}/dev/CEF`, realRoot },
+        sideEffects: { record: (event) => recorded.push(event) },
+      })
+      expect(SUPPORTED_ISOLATION_CONTRACTS).toEqual([])
+      expect(recorded).toEqual([])
+      expect(preflight.artifact.launched).toBe(false)
+    } finally {
+      cleanup()
+    }
   })
 })
 
