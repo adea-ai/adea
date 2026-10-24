@@ -2,6 +2,8 @@ import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { AgentSummary, WorkspaceSummary, WorkspaceUpdate } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
+import { AppIconSetting } from './app-icon-picker'
+import { createPreferenceSaver } from './preference-saver'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
 import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
@@ -41,6 +43,7 @@ import { Dynamic } from 'solid-js/web'
 import { CapabilityList } from './capability-card'
 import { keyedRows } from './keyed-rows'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
+import type { AppIconVariant } from '@adea-ai/app-ui/lib/app-icon'
 import {
   defaultWorkspacePreferences,
   type CapabilitySnapshot,
@@ -372,17 +375,16 @@ export function WorkspaceSettingsDialog(props: {
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
     props.onClose()
   }
-  const save = async (next: WorkspacePreferences) => {
-    setPreferences(next)
-    if (!props.services?.settings) return
-    setSaveState('saving')
-    try {
-      setPreferences(await props.services.settings.save(next))
-      setSaveState('saved')
-    } catch {
-      setSaveState('error')
-    }
-  }
+  const preferenceSaver = createPreferenceSaver<WorkspacePreferences>({
+    read: preferences,
+    write: setPreferences,
+    persist: (next) => props.services?.settings?.save(next),
+    state: setSaveState,
+  })
+  const save = preferenceSaver.save
+  // A pick that did not persist is not kept on screen.
+  const saveAppIcon = (variant: AppIconVariant) =>
+    preferenceSaver.saveOrRevert((current) => ({ ...current, appIcon: variant }))
   const toggle = (key: 'notifyMentions' | 'notifyTasks' | 'privateNotificationPreviews') =>
     void save({ ...preferences(), [key]: !preferences()[key] })
 
@@ -434,9 +436,7 @@ export function WorkspaceSettingsDialog(props: {
       open={props.open}
       onClose={close}
       restoreFocusRef={props.restoreFocusRef}
-      headerLeading={
-        <WorkspaceLogo aria-hidden="true" class="block size-10 shrink-0" role="presentation" />
-      }
+      headerLeading={<WorkspaceLogo aria-hidden="true" class="block size-10 shrink-0" />}
       title="Settings"
     >
       <Tabs
@@ -546,6 +546,15 @@ export function WorkspaceSettingsDialog(props: {
                     }
                   >
                     {props.appearancePanel?.()}
+                  </Show>
+                  <Show when={props.services?.settings && props.services.appIcon}>
+                    {(appIcon) => (
+                      <AppIconSetting
+                        value={preferences().appIcon}
+                        save={saveAppIcon}
+                        apply={appIcon().apply}
+                      />
+                    )}
                   </Show>
                 </Show>
                 <Show when={panelSection === 'agents'}>

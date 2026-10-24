@@ -5,10 +5,6 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Brand marks use the published theme-invariant contrast pair. */
-  --workspace-logo-surface: var(--scrim);
-  --workspace-logo-foreground: var(--scrim-foreground);
-
   /* The Agent Sim scene layer. It sits BELOW every chrome layer on the
    * published scale so the engine's own on-screen controls (which carry
    * pack-internal z-indexes we do not own) can never paint over Adea
