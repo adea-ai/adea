@@ -62,7 +62,7 @@ export function AppIconSetting(props: {
   save(variant: AppIconVariant): Promise<boolean>
   apply(variant: AppIconVariant): Promise<boolean>
 }) {
-  const [outcome, setOutcome] = createSignal<'applied' | 'error' | 'idle' | 'saved'>('idle')
+  const [outcome, setOutcome] = createSignal<'error' | 'idle' | 'saved'>('idle')
   let request = 0
   const choose = async (variant: AppIconVariant) => {
     const current = ++request
@@ -74,15 +74,15 @@ export function AppIconSetting(props: {
       return
     }
     const applied = await props.apply(variant).catch(() => false)
-    if (current === request) setOutcome(applied ? 'applied' : 'saved')
+    if (current === request) setOutcome(applied ? 'idle' : 'saved')
   }
   return (
     <SettingsRow
       label="App icon"
       description={
         outcome() === 'saved'
-          ? 'Saved. This version of Adea Desktop cannot change the Dock icon while it runs.'
-          : 'The Dock and desktop icon. Inside the app, the icon is white in light mode and black in dark mode.'
+          ? 'Saved. This version cannot change the Dock icon while Adea is running.'
+          : 'The Dock and desktop icon. In the app it is white in light mode, black in dark mode.'
       }
     >
       <div class="flex flex-col gap-2">
