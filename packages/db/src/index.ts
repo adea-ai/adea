@@ -650,3 +650,9 @@ export {
   type SimSessionLookup,
   type SimStoredSession,
 } from './sim-launch-ports'
+export {
+  createSimAllowlistLookup,
+  grantSimAllowlist,
+  revokeSimAllowlist,
+  type SimAllowlistScope,
+} from './sim-allowlist'

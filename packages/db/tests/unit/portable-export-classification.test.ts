@@ -69,6 +69,9 @@ const excluded: Readonly<Record<string, string>> = {
   runtime_nodes: 'runtime_execution_state',
   sim_launch_codes: 'credentials',
   sim_sessions: 'credentials',
+  // The allowlist is an operator-managed entitlement grant for the hosted Sim service, not workspace
+  // content; it must not travel with an export or reach another installation.
+  sim_workspace_allowlist: 'authority_grants',
   task_mutations: 'derived_and_personal_state',
   task_submissions: 'runtime_execution_state',
   temporary_user_sessions: 'credentials',
