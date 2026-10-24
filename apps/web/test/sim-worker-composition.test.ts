@@ -202,14 +202,21 @@ test('the stores are opened per request with the database string, and closed aft
   expect(state.closed).toEqual([1, 2, 3])
 })
 
-test('the frame route serves the supplied public bootstrap and nothing private', async () => {
+test('the frame script route serves exactly the supplied public bootstrap and nothing private', async () => {
   const state = world()
   const env = environment(state)
-  const response = await worker(state, '// the bootstrap bundle').fetch(
-    new Request(`${ORIGIN}/frame`),
+  const bootstrap = '// the bootstrap bundle'
+  const response = await worker(state, bootstrap).fetch(new Request(`${ORIGIN}/frame.js`), env)
+  expect(response.status).toBe(200)
+  expect(response.headers.get('content-type')).toBe('text/javascript')
+  expect(await response.text()).toBe(bootstrap)
+  expect(state.asked).toEqual([])
+  // A different bundle is served as given, so the body comes from the supplied script and nothing else.
+  const other = await worker(state, '// another bundle').fetch(
+    new Request(`${ORIGIN}/frame.js`),
     env
   )
-  expect(response.status).toBeLessThan(500)
+  expect(await other.text()).toBe('// another bundle')
   expect(state.asked).toEqual([])
 })
 

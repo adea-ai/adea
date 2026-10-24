@@ -103,7 +103,9 @@ validated asset contract and the built frame script. A missing or malformed valu
 opened per request and released by the Worker's `dispose` hook, because a Worker cannot reuse an I/O
 object across requests. `openSimPostgresStores` (`sim-worker-postgres.ts`) is the default opener over
 the three database adapters. Tests use a fake bucket and in-memory stores, plus the disposable
-database for the real stores. None of it proves the bucket is private.
+database for the real stores. None of it proves the bucket is private, and none of it establishes that
+the Hyperdrive configuration has query caching disabled, which these reads require (see the storage
+prerequisites below).
 
 ### The private asset location
 
@@ -192,6 +194,13 @@ These are decisions and actions, not source. None of them has been made here.
 5. **The storage prerequisites.** The `sim_launch_codes` and `sim_sessions` migration applied to the
    target database, the read and write access for the launch and the hosted service, and the
    cleanup of expired codes and sessions.
+   Hyperdrive caching is part of this. The redemption, session and allowlist reads decide whether
+   a request is served, so the Hyperdrive configuration behind `SIM_DATABASE` must have query
+   caching disabled: a cached read could answer for a session, code or grant after it was revoked,
+   spent or withdrawn, for as long as the cache lives. A cache-disabled setting on a local or
+   disposable database, or on the Tier A local connection string, says nothing about the cache
+   state of a Hyperdrive binding. That state is read from the Hyperdrive configuration itself,
+   and no local result stands in for it. Source and tests here cannot establish it.
 6. **The deployment.** Building and deploying the separately hosted service, and any credential,
    binding or access change it needs. None of that is authorized here.
 
