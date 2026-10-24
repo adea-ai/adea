@@ -654,5 +654,7 @@ export {
   createSimAllowlistLookup,
   grantSimAllowlist,
   revokeSimAllowlist,
+  SimAllowlistWorkspaceUnavailableError,
+  withdrawSimAccess,
   type SimAllowlistScope,
 } from './sim-allowlist'

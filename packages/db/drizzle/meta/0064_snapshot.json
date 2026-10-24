@@ -1,5 +1,5 @@
 {
-  "id": "75e806c5-dcab-4441-b157-be75d3709124",
+  "id": "9abd8c70-20c2-47fc-9419-72683dbc8108",
   "prevId": "3e71db6a-4ead-46f2-8984-a1df6eb500cf",
   "version": "7",
   "dialect": "postgresql",
@@ -7891,7 +7891,7 @@
         },
         "workspace_id": {
           "name": "workspace_id",
-          "type": "text",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
@@ -7917,7 +7917,18 @@
         }
       },
       "indexes": {},
-      "foreignKeys": {},
+      "foreignKeys": {
+        "sim_workspace_allowlist_workspace_id_workspaces_id_fk": {
+          "name": "sim_workspace_allowlist_workspace_id_workspaces_id_fk",
+          "tableFrom": "sim_workspace_allowlist",
+          "tableTo": "workspaces",
+          "schemaTo": "app",
+          "columnsFrom": ["workspace_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "sim_workspace_allowlist_workspace_surface_unique": {
@@ -7928,10 +7939,6 @@
       },
       "policies": {},
       "checkConstraints": {
-        "sim_workspace_allowlist_workspace_nonempty": {
-          "name": "sim_workspace_allowlist_workspace_nonempty",
-          "value": "length(\"app\".\"sim_workspace_allowlist\".\"workspace_id\") > 0"
-        },
         "sim_workspace_allowlist_surface_closed": {
           "name": "sim_workspace_allowlist_surface_closed",
           "value": "\"app\".\"sim_workspace_allowlist\".\"surface\" in ('hq', 'room-designer', 'character-designer')"

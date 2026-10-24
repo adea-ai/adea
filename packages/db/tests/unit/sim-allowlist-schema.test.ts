@@ -22,12 +22,16 @@ describe('hosted Sim allowlist schema', () => {
       'workspace_id',
       'surface',
     ])
-    expect(config.checks.map(({ name }) => name).toSorted()).toEqual([
+    expect(config.checks.map(({ name }) => name)).toEqual([
       'sim_workspace_allowlist_surface_closed',
-      'sim_workspace_allowlist_workspace_nonempty',
     ])
-    // No foreign key: a row for a workspace that does not exist grants nothing.
-    expect(config.foreignKeys).toHaveLength(0)
+    // A grant can only name a workspace that exists, and removing the workspace removes its grants.
+    expect(config.foreignKeys).toHaveLength(1)
+    const { columns, foreignColumns } = config.foreignKeys[0]!.reference()
+    expect(columns.map(({ name }) => name)).toEqual(['workspace_id'])
+    expect(getTableConfig(foreignColumns[0]!.table).name).toBe('workspaces')
+    expect(foreignColumns[0]!.name).toBe('id')
+    expect(config.foreignKeys[0]!.onDelete).toBe('cascade')
   })
 })
 
@@ -41,12 +45,15 @@ const untouched = new Proxy(
   }
 ) as never
 
+const UUID = '8f0c6a52-45f1-4e0b-a8d2-7c1d6f4a9b10'
+
 describe('hosted Sim allowlist store, refusals before storage', () => {
   test('a lookup for an empty workspace or an unknown surface resolves false without a query', async () => {
     const lookup = createSimAllowlistLookup(untouched)
     expect(await lookup({ workspaceId: '', surface: 'hq' })).toBe(false)
-    expect(await lookup({ workspaceId: 'workspace-one', surface: 'admin' })).toBe(false)
-    expect(await lookup({ workspaceId: 'workspace-one', surface: '' })).toBe(false)
+    expect(await lookup({ workspaceId: 'workspace-one', surface: 'hq' })).toBe(false)
+    expect(await lookup({ workspaceId: UUID, surface: 'admin' })).toBe(false)
+    expect(await lookup({ workspaceId: UUID, surface: '' })).toBe(false)
     expect(await lookup({ workspaceId: undefined, surface: 'hq' } as never)).toBe(false)
   })
 
@@ -58,10 +65,13 @@ describe('hosted Sim allowlist store, refusals before storage', () => {
       grantSimAllowlist(untouched, { workspaceId: 'has space', surface: 'hq' })
     ).rejects.toThrow(RangeError)
     await expect(
-      grantSimAllowlist(untouched, { workspaceId: 'workspace-one', surface: 'admin' })
+      grantSimAllowlist(untouched, { workspaceId: 'workspace-one', surface: 'hq' })
     ).rejects.toThrow(RangeError)
     await expect(
-      revokeSimAllowlist(untouched, { workspaceId: 'workspace-one', surface: 'admin' })
+      grantSimAllowlist(untouched, { workspaceId: UUID, surface: 'admin' })
+    ).rejects.toThrow(RangeError)
+    await expect(
+      revokeSimAllowlist(untouched, { workspaceId: UUID, surface: 'admin' })
     ).rejects.toThrow(RangeError)
   })
 })

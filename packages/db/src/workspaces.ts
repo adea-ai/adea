@@ -13,6 +13,7 @@ import { and, asc, desc, eq, isNotNull, isNull, max, inArray, or, sql } from 'dr
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { mintControlPlaneIdentifier } from './control-plane-identifiers'
+import { withdrawSimAccess } from './sim-allowlist'
 import { appendWorkspaceEvent } from './transactions'
 import {
   authorizationAuditRecords,
@@ -719,11 +720,13 @@ export async function beginWorkspaceDeletion(
       throw new WorkspaceVersionConflictError()
     await assertSupportedWorkspaceDeletion(transaction, workspace, true)
     await assertVerifiedWorkspaceCleanupCompletion()
-    if (!workspace.deletionRequestedAt)
+    if (!workspace.deletionRequestedAt) {
       await transaction
         .update(workspaces)
         .set({ deletionRequestedAt: new Date() })
         .where(eq(workspaces.id, workspaceId))
+      await withdrawSimAccess(transaction, workspaceId)
+    }
   })
 }
 
@@ -829,6 +832,7 @@ export async function deleteWorkspace(
     await transaction
       .delete(authorizationAuditRecords)
       .where(eq(authorizationAuditRecords.workspaceId, workspaceId))
+    await withdrawSimAccess(transaction, workspaceId)
     await transaction.delete(workspaces).where(eq(workspaces.id, workspaceId))
   })
 }
@@ -877,6 +881,7 @@ export async function archiveWorkspace(
       .update(workspaces)
       .set({ deletedAt: now, updatedAt: now })
       .where(eq(workspaces.id, workspaceId))
+    await withdrawSimAccess(transaction, workspaceId)
     await appendWorkspaceEvent(transaction, {
       eventType: 'workspace.archived',
       payload: { actorUserId: principal.userId },
