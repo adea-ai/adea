@@ -1,7 +1,7 @@
 // The Dock icon colourway's native half: the persisted pick decides which
 // icon the shell asks for, and a shell with no native setter says so instead
 // of claiming the icon changed.
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -14,8 +14,15 @@ import {
   isAppIconVariant,
 } from '../shell/src/app-icon'
 
+const created: string[] = []
+
+afterEach(() => {
+  for (const dir of created.splice(0)) rmSync(dir, { force: true, recursive: true })
+})
+
 function preferencesDir(body: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'adea-app-icon-'))
+  created.push(dir)
   mkdirSync(join(dir, 'desktop-state'))
   writeFileSync(join(dir, 'desktop-state', 'preferences.json'), body)
   return dir
@@ -28,7 +35,7 @@ describe('app icon preference', () => {
     expect(appIconFor(preferencesDir(JSON.stringify({ appIcon: 'green' })))).toBe('white')
     expect(appIconFor(preferencesDir(JSON.stringify({})))).toBe('white')
     expect(appIconFor(preferencesDir('not json at all'))).toBe('white')
-    expect(appIconFor(join(tmpdir(), 'adea-app-icon-absent'))).toBe('white')
+    expect(appIconFor(join(preferencesDir('{}'), 'absent'))).toBe('white')
   })
 
   test('accepts only the known colourways', () => {
@@ -69,5 +76,3 @@ describe('app icon applier', () => {
     ).toBe(false)
   })
 })
-
-rmSync(join(tmpdir(), 'adea-app-icon-absent'), { force: true, recursive: true })
