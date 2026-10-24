@@ -25,6 +25,7 @@ import {
 } from './built-worker-desktop-auth'
 import {
   jsonAllMemberValues,
+  jsonMemberValues,
   rawCredentialValues,
   withoutTopLevelValue,
   withoutProviderSessionToken,
@@ -191,7 +192,7 @@ const trustedResponse = (response: BuiltWorkerResponse) =>
   requireProof(response.headers['access-control-allow-origin'] === DESKTOP_TRUSTED_ORIGIN)
 
 const denied = (response: BuiltWorkerResponse, status: number) => {
-  requireProof(response.status === status)
+  requireProof(response.status === status && noStore(response))
   const body = record(response.body)
   requireProof(
     body.code === 'workspace_unavailable' &&
@@ -244,6 +245,7 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
     const index = responses.length
     responses.push(response)
     for (const value of rawCredentialValues(response.body)) secrets.push(value)
+    for (const value of jsonMemberValues(response.body, 'token')) if (value) secrets.push(value)
     for (const value of sessionCookieValues(response)) secrets.push(value)
     return { response, index }
   }
@@ -327,6 +329,16 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
         providerSession &&
         typeof providerSession.id === 'string' &&
         providerSession.id.length > 0
+    )
+    requireProof(
+      providerSession.token === undefined ||
+        (typeof providerSession.token === 'string' && providerSession.token.length > 0)
+    )
+    const providerTokens = jsonMemberValues(readback.response.body, 'token')
+    requireProof(
+      providerSession.token
+        ? providerTokens.length === 1 && providerTokens[0] === providerSession.token
+        : providerTokens.length === 0
     )
     if (typeof providerSession.token === 'string')
       observe(providerSession.token, readback.index, { providerSession: true })
@@ -588,6 +600,16 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
       : 'responses contained only permitted issuance fields',
     attempts: 1,
     outcomes: [leaks ? 'assertion-failed' : 'passed'],
+  })
+  const notCacheable = responses.length > 0 && responses.every(noStore)
+  assertions.push({
+    name: 'all-workspace-proof-responses-are-not-cacheable',
+    passed: notCacheable,
+    detail: notCacheable
+      ? 'all observed auth and permission responses prohibit caching'
+      : 'an observed response did not prohibit caching',
+    attempts: 1,
+    outcomes: [notCacheable ? 'passed' : 'assertion-failed'],
   })
   const failed = assertions.filter((assertion) => !assertion.passed).length
   return {

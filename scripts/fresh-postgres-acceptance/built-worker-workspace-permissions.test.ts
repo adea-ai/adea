@@ -58,6 +58,16 @@ type Fault =
   | 'password-credential'
   | 'provider-session'
   | 'cookie-deny'
+  | 'provider-nested-token'
+  | 'provider-duplicate-token'
+  | 'provider-escaped-token'
+  | 'cache-unsigned'
+  | 'cache-outsider'
+  | 'cache-removed'
+  | 'cache-revoked'
+  | 'cache-create'
+  | 'cache-authorize'
+  | 'cache-provider-read'
 
 function fixture(fault?: Fault) {
   const accounts: Account[] = []
@@ -80,6 +90,28 @@ function fixture(fault?: Fault) {
       const response = json(status, value, { ...cors, ...extra })
       if (fault === 'cache' && request.path.startsWith('/api/workspaces'))
         delete response.headers['cache-control']
+      const workspaceRead = request.path.startsWith('/api/workspaces/')
+      const bCredential =
+        accounts[1] && request.headers?.authorization === `Desktop ${accounts[1].credential}`
+      if (
+        (fault === 'cache-unsigned' &&
+          workspaceRead &&
+          !request.headers?.authorization &&
+          !request.headers?.cookie) ||
+        (fault === 'cache-outsider' && workspaceRead && bCredential && removeCalls === 0) ||
+        (fault === 'cache-removed' &&
+          workspaceRead &&
+          bCredential &&
+          removeCalls > 0 &&
+          !accounts[1]!.revoked) ||
+        (fault === 'cache-revoked' && workspaceRead && bCredential && accounts[1]!.revoked) ||
+        (fault === 'cache-create' &&
+          request.path === '/api/workspaces' &&
+          request.method === 'POST') ||
+        (fault === 'cache-authorize' && request.path.startsWith('/api/auth/desktop/authorize?')) ||
+        (fault === 'cache-provider-read' && request.path.startsWith('/api/auth/get-session?'))
+      )
+        response.headers['cache-control'] = 'public, max-age=3600'
       if (fault === 'leak-header' && request.path.startsWith('/api/workspaces'))
         response.headers['x-debug'] = accounts[0]!.credential
       if (fault === 'leak-body' && request.path.startsWith('/api/workspaces'))
@@ -118,7 +150,7 @@ function fixture(fault?: Fault) {
       const account = accounts.find(
         (item) => item.cookie === request.headers?.cookie && !item.signedOut
       )
-      return respond(
+      const response = respond(
         200,
         account
           ? {
@@ -127,6 +159,21 @@ function fixture(fault?: Fault) {
             }
           : null
       )
+      if (account && fault === 'provider-nested-token') {
+        const value = JSON.parse(response.body)
+        value.extra = { token: 'previously-unknown-nested-provider-secret' }
+        response.body = JSON.stringify(value)
+      }
+      if (account && fault === 'provider-duplicate-token')
+        response.body = response.body.replace(
+          `"token":"${account.token}"`,
+          `"token":"previously-unknown-duplicate-provider-secret","token":"${account.token}"`
+        )
+      if (account && fault === 'provider-escaped-token')
+        response.body =
+          response.body.slice(0, -1) +
+          String.raw`,"extra":{"\u0074oken":"previously-unknown-escaped-provider-secret"}}`
+      return response
     }
     if (request.path.startsWith('/api/auth/desktop/authorize?')) {
       const account = accounts.find(
@@ -324,6 +371,26 @@ describe('built Worker workspace permission proof', () => {
       const { receipt } = await run(fault)
       expect(receipt.status).toBe('failed')
       expect(receipt.failed).toBeGreaterThan(0)
+    })
+  }
+
+  for (const fault of [
+    'provider-nested-token',
+    'provider-duplicate-token',
+    'provider-escaped-token',
+    'cache-unsigned',
+    'cache-outsider',
+    'cache-removed',
+    'cache-revoked',
+    'cache-create',
+    'cache-authorize',
+    'cache-provider-read',
+  ] as const) {
+    test(`refuses otherwise-valid ${fault} responses`, async () => {
+      const { receipt } = await run(fault)
+      expect(receipt.status).toBe('failed')
+      expect(receipt.failed).toBeGreaterThan(0)
+      expect(JSON.stringify(receipt)).not.toContain('previously-unknown')
     })
   }
 
