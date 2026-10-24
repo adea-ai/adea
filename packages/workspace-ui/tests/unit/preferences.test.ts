@@ -6,6 +6,7 @@ describe('workspace preferences boundary', () => {
   test('normalizes untrusted persisted values to the supported M2 shape', () => {
     expect(
       normalizeWorkspacePreferences({
+        appIcon: 'violet',
         dictationLocale: ' en-US ',
         notifyMentions: false,
         notifyTasks: 'yes',
@@ -14,6 +15,7 @@ describe('workspace preferences boundary', () => {
         secret: 'must-not-survive',
       })
     ).toEqual({
+      appIcon: 'violet',
       dictationLocale: 'en-US',
       notifyMentions: false,
       notifyTasks: true,
@@ -30,6 +32,7 @@ describe('workspace preferences boundary', () => {
       setItem: (key, value) => void values.set(key, value),
     })
     const saved = await provider.save({
+      appIcon: 'black',
       dictationLocale: 'es-PR',
       notifyMentions: true,
       notifyTasks: false,
@@ -39,5 +42,11 @@ describe('workspace preferences boundary', () => {
     })
     expect(await provider.load()).toEqual(saved)
     expect([...values.values()].join('')).not.toContain('credential')
+  })
+
+  test('an unknown or missing app icon falls back to the white default', () => {
+    for (const appIcon of [undefined, 'green', 'WHITE', 3, null])
+      expect(normalizeWorkspacePreferences({ appIcon }).appIcon).toBe('white')
+    expect(normalizeWorkspacePreferences(null).appIcon).toBe('white')
   })
 })

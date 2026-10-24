@@ -243,6 +243,11 @@ test('changed canonical receipt pins and malformed pages disclose no child data'
     { attemptId: `att_${'1'.repeat(26)}` },
     { runtimeSessionId: `ses_${'1'.repeat(26)}` },
     { children: [{ ...child(), objective: 'private' }] },
+    { children: [{ ...child(), state: 'running' }] },
+    { children: [{ ...child(), outcome: { ...child().outcome, state: 'failed' } }] },
+    { children: [{ ...child(), awaitingInput: true }] },
+    { children: [{ ...child(), state: 'awaiting_input', outcome: undefined }] },
+    { children: [{ ...child(), updatedAt: '2026-10-16T23:59:59Z' }] },
     { children: [child(), child()], totalChildren: 2 },
     { children: [child(), { ...child(), acceptedAt: '2026-10-17T00:02:00Z' }], totalChildren: 2 },
     { totalChildren: 2 },
@@ -261,6 +266,57 @@ test('changed canonical receipt pins and malformed pages disclose no child data'
       reasonCode: 'RUNTIME_RESPONSE_INVALID',
     })
   }
+})
+
+test('a child that is not contradicting itself is disclosed', async () => {
+  // A terminal child carries the outcome that names its own state, and a
+  // child that is still waiting carries no outcome at all.
+  for (const state of ['awaiting_input', 'completed', 'failed', 'cancelled'] as const) {
+    const f = fixture()
+    const terminal = state === 'completed' || state === 'failed' || state === 'cancelled'
+    const item = {
+      ...child(),
+      state,
+      awaitingInput: state === 'awaiting_input',
+      ...(terminal
+        ? { outcome: { state, publication: { status: 'published' as const } } }
+        : { outcome: undefined }),
+    }
+    f.setReader(async () => ({
+      ...page(),
+      children: [item],
+      totalChildren: 1,
+      complete: true,
+    }))
+    const result = await f.service.children(scope)
+    expect(result.childObservations).toMatchObject({
+      availability: 'available',
+      children: [{ state }],
+    })
+  }
+})
+
+test('children accepted at the same instant are ordered by the instant', async () => {
+  // The control plane orders children by the instant they were accepted and by
+  // delegation id within one instant, so the same instant spelled with a
+  // different precision is still one ordered page.
+  const f = fixture()
+  f.setReader(async () => ({
+    ...page(),
+    children: [
+      { ...child(0), acceptedAt: '2026-10-17T00:00:00Z' },
+      { ...child(1), acceptedAt: '2026-10-17T00:00:00.000Z' },
+    ],
+    totalChildren: 2,
+    complete: true,
+  }))
+  const result = await f.service.children(scope)
+  expect(result.childObservations).toMatchObject({ availability: 'available' })
+  if (result.childObservations.availability === 'available')
+    expect(result.childObservations.children.map((item) => item.delegationId)).toEqual([
+      child(0).delegationId,
+      child(1).delegationId,
+    ])
 })
 
 test('revocation before or during the CP read rejects disclosure and never mutates', async () => {

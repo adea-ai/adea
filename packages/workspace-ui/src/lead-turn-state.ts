@@ -1,4 +1,5 @@
 import type {
+  ApiLeadChildAllowance,
   ApiLeadTurnStatus,
   ApiLeadTurnProgressResponse,
   ApiLeadTurnResponse,
@@ -76,6 +77,24 @@ export function leadPreparationCurrent(turn: ApiLeadTurnStatus | null, now: numb
     parsed > now &&
     new Date(parsed).toISOString().slice(0, 19) === expiry.slice(0, 19)
   )
+}
+
+/** Exact decimal dollars from integer microunits (1,000,000 microunits = USD 1). */
+function usdFromMicrounits(microunits: number): string {
+  const whole = Math.floor(microunits / 1_000_000).toLocaleString('en-US')
+  const fraction = String(microunits % 1_000_000)
+    .padStart(6, '0')
+    .replace(/0+$/, '')
+    .padEnd(2, '0')
+  return `$${whole}.${fraction}`
+}
+
+/** Display text for the child allowance. Absent means this control plane did not disclose one. */
+export function leadChildAllowanceText(allowance: ApiLeadChildAllowance | undefined): string {
+  if (!allowance) return 'Child allowance: not disclosed by this control plane.'
+  if (allowance.state === 'not_stated') return 'Child allowance: not stated by the lead plan.'
+  const tokens = allowance.maximumTokens
+  return `Child allowance: up to ${usdFromMicrounits(allowance.maximumMicrounits)} and ${tokens.toLocaleString('en-US')} ${tokens === 1 ? 'token' : 'tokens'} for child executions.`
 }
 
 export function leadFundingBinding(

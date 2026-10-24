@@ -1741,4 +1741,50 @@ describe.skipIf(!connectionUrl)('durable addressed agent turns', () => {
       .where(eq(schema.leadTurnIntents.channelId, f.channelId))
     expect(intents).toHaveLength(1)
   })
+
+  T('the claim retains the exact participation grant that admitted the work', async () => {
+    const f = await groupWithAgent()
+    const claim = await claimAddressedTurn(
+      connection.db,
+      f.workspace.id,
+      f.owner,
+      claimInput(f.channelId, f.triggerMessageId, f.agent.id, f.owner),
+      { now: NOW }
+    )
+    // The retained binding names the grant id AND the revision the Agent's
+    // admission was bound to, so a later regrant at a higher revision cannot
+    // be mistaken for the authority this work was admitted under.
+    expect(claim.turn).toMatchObject({ authGrantId: 'gra_echo', authRevision: 1 })
+    const [row] = await connection.db
+      .select({
+        authGrantId: schema.addressedAgentTurns.authGrantId,
+        authRevision: schema.addressedAgentTurns.authRevision,
+      })
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.id, claim.turn.id))
+    expect(row).toEqual({ authGrantId: 'gra_echo', authRevision: 1 })
+  })
+
+  T('a claim whose addressed Agent has no provable admission writes nothing', async () => {
+    const f = await groupWithAgent()
+    const stranger = await createAgent(connection.db, f.workspace.id, f.owner, {
+      name: 'Stranger',
+      profileId: 'lead',
+      profileVersion: '1',
+    })
+    await expect(
+      claimAddressedTurn(
+        connection.db,
+        f.workspace.id,
+        f.owner,
+        claimInput(f.channelId, f.triggerMessageId, stranger.id, f.owner),
+        { now: NOW }
+      )
+    ).rejects.toMatchObject({ name: 'AddressedTurnError', reason: 'turn_agent_not_enlisted' })
+    const rows = await connection.db
+      .select({ id: schema.addressedAgentTurns.id })
+      .from(schema.addressedAgentTurns)
+      .where(eq(schema.addressedAgentTurns.channelId, f.channelId))
+    expect(rows).toHaveLength(0)
+  })
 })

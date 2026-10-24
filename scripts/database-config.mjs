@@ -52,12 +52,34 @@ function readConnection(environment, name) {
     database: url.pathname.slice(1),
     hosted,
     hostname: url.hostname,
+    port: url.port || '5432',
     role: decodeURIComponent(url.username),
   }
 }
 
-function normalizedNeonHost(hostname) {
-  return hostname.replace('-pooler.', '.')
+/**
+ * True when two connections address the same PostgreSQL instance.
+ *
+ * The instance's identity is the host, the port and the database name: one host
+ * and port is one server, and the database name is the database within it. Two
+ * connections that agree on all three address the same instance.
+ *
+ * Two hostnames are never equal by resemblance. A hostname is a name, not
+ * evidence about which server answers it, so the provider this deployment has
+ * left — which served one instance through two endpoint hostnames, a pooled
+ * endpoint and a direct one — is two addresses, not one instance, and the
+ * runtime does not forgive the difference by rewriting the name. Rewriting a
+ * hostname cannot prove that two addresses are one server, and a rewrite rule
+ * would accept any lookalike: `evil-pooler.example.test` and
+ * `evil.example.test` are not one server, whatever their names suggest.
+ *
+ * A deployment that needs one instance reached through two endpoints has to
+ * say so with an explicitly validated contract, not with a name pattern.
+ */
+function sameInstance(one, other) {
+  return (
+    one.hostname === other.hostname && one.port === other.port && one.database === other.database
+  )
 }
 
 export function inspectDatabaseConfiguration(environment = process.env) {
@@ -85,21 +107,25 @@ export function inspectDatabaseConfiguration(environment = process.env) {
   if (runtime.hosted !== migration.hosted) {
     throw new Error('Runtime and migration connections must target the same environment type')
   }
+  // Every role must reach one PostgreSQL instance, and the instance is identified
+  // exactly. The provider-free lanes each address one instance through one host and
+  // one port: the managed deployment, the local container and the disposable CI
+  // proof. The hosted branch lane addressed one branch through two endpoint
+  // hostnames, and it is being replaced by the provider-free CI proof; that
+  // replacement and this rule are integrated together.
+  if (!sameInstance(runtime, migration)) {
+    throw new Error(
+      'Runtime and migration connections must reach the same PostgreSQL instance: the same host, port and database'
+    )
+  }
   if (unpooled) {
     if (unpooled.role !== runtime.role || unpooled.database !== runtime.database) {
       throw new Error('DATABASE_URL_UNPOOLED must use the runtime role and database')
     }
-    if (normalizedNeonHost(unpooled.hostname) !== normalizedNeonHost(runtime.hostname)) {
-      throw new Error('Pooled and unpooled connections must target the same environment')
-    }
-  }
-
-  if (runtime.hostname.endsWith('.neon.tech')) {
-    if (!runtime.hostname.includes('-pooler.')) {
-      throw new Error('Hosted Neon DATABASE_URL must use the pooled endpoint')
-    }
-    if (migration.hostname.includes('-pooler.')) {
-      throw new Error('Hosted Neon DATABASE_MIGRATION_URL must use the unpooled endpoint')
+    if (!sameInstance(unpooled, runtime)) {
+      throw new Error(
+        'DATABASE_URL_UNPOOLED must reach the same PostgreSQL instance as DATABASE_URL: the same host, port and database'
+      )
     }
   }
 

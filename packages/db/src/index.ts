@@ -69,6 +69,7 @@ export {
   RETENTION_COVERAGE_RULES,
   RetentionPolicyError,
   recordCleanupReceipt,
+  retentionCategoryRule,
   UNSET_RETENTION_PERIODS,
   type CleanupCoverageKind,
   type CleanupReceipt,
@@ -239,6 +240,7 @@ export {
   readRuntimeNode,
   recordRuntimeNodeProof,
   registerRuntimeNode,
+  renameRuntimeNode,
   requireEligibleRuntimeNode,
   revokeRuntimeNode,
   rotateRuntimeNodeKeys,
@@ -511,6 +513,7 @@ export {
   type LeadTurnObservedState,
   type LeadTurnAuthorityPurpose,
 } from './lead-turn-runtime'
+export { publishLeadChildTerminal, type LeadChildTerminalEvidence } from './lead-child-publications'
 export {
   assertLeadTurnRollbackFenceRequest,
   classifyLeadTurnRollback,
@@ -647,3 +650,11 @@ export {
   type SimSessionLookup,
   type SimStoredSession,
 } from './sim-launch-ports'
+export {
+  createSimAllowlistLookup,
+  grantSimAllowlist,
+  revokeSimAllowlist,
+  SimAllowlistWorkspaceUnavailableError,
+  withdrawSimAccess,
+  type SimAllowlistScope,
+} from './sim-allowlist'

@@ -352,6 +352,26 @@ export async function claimAddressedTurn(
     })
     // (Roster already loaded by the proof above; reused, not re-read.)
     if (decision.action === 'deny') throw new AddressedTurnError(decision.reason)
+    // The claim RETAINS the exact participation grant that admitted this work:
+    // the addressed Agent's grant id and revision, bound to this group. Late
+    // publication compares that retained binding with the Agent's CURRENT
+    // admission, so a remove-then-re-add (a new, higher revision on the same
+    // grant id) can never authorize work admitted under the older one. A
+    // binding that cannot be proven is refused here rather than carried as an
+    // unprovable claim.
+    const agentAdmission = admissionForParticipant(roster, {
+      agentId: input.agentId,
+      kind: 'agent',
+    })
+    const authorization = agentAdmission?.authorization
+    if (
+      !authorization ||
+      authorization.groupId !== input.channelId ||
+      !authorization.grantId.trim() ||
+      !Number.isSafeInteger(authorization.revision) ||
+      authorization.revision < 1
+    )
+      throw new AddressedTurnError('turn_binding_mismatch')
     if ((await countTriggerTree(store, input.triggerMessageId)) >= budget.maxTurns)
       throw new AddressedTurnError('turn_budget_exhausted')
     // The label binds the VERIFIED source workspace from the registry —
@@ -374,6 +394,8 @@ export async function claimAddressedTurn(
         addressedLabel: `${agentHome.workspaceId}:${input.agentId}`,
         addresserUserId: principal.userId,
         agentId: input.agentId,
+        authGrantId: authorization.grantId,
+        authRevision: authorization.revision,
         causalId,
         channelId: input.channelId,
         depth: decision.depth,

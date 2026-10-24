@@ -115,4 +115,6 @@ export {
 } from './coordination-plans'
 export { leadTurnIntents } from './lead-turns'
 export { leadTurnRuntime } from './lead-turn-runtime'
+export { leadChildPublications } from './lead-child-publications'
 export { simLaunchCodes, simSessions } from './sim-launch'
+export { simWorkspaceAllowlist } from './sim-allowlist'

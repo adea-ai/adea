@@ -11,6 +11,7 @@ import {
   recoverLeadTurnRuntimeBinding,
   requestLeadTurnCancellation,
   publishLeadTurnResult,
+  publishLeadChildTerminal,
   controlPlaneScopeIds,
 } from '@adea-ai/db'
 import { createConfiguredLeadTurnDependencies } from './lead-turn-composition'
@@ -174,6 +175,106 @@ export function createLeadTurnProduct(
   }
   return {
     ...service,
+    /** Explicit reconciler: retained CP terminal evidence is independently delivered to Adea. */
+    async publishChildren(scope: { workspaceId: string; intentId: string; userId: string }) {
+      const adapter = dependencies.adapter
+      if (!adapter?.children || !adapter.childPublicationCurrent)
+        throw new Error('CHILD_PUBLICATION_UNAVAILABLE')
+      const childPublicationCurrent = adapter.childPublicationCurrent
+      let after: { acceptedAt: string; delegationId: string } | undefined
+      let published = 0
+      let totalChildren: number | undefined
+      const seen = new Set<string>()
+      for (;;) {
+        const observed = await service.children(scope, { limit: 256, ...(after ? { after } : {}) })
+        const page = observed.childObservations
+        const parent = observed.leadTurn
+        if (
+          page.availability !== 'available' ||
+          !parent.dispatchId ||
+          !parent.executionId ||
+          !parent.attemptId ||
+          !parent.runtimeSessionId ||
+          !parent.preparationRef
+        )
+          throw new Error('CHILD_PUBLICATION_UNAVAILABLE')
+        if (totalChildren === undefined) totalChildren = page.totalChildren
+        if (
+          page.totalChildren !== totalChildren ||
+          seen.size + page.children.length > totalChildren
+        )
+          throw new Error('CHILD_PUBLICATION_CHANGED')
+        const binding = {
+          schemaVersion: 'pi-lead-dispatch/v1' as const,
+          intentId: scope.intentId,
+          dispatchId: parent.dispatchId,
+          executionId: parent.executionId,
+          attemptId: parent.attemptId,
+          runtimeSessionId: parent.runtimeSessionId,
+        }
+        for (const child of page.children) {
+          if (seen.has(child.delegationId)) throw new Error('CHILD_PUBLICATION_CHANGED')
+          seen.add(child.delegationId)
+          if (!child.outcome || child.outcome.publication.status !== 'published') continue
+          const authority = await resolveLeadTurnAuthority(
+            database,
+            scope.workspaceId,
+            scope.intentId,
+            principal(scope),
+            'read'
+          )
+          const evidence = await childPublicationCurrent(
+            authority,
+            binding,
+            parent.preparationRef,
+            child.delegationId
+          )
+          if (
+            evidence.childExecutionId !== child.childExecutionId ||
+            evidence.childAttemptId !== child.childAttemptId ||
+            evidence.role !== child.role ||
+            evidence.state !== child.outcome.state ||
+            evidence.resultRef !== child.outcome.resultRef ||
+            evidence.failureCode !== child.outcome.failureCode
+          )
+            throw new Error('CHILD_PUBLICATION_CHANGED')
+          await publishLeadChildTerminal(
+            database,
+            scope.workspaceId,
+            scope.intentId,
+            principal(scope),
+            binding,
+            evidence,
+            async () => {
+              const current = await childPublicationCurrent(
+                authority,
+                binding,
+                parent.preparationRef!,
+                child.delegationId
+              )
+              if (JSON.stringify(current) !== JSON.stringify(evidence))
+                throw new Error('CHILD_PUBLICATION_CHANGED')
+            }
+          )
+          published++
+        }
+        if (page.complete) {
+          if (seen.size !== totalChildren) throw new Error('CHILD_PUBLICATION_CHANGED')
+          // `published` counts the children this delivery committed, including a
+          // child whose receipt already existed and was replayed. It is not a
+          // count of newly created timeline messages.
+          return { published }
+        }
+        if (
+          !page.next ||
+          (after &&
+            page.next.acceptedAt === after.acceptedAt &&
+            page.next.delegationId === after.delegationId)
+        )
+          throw new Error('CHILD_PUBLICATION_CHANGED')
+        after = page.next
+      }
+    },
     async latest(workspaceId: string, channelId: string, userId: string) {
       const receipt = await getLatestLeadTurnForChannel(database, workspaceId, channelId, {
         kind: 'user',

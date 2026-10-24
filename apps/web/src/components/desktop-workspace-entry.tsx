@@ -28,6 +28,7 @@ import {
 import { localContentAuthority } from '../lib/desktop-local-content'
 import { desktopMemoryService } from '../lib/desktop-memory'
 import {
+  desktopAppIconService,
   desktopCapabilityProvider,
   desktopSettingsProvider,
   registerDesktopWindowSurfaceMirror,
@@ -525,6 +526,7 @@ function DesktopWorkspace(props: {
       onSignOut: () => void props.onSignOut(),
     },
     app: { name: 'Adea', platform: 'desktop', version: props.appVersion },
+    appIcon: desktopAppIconService,
     capabilities: desktopCapabilityProvider,
     client: props.client,
     connections,

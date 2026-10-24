@@ -38,6 +38,9 @@ export default {
       // so a fresh install works offline and without a release endpoint.
       // Bump this file with MANAGED_PI_PINNED_VERSION and its digest.
       'resources/managed-pi': 'managed-pi',
+      // The three Dock icon colourways the user can pick in Settings. The
+      // bundle's own icon is the white one (`icon.iconset`).
+      'resources/app-icons': 'app-icons',
     },
     mac: {
       bundleCEF: true,

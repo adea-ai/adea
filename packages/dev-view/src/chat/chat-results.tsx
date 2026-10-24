@@ -18,6 +18,7 @@ import {
   type TestSuite,
 } from '@adea-ai/ui/components/composites/test-results'
 
+import { CHECKPOINT_RESTORE_CONSEQUENCE } from './model/checkpoint-restore'
 import type { ChatTurnResult } from './model/turns'
 import {
   stackText,
@@ -444,6 +445,10 @@ function TaskResult(props: {
 export function ResultLine(props: {
   entry: () => ChatTurnResult
   live: () => boolean
+  onRestoreCheckpoint?: (checkpoint: {
+    checkpointId: string
+    checkpointEventId: string
+  }) => void | Promise<void>
 }): JSX.Element {
   const result = () => props.entry().result
   const common = () => ({
@@ -463,10 +468,24 @@ export function ResultLine(props: {
       </Show>
       <Show when={as('checkpoint')}>
         {(checkpoint) => (
-          // No `onRestore`: this host does not give the canvas a restore operation, so the
-          // checkpoint is a marker and says nothing about whether it could be returned to.
+          // Restore is offered only when the host marked this checkpoint restorable AND gave the
+          // canvas a restore operation; otherwise it is a marker that claims nothing about
+          // whether it could be returned to.
           <li {...common()}>
-            <Checkpoint label={checkpoint().name} time={utcTime(checkpoint().createdAt)} />
+            <Checkpoint
+              label={checkpoint().name}
+              time={utcTime(checkpoint().createdAt)}
+              {...(checkpoint().restorable && props.onRestoreCheckpoint
+                ? {
+                    onRestore: () =>
+                      props.onRestoreCheckpoint!({
+                        checkpointId: checkpoint().checkpointId,
+                        checkpointEventId: props.entry().id,
+                      }),
+                    consequence: CHECKPOINT_RESTORE_CONSEQUENCE,
+                  }
+                : {})}
+            />
           </li>
         )}
       </Show>

@@ -6,6 +6,8 @@
 // them. This module closes that gap. It drives the actual locally built Worker
 // over HTTP and asserts what the built routes do:
 //
+//   - signup is read back uncached, signed out and replaced by a fresh
+//     password-authenticated session for the same provider user;
 //   - the authorize route is registered and refuses a request without a session
 //     by sending the caller to sign in;
 //   - the authorize route refuses a request that carries a parameter the
@@ -16,7 +18,9 @@
 //   - the exchange route refuses a wrong PKCE verifier, an untrusted origin and
 //     a replayed code;
 //   - the exchange preflight refuses an untrusted origin;
-//   - no response carries a secret.
+//   - session refresh rotates credentials; logout and revoke invalidate them;
+//   - session routes refuse missing and untrusted origins without mutation;
+//   - no response is cacheable or carries a secret.
 //
 // The module holds no transport of its own. Every request goes through the
 // injected transport, so the assertions can be exercised without a Worker, a
@@ -32,11 +36,14 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 
 import {
   BuiltWorkerFailure,
+  decodeJsonBody as readJson,
   jsonAllMemberValues,
+  jsonMemberValues,
   rawCredentialValues,
   sanitizeReceipt,
   topLevelStringValue,
   withoutTopLevelValue,
+  withoutProviderSessionToken,
 } from './built-worker-failures'
 
 /** The route the built Worker serves for a desktop authorization request. */
@@ -661,6 +668,8 @@ export async function runBuiltWorkerDesktopAuth(
   const observedSecrets: string[] = [...callerSecrets]
   const responses: BuiltWorkerResponse[] = []
   let sessionCookie = ''
+  let signupCookie = ''
+  let signupUserId: string | undefined
 
   /**
    * Where a value was legitimately issued.
@@ -686,6 +695,7 @@ export async function runBuiltWorkerDesktopAuth(
      * occurrence.
      */
     readonly bodyField?: string
+    readonly providerSessionToken?: boolean
   }
   const issuedIn = new Map<string, Exemption[]>()
 
@@ -709,6 +719,7 @@ export async function runBuiltWorkerDesktopAuth(
       readonly header?: string
       readonly headerPart?: 'fragment'
       readonly bodyField?: string
+      readonly providerSessionToken?: boolean
     }
   ): void => {
     if (!value) return
@@ -742,9 +753,12 @@ export async function runBuiltWorkerDesktopAuth(
         return []
       })
       .join(' ')
+    const exempted = exemptions.some((entry) => entry.providerSessionToken)
+      ? withoutProviderSessionToken(response.body)
+      : response.body
     const body = exemptions
       .filter((exemption) => exemption.bodyField)
-      .reduce((text, exemption) => withoutTopLevelValue(text, exemption.bodyField!), response.body)
+      .reduce((text, exemption) => withoutTopLevelValue(text, exemption.bodyField!), exempted)
     if (`${headers}\n${body}`.includes(secret)) return true
     // A value can hide behind an escaped character, and a duplicate member can
     // hide the value before it, so every member value is read.
@@ -815,6 +829,9 @@ export async function runBuiltWorkerDesktopAuth(
   // session the authorize route reads is a session the built Worker issued.
   const email = `built-worker-${randomUUID()}@example.test`
   const password = base64url(randomBytes(24))
+  const wrongPassword = `wrong-password-${base64url(randomBytes(24))}`
+  callerSecrets.push(password, wrongPassword)
+  observedSecrets.push(password, wrongPassword)
   const signUp = await runStep({
     name: 'the-built-worker-signs-up-a-fresh-account',
     mutating: true,
@@ -835,6 +852,10 @@ export async function runBuiltWorkerDesktopAuth(
         }
       }
       sessionCookie = cookie
+      signupCookie = cookie
+      const signupBody = readJson(response.body) as { user?: { id?: unknown } } | null | undefined
+      if (typeof signupBody?.user?.id === 'string' && signupBody.user.id)
+        signupUserId = signupBody.user.id
       for (const value of sessionCookieValues(response)) {
         observeIssued(value, index, { header: 'set-cookie' })
       }
@@ -853,6 +874,292 @@ export async function runBuiltWorkerDesktopAuth(
         outcome: 'passed',
       }
     },
+  })
+
+  const providerRequest = (path: string, cookie = '', body?: object): BuiltWorkerRequest => ({
+    method: body === undefined ? 'GET' : 'POST',
+    path: `/api/auth/${path}`,
+    headers: {
+      origin: new URL(input.baseUrl).origin,
+      ...(cookie ? { cookie } : {}),
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  })
+  type ProviderIdentity = {
+    user: { id: string; email: string }
+    session: { id: string; token?: string }
+  }
+  const identityFrom = (body: string): ProviderIdentity | undefined => {
+    const value = readJson(body) as Partial<ProviderIdentity> | null | undefined
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      typeof value.user?.id !== 'string' ||
+      !value.user.id ||
+      value.user.email !== email ||
+      typeof value.session?.id !== 'string' ||
+      !value.session.id ||
+      (value.session.token !== undefined &&
+        (typeof value.session.token !== 'string' || !value.session.token))
+    )
+      return undefined
+    const tokens = jsonMemberValues(body, 'token')
+    if (
+      value.session.token
+        ? tokens.length !== 1 || tokens[0] !== value.session.token
+        : tokens.length !== 0
+    )
+      return undefined
+    return value as ProviderIdentity
+  }
+  const observeProviderIssuance = (response: BuiltWorkerResponse, index: number): void => {
+    for (const value of sessionCookieValues(response))
+      observeIssued(value, index, { header: 'set-cookie' })
+    const token = signupTokenFrom(response)
+    if (token) observeIssued(token, index, { bodyField: 'token', header: 'set-cookie' })
+  }
+  let signupIdentity: ProviderIdentity | undefined
+  steps.push({
+    name: 'the-provider-reads-the-signup-session',
+    mutating: false,
+    run: async () => {
+      const index = await send(providerRequest('get-session?disableCookieCache=true', signupCookie))
+      const response = responses[index]!
+      if (response.status >= 500)
+        return serverFailure(response, 'the provider session read returned ')
+      const identity = identityFrom(response.body)
+      const passed =
+        response.status === 200 &&
+        identity !== undefined &&
+        signupCookie !== '' &&
+        signupUserId !== undefined &&
+        identity.user.id === signupUserId
+      if (passed && identity) {
+        signupIdentity = identity
+        for (const value of sessionCookieValues(response))
+          observeIssued(value, index, { header: 'set-cookie' })
+        if (identity.session.token)
+          observeIssued(identity.session.token, index, { providerSessionToken: true })
+      }
+      return {
+        passed,
+        detail: passed
+          ? 'the uncached provider read resolves the fresh account and session'
+          : 'the uncached provider read did not resolve the fresh account and session',
+        outcome: passed ? 'passed' : 'assertion-failed',
+      }
+    },
+  })
+  steps.push({
+    name: 'the-provider-sign-out-clears-the-session',
+    mutating: true,
+    run: async () => {
+      sessionCookie = ''
+      const index = await send(providerRequest('sign-out', signupCookie, {}))
+      const response = responses[index]!
+      if (response.status >= 500) return serverFailure(response, 'the provider sign-out returned ')
+      const value = readJson(response.body) as { success?: unknown } | undefined
+      const names = signupCookie.split(';').map((cookie) => cookie.trim().split('=')[0])
+      const cleared = (response.headers['set-cookie'] ?? '')
+        .split(/,(?=[^;,]+=)/u)
+        .some((cookie) => {
+          const pair = cookie.split(';')[0]?.trim() ?? ''
+          const separator = pair.indexOf('=')
+          return (
+            separator > 0 &&
+            pair.slice(separator + 1) === '' &&
+            names.includes(pair.slice(0, separator))
+          )
+        })
+      const passed =
+        response.status === 200 &&
+        value?.success === true &&
+        jsonMemberValues(response.body, 'token').length === 0 &&
+        !responseCarriesCredentialMaterial(
+          { ...response, headers: { ...response.headers, 'set-cookie': '' } },
+          observedSecrets
+        ) &&
+        cleared &&
+        sessionCookieValues(response).length === 0
+      return {
+        passed,
+        detail: passed
+          ? 'the provider accepted sign-out and cleared the issued session cookie'
+          : 'the provider did not safely clear the signed-out session',
+        outcome: passed ? 'passed' : 'assertion-failed',
+      }
+    },
+  })
+  const refuseSignedOutCookie = async (): Promise<StepResult> => {
+    const index = await send(providerRequest('get-session?disableCookieCache=true', signupCookie))
+    const response = responses[index]!
+    if (response.status >= 500)
+      return serverFailure(response, 'the signed-out session read returned ')
+    const passed =
+      response.status === 200 &&
+      readJson(response.body) === null &&
+      sessionCookieValues(response).length === 0
+    return {
+      passed,
+      detail: passed
+        ? 'the uncached provider read rejects the old cookie after sign-out'
+        : 'the signed-out cookie still resolved or issued a session',
+      outcome: passed ? 'refused' : 'assertion-failed',
+    }
+  }
+  steps.push({
+    name: 'the-provider-refuses-the-signed-out-cookie',
+    mutating: false,
+    run: refuseSignedOutCookie,
+  })
+  steps.push({
+    name: 'the-desktop-authorize-route-refuses-the-signed-out-cookie',
+    // A broken stale-session check could issue a code before a response is lost.
+    mutating: true,
+    run: async () => {
+      const pkce = desktopPkcePair()
+      const { nonce, state } = desktopNonceAndState()
+      const index = await send({
+        method: 'GET',
+        path: desktopAuthorizePath({ challenge: pkce.challenge, nonce, state }),
+        headers: { cookie: signupCookie },
+      })
+      const response = responses[index]!
+      if (response.status >= 500)
+        return serverFailure(response, 'the signed-out authorize returned ')
+      let location: URL | undefined
+      try {
+        location = new URL(response.headers.location ?? '', input.baseUrl)
+      } catch {
+        /* Refused below. */
+      }
+      // A revoked provider session read deletes its cookies via the framework.
+      // Only syntactically empty, explicitly expiring cookies may be excluded
+      // from this material predicate. The global secret ledger still sees them.
+      const cookieHeaders = response.headers['set-cookie']
+        ? response.headers['set-cookie'].split(/,(?=[^;,]+=)/u)
+        : []
+      const clearingCookieCount = cookieHeaders.filter(
+        (cookie) =>
+          /^[^=;\s]+=\s*$/u.test(cookie.split(';')[0]?.trim() ?? '') &&
+          /(?:^|;)\s*max-age\s*=\s*0\s*(?:;|$)/iu.test(cookie)
+      ).length
+      const nonemptyCookieCount = sessionCookieValues(response).length
+      const clearingOnly = clearingCookieCount === cookieHeaders.length
+      const rawMaterial = responseCarriesCredentialMaterial(response, observedSecrets)
+      const material = responseCarriesCredentialMaterial(
+        clearingOnly
+          ? { ...response, headers: { ...response.headers, 'set-cookie': '' } }
+          : response,
+        observedSecrets
+      )
+      const sameOrigin = location?.origin === new URL(input.baseUrl).origin
+      const signInPath = location?.pathname === '/auth/sign-in'
+      const passed =
+        response.status === 303 &&
+        sameOrigin &&
+        signInPath &&
+        !location?.hash &&
+        clearingOnly &&
+        !material &&
+        jsonMemberValues(response.body, 'token').length === 0
+      return {
+        passed,
+        // These classifications expose no raw URL, query, header or token value.
+        detail: `signed-out authorize: status=${response.status}; sameOrigin=${sameOrigin}; path=${signInPath ? '/auth/sign-in' : 'other'}; hashPresent=${Boolean(location?.hash)}; clearingCount=${clearingCookieCount}; nonemptyCount=${nonemptyCookieCount}; rawMaterial=${rawMaterial}; material=${material}`,
+        outcome: passed ? 'refused' : 'assertion-failed',
+      }
+    },
+  })
+  steps.push({
+    name: 'the-provider-refuses-a-wrong-password',
+    mutating: true,
+    run: async () => {
+      const index = await send(
+        providerRequest('sign-in/email', '', { email, password: wrongPassword })
+      )
+      const response = responses[index]!
+      if (response.status >= 500)
+        return serverFailure(response, 'the wrong-password login returned ')
+      const value = readJson(response.body) as { code?: unknown } | undefined
+      const passed =
+        response.status === 401 &&
+        value?.code === 'INVALID_EMAIL_OR_PASSWORD' &&
+        sessionCookieValues(response).length === 0 &&
+        jsonMemberValues(response.body, 'token').length === 0 &&
+        !responseCarriesCredentialMaterial(response, observedSecrets)
+      return {
+        passed,
+        detail: passed
+          ? 'the provider refused the wrong password without a usable session'
+          : 'the wrong-password login did not safely refuse authentication',
+        outcome: passed ? 'refused' : 'assertion-failed',
+      }
+    },
+  })
+  steps.push({
+    name: 'the-provider-password-login-issues-a-session',
+    mutating: true,
+    run: async () => {
+      const index = await send(providerRequest('sign-in/email', '', { email, password }))
+      const response = responses[index]!
+      if (response.status >= 500) return serverFailure(response, 'the password login returned ')
+      const cookie = sessionCookieFrom(response)
+      const passed =
+        response.status === 200 &&
+        sessionCookieValues(response).length > 0 &&
+        cookie !== signupCookie
+      if (passed) {
+        sessionCookie = cookie
+        observeProviderIssuance(response, index)
+      }
+      return {
+        passed,
+        detail: passed
+          ? 'the password login issued a new usable cookie'
+          : 'the password login did not issue a new usable cookie',
+        outcome: passed ? 'passed' : 'assertion-failed',
+      }
+    },
+  })
+  steps.push({
+    name: 'the-provider-password-login-resolves-the-same-user-with-a-new-session',
+    mutating: false,
+    run: async () => {
+      const index = await send(
+        providerRequest('get-session?disableCookieCache=true', sessionCookie)
+      )
+      const response = responses[index]!
+      if (response.status >= 500) return serverFailure(response, 'the login session read returned ')
+      const identity = identityFrom(response.body)
+      const passed =
+        response.status === 200 &&
+        identity !== undefined &&
+        signupIdentity !== undefined &&
+        sessionCookie !== '' &&
+        identity.user.id === signupIdentity.user.id &&
+        identity.session.id !== signupIdentity.session.id
+      if (passed && identity) {
+        for (const value of sessionCookieValues(response))
+          observeIssued(value, index, { header: 'set-cookie' })
+        if (identity.session.token)
+          observeIssued(identity.session.token, index, { providerSessionToken: true })
+      }
+      return {
+        passed,
+        detail: passed
+          ? 'the uncached password session resolves the same account with a new session ID'
+          : 'the password session did not resolve the same account with a new session ID',
+        outcome: passed ? 'passed' : 'assertion-failed',
+      }
+    },
+  })
+
+  steps.push({
+    name: 'the-provider-keeps-the-old-cookie-revoked-after-password-login',
+    mutating: false,
+    run: refuseSignedOutCookie,
   })
 
   const authorizeWithSession = async (): Promise<{
@@ -992,6 +1299,11 @@ export async function runBuiltWorkerDesktopAuth(
     },
   })
 
+  let activeSession: ValidatedDesktopSession | undefined
+  let previousSession: ValidatedDesktopSession | undefined
+  let loggedOutSession: ValidatedDesktopSession | undefined
+  let revokedSession: ValidatedDesktopSession | undefined
+
   let exchangedCode = ''
   let exchangedNonce = ''
   let exchangedVerifier = ''
@@ -1039,6 +1351,7 @@ export async function runBuiltWorkerDesktopAuth(
         }
       }
       observeIssued(session.credential, index, { bodyField: 'credential' })
+      activeSession = session
       exchangedCode = issued.code
       exchangedNonce = issued.nonce
       exchangedVerifier = issued.verifier
@@ -1222,6 +1535,188 @@ export async function runBuiltWorkerDesktopAuth(
     },
   })
 
+  // These requests exercise the existing HTTP session routes. They do not
+  // establish verification-required signup, outbound email or direct SQL readback.
+  const sessionRequest = (
+    action: 'refresh' | 'logout' | 'revoke',
+    session: ValidatedDesktopSession,
+    origin: string | undefined
+  ): BuiltWorkerRequest => ({
+    method: 'POST',
+    path: `/api/auth/desktop/${action}`,
+    headers: {
+      authorization: `Desktop ${session.credential}`,
+      'x-adea-desktop-session': session.sessionId,
+      ...(origin === undefined ? {} : { origin }),
+    },
+  })
+
+  const unavailable: StepResult = {
+    passed: false,
+    detail: 'no qualified desktop session was available for this assertion',
+    outcome: 'assertion-failed',
+  }
+
+  const refusal = (response: BuiltWorkerResponse, trusted: boolean): StepResult => {
+    if (response.status >= 500) return serverFailure(response, 'the session route returned ')
+    const allowedOrigin = response.headers['access-control-allow-origin']
+    const passed =
+      response.status === 401 &&
+      !responseCarriesCredentialMaterial(response, observedSecrets) &&
+      (trusted ? allowedOrigin === desktopOrigin : !allowedOrigin)
+    return {
+      passed,
+      detail: passed
+        ? 'the session route refused the credential or origin without issuing material'
+        : 'the session route did not safely refuse the credential or origin',
+      outcome: passed ? 'refused' : 'assertion-failed',
+    }
+  }
+
+  const originRefusals = (action: 'refresh' | 'logout' | 'revoke'): void => {
+    for (const [label, origin] of [
+      ['missing', undefined],
+      ['untrusted', HOSTILE_ORIGIN],
+    ] as const) {
+      steps.push({
+        name: `the-desktop-${action}-route-refuses-a-${label}-origin`,
+        // Even an expected refusal is a mutation with an unknown transport outcome.
+        mutating: true,
+        run: async () => {
+          if (!activeSession) return unavailable
+          const index = await send(sessionRequest(action, activeSession, origin))
+          return refusal(responses[index]!, false)
+        },
+      })
+    }
+  }
+
+  originRefusals('refresh')
+  steps.push({
+    name: 'the-desktop-refresh-route-rotates-a-session',
+    mutating: true,
+    run: async () => {
+      if (!activeSession) return unavailable
+      const before = activeSession
+      const index = await send(sessionRequest('refresh', before, desktopOrigin))
+      const response = responses[index]!
+      if (response.status >= 500) return serverFailure(response, 'the refresh route returned ')
+      const rotated = readDesktopSession(response.body)
+      if (rotated) observeIssued(rotated.credential, index, { bodyField: 'credential' })
+      const passed =
+        response.status === 200 &&
+        rotated !== null &&
+        rotated.sessionId === before.sessionId &&
+        rotated.credential !== before.credential &&
+        response.headers['access-control-allow-origin'] === desktopOrigin
+      if (passed && rotated) {
+        previousSession = before
+        activeSession = rotated
+      }
+      return {
+        passed,
+        detail: passed
+          ? 'the route rotated the credential for the same session'
+          : 'the route did not issue a rotated client-readable session',
+        outcome: passed ? 'passed' : 'assertion-failed',
+      }
+    },
+  })
+  const refusedCredential = (
+    name: string,
+    getSession: () => ValidatedDesktopSession | undefined
+  ): void => {
+    steps.push({
+      name,
+      mutating: true,
+      run: async () => {
+        const session = getSession()
+        if (!session) return unavailable
+        const index = await send(sessionRequest('refresh', session, desktopOrigin))
+        return refusal(responses[index]!, true)
+      },
+    })
+  }
+  refusedCredential(
+    'the-desktop-refresh-route-refuses-the-previous-credential',
+    () => previousSession
+  )
+
+  const revokeSession = (action: 'logout' | 'revoke'): void => {
+    originRefusals(action)
+    steps.push({
+      name: `the-desktop-${action}-route-revokes-a-session`,
+      mutating: true,
+      run: async () => {
+        if (!activeSession) return unavailable
+        const before = activeSession
+        const index = await send(sessionRequest(action, before, desktopOrigin))
+        const response = responses[index]!
+        if (response.status >= 500) return serverFailure(response, 'the session route returned ')
+        const passed =
+          response.status === 204 &&
+          response.body === '' &&
+          !responseCarriesCredentialMaterial(response, observedSecrets) &&
+          response.headers['access-control-allow-origin'] === desktopOrigin
+        if (passed) {
+          if (action === 'logout') loggedOutSession = before
+          else revokedSession = before
+          activeSession = undefined
+        }
+        return {
+          passed,
+          detail: passed
+            ? 'the route accepted revocation with an empty response'
+            : 'the route did not safely accept revocation',
+          outcome: passed ? 'passed' : 'assertion-failed',
+        }
+      },
+    })
+  }
+  revokeSession('logout')
+  refusedCredential(
+    'the-desktop-refresh-route-refuses-a-logged-out-session',
+    () => loggedOutSession
+  )
+
+  steps.push({
+    name: 'the-desktop-exchange-route-issues-a-distinct-session-for-revocation',
+    mutating: true,
+    run: async () => {
+      const issued = await authorizeWithSession()
+      if (!issued.ok) return { passed: false, detail: issued.reason, outcome: 'assertion-failed' }
+      const index = await send(
+        desktopExchangeRequest({
+          code: issued.code,
+          verifier: issued.verifier,
+          nonce: issued.nonce,
+          origin: desktopOrigin,
+        })
+      )
+      const response = responses[index]!
+      if (response.status >= 500) return serverFailure(response, 'the exchange route returned ')
+      const session = readDesktopSession(response.body)
+      if (session) observeIssued(session.credential, index, { bodyField: 'credential' })
+      const passed =
+        response.status === 200 &&
+        session !== null &&
+        loggedOutSession !== undefined &&
+        session.sessionId !== loggedOutSession.sessionId &&
+        session.credential !== loggedOutSession.credential &&
+        response.headers['access-control-allow-origin'] === desktopOrigin
+      if (passed && session) activeSession = session
+      return {
+        passed,
+        detail: passed
+          ? 'the route issued a distinct session using the existing provider session'
+          : 'the route did not issue a distinct client-readable session',
+        outcome: passed ? 'passed' : 'assertion-failed',
+      }
+    },
+  })
+  revokeSession('revoke')
+  refusedCredential('the-desktop-refresh-route-refuses-a-revoked-session', () => revokedSession)
+
   const outcomes: StepOutcome[] = [signUp]
   for (const step of steps) {
     outcomes.push(await runStep(step))
@@ -1238,8 +1733,24 @@ export async function runBuiltWorkerDesktopAuth(
       return carriesSecret(response, secret, allowed)
     })
   })
+  const noStore =
+    responses.length > 0 &&
+    responses.every((response) =>
+      (response.headers['cache-control'] ?? '')
+        .split(',')
+        .some((token) => token.trim().toLowerCase() === 'no-store')
+    )
   const assertions: DesktopEndpointAssertion[] = [
     ...outcomes.map((outcome) => outcome.assertion),
+    {
+      name: 'no-response-is-cacheable',
+      passed: noStore,
+      detail: noStore
+        ? 'every observed response includes no-store'
+        : 'an observed response lacks no-store',
+      attempts: 1,
+      outcomes: [noStore ? 'passed' : 'assertion-failed'],
+    },
     {
       name: 'no-response-carries-a-secret',
       passed: leaked.length === 0,
@@ -1265,7 +1776,17 @@ export async function runBuiltWorkerDesktopAuth(
       worker: {
         built: true,
         baseUrl: input.baseUrl,
-        routes: [DESKTOP_AUTHORIZE_PATH, DESKTOP_EXCHANGE_PATH],
+        routes: [
+          '/api/auth/sign-up/email',
+          '/api/auth/sign-in/email',
+          '/api/auth/sign-out',
+          '/api/auth/get-session',
+          DESKTOP_AUTHORIZE_PATH,
+          DESKTOP_EXCHANGE_PATH,
+          '/api/auth/desktop/refresh',
+          '/api/auth/desktop/logout',
+          '/api/auth/desktop/revoke',
+        ],
         artifact: input.artifact,
       },
       assertions,

@@ -118,3 +118,39 @@ export async function handleLeadTurnRequest(
     return workspaceUnavailableResponse(request)
   }
 }
+
+/** POST with an empty body retries canonical child delivery; all identities come from the intent. */
+export async function handleLeadChildPublicationRequest(
+  request: Request,
+  params: Readonly<{ workspaceId: string; intentId: string }>
+) {
+  const rejected = guardDesktopWorkspaceRequest(request)
+  if (rejected) return rejected
+  if (!isConversationUuid(params.workspaceId) || !isConversationUuid(params.intentId))
+    return workspaceUnavailableResponse(request)
+  const resolution = await resolveWorkspacePrincipal(request)
+  if (!resolution) return workspaceUnavailableResponse(request, 401)
+  if (
+    !(await authorizeWorkspace(resolution.principal, 'workspace.read', params.workspaceId)).allowed
+  )
+    return workspaceUnavailableResponse(request)
+  try {
+    const text = await request.text()
+    if (text.length > 512 || text.trim() !== '{}') return workspaceInvalidRequestResponse(request)
+    const database = applicationDatabase()
+    const service = createLeadTurnProduct(
+      database,
+      await configuredLeadTurnProductDependencies(database, params.workspaceId, request)
+    )
+    const result = await service.publishChildren({
+      workspaceId: params.workspaceId,
+      intentId: params.intentId,
+      userId: resolution.principal.userId,
+    })
+    return workspaceJsonResponse(result, resolution, request, {
+      headers: { 'cache-control': 'private, no-store' },
+    })
+  } catch {
+    return workspaceUnavailableResponse(request)
+  }
+}

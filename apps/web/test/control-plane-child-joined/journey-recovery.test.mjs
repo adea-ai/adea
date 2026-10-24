@@ -1,13 +1,34 @@
-// Opt-in joined proof for #1173: failures at the message->dispatch, terminal receipt and publication
-// boundaries. Adea's side runs as its own OS process and is SIGKILLed at each boundary, so every
-// recovery starts a new process that has only PostgreSQL and the CP control API to go on. CP's side
-// is reopened in-process only (its fixture cannot reopen a composition in a new process), which is
-// said wherever it is used. See README.md "Lead-to-child journey".
+// Opt-in joined proof for #1173: failures at the message->dispatch, child acceptance, terminal
+// receipt and publication boundaries. Adea's side runs as its own OS process and is SIGKILLed at
+// each boundary, so every recovery starts a new process that has only PostgreSQL and the CP control
+// API to go on. CP's side is reopened in-process only (its fixture cannot reopen a composition in a
+// new process), which is said wherever it is used. See README.md "Lead-to-child journey".
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { startJourney, verifyJourneyPackages, finalText } from './journey-support.mjs'
 
 const manifestPath = process.env.PI_FACTORY_MANIFEST
 if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
+
+const publicationIds = (evidence) => evidence.publications.map((record) => record.id)
+const publicationTypes = (evidence) =>
+  evidence.publications.map((record) => record.value.event.type).toSorted()
+
+// The binding a restart must re-read unchanged. A status read refreshes the observation timestamps, so
+// those are left out; every identity and state column must still match.
+const bindingOf = (row) =>
+  Object.fromEntries(
+    Object.entries(row).filter(([key]) => key !== 'observedAt' && key !== 'updatedAt')
+  )
+// Releases both held provider replies and returns the first failure, so the caller decides how it counts.
+const releaseHeldGates = async (control) => {
+  let cleanupError
+  for (const name of ['lead-final', 'child-send']) {
+    await control('release', { name }).catch((error) => {
+      cleanupError ??= error
+    })
+  }
+  return cleanupError
+}
 
 describe('crash and restart recovery across the journey boundaries', () => {
   let journey, control, ids, finished
@@ -76,6 +97,82 @@ describe('crash and restart recovery across the journey boundaries', () => {
     expect(retried.exitCode).toBe(0)
     expect((await journey.runtimeRow()).dispatchId).toBe(row.dispatchId)
     expect((await control('evidence')).canonical).toEqual(during.canonical)
+  }, 120000)
+
+  test('a process killed while the accepted child is in flight loses nothing; a restart reads the same binding', async () => {
+    // The child's provider send is held so the acceptance is observable in flight, then the lead
+    // is released to delegate. CP accepts and starts the child exactly once. The hold is released in
+    // `finally`, so a failure in this test cannot leave the child stuck for the tests after it.
+    // The lead's post-delegation request is held too, so the lead stays running while the child is in flight.
+    await control('hold', { name: 'child-send' })
+    await control('hold', { name: 'lead-final' })
+    try {
+      await control('release', { name: 'lead-first' })
+      const accepted = await journey.waitFor(
+        () => control('evidence'),
+        // The child's physical request is recorded before its held send, and CP's start record and the
+        // lead's post-delegation request can land in either order. Wait for all of them, so the counts
+        // below are read after they arrive.
+        (e) =>
+          e.childStarts === 1 &&
+          e.childSends === 1 &&
+          e.leadSends === 2 &&
+          e.delegations.length === 1 &&
+          Boolean(e.child),
+        'child accepted and started once'
+      )
+      expect(accepted.lead).toMatchObject(ids)
+      expect(accepted.leadSends).toBe(2)
+      expect(accepted.childSends).toBe(1)
+      expect(accepted.canonical).toMatchObject({
+        commands: 1,
+        executions: 2,
+        attempts: 2,
+        budgets: 2,
+      })
+      expect(await journey.publishedMessages()).toHaveLength(0)
+      const beforeKill = await journey.runtimeRow()
+      expect(beforeKill.publishedMessageId).toBeNull()
+
+      // The Adea process reads the accepted child and dies before storing the observation.
+      const killed = await journey.driver('status', { fault: 'child-acceptance-lost' })
+      expect(killed.killed).toBe(true)
+      expect(killed.result).toBeUndefined()
+      // Nothing durable moved: the same binding, no message, no extra CP work, one child start.
+      expect(await journey.runtimeRow()).toEqual(beforeKill)
+      expect(await journey.publishedMessages()).toHaveLength(0)
+      expect(await journey.channelMessages()).toHaveLength(1)
+      const afterKill = await control('evidence')
+      expect(afterKill.canonical).toEqual(accepted.canonical)
+      expect(afterKill.childStarts).toBe(1)
+      expect(afterKill.physicalSends).toBe(accepted.physicalSends)
+      // CP publishes the delegation's request and dispatch when the child is accepted. The kill adds
+      // none, and nothing is published for completion yet.
+      expect(publicationTypes(accepted)).toEqual(['delegation.dispatched', 'delegation.requested'])
+      expect(publicationIds(afterKill)).toEqual(publicationIds(accepted))
+      expect(publicationTypes(afterKill)).toEqual(publicationTypes(accepted))
+      expect(publicationTypes(afterKill)).not.toContain('delegation.completed')
+
+      // A restarted process re-reads the same binding without dispatching, preparing or sending.
+      const recovered = await journey.driver('status')
+      expect(recovered.exitCode).toBe(0)
+      expect(['starting', 'running']).toContain(recovered.result.state)
+      expect(bindingOf(await journey.runtimeRow())).toEqual(bindingOf(beforeKill))
+      const afterRecover = await control('evidence')
+      expect(afterRecover.canonical).toEqual(accepted.canonical)
+      expect(afterRecover.childStarts).toBe(1)
+      expect(afterRecover.physicalSends).toBe(accepted.physicalSends)
+      expect(publicationIds(afterRecover)).toEqual(publicationIds(accepted))
+      expect(publicationTypes(afterRecover)).not.toContain('delegation.completed')
+    } catch (error) {
+      // The original failure is kept; a cleanup error after it is reported, not thrown.
+      const cleanupError = await releaseHeldGates(control)
+      if (cleanupError)
+        console.error(`held gate release failed after a test failure: ${cleanupError.message}`)
+      throw error
+    }
+    const cleanupError = await releaseHeldGates(control)
+    if (cleanupError) throw cleanupError
   }, 120000)
 
   test('the child is accepted once; a terminal receipt lost to Adea is read again after a restart', async () => {

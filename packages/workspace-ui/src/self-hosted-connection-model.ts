@@ -646,6 +646,64 @@ export const REVOCATION_EFFECTS = {
 } as const
 
 // ---------------------------------------------------------------------------------------------
+// The remembered host
+
+/**
+ * What the user is told about the host they remembered.
+ *
+ * The choice is a local note. No submission path reads it, so the copy must not claim that work
+ * is sent to the remembered host, that Adea falls back to another one, or that a remembered host
+ * is used at all. It says what is true: the browser remembers it, and nothing reads it yet.
+ */
+export type HostChoiceCopy = Readonly<{
+  label: string
+  description: string
+  action: string
+  reason: string
+}>
+
+export function hostChoiceCopy(input: { readonly chosen: boolean }): HostChoiceCopy {
+  if (input.chosen) {
+    return {
+      label: 'Remembered host',
+      description:
+        'This browser remembers this host. Nothing reads that memory yet, so it does not change where work runs.',
+      action: 'Forget this host',
+      reason:
+        'Remembered in this browser only. No submission path reads it, so no work is directed here because of it.',
+    }
+  }
+  return {
+    label: 'Remembered host',
+    description:
+      'Remember a host in this browser. Nothing reads that memory yet, so it does not change where work runs.',
+    action: 'Remember this host',
+    reason:
+      'Remembering a host is a local note. No submission path reads it, so it does not change where work runs.',
+  }
+}
+
+/** Why a remembered host is not a working host, without implying any routing effect. */
+export function hostChoiceHealthCopy(input: {
+  readonly chosen: boolean
+  readonly revoked: boolean
+  readonly allowed: boolean
+  readonly blockers: readonly string[]
+}): string {
+  if (input.revoked) {
+    return input.chosen
+      ? 'This host is still remembered, but its execution is revoked. Forgetting it clears the memory.'
+      : 'A revoked host cannot be remembered as a working host.'
+  }
+  if (input.chosen && !input.allowed) {
+    return `This host is still remembered, but it would not pass today's checks: ${input.blockers.join('; ')}.`
+  }
+  return input.allowed
+    ? 'Every check Adea can make passed. That is a fact about the host, not a clearance to run work.'
+    : `Not eligible yet. ${input.blockers.join('; ')}.`
+}
+
+// ---------------------------------------------------------------------------------------------
 // Failures
 
 export type FailureKind =

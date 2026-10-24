@@ -157,7 +157,8 @@ test('a guest can use a workspace before opening the optional persistence flow',
   const settings = page.getByRole('dialog', { name: 'Settings' })
   await expect(settings).toBeVisible()
   await expect(page).toHaveURL(/view=chat/)
-  await expect(settings.locator('[data-slot="dialog-header"] svg[aria-label="Adea"]')).toBeVisible()
+  // The mark is two images, one per appearance; only the one for this appearance is shown.
+  await expect(settings.locator('[data-slot="dialog-header"] img:visible')).toHaveCount(1)
   const signInButton = settings.getByRole('button', { name: 'Sign in', exact: true })
   await expect(signInButton).toBeVisible()
 

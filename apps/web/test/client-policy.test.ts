@@ -102,9 +102,9 @@ describe('pure browser dependency boundaries', () => {
       'DATABASE_URL',
       'CONTROL_PLANE_API_TOKEN',
       'CONTROL_PLANE_SIGNING_KEY',
-      'NEON_AUTH_COOKIE_SECRET',
       'AUTH_SECRET',
       'AUTH_DATABASE_URL',
+      'AUTH_BASE_URL',
     ])
       expect(PRIVATE_ENV_NAMES).toContain(name)
   })

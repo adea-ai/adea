@@ -1,6 +1,10 @@
 // The write side of the host detail: rename and revoke (#188). It is a separate module so a view
 // that connects neither operation renders the panel without this code and shows both as
 // unavailable with their reasons instead (the panel's `LeanHostActions`).
+//
+// The rename row itself lives in `self-hosted-rename-actions`, because this build mounts rename
+// on its own: the mounted actions are a rename-only component, so pairing and revocation stay
+// unavailable and cannot be switched on by handing the mounted component a revocation operation.
 import type { ApiRuntimeNode } from '@adea-ai/api-client'
 import { SettingsRow } from '@adea-ai/ui/components/composites/settings'
 import { Alert, AlertDescription, AlertTitle } from '@adea-ai/ui/components/ui/alert'
@@ -21,13 +25,13 @@ import { createSignal, For, Show } from 'solid-js'
 import {
   classifyFailure,
   hostIdentityLabel,
-  hostNameProblem,
   revocationOutcome,
   revokeReasonProblem,
   REVOCATION_EFFECTS,
   type FailureGuidance,
 } from './self-hosted-connection-model'
-import type { Notice, SelfHostedOperations } from './self-hosted-connection-panel'
+import type { HostListRefresh, Notice, SelfHostedOperations } from './self-hosted-connection-panel'
+import { RenameHostActions } from './self-hosted-rename-actions'
 
 export type HostActionsProps = Readonly<{
   node: ApiRuntimeNode
@@ -37,7 +41,7 @@ export type HostActionsProps = Readonly<{
   /** Runs work for the scope that started it; a late result for another scope is dropped. */
   guarded: <T>(work: () => Promise<T>) => Promise<{ value: T } | { stale: true }>
   focusHeading: () => void
-  refreshHosts: () => void | Promise<void>
+  refreshHosts: HostListRefresh
   /** The host as the latest list read shows it, or undefined when it is no longer listed. */
   currentHost: (hostId: string) => ApiRuntimeNode | undefined
   notify: (notice: Notice) => void
@@ -47,26 +51,14 @@ export type HostActionsProps = Readonly<{
 }>
 
 export function HostActions(props: HostActionsProps) {
-  const [renaming, setRenaming] = createSignal(false)
-  const [nameDraft, setNameDraft] = createSignal('')
-  const [nameProblem, setNameProblem] = createSignal<string>()
-  const [renameBusy, setRenameBusy] = createSignal(false)
   const [revokeOpen, setRevokeOpen] = createSignal(false)
   const [reasonDraft, setReasonDraft] = createSignal('')
   const [reasonProblem, setReasonProblem] = createSignal<string>()
   const [revokeBusy, setRevokeBusy] = createSignal(false)
   const [revokeFailure, setRevokeFailure] = createSignal<FailureGuidance>()
-  let renameTrigger: HTMLButtonElement | undefined
-  let renameInput: HTMLInputElement | undefined
   let revokeTrigger: HTMLButtonElement | undefined
   let reasonInput: HTMLInputElement | undefined
   let revokeConfirm: HTMLButtonElement | undefined
-
-  const rename = async (name: string) => {
-    await props.operations.renameHost!(props.node.id, name)
-    await props.refreshHosts()
-    props.notify({ tone: 'success', title: 'Host renamed', text: `Now shown as ${name}.` })
-  }
 
   const revoke = async (reason: string) => {
     const hostId = props.node.id
@@ -91,40 +83,6 @@ export function HostActions(props: HostActionsProps) {
             ? 'Adea accepted the request, but the host is no longer in the list. Refresh to see the current state.'
             : 'Adea accepted the request, but the latest read still shows this host as registered. Refresh before relying on it either way.',
       })
-    }
-  }
-
-  const beginRename = () => {
-    setNameDraft(props.node.displayName)
-    setNameProblem(undefined)
-    setRenaming(true)
-    queueMicrotask(() => renameInput?.focus())
-  }
-  const endRename = () => {
-    setRenaming(false)
-    queueMicrotask(() => renameTrigger?.focus())
-  }
-  const submitRename = async () => {
-    if (renameBusy()) return
-    const problem = hostNameProblem(nameDraft(), props.hosts, props.node.id)
-    if (problem) {
-      setNameProblem(problem)
-      renameInput?.focus()
-      return
-    }
-    setNameProblem(undefined)
-    setRenameBusy(true)
-    const name = nameDraft().trim()
-    try {
-      const result = await props.guarded(() => rename(name))
-      if ('stale' in result) return
-      endRename()
-    } catch (error) {
-      // The draft stays exactly as typed, and focus stays in the field.
-      props.onFailure(classifyFailure(error, 'rename'), () => void submitRename())
-      queueMicrotask(() => renameInput?.focus())
-    } finally {
-      setRenameBusy(false)
     }
   }
 
@@ -166,68 +124,17 @@ export function HostActions(props: HostActionsProps) {
 
   return (
     <>
-      <SettingsRow label="Name" description="Names must stay distinct so hosts are never confused.">
-        <Show
-          when={renaming()}
-          fallback={
-            <Button
-              ref={(element) => (renameTrigger = element)}
-              type="button"
-              variant="outline"
-              disabled={!props.operations.renameHost || props.revoked}
-              aria-describedby="rename-reason"
-              onClick={beginRename}
-            >
-              Rename…
-            </Button>
-          }
-        >
-          <form
-            class="flex flex-col gap-2"
-            aria-label="Rename host"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void submitRename()
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault()
-                endRename()
-              }
-            }}
-          >
-            <Input
-              ref={(element) => (renameInput = element)}
-              aria-label="Host name"
-              aria-invalid={nameProblem() ? true : undefined}
-              aria-describedby={nameProblem() ? 'rename-problem' : undefined}
-              maxLength={200}
-              autocomplete="off"
-              value={nameDraft()}
-              onInput={(event) => setNameDraft(event.currentTarget.value)}
-            />
-            <Show when={nameProblem()}>
-              <p id="rename-problem" class="text-destructive text-sm" role="alert">
-                {nameProblem()}
-              </p>
-            </Show>
-            <div class="flex gap-2">
-              <Button type="submit" size="sm" aria-disabled={renameBusy() || undefined}>
-                {renameBusy() ? 'Saving…' : 'Save name'}
-              </Button>
-              <Button type="button" size="sm" variant="ghost" onClick={endRename}>
-                Cancel
-              </Button>
-            </div>
-          </form>
-        </Show>
-      </SettingsRow>
-      <Show when={!props.operations.renameHost}>
-        <p id="rename-reason" class="text-muted-foreground text-sm text-pretty">
-          Not available yet: the server has no rename operation. The name is set by the host when it
-          registers.
-        </p>
-      </Show>
+      <RenameHostActions
+        node={props.node}
+        hosts={props.hosts}
+        revoked={props.revoked}
+        operations={props.operations}
+        guarded={props.guarded}
+        focusHeading={props.focusHeading}
+        refreshHosts={props.refreshHosts}
+        notify={props.notify}
+        onFailure={props.onFailure}
+      />
       <SettingsRow
         label={props.revoked ? 'Register again' : 'Revoke execution'}
         description={

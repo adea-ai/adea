@@ -1,7 +1,17 @@
 import { createEffect, For, on, onCleanup, onMount, Show, createSignal, type JSX } from 'solid-js'
 
 import type { ChatConversation, ChatConversationModel, TranscriptAccumulator } from './model'
-import { createTranscriptAccumulator, transcriptWindow } from './model'
+import {
+  createTranscriptAccumulator,
+  latestQueueVersion,
+  transcriptWindow,
+  bindCheckpointRestore,
+  type AttachmentPort,
+  createCheckpointRestorer,
+  type CheckpointRestorePort,
+  type CheckpointRestored,
+  type FollowUpQueuePort,
+} from './model'
 import {
   ChatComposer,
   type ChatComposerProps,
@@ -9,6 +19,8 @@ import {
   type ChatInputAuthority,
 } from './chat-composer'
 import { ChatTranscript, ChatTranscriptNotices, type ChatTranscriptProps } from './chat-transcript'
+import { createFollowUpsBinding } from './chat-follow-ups'
+import { createAttachmentsBinding } from './chat-attachments'
 import { DirectSessionHandoffControls } from './handoff-controls'
 import {
   deriveDirectSessionHandoff,
@@ -68,8 +80,33 @@ export type ChatViewProps = Readonly<{
   conversation: ChatConversation
   model?: Pick<ChatConversationModel, 'openTranscript' | 'send' | 'cancel'> &
     Partial<
-      Pick<ChatConversationModel, 'draftRevision' | 'setDraftIfCurrent' | 'createPasteBlockId'>
+      Pick<
+        ChatConversationModel,
+        | 'draftRevision'
+        | 'setDraftIfCurrent'
+        | 'createPasteBlockId'
+        | 'followUps'
+        | 'checkpointRestore'
+        | 'attachments'
+      >
     >
+  /**
+   * The host's queued-message port, when it is not the model's. Without either, no queue is
+   * offered: queueing is a host capability, not something the surface can assume.
+   */
+  followUps?: FollowUpQueuePort
+  /**
+   * The host's checkpoint restore, when it is not the model's. Without either, no checkpoint
+   * offers a restore even if the host marked it restorable.
+   */
+  checkpointRestore?: CheckpointRestorePort
+  /** Local text-file attachments (`dev.session.attachmentUpload`); without a port there is no picker. */
+  attachments?: AttachmentPort
+  /**
+   * The host restored the conversation: it continues as `restoredGeneration`. The surface does
+   * not move itself; the parent loads the session the host now publishes.
+   */
+  onCheckpointRestored?: (restored: CheckpointRestored) => void
   authority?: ChatInputAuthority
   connected?: boolean
   awaitingApproval?: boolean
@@ -472,36 +509,69 @@ export function ChatView(props: ChatViewProps): JSX.Element {
       }
       composer={
         <For each={[`${props.conversation.runtimeSessionId}:${props.conversation.generation}`]}>
-          {() => (
-            <ChatComposer
-              conversation={props.conversation}
-              usage={latestUsageFigures(
-                transcript().events,
-                props.conversation.generation,
-                props.usageModel
-              )}
-              authority={props.authority}
-              connected={connected()}
-              awaitingApproval={props.awaitingApproval}
-              busy={props.conversation.status === 'active'}
-              onSend={props.onSend || props.model ? send : undefined}
-              onSteer={props.onSteer}
-              onStop={props.onStop || props.model ? stop : undefined}
-              onDraftChange={changeDraft}
-              decisionRequest={props.decisionRequest}
-              decisionConsumer={props.decisionConsumer}
-              createPasteBlockId={() =>
-                props.model?.createPasteBlockId?.(
-                  props.conversation.runtimeSessionId,
-                  props.conversation.generation
-                ) ?? `chat-paste-${++fallbackPasteBlockId}`
-              }
-              draftRevision={
-                props.draftRevision ??
-                props.model?.draftRevision?.(props.conversation.runtimeSessionId)
-              }
-            />
-          )}
+          {() => {
+            const queuePort = props.followUps ?? props.model?.followUps
+            const followUps = queuePort
+              ? createFollowUpsBinding({
+                  port: queuePort,
+                  identity: {
+                    runtimeSessionId: props.conversation.runtimeSessionId,
+                    generation: props.conversation.generation,
+                  },
+                })
+              : undefined
+            // A prompt-free `queue.updated` event in the displayed window says the host's queue
+            // changed; the binding re-reads when its version is newer than the one shown.
+            createEffect(() => {
+              const version = latestQueueVersion(transcript().events, {
+                runtimeSessionId: props.conversation.runtimeSessionId,
+                generation: props.conversation.generation,
+              })
+              if (version !== undefined) followUps?.observeVersion(version)
+            })
+            const attachmentPort = props.attachments ?? props.model?.attachments
+            const attachments = attachmentPort
+              ? createAttachmentsBinding({
+                  port: attachmentPort,
+                  identity: {
+                    runtimeSessionId: props.conversation.runtimeSessionId,
+                    generation: props.conversation.generation,
+                  },
+                })
+              : undefined
+            return (
+              <ChatComposer
+                followUps={followUps}
+                attachments={attachments}
+                conversation={props.conversation}
+                usage={latestUsageFigures(
+                  transcript().events,
+                  props.conversation.generation,
+                  props.usageModel
+                )}
+                authority={props.authority}
+                connected={connected()}
+                awaitingApproval={props.awaitingApproval}
+                busy={props.conversation.status === 'active'}
+                onSend={props.onSend || props.model ? send : undefined}
+                onSteer={props.onSteer}
+                onStop={props.onStop || props.model ? stop : undefined}
+                onDraftChange={changeDraft}
+                decisionRequest={props.decisionRequest}
+                decisionConsumer={props.decisionConsumer}
+                createPasteBlockId={() =>
+                  props.model?.createPasteBlockId?.(
+                    props.conversation.runtimeSessionId,
+                    props.conversation.generation
+                  ) ?? `chat-paste-${++fallbackPasteBlockId}`
+                }
+                draftRevision={
+                  props.draftRevision ??
+                  props.model?.draftRevision?.(props.conversation.runtimeSessionId)
+                }
+              />
+            )
+          }}
         </For>
       }
     >
@@ -511,6 +581,22 @@ export function ChatView(props: ChatViewProps): JSX.Element {
             runtimeSessionId: props.conversation.runtimeSessionId,
             generation: props.conversation.generation,
           }
+          const restorePort = props.checkpointRestore ?? props.model?.checkpointRestore
+          const restorer = restorePort
+            ? createCheckpointRestorer({ port: restorePort, identity: readingIdentity })
+            : undefined
+          onCleanup(() => restorer?.dispose())
+          const restoreCheckpoint = restorer
+            ? bindCheckpointRestore({
+                restorer,
+                identity: readingIdentity,
+                current: () => ({
+                  runtimeSessionId: props.conversation.runtimeSessionId,
+                  generation: props.conversation.generation,
+                }),
+                onRestored: (restored) => props.onCheckpointRestored?.(restored),
+              })
+            : undefined
           return (
             <ChatTranscript
               events={transcript().events}
@@ -521,6 +607,11 @@ export function ChatView(props: ChatViewProps): JSX.Element {
               awaitingApproval={props.awaitingApproval}
               onResolveApproval={props.onResolveApproval}
               onResolveQuestion={props.onResolveQuestion}
+              onRestoreCheckpoint={
+                restoreCheckpoint
+                  ? (checkpoint) => restoreCheckpoint(checkpoint.checkpointEventId)
+                  : undefined
+              }
               hasOlder={history().hasOlder}
               loadingOlder={history().loading}
               onLoadOlder={historyControl.load}

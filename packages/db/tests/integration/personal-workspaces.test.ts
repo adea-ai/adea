@@ -79,7 +79,7 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
     return { ...session, credentialDigest }
   }
   async function registered() {
-    const identity = { provider: 'neon', subject: crypto.randomUUID() }
+    const identity = { provider: 'better-auth', subject: crypto.randomUUID() }
     const principal = await createUserWithAuthIdentity(connection.db, { identity })
     fixtureUsers.push(principal.userId)
     return { principal, identity }
@@ -865,7 +865,7 @@ describe.skipIf(!process.env.DATABASE_URL)('persistent personal workspace', () =
     })
     const principal = await claimTemporaryUserSession(connection.db, {
       credentialDigest: temporary.credentialDigest,
-      identity: { provider: 'neon', subject: crypto.randomUUID() },
+      identity: { provider: 'better-auth', subject: crypto.randomUUID() },
     })
     expect(principal).toEqual(temporary.principal)
     expect(await ensureBootstrapWorkspaces(connection.db, principal)).toEqual([renamed])

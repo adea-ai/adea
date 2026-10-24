@@ -1747,9 +1747,13 @@ paired blocks before awaiting and clears only the still-current matching draft.
 Shared UI owns input, IME handling, pending presentation, paste editing and
 action-row composition. Agent/profile, Auto/Customize pins, resolved location
 and authorized Stop/Steer/launch controls are host slots. The authorized
-`dev.session.followUps` host queue contract is defined below; no queue UI is
-mounted or advertised until a consumer binds the actual supported operation
-and its truthful delivery state.
+`dev.session.followUps` host queue contract is defined below. Chat draws a Queue
+control and the queued messages only after a `read` of that operation succeeds for
+the session generation; a host without it, a refused capability or a stale
+generation shows neither. Queued messages are never sent on their own: the person
+presses Send next, one message at a time, and only while the host reports delivery
+`ready`. An `accepted` hand-off is worded as the input accepting the bytes, not as
+the agent having read them, and an `ambiguous` one is never retried, only removed.
 Desktop Chat retains a bounded presentation-only reading-position snapshot per
 session and generation in the active authenticated model host. Scope replacement
 clears these snapshots and rejects late writes from the previous scope. A
@@ -1806,9 +1810,11 @@ method-step summaries (`turn.reasoning_summary`, `turn.method_step_summary`,
 #1388) and cited answers (`references` on `turn.assistant_message`, #1389) are
 drawn only after `decodeRuntimeEvent` accepts them: one node per summary or
 step, replaced only by a higher revision, and citation markers placed only where
-the displayed text is the exact payload text. Checkpoints, attachments, context
-usage, test results and queued follow-ups are not drawn, because no producer
-supplies them; each is a separate backend dependency documented in
+the displayed text is the exact payload text. Attachments, context
+usage and test results are not drawn, because no producer supplies them. A checkpoint is a
+marker; it offers Restore (after a confirmation) only when its own payload says
+`restore.supported` and the host supplies `dev.session.restoreCheckpoint`, and a restore
+is reported only as the host's typed outcome; each is a separate backend dependency documented in
 `docs/evidence/chat-canvas-2026-10-15.md`.
 
 Adea's persisted appearance IDs are the complete published `@adea-ai/themes`
@@ -5358,7 +5364,11 @@ facts, never filenames, content, encoded bytes or host paths.
 
 Each scope retains at most 256 records, including removal tombstones, and at
 most 16 MiB of live decoded bytes. Quotas are checked inside the write
-transaction. Removal frees live-byte budget, seals a metadata-only tombstone,
+transaction. Before counting, the host authenticates every retained record and
+checks its sealed state and byte length against the SQLite row; it also
+reconciles attachment identities with the authenticated durable outbox. Edited
+row metadata, a missing row with retained outbox evidence, or mismatched counts
+refuse with `corrupt_state` instead of reducing the quota count. Removal frees live-byte budget, seals a metadata-only tombstone,
 and removes byte access; it does not free the record/idempotency slot. Reusing a
 removed upload key never resurrects content. These are bounded local storage
 limits; there is no automatic retention/GC promise. The existing owner-proven
@@ -5414,7 +5424,12 @@ on replay; no consumer may treat a transcript reference as an access grant.
 Open/remove always reauthorize the bound session at use time.
 
 The production host composition and authenticated local operations are wired.
-Composer picker/chips, request-to-message attachment association, harness delivery,
+The dev-view chat canvas consumes upload and remove: a picker and chips for files the
+host accepts, with the limits stated before a file is chosen, an upload retried under
+one idempotency key after a lost answer, and the words "Stored on this device only. The
+assistant does not receive attachments yet." beside stored files. It does not open
+stored content and keeps no list beyond what it staged in the current session generation.
+Request-to-message attachment association, harness delivery,
 image/binary/bulk transfer, remote/cloud storage and packaged owner-journey
 qualification remain separate integration work. The consumer must offer no
 unsupported action and make no delivered-to-agent claim from these events.

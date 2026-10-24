@@ -1,4 +1,5 @@
 import type { AgentHqApiClient } from '@adea-ai/api-client'
+import type { AppIconVariant } from '@adea-ai/app-ui/lib/app-icon'
 import type {
   MigrationSnapshotSection,
   WorkspaceMemoryEntry,
@@ -55,6 +56,11 @@ export type TranscriptionProvider = Readonly<{
 }>
 
 export type WorkspacePreferences = Readonly<{
+  /**
+   * The Dock and desktop icon colourway. Only the desktop shell acts on it;
+   * the icon drawn inside the app follows light and dark appearance instead.
+   */
+  appIcon: AppIconVariant
   dictationLocale: string
   notifyMentions: boolean
   notifyTasks: boolean
@@ -97,6 +103,7 @@ export type CapabilityProvider = Readonly<{
 }>
 
 export const defaultWorkspacePreferences: WorkspacePreferences = Object.freeze({
+  appIcon: 'white',
   dictationLocale: '',
   notifyMentions: true,
   notifyTasks: true,
@@ -352,6 +359,11 @@ export type WorkspacePlatformServices = Readonly<{
     platform: 'desktop' | 'web'
     version?: string
   }>
+  /**
+   * Desktop-only Dock icon control; omitted on the web, which has no Dock
+   * icon. The pick itself lives in the workspace preferences.
+   */
+  appIcon?: AppIconService
   client?: AgentHqApiClient
   capabilities?: CapabilityProvider
   /** Workspace connections; omitted where no Dev Runtime exists (web). */
@@ -368,6 +380,12 @@ export type WorkspacePlatformServices = Readonly<{
   /** The desktop update channel; omitted on surfaces with no update service
    * (the web app updates by refresh, not by channel). */
   updates?: UpdatesService
+}>
+
+/** Asks the desktop shell to show an app icon colourway in the Dock. */
+export type AppIconService = Readonly<{
+  /** Resolves whether the shell changed the icon now; false still means the pick is saved. */
+  apply(variant: AppIconVariant): Promise<boolean>
 }>
 
 /** The update channel an installation follows. 'stable' is the batch-soaked

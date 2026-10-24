@@ -48,6 +48,7 @@ import { Route as ApiWorkspacesWorkspaceIdDeleteRouteImport } from './routes/api
 import { Route as ApiWorkspacesWorkspaceIdModelConnectionsRouteImport } from './routes/api/workspaces/$workspaceId/model-connections'
 import { Route as ApiWorkspacesWorkspaceIdReopenRouteImport } from './routes/api/workspaces/$workspaceId/reopen'
 import { Route as ApiWorkspacesWorkspaceIdSkillsRouteImport } from './routes/api/workspaces/$workspaceId/skills'
+import { Route as ApiInternalPiDurableChildReceiptReconcileRouteImport } from './routes/api/internal/pi-durable/child-receipt/reconcile'
 import { Route as ApiInternalPiDurableLeadProductCurrentRouteImport } from './routes/api/internal/pi-durable/lead-product/current'
 import { Route as ApiV1AccountAgentsAgentIdRouteImport } from './routes/api/v1/account/agents/$agentId'
 import { Route as ApiV1AccountConversationsConversationIdRouteImport } from './routes/api/v1/account/conversations/$conversationId'
@@ -107,6 +108,7 @@ import { Route as ApiV1WorkspacesWorkspaceIdReadStateThreadsThreadRootMessageIdR
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
+import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRenameRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
 import { Route as ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRouteImport } from './routes/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
 import { Route as ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRouteImport } from './routes/api/v1/workspaces/$workspaceId/tasks/$taskId/archive'
@@ -339,6 +341,12 @@ const ApiWorkspacesWorkspaceIdSkillsRoute =
     id: '/skills',
     path: '/skills',
     getParentRoute: () => ApiWorkspacesWorkspaceIdRoute,
+  } as any)
+const ApiInternalPiDurableChildReceiptReconcileRoute =
+  ApiInternalPiDurableChildReceiptReconcileRouteImport.update({
+    id: '/api/internal/pi-durable/child-receipt/reconcile',
+    path: '/api/internal/pi-durable/child-receipt/reconcile',
+    getParentRoute: () => rootRouteImport,
   } as any)
 const ApiInternalPiDurableLeadProductCurrentRoute =
   ApiInternalPiDurableLeadProductCurrentRouteImport.update({
@@ -700,6 +708,12 @@ const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute =
     path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRenameRoute =
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRenameRouteImport.update({
+    id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename',
+    path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute =
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRouteImport.update({
     id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke',
@@ -887,6 +901,7 @@ export interface FileRoutesByFullPath {
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
+  '/api/internal/pi-durable/child-receipt/reconcile': typeof ApiInternalPiDurableChildReceiptReconcileRoute
   '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
   '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
@@ -946,6 +961,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRenameRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRoute
@@ -1009,6 +1025,7 @@ export interface FileRoutesByTo {
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
+  '/api/internal/pi-durable/child-receipt/reconcile': typeof ApiInternalPiDurableChildReceiptReconcileRoute
   '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
   '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
@@ -1068,6 +1085,7 @@ export interface FileRoutesByTo {
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRenameRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRoute
@@ -1132,6 +1150,7 @@ export interface FileRoutesById {
   '/api/workspaces/$workspaceId/model-connections': typeof ApiWorkspacesWorkspaceIdModelConnectionsRoute
   '/api/workspaces/$workspaceId/reopen': typeof ApiWorkspacesWorkspaceIdReopenRoute
   '/api/workspaces/$workspaceId/skills': typeof ApiWorkspacesWorkspaceIdSkillsRouteWithChildren
+  '/api/internal/pi-durable/child-receipt/reconcile': typeof ApiInternalPiDurableChildReceiptReconcileRoute
   '/api/internal/pi-durable/lead-product/current': typeof ApiInternalPiDurableLeadProductCurrentRoute
   '/api/v1/account/agents/$agentId': typeof ApiV1AccountAgentsAgentIdRoute
   '/api/v1/account/conversations/$conversationId': typeof ApiV1AccountConversationsConversationIdRoute
@@ -1191,6 +1210,7 @@ export interface FileRoutesById {
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
+  '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRenameRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
   '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate': typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
   '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive': typeof ApiV1WorkspacesWorkspaceIdTasksTaskIdArchiveRoute
@@ -1256,6 +1276,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
+    | '/api/internal/pi-durable/child-receipt/reconcile'
     | '/api/internal/pi-durable/lead-product/current'
     | '/api/v1/account/agents/$agentId'
     | '/api/v1/account/conversations/$conversationId'
@@ -1315,6 +1336,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive'
@@ -1378,6 +1400,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
+    | '/api/internal/pi-durable/child-receipt/reconcile'
     | '/api/internal/pi-durable/lead-product/current'
     | '/api/v1/account/agents/$agentId'
     | '/api/v1/account/conversations/$conversationId'
@@ -1437,6 +1460,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive'
@@ -1500,6 +1524,7 @@ export interface FileRouteTypes {
     | '/api/workspaces/$workspaceId/model-connections'
     | '/api/workspaces/$workspaceId/reopen'
     | '/api/workspaces/$workspaceId/skills'
+    | '/api/internal/pi-durable/child-receipt/reconcile'
     | '/api/internal/pi-durable/lead-product/current'
     | '/api/v1/account/agents/$agentId'
     | '/api/v1/account/conversations/$conversationId'
@@ -1559,6 +1584,7 @@ export interface FileRouteTypes {
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/challenges'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/connections'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
+    | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke'
     | '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rotate'
     | '/api/v1/workspaces/$workspaceId/tasks/$taskId/archive'
@@ -1612,6 +1638,7 @@ export interface RootRouteChildren {
   ApiV1AccountAgentsRoute: typeof ApiV1AccountAgentsRouteWithChildren
   ApiV1AccountConversationsRoute: typeof ApiV1AccountConversationsRouteWithChildren
   ApiV1AccountSummaryRoute: typeof ApiV1AccountSummaryRoute
+  ApiInternalPiDurableChildReceiptReconcileRoute: typeof ApiInternalPiDurableChildReceiptReconcileRoute
   ApiInternalPiDurableLeadProductCurrentRoute: typeof ApiInternalPiDurableLeadProductCurrentRoute
   ApiV1WorkspacesWorkspaceIdAgentsRoute: typeof ApiV1WorkspacesWorkspaceIdAgentsRouteWithChildren
   ApiV1WorkspacesWorkspaceIdArtifactGrantsRoute: typeof ApiV1WorkspacesWorkspaceIdArtifactGrantsRouteWithChildren
@@ -1635,6 +1662,7 @@ export interface RootRouteChildren {
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdChallengesRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRenameRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRenameRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdCommandsPullRoute
@@ -1915,6 +1943,13 @@ declare module '@tanstack/solid-router' {
       fullPath: '/api/workspaces/$workspaceId/skills'
       preLoaderRoute: typeof ApiWorkspacesWorkspaceIdSkillsRouteImport
       parentRoute: typeof ApiWorkspacesWorkspaceIdRoute
+    }
+    '/api/internal/pi-durable/child-receipt/reconcile': {
+      id: '/api/internal/pi-durable/child-receipt/reconcile'
+      path: '/api/internal/pi-durable/child-receipt/reconcile'
+      fullPath: '/api/internal/pi-durable/child-receipt/reconcile'
+      preLoaderRoute: typeof ApiInternalPiDurableChildReceiptReconcileRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/internal/pi-durable/lead-product/current': {
       id: '/api/internal/pi-durable/lead-product/current'
@@ -2327,6 +2362,13 @@ declare module '@tanstack/solid-router' {
       path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
       fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/proof'
       preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename': {
+      id: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename'
+      path: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename'
+      fullPath: '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/rename'
+      preLoaderRoute: typeof ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRenameRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/v1/workspaces/$workspaceId/runtime-nodes/$runtimeNodeId/revoke': {
@@ -2997,6 +3039,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiV1AccountAgentsRoute: ApiV1AccountAgentsRouteWithChildren,
   ApiV1AccountConversationsRoute: ApiV1AccountConversationsRouteWithChildren,
   ApiV1AccountSummaryRoute: ApiV1AccountSummaryRoute,
+  ApiInternalPiDurableChildReceiptReconcileRoute:
+    ApiInternalPiDurableChildReceiptReconcileRoute,
   ApiInternalPiDurableLeadProductCurrentRoute:
     ApiInternalPiDurableLeadProductCurrentRoute,
   ApiV1WorkspacesWorkspaceIdAgentsRoute:
@@ -3041,6 +3085,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdConnectionsRoute,
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute:
     ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdProofRoute,
+  ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRenameRoute:
+    ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRenameRoute,
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute:
     ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRevokeRoute,
   ApiV1WorkspacesWorkspaceIdRuntimeNodesRuntimeNodeIdRotateRoute:

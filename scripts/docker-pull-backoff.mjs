@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
 // Container registries reject anonymous pulls from shared hosted-runner IPs with
@@ -177,6 +177,58 @@ export async function ensureImage(image, options = {}) {
   return { result, image: used }
 }
 
+// Whether any process of group `pgid` can still run. `kill(-pgid, 0)` succeeds for a zombie, a
+// killed process whose parent has not collected it yet. A killed group's orphans are collected by
+// the container's init, which can take longer than the reap window, so a group that holds only
+// zombies is gone for every purpose that matters here: none of its members can execute or hold a
+// side effect. That holds only when the zombie is the whole task: a leader that exited while other
+// threads run is a zombie with a thread count above one, and the group is live. Only Linux's
+// `/proc` can tell a zombie from a running member; anywhere else, when `/proc` cannot be read, or
+// when a record cannot be read in full, a group that `kill` still sees is reported as live.
+export function processGroupHasLiveMember(pgid, procRoot = '/proc') {
+  if (process.platform !== 'linux' && procRoot === '/proc') return true
+  let entries
+  try {
+    entries = readdirSync(procRoot)
+  } catch {
+    return true
+  }
+  for (const entry of entries) {
+    if (!/^\d+$/.test(entry)) continue
+    let stat
+    try {
+      stat = readFileSync(join(procRoot, entry, 'stat'), 'utf8')
+    } catch (readError) {
+      // The process ended between the listing and the read.
+      if (readError.code === 'ENOENT' || readError.code === 'ESRCH') continue
+      return true
+    }
+    // The record is `pid (comm) state ...`. `comm` is parenthesised and may itself contain spaces
+    // and parentheses, so the envelope is the pid, a space, and everything up to the last closing
+    // parenthesis followed by a space. A record whose pid is not this entry's, or that lacks the
+    // envelope, is not a record this check can read. The fields after it are, from there: state,
+    // parent, process group, ... and, at index 17, the thread count (3, 4, 5 and 20 in proc(5)).
+    const envelope = /^(\d+) \((.*)\) (.*)$/s.exec(stat.trimEnd())
+    if (envelope === null || envelope[1] !== entry) return true
+    const fields = envelope[3].trim().split(/\s+/)
+    // A record that cannot be read in full says nothing about which group it is in or whether it
+    // is dead, so it is never used to exclude a process.
+    if (
+      fields.length < 18 ||
+      !/^[A-Za-z]$/.test(fields[0]) ||
+      !/^\d+$/.test(fields[1]) ||
+      !/^\d+$/.test(fields[2]) ||
+      !/^\d+$/.test(fields[17])
+    )
+      return true
+    if (Number(fields[2]) !== pgid) continue
+    // A thread-group leader that has exited stays a zombie while its other threads run, and
+    // `/proc` lists it as Z with a thread count above one. Only a lone zombie or dead task is gone.
+    if ((fields[0] !== 'Z' && fields[0] !== 'X') || Number(fields[17]) !== 1) return true
+  }
+  return false
+}
+
 // Runs one command and captures its output without blocking the event loop, so
 // signal handling and child cleanup keep running while the command is in flight.
 // `processGroup` opts into an owned detached session for commands that may spawn
@@ -235,7 +287,7 @@ export function captureCommand(
       if (!processGroup || child.pid === undefined) return true
       try {
         process.kill(-child.pid, 0)
-        return false
+        return !processGroupHasLiveMember(child.pid)
       } catch (groupError) {
         if (groupError.code === 'ESRCH') return true
         if (groupError.code === 'EPERM') return false

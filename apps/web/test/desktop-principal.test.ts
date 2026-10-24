@@ -5,7 +5,7 @@ import type { AuthResult } from '@adea-ai/auth'
 import { resolveOrProvisionDesktopPrincipal } from '../src/server/desktop-principal'
 
 const authentication: AuthResult = {
-  identity: { provider: 'neon', subject: 'provider-subject' },
+  identity: { provider: 'better-auth', subject: 'provider-subject' },
   profile: { displayName: 'Operator', email: 'operator@example.com' },
   session: { expiresAt: '2030-01-01T00:00:00.000Z', id: 'provider-session' },
 }

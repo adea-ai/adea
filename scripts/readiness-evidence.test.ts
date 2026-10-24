@@ -720,6 +720,40 @@ describe('unit runs', () => {
     }
   }, 60_000)
 
+  test('runUnit runs the criterion command, flags included, and refuses one that does not name its files', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'readiness-unit-cmd-'))
+    try {
+      const pkg = join(dir, 'node_modules', 'cond-pkg')
+      mkdirSync(pkg, { recursive: true })
+      writeFileSync(
+        join(pkg, 'package.json'),
+        JSON.stringify({
+          name: 'cond-pkg',
+          exports: { '.': { browser: './browser.js', default: './default.js' } },
+        })
+      )
+      writeFileSync(join(pkg, 'browser.js'), "export const where = 'browser'\n")
+      writeFileSync(join(pkg, 'default.js'), "export const where = 'default'\n")
+      writeFileSync(
+        join(dir, 'cond.test.ts'),
+        "import { expect, test } from 'bun:test'\nimport { where } from 'cond-pkg'\ntest('cond', () => expect(where).toBe('browser'))\n"
+      )
+      expect(runUnit(['cond.test.ts'], dir)).toMatchObject({ exitCode: 1, fail: 1 })
+      const run = runUnit(['cond.test.ts'], dir, 'bun test --conditions=browser cond.test.ts')
+      expect(run).toMatchObject({
+        command: 'bun test --conditions=browser cond.test.ts',
+        exitCode: 0,
+        fail: 0,
+      })
+      expect(() => runUnit(['cond.test.ts'], dir, 'bun test other.test.ts')).toThrow(
+        'does not name cond.test.ts'
+      )
+      expect(() => runUnit(['cond.test.ts'], dir, 'node cond.test.ts')).toThrow('bun test')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   test('a unit run that reports no tests is invalid, not a pass', () => {
     expect(unitVerdict({ exitCode: 0, pass: 0, fail: 0 })).toBe('invalid')
     expect(unitVerdict({ exitCode: 0, pass: 3, fail: 1 })).toBe('fail')

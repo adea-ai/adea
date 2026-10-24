@@ -16,8 +16,10 @@
 
 import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, delimiter, resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 import {
   assertBuiltWorkerDesktopAuthPassed,
@@ -54,7 +56,7 @@ function response(
   headers: Record<string, string>,
   body: string
 ): BuiltWorkerResponse {
-  return { status, headers, body }
+  return { status, headers: { 'cache-control': 'no-store', ...headers }, body }
 }
 
 /**
@@ -67,8 +69,53 @@ function response(
  */
 function correctWorker(): BuiltWorkerTransport {
   const issued = new Map<string, { readonly challenge: string; readonly nonce: string }>()
+  const sessions = new Map<string, string>()
+  const providerSessions = new Map<string, string>()
+  const signupCookie = '__Secure-better-auth.session_token=session-token-value-0123456789abcdef'
+  let account = { email: '', password: '' }
+  let providerCounter = 0
+  let counter = 0
   return async (request: BuiltWorkerRequest) => {
+    if (request.path === '/api/auth/get-session?disableCookieCache=true') {
+      const id = providerSessions.get(request.headers?.cookie ?? '')
+      return response(
+        200,
+        {},
+        id
+          ? JSON.stringify({
+              user: { id: 'user-1', email: account.email },
+              session: {
+                id,
+                token: id === 'signup-session' ? 'body-token' : 'fresh-provider-login-opaque-value',
+              },
+            })
+          : 'null'
+      )
+    }
+    if (request.path === '/api/auth/sign-out' && request.method === 'POST') {
+      providerSessions.delete(request.headers?.cookie ?? '')
+      return response(
+        200,
+        { 'set-cookie': `${signupCookie.split('=')[0]}=; Path=/; Max-Age=0` },
+        '{"success":true}'
+      )
+    }
+    if (request.path === '/api/auth/sign-in/email' && request.method === 'POST') {
+      const body = JSON.parse(request.body ?? '{}') as { email: string; password: string }
+      if (body.email !== account.email || body.password !== account.password)
+        return response(401, {}, '{"code":"INVALID_EMAIL_OR_PASSWORD"}')
+      providerCounter += 1
+      const cookie = `new_provider_cookie=login-cookie-${providerCounter}`
+      providerSessions.set(cookie, `login-session-${providerCounter}`)
+      return response(
+        200,
+        { 'set-cookie': `${cookie}; Path=/; HttpOnly` },
+        '{"token":"fresh-provider-login-opaque-value"}'
+      )
+    }
     if (request.method === 'POST' && request.path === '/api/auth/sign-up/email') {
+      account = JSON.parse(request.body ?? '{}') as { email: string; password: string }
+      providerSessions.set(signupCookie, 'signup-session')
       return response(
         200,
         {
@@ -86,7 +133,7 @@ function correctWorker(): BuiltWorkerTransport {
         // is refused first.
         return response(400, {}, '{"error":"Invalid desktop authorization request"}')
       }
-      if (!request.headers?.cookie) {
+      if (!request.headers?.cookie || !providerSessions.has(request.headers.cookie)) {
         return response(303, { location: '/auth/sign-in' }, '')
       }
       const code = `code-${issued.size}-value`
@@ -125,11 +172,44 @@ function correctWorker(): BuiltWorkerTransport {
       if (challenge !== record.challenge || body.nonce !== record.nonce) {
         return response(400, {}, '{"error":"Desktop authorization exchange failed"}')
       }
+      counter += 1
+      const credential = `desktop-credential-value-0123456789abcdefghij${counter}`
+      const sessionId = `8f00ffaa-0000-4000-8000-${String(counter).padStart(12, '0')}`
+      sessions.set(sessionId, credential)
       return response(
         200,
         { 'access-control-allow-origin': 'http://127.0.0.1:4789' },
-        '{"credential":"desktop-credential-value-0123456789abcdefghij","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}'
+        JSON.stringify({ credential, expiresAt: '2027-01-01T00:00:00.000Z', sessionId })
       )
+    }
+    if (
+      request.method === 'POST' &&
+      [
+        '/api/auth/desktop/refresh',
+        '/api/auth/desktop/logout',
+        '/api/auth/desktop/revoke',
+      ].includes(request.path)
+    ) {
+      const trusted = request.headers?.origin === 'http://127.0.0.1:4789'
+      const headers: Record<string, string> = trusted
+        ? { 'access-control-allow-origin': 'http://127.0.0.1:4789' }
+        : {}
+      const sessionId = request.headers?.['x-adea-desktop-session'] ?? ''
+      const credential = request.headers?.authorization?.replace(/^Desktop /u, '')
+      if (!trusted || !credential || sessions.get(sessionId) !== credential)
+        return response(401, headers, '{"error":"Desktop session is unavailable"}')
+      if (request.path.endsWith('/refresh')) {
+        counter += 1
+        const rotated = `desktop-credential-value-0123456789abcdefghij${counter}`
+        sessions.set(sessionId, rotated)
+        return response(
+          200,
+          headers,
+          JSON.stringify({ credential: rotated, expiresAt: '2027-01-01T00:00:00.000Z', sessionId })
+        )
+      }
+      sessions.delete(sessionId)
+      return response(204, headers, '')
     }
     return response(404, {}, '')
   }
@@ -379,5 +459,108 @@ describe('the cleanup gate of the built-Worker qualification', () => {
     const failure = new BuiltWorkerFailure('cleanup-failed', 'the container was not removed')
     expect(failure.kind).toBe('cleanup-failed')
     expect(failure.detail).toBe('the container was not removed')
+  })
+})
+
+// Execute the real entry with a Docker executable that cannot contact a daemon.
+// Non-metadata commands stop at the first availability check, before any build
+// or resource creation. Its receipt proves which authority that first call saw.
+function runDockerAuthorityEntry(
+  environment: Readonly<Record<string, string | undefined>>,
+  contextEndpoint: string
+) {
+  const directory = mkdtempSync(join(tmpdir(), 'adea-worker-docker-authority-'))
+  const receipt = join(directory, 'calls.jsonl')
+  const docker = join(directory, 'docker')
+  writeFileSync(
+    docker,
+    String.raw`#!${process.execPath}
+import { appendFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+appendFileSync(process.env.AUTHORITY_RECEIPT, JSON.stringify({args, host:process.env.DOCKER_HOST ?? null, context:process.env.DOCKER_CONTEXT ?? null, tls:process.env.DOCKER_TLS_VERIFY ?? null, cert:process.env.DOCKER_CERT_PATH ?? null}) + '\n')
+if (args[0] === 'context' && args[1] === 'inspect') {
+  console.log(process.env.AUTHORITY_CONTEXT_ENDPOINT)
+} else process.exitCode = 1
+`,
+    { mode: 0o700 }
+  )
+  // The entry uses an absolute Bun path; a future ordering regression must
+  // still never execute a real application build from this offline fixture.
+  writeFileSync(
+    join(directory, 'bun'),
+    String.raw`#!${process.execPath}
+import { appendFileSync } from 'node:fs'
+appendFileSync(process.env.AUTHORITY_RECEIPT, JSON.stringify({ args: ['unexpected-build', ...process.argv.slice(2)] }) + '\n')
+process.exitCode = 1
+`,
+    { mode: 0o700 }
+  )
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--no-env-file',
+        '--conditions=react-server',
+        resolve(import.meta.dir, '../built-worker-desktop-auth-cli.ts'),
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          PATH: `${directory}${delimiter}${process.env.PATH}`,
+          AUTHORITY_RECEIPT: receipt,
+          AUTHORITY_CONTEXT_ENDPOINT: JSON.stringify(contextEndpoint),
+          ...environment,
+        },
+      }
+    )
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toMatch(/container-unavailable|fresh-schema/)
+    const calls = existsSync(receipt)
+      ? readFileSync(receipt, 'utf8')
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+      : []
+    return { result, calls }
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
+describe('built Worker CLI local Docker authority', () => {
+  test.each([
+    { DOCKER_HOST: 'tcp://remote.example.test:2376' },
+    { DOCKER_HOST: 'ssh://operator@remote.example.test' },
+    { DOCKER_TLS_VERIFY: '1' },
+    { DOCKER_CERT_PATH: '/synthetic/certificates' },
+  ])('rejects inherited remote or TLS authority before daemon access: %j', (environment) => {
+    const { calls } = runDockerAuthorityEntry(environment, 'unix:///synthetic/docker.sock')
+    expect(calls).toEqual([])
+  })
+
+  test('rejects a remote selected context before daemon access even with a local host override', () => {
+    const { calls } = runDockerAuthorityEntry(
+      { DOCKER_HOST: 'unix:///synthetic/docker.sock', DOCKER_CONTEXT: 'remote-context' },
+      'ssh://operator@remote.example.test'
+    )
+    expect(calls.map((call) => call.args.slice(0, 2))).toEqual([['context', 'inspect']])
+  })
+
+  test('pins the selected local context before the first daemon call and removes competing routing', () => {
+    const selected = 'unix:///synthetic/selected.sock'
+    const { calls } = runDockerAuthorityEntry(
+      {
+        DOCKER_HOST: 'unix:///synthetic/other.sock',
+        DOCKER_CONTEXT: 'selected',
+        DOCKER_TLS_VERIFY: '',
+        DOCKER_CERT_PATH: '',
+      },
+      selected
+    )
+    expect(calls.map((call) => call.args[0])).toEqual(['context', 'info'])
+    expect(calls[1]).toMatchObject({ host: selected, context: null, tls: null, cert: null })
   })
 })

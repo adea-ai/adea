@@ -58,7 +58,6 @@ work and relevant migration/rollback documentation before their cases.
 | `scripts/sign-desktop-update.mjs`  | `scripts/desktop-update-boundary.test.ts`                                                   |
 | `scripts/vite-plus-proof.mjs`      | `scripts/vite-plus-proof.test.ts`                                                           |
 | `packages/auth/src/adapter.ts`     | `packages/auth/tests/integration/adapter.test.ts`                                           |
-| `packages/auth/src/neon-driver.ts` | `packages/auth/tests/integration/neon-driver.test.ts`                                       |
 | `apps/web/start/client-policy.mjs` | `apps/web/test/client-policy.test.ts` (new, direct pure-policy import)                      |
 | `packages/types/src/index.ts`      | `packages/types/tests/workspace-primitives.test.ts` (new, direct public-barrel guards)      |
 

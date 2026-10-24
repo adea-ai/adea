@@ -54,7 +54,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
           cache: true
           cache-dependency-path: bun.lock
       - name: Install dependencies
@@ -81,7 +81,7 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: 1.4.3
+          bun-version: 1.4.4
           cache: true
           cache-dependency-path: bun.lock
       - name: Install dependencies
@@ -141,7 +141,7 @@ jobs:
     if: >-
       github.event.pull_request.draft == false &&
       needs.availability.outputs.state == 'configured'
-    uses: 0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.48.1
+    uses: 0xPlayerOne/code-foundry/.github/workflows/cloudflare-deploy.yml@v1.48.4
     permissions:
       contents: read
       deployments: write
@@ -151,7 +151,7 @@ jobs:
       working-directory: apps/web
       install-working-directory: .
       build-script: build:cloudflare
-      bun-version: 1.4.3
+      bun-version: 1.4.4
       environment: Preview - adea-web
     secrets:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

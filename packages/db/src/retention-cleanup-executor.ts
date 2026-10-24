@@ -3,7 +3,6 @@ import { sql } from 'drizzle-orm'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { withRetentionDeletionGate } from './retention-cleanup'
 import {
-  RETENTION_COVERAGE_RULES,
   type CleanupCoverageKind,
   type CleanupReceiptOperation,
   type CleanupReceiptOutcome,
@@ -12,6 +11,7 @@ import {
   type RetentionDecision,
   type RetentionPeriods,
   parseRetentionCoverageInventory,
+  retentionCategoryRule,
 } from './retention-policy'
 
 /**
@@ -164,7 +164,7 @@ export async function runRetentionCleanupExecutor(
       submit(receipt: RetentionReceiptDraft): Promise<void>
     }>
 ): Promise<RetentionCleanupExecution> {
-  const rule = RETENTION_COVERAGE_RULES[input.category]
+  const rule = retentionCategoryRule(input.category)
   const inventory = parseRetentionCoverageInventory(input.coverageInventory, input.category)
   if (!inventory.complete) throw new Error('retention cleanup coverage inventory incomplete')
   const storeFor = new Map<CleanupCoverageKind, RetentionCleanupStorePort>()

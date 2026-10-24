@@ -404,12 +404,14 @@ test('cert 4.1.3: the workspace rail announces keyboard reorder moves', async ({
   const target = viewRows.nth(count - 1)
   const rowId = await target.getAttribute('data-row-id')
   const targetName = await target.getAttribute('aria-label')
+  // The row's accessible name is "<App> view"; the live region names the app itself.
+  const appName = targetName!.replace(/ view$/, '')
   await target.focus()
   await page.keyboard.press('Alt+ArrowUp')
   await expect(viewRows.nth(count - 2)).toHaveAttribute('data-row-id', rowId!)
   await expect(rail.getByRole('button', { name: targetName! })).toBeFocused()
   await expect(rail.getByRole('status')).toContainText(
-    `${targetName} moved to position ${count - 1} of ${count}`
+    `${appName} moved to position ${count - 1} of ${count}`
   )
 })
 

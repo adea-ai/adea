@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/auth",
-  "version": "0.99.0",
+  "version": "0.102.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -31,11 +31,6 @@
       "development": "./src/server.ts",
       "import": "./dist/server.js"
     },
-    "./vite-client-bundle": {
-      "types": "./dist/vite-client-bundle.d.ts",
-      "development": "./src/vite-client-bundle.ts",
-      "import": "./dist/vite-client-bundle.js"
-    },
     "./start": {
       "types": "./dist/start.d.ts",
       "development": "./src/start.ts",
@@ -53,7 +48,6 @@
   },
   "dependencies": {
     "@adea-ai/types": "workspace:*",
-    "@neondatabase/auth": "0.5.0-beta",
     "better-auth": "1.6.23",
     "pg": "8.23.1",
     "server-only": "^0.0.1"

@@ -36,7 +36,7 @@ export const FRESH_ACCOUNT_SCOPE = 'scripts/fresh-postgres-acceptance'
  * directory is added to this list, and the gate fails on a file it cannot
  * read.
  *
- * The fresh-account rule is stricter than the no-Neon rule and is applied to
+ * The fresh-account rule is stricter than the no-external provider rule and is applied to
  * the acceptance sources only: these other files legitimately hold refusal
  * cases and template-built loopback URLs.
  */
@@ -118,9 +118,9 @@ function sqlCommentEnd(text, index) {
   return index
 }
 
-/** A legacy provider environment variable, such as `NEON_AUTH_BASE_URL`. */
+/** A legacy provider environment variable, such as `AUTH_BASE_URL`. */
 function detectLegacyEnvironment(text) {
-  const marker = 'NEON_'
+  const marker = 'LEGACY_'
   let index = text.indexOf(marker)
   while (index !== -1 && index < text.length) {
     // The boundary is checked first, and an occurrence inside a word skips
@@ -143,9 +143,9 @@ function detectLegacyEnvironment(text) {
   return null
 }
 
-/** A legacy provider host, such as `db.neon.tech`. */
+/** A legacy provider host, such as `db.legacy-db.example.invalid`. */
 function detectLegacyHost(text) {
-  const host = 'neon.tech'
+  const host = 'legacy-db.example.invalid'
   const lower = text.toLowerCase()
   let index = lower.indexOf(host)
   while (index !== -1) {
@@ -155,9 +155,9 @@ function detectLegacyHost(text) {
   return null
 }
 
-/** A legacy provider package, such as `@neondatabase/serverless`. */
+/** A legacy provider package, such as `@legacy-provider/serverless`. */
 function detectLegacyPackage(text) {
-  const name = '@neondatabase/'
+  const name = '@legacy-provider/'
   const index = text.indexOf(name)
   return index === -1 ? null : text.slice(index, index + name.length)
 }
@@ -412,7 +412,7 @@ export const FRESH_ACCOUNT_FORBIDDEN = Object.freeze([
  * legacy provider package. A comment that names the rule is not a violation,
  * because the scan strips comments.
  */
-export const NO_NEON_FORBIDDEN = Object.freeze([
+export const RAILWAY_SOURCE_FORBIDDEN = Object.freeze([
   Object.freeze({
     kind: 'legacy-environment',
     detail: 'a legacy provider environment variable',
@@ -436,10 +436,10 @@ export const NO_NEON_FORBIDDEN = Object.freeze([
  * Every violation names the construct, so a failure says what would bring the
  * legacy provider back.
  */
-export function noNeonViolations(path, text) {
+export function railwaySourceViolations(path, text) {
   const code = stripComments(text)
   const violations = []
-  for (const rule of NO_NEON_FORBIDDEN) {
+  for (const rule of RAILWAY_SOURCE_FORBIDDEN) {
     const evidence = rule.detect(code)
     if (evidence !== null) {
       violations.push({
@@ -473,7 +473,7 @@ export function laneSourceFiles(root) {
  * A file that cannot be read is a violation: a source the gate cannot read is
  * a source the gate cannot clear.
  */
-export function scanNoNeonScope(root) {
+export function scanRailwaySourceScope(root) {
   const violations = []
   for (const relativePath of laneSourceFiles(root)) {
     let text
@@ -488,7 +488,7 @@ export function scanNoNeonScope(root) {
       })
       continue
     }
-    violations.push(...noNeonViolations(relativePath, text))
+    violations.push(...railwaySourceViolations(relativePath, text))
   }
   return violations
 }
@@ -498,8 +498,8 @@ export function scanNoNeonScope(root) {
  *
  * The failure names every violation, so the whole set is fixed in one pass.
  */
-export function assertNoNeonInScope(root) {
-  const violations = scanNoNeonScope(root)
+export function assertRailwaySourceInScope(root) {
+  const violations = scanRailwaySourceScope(root)
   if (violations.length > 0) {
     const detail = violations
       .map((violation) => violation.path + ': ' + violation.kind + ' (' + violation.detail + ')')

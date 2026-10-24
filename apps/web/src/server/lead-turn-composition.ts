@@ -151,6 +151,17 @@ export async function createConfiguredLeadTurnDependencies(
             },
           }
         : {}),
+      ...(port.childPublicationSupported
+        ? {
+            childPublicationCurrent: (dispatchId, preparationRef, delegationId) =>
+              invoke(
+                'getPiDurableChildPublication',
+                'pi-durable.child.publication.current',
+                { dispatchId, preparationRef, delegationId },
+                'execution:read'
+              ),
+          }
+        : {}),
       status: (dispatchId) =>
         dispatchData(
           'getPiDurableLeadStatus',

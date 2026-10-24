@@ -131,10 +131,46 @@ describe('child evidence', () => {
     })
     if (evidence.kind !== 'complete') throw new Error('expected complete')
     expect(evidence.rows[0]?.qualifiers).toEqual(['stop requested, not confirmed'])
-    expect(evidence.rows[1]?.qualifiers).toEqual(['outcome not yet published', 'failure code E_X'])
+    expect(evidence.rows[1]?.qualifiers).toEqual([
+      'control plane outcome publication pending',
+      'failure code E_X',
+    ])
     expect(evidence.rows[2]?.stateText).toBe('manual intervention')
     expect(evidence.rows[2]?.qualifiers).toEqual(['awaiting input'])
     expect(evidence.summary).toBe('3 children reported.')
+  })
+
+  test('a control-plane role or failure code is shown only when it is bounded', () => {
+    // The control plane types both as free strings. The surface reports what
+    // it was told, but it does not repeat an unbounded or control-bearing
+    // value it cannot vouch for.
+    const evidence = deriveChildEvidence({
+      availability: 'available',
+      children: [
+        child({
+          delegationId: 'dlg_eeeeeeee55555555',
+          role: `researcher${'x'.repeat(500)}`,
+          state: 'failed',
+          outcome: { state: 'failed', failureCode: 'E_'.repeat(500), publication: 'published' },
+        }),
+        child({
+          delegationId: 'dlg_ffffffff66666666',
+          role: 'researcher\u202E',
+          state: 'failed',
+          outcome: { state: 'failed', failureCode: 'E_X', publication: 'published' },
+        }),
+      ],
+      totalChildren: 2,
+      complete: true,
+    })
+    if (evidence.kind !== 'complete') throw new Error('expected complete')
+    expect(evidence.rows[0]?.role).toBe('unknown')
+    expect(evidence.rows[0]?.qualifiers).toEqual(['control plane outcome published'])
+    expect(evidence.rows[1]?.role).toBe('unknown')
+    expect(evidence.rows[1]?.qualifiers).toEqual([
+      'control plane outcome published',
+      'failure code E_X',
+    ])
   })
 })
 

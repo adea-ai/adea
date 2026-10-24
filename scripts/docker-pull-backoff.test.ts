@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -14,6 +15,7 @@ import {
   ensureImage,
   fallbackImages,
   isRegistryRateLimit,
+  processGroupHasLiveMember,
   runWithPullBackoff,
   runWithPullFallback,
   withComposeImage,
@@ -290,6 +292,229 @@ test.skipIf(process.platform === 'win32')(
   },
   8_000
 )
+
+// A fake `/proc`: one `<pid>/stat` per process, in the kernel's layout, so the zombie decision is
+// exercised without needing a process that init has not collected.
+async function fakeProc(
+  dir: string,
+  processes: Array<{
+    pid: number
+    comm?: string
+    state: string
+    ppid?: number
+    pgrp: number
+    threads?: number
+  }>
+) {
+  for (const { pid, comm = 'node', state, ppid = 1, pgrp, threads = 1 } of processes) {
+    await mkdir(join(dir, String(pid)), { recursive: true })
+    await writeFile(
+      join(dir, String(pid), 'stat'),
+      `${pid} (${comm}) ${state} ${ppid} ${pgrp} ${pgrp} 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 ${threads} 0 5 1000 100`
+    )
+  }
+}
+
+test('a process group that holds only zombies has no live member', async () => {
+  await withTempDir(async (dir) => {
+    await fakeProc(dir, [
+      { pid: 4100, state: 'Z', pgrp: 4100 },
+      { pid: 4101, state: 'Z', pgrp: 4100 },
+      { pid: 4200, state: 'S', pgrp: 4200 },
+    ])
+    assert.equal(processGroupHasLiveMember(4100, dir), false)
+  })
+})
+
+test('a process group with a running, sleeping or stopped member is still live', async () => {
+  for (const state of ['R', 'S', 'D', 'T', 't']) {
+    await withTempDir(async (dir) => {
+      await fakeProc(dir, [
+        { pid: 4100, state: 'Z', pgrp: 4100 },
+        { pid: 4101, state, pgrp: 4100 },
+      ])
+      assert.equal(processGroupHasLiveMember(4100, dir), true, `state ${state}`)
+    })
+  }
+})
+
+test('the group check reads the process group, not the parent, and survives a hostile command name', async () => {
+  await withTempDir(async (dir) => {
+    await fakeProc(dir, [
+      // Live, parented to the group leader but in another group: not a member.
+      { pid: 4300, state: 'S', ppid: 4100, pgrp: 4300 },
+      // A zombie whose command name contains spaces and parentheses, as a process can set.
+      { pid: 4101, state: 'Z', comm: 'a) S 1 4300 (b', pgrp: 4100 },
+    ])
+    assert.equal(processGroupHasLiveMember(4100, dir), false)
+    assert.equal(processGroupHasLiveMember(4300, dir), true)
+  })
+})
+
+test('an exited leader whose other threads run is a live group, not a zombie one', async () => {
+  await withTempDir(async (dir) => {
+    // pthread_exit in the leader: /proc shows it as Z with the thread count still above one.
+    await fakeProc(dir, [{ pid: 4100, state: 'Z', pgrp: 4100, threads: 2 }])
+    assert.equal(processGroupHasLiveMember(4100, dir), true)
+    // The same leader after its last thread is gone is a lone zombie.
+    await fakeProc(dir, [{ pid: 4100, state: 'Z', pgrp: 4100, threads: 1 }])
+    assert.equal(processGroupHasLiveMember(4100, dir), false)
+    await fakeProc(dir, [{ pid: 4100, state: 'X', pgrp: 4100, threads: 3 }])
+    assert.equal(processGroupHasLiveMember(4100, dir), true)
+  })
+})
+
+test('a record that cannot be read in full never excludes a process from the group check', async () => {
+  const stats = [
+    '4100 (node) S 1 nope',
+    '4100 (node) Z 1 4100',
+    '4100 (node) Z 1 4100 4100 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 two 0 5 1000 100',
+    '4100 (node) Z 1 4100 4100 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 -1 0 5 1000 100',
+    '4100 (node) Z 1 4100 4100 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 1.5 0 5 1000 100',
+    '4100 (node) 1 1 4100 4100 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 1 0 5 1000 100',
+    '4100 (node) Z one 4100 4100 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 1 0 5 1000 100',
+    // A malformed record of a process in another group is unknown too, not skippable.
+    '4200 (node) S 1 nope',
+  ]
+  for (const stat of stats)
+    await withTempDir(async (dir) => {
+      await mkdir(join(dir, '4200'), { recursive: true })
+      await writeFile(join(dir, '4200', 'stat'), stat)
+      await fakeProc(dir, [{ pid: 4100, state: 'Z', pgrp: 4100 }])
+      await writeFile(
+        join(dir, '4100', 'stat'),
+        stat.startsWith('4100')
+          ? stat
+          : '4100 (node) Z 1 4100 4100 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 1 0 5 1000 100'
+      )
+      assert.equal(processGroupHasLiveMember(4100, dir), true, stat)
+    })
+})
+
+// The real kernel record for the leader-exited case: a Python process starts a worker thread and
+// then ends only its own thread with pthread_exit, which leaves a zombie leader and a live worker.
+// The fixture owns the process it starts: its lifecycle is observed from the moment it is spawned,
+// only a child that is still live is signalled, and teardown is not finished until the child has
+// been seen to exit and its group is gone. A teardown that cannot be verified fails the test.
+test.skipIf(process.platform !== 'linux' || spawnSync('python3', ['-V']).status !== 0)(
+  'a real exited leader with a live worker thread keeps its group live',
+  async () => {
+    const script = `
+import ctypes, threading, time
+def worker():
+    while True:
+        time.sleep(0.05)
+threading.Thread(target=worker, daemon=True).start()
+ctypes.CDLL(None).pthread_exit(None)
+`
+    const child = spawn('python3', ['-c', script], { detached: true, stdio: 'ignore' })
+    let spawnError: Error | undefined
+    let exited = false
+    const hasExited = () => exited
+    const exit = new Promise<void>((resolve) => {
+      child.once('exit', () => {
+        exited = true
+        resolve()
+      })
+      child.once('error', (error) => {
+        spawnError = error
+        resolve()
+      })
+    })
+    let primary: unknown
+    try {
+      await Promise.race([delay(50), exit])
+      assert.equal(spawnError, undefined, `The fixture failed to start: ${spawnError?.message}`)
+      const pid = child.pid
+      assert.ok(pid !== undefined && pid > 0, 'The fixture must have a process id')
+      let state = ''
+      let threads = ''
+      for (let attempt = 0; attempt < 60 && !hasExited(); attempt += 1) {
+        try {
+          const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+          const fields = stat
+            .slice(stat.lastIndexOf(')') + 1)
+            .trim()
+            .split(/\s+/)
+          ;[state, threads] = [fields[0]!, fields[17]!]
+          if (state === 'Z' && Number(threads) > 1) break
+        } catch {}
+        await delay(50)
+      }
+      assert.equal(exited, false, 'The fixture must still be running')
+      assert.equal(state, 'Z', 'The fixture leader must have exited as a zombie')
+      assert.ok(Number(threads) > 1, 'The fixture must still hold a live worker thread')
+      assert.doesNotThrow(() => process.kill(-pid, 0))
+      assert.equal(processGroupHasLiveMember(pid), true)
+    } catch (error) {
+      primary = error
+    }
+    let teardownError: unknown
+    try {
+      const pid = child.pid
+      // Signal only a child this test still owns and has not seen exit.
+      if (pid !== undefined && !exited && child.exitCode === null && child.signalCode === null) {
+        try {
+          process.kill(-pid, 'SIGKILL')
+        } catch (killError) {
+          if ((killError as NodeJS.ErrnoException).code !== 'ESRCH') throw killError
+        }
+      }
+      if (pid !== undefined) {
+        await Promise.race([exit, delay(3_000)])
+        assert.ok(
+          exited || spawnError !== undefined,
+          'The fixture did not exit within 3 s of SIGKILL'
+        )
+        assert.throws(
+          () => process.kill(-pid, 0),
+          { code: 'ESRCH' },
+          'The fixture group must be gone'
+        )
+      }
+    } catch (error) {
+      teardownError = error
+    }
+    if (teardownError !== undefined)
+      throw primary === undefined
+        ? teardownError
+        : new AggregateError(
+            [primary, teardownError],
+            'The assertion and the fixture teardown both failed'
+          )
+    if (primary !== undefined) throw primary
+  },
+  10_000
+)
+
+test('a record without a real pid and parenthesised command envelope is never trusted', async () => {
+  const tail = '4100 4100 0 -1 4194560 100 0 0 0 1 1 0 0 20 0 1 0 5 1000 100'
+  const stats: Array<[string, string]> = [
+    ['no parentheses at all', `4100 node Z 1 ${tail}`],
+    ['a multiword command without parentheses', `4100 my node app Z 1 ${tail}`],
+    ['only a closing parenthesis', `4100 node) Z 1 ${tail}`],
+    ['no space after the envelope', `4100 (node)Z 1 ${tail}`],
+    ['a non-numeric pid', `abc (node) Z 1 ${tail}`],
+    ['a pid that is not this entry', `4999 (node) Z 1 ${tail}`],
+    ['text before the pid', `x 4100 (node) Z 1 ${tail}`],
+    ['an empty record', ''],
+  ]
+  for (const [label, stat] of stats)
+    await withTempDir(async (dir) => {
+      await mkdir(join(dir, '4100'), { recursive: true })
+      await writeFile(join(dir, '4100', 'stat'), stat)
+      assert.equal(processGroupHasLiveMember(4100, dir), true, label)
+    })
+})
+
+test('an unreadable or malformed process table is reported as live, never as gone', async () => {
+  await withTempDir(async (dir) => {
+    assert.equal(processGroupHasLiveMember(4100, join(dir, 'missing')), true)
+    await mkdir(join(dir, '4100'), { recursive: true })
+    await writeFile(join(dir, '4100', 'stat'), 'garbage')
+    assert.equal(processGroupHasLiveMember(4100, dir), true)
+  })
+})
 
 test('native disconnect fixture reaps interrupted commands before bounded Compose teardown', async () => {
   const source = await readFile(disconnectFixture, 'utf8')

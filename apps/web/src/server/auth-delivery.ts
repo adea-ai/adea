@@ -9,7 +9,7 @@ import {
 
 import { authMessageTransport } from './auth-message-transport'
 
-/** The transport this build uses; production configures none (see the module). */
+/** The transport this build uses; production uses its Cloudflare email binding. */
 export function configuredAuthMessageTransport(): AuthMessageTransport | undefined {
   return authMessageTransport
 }

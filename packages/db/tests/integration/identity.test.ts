@@ -26,7 +26,7 @@ describe.skipIf(!connectionUrl)('identity mapping integration', () => {
   test('creates one stable user, looks it up, revokes it, and rejects duplicates', async () => {
     const [{ value: initialUserCount }] = await connection.db.select({ value: count() }).from(users)
     const identity = {
-      provider: 'neon',
+      provider: 'better-auth',
       subject: `subject-${crypto.randomUUID()}`,
     }
     const principal = await createUserWithAuthIdentity(connection.db, {
@@ -61,7 +61,7 @@ describe.skipIf(!connectionUrl)('identity mapping integration', () => {
   test('allows only one winner in a concurrent provider identity race', async () => {
     const [{ value: initialUserCount }] = await connection.db.select({ value: count() }).from(users)
     const identity = {
-      provider: 'neon',
+      provider: 'better-auth',
       subject: `concurrent-${crypto.randomUUID()}`,
     }
 

@@ -342,6 +342,31 @@ const enlistmentGrant = (
 })
 
 /**
+ * A native runtime session as the runtime's own session read reports it. `sessionRef` is the match key, so it is
+ * never mutated by a drift case: the comparator matches on it and the record's family is its discriminator.
+ */
+const nativeSession = (
+  overrides: Partial<Extract<MigrationSnapshotRecord, { family: 'nativeSessions' }>> = {}
+): MigrationSnapshotRecord => ({
+  accountId: 'acct-1',
+  activeHarnessRunId: 'run-1',
+  agentProfileId: 'prf-1',
+  agentProfileVersion: 1,
+  archived: false,
+  family: 'nativeSessions',
+  generation: 1,
+  harnessInstallationId: 'harness-1',
+  lifecycle: 'ready',
+  projectId: 'prj-1',
+  runtimeNodeId: 'node-1',
+  sessionRef: 'session-1',
+  version: 1,
+  workspaceId: 'wsp-1',
+  worktreeId: 'wt-1',
+  ...overrides,
+})
+
+/**
  * One drift mutation per captured field the root review found uncompared.
  * Every case must be a determinate, non-identical finding on the exact field:
  * a captured field absent from `FAMILY_COMPARISONS` would compare identical.
@@ -629,6 +654,99 @@ const FIELD_DRIFT_CASES: ReadonlyArray<{
     expectedClass: 'digest_drift',
     family: 'groupEnlistmentGrants',
     field: 'revision',
+  },
+  // The native session family: the runtime owns the session, so its scope and profile identity are links, its
+  // profile version is a digest, and the runtime's monotonic counters and lifecycle state are attributes.
+  {
+    after: nativeSession({ accountId: 'acct-2' }),
+    before: nativeSession(),
+    expectedClass: 'remapped_record',
+    family: 'nativeSessions',
+    field: 'accountId',
+  },
+  {
+    after: nativeSession({ activeHarnessRunId: 'run-2' }),
+    before: nativeSession(),
+    expectedClass: 'remapped_record',
+    family: 'nativeSessions',
+    field: 'activeHarnessRunId',
+  },
+  {
+    after: nativeSession({ agentProfileId: 'prf-2' }),
+    before: nativeSession(),
+    expectedClass: 'remapped_record',
+    family: 'nativeSessions',
+    field: 'agentProfileId',
+  },
+  {
+    after: nativeSession({ harnessInstallationId: 'harness-2' }),
+    before: nativeSession(),
+    expectedClass: 'remapped_record',
+    family: 'nativeSessions',
+    field: 'harnessInstallationId',
+  },
+  {
+    after: nativeSession({ projectId: 'prj-2' }),
+    before: nativeSession(),
+    expectedClass: 'remapped_record',
+    family: 'nativeSessions',
+    field: 'projectId',
+  },
+  {
+    after: nativeSession({ runtimeNodeId: 'node-2' }),
+    before: nativeSession(),
+    expectedClass: 'remapped_record',
+    family: 'nativeSessions',
+    field: 'runtimeNodeId',
+  },
+  {
+    after: nativeSession({ workspaceId: 'wsp-2' }),
+    before: nativeSession(),
+    expectedClass: 'remapped_record',
+    family: 'nativeSessions',
+    field: 'workspaceId',
+  },
+  {
+    after: nativeSession({ worktreeId: 'wt-2' }),
+    before: nativeSession(),
+    expectedClass: 'remapped_record',
+    family: 'nativeSessions',
+    field: 'worktreeId',
+  },
+  {
+    after: nativeSession({ agentProfileVersion: 2 }),
+    before: nativeSession(),
+    expectedClass: 'digest_drift',
+    family: 'nativeSessions',
+    field: 'agentProfileVersion',
+  },
+  {
+    after: nativeSession({ archived: true }),
+    before: nativeSession(),
+    expectedClass: 'changed_attribute',
+    family: 'nativeSessions',
+    field: 'archived',
+  },
+  {
+    after: nativeSession({ generation: 2 }),
+    before: nativeSession(),
+    expectedClass: 'changed_attribute',
+    family: 'nativeSessions',
+    field: 'generation',
+  },
+  {
+    after: nativeSession({ lifecycle: 'active' }),
+    before: nativeSession(),
+    expectedClass: 'changed_attribute',
+    family: 'nativeSessions',
+    field: 'lifecycle',
+  },
+  {
+    after: nativeSession({ version: 2 }),
+    before: nativeSession(),
+    expectedClass: 'changed_attribute',
+    family: 'nativeSessions',
+    field: 'version',
   },
 ]
 

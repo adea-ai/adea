@@ -1,6 +1,6 @@
 {
   "name": "@adea-ai/types",
-  "version": "0.99.0",
+  "version": "0.102.0",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -108,5 +108,8 @@
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "test": "bun test tests",
     "typecheck": "bun check -p tsconfig.json"
+  },
+  "dependencies": {
+    "@noble/hashes": "2.4.0"
   }
 }

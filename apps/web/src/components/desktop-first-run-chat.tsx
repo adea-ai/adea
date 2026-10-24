@@ -25,6 +25,7 @@ import {
   resolveLeadHandoffSupply,
 } from '../lib/lead-handoff-supply'
 import { createLeadStatusPoll } from '../lib/lead-handoff-poll'
+import { createLeadChildSupply } from '../lib/lead-child-supply'
 import type {
   DevProjectNames,
   DevRuntimeService,
@@ -341,6 +342,26 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
     () => handoffTurnNeedsRefresh(leadSupply().turn?.state)
   )
 
+  // The child may finish after its lead. Keep its retained observation separate
+  // from the lead status and from canonical timeline publication, and re-read it
+  // on reconnect even when the lead itself is terminal.
+  const childObservations = createLeadChildSupply(
+    () => props.client,
+    () => {
+      const active = conversation()
+      const turn = leadSupply().turn
+      return active && turn
+        ? {
+            workspaceId: active.scope.workspaceId,
+            runtimeSessionId: active.runtimeSessionId,
+            intentId: turn.intentId,
+            dispatchId: turn.dispatchId,
+          }
+        : undefined
+    },
+    lifecycle
+  )
+
   // Explicit handoff request (#1177): first the session authority gate
   // (existence, scope, task binding, liveness, ACTUAL current generation,
   // control permission — all read from the host record, never claimed),
@@ -650,6 +671,7 @@ export function DesktopFirstRunChat(props: DesktopFirstRunChatProps): JSX.Elemen
                           leadTurn: leadSupply().turn,
                           leadAgent: leadSupply().agent,
                           leadChannelId: leadSupply().channelId,
+                          childObservations: childObservations(),
                         }}
                         onLeadStop={leadSupply().turn ? cancelWorkspaceLead : undefined}
                         onRequestHandoff={requestWorkspaceHandoff}
