@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { LeadChildTerminalEvidence } from '@adea-ai/db'
 import type {
   ApiLeadChildAllowance,
   ApiLeadTurnChildrenQuery,
@@ -79,6 +80,13 @@ export type LeadRuntimeAdapter = {
     dispatchId: string,
     page: ApiLeadTurnChildrenQuery
   ) => Promise<unknown>
+  /** Exact retained J1 terminal event with CP-only current publication authority. */
+  childPublicationCurrent?: (
+    input: LeadRuntimeAuthority,
+    binding: LeadRuntimeBinding,
+    preparationRef: string,
+    delegationId: string
+  ) => Promise<LeadChildTerminalEvidence>
   status(input: LeadRuntimeAuthority, dispatchId: string): Promise<unknown>
   progress(input: LeadRuntimeAuthority, dispatchId: string, afterSequence: number): Promise<unknown>
   /** `issuedAt` is the persisted cancel-request instant, repeated by every retry of the cancel. */

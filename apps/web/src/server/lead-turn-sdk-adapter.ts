@@ -1,4 +1,10 @@
 import type { ApiLeadChildAllowance, ApiLeadTurnChildrenQuery } from '@adea-ai/api-client'
+import type { LeadChildTerminalEvidence } from '@adea-ai/db'
+import {
+  isRetainedChildFailureCode,
+  isRetainedChildRole,
+  isRetainedChildTerminalState,
+} from '@adea-ai/types'
 import type {
   LeadPreparedSelection,
   LeadRuntimeAdapter,
@@ -18,6 +24,11 @@ export type LeadSdkCandidateTransport = Readonly<{
   lookupResponseSchema?: Readonly<{ parse: (response: unknown) => unknown }>
   dispatch: (intentId: string, preparationRef: string, issuedAt?: string) => Promise<unknown>
   children?: (dispatchId: string, page: ApiLeadTurnChildrenQuery) => Promise<unknown>
+  childPublicationCurrent?: (
+    dispatchId: string,
+    preparationRef: string,
+    delegationId: string
+  ) => Promise<unknown>
   status: (dispatchId: string) => Promise<unknown>
   progress: (dispatchId: string, afterSequence: number) => Promise<unknown>
   cancel: (dispatchId: string, issuedAt?: string) => Promise<unknown>
@@ -200,6 +211,77 @@ export function createLeadTurnSdkAdapter(
           ) {
             scope(authority)
             return transport.children!(dispatchId, page)
+          },
+        }
+      : {}),
+    ...(transport.childPublicationCurrent
+      ? {
+          async childPublicationCurrent(
+            authority: LeadRuntimeAuthority,
+            binding: Parameters<NonNullable<LeadRuntimeAdapter['childPublicationCurrent']>>[1],
+            preparationRef: string,
+            delegationId: string
+          ): Promise<LeadChildTerminalEvidence> {
+            scope(authority)
+            const response = await transport.childPublicationCurrent!(
+              binding.dispatchId,
+              preparationRef,
+              delegationId
+            )
+            if (!record(response) || !record(response.data) || !record(response.data.publication))
+              throw new Error('RUNTIME_RESPONSE_INVALID')
+            const value = response.data.publication
+            if (
+              value.schemaVersion !== 'pi-child-publication/v1' ||
+              value.workspaceId !== transport.workspaceId ||
+              value.intentId !== authority.intentId ||
+              value.canonicalActorPrincipalId !== authority.originalActorRef ||
+              value.dispatchId !== binding.dispatchId ||
+              value.executionId !== binding.executionId ||
+              value.attemptId !== binding.attemptId ||
+              value.runtimeSessionId !== binding.runtimeSessionId ||
+              value.delegationId !== delegationId ||
+              !Number.isSafeInteger(value.authorityRevision) ||
+              (value.authorityRevision as number) < 1 ||
+              typeof value.expiresAt !== 'string' ||
+              !Number.isFinite(Date.parse(value.expiresAt)) ||
+              Date.parse(value.expiresAt) <= Date.now()
+            )
+              throw new Error('RUNTIME_RESPONSE_INVALID')
+            const conclusion = value.conclusion
+            if (
+              conclusion !== undefined &&
+              (value.state !== 'completed' ||
+                typeof conclusion !== 'string' ||
+                conclusion.length < 1 ||
+                conclusion.length > 1024 ||
+                new TextEncoder().encode(conclusion).byteLength > 1024 ||
+                conclusion !== conclusion.trim() ||
+                /[\p{Cc}\p{Cf}]/u.test(conclusion))
+            )
+              throw new Error('RUNTIME_RESPONSE_INVALID')
+            // The control plane owns these strings, so the boundary checks them
+            // here rather than letting an unbounded role or failure code reach
+            // a surface or a receipt. The grammar is the shared one the
+            // publication transaction also enforces, so a value that is
+            // publishable is exactly a value that is displayable.
+            if (
+              !isRetainedChildTerminalState(value.state) ||
+              !isRetainedChildRole(value.role) ||
+              (value.failureCode !== undefined && !isRetainedChildFailureCode(value.failureCode))
+            )
+              throw new Error('RUNTIME_RESPONSE_INVALID')
+            return {
+              delegationId: value.delegationId as string,
+              childExecutionId: value.childExecutionId as string,
+              childAttemptId: value.childAttemptId as string,
+              role: value.role as string,
+              state: value.state,
+              ...(value.resultRef ? { resultRef: value.resultRef as string } : {}),
+              ...(conclusion ? { conclusion: conclusion as string } : {}),
+              ...(value.failureCode ? { failureCode: value.failureCode as string } : {}),
+              publication: 'published',
+            }
           },
         }
       : {}),

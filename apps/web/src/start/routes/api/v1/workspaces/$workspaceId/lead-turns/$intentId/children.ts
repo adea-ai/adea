@@ -1,5 +1,8 @@
 import { createFileRoute } from '@tanstack/solid-router'
-import { handleLeadTurnRequest } from '../../../../../../../../server/lead-turn-routes'
+import {
+  handleLeadTurnRequest,
+  handleLeadChildPublicationRequest,
+} from '../../../../../../../../server/lead-turn-routes'
 import { withRequestScope } from '../../../../../../../../server/request-scope'
 import { handleDesktopWorkspacePreflight } from '../../../../../../../../server/desktop-workspace'
 export const Route = createFileRoute(
@@ -9,6 +12,8 @@ export const Route = createFileRoute(
     handlers: {
       GET: ({ request, params }) =>
         withRequestScope(() => handleLeadTurnRequest(request, params, 'children')),
+      POST: ({ request, params }) =>
+        withRequestScope(() => handleLeadChildPublicationRequest(request, params)),
       OPTIONS: ({ request }) => handleDesktopWorkspacePreflight(request),
     },
   },

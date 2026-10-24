@@ -49,6 +49,11 @@ const excluded: Readonly<Record<string, string>> = {
   // evidence. Exporting them would disclose which legacy audiences failed
   // qualification, so they stay under the existing authority exclusion.
   legacy_audience_quarantine: 'authority_grants',
+  // The child publication receipt is retained runtime execution and publication
+  // evidence: it records what a terminal child published, together with the
+  // canonical message it committed. A portable export carries neither, so the
+  // table stays excluded rather than travelling as payload.
+  lead_child_publications: 'runtime_execution_state',
   lead_turn_intents: 'runtime_execution_state',
   lead_turn_runtime: 'runtime_execution_state',
   management_authority_consumptions: 'job_effect_approval_evidence',
@@ -102,5 +107,20 @@ describe('portable export coverage of the app schema', () => {
 
   test('withholds durable management effect claims with other effect evidence', () => {
     expect(excluded.management_authority_consumptions).toBe('job_effect_approval_evidence')
+  })
+
+  test('keeps the child publication receipt out of the portable payload', () => {
+    // The receipt is retained runtime execution state, not a portable family: it
+    // names the terminal child attempts and the message a child publication
+    // committed, and a portable export must carry neither.
+    expect(excluded.lead_child_publications).toBe('runtime_execution_state')
+    expect('lead_child_publications' in portable).toBe(false)
+    // The classification is only meaningful while the table exists.
+    const known = new Set(
+      Object.values(schema)
+        .filter((value): value is PgTable => is(value, PgTable))
+        .map((table) => getTableName(table))
+    )
+    expect(known.has('lead_child_publications')).toBe(true)
   })
 })

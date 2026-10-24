@@ -1970,6 +1970,17 @@ export class AgentHqApiClient {
     )
   }
 
+  /** Retries retained child delivery to the canonical Adea timeline. */
+  async publishLeadTurnChildren(
+    workspaceId: string,
+    intentId: string
+  ): Promise<Readonly<{ published: number }>> {
+    return this.request(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/children`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }
+    )
+  }
+
   async cancelLeadTurn(workspaceId: string, intentId: string): Promise<ApiLeadTurnResponse> {
     return this.request(
       `/v1/workspaces/${encodeURIComponent(workspaceId)}/lead-turns/${encodeURIComponent(intentId)}/cancel`,

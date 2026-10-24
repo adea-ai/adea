@@ -18,6 +18,7 @@ import {
   listAddressedTurnsForUser,
 } from '../../src/group-turn-product'
 import { createTemporaryUserSession } from '../../src/identity'
+import { publishLeadChildTerminal } from '../../src/lead-child-publications'
 import {
   markLeadTurnDispatchPending,
   observeLeadTurnRuntime,
@@ -229,8 +230,8 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
     return rows
   }
 
-  /** Drives a dispatched lead intent through the existing runtime path to a publishable result. */
-  async function complete(f: Fixture, intentId: string, database: AgentHqDatabase = connection.db) {
+  /** Drives a dispatched lead intent through the runtime path to `state` and returns its binding. */
+  async function drive(f: Fixture, intentId: string, state: 'running' | 'completed') {
     const [canonicalWorkspace] = await connection.db
       .select()
       .from(schema.workspaces)
@@ -263,8 +264,14 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
     await observeLeadTurnRuntime(connection.db, f.workspace.id, intentId, f.owner, {
       ...binding,
       observedAt: new Date().toISOString(),
-      state: 'completed',
+      state,
     })
+    return binding
+  }
+
+  /** Drives a dispatched lead intent through the existing runtime path to a publishable result. */
+  async function complete(f: Fixture, intentId: string, database: AgentHqDatabase = connection.db) {
+    const binding = await drive(f, intentId, 'completed')
     return () =>
       publishLeadTurnResult(
         database,
@@ -1331,5 +1338,142 @@ describe.skipIf(!connectionUrl)('addressed group turns through the product surfa
       .from(schema.addressedAgentTurns)
       .where(eq(schema.addressedAgentTurns.id, turn.id))
     expect(row).toMatchObject({ responseMessageId: first, state: 'responded' })
+  })
+
+  /** A retained child outcome for the lead intent; the child path carries no Agent authority of its own. */
+  const childOutcome = {
+    childAttemptId: `att_${'2'.repeat(26)}`,
+    childExecutionId: `exe_${'2'.repeat(26)}`,
+    delegationId: `dlg_${'1'.repeat(26)}`,
+    publication: 'published' as const,
+    resultRef: `art_${'3'.repeat(26)}`,
+    role: 'researcher',
+    state: 'completed' as const,
+  }
+
+  /** The child-outcome publisher for a lead intent that is still running, with its runtime binding. */
+  async function childPublisher(f: Fixture, intentId: string) {
+    const binding = await drive(f, intentId, 'running')
+    return () =>
+      publishLeadChildTerminal(
+        connection.db,
+        f.workspace.id,
+        intentId,
+        f.owner,
+        binding,
+        childOutcome,
+        async () => {}
+      )
+  }
+
+  const childReceipts = async (intentId: string) =>
+    connection.db
+      .select({ messageId: schema.leadChildPublications.messageId })
+      .from(schema.leadChildPublications)
+      .where(eq(schema.leadChildPublications.intentId, intentId))
+
+  T(
+    'a child outcome publishes once under a matching binding and replays the same message',
+    async () => {
+      const f = await fixture()
+      const { turn } = await address(f, f.lead.id)
+      const intentId = turn.leadTurnIntentId!
+      const publish = await childPublisher(f, intentId)
+      const first = await publish()
+      expect(await publish()).toBe(first)
+      expect(await childReceipts(intentId)).toEqual([{ messageId: first }])
+      expect((await publicationState(f, intentId)).messages).toHaveLength(2)
+    }
+  )
+
+  T(
+    'a child outcome is held for a legacy claim with no retained binding and writes nothing',
+    async () => {
+      const f = await fixture()
+      const { turn } = await address(f, f.lead.id)
+      const intentId = turn.leadTurnIntentId!
+      const publish = await childPublisher(f, intentId)
+      await connection.db
+        .update(schema.addressedAgentTurns)
+        .set({ authGrantId: null, authRevision: null })
+        .where(eq(schema.addressedAgentTurns.id, turn.id))
+      await expect(publish()).rejects.toMatchObject({
+        name: 'GroupPublicationHoldError',
+        reason: 'publication_binding_mismatch',
+      })
+      expect(await childReceipts(intentId)).toHaveLength(0)
+      expect((await publicationState(f, intentId)).messages).toHaveLength(1)
+    }
+  )
+
+  T(
+    'a child outcome is held when one intent has a legacy claim beside a bound one, in either order',
+    async () => {
+      for (const revisions of [
+        [1, 2],
+        [2, 1],
+      ]) {
+        const f = await fixture()
+        const { intentId, turns } = await claimsSharingOneIntent(f, revisions)
+        await connection.db
+          .update(schema.addressedAgentTurns)
+          .set({ authGrantId: null, authRevision: null })
+          .where(eq(schema.addressedAgentTurns.id, turns[1]!.id))
+        const publish = await childPublisher(f, intentId)
+        await expect(publish()).rejects.toMatchObject({
+          name: 'GroupPublicationHoldError',
+          reason: 'publication_binding_mismatch',
+        })
+        expect(await childReceipts(intentId)).toHaveLength(0)
+        expect((await publicationState(f, intentId)).messages).toHaveLength(1)
+      }
+    }
+  )
+
+  T(
+    'a child outcome is held when claims on one intent carry conflicting grant revisions',
+    async () => {
+      const f = await fixture()
+      const { intentId, turns } = await claimsSharingOneIntent(f, [1, 2])
+      await connection.db
+        .update(schema.addressedAgentTurns)
+        .set({ authRevision: 2 })
+        .where(eq(schema.addressedAgentTurns.id, turns[1]!.id))
+      const publish = await childPublisher(f, intentId)
+      await expect(publish()).rejects.toMatchObject({
+        name: 'GroupPublicationHoldError',
+        reason: 'publication_binding_mismatch',
+      })
+      expect(await childReceipts(intentId)).toHaveLength(0)
+    }
+  )
+
+  T('claims on one intent that agree on the binding publish the child outcome once', async () => {
+    const f = await fixture()
+    const { intentId } = await claimsSharingOneIntent(f, [1, 2])
+    const publish = await childPublisher(f, intentId)
+    const first = await publish()
+    expect(await publish()).toBe(first)
+    expect(await childReceipts(intentId)).toEqual([{ messageId: first }])
+    expect((await publicationState(f, intentId)).messages).toHaveLength(2)
+  })
+
+  T('a replay of a published child outcome is held once its claim turns legacy', async () => {
+    const f = await fixture()
+    const { turn } = await address(f, f.lead.id)
+    const intentId = turn.leadTurnIntentId!
+    const publish = await childPublisher(f, intentId)
+    const first = await publish()
+    await connection.db
+      .update(schema.addressedAgentTurns)
+      .set({ authGrantId: null, authRevision: null })
+      .where(eq(schema.addressedAgentTurns.id, turn.id))
+    // The guard runs before the receipt replay, so the replay writes nothing and returns nothing.
+    await expect(publish()).rejects.toMatchObject({
+      name: 'GroupPublicationHoldError',
+      reason: 'publication_binding_mismatch',
+    })
+    expect(await childReceipts(intentId)).toEqual([{ messageId: first }])
+    expect((await publicationState(f, intentId)).messages).toHaveLength(2)
   })
 })

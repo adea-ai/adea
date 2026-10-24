@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { createLeadTurnSdkAdapter } from '../src/server/lead-turn-sdk-adapter'
+import { installedLeadSdkPort, LEAD_SDK_METHODS } from '../src/server/lead-turn-sdk-port'
 
 const actor = 'b7b5038e-77a8-4fbb-82e1-6ea172f376b8'
 const authority = {
@@ -80,6 +81,158 @@ test('candidate adapter rejects wrong workspace, substituted transport principal
     'RUNTIME_RESPONSE_INVALID'
   )
   expect(calls).toBe(0)
+})
+
+test('child terminal publisher accepts only the exact current parent and delegation binding', async () => {
+  const binding = {
+    schemaVersion: 'pi-lead-dispatch/v1' as const,
+    intentId: authority.intentId,
+    dispatchId: `dispatch_${'a'.repeat(32)}`,
+    executionId: selection.executionId,
+    attemptId: selection.attemptId,
+    runtimeSessionId: `ses_${'0'.repeat(26)}`,
+  }
+  const delegationId = `dlg_${'1'.repeat(26)}`
+  const publication = {
+    ...binding,
+    schemaVersion: 'pi-child-publication/v1',
+    workspaceId: authority.controlPlaneWorkspaceId,
+    intentId: authority.intentId,
+    canonicalActorPrincipalId: authority.originalActorRef,
+    delegationId,
+    childExecutionId: `exe_${'1'.repeat(26)}`,
+    childAttemptId: `att_${'1'.repeat(26)}`,
+    role: 'researcher',
+    state: 'completed',
+    resultRef: `art_${'1'.repeat(26)}`,
+    conclusion: 'The requested answer is 42.',
+    authorityRevision: 1,
+    expiresAt: '2100-01-01T00:00:00Z',
+  }
+  let response: unknown = { data: { publication } }
+  const adapter = createLeadTurnSdkAdapter({
+    workspaceId: authority.controlPlaneWorkspaceId,
+    dispatch: async () => ({}),
+    status: async () => ({}),
+    progress: async () => ({}),
+    cancel: async () => ({}),
+    async childPublicationCurrent(dispatchId, preparationRef, childId) {
+      expect([dispatchId, preparationRef, childId]).toEqual([
+        binding.dispatchId,
+        selection.preparationRef,
+        delegationId,
+      ])
+      return response
+    },
+  })
+  expect(
+    await adapter.childPublicationCurrent!(
+      authority,
+      binding,
+      selection.preparationRef,
+      delegationId
+    )
+  ).toMatchObject({
+    delegationId,
+    state: 'completed',
+    publication: 'published',
+    conclusion: 'The requested answer is 42.',
+  })
+  for (const changed of [
+    { attemptId: `att_${'2'.repeat(26)}` },
+    { delegationId: `dlg_${'2'.repeat(26)}` },
+    { canonicalActorPrincipalId: `user:${crypto.randomUUID()}` },
+    { expiresAt: '2000-01-01T00:00:00Z' },
+    { conclusion: 'x'.repeat(1025) },
+    { conclusion: 'hidden\u202evalue' },
+    { conclusion: ' padded ' },
+    { state: 'failed' },
+    { state: 'running' },
+    { state: 'awaiting_input' },
+    { state: 'manual_intervention' },
+    { role: 'research reviewer' },
+    { role: 'researcher\u202E' },
+    { role: 'x'.repeat(257) },
+  ]) {
+    response = { data: { publication: { ...publication, ...changed } } }
+    await expect(
+      adapter.childPublicationCurrent!(authority, binding, selection.preparationRef, delegationId)
+    ).rejects.toThrow('RUNTIME_RESPONSE_INVALID')
+  }
+})
+
+test('a child terminal publication accepts only the bounded values the product may publish', async () => {
+  const binding = {
+    schemaVersion: 'pi-lead-dispatch/v1' as const,
+    intentId: authority.intentId,
+    dispatchId: `dispatch_${'a'.repeat(32)}`,
+    executionId: selection.executionId,
+    attemptId: selection.attemptId,
+    runtimeSessionId: `ses_${'0'.repeat(26)}`,
+  }
+  const delegationId = `dlg_${'1'.repeat(26)}`
+  const base = {
+    ...binding,
+    schemaVersion: 'pi-child-publication/v1',
+    workspaceId: authority.controlPlaneWorkspaceId,
+    intentId: authority.intentId,
+    canonicalActorPrincipalId: authority.originalActorRef,
+    delegationId,
+    childExecutionId: `exe_${'1'.repeat(26)}`,
+    childAttemptId: `att_${'1'.repeat(26)}`,
+    role: 'researcher',
+    state: 'failed',
+    authorityRevision: 1,
+    expiresAt: '2100-01-01T00:00:00Z',
+  }
+  const respond = (publication: Record<string, unknown>) => {
+    let response: unknown = { data: { publication } }
+    const adapter = createLeadTurnSdkAdapter({
+      workspaceId: authority.controlPlaneWorkspaceId,
+      dispatch: async () => ({}),
+      status: async () => ({}),
+      progress: async () => ({}),
+      cancel: async () => ({}),
+      async childPublicationCurrent() {
+        return response
+      },
+    })
+    return {
+      adapter,
+      set: (value: unknown) => {
+        response = value
+      },
+    }
+  }
+  const port = respond(base)
+  // A canonical control-plane token is accepted at the full control-plane length: the surface may
+  // show it and the product may publish it. The control plane's schema (e9c1e206) accepts 256
+  // characters of this grammar and no others.
+  for (const failureCode of ['PROVIDER_FAILED', 'E'.repeat(256)]) {
+    port.set({ data: { publication: { ...base, failureCode } } })
+    expect(
+      await port.adapter.childPublicationCurrent!(
+        authority,
+        binding,
+        selection.preparationRef,
+        delegationId
+      )
+    ).toMatchObject({ state: 'failed', failureCode })
+  }
+  // A failure code outside that grammar is refused at the boundary, so no unbounded value and no
+  // readable reason with a space can reach a surface or a receipt. The control plane never
+  // publishes such a value, so a response that carries one is not a canonical response.
+  for (const failureCode of ['provider failed', 'failed\u202E', 'failed\u0007', 'E'.repeat(257)]) {
+    port.set({ data: { publication: { ...base, failureCode } } })
+    await expect(
+      port.adapter.childPublicationCurrent!(
+        authority,
+        binding,
+        selection.preparationRef,
+        delegationId
+      )
+    ).rejects.toThrow('RUNTIME_RESPONSE_INVALID')
+  }
 })
 
 test('prepare decodes actual SDK response data and retains only bound references and expiry', async () => {
@@ -267,4 +420,37 @@ test('lookup uses actual strict response decoder and opaque intent only; absent 
   expect(calls).toHaveLength(1)
   data.workspaceId = `wsp_${'1'.repeat(26)}`
   await expect(adapter.lookup!(authority)).rejects.toThrow('RUNTIME_RESPONSE_INVALID')
+})
+
+// The released SDK decides which operations exist. The port reads the installed SDK's own
+// exports, so a capability the released SDK does not ship stays disabled instead of being
+// emulated, and a later SDK that ships it flips the flag on its own.
+test('the port capabilities follow the installed SDK surface exactly', async () => {
+  const { ControlApiOperations, ControlPlaneClient } = await import('@adea-ai/sdk')
+  const shipped = (method: string): boolean =>
+    Boolean(Reflect.get(ControlApiOperations, method)) &&
+    typeof Reflect.get(ControlPlaneClient.prototype, method) === 'function'
+
+  expect(installedLeadSdkPort.childrenSupported).toBe(shipped('getPiDurableLeadChildren'))
+  expect(installedLeadSdkPort.childPublicationSupported).toBe(
+    shipped('getPiDurableChildPublication')
+  )
+  // The lead path stays usable while an optional child capability is missing.
+  expect(installedLeadSdkPort.supported).toBe(true)
+  expect(LEAD_SDK_METHODS).toContain('getPiDurableChildPublication')
+})
+
+// The released SDK does not ship a child-publication read yet. The capability must stay off and
+// the composition must not present a child-publication operation for it, so no native or
+// provider acceptance is claimed for a method that does not exist.
+test('an unshipped child-publication capability stays disabled', async () => {
+  const { ControlApiOperations, ControlPlaneClient } = await import('@adea-ai/sdk')
+  const shipped =
+    Boolean(Reflect.get(ControlApiOperations, 'getPiDurableChildPublication')) &&
+    typeof Reflect.get(ControlPlaneClient.prototype, 'getPiDurableChildPublication') === 'function'
+  if (shipped) {
+    expect(installedLeadSdkPort.childPublicationSupported).toBe(true)
+    return
+  }
+  expect(installedLeadSdkPort.childPublicationSupported).toBe(false)
 })
