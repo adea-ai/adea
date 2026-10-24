@@ -13,30 +13,51 @@ import { startHarness } from './harness.mjs'
 
 const directories = []
 afterEach(() => {
-  delete process.env.ADEA_CHILD_HOST_BINDING_NEGATIVE_CONTROL
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
+
+/** Runs fn with the named environment values set, then restores whatever was there before. */
+async function withEnvironment(values, fn) {
+  const before = Object.fromEntries(Object.keys(values).map((name) => [name, process.env[name]]))
+  Object.assign(process.env, values)
+  try {
+    return await fn()
+  } finally {
+    for (const [name, value] of Object.entries(before))
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+  }
+}
 
 async function refusal(control) {
   const directory = mkdtempSync(join(tmpdir(), 'host-binding-'))
   directories.push(directory)
   const log = join(directory, 'host-stderr.log')
-  process.env.ADEA_CHILD_HOST_BINDING_NEGATIVE_CONTROL = control
-  process.env.PI_FACTORY_HOST_LOG = log
-  try {
-    await startHarness({ allowanceSource: 'profile', title: `binding negative control ${control}` })
-    return { started: true, stderr: '' }
-  } catch (error) {
-    // The host writes its failure to stderr just before it exits, which can land after the exit.
-    await new Promise((resolve) => setTimeout(resolve, 500))
-    let stderr = ''
-    try {
-      stderr = readFileSync(log, 'utf8')
-    } catch {}
-    return { started: false, message: String(error?.message ?? error), stderr }
-  } finally {
-    delete process.env.PI_FACTORY_HOST_LOG
-  }
+  return withEnvironment(
+    { ADEA_CHILD_HOST_BINDING_NEGATIVE_CONTROL: control, PI_FACTORY_HOST_LOG: log },
+    async () => {
+      let harness
+      try {
+        harness = await startHarness({
+          allowanceSource: 'profile',
+          title: `binding negative control ${control}`,
+        })
+        return { started: true, stderr: '' }
+      } catch (error) {
+        // The host writes its failure to stderr just before it exits, which can land after the exit.
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        let stderr = ''
+        try {
+          stderr = readFileSync(log, 'utf8')
+        } catch {}
+        return { started: false, message: String(error?.message ?? error), stderr }
+      } finally {
+        // If the guard was bypassed the host is running: stop it so a failing assertion leaves
+        // no child process or connection behind.
+        await harness?.stop()
+      }
+    }
+  )
 }
 
 describe('the synthetic child binding does not bypass CP production guard', () => {
