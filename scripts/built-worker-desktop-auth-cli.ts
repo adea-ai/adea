@@ -610,6 +610,14 @@ async function main(): Promise<void> {
               unsafe: async (query, parameters) => [
                 ...(await readback.unsafe(query, parameters ? [...parameters] : [])),
               ],
+              transaction: async (work) =>
+                readback.begin(async (transaction) =>
+                  work({
+                    unsafe: async (query, parameters) => [
+                      ...(await transaction.unsafe(query, parameters ? [...parameters] : [])),
+                    ],
+                  })
+                ),
             },
             PROOF_AUTH_SCHEMA
           ),

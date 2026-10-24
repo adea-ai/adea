@@ -7,6 +7,8 @@ import {
   runBuiltWorkerWorkspacePermissions,
   type WorkspacePermissionDatabase,
   type WorkspaceIdentityReadback,
+  type WorkspacePermissionSql,
+  type WorkspacePermissionSqlReadback,
 } from './built-worker-workspace-permissions'
 import {
   DESKTOP_CALLBACK_URI,
@@ -14,6 +16,13 @@ import {
   type BuiltWorkerRequest,
   type BuiltWorkerResponse,
 } from './built-worker-desktop-auth'
+
+// Read-only query oracles may share a query function; the dedicated atomic
+// fixture below separately proves transaction boundaries and rollback behavior.
+const sqlReadback = (unsafe: WorkspacePermissionSql['unsafe']): WorkspacePermissionSqlReadback => ({
+  unsafe,
+  transaction: async (work) => work({ unsafe }),
+})
 
 const baseUrl = 'https://127.0.0.1:8790'
 const digest = (value: string) => createHash('sha256').update(value).digest('base64url')
@@ -450,19 +459,20 @@ describe('built Worker workspace permission proof', () => {
 describe('owned disposable SQL readback fixture', () => {
   test('rejects identifiers instead of interpolating arbitrary provider schemas', () => {
     expect(() =>
-      createWorkspacePermissionDatabase({ unsafe: async () => [] }, 'auth; drop schema app')
+      createWorkspacePermissionDatabase(
+        sqlReadback(async () => []),
+        'auth; drop schema app'
+      )
     ).toThrow()
   })
 
   test('uses bound values for every account/session/workspace/member identity', async () => {
     const calls: { query: string; parameters: readonly unknown[] }[] = []
     const database = createWorkspacePermissionDatabase(
-      {
-        unsafe: async (query, parameters = []) => {
-          calls.push({ query, parameters })
-          return []
-        },
-      },
+      sqlReadback(async (query, parameters = []) => {
+        calls.push({ query, parameters })
+        return []
+      }),
       'proof_auth'
     )
     const marker = "untrusted-value-'--"
@@ -599,23 +609,21 @@ describe('intentional unverified desktop address readback', () => {
         profileAddressCompatible: address === null || address === 'provider@example.test',
       }
       const database = createWorkspacePermissionDatabase(
-        {
-          unsafe: async (query, parameters) => {
-            expect(query).toContain('pu.id = ai.subject')
-            expect(query).toContain('ps.id = ds.provider_session_id and ps."userId" = pu.id')
-            expect(query).toContain('pa."userId" = pu.id')
-            expect(query).toContain('where ds.session_id = $1::uuid and pu.email = $2')
-            expect(parameters).toEqual([row.sessionId, 'provider@example.test'])
-            // Offline SQL contract oracle: SQL NULL equality is not TRUE. This is
-            // not claimed as an executed PostgreSQL query; the real lane confirms it.
-            const permitsAbsent = query.includes(
-              'pu.id = ai.subject and (ds.email is null or ds.email = pu.email)'
-            )
-            return (address === null ? permitsAbsent : address === 'provider@example.test')
-              ? [row]
-              : []
-          },
-        },
+        sqlReadback(async (query, parameters) => {
+          expect(query).toContain('pu.id = ai.subject')
+          expect(query).toContain('ps.id = ds.provider_session_id and ps."userId" = pu.id')
+          expect(query).toContain('pa."userId" = pu.id')
+          expect(query).toContain('where ds.session_id = $1::uuid and pu.email = $2')
+          expect(parameters).toEqual([row.sessionId, 'provider@example.test'])
+          // Offline SQL contract oracle: SQL NULL equality is not TRUE. This is
+          // not claimed as an executed PostgreSQL query; the real lane confirms it.
+          const permitsAbsent = query.includes(
+            'pu.id = ai.subject and (ds.email is null or ds.email = pu.email)'
+          )
+          return (address === null ? permitsAbsent : address === 'provider@example.test')
+            ? [row]
+            : []
+        }),
         'auth_ci'
       )
       const actual = await database.identity({
@@ -656,5 +664,107 @@ describe('intentional unverified desktop address readback', () => {
         account.password,
       ])
         expect(JSON.stringify(sanitized)).not.toContain(value)
+  })
+})
+
+describe('atomic fresh membership fixture', () => {
+  const workspaceId = '10000000-0000-4000-8000-000000000001'
+  const ownerUserId = '20000000-0000-4000-8000-000000000001'
+  const userId = '30000000-0000-4000-8000-000000000001'
+  const membershipId = '40000000-0000-4000-8000-000000000001'
+
+  function transactionFixture(
+    guard: 'owned' | 'missing' | 'wrong-owner' = 'owned',
+    failInsertion = false
+  ) {
+    const trace: string[] = []
+    const calls: { query: string; parameters: readonly string[] }[] = []
+    let committed = 0
+    let rolledBack = 0
+    const sql = {
+      unsafe: async () => {
+        throw new Error('membership SQL escaped its transaction')
+      },
+      transaction: async (
+        work: (tx: {
+          unsafe(
+            query: string,
+            parameters?: readonly string[]
+          ): Promise<readonly Record<string, unknown>[]>
+        }) => Promise<string | null>
+      ) => {
+        trace.push('begin')
+        let pending = 0
+        try {
+          const value = await work({
+            unsafe: async (query, parameters = []) => {
+              calls.push({ query, parameters })
+              if (query.trimStart().startsWith('select')) {
+                trace.push('guard')
+                return guard === 'missing'
+                  ? []
+                  : [{ workspaceId, ownerUserId: guard === 'wrong-owner' ? userId : ownerUserId }]
+              }
+              if (query.trimStart().startsWith('insert')) {
+                trace.push('insert')
+                pending += 1
+                if (failInsertion) throw new Error('synthetic insertion failure')
+                return [{ id: membershipId }]
+              }
+              throw new Error('Unexpected fixture query')
+            },
+          })
+          committed += pending
+          trace.push('commit')
+          return value
+        } catch (error) {
+          rolledBack += pending
+          trace.push('rollback')
+          throw error
+        }
+      },
+    }
+    return { sql, trace, calls, counts: () => ({ committed, rolledBack }) }
+  }
+
+  test('locks the exact ordinary workspace and owner before one bound VALUES insertion', async () => {
+    const setup = transactionFixture()
+    const database = createWorkspacePermissionDatabase(setup.sql, 'auth_ci')
+    expect(await database.addMember({ workspaceId, ownerUserId, userId })).toBe(membershipId)
+    expect(setup.trace).toEqual(['begin', 'guard', 'insert', 'commit'])
+    expect(setup.calls).toHaveLength(2)
+    expect(setup.calls[0]!.query).toContain('not w.is_personal')
+    expect(setup.calls[0]!.query).toContain('w.deleted_at is null')
+    expect(setup.calls[0]!.query).toContain("owner.role = 'owner'")
+    expect(setup.calls[0]!.query).toContain('for update of w, owner')
+    expect(setup.calls[0]!.parameters).toEqual([workspaceId, ownerUserId])
+    expect(setup.calls[1]!.query).toContain("values ($1::uuid, $2::uuid, 'member', 0)")
+    expect(setup.calls[1]!.query).not.toContain('select')
+    expect(setup.calls[1]!.parameters).toEqual([workspaceId, userId])
+    for (const call of setup.calls)
+      for (const value of [workspaceId, ownerUserId, userId])
+        expect(call.query).not.toContain(value)
+    expect(setup.counts()).toEqual({ committed: 1, rolledBack: 0 })
+  })
+
+  for (const guard of ['missing', 'wrong-owner'] as const) {
+    test(`does not insert when the ownership guard is ${guard}`, async () => {
+      const setup = transactionFixture(guard)
+      const database = createWorkspacePermissionDatabase(setup.sql, 'auth_ci')
+      expect(await database.addMember({ workspaceId, ownerUserId, userId })).toBeNull()
+      expect(setup.trace).toEqual(['begin', 'guard', 'commit'])
+      expect(setup.calls).toHaveLength(1)
+      expect(setup.counts()).toEqual({ committed: 0, rolledBack: 0 })
+    })
+  }
+
+  test('propagates insertion failure so the transaction rolls back instead of committing', async () => {
+    const setup = transactionFixture('owned', true)
+    const database = createWorkspacePermissionDatabase(setup.sql, 'auth_ci')
+    await expect(database.addMember({ workspaceId, ownerUserId, userId })).rejects.toThrow(
+      'synthetic insertion failure'
+    )
+    expect(setup.trace).toEqual(['begin', 'guard', 'insert', 'rollback'])
+    expect(setup.counts()).toEqual({ committed: 0, rolledBack: 1 })
   })
 })

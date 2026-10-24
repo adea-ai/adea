@@ -182,13 +182,18 @@ function classifyFailure(
   }
 }
 
-type SqlReadback = {
+export type WorkspacePermissionSql = {
   unsafe(query: string, parameters?: readonly string[]): Promise<readonly Record<string, unknown>[]>
+}
+export type WorkspacePermissionSqlReadback = WorkspacePermissionSql & {
+  transaction(
+    work: (transaction: WorkspacePermissionSql) => Promise<string | null>
+  ): Promise<string | null>
 }
 
 /** This client is supplied only by the CLI that owns the disposable database. */
 export function createWorkspacePermissionDatabase(
-  sql: SqlReadback,
+  sql: WorkspacePermissionSqlReadback,
   providerSchema: string
 ): WorkspacePermissionDatabase {
   if (!/^[a-z_][a-z0-9_]*$/u.test(providerSchema)) throw new Error('Invalid proof provider schema')
@@ -257,16 +262,34 @@ export function createWorkspacePermissionDatabase(
       }
     },
     async addMember({ workspaceId, ownerUserId, userId }) {
-      const rows = await sql.unsafe(
-        `
-        insert into app.workspace_memberships (workspace_id, user_id, role, sort_order)
-        select w.id, $3::uuid, 'member', 0 from app.workspaces w
-        join app.workspace_memberships owner on owner.workspace_id = w.id and owner.user_id = $2::uuid and owner.role = 'owner'
-        where w.id = $1::uuid and w.owner_user_id = $2::uuid and not w.is_personal and w.deleted_at is null
-        returning id`,
-        [workspaceId, ownerUserId, userId]
-      )
-      return rows.length === 1 && typeof rows[0]!.id === 'string' ? rows[0]!.id : null
+      return sql.transaction(async (transaction) => {
+        // The authority rows remain locked until the explicit fresh VALUES
+        // insertion commits or rolls back. No records are copied from a table.
+        const owned = await transaction.unsafe(
+          `
+          select w.id as "workspaceId", owner.user_id as "ownerUserId"
+          from app.workspaces w
+          join app.workspace_memberships owner on owner.workspace_id = w.id and owner.user_id = $2::uuid and owner.role = 'owner'
+          where w.id = $1::uuid and w.owner_user_id = $2::uuid and not w.is_personal and w.deleted_at is null
+          for update of w, owner`,
+          [workspaceId, ownerUserId]
+        )
+        if (
+          owned.length !== 1 ||
+          owned[0]!.workspaceId !== workspaceId ||
+          owned[0]!.ownerUserId !== ownerUserId
+        )
+          return null
+        const rows = await transaction.unsafe(
+          `
+          insert into app.workspace_memberships (workspace_id, user_id, role, sort_order)
+          values ($1::uuid, $2::uuid, 'member', 0)
+          returning id`,
+          [workspaceId, userId]
+        )
+        requireProof(rows.length === 1 && typeof rows[0]!.id === 'string' && uuid.test(rows[0]!.id))
+        return rows[0]!.id as string
+      })
     },
     async removeMember({ workspaceId, userId, membershipId }) {
       const rows = await sql.unsafe(
