@@ -11,9 +11,10 @@
 // a checkout that leaves no credentials behind, and a setup action that may not
 // manage a cache beside the one this lane qualifies. Each of those guards reads
 // the workflow as text, in the spellings GitHub accepts — named or unnamed
-// steps, block- or flow-mapping grants — so a weakened copy can be put through
-// the same function and the mutation control below fails when a guard stops
-// biting.
+// steps, block- or flow-mapping grants, quoted scopes and levels, blank lines
+// inside a mapping — so a weakened copy can be put through the same function
+// and the mutation control below fails when a guard stops biting. Syntax the
+// guards cannot read as read-only is reported, never trusted.
 import { describe, expect, test } from 'bun:test'
 
 import { readFileSync } from 'node:fs'
@@ -125,7 +126,10 @@ describe('the cache qualification workflow', () => {
  * scalar (`permissions: write-all`) and mapping forms: block style
  * (`permissions:` plus indented grants) and flow style
  * (`permissions: { contents: read }`, including the braces-wrapped form that
- * spans several lines).
+ * spans several lines). A blank line does not end a block-style mapping: YAML
+ * permits blanks within a mapping, so the block runs until the first line
+ * that does not continue it — a key of its parent, or a blank line after
+ * which no deeper line follows.
  */
 function permissionsBlocks(text: string): string[] {
   const lines = text.split('\n')
@@ -133,7 +137,8 @@ function permissionsBlocks(text: string): string[] {
   for (let index = 0; index < lines.length; index += 1) {
     const block = /^(\s*)permissions:(.*)$/.exec(lines[index])
     if (!block) continue
-    const [, indent, inline] = block
+    const [, indent, rest] = block
+    const inline = stripComment(rest)
     if (inline.trim() !== '' && !inline.includes('{')) {
       // The scalar form grants every scope at once: `permissions: write-all`.
       blocks.push(lines[index])
@@ -144,16 +149,24 @@ function permissionsBlocks(text: string): string[] {
       // A flow map ends where its braces balance, which may take several lines.
       let depth = braceDepth(inline)
       while (end < lines.length && depth > 0) {
-        depth += braceDepth(lines[end])
+        depth += braceDepth(stripComment(lines[end]))
         end += 1
       }
     } else
-      while (
-        end < lines.length &&
-        lines[end].trim() !== '' &&
-        lines[end].search(/\S/) > indent.length
-      )
-        end += 1
+      while (end < lines.length) {
+        const line = lines[end]
+        if (line.trim() !== '') {
+          if (line.search(/\S/) <= indent.length) break
+          end += 1
+          continue
+        }
+        // A blank line keeps the mapping open only while a deeper line still
+        // follows it; the grants on either side of the blank are one mapping.
+        let ahead = end
+        while (ahead < lines.length && lines[ahead].trim() === '') ahead += 1
+        if (ahead >= lines.length || lines[ahead].search(/\S/) <= indent.length) break
+        end = ahead
+      }
     blocks.push(lines.slice(index, end).join('\n'))
     index = end - 1
   }
@@ -206,6 +219,12 @@ function stepBlocks(text: string, uses: string): string[][] {
 function permissionsViolations(text: string): string[] {
   const blocks = permissionsBlocks(text)
   const violations: string[] = []
+  // A permissions key in a spelling the block reader does not know — a quoted
+  // key, a space before the colon — would hide its whole mapping from
+  // `permissionsBlocks`, so it is named here instead of silently skipped.
+  for (const line of text.split('\n'))
+    if (/^\s*["']?permissions["']?\s*:/.test(line) && !/^(\s*)permissions:/.test(line))
+      violations.push('a permissions block is written in a spelling the guard cannot read')
   // Only the block written at column zero sets the token this lane runs with;
   // a nested mapping grants inside one job and never narrows or replaces it.
   const topLevel = blocks.find((block) => block.startsWith('permissions:'))
@@ -215,52 +234,156 @@ function permissionsViolations(text: string): string[] {
     )
   else if (!pinnedContentsRead(topLevel))
     violations.push("the top-level permissions block does not pin contents to 'read'")
-  // A write grant anywhere, including a job's own block, widens that default.
+  // A write grant anywhere, including a job's own block, widens that default,
+  // and a block the guard cannot read as read-only is reported, not trusted.
   for (const block of blocks) {
+    const { grants, unreadable } = readMapping(block)
     if (/\bwrite-all\b/.test(block)) violations.push('a permissions block grants write-all')
-    else if (writeGrants(block).length > 0)
+    else if (unreadable.length > 0)
+      violations.push('a permissions block declares grants the guard cannot prove read-only')
+    else if (grants.some((grant) => grant.level === 'write'))
       violations.push('a permissions block grants a write scope')
   }
   return violations
 }
 
+/** One `scope: level` grant a permissions mapping declares. */
+type Grant = { scope: string; level: string }
+
 /**
- * Whether the block pins `contents` to `read` in either YAML spelling: a
- * block-style `contents: read` entry, or a flow-map `{ contents: read }` one.
+ * What reading one permissions block yields: the grants it declares, and the
+ * entries the guard could not read as `scope: level` pairs. An entry lands in
+ * `unreadable` whenever its spelling is not one the guard can prove
+ * harmless, so the caller fails the block closed instead of accepting it.
+ */
+type Mapping = { grants: Grant[]; unreadable: string[] }
+
+/**
+ * A line's text without its trailing YAML comment: `#` opens a comment only
+ * outside quotes, and only at the start of the line or after whitespace.
+ */
+function stripComment(text: string): string {
+  let quote: string | null = null
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text.charAt(index)
+    if (quote !== null) {
+      if (char === quote) {
+        if (quote === "'" && text.charAt(index + 1) === "'") index += 1
+        else if (quote === '"' && text.charAt(index - 1) === '\\') continue
+        else quote = null
+      }
+      continue
+    }
+    if (char === '"' || char === "'") quote = char
+    else if (char === '#' && (index === 0 || /\s/.test(text.charAt(index - 1))))
+      return text.slice(0, index)
+  }
+  return text
+}
+
+/**
+ * The scalar a YAML token spells — plain, single-quoted or double-quoted —
+ * or null for a token the guard cannot read and therefore cannot prove safe.
+ */
+function unquote(token: string): string | null {
+  const text = token.trim()
+  if (text.startsWith("'")) {
+    if (!text.endsWith("'") || text.length < 2) return null
+    return text.slice(1, -1).replace(/''/g, "'")
+  }
+  if (text.startsWith('"')) {
+    if (!text.endsWith('"') || text.length < 2) return null
+    const unescaped = text.slice(1, -1).replace(/\\(["\\])/g, '$1')
+    return unescaped.includes('\\') ? null : unescaped
+  }
+  if (text === '' || /[\s"'#]/.test(text)) return null
+  return text
+}
+
+/**
+ * One mapping entry in whichever spelling YAML accepts: the scope and the
+ * level may each be plain or quoted and may carry a comment, and the level
+ * must be one GitHub actually grants. Null for anything that is not such a
+ * pair — including a level written on a line of its own.
+ */
+function readEntry(entry: string): Grant | null {
+  const pair = /^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[A-Za-z0-9_-]+)[ \t]*:[ \t]*(.*)$/.exec(
+    stripComment(entry).trim()
+  )
+  if (!pair) return null
+  const scope = unquote(pair[1])
+  const level = unquote(pair[2])
+  if (scope === null || level === null) return null
+  if (level !== 'read' && level !== 'write' && level !== 'none') return null
+  return { scope, level }
+}
+
+/**
+ * The mapping a permissions block declares, read structurally rather than
+ * with a line regex: every entry becomes a `scope: level` grant however YAML
+ * quotes it, blank lines within the mapping change nothing, and whatever is
+ * not such an entry — a level on its own line, a level GitHub does not grant,
+ * a flow map that never closes — comes back in `unreadable` so the guard
+ * fails the block closed instead of accepting what it cannot read.
+ */
+function readMapping(block: string): Mapping {
+  const lines = block.split('\n')
+  const header = /^(\s*)permissions:(.*)$/.exec(lines[0])
+  if (!header) return { grants: [], unreadable: [block.trim()] }
+  const text = lines.map(stripComment).join('\n')
+  if (text.includes('{')) {
+    // Flow style: the grants live between the braces, and nothing else may
+    // live outside them.
+    const flow = /\{([^{}]*)\}/.exec(text)
+    const outside = text
+      .replace(/\{[^{}]*\}/, '')
+      .replace('permissions:', '')
+      .trim()
+    if (!flow || outside !== '')
+      return { grants: [], unreadable: [outside === '' ? text.trim() : outside] }
+    const grants: Grant[] = []
+    const unreadable: string[] = []
+    for (const entry of flow[1].split(',')) {
+      const grant = readEntry(entry)
+      if (grant) grants.push(grant)
+      else unreadable.push(entry.trim())
+    }
+    return { grants, unreadable }
+  }
+  const inline = stripComment(header[2])
+  if (inline.trim() !== '') {
+    // The scalar form: `permissions: read-all` or `permissions: write-all`.
+    const scalar = unquote(inline)
+    return scalar === 'read-all' || scalar === 'write-all'
+      ? { grants: [], unreadable: [] }
+      : { grants: [], unreadable: [inline.trim()] }
+  }
+  const grants: Grant[] = []
+  const unreadable: string[] = []
+  for (const line of lines.slice(1)) {
+    const entry = stripComment(line)
+    // A blank line or a comment line grants nothing; every other line of the
+    // block must read as one `scope: level` entry of the mapping.
+    if (entry.trim() === '') continue
+    if (entry.search(/\S/) <= header[1].length) continue
+    const grant = readEntry(entry)
+    if (grant) grants.push(grant)
+    else unreadable.push(entry.trim())
+  }
+  return { grants, unreadable }
+}
+
+/**
+ * Whether the block pins `contents` to `read`, in either YAML spelling: a
+ * block-style `contents: read` entry or a flow-map one, quoted or plain. A
+ * block the guard cannot read cannot prove that it does.
  */
 function pinnedContentsRead(block: string): boolean {
+  const { grants, unreadable } = readMapping(block)
   return (
-    /^ +contents:[ \t]*read[ \t]*(?:#.*)?$/m.test(block) ||
-    flowGrants(block).some((grant) => grant === 'contents: read')
+    unreadable.length === 0 &&
+    grants.some((grant) => grant.scope === 'contents' && grant.level === 'read')
   )
-}
-
-/**
- * The grants a block writes in flow-map form, as `scope: level` pairs, so a
- * write hidden inside `permissions: { contents: read, id-token: write }` is
- * still visible to the guard.
- */
-function flowGrants(block: string): string[] {
-  const grants: string[] = []
-  for (const [, map] of block.matchAll(/\{([^{}]*)\}/g))
-    for (const entry of map.split(',')) {
-      const grant = /^([\w-]+):[ \t]*(\w+)[ \t]*$/.exec(entry.trim())
-      if (grant) grants.push(`${grant[1]}: ${grant[2]}`)
-    }
-  return grants
-}
-
-/**
- * The write scopes a block grants: a block-style `scope: write` entry on a
- * line of its own, or a flow-map `{ scope: write }` entry. A braces-wrapped
- * map spelled across lines appears in both, which is fine — one write is
- * enough to report.
- */
-function writeGrants(block: string): string[] {
-  const grants = flowGrants(block).filter((grant) => grant.endsWith(': write'))
-  for (const [, scope] of block.matchAll(/^\s+([\w-]+):[ \t]*write[ \t]*(?:#.*)?$/gm))
-    grants.push(`${scope}: write`)
-  return grants
 }
 
 /** The ways the checkout leaves the lane's token in the runner workspace. */
@@ -332,6 +455,32 @@ describe('the runner this lane runs on', () => {
       'permissions: { contents: read }'
     )
     expect(permissionsViolations(flow)).toEqual([])
+  })
+
+  test('read-only mappings are accepted however YAML spells them', () => {
+    // A blank line sits inside a mapping without ending it, YAML quotes keys
+    // and values freely, and neither changes what the block grants. These are
+    // the read-only forms the mutation control below must not reject.
+    const blanked = workflow.replace(
+      'permissions:\n  contents: read',
+      'permissions:\n  contents: read\n\n  # no further grant follows the blank line'
+    )
+    expect(permissionsViolations(blanked)).toEqual([])
+    const quoted = workflow.replace(
+      'permissions:\n  contents: read',
+      'permissions:\n  "contents": \'read\''
+    )
+    expect(permissionsViolations(quoted)).toEqual([])
+    const quotedFlow = workflow.replace(
+      'permissions:\n  contents: read',
+      'permissions: { "contents": "read" }'
+    )
+    expect(permissionsViolations(quotedFlow)).toEqual([])
+    const job = workflow.replace(
+      '    runs-on: ubuntu-latest',
+      "    permissions:\n      contents: read\n\n      packages: 'read'\n    runs-on: ubuntu-latest"
+    )
+    expect(permissionsViolations(job)).toEqual([])
   })
 
   test('the mutation control bites: every weakened guard reports itself', () => {
@@ -465,6 +614,60 @@ describe('the runner this lane runs on', () => {
           'permissions: { pull-requests: read }'
         ),
         reported: "the top-level permissions block does not pin contents to 'read'",
+      },
+      {
+        name: 'a job hides a write grant behind a blank line',
+        guard: permissionsViolations,
+        mutated: workflow.replace(
+          '    runs-on: ubuntu-latest',
+          '    permissions:\n      contents: read\n\n      packages: write\n    runs-on: ubuntu-latest'
+        ),
+        reported: 'a permissions block grants a write scope',
+      },
+      {
+        name: 'a job writes through a quoted permission key',
+        guard: permissionsViolations,
+        mutated: workflow.replace(
+          '    runs-on: ubuntu-latest',
+          '    permissions:\n      "contents": write\n    runs-on: ubuntu-latest'
+        ),
+        reported: 'a permissions block grants a write scope',
+      },
+      {
+        name: 'a job writes through a quoted permission value',
+        guard: permissionsViolations,
+        mutated: workflow.replace(
+          '    runs-on: ubuntu-latest',
+          "    permissions:\n      packages: 'write'\n    runs-on: ubuntu-latest"
+        ),
+        reported: 'a permissions block grants a write scope',
+      },
+      {
+        name: 'the top level writes through a quoted permission value',
+        guard: permissionsViolations,
+        mutated: workflow.replace(
+          'permissions:\n  contents: read',
+          'permissions:\n  contents: "write"'
+        ),
+        reported: 'a permissions block grants a write scope',
+      },
+      {
+        name: 'a job writes a permission whose level sits on the next line',
+        guard: permissionsViolations,
+        mutated: workflow.replace(
+          '    runs-on: ubuntu-latest',
+          '    permissions:\n      contents:\n        write\n    runs-on: ubuntu-latest'
+        ),
+        reported: 'a permissions block declares grants the guard cannot prove read-only',
+      },
+      {
+        name: 'a job declares its permissions under a quoted key',
+        guard: permissionsViolations,
+        mutated: workflow.replace(
+          '    runs-on: ubuntu-latest',
+          '    "permissions":\n      contents: write\n    runs-on: ubuntu-latest'
+        ),
+        reported: 'a permissions block is written in a spelling the guard cannot read',
       },
     ]
     for (const { name, guard, mutated, reported } of mutants) {
