@@ -1,3 +1,5 @@
+import { defaultAppIcon, isAppIconVariant } from '@adea-ai/app-ui/lib/app-icon'
+
 import {
   defaultWorkspacePreferences,
   type WorkspacePreferences,
@@ -8,6 +10,7 @@ export function normalizeWorkspacePreferences(value: unknown): WorkspacePreferen
   if (!value || typeof value !== 'object') return defaultWorkspacePreferences
   const candidate = value as Partial<WorkspacePreferences>
   return Object.freeze({
+    appIcon: isAppIconVariant(candidate.appIcon) ? candidate.appIcon : defaultAppIcon,
     dictationLocale:
       typeof candidate.dictationLocale === 'string'
         ? candidate.dictationLocale.trim().slice(0, 35)

@@ -12,6 +12,7 @@ describe('desktop workspace preferences boundary', () => {
 
   test('normalizes persisted fields and strips unsupported values', async () => {
     const provider = createDesktopSettingsProvider(async () => ({
+      appIcon: 'violet',
       dictationLocale: ' es-PR ',
       notifyMentions: false,
       notifyTasks: 'yes',
@@ -20,6 +21,7 @@ describe('desktop workspace preferences boundary', () => {
       unknown: 'discard',
     }))
     expect(await provider.load()).toEqual({
+      appIcon: 'violet',
       dictationLocale: 'es-PR',
       notifyMentions: false,
       notifyTasks: true,
@@ -37,6 +39,7 @@ describe('desktop workspace preferences boundary', () => {
         return acknowledgement
       })
       const saved = await provider.save({
+        appIcon: 'black',
         dictationLocale: ' es-PR ',
         notifyMentions: false,
         notifyTasks: false,
@@ -45,6 +48,7 @@ describe('desktop workspace preferences boundary', () => {
         version: 1,
       })
       expect(saved).toEqual({
+        appIcon: 'black',
         dictationLocale: 'es-PR',
         notifyMentions: false,
         notifyTasks: false,

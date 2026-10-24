@@ -20,6 +20,7 @@ import {
   createSystemKeychainPort,
   type DesktopAuthKeychainPort,
 } from './desktop-auth-store'
+import { isAppIconVariant, type AppIconVariant } from './app-icon'
 import { loadDeviceKey } from './device-key'
 import { createMacPermissionService, type MacPermissionService } from './desktop-permissions'
 import {
@@ -155,6 +156,12 @@ export function createCommandSurface(
      * renderer's typed path input stays the fallback.
      */
     pickFolder?: (request: Readonly<{ startingFolder?: string }>) => Promise<readonly string[]>
+    /**
+     * Changes the Dock icon while the app runs (`desktop_app_icon_apply`).
+     * Resolves whether the icon actually changed; absent, the command answers
+     * `applied: false` and the persisted choice waits for a shell that can.
+     */
+    setAppIcon?: (variant: AppIconVariant) => Promise<boolean>
     /**
      * The one cloud origin this run targets (resolved once at boot, see
      * cloud-proxy.ts). Sign-in only opens authorize URLs on this origin; absent,
@@ -319,6 +326,13 @@ export function createCommandSurface(
       if (typeof startingFolder === 'string' && startingFolder.trim() !== '')
         request.startingFolder = startingFolder
       return options.pickFolder(request).then((paths) => ({ paths }))
+    },
+    // The Settings app-icon pick. The preference itself is persisted through
+    // `desktop_preferences_save`; this only asks the native side to act on it.
+    desktop_app_icon_apply: async (args) => {
+      const variant = args?.variant
+      if (!isAppIconVariant(variant)) throw new Error('invalid app icon')
+      return { applied: (await options?.setAppIcon?.(variant)) ?? false }
     },
     desktop_auth_take_callback: () => {
       const callback = readJson('auth-callback.json') as string | null

@@ -2,6 +2,7 @@ import type { AgentHqApiClient } from '@adea-ai/api-client'
 import type { AgentSummary, WorkspaceSummary, WorkspaceUpdate } from '@adea-ai/types'
 import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
+import { AppIconPicker } from './app-icon-picker'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
 import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
@@ -41,6 +42,7 @@ import { Dynamic } from 'solid-js/web'
 import { CapabilityList } from './capability-card'
 import { keyedRows } from './keyed-rows'
 import { ModalDialog } from '@adea-ai/ui/components/ui/modal-dialog'
+import type { AppIconVariant } from '@adea-ai/app-ui/lib/app-icon'
 import {
   defaultWorkspacePreferences,
   type CapabilitySnapshot,
@@ -383,6 +385,15 @@ export function WorkspaceSettingsDialog(props: {
       setSaveState('error')
     }
   }
+  // 'applied': the Dock icon changed now; 'saved': the pick is stored but this
+  // shell cannot change the icon while running.
+  const [appIconOutcome, setAppIconOutcome] = createSignal<'applied' | 'idle' | 'saved'>('idle')
+  const chooseAppIcon = async (variant: AppIconVariant) => {
+    setAppIconOutcome('idle')
+    await save({ ...preferences(), appIcon: variant })
+    const applied = await props.services?.appIcon?.apply(variant).catch(() => false)
+    setAppIconOutcome(applied ? 'applied' : 'saved')
+  }
   const toggle = (key: 'notifyMentions' | 'notifyTasks' | 'privateNotificationPreviews') =>
     void save({ ...preferences(), [key]: !preferences()[key] })
 
@@ -546,6 +557,21 @@ export function WorkspaceSettingsDialog(props: {
                     }
                   >
                     {props.appearancePanel?.()}
+                  </Show>
+                  <Show when={props.services?.appIcon && props.services.settings}>
+                    <SettingsRow
+                      label="App icon"
+                      description={
+                        appIconOutcome() === 'saved'
+                          ? 'Saved. This version of Adea Desktop cannot change the Dock icon while it runs.'
+                          : 'The Dock and desktop icon. Inside the app, the icon is white in light mode and black in dark mode.'
+                      }
+                    >
+                      <AppIconPicker
+                        value={preferences().appIcon}
+                        onChange={(variant) => void chooseAppIcon(variant)}
+                      />
+                    </SettingsRow>
                   </Show>
                 </Show>
                 <Show when={panelSection === 'agents'}>
