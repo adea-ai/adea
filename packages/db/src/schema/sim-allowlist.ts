@@ -13,8 +13,9 @@ import { workspaces } from './workspaces'
  * The row is workspace-owned data. The foreign key means a row can only name a workspace that
  * exists, and permanent deletion of the workspace removes its rows. Archiving a workspace or
  * requesting its deletion does not remove the workspace row, so those transitions withdraw the
- * rows and revoke the live Sim sessions in the same transaction (`withdrawSimAccess`); reopening
- * does not bring a grant back. The hosted service never reads `app.workspaces`: it reads only this
+ * rows, spend the unspent launch codes and revoke the live Sim sessions in the same transaction
+ * (`withdrawSimAccess`); reopening does not bring a grant back, and a new grant ends whatever
+ * authority that workspace and surface held before it. The hosted service never reads `app.workspaces`: it reads only this
  * table, so the lifecycle is enforced where the workspace changes, not by widening its role.
  */
 export const simWorkspaceAllowlist = appSchema.table(

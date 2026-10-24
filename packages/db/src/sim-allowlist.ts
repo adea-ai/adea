@@ -1,7 +1,7 @@
 import { and, eq, isNull, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
-import { simSessions, simWorkspaceAllowlist, workspaces } from './schema'
+import { simLaunchCodes, simSessions, simWorkspaceAllowlist, workspaces } from './schema'
 import { SIM_SURFACES, type SimSurface } from './sim-launch-sessions'
 
 /**
@@ -64,11 +64,57 @@ function assertScope(scope: SimAllowlistScope): asserts scope is SimAllowlistSco
     throw new RangeError('Sim allowlist surface is not a known surface')
 }
 
+/** What ending a workspace's Sim authority touched. */
+type SimAuthorityEnded = Readonly<{ codes: number; sessions: number }>
+
+/**
+ * Ends the launch authority a workspace holds, optionally for one surface: it spends every unspent
+ * launch code and revokes every live session. The order is the fence. Spending the codes first
+ * waits behind any redemption that already holds a code row, and a redemption that starts later
+ * finds the code spent, so after that statement no new session can appear. The sessions are revoked
+ * last, so a session a racing redemption committed is seen and revoked. Both statements must run in
+ * the caller's transaction.
+ */
+async function endSimAuthority(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  surface?: SimSurface
+): Promise<SimAuthorityEnded> {
+  const id = workspaceId.toLowerCase()
+  const codes = await transaction
+    .update(simLaunchCodes)
+    .set({ consumedAt: new Date() })
+    .where(
+      and(
+        sql`lower(${simLaunchCodes.workspaceId}) = ${id}`,
+        isNull(simLaunchCodes.consumedAt),
+        ...(surface ? [eq(simLaunchCodes.surface, surface)] : [])
+      )
+    )
+    .returning({ id: simLaunchCodes.id })
+  const sessions = await transaction
+    .update(simSessions)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        sql`lower(${simSessions.workspaceId}) = ${id}`,
+        isNull(simSessions.revokedAt),
+        ...(surface ? [eq(simSessions.surface, surface)] : [])
+      )
+    )
+    .returning({ id: simSessions.id })
+  return { codes: codes.length, sessions: sessions.length }
+}
+
 /**
  * Grants one existing, active workspace one surface. Granting again changes nothing. Returns whether
  * a row was added. A workspace that does not exist, is archived or has its deletion requested is
  * refused with `SimAllowlistWorkspaceUnavailableError`. The workspace row is locked for the check,
  * so an archive that commits first refuses the grant, and one that commits after it withdraws it.
+ *
+ * A grant that adds a row starts a clean slate for that workspace and surface: the sessions and
+ * unspent launch codes that existed before it are ended in the same transaction, so a regrant can
+ * never revive authority from before a withdrawal. A grant that was already present changes nothing.
  */
 export async function grantSimAllowlist(
   database: AgentHqDatabase,
@@ -94,7 +140,9 @@ export async function grantSimAllowlist(
       .values({ workspaceId: scope.workspaceId, surface: scope.surface })
       .onConflictDoNothing()
       .returning({ id: simWorkspaceAllowlist.id })
-    return rows.length > 0
+    if (rows.length === 0) return false
+    await endSimAuthority(transaction, scope.workspaceId, scope.surface)
+    return true
   })
 }
 
@@ -117,28 +165,26 @@ export async function revokeSimAllowlist(
 }
 
 /**
- * Withdraws every hosted Sim grant for a workspace and revokes its live Sim sessions. The workspace
- * lifecycle calls this inside the transaction that archives the workspace or requests its deletion,
- * so a session that already exists stops reading private assets at its next request even though
- * the hosted service never reads `app.workspaces`. Returns how many grants and sessions it ended.
+ * Withdraws every hosted Sim grant for a workspace and ends its launch authority: unspent launch
+ * codes are spent and live sessions are revoked. The workspace lifecycle calls this when it archives
+ * the workspace or requests its deletion, so a session that already exists stops reading private
+ * assets at its next request, and a code issued earlier can no longer open one, even though the
+ * hosted service never reads `app.workspaces`.
+ *
+ * It runs as one transaction however it is called: on a database it opens one, and inside a
+ * transaction it is a savepoint of it, so a failure part-way ends nothing. Returns how many grants,
+ * codes and sessions it ended.
  */
 export async function withdrawSimAccess(
   database: AgentHqDatabase | AgentHqTransaction,
   workspaceId: string
-): Promise<Readonly<{ grants: number; sessions: number }>> {
-  const grants = await database
-    .delete(simWorkspaceAllowlist)
-    .where(eq(simWorkspaceAllowlist.workspaceId, workspaceId))
-    .returning({ id: simWorkspaceAllowlist.id })
-  const sessions = await database
-    .update(simSessions)
-    .set({ revokedAt: new Date() })
-    .where(
-      and(
-        sql`lower(${simSessions.workspaceId}) = ${workspaceId.toLowerCase()}`,
-        isNull(simSessions.revokedAt)
-      )
-    )
-    .returning({ id: simSessions.id })
-  return { grants: grants.length, sessions: sessions.length }
+): Promise<Readonly<{ grants: number; codes: number; sessions: number }>> {
+  return (database as AgentHqDatabase).transaction(async (transaction) => {
+    const grants = await transaction
+      .delete(simWorkspaceAllowlist)
+      .where(eq(simWorkspaceAllowlist.workspaceId, workspaceId))
+      .returning({ id: simWorkspaceAllowlist.id })
+    const ended = await endSimAuthority(transaction, workspaceId)
+    return { grants: grants.length, ...ended }
+  })
 }
