@@ -1,0 +1,235 @@
+{
+  "evidenceProvenance": {
+    "note": "This file is the run's own output, unchanged. This block records where it came from and what it does not cover. It was added after the run; it does not alter summary, checks, or any other run field.",
+    "runIsHistorical": true,
+    "publishedAt": "7ba2fba25",
+    "publishedAtMeaning": "The commit that added this artifact and the screenshot set. Neither has been rewritten since.",
+    "runPredates": "The safety repair of section 13 of the record, and every repair after it (sections 14 to 19). The lane's entry point was not executed again after those repairs.",
+    "runPredatesMeaning": "The current source does not produce this artifact. The current source refuses to install, register or launch, so every row that needs the running application stays pending.",
+    "artifactRows": 22,
+    "sourcePlannedRows": 26,
+    "rowsInSourceNotInArtifact": [
+      "the-installed-application-recovers-when-the-cloud-returns",
+      "the-installed-application-survives-an-unreachable-cloud",
+      "the-run-log-recorded-everything",
+      "ui-interrupted-navigation-leaves-no-half-open-view"
+    ],
+    "sourceRevisionMatch": {
+      "matches": false,
+      "detail": "No committed revision of scripts/installed-app-acceptance.ts emits exactly this row set. 08faaa567 emits 22 planned rows, but two of them are the cloud-resilience rows this artifact does not contain, and two rows this artifact does contain were not yet in that source. ab85488b3 through c445d095b emit 24 planned rows, and 1097e41fa onward emit 26. The run was therefore produced from a working state that was never committed.",
+      "nearestRevisions": [
+        {
+          "commit": "08faaa567",
+          "plannedRows": 22
+        },
+        {
+          "commit": "ab85488b3",
+          "plannedRows": 24
+        },
+        {
+          "commit": "c445d095b",
+          "plannedRows": 24
+        },
+        {
+          "commit": "1097e41fa",
+          "plannedRows": 26
+        },
+        {
+          "commit": "a18e35ff",
+          "plannedRows": 26
+        }
+      ]
+    },
+    "screenshots": {
+      "referencedByArtifact": 10,
+      "note": "The ten screenshot names are recorded in this artifact's checks. Ten files in the directory are those captures, numbered 01 to 10. One further file, earlier-capture-09-reload.png, is an earlier capture this artifact does not reference; it is kept because it is the only capture of that screen. Four earlier-capture files that were byte-identical copies of referenced files were removed, so no two files in the directory share an index."
+    },
+    "nativeAcceptance": "Not re-run for this annotation. No installed application was launched and no credential operation was issued."
+  },
+  "summary": {
+    "passed": 21,
+    "failed": 1,
+    "total": 22,
+    "ok": false
+  },
+  "origin": "http://127.0.0.1:4789",
+  "bundle": "/tmp/<redacted>",
+  "profileRoot": "/tmp/<redacted>",
+  "checks": [
+    {
+      "id": "installed-bundle-identity",
+      "expected": "the installed bundle declares the adea URL scheme and carries its build target record",
+      "actual": "the scheme is declared; the recorded target is local (http://localhost:3000)",
+      "ok": true,
+      "evidence": "host"
+    },
+    {
+      "id": "installed-application-serves-its-own-client",
+      "expected": "the installed application answers on its own loopback origin with the client it was packaged with",
+      "actual": "the installed application answered on its own loopback origin",
+      "ok": true,
+      "evidence": "installed-app"
+    },
+    {
+      "id": "the-served-client-is-the-installed-build",
+      "expected": "the served document is the packaged client with the desktop bridge injected",
+      "actual": "the served document carries the desktop bridge script",
+      "ok": true,
+      "evidence": "installed-app"
+    },
+    {
+      "id": "the-installed-bridge-is-served",
+      "expected": "the installed application's bridge script is served by the installed application",
+      "actual": "the bridge script answered 200",
+      "ok": true,
+      "evidence": "installed-app"
+    },
+    {
+      "id": "the-installed-cloud-proxy-answers",
+      "expected": "the installed application's own same-origin proxy forwards the cloud traffic it recorded at build time",
+      "actual": "the proxied request answered 401",
+      "ok": true,
+      "evidence": "installed-app"
+    },
+    {
+      "id": "the-operating-system-hands-the-callback-to-the-installed-app",
+      "expected": "the operating system routes an adea:// callback into the installed application, which answers it with a typed decision",
+      "actual": "the installed application never answered the callback the operating system delivered",
+      "ok": false,
+      "evidence": "installed-app"
+    },
+    {
+      "id": "the-installed-application-traffic-stayed-on-the-loopback-interface",
+      "expected": "every TCP peer of the installed application is on the loopback interface, so no hosted provider was reached",
+      "actual": "the installed application held no connected TCP socket while it talked to its cloud",
+      "ok": true,
+      "evidence": "installed-app"
+    },
+    {
+      "id": "the-acceptance-environment-names-no-neon-endpoint",
+      "expected": "no environment variable of the acceptance run names a Neon endpoint, so the installed application cannot fall back to one",
+      "actual": "no Neon endpoint is configured in the acceptance environment",
+      "ok": true,
+      "evidence": "host"
+    },
+    {
+      "id": "ui-first-run-opens-a-guest-workspace",
+      "expected": "the installed application opens into a guest workspace with its rail (Chat, Dev, App Library) available",
+      "actual": "the guest workspace rendered with its rail entries",
+      "ok": true,
+      "evidence": "installed-app-origin",
+      "screenshot": "01-first-run.png"
+    },
+    {
+      "id": "ui-chat-view-opens",
+      "expected": "the Chat view opens and the rendered view changes",
+      "actual": "the Chat view rendered \"Skip to workspace content Workspace: Home Search workspace ⌘ K Chat view Dev view App Library Plugins User settings Home\"",
+      "ok": true,
+      "evidence": "installed-app-origin",
+      "screenshot": "02-chat-view.png"
+    },
+    {
+      "id": "ui-dev-view-opens",
+      "expected": "the Dev view opens and the rendered view changes",
+      "actual": "the Dev view rendered \"Skip to workspace content Workspace: Home Search workspace ⌘ K Chat view Dev view App Library Plugins User settings Home\"",
+      "ok": true,
+      "evidence": "installed-app-origin",
+      "screenshot": "03-dev-view.png"
+    },
+    {
+      "id": "ui-app-library-opens",
+      "expected": "the App Library opens and lists the optional destinations it offers",
+      "actual": "the App Library rendered \"Skip to workspace content App Library Search workspace ⌘ K Chat view Dev view App Library Plugins User settings App Libr\"",
+      "ok": true,
+      "evidence": "installed-app-origin",
+      "screenshot": "04-app-library.png"
+    },
+    {
+      "id": "ui-default-destinations-are-chat-and-dev",
+      "expected": "the App Library offers Chat and Dev as the destinations that are on by default",
+      "actual": "the library states that Chat and Dev are on by default",
+      "ok": true,
+      "evidence": "installed-app-origin",
+      "screenshot": "05-app-library-defaults.png"
+    },
+    {
+      "id": "ui-optional-destinations-are-offered",
+      "expected": "the optional destinations (Virtual, Kanban, SourceTree) are offered by the App Library, whether or not they are enabled",
+      "actual": "the App Library offered Virtual: present, Kanban: present, Source control: present; it rendered \"Skip to workspace content App Library Search workspace ⌘ K Chat view Dev view App Library Plugins User settings App Library Chat and Dev are on by default. Enable other views here. Show enabled only Reset Navigation Chat In sidebar Dev In sidebar Virtual Not in sidebar Kanban Not in sidebar Source control Not in sidebar Drag an app to reorder it, or use the Move left and Move right buttons. Extern\"",
+      "ok": true,
+      "evidence": "installed-app-origin",
+      "screenshot": "06-app-library-optional.png"
+    },
+    {
+      "id": "ui-back-and-forward-navigate",
+      "expected": "Back returns to the previous view and Forward returns to the later one",
+      "actual": "back changed the view: true; forward restored it: true",
+      "ok": true,
+      "evidence": "installed-app-origin",
+      "screenshot": "07-back-forward.png"
+    },
+    {
+      "id": "ui-repeated-navigation-is-idempotent",
+      "expected": "repeating the same navigation request leaves the view exactly as it was",
+      "actual": "three requests to the same destination left the view unchanged",
+      "ok": true,
+      "evidence": "installed-app-origin",
+      "screenshot": "08-repeated-navigation.png"
+    },
+    {
+      "id": "ui-interrupted-navigation-settles-on-the-last-request",
+      "expected": "a navigation interrupted by a second request settles on the second one, with no half-open view left behind",
+      "actual": "the view settled on the Dev view (\"Skip to workspace content Workspace: Home Search workspace ⌘ K Chat view Dev view App Library Plugins User settings Home\")",
+      "ok": true,
+      "evidence": "installed-app-origin",
+      "screenshot": "09-interrupted-navigation.png"
+    },
+    {
+      "id": "ui-reload-returns-to-the-workspace",
+      "expected": "reloading the application returns to the workspace, with the client state intact",
+      "actual": "the application returned to the workspace after the reload",
+      "ok": true,
+      "evidence": "installed-app-origin",
+      "screenshot": "10-reload.png"
+    },
+    {
+      "id": "ui-the-installed-bridge-is-present-in-the-page",
+      "expected": "the page carries the desktop bridge the installed application injects",
+      "actual": "the bridge exposed 4 entries",
+      "ok": true,
+      "evidence": "installed-app-origin"
+    },
+    {
+      "id": "ui-folder-flow-command-is-offered",
+      "expected": "the installed application offers the folder-pick command on its own command surface (the native panel itself is not opened)",
+      "actual": "the command surface answered \"the command list is not exposed\"",
+      "ok": true,
+      "evidence": "installed-app-origin"
+    },
+    {
+      "id": "ui-no-uncaught-client-error",
+      "expected": "the client raised no uncaught error while the rows ran",
+      "actual": "the client raised no uncaught error",
+      "ok": true,
+      "evidence": "installed-app-origin"
+    },
+    {
+      "id": "the-installed-application-relaunches-with-its-own-state",
+      "expected": "the installed application starts again and keeps the state directory it wrote, with owner-only permissions",
+      "actual": "the installed application answered again; its state directory is 700",
+      "ok": true,
+      "evidence": "installed-app"
+    }
+  ],
+  "launchServices": {
+    "identifier": "dev.adea.desktop",
+    "installedCopy": "/tmp/<redacted>",
+    "competingCopies": ["/tmp/<redacted>", "/tmp/<redacted>"]
+  },
+  "applicationSupport": {
+    "root": "~/Library/Application Support/dev.adea.desktop",
+    "before": null,
+    "after": null,
+    "removedByThisRun": []
+  }
+}
