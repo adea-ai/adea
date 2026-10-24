@@ -329,10 +329,12 @@ export function createCommandSurface(
     },
     // The Settings app-icon pick. The preference itself is persisted through
     // `desktop_preferences_save`; this only asks the native side to act on it.
-    desktop_app_icon_apply: async (args) => {
+    desktop_app_icon_apply: (args) => {
       const variant = args?.variant
-      if (!isAppIconVariant(variant)) throw new Error('invalid app icon')
-      return { applied: (await options?.setAppIcon?.(variant)) ?? false }
+      if (!isAppIconVariant(variant)) return Promise.reject(new Error('invalid app icon'))
+      return Promise.resolve(options?.setAppIcon?.(variant)).then((applied) => ({
+        applied: applied ?? false,
+      }))
     },
     desktop_auth_take_callback: () => {
       const callback = readJson('auth-callback.json') as string | null
