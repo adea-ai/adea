@@ -181,6 +181,40 @@ describe('desktop shell command surface', () => {
     }
   })
 
+  test('desktop_app_icon_apply validates the colourway and reports whether it was applied', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'adea-shell-commands-'))
+    try {
+      // A shell with no native setter persists nothing here and says so.
+      const bare = createCommandSurface(dataDir)
+      expect(await bare('desktop_app_icon_apply', { variant: 'violet' })).toEqual({
+        ok: true,
+        value: { applied: false },
+      })
+
+      const seen: string[] = []
+      const invoke = createCommandSurface(dataDir, {
+        setAppIcon: async (variant) => {
+          seen.push(variant)
+          return true
+        },
+      })
+      expect(await invoke('desktop_app_icon_apply', { variant: 'black' })).toEqual({
+        ok: true,
+        value: { applied: true },
+      })
+      expect(seen).toEqual(['black'])
+
+      // An unknown colourway never reaches the native side.
+      expect(await invoke('desktop_app_icon_apply', { variant: '../white' })).toEqual({
+        error: 'invalid app icon',
+        ok: false,
+      })
+      expect(seen).toEqual(['black'])
+    } finally {
+      rmSync(dataDir, { force: true, recursive: true })
+    }
+  })
+
   test('deep-links the screen-recording repair to the exact Screen Capture pane', async () => {
     // The permissions row's "Open System Settings" affordance must land on the
     // Screen Recording pane, never generic Settings and never a client-supplied

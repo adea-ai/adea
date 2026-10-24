@@ -10,6 +10,7 @@ import {
   fixtureEnvironment,
   memoryEnvironment,
   resolveLocalDockerEndpoint,
+  pinLocalDockerEndpoint,
 } from './policy.mjs'
 import { buildAcceptanceReceipt, parseJourneyReceipt } from './acceptance-receipt.mjs'
 import {
@@ -1029,4 +1030,88 @@ test('the fresh-account rule catches every construct it claims to catch', () => 
     ),
     []
   )
+})
+
+for (const endpoint of ['unix:///synthetic/selected.sock', 'npipe:////./pipe/docker_engine']) {
+  test(`local endpoint pin survives child work and cleanup: ${endpoint}`, () => {
+    const directory = mkdtempSync(join(tmpdir(), 'adea-docker-pin-'))
+    const probe = join(directory, 'docker-authority.mjs')
+    writeFileSync(
+      probe,
+      `console.log(JSON.stringify({
+      operation:process.argv[2], host:process.env.DOCKER_HOST,
+      context:process.env.DOCKER_CONTEXT ?? null,
+      tls:process.env.DOCKER_TLS_VERIFY ?? null,
+      cert:process.env.DOCKER_CERT_PATH ?? null
+    }))`
+    )
+    const inherited = {
+      PATH: process.env.PATH,
+      DOCKER_HOST: 'unix:///synthetic/other.sock',
+      DOCKER_CONTEXT: 'selected',
+      DOCKER_TLS_VERIFY: '',
+      DOCKER_CERT_PATH: '',
+    }
+    const environment = { ...inherited }
+    let selectedContext = endpoint
+    try {
+      assert.equal(
+        pinLocalDockerEndpoint(environment, () => JSON.stringify(selectedContext)),
+        endpoint
+      )
+      const child = (operation) => {
+        const result = spawnSync(process.execPath, [probe, operation], {
+          encoding: 'utf8',
+          env: environment,
+        })
+        assert.equal(result.status, 0, result.stderr)
+        return JSON.parse(result.stdout)
+      }
+      let cleanup
+      assert.throws(() => {
+        try {
+          assert.deepEqual(child('info'), {
+            operation: 'info',
+            host: endpoint,
+            context: null,
+            tls: null,
+            cert: null,
+          })
+          // A later metadata change cannot redirect cleanup to a different daemon.
+          selectedContext = 'ssh://operator@remote.example.test'
+          throw new Error('synthetic body failure')
+        } finally {
+          cleanup = child('rm')
+        }
+      }, /synthetic body failure/)
+      assert.deepEqual(cleanup, {
+        operation: 'rm',
+        host: endpoint,
+        context: null,
+        tls: null,
+        cert: null,
+      })
+      assert.equal(inherited.DOCKER_HOST, 'unix:///synthetic/other.sock')
+      assert.equal(inherited.DOCKER_CONTEXT, 'selected')
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+}
+
+test('a refused Docker pin leaves the process environment unchanged', () => {
+  for (const environment of [
+    { DOCKER_HOST: 'tcp://remote.example.test:2376' },
+    { DOCKER_TLS_VERIFY: '1' },
+    { DOCKER_CERT_PATH: '/synthetic/certificates' },
+    { DOCKER_CONTEXT: 'remote' },
+  ]) {
+    const before = { ...environment }
+    assert.throws(() =>
+      pinLocalDockerEndpoint(environment, () =>
+        JSON.stringify('ssh://operator@remote.example.test')
+      )
+    )
+    assert.deepEqual(environment, before)
+  }
 })

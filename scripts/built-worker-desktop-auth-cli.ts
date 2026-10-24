@@ -58,6 +58,7 @@ import {
 } from '../packages/db/tests/fixtures/canonical-boundary'
 import { applyAuthSchema } from '../packages/auth/src/schema-init'
 import { classifyDisposableProofEvidence } from './fresh-postgres-acceptance/evidence.mjs'
+import { pinLocalDockerEndpoint } from './fresh-postgres-acceptance/policy.mjs'
 import { readCheckoutProvenance } from './fresh-postgres-acceptance/provenance.mjs'
 import {
   assertBuiltWorkerDesktopAuthPassed,
@@ -270,6 +271,23 @@ async function availablePort(): Promise<number> {
 }
 
 async function main(): Promise<void> {
+  // Metadata inspection is local and must precede daemon access, build or
+  // provisioning. Keep this process pinned through every exit/cleanup path.
+  pinLocalDockerEndpoint(process.env, () => {
+    const result = spawnSync(
+      'docker',
+      ['context', 'inspect', '--format', '{{json .Endpoints.docker.Host}}'],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 5_000,
+        killSignal: 'SIGKILL',
+      }
+    )
+    if (result.error || result.status !== 0) throw new Error('Docker context metadata unavailable')
+    return result.stdout.trim()
+  })
+
   // The host capabilities are checked before any resource is created, through
   // the same contract the offline tests pin.
   assertLocalRuntimePrerequisites({
