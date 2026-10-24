@@ -16,7 +16,9 @@
 //   - the exchange route refuses a wrong PKCE verifier, an untrusted origin and
 //     a replayed code;
 //   - the exchange preflight refuses an untrusted origin;
-//   - no response carries a secret.
+//   - session refresh rotates credentials; logout and revoke invalidate them;
+//   - session routes refuse missing and untrusted origins without mutation;
+//   - no response is cacheable or carries a secret.
 //
 // The module holds no transport of its own. Every request goes through the
 // injected transport, so the assertions can be exercised without a Worker, a
@@ -992,6 +994,11 @@ export async function runBuiltWorkerDesktopAuth(
     },
   })
 
+  let activeSession: ValidatedDesktopSession | undefined
+  let previousSession: ValidatedDesktopSession | undefined
+  let loggedOutSession: ValidatedDesktopSession | undefined
+  let revokedSession: ValidatedDesktopSession | undefined
+
   let exchangedCode = ''
   let exchangedNonce = ''
   let exchangedVerifier = ''
@@ -1039,6 +1046,7 @@ export async function runBuiltWorkerDesktopAuth(
         }
       }
       observeIssued(session.credential, index, { bodyField: 'credential' })
+      activeSession = session
       exchangedCode = issued.code
       exchangedNonce = issued.nonce
       exchangedVerifier = issued.verifier
@@ -1222,6 +1230,188 @@ export async function runBuiltWorkerDesktopAuth(
     },
   })
 
+  // These requests exercise the existing HTTP session routes. They do not
+  // establish verification-required signup, outbound email or direct SQL readback.
+  const sessionRequest = (
+    action: 'refresh' | 'logout' | 'revoke',
+    session: ValidatedDesktopSession,
+    origin: string | undefined
+  ): BuiltWorkerRequest => ({
+    method: 'POST',
+    path: `/api/auth/desktop/${action}`,
+    headers: {
+      authorization: `Desktop ${session.credential}`,
+      'x-adea-desktop-session': session.sessionId,
+      ...(origin === undefined ? {} : { origin }),
+    },
+  })
+
+  const unavailable: StepResult = {
+    passed: false,
+    detail: 'no qualified desktop session was available for this assertion',
+    outcome: 'assertion-failed',
+  }
+
+  const refusal = (response: BuiltWorkerResponse, trusted: boolean): StepResult => {
+    if (response.status >= 500) return serverFailure(response, 'the session route returned ')
+    const allowedOrigin = response.headers['access-control-allow-origin']
+    const passed =
+      response.status === 401 &&
+      !responseCarriesCredentialMaterial(response, observedSecrets) &&
+      (trusted ? allowedOrigin === desktopOrigin : !allowedOrigin)
+    return {
+      passed,
+      detail: passed
+        ? 'the session route refused the credential or origin without issuing material'
+        : 'the session route did not safely refuse the credential or origin',
+      outcome: passed ? 'refused' : 'assertion-failed',
+    }
+  }
+
+  const originRefusals = (action: 'refresh' | 'logout' | 'revoke'): void => {
+    for (const [label, origin] of [
+      ['missing', undefined],
+      ['untrusted', HOSTILE_ORIGIN],
+    ] as const) {
+      steps.push({
+        name: `the-desktop-${action}-route-refuses-a-${label}-origin`,
+        // Even an expected refusal is a mutation with an unknown transport outcome.
+        mutating: true,
+        run: async () => {
+          if (!activeSession) return unavailable
+          const index = await send(sessionRequest(action, activeSession, origin))
+          return refusal(responses[index]!, false)
+        },
+      })
+    }
+  }
+
+  originRefusals('refresh')
+  steps.push({
+    name: 'the-desktop-refresh-route-rotates-a-session',
+    mutating: true,
+    run: async () => {
+      if (!activeSession) return unavailable
+      const before = activeSession
+      const index = await send(sessionRequest('refresh', before, desktopOrigin))
+      const response = responses[index]!
+      if (response.status >= 500) return serverFailure(response, 'the refresh route returned ')
+      const rotated = readDesktopSession(response.body)
+      if (rotated) observeIssued(rotated.credential, index, { bodyField: 'credential' })
+      const passed =
+        response.status === 200 &&
+        rotated !== null &&
+        rotated.sessionId === before.sessionId &&
+        rotated.credential !== before.credential &&
+        response.headers['access-control-allow-origin'] === desktopOrigin
+      if (passed && rotated) {
+        previousSession = before
+        activeSession = rotated
+      }
+      return {
+        passed,
+        detail: passed
+          ? 'the route rotated the credential for the same session'
+          : 'the route did not issue a rotated client-readable session',
+        outcome: passed ? 'passed' : 'assertion-failed',
+      }
+    },
+  })
+  const refusedCredential = (
+    name: string,
+    getSession: () => ValidatedDesktopSession | undefined
+  ): void => {
+    steps.push({
+      name,
+      mutating: true,
+      run: async () => {
+        const session = getSession()
+        if (!session) return unavailable
+        const index = await send(sessionRequest('refresh', session, desktopOrigin))
+        return refusal(responses[index]!, true)
+      },
+    })
+  }
+  refusedCredential(
+    'the-desktop-refresh-route-refuses-the-previous-credential',
+    () => previousSession
+  )
+
+  const revokeSession = (action: 'logout' | 'revoke'): void => {
+    originRefusals(action)
+    steps.push({
+      name: `the-desktop-${action}-route-revokes-a-session`,
+      mutating: true,
+      run: async () => {
+        if (!activeSession) return unavailable
+        const before = activeSession
+        const index = await send(sessionRequest(action, before, desktopOrigin))
+        const response = responses[index]!
+        if (response.status >= 500) return serverFailure(response, 'the session route returned ')
+        const passed =
+          response.status === 204 &&
+          response.body === '' &&
+          !responseCarriesCredentialMaterial(response, observedSecrets) &&
+          response.headers['access-control-allow-origin'] === desktopOrigin
+        if (passed) {
+          if (action === 'logout') loggedOutSession = before
+          else revokedSession = before
+          activeSession = undefined
+        }
+        return {
+          passed,
+          detail: passed
+            ? 'the route accepted revocation with an empty response'
+            : 'the route did not safely accept revocation',
+          outcome: passed ? 'passed' : 'assertion-failed',
+        }
+      },
+    })
+  }
+  revokeSession('logout')
+  refusedCredential(
+    'the-desktop-refresh-route-refuses-a-logged-out-session',
+    () => loggedOutSession
+  )
+
+  steps.push({
+    name: 'the-desktop-exchange-route-issues-a-distinct-session-for-revocation',
+    mutating: true,
+    run: async () => {
+      const issued = await authorizeWithSession()
+      if (!issued.ok) return { passed: false, detail: issued.reason, outcome: 'assertion-failed' }
+      const index = await send(
+        desktopExchangeRequest({
+          code: issued.code,
+          verifier: issued.verifier,
+          nonce: issued.nonce,
+          origin: desktopOrigin,
+        })
+      )
+      const response = responses[index]!
+      if (response.status >= 500) return serverFailure(response, 'the exchange route returned ')
+      const session = readDesktopSession(response.body)
+      if (session) observeIssued(session.credential, index, { bodyField: 'credential' })
+      const passed =
+        response.status === 200 &&
+        session !== null &&
+        loggedOutSession !== undefined &&
+        session.sessionId !== loggedOutSession.sessionId &&
+        session.credential !== loggedOutSession.credential &&
+        response.headers['access-control-allow-origin'] === desktopOrigin
+      if (passed && session) activeSession = session
+      return {
+        passed,
+        detail: passed
+          ? 'the route issued a distinct session using the existing provider session'
+          : 'the route did not issue a distinct client-readable session',
+        outcome: passed ? 'passed' : 'assertion-failed',
+      }
+    },
+  })
+  revokeSession('revoke')
+  refusedCredential('the-desktop-refresh-route-refuses-a-revoked-session', () => revokedSession)
+
   const outcomes: StepOutcome[] = [signUp]
   for (const step of steps) {
     outcomes.push(await runStep(step))
@@ -1238,8 +1428,24 @@ export async function runBuiltWorkerDesktopAuth(
       return carriesSecret(response, secret, allowed)
     })
   })
+  const noStore =
+    responses.length > 0 &&
+    responses.every((response) =>
+      (response.headers['cache-control'] ?? '')
+        .split(',')
+        .some((token) => token.trim().toLowerCase() === 'no-store')
+    )
   const assertions: DesktopEndpointAssertion[] = [
     ...outcomes.map((outcome) => outcome.assertion),
+    {
+      name: 'no-response-is-cacheable',
+      passed: noStore,
+      detail: noStore
+        ? 'every observed response includes no-store'
+        : 'an observed response lacks no-store',
+      attempts: 1,
+      outcomes: [noStore ? 'passed' : 'assertion-failed'],
+    },
     {
       name: 'no-response-carries-a-secret',
       passed: leaked.length === 0,
@@ -1265,7 +1471,13 @@ export async function runBuiltWorkerDesktopAuth(
       worker: {
         built: true,
         baseUrl: input.baseUrl,
-        routes: [DESKTOP_AUTHORIZE_PATH, DESKTOP_EXCHANGE_PATH],
+        routes: [
+          DESKTOP_AUTHORIZE_PATH,
+          DESKTOP_EXCHANGE_PATH,
+          '/api/auth/desktop/refresh',
+          '/api/auth/desktop/logout',
+          '/api/auth/desktop/revoke',
+        ],
         artifact: input.artifact,
       },
       assertions,

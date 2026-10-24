@@ -56,7 +56,7 @@ function response(
   headers: Record<string, string>,
   body: string
 ): BuiltWorkerResponse {
-  return { status, headers, body }
+  return { status, headers: { 'cache-control': 'no-store', ...headers }, body }
 }
 
 /**
@@ -69,6 +69,8 @@ function response(
  */
 function correctWorker(): BuiltWorkerTransport {
   const issued = new Map<string, { readonly challenge: string; readonly nonce: string }>()
+  const sessions = new Map<string, string>()
+  let counter = 0
   return async (request: BuiltWorkerRequest) => {
     if (request.method === 'POST' && request.path === '/api/auth/sign-up/email') {
       return response(
@@ -127,11 +129,44 @@ function correctWorker(): BuiltWorkerTransport {
       if (challenge !== record.challenge || body.nonce !== record.nonce) {
         return response(400, {}, '{"error":"Desktop authorization exchange failed"}')
       }
+      counter += 1
+      const credential = `desktop-credential-value-0123456789abcdefghij${counter}`
+      const sessionId = `8f00ffaa-0000-4000-8000-${String(counter).padStart(12, '0')}`
+      sessions.set(sessionId, credential)
       return response(
         200,
         { 'access-control-allow-origin': 'http://127.0.0.1:4789' },
-        '{"credential":"desktop-credential-value-0123456789abcdefghij","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}'
+        JSON.stringify({ credential, expiresAt: '2027-01-01T00:00:00.000Z', sessionId })
       )
+    }
+    if (
+      request.method === 'POST' &&
+      [
+        '/api/auth/desktop/refresh',
+        '/api/auth/desktop/logout',
+        '/api/auth/desktop/revoke',
+      ].includes(request.path)
+    ) {
+      const trusted = request.headers?.origin === 'http://127.0.0.1:4789'
+      const headers: Record<string, string> = trusted
+        ? { 'access-control-allow-origin': 'http://127.0.0.1:4789' }
+        : {}
+      const sessionId = request.headers?.['x-adea-desktop-session'] ?? ''
+      const credential = request.headers?.authorization?.replace(/^Desktop /u, '')
+      if (!trusted || !credential || sessions.get(sessionId) !== credential)
+        return response(401, headers, '{"error":"Desktop session is unavailable"}')
+      if (request.path.endsWith('/refresh')) {
+        counter += 1
+        const rotated = `desktop-credential-value-0123456789abcdefghij${counter}`
+        sessions.set(sessionId, rotated)
+        return response(
+          200,
+          headers,
+          JSON.stringify({ credential: rotated, expiresAt: '2027-01-01T00:00:00.000Z', sessionId })
+        )
+      }
+      sessions.delete(sessionId)
+      return response(204, headers, '')
     }
     return response(404, {}, '')
   }
