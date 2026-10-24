@@ -16,8 +16,10 @@
 
 import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, delimiter, resolve } from 'node:path'
+import { spawnSync } from 'node:child_process'
 
 import {
   assertBuiltWorkerDesktopAuthPassed,
@@ -379,5 +381,108 @@ describe('the cleanup gate of the built-Worker qualification', () => {
     const failure = new BuiltWorkerFailure('cleanup-failed', 'the container was not removed')
     expect(failure.kind).toBe('cleanup-failed')
     expect(failure.detail).toBe('the container was not removed')
+  })
+})
+
+// Execute the real entry with a Docker executable that cannot contact a daemon.
+// Non-metadata commands stop at the first availability check, before any build
+// or resource creation. Its receipt proves which authority that first call saw.
+function runDockerAuthorityEntry(
+  environment: Readonly<Record<string, string | undefined>>,
+  contextEndpoint: string
+) {
+  const directory = mkdtempSync(join(tmpdir(), 'adea-worker-docker-authority-'))
+  const receipt = join(directory, 'calls.jsonl')
+  const docker = join(directory, 'docker')
+  writeFileSync(
+    docker,
+    String.raw`#!${process.execPath}
+import { appendFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+appendFileSync(process.env.AUTHORITY_RECEIPT, JSON.stringify({args, host:process.env.DOCKER_HOST ?? null, context:process.env.DOCKER_CONTEXT ?? null, tls:process.env.DOCKER_TLS_VERIFY ?? null, cert:process.env.DOCKER_CERT_PATH ?? null}) + '\n')
+if (args[0] === 'context' && args[1] === 'inspect') {
+  console.log(process.env.AUTHORITY_CONTEXT_ENDPOINT)
+} else process.exitCode = 1
+`,
+    { mode: 0o700 }
+  )
+  // The entry uses an absolute Bun path; a future ordering regression must
+  // still never execute a real application build from this offline fixture.
+  writeFileSync(
+    join(directory, 'bun'),
+    String.raw`#!${process.execPath}
+import { appendFileSync } from 'node:fs'
+appendFileSync(process.env.AUTHORITY_RECEIPT, JSON.stringify({ args: ['unexpected-build', ...process.argv.slice(2)] }) + '\n')
+process.exitCode = 1
+`,
+    { mode: 0o700 }
+  )
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--no-env-file',
+        '--conditions=react-server',
+        resolve(import.meta.dir, '../built-worker-desktop-auth-cli.ts'),
+      ],
+      {
+        encoding: 'utf8',
+        timeout: 10_000,
+        env: {
+          PATH: `${directory}${delimiter}${process.env.PATH}`,
+          AUTHORITY_RECEIPT: receipt,
+          AUTHORITY_CONTEXT_ENDPOINT: JSON.stringify(contextEndpoint),
+          ...environment,
+        },
+      }
+    )
+    expect(result.error).toBeUndefined()
+    expect(result.status).not.toBe(0)
+    expect(result.stderr).toMatch(/container-unavailable|fresh-schema/)
+    const calls = existsSync(receipt)
+      ? readFileSync(receipt, 'utf8')
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map((line) => JSON.parse(line))
+      : []
+    return { result, calls }
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
+describe('built Worker CLI local Docker authority', () => {
+  test.each([
+    { DOCKER_HOST: 'tcp://remote.example.test:2376' },
+    { DOCKER_HOST: 'ssh://operator@remote.example.test' },
+    { DOCKER_TLS_VERIFY: '1' },
+    { DOCKER_CERT_PATH: '/synthetic/certificates' },
+  ])('rejects inherited remote or TLS authority before daemon access: %j', (environment) => {
+    const { calls } = runDockerAuthorityEntry(environment, 'unix:///synthetic/docker.sock')
+    expect(calls).toEqual([])
+  })
+
+  test('rejects a remote selected context before daemon access even with a local host override', () => {
+    const { calls } = runDockerAuthorityEntry(
+      { DOCKER_HOST: 'unix:///synthetic/docker.sock', DOCKER_CONTEXT: 'remote-context' },
+      'ssh://operator@remote.example.test'
+    )
+    expect(calls.map((call) => call.args.slice(0, 2))).toEqual([['context', 'inspect']])
+  })
+
+  test('pins the selected local context before the first daemon call and removes competing routing', () => {
+    const selected = 'unix:///synthetic/selected.sock'
+    const { calls } = runDockerAuthorityEntry(
+      {
+        DOCKER_HOST: 'unix:///synthetic/other.sock',
+        DOCKER_CONTEXT: 'selected',
+        DOCKER_TLS_VERIFY: '',
+        DOCKER_CERT_PATH: '',
+      },
+      selected
+    )
+    expect(calls.map((call) => call.args[0])).toEqual(['context', 'info'])
+    expect(calls[1]).toMatchObject({ host: selected, context: null, tls: null, cert: null })
   })
 })
