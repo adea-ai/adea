@@ -71,6 +71,61 @@ describe('preference saver', () => {
     expect(h.shown().icon).toBe('black')
   })
 
+  test('two overlapping failures return to the persisted value, newest failing first', async () => {
+    const h = harness()
+    const violet = h.pick('violet')
+    const black = h.pick('black')
+    h.writes.get('black')!.reject(new Error('black failed'))
+    expect(await black).toBe(false)
+    // The older write is still in flight, so nothing is reverted yet.
+    expect(h.shown().icon).toBe('black')
+    h.writes.get('violet')!.reject(new Error('violet failed'))
+    expect(await violet).toBe(false)
+    expect(h.shown().icon).toBe('white')
+    expect(h.states.at(-1)).toBe('error')
+  })
+
+  test('two overlapping failures return to the persisted value, oldest failing first', async () => {
+    const h = harness()
+    const violet = h.pick('violet')
+    const black = h.pick('black')
+    h.writes.get('violet')!.reject(new Error('violet failed'))
+    expect(await violet).toBe(false)
+    expect(h.shown().icon).toBe('black')
+    h.writes.get('black')!.reject(new Error('black failed'))
+    expect(await black).toBe(false)
+    expect(h.shown().icon).toBe('white')
+    expect(h.states.at(-1)).toBe('error')
+  })
+
+  test('a newest failure returns to the older pick that did persist', async () => {
+    const h = harness()
+    const violet = h.pick('violet')
+    const black = h.pick('black')
+    h.writes.get('violet')!.resolve({ icon: 'violet' })
+    await violet
+    expect(h.shown().icon).toBe('black')
+    h.writes.get('black')!.reject(new Error('black failed'))
+    await black
+    expect(h.shown().icon).toBe('violet')
+  })
+
+  test('a newer pick after a failure is not undone by the older failure settling', async () => {
+    const h = harness()
+    const violet = h.pick('violet')
+    const black = h.pick('black')
+    h.writes.get('black')!.reject(new Error('black failed'))
+    await black
+    const white = h.pick('white')
+    h.writes.get('violet')!.reject(new Error('violet failed'))
+    await violet
+    expect(h.shown().icon).toBe('white')
+    h.writes.get('white')!.resolve({ icon: 'white' })
+    await white
+    expect(h.shown().icon).toBe('white')
+    expect(h.states.at(-1)).toBe('saved')
+  })
+
   test('with nothing to persist to, a save reports false and keeps nothing', async () => {
     let shown: Prefs = { icon: 'white' }
     const saver = createPreferenceSaver<Prefs>({

@@ -12,12 +12,12 @@ type WorkspaceLogoProps = Pick<ComponentProps<'img'>, 'class' | 'aria-hidden'> &
  * user's Dock icon pick never changes it.
  */
 export function WorkspaceLogo(props: WorkspaceLogoProps) {
-  const decorative = () => props['aria-hidden'] === true || props['aria-hidden'] === 'true'
+  const alt = () => (props['aria-hidden'] ? '' : 'Adea')
   return (
     <>
       <img
         src={appIconSrc('white')}
-        alt={decorative() ? '' : 'Adea'}
+        alt={alt()}
         role={props.role}
         aria-hidden={props['aria-hidden']}
         class={`${props.class ?? ''} dark:hidden`}
@@ -25,7 +25,7 @@ export function WorkspaceLogo(props: WorkspaceLogoProps) {
       />
       <img
         src={appIconSrc('black')}
-        alt={decorative() ? '' : 'Adea'}
+        alt={alt()}
         role={props.role}
         aria-hidden={props['aria-hidden']}
         class={`${props.class ?? ''} hidden dark:block`}

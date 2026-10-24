@@ -2,8 +2,11 @@ export type PreferenceSaveState = 'saving' | 'saved' | 'error'
 
 /**
  * Serialises what the Settings dialog shows while preference writes overlap.
- * Every save shows its value at once; only the newest save may report back, so
- * an older response (success or failure) can never overwrite a newer pick.
+ * Every save shows its value at once. Only the newest save may report back its
+ * stored value or state, so an older response never overwrites a newer pick.
+ * The last value known to be persisted is tracked separately: when the newest
+ * pick is a revertable one that failed, the screen returns to that value once
+ * every write has settled, whichever order the writes failed in.
  */
 export function createPreferenceSaver<T>(options: {
   read(): T
@@ -13,35 +16,51 @@ export function createPreferenceSaver<T>(options: {
   state(next: PreferenceSaveState): void
 }) {
   let latest = 0
+  let pending = 0
+  let failed = false
+  let confirmed: T
 
-  /** Resolves true only when the value was persisted. */
-  const save = async (next: T): Promise<boolean> => {
+  const run = async (next: T, revertable: boolean): Promise<boolean> => {
     const mine = ++latest
+    // With nothing in flight, what is shown is the last settled value.
+    if (!pending) confirmed = options.read()
+    failed = false
     options.write(next)
     const request = options.persist(next)
-    if (!request) return false
-    options.state('saving')
-    try {
-      const stored = await request
-      if (mine === latest) {
-        options.write(stored)
-        options.state('saved')
-      }
-      return true
-    } catch {
-      if (mine === latest) options.state('error')
+    if (!request) {
+      if (revertable) options.write(confirmed)
       return false
     }
-  }
-
-  /** Like `save`, but a failed save puts back what was shown unless a newer save has begun. */
-  const saveOrRevert = async (change: (current: T) => T): Promise<boolean> => {
-    const previous = options.read()
-    const mine = latest + 1
-    const persisted = await save(change(previous))
-    if (!persisted && mine === latest) options.write(previous)
+    options.state('saving')
+    pending++
+    let persisted = false
+    try {
+      confirmed = await request
+      persisted = true
+      if (mine === latest) {
+        options.write(confirmed)
+        options.state('saved')
+      }
+    } catch {
+      if (mine === latest) {
+        options.state('error')
+        failed = revertable
+      }
+    }
+    if (!--pending && failed) {
+      failed = false
+      options.write(confirmed)
+    }
     return persisted
   }
 
-  return { save, saveOrRevert }
+  return {
+    /** Resolves true only when the value was persisted. */
+    save: (next: T) => run(next, false),
+    /**
+     * Like `save`, but when the newest pick fails the screen returns to the last
+     * value known to be persisted, once no write is still in flight.
+     */
+    saveOrRevert: (change: (current: T) => T) => run(change(options.read()), true),
+  }
 }

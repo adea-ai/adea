@@ -65,7 +65,7 @@ describe('app icon setting', () => {
     const { container, applies, pick } = mount({ save: async () => false })
     pick('violet')
     await waitFor(() => container.querySelector('[role="alert"]') !== null, 'the save error')
-    expect(container.textContent).toContain('could not be saved')
+    expect(container.textContent).toContain('Could not save the app icon')
     expect(container.textContent).not.toContain('Saved')
     expect(applies).toEqual([])
   })

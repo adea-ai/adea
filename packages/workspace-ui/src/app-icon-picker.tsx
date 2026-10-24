@@ -11,50 +11,12 @@ import { Alert, AlertDescription } from '@adea-ai/ui/components/ui/alert'
 import { createSignal, For, Show } from 'solid-js'
 
 /**
- * The Dock and desktop icon colourway (desktop only). It never changes the icon
- * drawn inside the app, which follows light and dark appearance.
- */
-export function AppIconPicker(props: {
-  value: AppIconVariant
-  disabled?: boolean
-  onChange(variant: AppIconVariant): void
-}) {
-  return (
-    <RadioGroup
-      aria-label="App icon"
-      value={props.value}
-      disabled={props.disabled}
-      onChange={(value) => {
-        if (isAppIconVariant(value)) props.onChange(value)
-      }}
-    >
-      <For each={appIconVariants}>
-        {(variant) => (
-          <RadioGroupItem
-            value={variant}
-            variant="card"
-            label={appIconLabels[variant]}
-            media={
-              <img
-                src={appIconSrc(variant)}
-                alt=""
-                aria-hidden="true"
-                class="size-10 shrink-0"
-                draggable={false}
-              />
-            }
-          />
-        )}
-      </For>
-    </RadioGroup>
-  )
-}
-
-/**
- * The Settings row for the Dock icon. The pick only counts once `save` reports
- * it persisted: a failed save keeps its error, leaves the Dock alone, and never
- * reads as saved. `apply` then asks the shell to change the icon now; false
- * means the shell kept the pick but cannot change the icon while it runs.
+ * The Settings row for the Dock and desktop icon colourway (desktop only). It
+ * never changes the icon drawn inside the app, which follows light and dark
+ * appearance. The pick only counts once `save` reports it persisted: a failed
+ * save keeps its error, leaves the Dock alone, and never reads as saved.
+ * `apply` then asks the shell to change the icon now; false means the shell
+ * kept the pick but cannot change the icon while it runs.
  */
 export function AppIconSetting(props: {
   value: AppIconVariant
@@ -81,15 +43,32 @@ export function AppIconSetting(props: {
       label="App icon"
       description={
         outcome() === 'saved'
-          ? 'Saved. This version cannot change the Dock icon while Adea is running.'
-          : 'The Dock and desktop icon. In the app it is white in light mode, black in dark mode.'
+          ? 'Saved. This version cannot change the Dock icon while Adea runs.'
+          : 'The Dock and desktop icon. Inside the app it follows light and dark.'
       }
     >
       <div class="flex flex-col gap-2">
-        <AppIconPicker value={props.value} onChange={(variant) => void choose(variant)} />
+        <RadioGroup
+          aria-label="App icon"
+          value={props.value}
+          onChange={(value) => {
+            if (isAppIconVariant(value)) void choose(value)
+          }}
+        >
+          <For each={appIconVariants}>
+            {(variant) => (
+              <RadioGroupItem
+                value={variant}
+                variant="card"
+                label={appIconLabels[variant]}
+                media={<img src={appIconSrc(variant)} alt="" class="size-10 shrink-0" />}
+              />
+            )}
+          </For>
+        </RadioGroup>
         <Show when={outcome() === 'error'}>
           <Alert variant="destructive" role="alert">
-            <AlertDescription>The app icon could not be saved. Try again.</AlertDescription>
+            <AlertDescription>Could not save the app icon. Try again.</AlertDescription>
           </Alert>
         </Show>
       </div>
