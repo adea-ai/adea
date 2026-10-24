@@ -37,7 +37,7 @@ function response(
   headers: Record<string, string>,
   body: string
 ): BuiltWorkerResponse {
-  return { status, headers, body }
+  return { status, headers: { 'cache-control': 'private, no-store', ...headers }, body }
 }
 
 /**
@@ -90,12 +90,56 @@ function correctWorker(): {
 } {
   const seen: BuiltWorkerRequest[] = []
   const issued = new Map<string, { challenge: string; nonce: string }>()
+  const sessions = new Map<string, string>()
+  const providerSessions = new Map<string, string>()
+  const signupCookie = '__Secure-better-auth.session_token=session-value'
+  let account = { email: '', password: '' }
+  let providerCounter = 0
   // Codes and credentials are unique, exactly as the random values the Worker
   // issues are: a repeated value would hide a real leak.
   let counter = 0
   const transport: BuiltWorkerTransport = async (request) => {
     seen.push(request)
+    if (request.path === '/api/auth/get-session?disableCookieCache=true') {
+      const id = providerSessions.get(request.headers?.cookie ?? '')
+      return response(
+        200,
+        {},
+        id
+          ? JSON.stringify({
+              user: { id: 'user-1', email: account.email },
+              session: {
+                id,
+                token: id === 'signup-session' ? 'body-token' : 'fresh-provider-login-opaque-value',
+              },
+            })
+          : 'null'
+      )
+    }
+    if (request.path === '/api/auth/sign-out' && request.method === 'POST') {
+      providerSessions.delete(request.headers?.cookie ?? '')
+      return response(
+        200,
+        { 'set-cookie': `${signupCookie.split('=')[0]}=; Path=/; Max-Age=0` },
+        '{"success":true}'
+      )
+    }
+    if (request.path === '/api/auth/sign-in/email' && request.method === 'POST') {
+      const body = JSON.parse(request.body ?? '{}') as { email: string; password: string }
+      if (body.email !== account.email || body.password !== account.password)
+        return response(401, {}, '{"code":"INVALID_EMAIL_OR_PASSWORD"}')
+      providerCounter += 1
+      const cookie = `new_provider_cookie=login-cookie-${providerCounter}`
+      providerSessions.set(cookie, `login-session-${providerCounter}`)
+      return response(
+        200,
+        { 'set-cookie': `${cookie}; Path=/; HttpOnly` },
+        '{"token":"fresh-provider-login-opaque-value"}'
+      )
+    }
     if (request.method === 'POST' && request.path === '/api/auth/sign-up/email') {
+      account = JSON.parse(request.body ?? '{}') as { email: string; password: string }
+      providerSessions.set(signupCookie, 'signup-session')
       return response(
         200,
         { 'set-cookie': '__Secure-better-auth.session_token=session-value; Path=/; HttpOnly' },
@@ -109,7 +153,7 @@ function correctWorker(): {
       if (url.searchParams.has('access_token')) {
         return response(400, {}, '{"error":"Invalid desktop authorization request"}')
       }
-      if (!request.headers?.cookie) {
+      if (!request.headers?.cookie || !providerSessions.has(request.headers.cookie)) {
         return response(
           303,
           { location: '/auth/sign-in?returnTo=%2Fapi%2Fauth%2Fdesktop%2Fauthorize' },
@@ -148,13 +192,45 @@ function correctWorker(): {
           return response(400, {}, '{"error":"Desktop authorization exchange failed"}')
         }
         issued.delete(body.code)
+        const credential = desktopCredential(counter++)
+        const sessionId = `8f00ffaa-0000-4000-8000-${String(counter).padStart(12, '0')}`
+        sessions.set(sessionId, credential)
         return response(
           200,
           { 'access-control-allow-origin': request.headers?.origin ?? '' },
-          `{"credential":"${desktopCredential(counter++)}","expiresAt":"2027-01-01T00:00:00.000Z","sessionId":"8f00ffaa-0000-4000-8000-000000000000"}`
+          JSON.stringify({ credential, expiresAt: '2027-01-01T00:00:00.000Z', sessionId })
         )
       }
       return response(400, {}, '{"error":"Desktop authorization exchange failed"}')
+    }
+    if (
+      request.method === 'POST' &&
+      [
+        '/api/auth/desktop/refresh',
+        '/api/auth/desktop/logout',
+        '/api/auth/desktop/revoke',
+      ].includes(request.path)
+    ) {
+      const trusted = request.headers?.origin === 'http://127.0.0.1:4789'
+      const headers: Record<string, string> = trusted
+        ? { 'access-control-allow-origin': 'http://127.0.0.1:4789' }
+        : {}
+      const sessionId = request.headers?.['x-adea-desktop-session'] ?? ''
+      const credential = request.headers?.authorization?.replace(/^Desktop /u, '')
+      if (!trusted || !credential || sessions.get(sessionId) !== credential) {
+        return response(401, headers, '{"error":"Desktop session is unavailable"}')
+      }
+      if (request.path.endsWith('/refresh')) {
+        const rotated = desktopCredential(counter++)
+        sessions.set(sessionId, rotated)
+        return response(
+          200,
+          headers,
+          JSON.stringify({ credential: rotated, expiresAt: '2027-01-01T00:00:00.000Z', sessionId })
+        )
+      }
+      sessions.delete(sessionId)
+      return response(204, headers, '')
     }
     return response(404, {}, '{"error":"not found"}')
   }
@@ -219,8 +295,15 @@ describe('the built-Worker desktop authorization qualification', () => {
     expect(receipt.passed).toBe(receipt.assertions.length)
     expect(receipt.proofKind).toBe('built-worker-desktop-auth')
     expect(receipt.worker.routes).toEqual([
+      '/api/auth/sign-up/email',
+      '/api/auth/sign-in/email',
+      '/api/auth/sign-out',
+      '/api/auth/get-session',
       '/api/auth/desktop/authorize',
       '/api/auth/desktop/exchange',
+      '/api/auth/desktop/refresh',
+      '/api/auth/desktop/logout',
+      '/api/auth/desktop/revoke',
     ])
   })
 
@@ -337,7 +420,11 @@ describe('the built-Worker desktop authorization retries', () => {
     const correct = correctWorker()
     let authorizeRequests = 0
     const transport: BuiltWorkerTransport = async (request) => {
-      if (request.method === 'GET' && request.path.startsWith('/api/auth/desktop/authorize')) {
+      if (
+        request.method === 'GET' &&
+        request.path.startsWith('/api/auth/desktop/authorize') &&
+        !request.headers?.cookie
+      ) {
         authorizeRequests += 1
         if (authorizeRequests === 1) {
           // The local runtime's own envelope: the request never reached the
@@ -361,7 +448,11 @@ describe('the built-Worker desktop authorization retries', () => {
     const correct = correctWorker()
     let authorizeRequests = 0
     const transport: BuiltWorkerTransport = async (request) => {
-      if (request.method === 'GET' && request.path.startsWith('/api/auth/desktop/authorize')) {
+      if (
+        request.method === 'GET' &&
+        request.path.startsWith('/api/auth/desktop/authorize') &&
+        !request.headers?.cookie
+      ) {
         authorizeRequests += 1
         if (authorizeRequests === 1) {
           // An application failure on a read-only step: the application
@@ -751,7 +842,11 @@ describe('the built-Worker desktop failure classification', () => {
     const correct = correctWorker()
     let authorizeRequests = 0
     const transport: BuiltWorkerTransport = async (request) => {
-      if (request.method === 'GET' && request.path.startsWith('/api/auth/desktop/authorize')) {
+      if (
+        request.method === 'GET' &&
+        request.path.startsWith('/api/auth/desktop/authorize') &&
+        !request.headers?.cookie
+      ) {
         authorizeRequests += 1
         if (authorizeRequests === 1) {
           return response(500, {}, 'Error: the application refused the request')
@@ -1419,5 +1514,660 @@ describe('the built-Worker desktop authorization helpers', () => {
       body: '',
     })
     expect(cookie).toBe('__Secure-better-auth.session_token=value')
+  })
+})
+
+describe('built-Worker desktop session lifecycle evidence', () => {
+  test('the receipt proves rotation, terminal revocation, origin refusal and cache safety', async () => {
+    const { transport } = correctWorker()
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(transport))
+    const names = receipt.assertions.map((assertion) => assertion.name)
+    for (const name of [
+      'the-desktop-refresh-route-rotates-a-session',
+      'the-desktop-refresh-route-refuses-the-previous-credential',
+      'the-desktop-logout-route-revokes-a-session',
+      'the-desktop-refresh-route-refuses-a-logged-out-session',
+      'the-desktop-revoke-route-revokes-a-session',
+      'the-desktop-refresh-route-refuses-a-revoked-session',
+      'no-response-is-cacheable',
+    ]) {
+      expect(names).toContain(name)
+    }
+    for (const action of ['refresh', 'logout', 'revoke']) {
+      for (const origin of ['missing', 'untrusted']) {
+        expect(names).toContain(`the-desktop-${action}-route-refuses-a-${origin}-origin`)
+      }
+    }
+    expect(names).toContain('the-desktop-exchange-route-issues-a-distinct-session-for-revocation')
+    expect(names).toHaveLength(32)
+    expect(new Set(names).size).toBe(names.length)
+    expect(receipt.status).toBe('passed')
+  })
+
+  for (const action of ['refresh', 'logout', 'revoke']) {
+    test(`a missing ${action} route cannot qualify`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) =>
+          request.path === `/api/auth/desktop/${action}`
+            ? response(404, {}, '')
+            : correct.transport(request)
+        )
+      )
+      expect(receipt.status).toBe('failed')
+    })
+    test(`a ${action} transport failure after mutation is never replayed`, async () => {
+      const correct = correctWorker()
+      let calls = 0
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          if (
+            request.path === `/api/auth/desktop/${action}` &&
+            request.headers?.origin === 'http://127.0.0.1:4789'
+          ) {
+            calls += 1
+            await correct.transport(request)
+            throw new Error('outcome unknown')
+          }
+          return correct.transport(request)
+        })
+      )
+      const assertion = receipt.assertions.find(
+        (entry) =>
+          entry.name ===
+          `the-desktop-${action}-route-${action === 'refresh' ? 'rotates' : 'revokes'}-a-session`
+      )
+      expect(assertion?.passed).toBe(false)
+      expect(assertion?.attempts).toBe(1)
+      expect(assertion?.outcomes).toEqual(['transport-failure'])
+      expect(calls).toBeGreaterThan(0)
+    })
+    test(`a ${action} origin refusal must not mutate the session`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          if (
+            request.path === `/api/auth/desktop/${action}` &&
+            request.headers?.origin !== 'http://127.0.0.1:4789'
+          ) {
+            await correct.transport({
+              ...request,
+              headers: { ...request.headers, origin: 'http://127.0.0.1:4789' },
+            })
+            return response(401, {}, '{"error":"Desktop session is unavailable"}')
+          }
+          return correct.transport(request)
+        })
+      )
+      expect(receipt.status).toBe('failed')
+    })
+  }
+
+  for (const action of ['logout', 'revoke']) {
+    test(`${action} success without revocation is rejected`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) =>
+          request.path === `/api/auth/desktop/${action}` &&
+          request.headers?.origin === 'http://127.0.0.1:4789'
+            ? response(204, { 'access-control-allow-origin': 'http://127.0.0.1:4789' }, '')
+            : correct.transport(request)
+        )
+      )
+      expect(receipt.status).toBe('failed')
+    })
+  }
+
+  for (const status of [200, 401]) {
+    test(`a refresh ${status} response without no-store cannot qualify`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          const result = await correct.transport(request)
+          if (request.path.endsWith('/refresh') && result.status === status) {
+            const { 'cache-control': ignored, ...headers } = result.headers
+            void ignored
+            return { ...result, headers }
+          }
+          return result
+        })
+      )
+      expect(
+        receipt.assertions.find((entry) => entry.name === 'no-response-is-cacheable')?.passed
+      ).toBe(false)
+    })
+  }
+})
+
+describe('desktop session oracle counterexamples', () => {
+  for (const defect of [
+    'same-credential',
+    'wrong-id',
+    'malformed',
+    'unstored-rotation',
+    'accept-stale',
+    'wrong-cors',
+    'credential-leak',
+  ]) {
+    test(`rejects refresh defect: ${defect}`, async () => {
+      const correct = correctWorker()
+      let stale = ''
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          if (
+            request.path !== '/api/auth/desktop/refresh' ||
+            request.headers?.origin !== 'http://127.0.0.1:4789'
+          )
+            return correct.transport(request)
+          const result = await correct.transport(request)
+          const cors = { 'access-control-allow-origin': 'http://127.0.0.1:4789' }
+          if (result.status === 200) {
+            stale = request.headers?.authorization?.slice('Desktop '.length) ?? ''
+            const session = JSON.parse(result.body) as {
+              credential: string
+              expiresAt: string
+              sessionId: string
+            }
+            if (defect === 'same-credential') session.credential = stale
+            if (defect === 'wrong-id') session.sessionId = '8f00ffaa-0000-4000-8000-999999999999'
+            if (defect === 'malformed') return response(200, cors, '{')
+            if (defect === 'unstored-rotation') session.credential = 'UnstoredCredential'.repeat(3)
+            if (defect === 'wrong-cors') return response(200, {}, result.body)
+            if (defect === 'credential-leak')
+              return response(200, { ...cors, 'x-debug': session.credential }, result.body)
+            return response(200, cors, JSON.stringify(session))
+          }
+          if (defect === 'accept-stale' && request.headers?.authorization === `Desktop ${stale}`)
+            return response(200, cors, validSession(desktopCredential(999)))
+          return result
+        })
+      )
+      expect(receipt.status).toBe('failed')
+    })
+  }
+
+  for (const action of ['refresh', 'logout', 'revoke']) {
+    for (const defect of ['reflected-origin', 'denial-credential', 'denial-secret']) {
+      test(`rejects ${action} denial defect: ${defect}`, async () => {
+        const correct = correctWorker()
+        const receipt = await runBuiltWorkerDesktopAuth(
+          baseInput(async (request) => {
+            const result = await correct.transport(request)
+            if (request.path !== `/api/auth/desktop/${action}` || result.status !== 401)
+              return result
+            if (defect === 'reflected-origin')
+              return response(
+                401,
+                {
+                  'access-control-allow-origin':
+                    request.headers?.origin ?? 'https://hostile.example.test',
+                },
+                result.body
+              )
+            if (defect === 'denial-credential')
+              return response(
+                401,
+                result.headers as Record<string, string>,
+                '{"credential":"NewDeniedCredentialThatWasNeverIssued0123456789"}'
+              )
+            return response(401, { ...result.headers, 'x-debug': AUTH_SECRET }, result.body)
+          })
+        )
+        expect(receipt.status).toBe('failed')
+      })
+    }
+  }
+
+  for (const action of ['logout', 'revoke']) {
+    test(`${action} 204 must be empty and carry no new credential`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          const result = await correct.transport(request)
+          return request.path === `/api/auth/desktop/${action}` && result.status === 204
+            ? response(
+                204,
+                result.headers as Record<string, string>,
+                '{"credential":"UnexpectedNewCredential01234567890123456789"}'
+              )
+            : result
+        })
+      )
+      expect(receipt.status).toBe('failed')
+    })
+  }
+
+  test('cache control requires a complete no-store token', async () => {
+    const correct = correctWorker()
+    const receipt = await runBuiltWorkerDesktopAuth(
+      baseInput(async (request) => {
+        const result = await correct.transport(request)
+        return {
+          ...result,
+          headers: { ...result.headers, 'cache-control': 'private, no-store-extra' },
+        }
+      })
+    )
+    expect(
+      receipt.assertions.find((entry) => entry.name === 'no-response-is-cacheable')?.passed
+    ).toBe(false)
+  })
+
+  test('requests preserve sequential rotation and fresh-session revocation boundaries', async () => {
+    const correct = correctWorker()
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(correct.transport))
+    expect(receipt.status).toBe('passed')
+    const trusted = correct.seen.filter(
+      (request) =>
+        request.method === 'POST' &&
+        request.headers?.origin === 'http://127.0.0.1:4789' &&
+        /\/(refresh|logout|revoke)$/u.test(request.path)
+    )
+    expect(trusted.map((request) => request.path)).toEqual([
+      '/api/auth/desktop/refresh',
+      '/api/auth/desktop/refresh',
+      '/api/auth/desktop/logout',
+      '/api/auth/desktop/refresh',
+      '/api/auth/desktop/revoke',
+      '/api/auth/desktop/refresh',
+    ])
+    expect(trusted[0]?.headers?.authorization).toBe(trusted[1]?.headers?.authorization)
+    expect(trusted[2]?.headers?.authorization).not.toBe(trusted[0]?.headers?.authorization)
+    expect(trusted[3]?.headers?.authorization).toBe(trusted[2]?.headers?.authorization)
+    expect(trusted[4]?.headers?.['x-adea-desktop-session']).not.toBe(
+      trusted[2]?.headers?.['x-adea-desktop-session']
+    )
+    expect(trusted[5]?.headers?.authorization).toBe(trusted[4]?.headers?.authorization)
+    expect(JSON.stringify(receipt)).not.toContain(
+      trusted[2]?.headers?.authorization?.slice('Desktop '.length) ?? 'missing'
+    )
+  })
+})
+
+describe('fresh provider password login before desktop authorization', () => {
+  test('proves signup readback, logout, old-cookie refusal and a new same-user password session', async () => {
+    const correct = correctWorker()
+    const receipt = await runBuiltWorkerDesktopAuth(baseInput(correct.transport))
+    const names = receipt.assertions.map((entry) => entry.name)
+    for (const name of [
+      'the-provider-reads-the-signup-session',
+      'the-provider-sign-out-clears-the-session',
+      'the-provider-refuses-the-signed-out-cookie',
+      'the-desktop-authorize-route-refuses-the-signed-out-cookie',
+      'the-provider-refuses-a-wrong-password',
+      'the-provider-password-login-issues-a-session',
+      'the-provider-password-login-resolves-the-same-user-with-a-new-session',
+      'the-provider-keeps-the-old-cookie-revoked-after-password-login',
+    ])
+      expect(names).toContain(name)
+    const login = correct.seen.findIndex(
+      (request) =>
+        request.path === '/api/auth/sign-in/email' &&
+        request.body &&
+        !request.body.includes('wrong-password')
+    )
+    const desktop = correct.seen.findIndex(
+      (request, index) =>
+        index > login &&
+        request.path.startsWith('/api/auth/desktop/authorize') &&
+        request.headers?.cookie
+    )
+    expect(login).toBeGreaterThan(0)
+    expect(desktop).toBeGreaterThan(login)
+    const signIns = correct.seen.filter((request) => request.path === '/api/auth/sign-in/email')
+    expect(signIns).toHaveLength(2)
+    expect(signIns.every((request) => !request.headers?.cookie)).toBe(true)
+    const signedOut = correct.seen.find((request) => request.path === '/api/auth/sign-out')?.headers
+      ?.cookie
+    const desktopCookies = correct.seen
+      .slice(login + 1)
+      .filter(
+        (request) =>
+          request.path.startsWith('/api/auth/desktop/authorize') && request.headers?.cookie
+      )
+      .map((request) => request.headers?.cookie)
+    expect(desktopCookies.length).toBeGreaterThan(0)
+    expect(desktopCookies.every((cookie) => cookie !== signedOut)).toBe(true)
+    expect(new Set(desktopCookies).size).toBe(1)
+    expect(receipt.status).toBe('passed')
+  })
+  for (const route of ['get-session', 'sign-out', 'sign-in/email']) {
+    test(`missing provider ${route} cannot qualify`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) =>
+          request.path.startsWith(`/api/auth/${route}`)
+            ? response(404, {}, '')
+            : correct.transport(request)
+        )
+      )
+      expect(receipt.status).toBe('failed')
+    })
+  }
+  for (const action of ['sign-out', 'sign-in/email']) {
+    test(`provider ${action} uncertainty is not replayed`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          if (request.path === `/api/auth/${action}`) {
+            await correct.transport(request)
+            throw new Error('unknown mutation outcome')
+          }
+          return correct.transport(request)
+        })
+      )
+      const name =
+        action === 'sign-out'
+          ? 'the-provider-sign-out-clears-the-session'
+          : 'the-provider-password-login-issues-a-session'
+      expect(receipt.assertions.find((entry) => entry.name === name)?.attempts).toBe(1)
+      if (action === 'sign-in/email') {
+        const wrongPassword = receipt.assertions.find(
+          (entry) => entry.name === 'the-provider-refuses-a-wrong-password'
+        )
+        expect(wrongPassword?.attempts).toBe(1)
+        expect(wrongPassword?.outcomes).toEqual(['transport-failure'])
+      }
+      expect(receipt.status).toBe('failed')
+    })
+  }
+})
+
+describe('provider password login counterexamples', () => {
+  for (const defect of [
+    'wrong-email',
+    'initial-wrong-user',
+    'missing-signup-id',
+    'old-cookie-resurrected',
+    'wrong-user',
+    'same-session',
+    'old-cookie-live',
+    'old-cookie-authorized',
+    'wrong-password-accepted',
+    'no-cleared-cookie',
+    'no-login-cookie',
+  ]) {
+    test(`rejects ${defect}`, async () => {
+      const correct = correctWorker()
+      let read = 0
+      let initial = ''
+      let signoutCookie = ''
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          if (request.path === '/api/auth/sign-out') {
+            signoutCookie = request.headers?.cookie ?? ''
+            if (defect === 'old-cookie-live' || defect === 'old-cookie-authorized')
+              return response(
+                200,
+                { 'set-cookie': `${signoutCookie.split('=')[0]}=; Path=/; Max-Age=0` },
+                '{"success":true}'
+              )
+          }
+          const result = await correct.transport(request)
+          if (defect === 'missing-signup-id' && request.path === '/api/auth/sign-up/email') {
+            const body = JSON.parse(result.body) as { user?: unknown }
+            delete body.user
+            return { ...result, body: JSON.stringify(body) }
+          }
+          if (request.path.startsWith('/api/auth/get-session')) {
+            read += 1
+            if (read === 4 && defect === 'old-cookie-resurrected')
+              return { ...result, body: initial }
+            if (read === 1) {
+              initial = result.body
+              if (defect === 'initial-wrong-user')
+                return { ...result, body: result.body.replace('user-1', 'wrong-initial-user') }
+            }
+            if (read === 3) {
+              const value = JSON.parse(result.body) as {
+                user: { id: string; email: string }
+                session: { id: string }
+              }
+              if (defect === 'wrong-email') value.user.email = 'other@example.test'
+              if (defect === 'wrong-user') value.user.id = 'another-user'
+              if (defect === 'same-session')
+                value.session.id = (JSON.parse(initial) as { session: { id: string } }).session.id
+              return { ...result, body: JSON.stringify(value) }
+            }
+          }
+          if (defect === 'no-cleared-cookie' && request.path === '/api/auth/sign-out')
+            return response(200, {}, '{"success":true}')
+          if (request.path === '/api/auth/sign-in/email') {
+            if (defect === 'wrong-password-accepted' && result.status === 401)
+              return response(
+                200,
+                { 'set-cookie': 'invented_cookie=fresh-denied-cookie; Path=/' },
+                '{}'
+              )
+            if (defect === 'no-login-cookie' && result.status === 200)
+              return response(200, {}, result.body)
+          }
+          return result
+        })
+      )
+      expect(receipt.status).toBe('failed')
+    })
+  }
+
+  for (const tokenBody of [
+    '{"token":"unknown-denial-token"}',
+    '{"nested":{"token":"unknown-denial-token"}}',
+    String.raw`{"to\u006ben":"unknown-denial-token","token":""}`,
+  ]) {
+    test(`wrong-password denial cannot carry token material: ${tokenBody}`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          const result = await correct.transport(request)
+          return request.path === '/api/auth/sign-in/email' && result.status === 401
+            ? { ...result, body: `{"code":"INVALID_EMAIL_OR_PASSWORD",${tokenBody.slice(1)}` }
+            : result
+        })
+      )
+      expect(
+        receipt.assertions.find((entry) => entry.name === 'the-provider-refuses-a-wrong-password')
+          ?.passed
+      ).toBe(false)
+    })
+  }
+
+  for (const defect of [
+    'duplicate-token',
+    'duplicate-session',
+    'nested-copy',
+    'new-nested-token',
+    'caller-secret',
+  ]) {
+    test(`get-session does not exempt ${defect}`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          const result = await correct.transport(request)
+          if (!request.path.startsWith('/api/auth/get-session') || result.body === 'null')
+            return result
+          const value = JSON.parse(result.body) as { session: { token: string } }
+          const token = value.session.token
+          if (defect === 'duplicate-token')
+            return {
+              ...result,
+              body: result.body.replace(`"token":"${token}"`, `"token":"${token}","token":""`),
+            }
+          if (defect === 'duplicate-session')
+            return {
+              ...result,
+              body: result.body.replace(/\}\s*$/u, `,"session":${JSON.stringify(value.session)}}`),
+            }
+          if (defect === 'nested-copy')
+            return {
+              ...result,
+              body: result.body.replace(/\}\s*$/u, `,"debug":{"token":"${token}"}}`),
+            }
+          if (defect === 'new-nested-token')
+            return {
+              ...result,
+              body: result.body.replace(/\}\s*$/u, ',"debug":{"token":"UnknownFreshSecretToken"}}'),
+            }
+          return { ...result, body: result.body.replace(token, AUTH_SECRET) }
+        })
+      )
+      expect(receipt.status).toBe('failed')
+    })
+  }
+
+  test('password login works without a token in its response body', async () => {
+    const correct = correctWorker()
+    const receipt = await runBuiltWorkerDesktopAuth(
+      baseInput(async (request) => {
+        const result = await correct.transport(request)
+        return request.path === '/api/auth/sign-in/email' && result.status === 200
+          ? { ...result, body: '{}' }
+          : result
+      })
+    )
+    expect(receipt.status).toBe('passed')
+  })
+
+  test('a generated account password echoed by the Worker cannot qualify', async () => {
+    const correct = correctWorker()
+    const receipt = await runBuiltWorkerDesktopAuth(
+      baseInput(async (request) => {
+        const result = await correct.transport(request)
+        if (request.path === '/api/auth/sign-in/email') {
+          const { password } = JSON.parse(request.body ?? '{}') as { password: string }
+          return { ...result, headers: { ...result.headers, 'x-debug': password } }
+        }
+        return result
+      })
+    )
+    expect(
+      receipt.assertions.find((entry) => entry.name === 'no-response-carries-a-secret')?.passed
+    ).toBe(false)
+  })
+})
+
+describe('signed-out authorize cookie cleanup', () => {
+  for (const cookie of [
+    'old_provider=; Path=/; Max-Age=0',
+    'old_provider=; Path=/; Max-Age=0, cache_provider=; Path=/; Max-Age=0',
+  ]) {
+    test(`accepts only empty cookie deletion while refusing the old session: ${cookie}`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          const result = await correct.transport(request)
+          return request.path.startsWith('/api/auth/desktop/authorize') &&
+            request.headers?.cookie &&
+            result.status === 303 &&
+            result.headers.location?.startsWith('/auth/sign-in')
+            ? { ...result, headers: { ...result.headers, 'set-cookie': cookie } }
+            : result
+        })
+      )
+      expect(receipt.status).toBe('passed')
+      const detail = receipt.assertions.find(
+        (entry) => entry.name === 'the-desktop-authorize-route-refuses-the-signed-out-cookie'
+      )!.detail
+      expect(detail).toContain(`clearingCount=${cookie.split(',').length}`)
+      expect(detail).toContain('nonemptyCount=0')
+      expect(detail).toContain('rawMaterial=true; material=false')
+      expect(detail).not.toContain('old_provider')
+      expect(
+        receipt.assertions.find(
+          (entry) => entry.name === 'the-desktop-authorize-route-refuses-the-signed-out-cookie'
+        )?.passed
+      ).toBe(true)
+    })
+  }
+  for (const defect of [
+    'nonempty-cookie',
+    'mixed-cookies',
+    'empty-cookie-not-deletion',
+    'malformed-cookie',
+    'token-body',
+    'credential-body',
+    'known-secret',
+    'reflected-redirect',
+  ]) {
+    test(`still refuses ${defect}`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          const result = await correct.transport(request)
+          if (
+            !request.path.startsWith('/api/auth/desktop/authorize') ||
+            !request.headers?.cookie ||
+            result.status !== 303 ||
+            !result.headers.location?.startsWith('/auth/sign-in')
+          )
+            return result
+          const headers = { ...result.headers, 'set-cookie': 'old_provider=; Path=/; Max-Age=0' }
+          if (defect === 'nonempty-cookie')
+            headers['set-cookie'] = 'new_provider=FreshUnexpectedCookie; Path=/'
+          if (defect === 'empty-cookie-not-deletion')
+            headers['set-cookie'] = 'empty_cookie=; Path=/'
+          if (defect === 'malformed-cookie') headers['set-cookie'] = 'not-a-cookie; Max-Age=0'
+          if (defect === 'mixed-cookies')
+            headers['set-cookie'] += ', new_provider=FreshUnexpectedCookie; Path=/'
+          if (defect === 'known-secret')
+            return { ...result, headers: { ...headers, 'x-debug': AUTH_SECRET } }
+          if (defect === 'reflected-redirect')
+            return {
+              ...result,
+              headers: { ...headers, location: 'https://hostile.example.test/auth/sign-in' },
+            }
+          if (defect === 'token-body')
+            return { ...result, headers, body: '{"nested":{"token":"UnexpectedNewTokenMaterial"}}' }
+          if (defect === 'credential-body')
+            return {
+              ...result,
+              headers,
+              body: '{"credential":"UnexpectedCredentialMaterial0123456789"}',
+            }
+          return { ...result, headers }
+        })
+      )
+      expect(receipt.status).toBe('failed')
+    })
+  }
+})
+
+describe('signed-out authorization has an uncertain mutation outcome', () => {
+  test('never retries a lost response after stale-cookie authorization issued a code', async () => {
+    const correct = correctWorker()
+    const issuedCodes = new Map<string, string>()
+    let revokedCookie = ''
+    let probes = 0
+    const receipt = await runBuiltWorkerDesktopAuth(
+      baseInput(async (request) => {
+        if (request.path === '/api/auth/sign-out') revokedCookie = request.headers?.cookie ?? ''
+        if (
+          request.path.startsWith('/api/auth/desktop/authorize') &&
+          revokedCookie &&
+          request.headers?.cookie === revokedCookie
+        ) {
+          probes += 1
+          if (probes === 1) {
+            // A broken server accepted the stale session and persisted a code,
+            // but the response was lost. A second request would refuse it.
+            const url = new URL(request.path, 'https://desktop.invalid')
+            issuedCodes.set(
+              'unobserved-authorization-code',
+              url.searchParams.get('code_challenge') ?? ''
+            )
+            throw new Error('response lost after authorization mutation')
+          }
+        }
+        return correct.transport(request)
+      })
+    )
+    const assertion = receipt.assertions.find(
+      (entry) => entry.name === 'the-desktop-authorize-route-refuses-the-signed-out-cookie'
+    )
+    expect(issuedCodes.size).toBe(1)
+    expect(probes).toBe(1)
+    expect(assertion?.attempts).toBe(1)
+    expect(assertion?.outcomes).toEqual(['transport-failure'])
+    expect(assertion?.passed).toBe(false)
+    expect(receipt.status).toBe('failed')
   })
 })
