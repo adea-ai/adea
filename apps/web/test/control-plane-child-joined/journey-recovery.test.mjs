@@ -4,7 +4,12 @@
 // API to go on. CP's side is reopened in-process only (its fixture cannot reopen a composition in a
 // new process), which is said wherever it is used. See README.md "Lead-to-child journey".
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { startJourney, verifyJourneyPackages, finalText } from './journey-support.mjs'
+import {
+  startJourney,
+  verifyJourneyPackages,
+  finalText,
+  leadAndChildCompletedWaitMs,
+} from './journey-support.mjs'
 
 const manifestPath = process.env.PI_FACTORY_MANIFEST
 if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
@@ -180,7 +185,8 @@ describe('crash and restart recovery across the journey boundaries', () => {
     await journey.waitFor(
       () => control('evidence'),
       (e) => e.lead?.state === 'completed' && e.child?.state === 'completed',
-      'lead and child completed'
+      'lead and child completed',
+      leadAndChildCompletedWaitMs
     )
     // CP settles on its own recovery interval; the baseline is the terminal accounting receipt.
     finished = await journey.accounted()

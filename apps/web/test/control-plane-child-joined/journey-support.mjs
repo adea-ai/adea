@@ -27,6 +27,12 @@ export const verifyJourneyPackages = (manifestPath) =>
 export const finalText = 'Delegated one bounded child; its receipt is recorded.\n'
 export const childText = 'Bounded child evidence.'
 const driverPath = join(import.meta.dirname, 'journey-driver.ts')
+// Budget for a fresh lead-to-child journey to reach "lead and child completed". Measured locally
+// (4 vCPUs, PG 18, CP 48e82a02) a fresh journey completes in 29.3 to 29.6 s: the old 30 s budget left
+// 0.4 to 0.7 s of margin, so runs passed or failed on sub-second jitter. Twice that leaves room for
+// the same path; it stays inside every enclosing test timeout (90 s and 120 s). No assertion is
+// involved: the predicate still requires both executions completed.
+export const leadAndChildCompletedWaitMs = 60000
 
 async function waitFor(read, predicate, label, timeoutMs = 30000) {
   const end = Date.now() + timeoutMs

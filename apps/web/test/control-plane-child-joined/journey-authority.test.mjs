@@ -3,7 +3,12 @@
 // authority late; a revoked audience receives no result. Adea's side runs as its own processes
 // against the pinned CP revision. See README.md "Lead-to-child journey".
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { startJourney, verifyJourneyPackages, finalText } from './journey-support.mjs'
+import {
+  startJourney,
+  verifyJourneyPackages,
+  finalText,
+  leadAndChildCompletedWaitMs,
+} from './journey-support.mjs'
 
 const manifestPath = process.env.PI_FACTORY_MANIFEST
 if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
@@ -147,7 +152,8 @@ describe('late publication rechecks CP authority', () => {
     await journey.waitFor(
       () => control('evidence'),
       (e) => e.lead?.state === 'completed' && e.child?.state === 'completed',
-      'lead and child completed'
+      'lead and child completed',
+      leadAndChildCompletedWaitMs
     )
     await control('revoke-publication', { value: true })
     const before = await control('evidence')
@@ -209,7 +215,8 @@ describe('a revoked audience receives no result', () => {
     await journey.waitFor(
       () => control('evidence'),
       (e) => e.lead?.state === 'completed' && e.child?.state === 'completed',
-      'lead and child completed'
+      'lead and child completed',
+      leadAndChildCompletedWaitMs
     )
     // CP settles on its own recovery interval; the baseline is the terminal accounting receipt.
     const before = await journey.accounted()
