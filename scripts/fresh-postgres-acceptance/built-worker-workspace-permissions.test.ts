@@ -57,6 +57,7 @@ type Fault =
   | 'caller-credential'
   | 'password-credential'
   | 'provider-session'
+  | 'cookie-deny'
 
 function fixture(fault?: Fault) {
   const accounts: Account[] = []
@@ -180,7 +181,7 @@ function fixture(fault?: Fault) {
       const cookieAccount = accounts.find(
         (item) => item.cookie === request.headers?.cookie && !item.signedOut
       )
-      const principal = account ?? cookieAccount
+      const principal = account ?? (fault === 'cookie-deny' ? undefined : cookieAccount)
       if (!principal)
         return respond(401, { code: 'workspace_unavailable', message: 'Workspace unavailable' })
       if (request.method === 'POST') {
@@ -325,6 +326,24 @@ describe('built Worker workspace permission proof', () => {
       expect(receipt.failed).toBeGreaterThan(0)
     })
   }
+
+  test('cannot pass signout proof when the workspace route refuses every provider cookie', async () => {
+    const { setup, receipt } = await run('cookie-deny')
+    expect(receipt.status).toBe('failed')
+    expect(
+      receipt.assertions.find(
+        (assertion) =>
+          assertion.name === 'provider-cookie-can-read-the-same-workspace-before-signout'
+      )?.passed
+    ).toBe(false)
+    const cookieRead = setup.requests.find(
+      (request) => request.path.startsWith('/api/workspaces/') && request.headers?.cookie
+    )
+    expect(cookieRead?.headers?.authorization).toBeUndefined()
+    expect(cookieRead?.headers?.['x-adea-client']).toBeUndefined()
+    expect(cookieRead?.headers?.origin).toBe(baseUrl)
+    expect(setup.requests.some((request) => request.path === '/api/auth/sign-out')).toBe(false)
+  })
 
   test('does not replay a workspace creation after uncertain committed transport', async () => {
     const { setup, receipt } = await run('create-uncertain')

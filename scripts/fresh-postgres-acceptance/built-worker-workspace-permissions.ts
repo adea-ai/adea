@@ -518,6 +518,22 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
   await step('revoked-desktop-credential-cannot-read-the-workspace', async () =>
     denied(await workspaceRequest(b, `/api/workspaces/${workspaceId}`), 401)
   )
+  // Prove this route accepts provider-cookie authentication before relying on
+  // its post-signout refusal. Otherwise a Desktop-only route would pass both.
+  await step('provider-cookie-can-read-the-same-workspace-before-signout', async () => {
+    const { response } = await send({
+      method: 'GET',
+      path: `/api/workspaces/${workspaceId}`,
+      headers: { cookie: a.cookie, origin: input.baseUrl },
+    })
+    requireProof(response.status === 200 && noStore(response))
+    const workspace = record(response.body).workspace
+    requireProof(
+      workspace &&
+        typeof workspace === 'object' &&
+        (workspace as Record<string, unknown>).id === workspaceId
+    )
+  })
   await step('provider-signout-invalidates-cookie-workspace-access', async () => {
     const { response } = await send({
       method: 'POST',
@@ -531,7 +547,7 @@ export async function runBuiltWorkerWorkspacePermissions(input: {
     const after = await send({
       method: 'GET',
       path: `/api/workspaces/${workspaceId}`,
-      headers: { cookie: a.cookie },
+      headers: { cookie: a.cookie, origin: input.baseUrl },
     })
     denied(after.response, 401)
   })
