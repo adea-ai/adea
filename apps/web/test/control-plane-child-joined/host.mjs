@@ -26,6 +26,16 @@ let releaseProvider
 const held = new Promise((resolve) => {
   releaseProvider = resolve
 })
+// Negative controls for host-binding-guard.test.mjs: each leaves the timeline delivery port absent or
+// unusable so CP's production child binding must refuse the build. Unset, the host binds it.
+const bindingNegativeControl = process.env.ADEA_CHILD_HOST_BINDING_NEGATIVE_CONTROL
+const noWake = async () => {}
+const timelineDelivery =
+  bindingNegativeControl === 'omit-timeline-delivery'
+    ? undefined
+    : bindingNegativeControl === 'timeline-delivery-without-principal'
+      ? { notify: noWake }
+      : { principalId: config.principalId, notify: noWake }
 const originalFetch = globalThis.fetch
 host = await cp.factory.createProductionFactoryFixture({
   // The lead may delegate to siblings that share its one stated allowance.
@@ -153,6 +163,10 @@ host = await cp.factory.createProductionFactoryFixture({
       usageOutcomes: (delegationId) =>
         new cp.sqlite.SqliteChildUsageOutcomeRepository(persistence, delegationId),
       runtime: {
+        // CP's production child binding requires the timeline delivery port (CP #1204). The
+        // synthetic binding is the one CP's own governed-dispatch fixture uses: the existing
+        // transport principal and a notifier that sends nothing. No wake leaves this host.
+        ...(timelineDelivery ? { childTimelineDelivery: timelineDelivery } : {}),
         childProgress: { scan: async () => ({ reconciled: 0, pending: 0 }) },
         consumeParentInbox: async () => {},
       },
