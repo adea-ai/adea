@@ -2044,3 +2044,89 @@ describe('provider password login counterexamples', () => {
     ).toBe(false)
   })
 })
+
+describe('signed-out authorize cookie cleanup', () => {
+  for (const cookie of [
+    'old_provider=; Path=/; Max-Age=0',
+    'old_provider=; Path=/; Max-Age=0, cache_provider=; Path=/; Max-Age=0',
+  ]) {
+    test(`accepts only empty cookie deletion while refusing the old session: ${cookie}`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          const result = await correct.transport(request)
+          return request.path.startsWith('/api/auth/desktop/authorize') &&
+            request.headers?.cookie &&
+            result.status === 303 &&
+            result.headers.location?.startsWith('/auth/sign-in')
+            ? { ...result, headers: { ...result.headers, 'set-cookie': cookie } }
+            : result
+        })
+      )
+      expect(receipt.status).toBe('passed')
+      const detail = receipt.assertions.find(
+        (entry) => entry.name === 'the-desktop-authorize-route-refuses-the-signed-out-cookie'
+      )!.detail
+      expect(detail).toContain(`clearingCount=${cookie.split(',').length}`)
+      expect(detail).toContain('nonemptyCount=0')
+      expect(detail).toContain('rawMaterial=true; material=false')
+      expect(detail).not.toContain('old_provider')
+      expect(
+        receipt.assertions.find(
+          (entry) => entry.name === 'the-desktop-authorize-route-refuses-the-signed-out-cookie'
+        )?.passed
+      ).toBe(true)
+    })
+  }
+  for (const defect of [
+    'nonempty-cookie',
+    'mixed-cookies',
+    'empty-cookie-not-deletion',
+    'malformed-cookie',
+    'token-body',
+    'credential-body',
+    'known-secret',
+    'reflected-redirect',
+  ]) {
+    test(`still refuses ${defect}`, async () => {
+      const correct = correctWorker()
+      const receipt = await runBuiltWorkerDesktopAuth(
+        baseInput(async (request) => {
+          const result = await correct.transport(request)
+          if (
+            !request.path.startsWith('/api/auth/desktop/authorize') ||
+            !request.headers?.cookie ||
+            result.status !== 303 ||
+            !result.headers.location?.startsWith('/auth/sign-in')
+          )
+            return result
+          const headers = { ...result.headers, 'set-cookie': 'old_provider=; Path=/; Max-Age=0' }
+          if (defect === 'nonempty-cookie')
+            headers['set-cookie'] = 'new_provider=FreshUnexpectedCookie; Path=/'
+          if (defect === 'empty-cookie-not-deletion')
+            headers['set-cookie'] = 'empty_cookie=; Path=/'
+          if (defect === 'malformed-cookie') headers['set-cookie'] = 'not-a-cookie; Max-Age=0'
+          if (defect === 'mixed-cookies')
+            headers['set-cookie'] += ', new_provider=FreshUnexpectedCookie; Path=/'
+          if (defect === 'known-secret')
+            return { ...result, headers: { ...headers, 'x-debug': AUTH_SECRET } }
+          if (defect === 'reflected-redirect')
+            return {
+              ...result,
+              headers: { ...headers, location: 'https://hostile.example.test/auth/sign-in' },
+            }
+          if (defect === 'token-body')
+            return { ...result, headers, body: '{"nested":{"token":"UnexpectedNewTokenMaterial"}}' }
+          if (defect === 'credential-body')
+            return {
+              ...result,
+              headers,
+              body: '{"credential":"UnexpectedCredentialMaterial0123456789"}',
+            }
+          return { ...result, headers }
+        })
+      )
+      expect(receipt.status).toBe('failed')
+    })
+  }
+})

@@ -1033,17 +1033,40 @@ export async function runBuiltWorkerDesktopAuth(
       } catch {
         /* Refused below. */
       }
+      // A revoked provider session read deletes its cookies via the framework.
+      // Only syntactically empty, explicitly expiring cookies may be excluded
+      // from this material predicate. The global secret ledger still sees them.
+      const cookieHeaders = response.headers['set-cookie']
+        ? response.headers['set-cookie'].split(/,(?=[^;,]+=)/u)
+        : []
+      const clearingCookieCount = cookieHeaders.filter(
+        (cookie) =>
+          /^[^=;\s]+=\s*$/u.test(cookie.split(';')[0]?.trim() ?? '') &&
+          /(?:^|;)\s*max-age\s*=\s*0\s*(?:;|$)/iu.test(cookie)
+      ).length
+      const nonemptyCookieCount = sessionCookieValues(response).length
+      const clearingOnly = clearingCookieCount === cookieHeaders.length
+      const rawMaterial = responseCarriesCredentialMaterial(response, observedSecrets)
+      const material = responseCarriesCredentialMaterial(
+        clearingOnly
+          ? { ...response, headers: { ...response.headers, 'set-cookie': '' } }
+          : response,
+        observedSecrets
+      )
+      const sameOrigin = location?.origin === new URL(input.baseUrl).origin
+      const signInPath = location?.pathname === '/auth/sign-in'
       const passed =
         response.status === 303 &&
-        location?.origin === new URL(input.baseUrl).origin &&
-        location.pathname === '/auth/sign-in' &&
-        !location.hash &&
-        !responseCarriesCredentialMaterial(response, observedSecrets)
+        sameOrigin &&
+        signInPath &&
+        !location?.hash &&
+        clearingOnly &&
+        !material &&
+        jsonMemberValues(response.body, 'token').length === 0
       return {
         passed,
-        detail: passed
-          ? 'the desktop authorize route sent the signed-out cookie to sign-in'
-          : 'the desktop authorize route did not safely refuse the signed-out cookie',
+        // These classifications expose no raw URL, query, header or token value.
+        detail: `signed-out authorize: status=${response.status}; sameOrigin=${sameOrigin}; path=${signInPath ? '/auth/sign-in' : 'other'}; hashPresent=${Boolean(location?.hash)}; clearingCount=${clearingCookieCount}; nonemptyCount=${nonemptyCookieCount}; rawMaterial=${rawMaterial}; material=${material}`,
         outcome: passed ? 'refused' : 'assertion-failed',
       }
     },
