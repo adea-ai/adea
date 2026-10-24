@@ -94,9 +94,9 @@ describe('package identity gate refuses what is not the reviewed registry payloa
     expect(result.installKind).toBe('registry')
     expect(result.head).toBe(pin.revision)
     expect(result.packages.map((entry) => `${entry.name}@${entry.version}`)).toEqual([
-      '@adea-ai/contracts@1.21.6',
-      '@adea-ai/runtime-sdk@1.17.1',
-      '@adea-ai/sdk@1.20.1',
+      '@adea-ai/contracts@1.23.1',
+      '@adea-ai/runtime-sdk@1.17.2',
+      '@adea-ai/sdk@1.22.1',
     ])
     for (const entry of result.packages) expect(entry).not.toHaveProperty('differingFiles')
   }, 60000)

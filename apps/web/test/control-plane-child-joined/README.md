@@ -251,8 +251,8 @@ excused. `PI_FACTORY_EXPECT_SDK` and `PI_FACTORY_INSTALL` have no defaults:
 
 ```sh
 # The manifest comes from `node scripts/pack-pi-durable-candidate.mjs <dir>` in the clean, built CP
-# checkout at the pinned revision (69e6e746, the CP 1.104.0 release commit).
-export DATABASE_URL=... ADEA_CONTROL_PLANE_SOURCE=<cp at 69e6e746> PI_FACTORY_BUN=<bun 1.4.3, the repository pin> \
+# checkout at the pinned revision (48e82a02, the CP 1.114.1 release commit).
+export DATABASE_URL=... ADEA_CONTROL_PLANE_SOURCE=<cp at 48e82a02> PI_FACTORY_BUN=<bun 1.4.3, the repository pin> \
        PI_FACTORY_MANIFEST=<candidate>/manifest.json
 bun run test:integration:control-plane-child-allowance             # registry + accepts: current consumer gate
 bun run test:integration:control-plane-child-allowance-legacy-sdk  # isolated legacy SDK + rejects: negative control
@@ -287,10 +287,10 @@ are tracked separately; this section's commands do not depend on them.
 
 One workspace lead, one direct topic, one pinned BYO selection, one real Pi child and one logical
 outcome, through Adea's production lead product and the installed SDK, over HTTP to CP's actual
-control API, against **CP release `bda8b852`** (1.106.6), the merge commit of CP #1258
+control API, against **CP release `48e82a02`** (1.114.1), the merge commit of CP #1299
 (`source-journey.json`). It carries the governed child dispatch qualification (CP #1134), the
 production child bridge builder and `PiChildTerminalSettlement` (CP #1137). The installed SDK comes
-from Adea's lockfile (sdk 1.20.1, runtime-sdk 1.17.1, contracts 1.21.6) and
+from Adea's lockfile (sdk 1.22.1, runtime-sdk 1.17.2, contracts 1.23.1) and
 is compared, file by file, with the packages that revision builds (the same three versions) before
 any database connection is opened. Every file is **byte-identical**, so there is no allowed drift:
 the gate (install kind `registry`) fails on any differing or missing file, a changed load field or a
@@ -301,21 +301,19 @@ same gate to refuse each one. A stale install (an older SDK/contracts than the l
 the gate until `bun install --frozen-lockfile` is run; an earlier revision of this branch recorded
 its drift hashes from such a stale install.
 
-Provenance for this pin: `@adea-ai/contracts` 1.21.6 was published from CP release 1.106.6
-(`bda8b852`, CP #1258); `@adea-ai/sdk` 1.20.1 and `@adea-ai/runtime-sdk` 1.17.1 were published from
-CP release 1.106.5 (`776688270`, CP #1257), and `packages/control-sdk` plus `packages/runtime-sdk`
-are byte-identical between those two release commits (only `packages/contracts` changed in #1258:
-version, changelog and a test). One revision therefore builds all three registry versions Adea's
-lockfile installs, and each lockfile `dist.integrity` equals the npm registry `dist.integrity` for
-its version.
+Provenance for this pin: CP release 1.114.1 (`48e82a02`, CP #1299) has `@adea-ai/contracts` 1.23.1,
+`@adea-ai/sdk` 1.22.1 and `@adea-ai/runtime-sdk` 1.17.2 in `packages/`. Packed from a clean, built
+checkout there, the three archives are byte-identical, file by file, to the registry packages Adea's
+lockfile installs (the unmodified identity gate; run 6 in `RECEIPT.md`). The earlier pins `bda8b852`
+(1.106.6), `69e6e746` (1.104.0) and `7d36f9bb` stay in this file as the history of the earlier runs.
 
 This is a published CP release revision; the release-parity gap described earlier (a published CP
 release carrying #1123 and #1131 and an Adea bump to it) has since been closed. See `RECEIPT.md`
 for the recorded run and the exact prerequisites; the lane is opt-in and is not wired into CI.
 
 ```sh
-# manifest: node scripts/pack-pi-durable-candidate.mjs <dir> in a clean, built CP checkout at bda8b852
-ADEA_CONTROL_PLANE_SOURCE=<CP checkout at bda8b852> PI_FACTORY_BUN=<abs bun> \
+# manifest: node scripts/pack-pi-durable-candidate.mjs <dir> in a clean, built CP checkout at 48e82a02
+ADEA_CONTROL_PLANE_SOURCE=<CP checkout at 48e82a02> PI_FACTORY_BUN=<abs bun> \
 PI_FACTORY_MANIFEST=<dir>/manifest.json DATABASE_URL=<local postgres> \
   bun run test:integration:control-plane-journey
 ```

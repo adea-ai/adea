@@ -1,5 +1,5 @@
 {
   "repository": "adea-ai/control-plane",
-  "revision": "bda8b8520f594bbf4404e3d239e518819f9e953f",
-  "dependency": "CP release 1.106.6 (#1258, merged 2026-10-22, merge commit bda8b852), the release commit that published @adea-ai/contracts 1.21.6. @adea-ai/sdk 1.20.1 and @adea-ai/runtime-sdk 1.17.1 were published by CP release 1.106.5 (#1257, merge commit 776688270), and control-sdk/runtime-sdk source is byte-identical between the two releases (only packages/contracts changed in #1258: version, changelog and a test), so this one revision builds all three exact registry versions in Adea's lockfile. It carries the governed child dispatch qualification (CP #1134), the production child bridge builder and PiChildTerminalSettlement (CP #1137). A released CP revision; used by the journey suites"
+  "revision": "48e82a0211e7bd8ffe96b468ebb7a7beba65df81",
+  "dependency": "CP release 1.114.1 (#1299), the release commit at which packages/contracts is 1.23.1, packages/control-sdk (@adea-ai/sdk) is 1.22.1 and packages/runtime-sdk is 1.17.2, the three exact registry versions in Adea's lockfile. The archives packed from a clean build here are byte-identical to the installed packages. It carries the governed child dispatch qualification (CP #1134), the production child bridge builder and PiChildTerminalSettlement (CP #1137). A released CP revision; used by the journey suites and the installed-SDK child suite"
 }
