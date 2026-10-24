@@ -2130,3 +2130,44 @@ describe('signed-out authorize cookie cleanup', () => {
     })
   }
 })
+
+describe('signed-out authorization has an uncertain mutation outcome', () => {
+  test('never retries a lost response after stale-cookie authorization issued a code', async () => {
+    const correct = correctWorker()
+    const issuedCodes = new Map<string, string>()
+    let revokedCookie = ''
+    let probes = 0
+    const receipt = await runBuiltWorkerDesktopAuth(
+      baseInput(async (request) => {
+        if (request.path === '/api/auth/sign-out') revokedCookie = request.headers?.cookie ?? ''
+        if (
+          request.path.startsWith('/api/auth/desktop/authorize') &&
+          revokedCookie &&
+          request.headers?.cookie === revokedCookie
+        ) {
+          probes += 1
+          if (probes === 1) {
+            // A broken server accepted the stale session and persisted a code,
+            // but the response was lost. A second request would refuse it.
+            const url = new URL(request.path, 'https://desktop.invalid')
+            issuedCodes.set(
+              'unobserved-authorization-code',
+              url.searchParams.get('code_challenge') ?? ''
+            )
+            throw new Error('response lost after authorization mutation')
+          }
+        }
+        return correct.transport(request)
+      })
+    )
+    const assertion = receipt.assertions.find(
+      (entry) => entry.name === 'the-desktop-authorize-route-refuses-the-signed-out-cookie'
+    )
+    expect(issuedCodes.size).toBe(1)
+    expect(probes).toBe(1)
+    expect(assertion?.attempts).toBe(1)
+    expect(assertion?.outcomes).toEqual(['transport-failure'])
+    expect(assertion?.passed).toBe(false)
+    expect(receipt.status).toBe('failed')
+  })
+})

@@ -1015,7 +1015,8 @@ export async function runBuiltWorkerDesktopAuth(
   })
   steps.push({
     name: 'the-desktop-authorize-route-refuses-the-signed-out-cookie',
-    mutating: false,
+    // A broken stale-session check could issue a code before a response is lost.
+    mutating: true,
     run: async () => {
       const pkce = desktopPkcePair()
       const { nonce, state } = desktopNonceAndState()
