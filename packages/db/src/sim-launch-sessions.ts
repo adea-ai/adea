@@ -4,6 +4,7 @@ import { and, eq, gt, isNull } from 'drizzle-orm'
 
 import type { AgentHqDatabase } from './connection'
 import { simLaunchCodes, simSessions } from './schema/sim-launch'
+import { lockSimIssuance } from './sim-authority-lock'
 
 /**
  * Durable launch-code and session storage for hosted Agent Sim. The shapes match the sim-bridge store
@@ -96,13 +97,18 @@ export function createSimLaunchStore(
   return {
     async issue(code: string, binding: SimLaunchBinding, expiresAt: number): Promise<void> {
       if (!Number.isFinite(expiresAt)) throw new RangeError('launch code expiry must be finite')
-      await database.insert(simLaunchCodes).values({
-        codeDigest: digest(code),
-        workspaceId: binding.workspaceId,
-        surface: binding.surface,
-        bridgeId: binding.bridgeId,
-        origin: binding.origin,
-        expiresAt: new Date(expiresAt),
+      // The shared workspace lock is held until the insert commits, so a withdrawal or a regrant
+      // that sweeps this workspace waits for the code and then spends it. See sim-authority-lock.
+      await database.transaction(async (tx) => {
+        await lockSimIssuance(tx, binding.workspaceId)
+        await tx.insert(simLaunchCodes).values({
+          codeDigest: digest(code),
+          workspaceId: binding.workspaceId,
+          surface: binding.surface,
+          bridgeId: binding.bridgeId,
+          origin: binding.origin,
+          expiresAt: new Date(expiresAt),
+        })
       })
     },
     redeem(code: string, presented: Readonly<{ bridgeId: string; origin: string }>, now: number) {
