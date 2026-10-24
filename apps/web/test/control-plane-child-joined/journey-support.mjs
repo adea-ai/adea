@@ -11,7 +11,7 @@ const { eq, and } = await import(requireDb.resolve('drizzle-orm'))
 
 /**
  * Package and source identity, before any database connection is opened. Adea's lockfile pins
- * the registry packages (sdk 1.20.1, contracts 1.21.6, runtime-sdk 1.17.1) and the CP revision
+ * the registry packages (sdk 1.22.1, contracts 1.23.1, runtime-sdk 1.17.2) and the CP revision
  * under test builds the same versions, so the comparison is byte-identical for every file; there
  * is no allowed drift. A CP revision that moves past the lockfile fails here until Adea bumps.
  */
@@ -27,6 +27,12 @@ export const verifyJourneyPackages = (manifestPath) =>
 export const finalText = 'Delegated one bounded child; its receipt is recorded.\n'
 export const childText = 'Bounded child evidence.'
 const driverPath = join(import.meta.dirname, 'journey-driver.ts')
+// Budget for a fresh lead-to-child journey to reach "lead and child completed". Measured locally
+// (4 vCPUs, PG 18, CP 48e82a02) a fresh journey completes in 29.3 to 29.6 s: the old 30 s budget left
+// 0.4 to 0.7 s of margin, so runs passed or failed on sub-second jitter. Twice that leaves room for
+// the same path; it stays inside every enclosing test timeout (90 s and 120 s). No assertion is
+// involved: the predicate still requires both executions completed.
+export const leadAndChildCompletedWaitMs = 60000
 
 async function waitFor(read, predicate, label, timeoutMs = 30000) {
   const end = Date.now() + timeoutMs

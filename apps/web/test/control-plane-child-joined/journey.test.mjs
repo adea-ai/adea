@@ -2,7 +2,13 @@
 // real Pi child and one logical outcome, through Adea's real product and the installed SDK, against
 // the pinned CP revision (source-journey.json). See README.md "Lead-to-child journey".
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { startJourney, verifyJourneyPackages, finalText, childText } from './journey-support.mjs'
+import {
+  startJourney,
+  verifyJourneyPackages,
+  finalText,
+  childText,
+  leadAndChildCompletedWaitMs,
+} from './journey-support.mjs'
 
 const manifestPath = process.env.PI_FACTORY_MANIFEST
 if (!manifestPath) throw new Error('VERIFIED_CANDIDATE_MANIFEST_REQUIRED')
@@ -80,7 +86,8 @@ describe('happy journey and exactly-once replays', () => {
     firstEvidence = await journey.waitFor(
       () => control('evidence'),
       (e) => e.lead?.state === 'completed' && e.child?.state === 'completed',
-      'lead and child completed'
+      'lead and child completed',
+      leadAndChildCompletedWaitMs
     )
     expect(firstEvidence.leadSends).toBe(2)
     expect(firstEvidence.childSends).toBe(1)

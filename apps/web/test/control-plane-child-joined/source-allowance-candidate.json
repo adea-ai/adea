@@ -1,5 +1,5 @@
 {
   "repository": "adea-ai/control-plane",
-  "revision": "69e6e7469d81557645937ba7f525077a53b51558",
-  "dependency": "CP release 1.104.0 (#1184), the release commit that published @adea-ai/sdk 1.20.0 and @adea-ai/runtime-sdk 1.17.0 and carries the optional childAllowance on the lead prepare response (CP #1136, merged as efd457a3); used by child-allowance-boundary.test.mjs"
+  "revision": "48e82a0211e7bd8ffe96b468ebb7a7beba65df81",
+  "dependency": "CP release 1.114.1 (#1299), which carries the optional childAllowance on the lead prepare response (CP #1136, first released in CP 1.104.0, 69e6e746) and builds the exact registry versions in Adea's lockfile (@adea-ai/sdk 1.22.1, @adea-ai/runtime-sdk 1.17.2, @adea-ai/contracts 1.23.1); used by child-allowance-boundary.test.mjs"
 }

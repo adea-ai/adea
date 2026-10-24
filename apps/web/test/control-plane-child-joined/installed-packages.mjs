@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import {
@@ -17,7 +17,7 @@ import {
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 const defaultWebManifestUrl = new URL('../../package.json', import.meta.url)
-const legacySdkManifestUrl = new URL('./legacy-sdk/package.json', import.meta.url)
+const defaultLegacySdkManifestUrl = new URL('./legacy-sdk/package.json', import.meta.url)
 // The exact registry versions installed in ./legacy-sdk: the last releases that predate the lead
 // `childAllowance` disclosure (CP #1136, first published in sdk 1.20.0 and runtime-sdk 1.17.0).
 const legacySdkPins = Object.freeze({
@@ -25,6 +25,20 @@ const legacySdkPins = Object.freeze({
   '@adea-ai/runtime-sdk': '1.16.1',
   '@adea-ai/sdk': '1.19.1',
 })
+// Candidate files the exactly pinned legacy package has never shipped: CP #1204 (2f1f9d1a) added
+// this contracts module after 1.21.4. Its absence is part of the gap the legacy negative control
+// records, so for that one version and these two paths the install must NOT have the file. Nothing
+// else is excused: any other candidate file missing from a legacy install still throws ENOENT.
+const legacyExpectedAbsent = Object.freeze({
+  '@adea-ai/contracts': Object.freeze({
+    version: '1.21.4',
+    files: Object.freeze(['dist/pi-child-publication.d.ts', 'dist/pi-child-publication.js']),
+  }),
+})
+export const isLegacyExpectedAbsence = (name, version, file) => {
+  const expected = legacyExpectedAbsent[name]
+  return expected !== undefined && expected.version === version && expected.files.includes(file)
+}
 // The fields that decide what a consumer resolves and loads. The publish step rewrites the
 // remaining manifest fields (dependency ranges, empty dev/peer maps), so those are reported, not
 // compared.
@@ -50,6 +64,8 @@ export async function verifyInstalledPackages({
   installKind = 'registry',
   /** The web app manifest whose resolution decides which installed packages are compared. */
   webManifestUrl = defaultWebManifestUrl,
+  /** The legacy fixture manifest whose resolution decides which legacy packages are compared. */
+  legacySdkManifestUrl = defaultLegacySdkManifestUrl,
 }) {
   assert.ok(
     ['registry', 'isolated-legacy-sdk', 'candidate-overlay'].includes(installKind),
@@ -96,6 +112,7 @@ export async function verifyInstalledPackages({
     for (const field of loadFields.filter((key) => key !== 'version'))
       assert.deepEqual(installed[field], artifact.declared[field], `${artifact.name} ${field}`)
     const differing = []
+    const expectedAbsent = []
     const tarEntries = execFileSync('tar', ['-tf', artifact.archivePath], { encoding: 'utf8' })
       .split('\n')
       .filter((name) => name && !name.endsWith('/') && name !== 'package/package.json')
@@ -105,9 +122,20 @@ export async function verifyInstalledPackages({
       const built = execFileSync('tar', ['-xOf', artifact.archivePath, name], {
         maxBuffer: 20 * 1024 * 1024,
       })
-      const actual = readFileSync(resolve(installedRoot, name.slice('package/'.length)))
+      const file = name.slice('package/'.length)
+      if (legacy && isLegacyExpectedAbsence(artifact.name, installed.version, file)) {
+        assert.equal(
+          existsSync(resolve(installedRoot, file)),
+          false,
+          `LEGACY_EXPECTED_ABSENT_PRESENT:${artifact.name}:${file}`
+        )
+        expectedAbsent.push(file)
+        differing.push(file)
+        continue
+      }
+      const actual = readFileSync(resolve(installedRoot, file))
       if (legacy) {
-        if (sha256(actual) !== sha256(built)) differing.push(name.slice('package/'.length))
+        if (sha256(actual) !== sha256(built)) differing.push(file)
         continue
       }
       assert.equal(
@@ -121,7 +149,11 @@ export async function verifyInstalledPackages({
       version: installed.version,
       comparedFiles: tarEntries.length,
       ...(legacy
-        ? { candidateVersion: artifact.version, differingFiles: differing.toSorted() }
+        ? {
+            candidateVersion: artifact.version,
+            differingFiles: differing.toSorted(),
+            expectedAbsentFiles: expectedAbsent.toSorted(),
+          }
         : {}),
     })
   }
