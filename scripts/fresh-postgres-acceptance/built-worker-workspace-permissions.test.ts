@@ -608,7 +608,9 @@ describe('intentional unverified desktop address readback', () => {
             expect(parameters).toEqual([row.sessionId, 'provider@example.test'])
             // Offline SQL contract oracle: SQL NULL equality is not TRUE. This is
             // not claimed as an executed PostgreSQL query; the real lane confirms it.
-            const permitsAbsent = query.includes('(ds.email is null or ds.email = pu.email)')
+            const permitsAbsent = query.includes(
+              'pu.id = ai.subject and (ds.email is null or ds.email = pu.email)'
+            )
             return (address === null ? permitsAbsent : address === 'provider@example.test')
               ? [row]
               : []
