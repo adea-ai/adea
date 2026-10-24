@@ -2,6 +2,7 @@ import { and, eq, isNull, sql } from 'drizzle-orm'
 
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { simLaunchCodes, simSessions, simWorkspaceAllowlist, workspaces } from './schema'
+import { lockSimAuthorityEnd } from './sim-authority-lock'
 import { SIM_SURFACES, type SimSurface } from './sim-launch-sessions'
 
 /**
@@ -74,12 +75,18 @@ type SimAuthorityEnded = Readonly<{ codes: number; sessions: number }>
  * finds the code spent, so after that statement no new session can appear. The sessions are revoked
  * last, so a session a racing redemption committed is seen and revoked. Both statements must run in
  * the caller's transaction.
+ *
+ * Before either statement it takes the exclusive authority lock, which waits for every launch-code
+ * issuance still in flight. An uncommitted INSERT is invisible to these statements, so without the
+ * wait a code issued before the withdrawal could commit after it and survive a reopen and a regrant.
+ * Statements after the wait read a fresh snapshot, so those issuances are seen committed.
  */
 async function endSimAuthority(
   transaction: AgentHqTransaction,
   workspaceId: string,
   surface?: SimSurface
 ): Promise<SimAuthorityEnded> {
+  await lockSimAuthorityEnd(transaction, workspaceId)
   const id = workspaceId.toLowerCase()
   const codes = await transaction
     .update(simLaunchCodes)

@@ -513,6 +513,108 @@ describe.skipIf(!connectionUrl)('the hosted Sim allowlist on PostgreSQL', () => 
     expect(after.reads).toHaveLength(0)
   })
 
+  /** Starts an issuance that has inserted its code but not committed, and holds its locks. */
+  async function issuanceInFlight(workspaceId: string, surface = 'hq') {
+    const code = `code-${crypto.randomUUID()}`
+    const flight = pausedBeforeCommit(connection.db)
+    const issuing = createSimIssuerStores(flight.database)(workspaceId).issue(
+      code,
+      { surface: surface as 'hq', bridgeId: BRIDGE, origin: SIM_ORIGIN },
+      Date.now() + 60_000
+    )
+    await flight.paused
+    return { code, issuing, release: flight.release }
+  }
+
+  test('a launch code issued while the workspace is archived cannot survive the archive, a reopen and a regrant', async () => {
+    const { owner, workspace } = await fixture()
+    const id = workspace.id
+    await grantSimAllowlist(connection.db, { workspaceId: id, surface: 'hq' })
+    const flight = await issuanceInFlight(id)
+    // The INSERT is not committed, so no sweep can see it yet.
+    expect(await codeRows(id)).toHaveLength(0)
+
+    let archived = false
+    const archiving = archiveWorkspace(connection.db, id, owner).then(() => {
+      archived = true
+    })
+    await waitForLockWaiter(connection.db)
+    // The withdrawal waits for the issuance instead of sweeping around it.
+    expect(archived).toBe(false)
+
+    flight.release()
+    await Promise.all([flight.issuing, archiving])
+    // The issuance committed first and the withdrawal then found its code and spent it.
+    const [row] = await codeRows(id)
+    expect(row?.consumedAt).toBeInstanceOf(Date)
+
+    await reopenWorkspace(connection.db, id, owner)
+    expect(await grantSimAllowlist(connection.db, { workspaceId: id, surface: 'hq' })).toBe(true)
+    const stale = await present(hosted(Date.now).host, flight.code)
+    expect(stale.cookie).toBeUndefined()
+    expect(stale.body).toEqual({ status: 'rejected', reason: 'code_used' })
+    expect(await sessionRows(id)).toHaveLength(0)
+    // Authority comes back only through a fresh launch.
+    expect(await (await openSession(id, Date.now)).asset()).toBe(200)
+  })
+
+  test('a launch code issued while a grant is withdrawn and granted again is spent by the regrant', async () => {
+    const { workspace } = await fixture()
+    const id = workspace.id
+    await grantSimAllowlist(connection.db, { workspaceId: id, surface: 'hq' })
+    const flight = await issuanceInFlight(id)
+
+    // Withdrawing one row takes no sweep, so it completes while the issuance is in flight.
+    expect(await revokeSimAllowlist(connection.db, { workspaceId: id, surface: 'hq' })).toBe(true)
+    expect(await createSimAllowlistLookup(connection.db)({ workspaceId: id, surface: 'hq' })).toBe(
+      false
+    )
+
+    let granted = false
+    const regrant = grantSimAllowlist(connection.db, { workspaceId: id, surface: 'hq' }).then(
+      (added) => {
+        granted = true
+        return added
+      }
+    )
+    await waitForLockWaiter(connection.db)
+    expect(granted).toBe(false)
+
+    flight.release()
+    const [, added] = await Promise.all([flight.issuing, regrant])
+    expect(added).toBe(true)
+    const [row] = await codeRows(id)
+    expect(row?.consumedAt).toBeInstanceOf(Date)
+    const stale = await present(hosted(Date.now).host, flight.code)
+    expect(stale.cookie).toBeUndefined()
+    expect(stale.body.reason).toBe('code_used')
+    expect(await sessionRows(id)).toHaveLength(0)
+  })
+
+  test('a code written after a withdrawal is spent by the next grant, and nothing opens while no grant stands', async () => {
+    const { owner, workspace } = await fixture()
+    const id = workspace.id
+    await grantSimAllowlist(connection.db, { workspaceId: id, surface: 'hq' })
+    await archiveWorkspace(connection.db, id, owner)
+    // An issuance that finished its entitlement check before the archive writes after it.
+    const late = await issueCode(id)
+    const lateHosted = hosted(Date.now)
+    const early = await present(lateHosted.host, late)
+    // Whatever the redemption does while no grant stands, no asset is served on its behalf.
+    if (early.cookie)
+      expect(await assetStatus(lateHosted.host, early.cookie)).toBeGreaterThanOrEqual(400)
+    expect(lateHosted.reads).toHaveLength(0)
+
+    await reopenWorkspace(connection.db, id, owner)
+    const second = await issueCode(id)
+    expect(await grantSimAllowlist(connection.db, { workspaceId: id, surface: 'hq' })).toBe(true)
+    const stale = await present(hosted(Date.now).host, second)
+    expect(stale.cookie).toBeUndefined()
+    expect(stale.body.reason).toBe('code_used')
+    // The earlier redemption's session, if one was minted, was ended by the grant as well.
+    expect((await sessionRows(id)).every((row) => row.revokedAt !== null)).toBe(true)
+  })
+
   test('a regrant ends the earlier sessions and unspent codes of that surface only', async () => {
     const { workspace } = await fixture()
     const id = workspace.id
