@@ -84,6 +84,12 @@ export type DirectSessionHandoffControlsProps = Readonly<{
   view: DirectSessionHandoffView
   onLeadStop?: () => void | Promise<void>
   onSessionStop?: () => void | Promise<void>
+  /**
+   * Cancels one observed child job. Called with that job's id, only from the
+   * job's own control and only while the model authorizes it; the lead and
+   * session stop handlers never reach a job.
+   */
+  onJobCancel?: (jobId: string) => void | Promise<void>
   onRequestHandoff?: () => void | Promise<void>
   onReconnect?: () => void | Promise<void>
   onRefreshLead?: () => void | Promise<void>
@@ -205,6 +211,7 @@ function EvidenceStrip(props: { activity: HandoffActivity }): JSX.Element {
 function ChildEvidenceSection(props: {
   evidence: HandoffChildEvidence
   jobs: DirectSessionHandoffView['childJobs']
+  onJobCancel?: (jobId: string) => void | Promise<void>
 }): JSX.Element {
   const rows = () =>
     props.evidence.kind === 'complete' || props.evidence.kind === 'partial'
@@ -251,6 +258,20 @@ function ChildEvidenceSection(props: {
                 <span class="dev-handoff__child-time">
                   {plural(job.descendantCount, 'descendant', 'descendants')}
                 </span>
+                <Show when={props.onJobCancel}>
+                  {(cancel) => (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={!job.job.available}
+                      aria-label={`${CONTROL_ACTIONS.job_cancel}: ${job.label}`}
+                      onClick={() => cancel()(job.jobId)}
+                    >
+                      {CONTROL_ACTIONS.job_cancel}
+                    </Button>
+                  )}
+                </Show>
                 <p class="dev-handoff__reason">
                   Job:{' '}
                   {job.job.available
@@ -356,7 +377,11 @@ export function DirectSessionHandoffControls(
       <Show when={props.view.activity}>
         {(activity) => <EvidenceStrip activity={activity()} />}
       </Show>
-      <ChildEvidenceSection evidence={props.view.childEvidence} jobs={props.view.childJobs} />
+      <ChildEvidenceSection
+        evidence={props.view.childEvidence}
+        jobs={props.view.childJobs}
+        onJobCancel={props.onJobCancel}
+      />
       <div class="dev-handoff__controls">
         <For each={ROW_KINDS}>
           {(kind) => (
