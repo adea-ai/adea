@@ -185,7 +185,7 @@ apps/desktop/shell/build/dev-macos-arm64/Adea-dev.app --artifact
 
 Screenshots: every row that asked for a capture left the screen it produced
 behind. They are committed with this record under
-[`docs/evidence/installed-desktop-ui-acceptance-2026-10-20/screenshots/`](./installed-desktop-ui-acceptance-2026-10-20/screenshots/)
+`docs/evidence/installed-desktop-ui-acceptance-2026-10-20/screenshots/`
 — eleven files, not the fifteen an earlier revision of this record claimed —
 together with the run's own artifact, the expected/actual record of every row,
 under
