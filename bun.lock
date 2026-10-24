@@ -26,7 +26,7 @@
     },
     "apps/desktop": {
       "name": "@adea-ai/desktop",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/auth": "workspace:*",
         "@adea-ai/dev-view": "workspace:*",
@@ -34,7 +34,7 @@
     },
     "apps/mobile": {
       "name": "@adea-ai/mobile",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@capacitor/android": "8.5.2",
         "@capacitor/core": "8.5.2",
@@ -47,18 +47,18 @@
     },
     "apps/web": {
       "name": "@adea-ai/web",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-core": "workspace:*",
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/audio": "workspace:*",
         "@adea-ai/auth": "workspace:*",
-        "@adea-ai/contracts": "1.21.6",
+        "@adea-ai/contracts": "1.22.0",
         "@adea-ai/data": "workspace:*",
         "@adea-ai/db": "workspace:*",
         "@adea-ai/dev-view": "workspace:*",
-        "@adea-ai/sdk": "1.20.1",
+        "@adea-ai/sdk": "1.21.0",
         "@adea-ai/spatial": "workspace:*",
         "@adea-ai/state": "workspace:*",
         "@adea-ai/types": "workspace:*",
@@ -90,21 +90,21 @@
     },
     "packages/api-client": {
       "name": "@adea-ai/api-client",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/app-core": {
       "name": "@adea-ai/app-core",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
       },
     },
     "packages/audio": {
       "name": "@adea-ai/audio",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/ui": "0.146.3",
         "lucide-solid": "^1.51.0",
@@ -117,7 +117,7 @@
     },
     "packages/auth": {
       "name": "@adea-ai/auth",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "better-auth": "1.6.23",
@@ -130,11 +130,11 @@
     },
     "packages/config": {
       "name": "@adea-ai/config",
-      "version": "0.101.0",
+      "version": "0.102.0",
     },
     "packages/data": {
       "name": "@adea-ai/data",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/state": "workspace:*",
@@ -149,7 +149,7 @@
     },
     "packages/db": {
       "name": "@adea-ai/db",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/auth": "workspace:*",
         "@adea-ai/remote-content": "workspace:*",
@@ -164,7 +164,7 @@
     },
     "packages/dev-view": {
       "name": "@adea-ai/dev-view",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/state": "workspace:*",
@@ -193,18 +193,18 @@
     },
     "packages/remote-content": {
       "name": "@adea-ai/remote-content",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@hpke/core": "1.9.0",
       },
     },
     "packages/spatial": {
       "name": "@adea-ai/spatial",
-      "version": "0.101.0",
+      "version": "0.102.0",
     },
     "packages/state": {
       "name": "@adea-ai/state",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/types": "workspace:*",
         "solid-js": "^1.9.15",
@@ -212,14 +212,14 @@
     },
     "packages/types": {
       "name": "@adea-ai/types",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@noble/hashes": "2.4.0",
       },
     },
     "packages/ui": {
       "name": "@adea-ai/app-ui",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/ui": "0.146.3",
         "lucide-solid": "^1.51.0",
@@ -232,7 +232,7 @@
     },
     "packages/workspace-nav": {
       "name": "@adea-ai/workspace-nav",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/app-ui": "workspace:*",
         "@adea-ai/types": "workspace:*",
@@ -247,7 +247,7 @@
     },
     "packages/workspace-ui": {
       "name": "@adea-ai/workspace-ui",
-      "version": "0.101.0",
+      "version": "0.102.0",
       "dependencies": {
         "@adea-ai/api-client": "workspace:*",
         "@adea-ai/app-ui": "workspace:*",
@@ -281,8 +281,9 @@
     "seroval": "^1.6.8",
     "seroval-plugins": "^1.6.8",
     "sharp": "0.35.5",
-    "undici": "8.11.2",
+    "undici": "8.12.2",
     "uuid": "^14.0.0",
+    "zod": "4.6.6",
   },
   "packages": {
     "@adea-ai/api-client": ["@adea-ai/api-client@workspace:packages/api-client"],
@@ -297,7 +298,7 @@
 
     "@adea-ai/config": ["@adea-ai/config@workspace:packages/config"],
 
-    "@adea-ai/contracts": ["@adea-ai/contracts@1.21.6", "", { "dependencies": { "zod": "4.6.5" } }, "sha512-iADaLzVkzxdM7mlvEES2s9OmfKP4rt3Xb1lMlViZXW/U3wVvD1wAD3kXusINHhq9NmyTVTNmvOZLAatvF4kBPA=="],
+    "@adea-ai/contracts": ["@adea-ai/contracts@1.22.0", "", { "dependencies": { "zod": "4.6.5" } }, "sha512-SraM4KXyDIMMYRWx6CKaOTJ1WFMMnlgCBVBEtT4lt7FFo4eT3GOQxjAzY1XjT7rhq1+hmM/4O3cDADJoKP8JSw=="],
 
     "@adea-ai/data": ["@adea-ai/data@workspace:packages/data"],
 
@@ -313,7 +314,7 @@
 
     "@adea-ai/runtime-sdk": ["@adea-ai/runtime-sdk@1.17.1", "", { "dependencies": { "@adea-ai/contracts": "^1.21.5", "zod": "4.6.5" } }, "sha512-spmNgD4XzzGVffN6TsuNt6BEEH6DDyTEnXIA99Tdrh8cA2qHcK0QE3hZOt0OhDNAB49Ven95gWU8KceAFVm6rg=="],
 
-    "@adea-ai/sdk": ["@adea-ai/sdk@1.20.1", "", { "dependencies": { "@adea-ai/contracts": "^1.21.5", "@adea-ai/runtime-sdk": "^1.17.1", "zod": "4.6.5" } }, "sha512-I6pVoCIL0kqPVI/U0WAwnz5/rWImsA0vR9BCEIiiaJMIlGQQlFyDRcMkY+dBMfhfCrWW/odw6yVmTput9+9b+g=="],
+    "@adea-ai/sdk": ["@adea-ai/sdk@1.21.0", "", { "dependencies": { "@adea-ai/contracts": "^1.22.0", "@adea-ai/runtime-sdk": "^1.17.1", "zod": "4.6.5" } }, "sha512-2UoR7wnRjwjTfB1cNLBzXbq5kdrQAX54yQjMNzrycxPgky2bCPUjKOWmSc/vTVI6VQRggXX6KquP+QExca2cTQ=="],
 
     "@adea-ai/spatial": ["@adea-ai/spatial@workspace:packages/spatial"],
 
@@ -1787,7 +1788,7 @@
 
     "uglify-js": ["uglify-js@3.19.3", "", { "bin": { "uglifyjs": "bin/uglifyjs" } }, "sha512-v3Xu+yuwBXisp6QYTcH4UbH+xYJXqnq2m/LtQVWKWzYc1iehYnLixoQDN9FH6/j9/oybfd6W9Ghwkl8+UMKTKQ=="],
 
-    "undici": ["undici@8.11.2", "", {}, "sha512-u4UB2/IrKdU6lFxumHmmo1a3fCQO5tzQllRorfoRS63txhrB7xTpSn1PftwC4qEHkOaqP95fCWW4lJzwErwzhQ=="],
+    "undici": ["undici@8.12.2", "", {}, "sha512-XtuDWVdqTLr3NAxm2ly9/hU6kUsJOgGh1RASzMBbsw6aWCOaQzHdW+QQDfdERjfJ2V5vL5pRPa4RetO9UfivDg=="],
 
     "undici-types": ["undici-types@8.9.0", "", {}, "sha512-KTDyRTYX8sWmKXAikPHHSyc63CRPETMctyjKFupcC6OBLXT3xsN0e9aF7m+mIXutFWpUXuedtowG7iLOzp0kQg=="],
 
@@ -1881,15 +1882,13 @@
 
     "yuku-parser": ["yuku-parser@0.19.0", "", { "dependencies": { "@yuku-toolchain/types": "^0.19.0", "yuku-core": "0.19.0" } }, "sha512-XrBh9ZiQK5mJVRxZBAvD6LwRyAYrK3MFtH3+onyuxFL5hFD44EC3QOmIC1FjTj6H2MMwq46/NAI+NZxLZPZgxg=="],
 
-    "zod": ["zod@4.6.5", "", {}, "sha512-v5l/aFXZQeai4awLbOpSoHecE9UiMrnfx75tEXLjNonXVARxQ5mOeipTjROUchszUNCqnE+hqAMujRsRHsut2Q=="],
+    "zod": ["zod@4.6.6", "", {}, "sha512-4UmzQUF5fxvfcYHlbjBmejU+w+hbDnWFx4aS8kBx7nPBHcO2SqPbpAG8snbdg+Xse4pRefR98hgjFgIMCI/UhA=="],
 
     "@babel/helper-module-imports/@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
     "@babel/helper-module-transforms/@babel/helper-module-imports": ["@babel/helper-module-imports@8.0.0", "", { "dependencies": { "@babel/traverse": "^8.0.0", "@babel/types": "^8.0.0" } }, "sha512-NZ7mSS93o4ndX4KrbD7W8Sf3QT8Qe24PrnFyUcuOPDzK6faqDFKjY9RG7he7+I7FdiQ4llpnosFqzrXa+Vy3Ew=="],
 
     "@babel/plugin-syntax-jsx/@babel/helper-plugin-utils": ["@babel/helper-plugin-utils@7.29.7", "", {}, "sha512-G7sHYigPY17oO5SYWnfD/0MTBwVR781S/JI643e/JhUYgVgWE/61SoW3NH9KWUKyKq5LVh3npif99Wkt6j86Jw=="],
-
-    "@cloudflare/config/zod": ["zod@4.4.3", "", {}, "sha512-ytENFjIJFl2UwYglde2jchW2Hwm4GJFLDiSXWdTrJQBIN9Fcyp7n4DhxJEiWNAJMV1/BqWfW/kkg71UDcHJyTQ=="],
 
     "@cspotcode/source-map-support/@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.9", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.0.3", "@jridgewell/sourcemap-codec": "^1.4.10" } }, "sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ=="],
 

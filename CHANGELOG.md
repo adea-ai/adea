@@ -1,5 +1,57 @@
 # Changelog
 
+## [0.102.0](https://github.com/adea-ai/adea/compare/v0.101.0...v0.102.0) (2026-10-23)
+
+
+### Features
+
+* **chat:** attach local text files in the composer ([#1595](https://github.com/adea-ai/adea/issues/1595)) ([c4258ef](https://github.com/adea-ai/adea/commit/c4258efa9eba20cd72d78e170cd1b23e420ae832))
+* **chat:** offer checkpoint restore when the host marks it restorable ([#1585](https://github.com/adea-ai/adea/issues/1585)) ([f8672cf](https://github.com/adea-ai/adea/commit/f8672cf00a7ff73dea7844c809832363642a6e61))
+* **chat:** queue follow-up messages while the agent is working ([#1584](https://github.com/adea-ai/adea/issues/1584)) ([fed9548](https://github.com/adea-ai/adea/commit/fed9548c5b1f7bbf319872940a0bd7de4055dbde))
+* **pi:** show the lead plan's child allowance on preparation ([#1211](https://github.com/adea-ai/adea/issues/1211)) ([#1583](https://github.com/adea-ai/adea/issues/1583)) ([f882ce4](https://github.com/adea-ai/adea/commit/f882ce4f709006b897a242a1217ff97273e9af2e))
+* **railway:** qualify the production source and refuse an ambiguous one ([#1559](https://github.com/adea-ai/adea/issues/1559)) ([af4c207](https://github.com/adea-ai/adea/commit/af4c20724e1052359d5903ec70c5d17add6c2657))
+* **scripts:** add safe development resource reuse tooling ([#1567](https://github.com/adea-ai/adea/issues/1567)) ([#1576](https://github.com/adea-ai/adea/issues/1576)) ([65e3880](https://github.com/adea-ai/adea/commit/65e3880a11c97660ddfc42cce5024dbc6bee148a))
+* **sim:** add the inert Worker entry, allowlist policy and licence backstop for hosted Agent Sim ([#1590](https://github.com/adea-ai/adea/issues/1590)) ([f689841](https://github.com/adea-ai/adea/commit/f6898419d5298326080c0065ae7ad8329833a20d))
+* **workspace-ui:** wire scoped host rename and local host selection ([#188](https://github.com/adea-ai/adea/issues/188)) ([#1574](https://github.com/adea-ai/adea/issues/1574)) ([f240306](https://github.com/adea-ai/adea/commit/f240306be52540f5a4414c4c16dab1fe0d25fbf0))
+
+
+### Bug Fixes
+
+* **a11y:** do not wait for looping animations in the strict axe lane ([#1589](https://github.com/adea-ai/adea/issues/1589)) ([d17610c](https://github.com/adea-ai/adea/commit/d17610c124c07040b39151b7281dd87d0005ab91))
+* **auth:** classify the local proxy transport loss in the Worker acceptance ([#1525](https://github.com/adea-ai/adea/issues/1525)) ([e609593](https://github.com/adea-ai/adea/commit/e6095935eaa9153b9acac33101e5505123e13c56))
+* **auth:** use verified Railway Hyperdrive for Worker account queries ([#1582](https://github.com/adea-ai/adea/issues/1582)) ([6a8bc63](https://github.com/adea-ai/adea/commit/6a8bc634501780742ee496c74f4412693b7cfda9))
+* **ci:** restore qualified Vite+ build caches ([#1581](https://github.com/adea-ai/adea/issues/1581)) ([fc8c5e3](https://github.com/adea-ai/adea/commit/fc8c5e32a26704404d32d2cd1007e89840b2c512))
+* **db:** make the retention policy set total and pin the per-category policies ([#1221](https://github.com/adea-ai/adea/issues/1221)) ([#1569](https://github.com/adea-ai/adea/issues/1569)) ([039e5a3](https://github.com/adea-ai/adea/commit/039e5a3b2c93f13db30106d92bf2b716de6396a2))
+* **deps:** update adea-ai design system ([#1580](https://github.com/adea-ai/adea/issues/1580)) ([b9095bb](https://github.com/adea-ai/adea/commit/b9095bb4d3683341e4a2cb2a2d65dca72f9e1d31))
+* **deps:** update dependency @adea-ai/ui to v0.146.3 ([#1592](https://github.com/adea-ai/adea/issues/1592)) ([efdcd8c](https://github.com/adea-ai/adea/commit/efdcd8c62c0352c750004fea4d164257bc97582d))
+* **desktop:** stop hashing every retained attachment payload on each upload ([#1596](https://github.com/adea-ai/adea/issues/1596)) ([91d86c9](https://github.com/adea-ai/adea/commit/91d86c92fd835527abc08a296634c0d13c63a3ec))
+* **docker:** do not count zombie members of a killed group as a live group ([#1598](https://github.com/adea-ai/adea/issues/1598)) ([a3d9658](https://github.com/adea-ai/adea/commit/a3d96589a8e420b5f2dab3a36cb6b6165dc3f4a9))
+* **nav:** give the Worktrees group label readable contrast ([#1594](https://github.com/adea-ai/adea/issues/1594)) ([1a224d1](https://github.com/adea-ai/adea/commit/1a224d16a4b6a0ed11903f2e152b25edb48f9b8a))
+* **railway:** connect scoped production PostgreSQL and self-hosted account auth ([#1515](https://github.com/adea-ai/adea/issues/1515)) ([5cafbf7](https://github.com/adea-ai/adea/commit/5cafbf7a30f9be703afb92adeab80c0af02522e8))
+* **readiness:** run each unit criterion's own bun test command ([#1591](https://github.com/adea-ai/adea/issues/1591)) ([a017c5e](https://github.com/adea-ai/adea/commit/a017c5e4167e25da2f3af9fb2a589424f9efc2ff))
+
+
+### Documentation
+
+* **railway:** inventory the remaining Railway migration acceptance ([#1577](https://github.com/adea-ai/adea/issues/1577)) ([30c9e98](https://github.com/adea-ai/adea/commit/30c9e989620a485df39ffb17ba61e8bfe0284768))
+* **readiness:** refresh [#1224](https://github.com/adea-ai/adea/issues/1224) M18 readiness record at main fed9548c ([#1586](https://github.com/adea-ai/adea/issues/1586)) ([043425c](https://github.com/adea-ai/adea/commit/043425c5aa8d619c086b19bcf71f18e17ab78e6f))
+* **web:** describe the hosted Agent Sim instead of the retired same-origin engine pack ([#1587](https://github.com/adea-ai/adea/issues/1587)) ([300e5c9](https://github.com/adea-ai/adea/commit/300e5c9a1e0be8f774e97c15c0a58ff99f4083f7))
+
+
+### Tests
+
+* **a11y:** expect the rail reorder announcement to name the app, not the row label ([#1588](https://github.com/adea-ai/adea/issues/1588)) ([f6111d3](https://github.com/adea-ai/adea/commit/f6111d3427716e50a27523e205f92e6ffb12f4d8))
+* **cache:** link workspace dependencies into the disposable checkout ([#1597](https://github.com/adea-ai/adea/issues/1597)) ([619f31c](https://github.com/adea-ai/adea/commit/619f31ce9b9d9d223c1079d76b3cdf6ac8678921))
+* **cache:** qualify cache correctness and reuse ([#1565](https://github.com/adea-ai/adea/issues/1565)) ([#1570](https://github.com/adea-ai/adea/issues/1570)) ([dafddac](https://github.com/adea-ai/adea/commit/dafddac5a8c3a1192e675841aa663766391c9c6f))
+* **export:** qualify portable export residual residency ([#1549](https://github.com/adea-ai/adea/issues/1549)) ([70c7c71](https://github.com/adea-ai/adea/commit/70c7c7150c67eb40644dbc09c678b80b82aea45a))
+* **pi-journey:** requalify the joined journey suites ([#1173](https://github.com/adea-ai/adea/issues/1173)) ([#1593](https://github.com/adea-ai/adea/issues/1593)) ([227d015](https://github.com/adea-ai/adea/commit/227d015a4cb5225f18f43f1e18c4b2706f1f1897))
+* **relay:** qualify remote command and event contract ([#1551](https://github.com/adea-ai/adea/issues/1551)) ([f227351](https://github.com/adea-ai/adea/commit/f2273512dd003d8a0a2ed5b8794e51bb589637aa))
+
+
+### Maintenance
+
+* pin Bun 1.4.4 and qualify coverage output ([#1578](https://github.com/adea-ai/adea/issues/1578)) ([98dd466](https://github.com/adea-ai/adea/commit/98dd4668b8cb3b5fda5c411fd99a2e1c4aec3acc))
+
 ## [0.101.0](https://github.com/adea-ai/adea/compare/v0.100.0...v0.101.0) (2026-10-22)
 
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -8,6 +8,7 @@ import {
   dockerResourceInventory,
   isPrimaryWorktreePath,
   planWorktrees,
+  physicalWorktreePath,
   worktreesOf,
 } from './dev-resource-reuse-report.mjs'
 import { REUSE_DECISION, REUSE_REFUSAL } from './dev-resource-reuse.mjs'
@@ -45,11 +46,12 @@ describe('reuse safety against path aliases and incomplete inventory', () => {
     symlinkSync(primary, alias, 'dir')
 
     expect(isPrimaryWorktreePath(alias, primary)).toBe(true)
+    expect(physicalWorktreePath(alias)).toBe(realpathSync(primary))
     const [plan] = planWorktrees(
       [
         {
           path: alias,
-          physicalPath: primary,
+          physicalPath: realpathSync(primary),
           physicalPathResolved: true,
           localChanges: false,
           published: true,
