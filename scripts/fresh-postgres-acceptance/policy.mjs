@@ -74,3 +74,19 @@ export function resolveLocalDockerEndpoint(inherited, inspect) {
   // Reject remote configured targets even if another override would hide them.
   return inherited.DOCKER_CONTEXT ? contextEndpoint : inherited.DOCKER_HOST || contextEndpoint
 }
+
+/**
+ * Pin one runner process, including its children and cleanup, to its validated
+ * local endpoint. Context/TLS overrides cannot supersede the pinned host.
+ * No persistent Docker settings or parent-process environment are changed.
+ * @param {Record<string, string | undefined>} environment
+ * @param {() => string} inspect
+ */
+export function pinLocalDockerEndpoint(environment, inspect) {
+  const endpoint = resolveLocalDockerEndpoint(environment, inspect)
+  environment.DOCKER_HOST = endpoint
+  delete environment.DOCKER_CONTEXT
+  delete environment.DOCKER_TLS_VERIFY
+  delete environment.DOCKER_CERT_PATH
+  return endpoint
+}
