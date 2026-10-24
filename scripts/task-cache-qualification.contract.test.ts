@@ -6,6 +6,12 @@
 // restored build reproduces the same output bytes as an independent cold build,
 // and it must keep the rules that decide who may write the cache, which readers
 // may read it, when the billing pause applies and which actions are pinned.
+//
+// The lane's runner has the same kind of contract: a token that may only read,
+// a checkout that leaves no credentials behind, and a setup action that may not
+// manage a cache beside the one this lane qualifies. Each of those guards reads
+// the workflow as text, so a weakened copy can be put through the same function
+// and the mutation control below fails when a guard stops biting.
 import { describe, expect, test } from 'bun:test'
 
 import { readFileSync } from 'node:fs'
@@ -109,5 +115,199 @@ describe('the cache qualification workflow', () => {
     // The toolchain identity is part of the cached command, so a different node,
     // bun or platform is a different key.
     expect(build?.command).toContain('ORCH_TOOLCHAIN=')
+  })
+})
+
+/**
+ * Every `permissions:` block in the workflow, top-level or nested, in the
+ * scalar (`permissions: write-all`) and mapping (`permissions:` plus indented
+ * grants) forms.
+ */
+function permissionsBlocks(text: string): string[] {
+  const lines = text.split('\n')
+  const blocks: string[] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    const block = /^(\s*)permissions:(.*)$/.exec(lines[index])
+    if (!block) continue
+    const [, indent, inline] = block
+    if (inline.trim() !== '') {
+      blocks.push(lines[index])
+      continue
+    }
+    let end = index + 1
+    while (
+      end < lines.length &&
+      lines[end].trim() !== '' &&
+      lines[end].search(/\S/) > indent.length
+    )
+      end += 1
+    blocks.push(lines.slice(index, end).join('\n'))
+    index = end - 1
+  }
+  return blocks
+}
+
+/**
+ * The body of every step that uses `uses`, from its `- uses:` line to the next
+ * step of the same job, so a guard reads one step's `with:` and not another's.
+ */
+function stepBlocks(text: string, uses: string): string[][] {
+  const lines = text.split('\n')
+  const marker = `- uses: ${uses}`
+  const blocks: string[][] = []
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!lines[index].trimStart().startsWith(marker)) continue
+    const indent = lines[index].search(/\S/)
+    let end = index + 1
+    while (end < lines.length) {
+      const line = lines[end]
+      if (line.trimStart().startsWith('- ') && line.search(/\S/) <= indent) break
+      end += 1
+    }
+    blocks.push(lines.slice(index, end))
+    index = end - 1
+  }
+  return blocks
+}
+
+/** The ways the lane's token stops being read-only. */
+function permissionsViolations(text: string): string[] {
+  const blocks = permissionsBlocks(text)
+  const violations: string[] = []
+  const topLevel = blocks.find((block) => block.startsWith('permissions:'))
+  if (topLevel === undefined)
+    violations.push(
+      'the workflow declares no top-level permissions block, so the token scope falls back to the repository default'
+    )
+  else if (!/^\s+contents:\s*read\s*$/m.test(topLevel))
+    violations.push("the top-level permissions block does not pin contents to 'read'")
+  // A write grant anywhere, including a job's own block, widens that default.
+  for (const block of blocks) {
+    if (/\bwrite-all\b/.test(block)) violations.push('a permissions block grants write-all')
+    else if (/^\s+[A-Za-z][\w-]*:\s*write\s*$/m.test(block))
+      violations.push('a permissions block grants a write scope')
+  }
+  return violations
+}
+
+/** The ways the checkout leaves a write credential in the runner workspace. */
+function checkoutViolations(text: string): string[] {
+  const steps = stepBlocks(text, 'actions/checkout@')
+  if (steps.length === 0) return ['the lane has no checkout step']
+  const violations: string[] = []
+  for (const step of steps) {
+    const settings = step.filter((line) => line.trimStart().startsWith('persist-credentials:'))
+    if (settings.length !== 1 || settings[0].trim() !== 'persist-credentials: false')
+      violations.push('the checkout step does not set persist-credentials: false')
+  }
+  return violations
+}
+
+/** The ways setup-bun starts managing a cache beside the qualified one. */
+function bunSetupViolations(text: string): string[] {
+  const steps = stepBlocks(text, 'oven-sh/setup-bun@')
+  if (steps.length === 0) return ['the lane has no setup-bun step']
+  const violations: string[] = []
+  for (const step of steps) {
+    const settings = step.filter((line) => line.trimStart().startsWith('no-cache:'))
+    if (settings.length !== 1 || settings[0].trim() !== 'no-cache: true')
+      violations.push('the setup-bun step does not set no-cache: true')
+  }
+  return violations
+}
+
+describe('the runner this lane runs on', () => {
+  test('the workflow grants read permissions only', () => {
+    // The whole lane runs with this token; the block is declared and read-only
+    // rather than left to whatever the repository default happens to be.
+    expect(workflow).toContain('permissions:\n  contents: read')
+    expect(permissionsViolations(workflow)).toEqual([])
+  })
+
+  test('the checkout leaves no credentials behind', () => {
+    // A persisted credential is a write token for everything that runs after
+    // the checkout in the same workspace.
+    expect(workflow).toContain('persist-credentials: false')
+    expect(checkoutViolations(workflow)).toEqual([])
+  })
+
+  test('setup-bun keeps its hands off the cache', () => {
+    // The lane qualifies exactly one cache: a second, action-managed bun cache
+    // would restore bytes this workflow never qualified.
+    expect(workflow).toContain('no-cache: true')
+    expect(bunSetupViolations(workflow)).toEqual([])
+  })
+
+  test('the mutation control bites: every weakened guard reports itself', () => {
+    const mutants: {
+      name: string
+      guard: (text: string) => string[]
+      mutated: string
+      reported: string
+    }[] = [
+      {
+        name: 'the token may write contents',
+        guard: permissionsViolations,
+        mutated: workflow.replace(
+          'permissions:\n  contents: read',
+          'permissions:\n  contents: write'
+        ),
+        reported: 'a permissions block grants a write scope',
+      },
+      {
+        name: 'the permissions block grants write-all',
+        guard: permissionsViolations,
+        mutated: workflow.replace('permissions:\n  contents: read', 'permissions: write-all'),
+        reported: 'a permissions block grants write-all',
+      },
+      {
+        name: 'the permissions block is gone, so the repository default applies',
+        guard: permissionsViolations,
+        mutated: workflow.replace('permissions:\n  contents: read\n\n', ''),
+        reported:
+          'the workflow declares no top-level permissions block, so the token scope falls back to the repository default',
+      },
+      {
+        name: 'a job re-declares a write grant beneath the read-only top level',
+        guard: permissionsViolations,
+        mutated: workflow.replace(
+          '    runs-on: ubuntu-latest',
+          '    permissions:\n      contents: write\n    runs-on: ubuntu-latest'
+        ),
+        reported: 'a permissions block grants a write scope',
+      },
+      {
+        name: 'the checkout persists its credentials',
+        guard: checkoutViolations,
+        mutated: workflow.replace('persist-credentials: false', 'persist-credentials: true'),
+        reported: 'the checkout step does not set persist-credentials: false',
+      },
+      {
+        name: 'the checkout stops disabling credential persistence',
+        guard: checkoutViolations,
+        mutated: workflow.replace(/\n\s+persist-credentials: false/, ''),
+        reported: 'the checkout step does not set persist-credentials: false',
+      },
+      {
+        name: 'setup-bun manages a cache again',
+        guard: bunSetupViolations,
+        mutated: workflow.replace('no-cache: true', 'no-cache: false'),
+        reported: 'the setup-bun step does not set no-cache: true',
+      },
+      {
+        name: 'the bun cache setting is left out',
+        guard: bunSetupViolations,
+        mutated: workflow.replace(/\n\s+no-cache: true/, ''),
+        reported: 'the setup-bun step does not set no-cache: true',
+      },
+    ]
+    for (const { name, guard, mutated, reported } of mutants) {
+      // The mutation lives in memory only: the workflow on disk is untouched.
+      expect({ name, changed: mutated !== workflow }).toEqual({ name, changed: true })
+      expect({ name, violations: guard(mutated) }).toEqual({
+        name,
+        violations: expect.arrayContaining([reported]),
+      })
+    }
   })
 })
