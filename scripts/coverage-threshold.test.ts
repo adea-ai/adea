@@ -38,8 +38,9 @@ test('the configured 80% coverage goal rejects uncalled functions in the real Bu
     )
     const below = run()
     expect(below.exitCode).toBe(1)
+    // Bun 1.4.4 counts the uncalled function's line as uncovered too.
     expect(below.stdout.toString() + below.stderr.toString()).toMatch(
-      /All files\s*\|\s*50\.00\s*\|\s*100\.00/
+      /All files\s*\|\s*50\.00\s*\|\s*50\.00/
     )
     writeFileSync(
       fixture,

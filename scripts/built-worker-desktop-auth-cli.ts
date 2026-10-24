@@ -58,6 +58,7 @@ import {
 } from '../packages/db/tests/fixtures/canonical-boundary'
 import { applyAuthSchema } from '../packages/auth/src/schema-init'
 import { classifyDisposableProofEvidence } from './fresh-postgres-acceptance/evidence.mjs'
+import { pinLocalDockerEndpoint } from './fresh-postgres-acceptance/policy.mjs'
 import { readCheckoutProvenance } from './fresh-postgres-acceptance/provenance.mjs'
 import {
   assertBuiltWorkerDesktopAuthPassed,
@@ -65,6 +66,12 @@ import {
   runBuiltWorkerDesktopAuth,
   type AuthLifecycleEvidence,
 } from './fresh-postgres-acceptance/built-worker-desktop-auth'
+import {
+  composeWorkspacePermissionReceipt,
+  createWorkspacePermissionDatabase,
+  runBuiltWorkerWorkspacePermissions,
+  type WorkspacePermissionReceipt,
+} from './fresh-postgres-acceptance/built-worker-workspace-permissions'
 import {
   assertLocalRuntimePrerequisites,
   buildBuiltWorker,
@@ -270,6 +277,23 @@ async function availablePort(): Promise<number> {
 }
 
 async function main(): Promise<void> {
+  // Metadata inspection is local and must precede daemon access, build or
+  // provisioning. Keep this process pinned through every exit/cleanup path.
+  pinLocalDockerEndpoint(process.env, () => {
+    const result = spawnSync(
+      'docker',
+      ['context', 'inspect', '--format', '{{json .Endpoints.docker.Host}}'],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        timeout: 5_000,
+        killSignal: 'SIGKILL',
+      }
+    )
+    if (result.error || result.status !== 0) throw new Error('Docker context metadata unavailable')
+    return result.stdout.trim()
+  })
+
   // The host capabilities are checked before any resource is created, through
   // the same contract the offline tests pin.
   assertLocalRuntimePrerequisites({
@@ -352,7 +376,11 @@ async function main(): Promise<void> {
     }
   })
   let bodyError: unknown
-  let receipt: Awaited<ReturnType<typeof runBuiltWorkerDesktopAuth>> | undefined
+  let receipt:
+    | (Awaited<ReturnType<typeof runBuiltWorkerDesktopAuth>> & {
+        workspacePermissions?: WorkspacePermissionReceipt
+      })
+    | undefined
 
   try {
     // The owned setup is inside the protected body: a failure to mint the
@@ -564,6 +592,42 @@ async function main(): Promise<void> {
       checkout: provenance,
       module: provenance,
     })
+    // Do not create a second account journey after the original proof failed.
+    // The readback client uses ONLY this invocation's provisioned runtime URL;
+    // ambient database settings never select its target. Close it before the
+    // existing Worker -> container -> material teardown sequence.
+    if (receipt.status === 'passed') {
+      const readback = postgres(runtimeUrl, { max: 1, onnotice: () => {} })
+      try {
+        const workspace = await runBuiltWorkerWorkspacePermissions({
+          transport: workerTransport({
+            baseUrl: worker.baseUrl,
+            certificatePath: certificate.certificatePath,
+          }),
+          baseUrl: worker.baseUrl,
+          database: createWorkspacePermissionDatabase(
+            {
+              unsafe: async (query, parameters) => [
+                ...(await readback.unsafe(query, parameters ? [...parameters] : [])),
+              ],
+              transaction: async (work) =>
+                readback.begin(async (transaction) =>
+                  work({
+                    unsafe: async (query, parameters) => [
+                      ...(await transaction.unsafe(query, parameters ? [...parameters] : [])),
+                    ],
+                  })
+                ),
+            },
+            PROOF_AUTH_SCHEMA
+          ),
+          secrets: [AUTH_SECRET, password],
+        })
+        receipt = composeWorkspacePermissionReceipt(receipt, workspace)
+      } finally {
+        await readback.end()
+      }
+    }
   } catch (error) {
     bodyError = error
   }
@@ -604,6 +668,7 @@ async function main(): Promise<void> {
   // material was removed: a receipt that claims a pass must not be published
   // while the Worker is still running or its material is still there.
   const published =
+    bodyError === undefined &&
     receipt &&
     publishableReceipt({
       receipt,

@@ -113,6 +113,31 @@ describe('management operation inventory (#1215)', () => {
     })
   })
 
+  test('classifies an operation the catalogue does not name instead of crashing', () => {
+    for (const lane of managementLanes) {
+      expect(
+        managementOperationSupport('project.not-a-catalogue-operation' as never, lane)
+      ).toEqual({
+        reason: 'not_implemented',
+        state: 'unsupported',
+      })
+    }
+    // An inherited name is not an operation either: the catalogue is an ordinary
+    // object, so `toString` and `constructor` must not resolve to a policy.
+    expect(managementOperationSupport('toString' as never, 'web')).toEqual({
+      reason: 'not_implemented',
+      state: 'unsupported',
+    })
+    expect(managementOperationSupport('constructor' as never, 'web')).toEqual({
+      reason: 'not_implemented',
+      state: 'unsupported',
+    })
+    expect(managementOperationLanes('project.not-a-catalogue-operation' as never)).toEqual([])
+    expect(managementOperationLanes('toString' as never)).toEqual([])
+    expect(isManagementOperationId('project.not-a-catalogue-operation')).toBe(false)
+    expect(isManagementOperationId('toString')).toBe(false)
+  })
+
   test('records the exact revision, confirmation, audit and recovery contract', () => {
     expect(managementOperation('memory.entry.update')).toMatchObject({
       confirmation: 'none',

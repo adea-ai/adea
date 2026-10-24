@@ -498,8 +498,35 @@ describe('structured results', () => {
     ])
     expect(results(turns[0]!.entries)[0]).toMatchObject({
       eventIds: ['cp-a', 'cp-b'],
-      result: { type: 'checkpoint', name: 'Before the fix' },
+      result: { type: 'checkpoint', name: 'Before the fix', restorable: true },
     })
+  })
+
+  test('a checkpoint is restorable only when the host says so', () => {
+    // A local builder that needs no captured scope.
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
+    const checkpoint = (id: string, restore: Record<string, unknown>) =>
+      activity(
+        'checkpoint.observed',
+        {
+          checkpointId: id,
+          name: id,
+          createdAt: '2026-10-14T10:00:00.000Z',
+          harnessInstallationId: 'harness-1',
+          restore,
+        },
+        id
+      )
+    const { turns } = build([
+      prompt('u1'),
+      checkpoint('cp-yes', { supported: true }),
+      checkpoint('cp-no', { supported: false, reason: 'harness_restore_unavailable' }),
+    ])
+    expect(
+      results(turns[0]!.entries).map(
+        (entry) => (entry.result as { restorable: boolean }).restorable
+      )
+    ).toEqual([true, false])
   })
 
   test('a claim the wire gate refuses stays a quiet line with no payload content', () => {

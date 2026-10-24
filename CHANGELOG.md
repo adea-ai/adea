@@ -1,5 +1,130 @@
 # Changelog
 
+## [0.102.0](https://github.com/adea-ai/adea/compare/v0.101.0...v0.102.0) (2026-10-23)
+
+
+### Features
+
+* **chat:** attach local text files in the composer ([#1595](https://github.com/adea-ai/adea/issues/1595)) ([c4258ef](https://github.com/adea-ai/adea/commit/c4258efa9eba20cd72d78e170cd1b23e420ae832))
+* **chat:** offer checkpoint restore when the host marks it restorable ([#1585](https://github.com/adea-ai/adea/issues/1585)) ([f8672cf](https://github.com/adea-ai/adea/commit/f8672cf00a7ff73dea7844c809832363642a6e61))
+* **chat:** queue follow-up messages while the agent is working ([#1584](https://github.com/adea-ai/adea/issues/1584)) ([fed9548](https://github.com/adea-ai/adea/commit/fed9548c5b1f7bbf319872940a0bd7de4055dbde))
+* **pi:** show the lead plan's child allowance on preparation ([#1211](https://github.com/adea-ai/adea/issues/1211)) ([#1583](https://github.com/adea-ai/adea/issues/1583)) ([f882ce4](https://github.com/adea-ai/adea/commit/f882ce4f709006b897a242a1217ff97273e9af2e))
+* **railway:** qualify the production source and refuse an ambiguous one ([#1559](https://github.com/adea-ai/adea/issues/1559)) ([af4c207](https://github.com/adea-ai/adea/commit/af4c20724e1052359d5903ec70c5d17add6c2657))
+* **scripts:** add safe development resource reuse tooling ([#1567](https://github.com/adea-ai/adea/issues/1567)) ([#1576](https://github.com/adea-ai/adea/issues/1576)) ([65e3880](https://github.com/adea-ai/adea/commit/65e3880a11c97660ddfc42cce5024dbc6bee148a))
+* **sim:** add the inert Worker entry, allowlist policy and licence backstop for hosted Agent Sim ([#1590](https://github.com/adea-ai/adea/issues/1590)) ([f689841](https://github.com/adea-ai/adea/commit/f6898419d5298326080c0065ae7ad8329833a20d))
+* **workspace-ui:** wire scoped host rename and local host selection ([#188](https://github.com/adea-ai/adea/issues/188)) ([#1574](https://github.com/adea-ai/adea/issues/1574)) ([f240306](https://github.com/adea-ai/adea/commit/f240306be52540f5a4414c4c16dab1fe0d25fbf0))
+
+
+### Bug Fixes
+
+* **a11y:** do not wait for looping animations in the strict axe lane ([#1589](https://github.com/adea-ai/adea/issues/1589)) ([d17610c](https://github.com/adea-ai/adea/commit/d17610c124c07040b39151b7281dd87d0005ab91))
+* **auth:** classify the local proxy transport loss in the Worker acceptance ([#1525](https://github.com/adea-ai/adea/issues/1525)) ([e609593](https://github.com/adea-ai/adea/commit/e6095935eaa9153b9acac33101e5505123e13c56))
+* **auth:** use verified Railway Hyperdrive for Worker account queries ([#1582](https://github.com/adea-ai/adea/issues/1582)) ([6a8bc63](https://github.com/adea-ai/adea/commit/6a8bc634501780742ee496c74f4412693b7cfda9))
+* **ci:** restore qualified Vite+ build caches ([#1581](https://github.com/adea-ai/adea/issues/1581)) ([fc8c5e3](https://github.com/adea-ai/adea/commit/fc8c5e32a26704404d32d2cd1007e89840b2c512))
+* **db:** make the retention policy set total and pin the per-category policies ([#1221](https://github.com/adea-ai/adea/issues/1221)) ([#1569](https://github.com/adea-ai/adea/issues/1569)) ([039e5a3](https://github.com/adea-ai/adea/commit/039e5a3b2c93f13db30106d92bf2b716de6396a2))
+* **deps:** update adea-ai design system ([#1580](https://github.com/adea-ai/adea/issues/1580)) ([b9095bb](https://github.com/adea-ai/adea/commit/b9095bb4d3683341e4a2cb2a2d65dca72f9e1d31))
+* **deps:** update dependency @adea-ai/ui to v0.146.3 ([#1592](https://github.com/adea-ai/adea/issues/1592)) ([efdcd8c](https://github.com/adea-ai/adea/commit/efdcd8c62c0352c750004fea4d164257bc97582d))
+* **desktop:** stop hashing every retained attachment payload on each upload ([#1596](https://github.com/adea-ai/adea/issues/1596)) ([91d86c9](https://github.com/adea-ai/adea/commit/91d86c92fd835527abc08a296634c0d13c63a3ec))
+* **docker:** do not count zombie members of a killed group as a live group ([#1598](https://github.com/adea-ai/adea/issues/1598)) ([a3d9658](https://github.com/adea-ai/adea/commit/a3d96589a8e420b5f2dab3a36cb6b6165dc3f4a9))
+* **nav:** give the Worktrees group label readable contrast ([#1594](https://github.com/adea-ai/adea/issues/1594)) ([1a224d1](https://github.com/adea-ai/adea/commit/1a224d16a4b6a0ed11903f2e152b25edb48f9b8a))
+* **railway:** connect scoped production PostgreSQL and self-hosted account auth ([#1515](https://github.com/adea-ai/adea/issues/1515)) ([5cafbf7](https://github.com/adea-ai/adea/commit/5cafbf7a30f9be703afb92adeab80c0af02522e8))
+* **readiness:** run each unit criterion's own bun test command ([#1591](https://github.com/adea-ai/adea/issues/1591)) ([a017c5e](https://github.com/adea-ai/adea/commit/a017c5e4167e25da2f3af9fb2a589424f9efc2ff))
+
+
+### Documentation
+
+* **railway:** inventory the remaining Railway migration acceptance ([#1577](https://github.com/adea-ai/adea/issues/1577)) ([30c9e98](https://github.com/adea-ai/adea/commit/30c9e989620a485df39ffb17ba61e8bfe0284768))
+* **readiness:** refresh [#1224](https://github.com/adea-ai/adea/issues/1224) M18 readiness record at main fed9548c ([#1586](https://github.com/adea-ai/adea/issues/1586)) ([043425c](https://github.com/adea-ai/adea/commit/043425c5aa8d619c086b19bcf71f18e17ab78e6f))
+* **web:** describe the hosted Agent Sim instead of the retired same-origin engine pack ([#1587](https://github.com/adea-ai/adea/issues/1587)) ([300e5c9](https://github.com/adea-ai/adea/commit/300e5c9a1e0be8f774e97c15c0a58ff99f4083f7))
+
+
+### Tests
+
+* **a11y:** expect the rail reorder announcement to name the app, not the row label ([#1588](https://github.com/adea-ai/adea/issues/1588)) ([f6111d3](https://github.com/adea-ai/adea/commit/f6111d3427716e50a27523e205f92e6ffb12f4d8))
+* **cache:** link workspace dependencies into the disposable checkout ([#1597](https://github.com/adea-ai/adea/issues/1597)) ([619f31c](https://github.com/adea-ai/adea/commit/619f31ce9b9d9d223c1079d76b3cdf6ac8678921))
+* **cache:** qualify cache correctness and reuse ([#1565](https://github.com/adea-ai/adea/issues/1565)) ([#1570](https://github.com/adea-ai/adea/issues/1570)) ([dafddac](https://github.com/adea-ai/adea/commit/dafddac5a8c3a1192e675841aa663766391c9c6f))
+* **export:** qualify portable export residual residency ([#1549](https://github.com/adea-ai/adea/issues/1549)) ([70c7c71](https://github.com/adea-ai/adea/commit/70c7c7150c67eb40644dbc09c678b80b82aea45a))
+* **pi-journey:** requalify the joined journey suites ([#1173](https://github.com/adea-ai/adea/issues/1173)) ([#1593](https://github.com/adea-ai/adea/issues/1593)) ([227d015](https://github.com/adea-ai/adea/commit/227d015a4cb5225f18f43f1e18c4b2706f1f1897))
+* **relay:** qualify remote command and event contract ([#1551](https://github.com/adea-ai/adea/issues/1551)) ([f227351](https://github.com/adea-ai/adea/commit/f2273512dd003d8a0a2ed5b8794e51bb589637aa))
+
+
+### Maintenance
+
+* pin Bun 1.4.4 and qualify coverage output ([#1578](https://github.com/adea-ai/adea/issues/1578)) ([98dd466](https://github.com/adea-ai/adea/commit/98dd4668b8cb3b5fda5c411fd99a2e1c4aec3acc))
+
+## [0.101.0](https://github.com/adea-ai/adea/compare/v0.100.0...v0.101.0) (2026-10-22)
+
+
+### Features
+
+* **db:** list tenant-authorized foreign-Agent candidates ([#1178](https://github.com/adea-ai/adea/issues/1178)) ([#1555](https://github.com/adea-ai/adea/issues/1555)) ([b551aae](https://github.com/adea-ai/adea/commit/b551aae62b422d6f9df928d78ee5864bd9bb0d7f))
+* **types:** add the agent profile projection consumer ([#41](https://github.com/adea-ai/adea/issues/41)) ([#1572](https://github.com/adea-ai/adea/issues/1572)) ([ca819e7](https://github.com/adea-ai/adea/commit/ca819e7370a2491a0e9bba2496a0a48cec98106b))
+
+
+### Bug Fixes
+
+* **deps:** update dependency @adea-ai/ui to v0.146.0 ([#1558](https://github.com/adea-ai/adea/issues/1558)) ([d3c24c1](https://github.com/adea-ai/adea/commit/d3c24c1c1960ea04692eefae9b827de0dd9e0d0d))
+* **runtime:** derive attachment quota from sealed records ([#1573](https://github.com/adea-ai/adea/issues/1573)) ([5d3f8d7](https://github.com/adea-ai/adea/commit/5d3f8d7dd5ad9d71375343a47c1e029111bbc364))
+* **types:** classify an uncatalogued management operation instead of crashing ([#1176](https://github.com/adea-ai/adea/issues/1176)) ([#1575](https://github.com/adea-ai/adea/issues/1575)) ([f011ffc](https://github.com/adea-ai/adea/commit/f011ffc6928bb6ac676070e4c0cf6813a371de37))
+
+
+### Tests
+
+* **db:** hold the native session family with the comparator's field-drift cases ([#1557](https://github.com/adea-ai/adea/issues/1557)) ([f3cf912](https://github.com/adea-ai/adea/commit/f3cf912d093fbf163a107c3b197e237c81f2c2bb))
+
+## [0.100.0](https://github.com/adea-ai/adea/compare/v0.99.0...v0.100.0) (2026-10-21)
+
+
+### Features
+
+* **acceptance:** prove the fresh-auth lifecycle recovers from a failure ([#1539](https://github.com/adea-ai/adea/issues/1539)) ([7aa4044](https://github.com/adea-ai/adea/commit/7aa4044e6d47f77afa5659a156ef9e1642b72f3a))
+* **acceptance:** qualify the built desktop authorize and exchange routes on the built Worker ([#1528](https://github.com/adea-ai/adea/issues/1528)) ([9fc3082](https://github.com/adea-ai/adea/commit/9fc3082d971c9f88948731bb65c2f1dd4e6c7ebd))
+* **acceptance:** qualify the Railway fresh-Postgres lane and its recovery ([#1514](https://github.com/adea-ai/adea/issues/1514)) ([129231e](https://github.com/adea-ai/adea/commit/129231ee823e794de722c341475737957e8633bd))
+* **ci:** give the integration lane a resource ownership and reuse policy ([#1543](https://github.com/adea-ai/adea/issues/1543)) ([85be87e](https://github.com/adea-ai/adea/commit/85be87e3f9e9da0d5cde917c4faf37b7b364b693))
+* **ci:** prove the self-hosted auth lifecycle on the disposable instance ([#1524](https://github.com/adea-ai/adea/issues/1524)) ([d55f485](https://github.com/adea-ai/adea/commit/d55f485000e294db511fd70fd412c568ca7c46fe))
+* **db:** project a group's effective standing for the [#1178](https://github.com/adea-ai/adea/issues/1178) read model ([#1554](https://github.com/adea-ai/adea/issues/1554)) ([b0bd538](https://github.com/adea-ai/adea/commit/b0bd538924e522531779371fca616b11bbecd086))
+* **group:** add the bounded revoke and earlier-history grant commands ([#1178](https://github.com/adea-ai/adea/issues/1178)) ([#1553](https://github.com/adea-ai/adea/issues/1553)) ([a582f5f](https://github.com/adea-ai/adea/commit/a582f5f7beee27ef32388ce2658fc3412d95dbc0))
+* **remote-content:** qualify request-bound return envelopes across runtimes ([#1546](https://github.com/adea-ai/adea/issues/1546)) ([9f3280b](https://github.com/adea-ai/adea/commit/9f3280b4092c4e0429c6d02c919461f2dbe04730))
+* **settings:** workspace settings cleanup ([#1540](https://github.com/adea-ai/adea/issues/1540)) ([e9c3ec6](https://github.com/adea-ai/adea/commit/e9c3ec6a3cccca297b0d243f29aa2f0f6e06ce9c))
+* **types:** add runtime connection and profile execution read models ([#37](https://github.com/adea-ai/adea/issues/37)/[#41](https://github.com/adea-ai/adea/issues/41)/[#186](https://github.com/adea-ai/adea/issues/186)) ([#1544](https://github.com/adea-ai/adea/issues/1544)) ([beb62c2](https://github.com/adea-ai/adea/commit/beb62c2b0d25f057f9de3cbb681e60f365bfe433))
+* **workspace:** redesign the workspace experience with a shared shell and a Projects sidebar ([#1529](https://github.com/adea-ai/adea/issues/1529)) ([9c51263](https://github.com/adea-ai/adea/commit/9c51263c365e68074061c9680b1ac2dc0ee72312))
+* **workspaces:** complete the protected Home lifecycle ([#1214](https://github.com/adea-ai/adea/issues/1214), [#1175](https://github.com/adea-ai/adea/issues/1175)) ([#1547](https://github.com/adea-ai/adea/issues/1547)) ([f4bee99](https://github.com/adea-ai/adea/commit/f4bee99c7bb4d010fdb4f24f8d9eae7ac028d87e))
+* **workspaces:** reorder workspaces from the workspace menu ([#1534](https://github.com/adea-ai/adea/issues/1534)) ([ee31982](https://github.com/adea-ai/adea/commit/ee31982e70406ab5de447a79603d6545ac11359f))
+
+
+### Bug Fixes
+
+* **auth:** bound the desktop exchange body by the bytes it streams ([#1519](https://github.com/adea-ai/adea/issues/1519)) ([0672a14](https://github.com/adea-ai/adea/commit/0672a14dbaa3dd602ce25d5f05b5620310476883))
+* **ci:** derive the cache qualification's expectations from the build graph ([#1538](https://github.com/adea-ai/adea/issues/1538)) ([3231943](https://github.com/adea-ai/adea/commit/32319439da2ece2ddb3caf81d32a00f00fba6a20))
+* **desktop:** reject a moved .obj model in the desktop payload guard ([#1520](https://github.com/adea-ai/adea/issues/1520)) ([152e979](https://github.com/adea-ai/adea/commit/152e9794e1b418a498829567a78a5be4ca2da599))
+* **remote-content:** label the cross-runtime return vector as public synthetic material ([#1552](https://github.com/adea-ai/adea/issues/1552)) ([73e444f](https://github.com/adea-ai/adea/commit/73e444f59eb3526f5b18f985c2b2f1f9ae302d5a))
+* **scripts:** take the disposable capture instance's own volume with it ([#1533](https://github.com/adea-ai/adea/issues/1533)) ([2663f06](https://github.com/adea-ai/adea/commit/2663f062c72c7f8e4ff364cc476f9525bc7cac61))
+* **sim:** qualify the private-asset gate and refuse a key that is a path in disguise ([#1537](https://github.com/adea-ai/adea/issues/1537)) ([84f6aa6](https://github.com/adea-ai/adea/commit/84f6aa63803f55afd6683fe7d60c5aa2ede32abd))
+* **tooling:** treat a released shared-cache lock as absent, not a failure ([#1521](https://github.com/adea-ai/adea/issues/1521)) ([eadf2fa](https://github.com/adea-ai/adea/commit/eadf2fa8d09ae1f8388fa7f6ad65a2203a69fc34))
+* **workspaces:** recover from a reorder conflict and keep a save from being overwritten ([#1542](https://github.com/adea-ai/adea/issues/1542)) ([12a1830](https://github.com/adea-ai/adea/commit/12a1830c4115eb46503a79aa0701452ac12ec695))
+
+
+### Documentation
+
+* **build:** qualify the local cache on the real graph at the current main ([#1531](https://github.com/adea-ai/adea/issues/1531)) ([16a339b](https://github.com/adea-ai/adea/commit/16a339bb87da26e11b399ed831d2bc7721b89acd))
+* **build:** record the hosted proof for the current graph ([#1532](https://github.com/adea-ai/adea/issues/1532)) ([f81b461](https://github.com/adea-ai/adea/commit/f81b46114b6ff83d04a4cd8afce14cd3ea559d61))
+
+
+### Tests
+
+* **db:** give the retention expiry test its measured deadline ([#1527](https://github.com/adea-ai/adea/issues/1527)) ([f59cd41](https://github.com/adea-ai/adea/commit/f59cd41b12f38431a3e6d48038742b0713165867))
+* **db:** qualify populated migration rollback outcome ([#1219](https://github.com/adea-ai/adea/issues/1219)/[#1222](https://github.com/adea-ai/adea/issues/1222)/[#1220](https://github.com/adea-ai/adea/issues/1220)) ([#1545](https://github.com/adea-ai/adea/issues/1545)) ([f673af2](https://github.com/adea-ai/adea/commit/f673af22fea0da6ea21ca6ca70384aa3960028aa))
+* **db:** qualify the [#1222](https://github.com/adea-ai/adea/issues/1222) cutover client surfaces and the [#1179](https://github.com/adea-ai/adea/issues/1179) tie-order case ([#1530](https://github.com/adea-ai/adea/issues/1530)) ([f8ede17](https://github.com/adea-ai/adea/commit/f8ede17f2748884e76ff340f684f255acd0cbab4))
+* **restore:** qualify restored schema objects ([#1536](https://github.com/adea-ai/adea/issues/1536)) ([227bfe4](https://github.com/adea-ai/adea/commit/227bfe48fc5efae212a4f69f0261bd54f478e62d))
+* **sim:** prove the hosted Sim launch, session and private asset path over durable storage ([#1541](https://github.com/adea-ai/adea/issues/1541)) ([1098c65](https://github.com/adea-ai/adea/commit/1098c658300beec7e49f1a2143aabd971aefbcfe))
+
+
+### CI
+
+* **database:** drop the hosted branch lane and prove CI has no vendor dependency ([#1516](https://github.com/adea-ai/adea/issues/1516)) ([cc3ff09](https://github.com/adea-ai/adea/commit/cc3ff094ffb84617de995762cf26cc70a78ebd64))
+* **database:** prove the built-Worker desktop auth lane in the pull-request lane ([#1535](https://github.com/adea-ai/adea/issues/1535)) ([f8c5bdc](https://github.com/adea-ai/adea/commit/f8c5bdcf07a722a1d10b0b49b60aef9fc5762f8b))
+* **database:** prove the fresh-account acceptance lane in the pull-request lane ([#1526](https://github.com/adea-ai/adea/issues/1526)) ([ecafac8](https://github.com/adea-ai/adea/commit/ecafac8c56a3bc5f4f46397e298eafe648895e80))
+
 ## [0.99.0](https://github.com/adea-ai/adea/compare/v0.98.0...v0.99.0) (2026-10-20)
 
 
@@ -31,7 +156,6 @@
 
 * **auth:** add desktop principal lifecycle acceptance phase ([#1492](https://github.com/adea-ai/adea/issues/1492)) ([90cea96](https://github.com/adea-ai/adea/commit/90cea96122170c15fded81c3ec405fd8d8839f48))
 * **build:** qualify the cross-machine transfer of the task cache ([#1499](https://github.com/adea-ai/adea/issues/1499)) ([39408e7](https://github.com/adea-ai/adea/commit/39408e7e9ba1b5640a805cb294f00cfe2fa06e77))
-* **ci:** add a disposable PostgreSQL proof beside Neon ([#1483](https://github.com/adea-ai/adea/issues/1483)) ([f188605](https://github.com/adea-ai/adea/commit/f18860544997c7f1ed88857e2203579ea26c7f31))
 * cover the Add repository folder picker in a mounted browser harness ([#1501](https://github.com/adea-ai/adea/issues/1501)) ([131c03b](https://github.com/adea-ai/adea/commit/131c03baa44534a1574f71fc8e4f7527afdd49a3))
 * **db:** cover the array parser registration lifecycle and the direct-write rows ([#1487](https://github.com/adea-ai/adea/issues/1487)) ([fda29dd](https://github.com/adea-ai/adea/commit/fda29dd50b09f984f08b5c2294618a7c70702674))
 * **desktop:** compose the folder picker and App Library selection rules ([#1496](https://github.com/adea-ai/adea/issues/1496)) ([29ee34d](https://github.com/adea-ai/adea/commit/29ee34d8d3e4747d85851d96a01ffb5d3affae37))
@@ -66,7 +190,6 @@
 ### Bug Fixes
 
 * **ci:** clean integration resources after partial startup and interruption ([#1469](https://github.com/adea-ai/adea/issues/1469)) ([0704d09](https://github.com/adea-ai/adea/commit/0704d09c7aff032bdc4cc70923c83c4861a00d05))
-* **ci:** make Neon branch cleanup close-only and independent of setup ([#1476](https://github.com/adea-ai/adea/issues/1476)) ([e7f19fa](https://github.com/adea-ai/adea/commit/e7f19faaf9a7d59b8d2f11abc61919336702bba4))
 * **db:** preserve archived group revocation through cutover ([#1472](https://github.com/adea-ai/adea/issues/1472)) ([697de84](https://github.com/adea-ai/adea/commit/697de84563a461a39abbb19608e754f87ffae061))
 * **db:** qualify direct vs pooled PostgreSQL connections ([#1465](https://github.com/adea-ai/adea/issues/1465)) ([5207191](https://github.com/adea-ai/adea/commit/52071913442a47810dd1092c6cc65dde3669b6b9))
 * **deps:** update dependency @adea-ai/ui to v0.142.4 ([#1473](https://github.com/adea-ai/adea/issues/1473)) ([290c2e6](https://github.com/adea-ai/adea/commit/290c2e6062808bb1b8cdc5c460bb09beb30ab84b))
@@ -411,7 +534,6 @@ do not mean that every native producer or Chat consumer is wired end to end.
 
 ### CI
 
-* bound Neon proof and shard E2E validation ([#1280](https://github.com/adea-ai/adea/issues/1280)) ([386706b](https://github.com/adea-ai/adea/commit/386706bc0bad2d753071aae8a92944718f84800d))
 * use npm trusted publishing for audio and spatial ([#1287](https://github.com/adea-ai/adea/issues/1287)) ([2e2134a](https://github.com/adea-ai/adea/commit/2e2134aadad10265820c13c7361b6b92b723df69))
 
 ## [0.89.0](https://github.com/adea-ai/adea/compare/v0.88.0...v0.89.0) (2026-10-11)
@@ -465,7 +587,6 @@ do not mean that every native producer or Chat consumer is wired end to end.
 
 ### CI
 
-* **neon:** run the integration inventory as two shards behind the migrate gate ([#1269](https://github.com/adea-ai/adea/issues/1269)) ([#1270](https://github.com/adea-ai/adea/issues/1270)) ([97189b6](https://github.com/adea-ai/adea/commit/97189b663e04d419cb0de90c51caa1d20767deec))
 
 ## [0.87.0](https://github.com/adea-ai/adea/compare/v0.86.0...v0.87.0) (2026-10-09)
 
@@ -2295,7 +2416,6 @@ do not mean that every native producer or Chat consumer is wired end to end.
 
 ### Bug Fixes
 
-* **auth:** mute the Neon auth logger without pino ([#453](https://github.com/adea-ai/adea/issues/453)) ([9494f20](https://github.com/adea-ai/adea/commit/9494f20351dc4553c8a44eca09c0bf29ccdaa2a6))
 
 ## [0.26.1](https://github.com/adea-ai/adea/compare/v0.26.0...v0.26.1) (2026-09-15)
 
@@ -3197,7 +3317,6 @@ do not mean that every native producer or Chat consumer is wired end to end.
 
 ### Features
 
-* **database:** provision Neon foundation ([#106](https://github.com/0xPlayerOne/agent-hq/issues/106)) ([54afc08](https://github.com/0xPlayerOne/agent-hq/commit/54afc08aafc8e22402f5b041506a698d2c29898b))
 
 ## [0.3.4](https://github.com/0xPlayerOne/agent-hq/compare/v0.3.3...v0.3.4) (2026-08-23)
 

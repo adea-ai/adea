@@ -86,10 +86,10 @@ describe('the cache qualification workflow', () => {
       'actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0',
     ])
       expect(workflow).toContain(pin)
-    expect(workflow).toContain('bun-version: 1.4.3')
+    expect(workflow).toContain('bun-version: 1.4.4')
     expect(workflow).toContain('node-version: 24.21.0')
     // The cache key names the toolchain, so a different toolchain is a different entry.
-    expect(workflow).toContain('node24.21.0-bun1.4.3-vp1.3.0')
+    expect(workflow).toContain('node24.21.0-bun1.4.4-vp1.3.0')
   })
 
   test('the cache key covers the config and the lockfile, and the graph covers the source', () => {

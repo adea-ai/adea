@@ -2,6 +2,7 @@ import type { TaskExecutionLocation } from './task-execution'
 
 // Management authority runtime helpers stay on the dedicated /management
 // subpath so browser consumers of this shared barrel do not ship that contract.
+export * from './agent-profile-execution'
 export * from './artifact-reference'
 export * from './desktop-permissions'
 export * from './execution-location'
@@ -10,6 +11,7 @@ export * from './management'
 export * from './migration-snapshot'
 export * from './native-session-inventory'
 export type * from './portable-export'
+export * from './retained-child-observation'
 export * from './task-submission'
 
 export type WorkspaceSceneId = 'home' | 'work'

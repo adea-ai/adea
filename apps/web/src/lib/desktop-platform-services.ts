@@ -3,6 +3,7 @@
 // browser-safe and only resolves through the injected `window.__adeaDesktop`
 // bridge, so the web lane never constructs them.
 import type {
+  AppIconService,
   CapabilityProvider,
   CapabilitySnapshot,
   TranscriptionProvider,
@@ -24,6 +25,14 @@ import { Channel, invoke } from './desktop-bridge'
 export const desktopCapabilityProvider: CapabilityProvider = Object.freeze({
   snapshot(options) {
     return invoke<CapabilitySnapshot>('capability_snapshot', { force: options?.force ?? false })
+  },
+})
+
+/** The Dock icon colourway: the shell reports whether it could change the icon now. */
+export const desktopAppIconService: AppIconService = Object.freeze({
+  async apply(variant) {
+    const result = await invoke<{ applied?: unknown } | null>('desktop_app_icon_apply', { variant })
+    return result?.applied === true
   },
 })
 

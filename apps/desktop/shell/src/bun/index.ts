@@ -66,6 +66,7 @@ import {
   isUnavailableCredentialStoreError,
   resolveBootCredentialStore,
 } from './boot-credential-store'
+import { appIconFor, createAppIconApplier } from '../app-icon'
 import { windowTransparentFor } from '../window-surface'
 import {
   adoptShellTerminalSidecar,
@@ -223,6 +224,16 @@ const memoryStore = createMemoryStore({
   contentDir: join(DATA_DIR, 'local-content'),
   key: () => loadDeviceKey(join(DATA_DIR, 'desktop-state', 'device.key')),
 })
+// The Dock icon colourway (Settings > Appearance). Electrobun 2.0.1 has no
+// setter for the icon image, so no native port is supplied yet: the pick is
+// persisted and the renderer is told it was not applied (see app-icon.ts).
+const applyAppIcon = createAppIconApplier({
+  iconsDir: existsSync(join(import.meta.dir, '../app-icons'))
+    ? join(import.meta.dir, '../app-icons')
+    : join(import.meta.dir, '../../resources/app-icons'),
+  platform: process.platform,
+})
+void applyAppIcon(appIconFor(DATA_DIR))
 const baseInvoke = createCommandSurface(DATA_DIR, {
   cloudOrigin: CLOUD_ORIGIN,
   onChatPresentation: (candidate) => presentedRuntimeSession.set(candidate),
@@ -235,6 +246,7 @@ const baseInvoke = createCommandSurface(DATA_DIR, {
   // The add-project surface's native folder picker: directory-only, single
   // selection, default start folder. The picked path is only a suggestion —
   // the Dev Runtime still proves it through `dev.project.authorizeRoot`.
+  setAppIcon: applyAppIcon,
   pickFolder: (request) =>
     Utils.openFileDialog({
       startingFolder: request.startingFolder ?? '~',

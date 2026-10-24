@@ -74,6 +74,10 @@ try {
     },
     status: async (authority, dispatchId) => {
       const value = await real.status(authority, dispatchId)
+      // CP accepted and started the child while this read was in flight; the observation never
+      // reaches this process's store. The test holds the child's provider send so the read really
+      // happens with the acceptance in flight.
+      if (fault === 'child-acceptance-lost') die()
       const state = (value as { state?: string } | undefined)?.state
       // The terminal receipt reached this process but nothing was stored.
       if (fault === 'terminal-receipt-lost' && state === 'completed') die()

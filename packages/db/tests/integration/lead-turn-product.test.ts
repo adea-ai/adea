@@ -7,7 +7,15 @@ import { createTemporaryUserSession } from '../../src/identity'
 import { createLeadTurn, getLeadTurnForUser } from '../../src/lead-turns'
 import { readCurrentLeadTurnProduct, withCurrentLeadTurnProduct } from '../../src/lead-turn-product'
 import type { RequestedRoleModelSelections } from '../../src/lead-model-selections'
-import { agents, channels, messages, workspaceMemberships, workspaces } from '../../src/schema'
+import {
+  agents,
+  channels,
+  groupAudienceGrants,
+  groupEnlistmentGrants,
+  messages,
+  workspaceMemberships,
+  workspaces,
+} from '../../src/schema'
 import { createWorkspaceWithOwner } from '../../src/workspaces'
 import {
   createGroupChannelWithGrants,
@@ -215,6 +223,52 @@ describe.skipIf(!databaseUrl)('trusted current lead product reader', () => {
       groups.push({ channelId, grantId, read, product })
     }
     expect(groups[0]!.product!.channelId).not.toBe(groups[1]!.product!.channelId)
+    let entered!: () => void
+    let release!: () => void
+    const verificationEntered = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const verificationHeld = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const disclosure = withCurrentLeadTurnProduct(
+      connection.db,
+      f.mapped.controlPlaneWorkspaceId,
+      groups[0]!.product!.intentId,
+      async (product) => {
+        entered()
+        await verificationHeld
+        return product
+      }
+    )
+    await verificationEntered
+    try {
+      // Both canonical grant rows remain locked until the product disclosure ends.
+      // A late withdrawal cannot commit between the authority check and its use.
+      for (const [table, grantId] of [
+        [groupAudienceGrants, 'gra_actor_product_0'],
+        [groupEnlistmentGrants, groups[0]!.grantId],
+      ] as const) {
+        await expect(
+          connection.db.transaction(async (tx) => {
+            await tx.execute(sql`set local lock_timeout = '100ms'`)
+            await tx
+              .update(table)
+              .set({ revokedAt: new Date().toISOString() })
+              .where(
+                and(
+                  eq(table.workspaceId, f.workspace.id),
+                  eq(table.channelId, groups[0]!.channelId),
+                  eq(table.grantId, grantId)
+                )
+              )
+          })
+        ).rejects.toMatchObject({ cause: { code: '55P03' } })
+      }
+    } finally {
+      release()
+      await disclosure
+    }
     await revokeGroupGrant(connection.db, f.workspace.id, groups[0]!.channelId, f.owner.principal, {
       grantId: groups[0]!.grantId,
       kind: 'enlistment',

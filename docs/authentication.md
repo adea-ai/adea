@@ -6,9 +6,7 @@ initialization and new signups, but its public result contains only a provider n
 subject, non-authoritative profile hints, and session metadata. The provider subject is an
 `AuthIdentity` input; it is never an Adea `User.id` and never grants workspace access.
 
-The normalized identity for the new deployment uses the `better-auth` provider name
-(`normalizeProviderSession(..., { provider: 'better-auth' })`). The legacy Neon-hosted Auth
-environment is left in place and recoverable; nothing here deletes or cuts it over.
+The normalized identity uses the `better-auth` provider name. Recovery uses Railway backup/restore or a reviewed forward fix.
 
 Authentication is optional for using Adea. A first web or desktop launch provisions a
 temporary canonical `User`, owner membership, and default Home and Work workspaces transactionally. The browser
@@ -26,13 +24,12 @@ delete the saved workspaces or unpair a RuntimeNode.
 
 The fresh deployment runs one self-hosted Better Auth service against a managed PostgreSQL
 database, served through the app's same-origin `/api/auth/*` proxy. `AUTH_BASE_URL` is the public
-app origin that serves that proxy, so Better Auth scopes its cookies to the app host. The legacy
-Neon-hosted Auth environment is retained, unchanged, for recovery.
+app origin that serves that proxy, so Better Auth scopes its cookies to the app host.
 
 | Application target | Better Auth database | `AUTH_BASE_URL` (public app origin) |
 | ------------------ | -------------------- | ----------------------------------- |
 | Production         | Railway PostgreSQL   | Production `AUTH_BASE_URL`          |
-| Preview            | Railway PostgreSQL   | Preview `AUTH_BASE_URL`             |
+| Disposable sandbox | Isolated PostgreSQL  | Synthetic `AUTH_BASE_URL`           |
 | Development        | local PostgreSQL     | Loopback `AUTH_BASE_URL`            |
 
 Each target keeps separate `AUTH_BASE_URL`, `AUTH_SECRET`, `AUTH_DATABASE_URL`, and
@@ -130,12 +127,11 @@ batch. Both phases use loopback services and send no email; Worker-side delivery
 
 ## Adapter use
 
-Server code imports `createNeonServerAdapter` from `@adea-ai/auth/server` (provider-neutral alias:
-`createAuthServerAdapter`). Client components import `createNeonClientAdapter` from
-`@adea-ai/auth/client` (alias: `createAuthClientAdapter`). The historical `Neon` names are retained
-for the existing web and desktop call sites, but the implementation is the self-hosted Better Auth
-service. All other application packages consume the provider-neutral types from `@adea-ai/auth`;
-no other package may import `better-auth` server entry points or `@neondatabase/auth`.
+Server code imports `createAuthServerAdapter` from `@adea-ai/auth/server` (the historical alias
+`createAuthServerAdapter` still exists). Client components import `createAuthClientAdapter` from
+`@adea-ai/auth/client` (alias: `createAuthClientAdapter`). The implementation is the self-hosted
+Better Auth service. All other application packages consume the provider-neutral types from
+`@adea-ai/auth`; no other package may import `better-auth` server entry points or
 
 Refresh bypasses Better Auth's signed session-data cache. Logout clears the current provider session.
 Explicit revocation accepts the normalized session ID, resolves the provider token inside the

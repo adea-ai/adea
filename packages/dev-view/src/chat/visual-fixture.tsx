@@ -45,6 +45,14 @@ import {
   retentionTurnScript,
   richEvents,
 } from './visual-fixture-data'
+import {
+  createFixtureAttachments,
+  FIXTURE_ATTACHMENT_MODES,
+  createFixtureCheckpointRestore,
+  createFixtureFollowUpHost,
+  type FixtureAttachmentMode,
+  type FixtureFollowUpMode,
+} from './visual-fixture-follow-ups'
 import './visual-fixture.css'
 
 export type ChatVisualFixtureState =
@@ -589,7 +597,22 @@ function retainingModel(
 
 export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureState }>) {
   const state = props.state ?? 'conversation'
-  const events = state === 'attention' ? attentionEvents : (STATE_EVENTS[state] ?? transcriptEvents)
+  // `chatRestore=ok|fail` marks the fixture checkpoint restorable and stands up a stand-in for the
+  // host's restore; without it the checkpoint is the marker the host reported (restore unavailable).
+  const restoreMode = new URLSearchParams(window.location.search).get('chatRestore')
+  const baseEvents =
+    state === 'attention' ? attentionEvents : (STATE_EVENTS[state] ?? transcriptEvents)
+  const events =
+    restoreMode === 'ok' || restoreMode === 'fail'
+      ? baseEvents.map((item) =>
+          item.kind === 'checkpoint.observed'
+            ? {
+                ...item,
+                payload: { ...(item.payload as object), restore: { supported: true } },
+              }
+            : item
+        )
+      : baseEvents
   const model =
     state === 'reconnect'
       ? reconnectModel()
@@ -629,6 +652,8 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   const [draftRevision, setDraftRevision] = createSignal(0)
   const [generation, setGeneration] = createSignal(3)
   const [mountKey, setMountKey] = createSignal(0)
+  // Another conversation is selected: the same view, a different session (A -> B -> A).
+  const [away, setAway] = createSignal(false)
   const [cancelCount, setCancelCount] = createSignal(0)
   const [resolution, setResolution] = createSignal('')
   const [readingPosition, setReadingPosition] =
@@ -636,6 +661,17 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
   const deferred = new URLSearchParams(window.location.search).has('chatDraftTest')
   const fallbackDraftModel = new URLSearchParams(window.location.search).has('chatDraftFallback')
   const pending: Set<PendingSend> = new Set()
+  // `chatQueue=busy|ready|ambiguous|unavailable` stands up a stand-in for the host's follow-up queue.
+  const queueMode = new URLSearchParams(window.location.search).get('chatQueue')
+  const followUps = ['busy', 'ready', 'ambiguous', 'unavailable'].includes(queueMode ?? '')
+    ? createFixtureFollowUpHost(queueMode as FixtureFollowUpMode)
+    : undefined
+  // `chatAttach=<mode>` stands up a stand-in for the host's attachment store (see
+  // `FIXTURE_ATTACHMENT_MODES`).
+  const attachMode = new URLSearchParams(window.location.search).get('chatAttach')
+  const attachments = FIXTURE_ATTACHMENT_MODES.includes(attachMode as FixtureAttachmentMode)
+    ? createFixtureAttachments(attachMode as FixtureAttachmentMode)
+    : undefined
   const activeConversation = createMemo(() =>
     conversation(state, events, draft().text, generation(), draft().blocks)
   )
@@ -664,12 +700,19 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
     // Captures this component's signals and pending-send state.
     // oxlint-disable-next-line unicorn/consistent-function-scoping
     const rejectSend = () => resolvePending(new Error('visual send failed'))
+    // oxlint-disable-next-line unicorn/consistent-function-scoping
+    const switchSession = (selection: Event) => {
+      setAway((selection as CustomEvent<{ away: boolean }>).detail.away)
+      setMountKey((key) => key + 1)
+    }
     window.addEventListener('chat-visual:remount', remount)
+    window.addEventListener('chat-visual:switch-session', switchSession)
     window.addEventListener('chat-visual:next-generation', nextGeneration)
     window.addEventListener('chat-visual:resolve-send', resolveSend)
     window.addEventListener('chat-visual:reject-send', rejectSend)
     onCleanup(() => {
       window.removeEventListener('chat-visual:remount', remount)
+      window.removeEventListener('chat-visual:switch-session', switchSession)
       window.removeEventListener('chat-visual:next-generation', nextGeneration)
       window.removeEventListener('chat-visual:resolve-send', resolveSend)
       window.removeEventListener('chat-visual:reject-send', rejectSend)
@@ -707,6 +750,7 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
       data-chat-visual-state={state}
       data-chat-session-id={sessionId}
       data-chat-generation={generation()}
+      data-chat-away={away() ? '' : undefined}
       data-chat-draft={draft().text}
       data-chat-cancel-count={cancelCount()}
       data-chat-resolution={resolution()}
@@ -716,7 +760,11 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
           {() => {
             return (
               <ChatView
-                conversation={activeConversation()}
+                conversation={
+                  away()
+                    ? { ...activeConversation(), runtimeSessionId: `${sessionId}-other` }
+                    : activeConversation()
+                }
                 model={currentModel}
                 authority="chat"
                 // The closable stream reports its own state; every other fixture is simply connected.
@@ -725,6 +773,17 @@ export function ChatVisualFixture(props: Readonly<{ state?: ChatVisualFixtureSta
                 handoff={
                   new URLSearchParams(window.location.search).has('chatHandoff') ? {} : undefined
                 }
+                followUps={followUps}
+                attachments={attachments}
+                checkpointRestore={
+                  restoreMode === 'ok' || restoreMode === 'fail'
+                    ? createFixtureCheckpointRestore(restoreMode)
+                    : undefined
+                }
+                onCheckpointRestored={({ restoredGeneration }) => {
+                  setGeneration(restoredGeneration)
+                  setMountKey((key) => key + 1)
+                }}
                 usageModel={
                   state === 'results-edge'
                     ? { providerId: 'anthropic', modelId: 'fixture-model' }

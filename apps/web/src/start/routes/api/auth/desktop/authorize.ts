@@ -1,6 +1,7 @@
+import { authDatabaseConnectionForRequest } from '../../../../../server/auth-database'
 import { createFileRoute } from '@tanstack/solid-router'
 import { withRequestScope, registerRequestCleanup } from '../../../../../server/request-scope'
-import { createNeonServerAdapter, parseDesktopAuthorizationRequest } from '@adea-ai/auth/server'
+import { createAuthServerAdapter, parseDesktopAuthorizationRequest } from '@adea-ai/auth/server'
 import { createStartRequestContext } from '../../../../../server/auth-request-context'
 
 import { isAllowedEmail } from '../../../../../server/allowed-emails'
@@ -17,8 +18,9 @@ import { resolveOrProvisionDesktopPrincipal } from '../../../../../server/deskto
 async function get(request: Request) {
   try {
     const authorization = parseDesktopAuthorizationRequest(request)
-    const authentication = await createNeonServerAdapter(createStartRequestContext, undefined, {
+    const authentication = await createAuthServerAdapter(createStartRequestContext, undefined, {
       registerCleanup: registerRequestCleanup,
+      databaseConnectionString: authDatabaseConnectionForRequest(),
     }).getSession()
     if (!authentication) {
       const signIn = createDesktopSignInUrl(new URL(request.url))

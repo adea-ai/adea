@@ -316,21 +316,18 @@ describe('entry-gate request context', () => {
 
     const gateRequest = new Request('https://adea.test/', {
       headers: {
-        cookie: 'session=abc; __Secure-neon-auth.local.session_data=xyz',
+        cookie: 'session=abc; __Secure-auth.local.session_data=xyz',
         origin: 'https://adea.test',
         'user-agent': 'acceptance',
       },
     })
     const { cookies, result } = await runWithGateRequest(gateRequest, async () => {
       const context = createGateRequestContext()
-      assert.equal(
-        await context.getCookies(),
-        'session=abc; __Secure-neon-auth.local.session_data=xyz'
-      )
+      assert.equal(await context.getCookies(), 'session=abc; __Secure-auth.local.session_data=xyz')
       assert.equal(await context.getHeader('origin'), 'https://adea.test')
       assert.equal(await context.getOrigin(), 'https://adea.test')
       assert.equal(context.getFramework(), 'tanstack-start')
-      context.setCookie('__Secure-neon-auth.local.session_data', 'rotated', {
+      context.setCookie('__Secure-auth.local.session_data', 'rotated', {
         httpOnly: true,
         maxAge: 300,
         path: '/',
@@ -341,7 +338,7 @@ describe('entry-gate request context', () => {
     })
     assert.equal(result, 'resolved')
     assert.equal(cookies.length, 1)
-    assert.match(cookies[0]!, /^__Secure-neon-auth\.local\.session_data=rotated;/)
+    assert.match(cookies[0]!, /^__Secure-auth\.local\.session_data=rotated;/)
     assert.match(cookies[0]!, /Max-Age=300/)
     assert.match(cookies[0]!, /HttpOnly/)
     assert.match(cookies[0]!, /SameSite=Lax/)

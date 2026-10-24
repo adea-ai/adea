@@ -67,12 +67,12 @@ export function SignInForm(props: { returnTo: string }) {
     // normalizer are available before anything travels: invisible Unicode
     // (non-breaking or zero-width spaces from copy-paste) reads as a valid
     // address but the provider rejects it as invalid email.
-    const { authErrorCode, createNeonClientAdapter, normalizeEmail } =
+    const { authErrorCode, createAuthClientAdapter, normalizeEmail } =
       await import('@adea-ai/auth/client')
     const email = normalizeEmail(String(data.get('email') ?? ''))
 
     try {
-      const authentication = createNeonClientAdapter()
+      const authentication = createAuthClientAdapter()
       if (mode() === 'sign-up') {
         await authentication.signUp({
           email,

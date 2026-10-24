@@ -9,6 +9,7 @@ import { createBetterAuthDriver } from './better-auth-driver'
 import { createBetterAuthOptions, type BetterAuthOptionSources } from './better-auth-options'
 import type { BetterAuthConfig } from './config'
 import { assertTrustedOrigin } from './security'
+import { authDatabasePoolOptions } from './database-pool'
 import type { ProviderSessionInput } from './session'
 
 /**
@@ -331,7 +332,7 @@ export function createPostgresAuthDatabase(
   options: PoolConfig = {}
 ): AuthDatabaseHandle {
   const client = new Pool({
-    connectionString: databaseUrl,
+    ...authDatabasePoolOptions(databaseUrl),
     max: 1,
     ...options,
   })

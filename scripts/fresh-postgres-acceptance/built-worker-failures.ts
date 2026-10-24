@@ -221,7 +221,8 @@ function scanValue(body: string, start: number): number {
  */
 function topLevelMemberValue(
   body: string,
-  field: string
+  field: string,
+  decodeKeys = false
 ): { keyStart: number; valueStart: number; valueEnd: number } | null {
   let depth = 0
   let index = 0
@@ -232,7 +233,12 @@ function topLevelMemberValue(
       if (depth === 1) {
         let cursor = end
         while (cursor < body.length && body[cursor]!.trim() === '') cursor += 1
-        if (body[cursor] === ':' && readString(body, index, end) === field) {
+        if (
+          body[cursor] === ':' &&
+          (decodeKeys
+            ? decodeJsonString(readString(body, index, end))
+            : readString(body, index, end)) === field
+        ) {
           let value = cursor + 1
           while (value < body.length && body[value]!.trim() === '') value += 1
           return { keyStart: index, valueStart: value, valueEnd: scanValue(body, value) }
@@ -263,6 +269,25 @@ export function withoutTopLevelValue(body: string, field: string): string {
   // body has to stay parseable, or a value hidden behind an escaped character
   // in the same body would go unseen.
   return `${body.slice(0, span.valueStart)}"${REDACTED}"${body.slice(span.valueEnd)}`
+}
+
+/** Removes only the first top-level session object's first string token value.
+ * Raw spans preserve duplicate members and every unrelated nested secret.
+ */
+export function withoutProviderSessionToken(body: string): string {
+  try {
+    JSON.parse(body)
+  } catch {
+    return body
+  }
+  const session = topLevelMemberValue(body, 'session', true)
+  if (!session || body[session.valueStart] !== '{') return body
+  const raw = body.slice(session.valueStart, session.valueEnd)
+  const token = topLevelMemberValue(raw, 'token', true)
+  if (!token || raw[token.valueStart] !== '"') return body
+  const start = session.valueStart + token.valueStart
+  const end = session.valueStart + token.valueEnd
+  return `${body.slice(0, start)}"${REDACTED}"${body.slice(end)}`
 }
 
 /**

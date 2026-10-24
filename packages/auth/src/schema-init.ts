@@ -4,6 +4,7 @@ import { Pool } from 'pg'
 import { createBetterAuthOptions } from './better-auth-options'
 import { readBetterAuthConfig, type AuthEnvironment, type BetterAuthConfig } from './config'
 import { createUnconfiguredDelivery } from './delivery'
+import { authDatabasePoolOptions } from './database-pool'
 
 /**
  * Explicit, operator-run creation of the Better Auth tables (`user`, `session`,
@@ -98,7 +99,7 @@ async function runSchemaInit(
   const secrets = redactionTargets(config.databaseUrl)
   const pool = new Pool({
     application_name: SCHEMA_INIT_APPLICATION_NAME,
-    connectionString: config.databaseUrl,
+    ...authDatabasePoolOptions(config.databaseUrl, 'migration'),
     max: 1,
   })
 

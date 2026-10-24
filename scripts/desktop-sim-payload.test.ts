@@ -38,6 +38,47 @@ test('refuses binaries even when moved out of the former engine prefix', () => {
   ).toEqual(['assets/x.glb', 'assets/x.KTX2', 'assets/basis_transcoder.wasm'])
 })
 
+test('refuses a moved .obj model wherever it lands, in either case', () => {
+  // The repository asset boundary already forbids .obj everywhere, so a moved model is the same
+  // offender inside the old engine prefix and outside it, in either case. Ordinary files whose
+  // names merely contain "obj" stay ordinary.
+  expect(
+    simPayloadOffenders([
+      'chair.obj',
+      'assets/chair.obj',
+      'assets/agent-sim/chair.obj',
+      'CHAIR.OBJ',
+      'models/Chair.Obj',
+      'assets/app.js',
+      'objects.json',
+      'obj.js',
+      'chair.obj.txt',
+    ])
+  ).toEqual([
+    'chair.obj',
+    'assets/chair.obj',
+    'assets/agent-sim/chair.obj',
+    'CHAIR.OBJ',
+    'models/Chair.Obj',
+  ])
+})
+
+test('a client that carries a moved .obj model is refused, in either case', async () => {
+  const lower = await client()
+  await writeFile(join(lower, 'chair.obj'), 'private')
+  await expect(inspectClient(lower)).rejects.toThrow('Sim payload')
+
+  const upper = await client()
+  await writeFile(join(upper, 'CHAIR.OBJ'), 'private')
+  await expect(inspectClient(upper)).rejects.toThrow('Sim payload')
+
+  // The ordinary fixtures beside it are still ordinary.
+  const ordinary = await client()
+  await writeFile(join(ordinary, 'objects.json'), '{}')
+  await writeFile(join(ordinary, 'obj.js'), '// ordinary')
+  expect(await inspectClient(ordinary)).toMatchObject({ simPayloadFiles: 0 })
+})
+
 test('refuses symlinks that could conceal payload outside the inspected tree', async () => {
   const root = await client()
   await symlink(join(root, 'index.html'), join(root, 'linked'))
@@ -83,6 +124,29 @@ test('archive qualification checks the installed inner client and rejects stale 
   expect(() => inspectArchive(archive)).toThrow('missing client/index.html')
   await writeFile(archive, 'corrupt')
   expect(() => inspectArchive(archive)).toThrow('Could not list')
+})
+
+test('an installed archive that carries a moved .obj model is refused, in either case', async () => {
+  const root = await client()
+  const installed = join(root, 'Adea.app/Contents/Resources/app/client')
+  await mkdir(installed, { recursive: true })
+  await writeFile(join(installed, 'index.html'), '<main>Chat and Dev</main>')
+  const archive = join(root, 'installed.tar.zst')
+  const pack = () => {
+    const result = spawnSync('tar', ['--zstd', '-cf', archive, '-C', root, 'Adea.app'])
+    expect(result.status).toBe(0)
+  }
+  pack()
+  expect(inspectArchive(archive)).toMatchObject({ simPayloadFiles: 0 })
+
+  await writeFile(join(installed, 'chair.obj'), 'private')
+  pack()
+  expect(() => inspectArchive(archive)).toThrow('Sim payload')
+  await rm(join(installed, 'chair.obj'))
+
+  await writeFile(join(installed, 'CHAIR.OBJ'), 'private')
+  pack()
+  expect(() => inspectArchive(archive)).toThrow('Sim payload')
 })
 
 test('an incomplete client cannot count as a payload-free application', async () => {

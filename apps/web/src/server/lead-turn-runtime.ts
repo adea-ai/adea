@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
+import type { LeadChildTerminalEvidence } from '@adea-ai/db'
 import type {
+  ApiLeadChildAllowance,
   ApiLeadTurnChildrenQuery,
   ApiLeadTurnChildrenResponse,
   ApiLeadTurnStatus,
@@ -49,6 +51,8 @@ export type LeadPreparedSelection = Readonly<{
   selectionRevision: number
   preparationRef: string
   expiresAt: string
+  /** Absent when the control plane predates the disclosure; shown as not disclosed. */
+  childAllowance?: ApiLeadChildAllowance
 }>
 export type LeadRuntimeObservation = LeadRuntimeBinding &
   Readonly<{
@@ -76,6 +80,13 @@ export type LeadRuntimeAdapter = {
     dispatchId: string,
     page: ApiLeadTurnChildrenQuery
   ) => Promise<unknown>
+  /** Exact retained J1 terminal event with CP-only current publication authority. */
+  childPublicationCurrent?: (
+    input: LeadRuntimeAuthority,
+    binding: LeadRuntimeBinding,
+    preparationRef: string,
+    delegationId: string
+  ) => Promise<LeadChildTerminalEvidence>
   status(input: LeadRuntimeAuthority, dispatchId: string): Promise<unknown>
   progress(input: LeadRuntimeAuthority, dispatchId: string, afterSequence: number): Promise<unknown>
   /** `issuedAt` is the persisted cancel-request instant, repeated by every retry of the cancel. */
@@ -272,6 +283,7 @@ export function createLeadTurnRuntime(
       ...(stored?.preparationExpiresAt
         ? { preparationExpiresAt: stored.preparationExpiresAt }
         : {}),
+      ...(stored?.childAllowance ? { childAllowance: stored.childAllowance } : {}),
       ...(stored?.runtimeSessionId ? { runtimeSessionId: stored.runtimeSessionId } : {}),
       ...(stored?.observedAt ? { observedAt: stored.observedAt } : {}),
       ...(stored?.cancelRequestedAt ? { cancelRequestedAt: stored.cancelRequestedAt } : {}),

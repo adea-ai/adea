@@ -23,7 +23,7 @@
 //
 // Not covered here (see the evidence page): mid-stream revocation inside one export, which needs the
 // `hooks` seam that only the response helper exposes and is proven in portable-export-midstream-
-// revocation.test.ts; the Neon-account and temporary-credential resolver branches, which need the
+// revocation.test.ts; the account and temporary-credential resolver branches, which need the
 // framework request context and are covered by the auth boundary tests; artifact bytes (#86), replica
 // sync (#193) and native checkpoints, which have no port.
 //

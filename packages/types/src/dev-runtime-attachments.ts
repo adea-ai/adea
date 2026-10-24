@@ -1,4 +1,6 @@
 // Local chat attachment DTOs. References carry no host path, bytes or filename.
+import { sha256 } from '@noble/hashes/sha2.js'
+import { bytesToHex } from '@noble/hashes/utils.js'
 import {
   exactKeys,
   fail,
@@ -44,6 +46,10 @@ export type ChatAttachmentOpenResult = Readonly<{
   contentBase64: string
   disposition: 'inert_text'
 }>
+
+function sha256Hex(bytes: Uint8Array): string {
+  return bytesToHex(sha256(bytes))
+}
 
 function name(value: unknown, path: string): void {
   const text = stringValue(value, path, 1, chatAttachmentLimits.maxNameChars)
@@ -160,8 +166,11 @@ export function decodeChatAttachmentOpenResult(value: unknown): ChatAttachmentOp
   if (attachment.state !== 'available')
     fail('attachmentOpen.attachment.state', 'expected available')
   const content = decodeChatAttachmentBase64(item.contentBase64)
-  if (atob(content).length !== attachment.byteLength)
+  const bytes = Uint8Array.from(atob(content), (character) => character.charCodeAt(0))
+  if (bytes.length !== attachment.byteLength)
     fail('attachmentOpen.contentBase64', 'byte count mismatch')
+  if (sha256Hex(bytes) !== attachment.digestSha256)
+    fail('attachmentOpen.attachment.digestSha256', 'content digest mismatch')
   literal(item.disposition, ['inert_text'], 'attachmentOpen.disposition')
   return value as ChatAttachmentOpenResult
 }

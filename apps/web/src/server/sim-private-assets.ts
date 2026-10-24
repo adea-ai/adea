@@ -30,6 +30,72 @@ export const SIM_PRIVATE_ASSET_LOCATION = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
  */
 const PERCENT_ESCAPE_PATH = /%(?:2e|2f|5c|00)/iu
 
+/**
+ * Key prefixes the hosted service never reads, whatever the entitlement says.
+ *
+ * These are the third-party packs that the asset provenance record marks "Redistribution allowed?
+ * No" (five seats, purchased direct from the vendor). Hosted delivery would reach beyond the seat
+ * holders, so they are withheld until counsel confirms otherwise. Adea-owned content
+ * (`scenes/sim/assets/`) is not listed. A key matches when it starts with a prefix or carries one
+ * after a path separator, in any letter case.
+ *
+ * This is a request-side backstop, not a licence audit. It cannot know how an export lays out its
+ * files, so the export has to be checked against the provenance record before any upload.
+ */
+export const SIM_LICENCE_WITHHELD_PREFIXES: readonly string[] = [
+  'packages/characters/assets/',
+  'packages/interior/assets/',
+  'packages/architecture/assets/',
+  'packages/rooms/assets/',
+  'packages/landscape/assets/',
+  'packages/pets/assets/',
+]
+
+const MAX_DECODE_PASSES = 8
+
+/**
+ * Every spelling of a key an adapter could read, from the key as given to the fully decoded one.
+ *
+ * A storage adapter that decodes keys reads the decoded spelling, so a prefix check on the raw text
+ * alone is bypassed by an encoded ordinary letter (`%70ackages`). Only ASCII escapes are decoded:
+ * the withheld prefixes are ASCII, the decode is lenient so a stray malformed escape elsewhere in
+ * the key cannot stop it, and it repeats so a double encoding cannot hide a prefix.
+ *
+ * Returns null when a spelling is not a safe key (an escape that decodes into a separator, dot or
+ * NUL on a later pass), or when the key is still changing after the pass limit. The caller refuses
+ * the key in both cases.
+ */
+export function simAssetKeyForms(key: string): string[] | null {
+  const forms = [key]
+  let current = key
+  for (let pass = 0; pass < MAX_DECODE_PASSES; pass += 1) {
+    const next = current.replace(/%([0-7][0-9a-f])/giu, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16))
+    )
+    if (next === current) return forms
+    if (simPrivateAssetKey(next) === null) return null
+    forms.push(next)
+    current = next
+  }
+  return null
+}
+
+/**
+ * True when the key, in any spelling an adapter could read, falls under a withheld prefix. A key
+ * with no safe spelling is withheld too.
+ */
+export function simAssetKeyWithheld(key: string, withheld: readonly string[]): boolean {
+  const forms = simAssetKeyForms(key)
+  if (forms === null) return true
+  return forms.some((form) => {
+    const lower = form.toLowerCase()
+    return withheld.some((prefix) => {
+      const needle = prefix.toLowerCase()
+      return lower.startsWith(needle) || lower.includes(`/${needle}`)
+    })
+  })
+}
+
 export type SimPrivateAssetRequest = Readonly<{ location: string; key: string }>
 
 /** Reads one object from the named private location, or null when it is absent. */
@@ -121,13 +187,20 @@ export function createSimPrivateAssetReader(options: {
   location: string
   /** Reads one object from that location. */
   read: SimPrivateAssetStore
+  /**
+   * Key prefixes that are never read. Defaults to the third-party packs that are not cleared for
+   * hosted delivery. A withheld key answers as absent and the store is not asked.
+   */
+  withheld?: readonly string[]
 }): SimPrivateAssetReader {
+  const withheld = options.withheld ?? SIM_LICENCE_WITHHELD_PREFIXES
   const location = options.location
   const usable = typeof location === 'string' && SIM_PRIVATE_ASSET_LOCATION.test(location)
   return async (path) => {
     if (!usable) return null
     const key = simPrivateAssetKey(path)
     if (!key) return null
+    if (simAssetKeyWithheld(key, withheld)) return null
     const asset = await options.read({ location, key })
     if (asset === null || asset === undefined) return null
     return privateAsset(asset)

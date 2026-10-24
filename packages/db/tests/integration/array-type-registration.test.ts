@@ -164,7 +164,7 @@ function missingTitles(
  * `fetch_types: false` produces on its own, and it is the shape that loses backslashes.
  */
 function clientWithoutArrayParser(url: string): ExperimentalClient {
-  const client = postgres(url, { ...databaseConnectionOptions(url), fetch_types: false })
+  const client = postgres(url, { ...databaseConnectionOptions(), fetch_types: false })
   const catalogQueries = countCatalogQueries(client)
   return { client, db: drizzle(client, { schema }), catalogQueries }
 }
@@ -220,7 +220,7 @@ async function clientWithRegisteredArrayParser(
     onClient,
   } = options
   const clientOptions = {
-    ...databaseConnectionOptions(url),
+    ...databaseConnectionOptions(),
     ...(applicationName ? { connection: { application_name: applicationName } } : {}),
   }
   let discovery: Sql | undefined
@@ -368,7 +368,7 @@ describe.skipIf(!connectionUrl)('text[] array type registration', () => {
   })
 
   test('the production client issues one array-type catalog query per connection', async () => {
-    const client = postgres(connectionUrl!, { ...databaseConnectionOptions(connectionUrl!) })
+    const client = postgres(connectionUrl!, { ...databaseConnectionOptions() })
     const catalogQueries = countCatalogQueries(client)
     try {
       await client`select 1`

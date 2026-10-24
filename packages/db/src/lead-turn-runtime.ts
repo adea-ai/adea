@@ -1,15 +1,39 @@
 import { createHash } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
-import type { UserPrincipalRef } from '@adea-ai/types'
+import type {
+  GroupCompletedJob,
+  GroupPublicationDecision,
+  GroupPublicationHoldReason,
+  UserPrincipalRef,
+} from '@adea-ai/types'
 import type { AgentHqDatabase, AgentHqTransaction } from './connection'
 import { bindAddressedTurnResponse } from './addressed-turn-response-binding'
 import { createRuntimeResultMessage } from './conversations'
 import { parseRequestedRoleModelSelections } from './lead-model-selections'
 import { assertLeadTurnNotFenced } from './lead-turn-rollback'
 import { withAuthorizedLeadTurn, withHistoricalLeadTurn } from './lead-turns'
+import { decideGroupPublication } from './group-participation-policy'
+import {
+  admissionForParticipant,
+  loadGroupRoster,
+  type GroupStoreDatabase,
+} from './group-participation-store'
+import { addressedAgentTurns } from './schema/addressed-agent-turns'
+import { channels } from './schema/conversations'
 import { leadTurnRuntime } from './schema/lead-turn-runtime'
 import { leadTurnIntents } from './schema/lead-turns'
 
+/** What the accepted lead plan holds back for child executions, as the control plane disclosed it. */
+export type LeadTurnChildAllowance = Readonly<
+  | {
+      state: 'stated'
+      executionPlanDigest: string
+      currency: 'USD'
+      maximumMicrounits: number
+      maximumTokens: number
+    }
+  | { state: 'not_stated'; executionPlanDigest: string }
+>
 export type LeadTurnAcceptedSelection = Readonly<{
   workspaceId: string
   intentId: string
@@ -19,6 +43,8 @@ export type LeadTurnAcceptedSelection = Readonly<{
   selectionRevision: number
   preparationRef: string
   expiresAt: string
+  /** Absent when the control plane predates the disclosure; absence is not `not_stated`. */
+  childAllowance?: LeadTurnChildAllowance
 }>
 export type LeadTurnRuntimeBinding = Readonly<{
   intentId: string
@@ -40,6 +66,26 @@ export type LeadTurnObservedState =
 type Row = typeof leadTurnRuntime.$inferSelect
 const terminal = (state: string) =>
   ['completed', 'failed', 'cancelled', 'timed_out'].includes(state)
+function childAllowanceOf(row: Row): LeadTurnChildAllowance {
+  if (row.childAllowanceState === 'stated') {
+    if (
+      row.childAllowancePlanDigest === null ||
+      row.childAllowanceMaximumMicrounits === null ||
+      row.childAllowanceMaximumTokens === null
+    )
+      throw new Error('RUNTIME_RESPONSE_INVALID')
+    return {
+      state: 'stated',
+      executionPlanDigest: row.childAllowancePlanDigest,
+      currency: 'USD',
+      maximumMicrounits: row.childAllowanceMaximumMicrounits,
+      maximumTokens: row.childAllowanceMaximumTokens,
+    }
+  }
+  if (row.childAllowanceState !== 'not_stated' || row.childAllowancePlanDigest === null)
+    throw new Error('RUNTIME_RESPONSE_INVALID')
+  return { state: 'not_stated', executionPlanDigest: row.childAllowancePlanDigest }
+}
 function summary(row: Row, messageId: string) {
   return {
     intentId: row.intentId,
@@ -51,6 +97,7 @@ function summary(row: Row, messageId: string) {
     selectionRevision: row.selectionRevision,
     preparationRef: row.preparationRef,
     preparationExpiresAt: row.preparationExpiresAt.toISOString(),
+    ...(row.childAllowanceState ? { childAllowance: childAllowanceOf(row) } : {}),
     ...(row.dispatchId ? { dispatchId: row.dispatchId } : {}),
     ...(row.runtimeSessionId ? { runtimeSessionId: row.runtimeSessionId } : {}),
     ...(row.observedAt ? { observedAt: row.observedAt.toISOString() } : {}),
@@ -210,6 +257,38 @@ export async function authorizeLeadTurnFundingBinding(
     return false
   }
 }
+function childAllowanceColumns(value: LeadTurnChildAllowance | undefined) {
+  if (value === undefined)
+    return {
+      childAllowanceState: null,
+      childAllowancePlanDigest: null,
+      childAllowanceMaximumMicrounits: null,
+      childAllowanceMaximumTokens: null,
+    }
+  if (!/^sha256:[a-f0-9]{64}$/.test(value.executionPlanDigest))
+    throw new Error('RUNTIME_RESPONSE_INVALID')
+  if (value.state === 'not_stated')
+    return {
+      childAllowanceState: 'not_stated',
+      childAllowancePlanDigest: value.executionPlanDigest,
+      childAllowanceMaximumMicrounits: null,
+      childAllowanceMaximumTokens: null,
+    }
+  if (
+    value.currency !== 'USD' ||
+    !Number.isSafeInteger(value.maximumMicrounits) ||
+    value.maximumMicrounits < 0 ||
+    !Number.isSafeInteger(value.maximumTokens) ||
+    value.maximumTokens < 0
+  )
+    throw new Error('RUNTIME_RESPONSE_INVALID')
+  return {
+    childAllowanceState: 'stated',
+    childAllowancePlanDigest: value.executionPlanDigest,
+    childAllowanceMaximumMicrounits: value.maximumMicrounits,
+    childAllowanceMaximumTokens: value.maximumTokens,
+  }
+}
 export function prepareLeadTurnRuntime(
   database: AgentHqDatabase,
   workspaceId: string,
@@ -245,6 +324,7 @@ export function prepareLeadTurnRuntime(
           selectionRevision: selection.selectionRevision,
           preparationRef: selection.preparationRef,
           preparationExpiresAt: new Date(selection.expiresAt),
+          ...childAllowanceColumns(selection.childAllowance),
         })
         .onConflictDoNothing()
       const [row] = await tx
@@ -412,11 +492,235 @@ export function requestLeadTurnCancellation(
 }
 
 /**
+ * A held group publication, carrying the typed reason instead of failing silently.
+ *
+ * The hold keeps one result out of the group and says nothing about the
+ * independently owned job, which is never cancelled, reassigned or denied by
+ * it. The reason names the exact fence that refused the publication.
+ */
+export class GroupPublicationHoldError extends Error {
+  readonly reason: GroupPublicationHoldReason
+
+  constructor(reason: GroupPublicationHoldReason) {
+    super(`Group publication held: ${reason}`)
+    this.name = 'GroupPublicationHoldError'
+    this.reason = reason
+  }
+}
+
+/**
+ * The authorization of an addressed turn's late result as read at one moment:
+ * the exact participation grant (id and revision) that admitted the work,
+ * together with the group it was admitted in. Only a read made under the
+ * channel lock is authoritative.
+ */
+type AddressedTurnPublication = Readonly<{
+  channelId: string
+  job: GroupCompletedJob
+}>
+
+/**
+ * The addressed-turn claims that carry one lead-turn intent, and the exact
+ * participation grant they agree on.
+ *
+ * `lead_turn_intents.message_id` is unique, so one intent serves every
+ * dispatch attempt for one trigger message and Agent. The FIRST attempt mints
+ * the intent and binds itself to it; a LATER attempt (a different dispatch
+ * revision, which the claim key allows) reuses that same intent and binds
+ * itself to it as well, so several claims can carry one intent. The claim
+ * table has no unique or index over `intent_id` to settle it.
+ *
+ * The retained binding is therefore canonical only when EVERY such claim
+ * agrees on the Agent and on the grant id and revision. A disagreement — a
+ * legacy claim without a binding beside a bound one, or two different grant
+ * revisions — leaves the authorizing grant unproven, and no row order can
+ * settle it: the later claim may have reused work the earlier one admitted
+ * under another revision. The binding is then carried as unproven and the
+ * policy holds the late result exactly as it holds a missing binding.
+ */
+async function loadAddressedTurnPublication(
+  database: GroupStoreDatabase,
+  workspaceId: string,
+  intentId: string
+): Promise<AddressedTurnPublication | null> {
+  const [intent] = await database
+    .select({ agentId: leadTurnIntents.agentId, channelId: leadTurnIntents.channelId })
+    .from(leadTurnIntents)
+    .where(and(eq(leadTurnIntents.id, intentId), eq(leadTurnIntents.workspaceId, workspaceId)))
+    .limit(1)
+  if (!intent) return null
+  // EVERY claim that carries the intent, never one of them: the binding is
+  // canonical only when they all agree.
+  const claims = await database
+    .select()
+    .from(addressedAgentTurns)
+    .where(
+      and(
+        eq(addressedAgentTurns.workspaceId, workspaceId),
+        eq(addressedAgentTurns.intentId, intentId)
+      )
+    )
+  if (claims.length === 0) return null
+  const [channel] = await database
+    .select({ kind: channels.kind })
+    .from(channels)
+    .where(and(eq(channels.id, intent.channelId), eq(channels.workspaceId, workspaceId)))
+    .limit(1)
+  if (!channel || channel.kind !== 'group') return null
+  const [runtime] = await database
+    .select({ observedAt: leadTurnRuntime.observedAt })
+    .from(leadTurnRuntime)
+    .where(eq(leadTurnRuntime.intentId, intentId))
+    .limit(1)
+  const agreements = new Set(
+    claims.map((claim) => JSON.stringify([claim.agentId, claim.authGrantId, claim.authRevision]))
+  )
+  const agreed = agreements.size === 1 ? claims[0] : undefined
+  const authorization =
+    agreed && agreed.authGrantId && agreed.authRevision !== null && agreed.authRevision > 0
+      ? { groupId: intent.channelId, grantId: agreed.authGrantId, revision: agreed.authRevision }
+      : null
+  return {
+    channelId: intent.channelId,
+    job: {
+      authorization,
+      completedAt: runtime?.observedAt?.toISOString() ?? new Date().toISOString(),
+      jobId: intentId,
+      // The publisher is the Agent the intent itself pins, never whichever
+      // claim happened to be read first.
+      participant: { agentId: intent.agentId, kind: 'agent' },
+    },
+  }
+}
+
+/**
+ * Group publication authority for an addressed turn's late result.
+ *
+ * The claim row RETAINS the exact participation grant (id and revision) that
+ * admitted the work, and this decision compares that retained binding with the
+ * addressed Agent's CURRENT admission. A remove-then-re-add issues a new,
+ * higher revision on the same grant id, so the retained binding no longer
+ * matches and the late result is HELD with `publication_binding_mismatch`
+ * instead of publishing under authority the work never held.
+ *
+ * The decision never cancels the job and never transfers its authority: it
+ * only keeps one result out of the group.
+ */
+async function decideAddressedTurnPublication(
+  database: GroupStoreDatabase,
+  workspaceId: string,
+  bound: AddressedTurnPublication,
+  now: string
+): Promise<GroupPublicationDecision> {
+  const roster = await loadGroupRoster(database, workspaceId, bound.channelId)
+  return decideGroupPublication({
+    admission: admissionForParticipant(roster, bound.job.participant),
+    job: bound.job,
+    now,
+    publisher: bound.job.participant,
+  })
+}
+
+/** A held publication throws the typed reason; a permitted publication continues. */
+async function assertAddressedTurnPublication(
+  database: GroupStoreDatabase,
+  workspaceId: string,
+  bound: AddressedTurnPublication,
+  now: string
+): Promise<void> {
+  const decision = await decideAddressedTurnPublication(database, workspaceId, bound, now)
+  if (decision.action !== 'publish') throw new GroupPublicationHoldError(decision.reason)
+}
+
+/**
+ * Holds a publication for one lead intent unless every addressed claim that carries the intent
+ * agrees on a provable participation binding that is still current.
+ *
+ * The caller must already hold the canonical channel lock on `transaction`, so the claims read
+ * here cannot change before that transaction commits. An intent with no addressed claim, or one
+ * in a channel that is not a group, has nothing to hold. Publication paths call this before any
+ * message or receipt replay, so a replay cannot outlive the authority that admitted the work.
+ */
+export async function assertAddressedTurnClaimsPublishable(
+  transaction: AgentHqTransaction,
+  workspaceId: string,
+  intentId: string,
+  now: string
+): Promise<void> {
+  const current = await loadAddressedTurnPublication(transaction, workspaceId, intentId)
+  if (current) await assertAddressedTurnPublication(transaction, workspaceId, current, now)
+}
+
+/**
+ * Name the group fence behind a refused publication.
+ *
+ * The channel pin and the lead resolution refuse the same roster change the
+ * group gate explains, and they run first inside the service transaction.
+ * When the group gate also refuses, its typed reason is the one that says WHY
+ * the work is no longer authorized, so it is reported instead of the generic
+ * refusal. The gate never turns a refusal into an allow: when it permits, the
+ * original failure stands, and a failure that is not about group authority at
+ * all (a database error, a mismatched runtime binding) is never re-labelled.
+ */
+async function explainGroupPublicationHold(
+  error: unknown,
+  database: AgentHqDatabase,
+  workspaceId: string,
+  bound: AddressedTurnPublication | null
+): Promise<unknown> {
+  if (
+    !bound ||
+    !(error instanceof Error) ||
+    error.name === 'GroupPublicationHoldError' ||
+    (error.message !== 'Lead turn version conflict' && error.message !== 'Lead turn unavailable')
+  )
+    return error
+  try {
+    await assertAddressedTurnPublication(database, workspaceId, bound, new Date().toISOString())
+  } catch (hold) {
+    return hold
+  }
+  return error
+}
+
+/**
+ * Preflight: read the addressed turn's retained authorization and decide it
+ * against the current roster, in one transaction that takes the canonical lock
+ * order (CHANNEL before the roster's admissions and grants).
+ *
+ * This runs BEFORE the publication transaction so a superseded binding lands
+ * as the typed group hold instead of the generic version conflict the
+ * channel pin would raise for the same roster change. It is an explanation,
+ * not the authority: the claims are read before the channel lock is taken, so
+ * the publication transaction reloads them under its own locks and decides
+ * again.
+ */
+async function bindAndAuthorizeAddressedTurnPublication(
+  database: AgentHqDatabase,
+  workspaceId: string,
+  intentId: string,
+  now: string
+): Promise<AddressedTurnPublication | null> {
+  const claim = await loadAddressedTurnPublication(database, workspaceId, intentId)
+  if (!claim) return null
+  return database.transaction(async (transaction) => {
+    await transaction
+      .select({ id: channels.id })
+      .from(channels)
+      .where(and(eq(channels.id, claim.channelId), eq(channels.workspaceId, workspaceId)))
+      .limit(1)
+      .for('update')
+    await assertAddressedTurnPublication(transaction, workspaceId, claim, now)
+    return claim
+  })
+}
+
+/**
  * Terminal publication is distinct from execution. Raw progress can never call this boundary.
  * Publication appends a new Message, so it is an effect: it stays on the active-only effect gate,
  * and archived results remain unpublished (REQ 045).
  */
-export function publishLeadTurnResult(
+export async function publishLeadTurnResult(
   database: AgentHqDatabase,
   workspaceId: string,
   intentId: string,
@@ -429,60 +733,102 @@ export function publishLeadTurnResult(
 ) {
   if (!bodyText.trim() || bodyText.length > 100_000 || typeof assertCurrentGrant !== 'function')
     throw new Error('PUBLICATION_WITHHELD')
-  return withAuthorizedLeadTurn(database, workspaceId, intentId, reader, false, (tx, intent) =>
-    withAuthorizedLeadTurn(
-      tx,
+  // The addressed turn's retained grant binding is decided BEFORE the service
+  // transaction, so a remove-then-re-add refuses the late result with the
+  // typed group hold rather than the generic version conflict.
+  const bound = await bindAndAuthorizeAddressedTurnPublication(
+    database,
+    workspaceId,
+    intentId,
+    new Date().toISOString()
+  )
+  try {
+    return await withAuthorizedLeadTurn(
+      database,
       workspaceId,
       intentId,
-      { kind: 'user', userId: intent.actorUserId },
-      true,
-      async (publicationTx, admitted) => {
-        const [row] = await publicationTx
-          .select()
-          .from(leadTurnRuntime)
-          .where(eq(leadTurnRuntime.intentId, admitted.id))
-          .for('update')
-        if (!row || row.state !== 'completed') throw new Error('PUBLICATION_WITHHELD')
-        assertBinding(row, binding)
-        // A fenced admission never publishes, even for a completed result. The share lock serialises this check
-        // against a concurrent fence on the same admission, and it runs before the grant is consulted.
-        await assertLeadTurnNotFenced(publicationTx, admitted.id, 'share')
-        // Trusted adapter rechecks current selection/payer/grant inside these held canonical locks.
-        await assertCurrentGrant(publicationTx)
-        const digest = createHash('sha256')
-          .update(JSON.stringify({ ...binding, bodyText }))
-          .digest('hex')
-        if (row.publishedMessageId) {
-          if (row.publicationDigest !== digest) throw new Error('RUNTIME_RESPONSE_INVALID')
-          // A replayed publication repairs a binding an interrupted first attempt never wrote.
-          await bindAddressedTurnResponse(
-            publicationTx,
-            workspaceId,
-            admitted.id,
-            row.publishedMessageId
-          )
-          return row.publishedMessageId
-        }
-        const message = await createRuntimeResultMessage(
-          publicationTx,
+      reader,
+      false,
+      (tx, intent) =>
+        withAuthorizedLeadTurn(
+          tx,
           workspaceId,
-          admitted.channelId,
-          { kind: 'user', userId: admitted.actorUserId },
-          {
-            sender: { kind: 'agent', agentId: admitted.agentId },
-            bodyText,
-            executionRef: row.executionId,
-            externalSessionRef: row.runtimeSessionId!,
-            idempotencyKey: `lead-result:${admitted.id}`,
+          intentId,
+          { kind: 'user', userId: intent.actorUserId },
+          true,
+          async (publicationTx, admitted) => {
+            const [row] = await publicationTx
+              .select()
+              .from(leadTurnRuntime)
+              .where(eq(leadTurnRuntime.intentId, admitted.id))
+              .for('update')
+            if (!row || row.state !== 'completed') throw new Error('PUBLICATION_WITHHELD')
+            assertBinding(row, binding)
+            // A fenced admission never publishes, even for a completed result. The share lock serialises this check
+            // against a concurrent fence on the same admission, and it runs before the grant is consulted.
+            await assertLeadTurnNotFenced(publicationTx, admitted.id, 'share')
+            // Trusted adapter rechecks current selection/payer/grant inside these held canonical locks.
+            await assertCurrentGrant(publicationTx)
+            // The addressed claims are RE-READ here, under the channel lock this
+            // transaction holds, and decided against the roster read under the
+            // same locks. The preflight's snapshot is not authoritative: a
+            // dispatch that waited for the channel lock can bind a legacy claim
+            // to this intent after that snapshot was read, and the claims for
+            // one intent only authorize together when they all agree. Claims
+            // appear only through writers that take the channel lock first, so
+            // what is read here cannot change before this transaction commits.
+            const current = await loadAddressedTurnPublication(
+              publicationTx,
+              workspaceId,
+              admitted.id
+            )
+            // The preflight proved claims existed: none now is not a state to
+            // publish under.
+            if (bound && !current) throw new Error('PUBLICATION_WITHHELD')
+            if (current)
+              await assertAddressedTurnPublication(
+                publicationTx,
+                workspaceId,
+                current,
+                new Date().toISOString()
+              )
+            const digest = createHash('sha256')
+              .update(JSON.stringify({ ...binding, bodyText }))
+              .digest('hex')
+            if (row.publishedMessageId) {
+              if (row.publicationDigest !== digest) throw new Error('RUNTIME_RESPONSE_INVALID')
+              // A replayed publication repairs a binding an interrupted first attempt never wrote.
+              await bindAddressedTurnResponse(
+                publicationTx,
+                workspaceId,
+                admitted.id,
+                row.publishedMessageId
+              )
+              return row.publishedMessageId
+            }
+            const message = await createRuntimeResultMessage(
+              publicationTx,
+              workspaceId,
+              admitted.channelId,
+              { kind: 'user', userId: admitted.actorUserId },
+              {
+                sender: { kind: 'agent', agentId: admitted.agentId },
+                bodyText,
+                executionRef: row.executionId,
+                externalSessionRef: row.runtimeSessionId!,
+                idempotencyKey: `lead-result:${admitted.id}`,
+              }
+            )
+            await publicationTx
+              .update(leadTurnRuntime)
+              .set({ publishedMessageId: message.id, publicationDigest: digest })
+              .where(eq(leadTurnRuntime.intentId, admitted.id))
+            await bindAddressedTurnResponse(publicationTx, workspaceId, admitted.id, message.id)
+            return message.id
           }
         )
-        await publicationTx
-          .update(leadTurnRuntime)
-          .set({ publishedMessageId: message.id, publicationDigest: digest })
-          .where(eq(leadTurnRuntime.intentId, admitted.id))
-        await bindAddressedTurnResponse(publicationTx, workspaceId, admitted.id, message.id)
-        return message.id
-      }
     )
-  )
+  } catch (error) {
+    throw await explainGroupPublicationHold(error, database, workspaceId, bound)
+  }
 }

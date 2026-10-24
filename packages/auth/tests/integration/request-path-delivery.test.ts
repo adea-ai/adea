@@ -3,11 +3,17 @@ import { getMigrations } from 'better-auth/db/migration'
 import { Pool } from 'pg'
 
 import {
-  createNeonServerAdapter,
+  createAuthServerAdapter,
   createBetterAuthService,
-  handleNeonAuthRequest,
+  handleAuthRequest,
 } from '../../src/server'
 import { createRecordingAuthDelivery, type RecordedAuthDelivery } from '../../src/delivery'
+import {
+  applicationResponse,
+  isTransportLoss,
+  sendUnderPolicy,
+  TransportInconclusiveError,
+} from './better-auth-worker-local.mjs'
 
 // Exercises the composition functions the web route calls, against a disposable
 // loopback PostgreSQL 18 schema. The recording transport is a local fixture; no
@@ -70,6 +76,187 @@ async function waitForDelivery(
   throw new Error(`no ${kind} message was delivered`)
 }
 
+// The local dev proxy answers a lost connection with its own error page. The captured
+// envelope is reproduced here exactly: the status is 500, the body is not JSON, its
+// first line is exactly that sentence, and the frame under it is the proxy's own fetch
+// through the miniflare package.
+const proxyEnvelope = (frame: string) => `Error: Network connection lost.\n${frame}`
+
+const MINIFLARE_PROXY_FRAME =
+  'at async Object.fetch (file:///workspace/node_modules/.bun/miniflare@5.20261001.0-alpha+0c7a352d4ac2db91/node_modules/miniflare/dist/src/workers/core/entry.worker.js:5330:22)'
+
+const TRANSPORT_LOSS_ENVELOPE = proxyEnvelope(`    ${MINIFLARE_PROXY_FRAME}`)
+
+describe('built-Worker acceptance transport policy', () => {
+  test('classifies only the captured ProxyWorker transport envelope', () => {
+    expect(isTransportLoss({ status: 500, text: TRANSPORT_LOSS_ENVELOPE })).toBe(true)
+  })
+
+  test('accepts the proxy frame across the legitimate install and version variations', () => {
+    // The captured layout.
+    expect(isTransportLoss({ status: 500, text: TRANSPORT_LOSS_ENVELOPE })).toBe(true)
+    // A flat install: same package, same module path, another prefix.
+    expect(
+      isTransportLoss({
+        status: 500,
+        text: proxyEnvelope(
+          '    at async Object.fetch (file:///opt/app/node_modules/miniflare/dist/src/workers/core/entry.worker.js:1:1)'
+        ),
+      })
+    ).toBe(true)
+    // Another pinned version and another position in the file.
+    expect(
+      isTransportLoss({
+        status: 500,
+        text: proxyEnvelope(
+          '    at async Object.fetch (file:///cache/node_modules/.bun/miniflare@4.0.0/node_modules/miniflare/dist/src/workers/core/entry.worker.js:12:3)'
+        ),
+      })
+    ).toBe(true)
+  })
+
+  test('leaves a wrong frame and prose untouched, and sends the request exactly once', async () => {
+    // The same first line, but a frame that is not the proxy's own fetch.
+    const wrongFunction = proxyEnvelope(
+      '    at applicationFunction (file:///app/entry.worker.js:42:1)'
+    )
+    // The right file, but not the proxy's fetch frame.
+    const notAsync = proxyEnvelope(
+      '    at Object.fetch (file:///app/node_modules/miniflare/dist/src/workers/core/entry.worker.js:1:1)'
+    )
+    // The right package and frame, but another module.
+    const wrongModule = proxyEnvelope(
+      '    at async Object.fetch (file:///app/node_modules/miniflare/dist/src/workers/core/other.js:1:1)'
+    )
+    // Prose that merely names the file.
+    const prose = proxyEnvelope(
+      '    the proxy reports the failure from entry.worker.js, which is not a frame'
+    )
+    for (const body of [wrongFunction, notAsync, wrongModule, prose]) {
+      expect(isTransportLoss({ status: 500, text: body })).toBe(false)
+    }
+
+    for (const body of [wrongFunction, notAsync, wrongModule, prose]) {
+      let sends = 0
+      const outcome = await sendUnderPolicy(
+        async () => {
+          sends += 1
+          return { status: 500, text: body }
+        },
+        { operation: 'GET get-session', retry: 'safe' }
+      )
+      // The response is the route's answer to read, so it is not a transport loss: it is
+      // returned untouched and the request is not sent again.
+      expect(sends).toBe(1)
+      expect(outcome.inconclusive).toBeUndefined()
+      expect(applicationResponse(outcome).status).toBe(500)
+      expect(applicationResponse(outcome).text).toBe(body)
+    }
+  })
+
+  test('returns an application response untouched even when it mentions the phrase', () => {
+    // A JSON error body is an application answer, whatever it says.
+    expect(isTransportLoss({ status: 500, text: '{"error":"Network connection lost"}' })).toBe(
+      false
+    )
+    expect(isTransportLoss({ status: 500, text: '{"error":"Internal Server Error"}' })).toBe(false)
+    // A route error with different words is not a transport loss.
+    expect(
+      isTransportLoss({
+        status: 500,
+        text: 'Error: something else\n    at async Object.fetch (file:///w/miniflare/dist/src/workers/core/entry.worker.js:1:1)',
+      })
+    ).toBe(false)
+    // The sentence without the proxy's own frame is not a verified envelope.
+    expect(isTransportLoss({ status: 500, text: 'Error: Network connection lost.' })).toBe(false)
+    // The same words without the full stop are a different string.
+    expect(isTransportLoss({ status: 500, text: 'Error: Network connection lost' })).toBe(false)
+    // A different status is not a transport loss.
+    expect(isTransportLoss({ status: 503, text: TRANSPORT_LOSS_ENVELOPE })).toBe(false)
+    expect(isTransportLoss({ status: 200, text: TRANSPORT_LOSS_ENVELOPE })).toBe(false)
+    expect(isTransportLoss({ status: 500, text: '' })).toBe(false)
+  })
+
+  test('never replays a mutating operation whose response was lost after it committed', async () => {
+    const state = { commits: 0, sends: 0 }
+    const send = async () => {
+      state.sends += 1
+      state.commits += 1 // the operation committed; only its response was lost
+      return { status: 500, text: TRANSPORT_LOSS_ENVELOPE }
+    }
+    const outcome = await sendUnderPolicy(send, {
+      operation: 'POST reset-password',
+      retry: 'unsafe',
+    })
+    // The reset is never sent again, so it cannot commit twice and the replay cannot
+    // report a single-use token as consumed.
+    expect(state.sends).toBe(1)
+    expect(state.commits).toBe(1)
+    expect(outcome.inconclusive).toBe(true)
+    expect(outcome.response).toBeUndefined()
+    expect(() => applicationResponse(outcome)).toThrow(TransportInconclusiveError)
+  })
+
+  test('reports an exhausted retry as transport-inconclusive, never as a response', async () => {
+    let sends = 0
+    const outcome = await sendUnderPolicy(
+      async () => {
+        sends += 1
+        return { status: 500, text: TRANSPORT_LOSS_ENVELOPE }
+      },
+      { operation: 'GET get-session', retry: 'safe' }
+    )
+    expect(sends).toBe(3)
+    expect(outcome.inconclusive).toBe(true)
+    expect(outcome.response).toBeUndefined()
+    expect(() => applicationResponse(outcome)).toThrow(TransportInconclusiveError)
+  })
+
+  test('sends a safe operation exactly within the budget and an unsafe one exactly once', async () => {
+    let safeSends = 0
+    const safe = await sendUnderPolicy(
+      async () => {
+        safeSends += 1
+        return { status: 500, text: TRANSPORT_LOSS_ENVELOPE }
+      },
+      { operation: 'GET get-session', retry: 'safe' }
+    )
+    expect(safeSends).toBe(3)
+    expect(safe.attempts).toBe(3)
+
+    let unsafeSends = 0
+    const unsafe = await sendUnderPolicy(
+      async () => {
+        unsafeSends += 1
+        return { status: 500, text: TRANSPORT_LOSS_ENVELOPE }
+      },
+      { operation: 'POST reset-password', retry: 'unsafe' }
+    )
+    expect(unsafeSends).toBe(1)
+    expect(unsafe.attempts).toBe(1)
+  })
+
+  test('never lets a lost connection satisfy a negative assertion', async () => {
+    const outcome = await sendUnderPolicy(
+      async () => ({ status: 500, text: TRANSPORT_LOSS_ENVELOPE }),
+      { operation: 'POST sign-in/email', retry: 'unsafe' }
+    )
+    // There is no status to read: an infrastructure failure cannot be observed as the
+    // route's answer, so it cannot satisfy "the old password must stop working".
+    expect(outcome.response).toBeUndefined()
+    expect(() => applicationResponse(outcome)).toThrow(TransportInconclusiveError)
+    // The failure is sanitized: no response text, no frame, no token.
+    try {
+      applicationResponse(outcome)
+      throw new Error('the inconclusive outcome must throw')
+    } catch (error) {
+      expect(error).toBeInstanceOf(TransportInconclusiveError)
+      expect((error as Error).message).not.toContain('Network connection lost')
+      expect((error as Error).message).not.toContain('at async Object.fetch')
+    }
+  })
+})
+
 describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)', () => {
   beforeAll(async () => {
     const target = new URL(databaseUrl!)
@@ -101,7 +288,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('verification-required signup delivers one verification message and issues no session', async () => {
     const recorder = createRecordingAuthDelivery()
-    const response = await handleNeonAuthRequest(
+    const response = await handleAuthRequest(
       'POST',
       request('sign-up/email', { body: { email, name: 'Verify Me', password } }),
       'sign-up/email',
@@ -118,7 +305,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     expect(recorder.sent.filter((entry) => entry.kind === 'verification')).toHaveLength(1)
 
     // Unverified sign-in is refused, with no session issued.
-    const blocked = await handleNeonAuthRequest(
+    const blocked = await handleAuthRequest(
       'POST',
       request('sign-in/email', { body: { email, password } }),
       'sign-in/email',
@@ -131,7 +318,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('verification with the delivered token signs in, and sign-in then works', async () => {
     const recorder = createRecordingAuthDelivery()
-    const verification = await handleNeonAuthRequest(
+    const verification = await handleAuthRequest(
       'GET',
       request(`verify-email?token=${encodeURIComponent(tokenFromSignup)}&callbackURL=%2F`, {
         method: 'GET',
@@ -143,7 +330,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     expect(verification.headers.get('cache-control')).toBe('no-store')
     expect(sessionCookie(verification)).not.toBe('')
 
-    const signIn = await handleNeonAuthRequest(
+    const signIn = await handleAuthRequest(
       'POST',
       request('sign-in/email', { body: { email, password } }),
       'sign-in/email',
@@ -156,7 +343,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('password reset delivers one message, the token resets once, and the old password stops working', async () => {
     const recorder = createRecordingAuthDelivery()
-    const requested = await handleNeonAuthRequest(
+    const requested = await handleAuthRequest(
       'POST',
       request('request-password-reset', { body: { email, redirectTo: `${origin}/reset` } }),
       'request-password-reset',
@@ -167,7 +354,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     const reset = await waitForDelivery(recorder.sent, 'password-reset')
     expect(reset.email).toBe(email)
 
-    const applied = await handleNeonAuthRequest(
+    const applied = await handleAuthRequest(
       'POST',
       request('reset-password', { body: { newPassword: nextPassword, token: reset.token } }),
       'reset-password',
@@ -176,7 +363,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     )
     expect(applied.status).toBe(200)
 
-    const replay = await handleNeonAuthRequest(
+    const replay = await handleAuthRequest(
       'POST',
       request('reset-password', {
         body: { newPassword: 'third password long enough', token: reset.token },
@@ -187,7 +374,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     )
     expect(replay.status).not.toBe(200)
 
-    const stale = await handleNeonAuthRequest(
+    const stale = await handleAuthRequest(
       'POST',
       request('sign-in/email', { body: { email, password } }),
       'sign-in/email',
@@ -199,7 +386,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('an expired reset token is refused and leaves the password unchanged', async () => {
     const recorder = createRecordingAuthDelivery()
-    await handleNeonAuthRequest(
+    await handleAuthRequest(
       'POST',
       request('request-password-reset', { body: { email, redirectTo: `${origin}/reset` } }),
       'request-password-reset',
@@ -212,7 +399,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
       [`%${reset.token}%`]
     )
 
-    const expired = await handleNeonAuthRequest(
+    const expired = await handleAuthRequest(
       'POST',
       request('reset-password', {
         body: { newPassword: 'expired attempt password', token: reset.token },
@@ -224,7 +411,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
     expect(expired.status).not.toBe(200)
     expect(sessionCookie(expired)).toBe('')
 
-    const current = await handleNeonAuthRequest(
+    const current = await handleAuthRequest(
       'POST',
       request('sign-in/email', { body: { email, password: nextPassword } }),
       'sign-in/email',
@@ -235,7 +422,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
   }, 60_000)
 
   test('without an injected transport the request path fails closed and issues no session', async () => {
-    const response = await handleNeonAuthRequest(
+    const response = await handleAuthRequest(
       'POST',
       request('request-password-reset', { body: { email, redirectTo: `${origin}/reset` } }),
       'request-password-reset',
@@ -251,7 +438,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('a hostile origin is refused before the handler and the response is still no-store', async () => {
     const recorder = createRecordingAuthDelivery()
-    const response = await handleNeonAuthRequest(
+    const response = await handleAuthRequest(
       'POST',
       request('request-password-reset', {
         body: { email, redirectTo: `${origin}/reset` },
@@ -268,7 +455,7 @@ describe.skipIf(!databaseUrl)('request-path authentication delivery (PostgreSQL)
 
   test('the adapter composition registers exactly one request-owned cleanup that closes its connection', async () => {
     const cleanups: Array<() => Promise<void>> = []
-    createNeonServerAdapter(
+    createAuthServerAdapter(
       () => ({
         getCookies: () => '',
         getHeader: () => null,

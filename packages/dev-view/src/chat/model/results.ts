@@ -168,12 +168,17 @@ export type ChatTaskResult = Readonly<{
   todos: readonly ChatWorkItem[]
 }>
 
-/** A restorable-or-not point the host named. The canvas draws the marker; restoring is not offered here. */
+/**
+ * A point the host named. `restorable` is the host's own statement for this checkpoint
+ * (`restore.supported`), never a guess: only a marker the host says can be returned to may
+ * offer a restore, and even then the host decides when the command is run.
+ */
 export type ChatCheckpointResult = Readonly<{
   type: 'checkpoint'
   checkpointId: string
   name: string
   createdAt: string
+  restorable: boolean
 }>
 
 export type ChatResult =
@@ -338,12 +343,18 @@ export function projectActivityResult(
       })
     }
     case 'checkpoint.observed': {
-      const p = payload as { checkpointId: string; name: string; createdAt: string }
+      const p = payload as {
+        checkpointId: string
+        name: string
+        createdAt: string
+        restore?: { supported?: boolean }
+      }
       return {
         type: 'checkpoint',
         checkpointId: p.checkpointId,
         name: redact(p.name, NAME_LIMIT),
         createdAt: p.createdAt,
+        restorable: p.restore?.supported === true,
       }
     }
     case 'test_run.observed': {

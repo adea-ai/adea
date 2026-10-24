@@ -17,7 +17,6 @@ export function forbiddenClientModule(id) {
     /\/@adea-ai\/auth\/(?:src|dist)\/(?:server|start|desktop-server|desktop-http-server|config|security|better-auth-server)\./.test(
       path
     ) ||
-    /\/@neondatabase\/auth\/(?:dist\/)?(?:next\/|server\/|server\.)/.test(path) ||
     // Better Auth's server-only entry points (the framework-neutral client stays
     // allowed through `better-auth/client`).
     /\/node_modules\/better-auth\/(?:dist\/)?(?:api|adapters|db|cookies|test-utils)\//.test(path) ||
@@ -48,16 +47,15 @@ export const PRIVATE_ENV_NAMES = [
   'DATABASE_URL',
   'DATABASE_URL_UNPOOLED',
   'DATABASE_MIGRATION_URL',
-  'NEON_AUTH_COOKIE_SECRET',
   'AUTH_SECRET',
   'AUTH_DATABASE_URL',
+  'AUTH_BASE_URL',
   'CONTROL_PLANE_API_TOKEN',
   // ADR 0013 per-request signer: the Ed25519 private key (Worker secret) and
   // its key id/issuer stay server-only.
   'CONTROL_PLANE_SIGNING_KEY',
   'CONTROL_PLANE_SIGNING_KEY_ID',
   'CONTROL_PLANE_SIGNING_ISSUER',
-  'NEON_AUTH_BASE_URL',
   'ADEA_ALLOWED_EMAILS',
 ]
 

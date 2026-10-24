@@ -63,7 +63,7 @@ const CANONICAL_REQUEST = {
 // `@tanstack/solid-start/server`, whose module scope needs the bundler's solid
 // aliasing; stub only its request helpers so the genuine desktop
 // authentication path (guard, desktop session, database lookup) can run under
-// bun. The Neon session branch still fails closed on the stub.
+// bun. The account session branch still fails closed on the stub.
 mock.module('@tanstack/solid-start/server', () => ({
   getRequest: () => undefined,
   setCookie: () => undefined,

@@ -19,27 +19,19 @@
 
 /** Variables that carry a Postgres connection string into test lanes. */
 export const DATABASE_TARGET_VARIABLES = [
+  'AUTH_DATABASE_URL',
   'DATABASE_URL',
   'DATABASE_URL_UNPOOLED',
   'DATABASE_MIGRATION_URL',
   'MIGRATION_SNAPSHOT_CAPTURE_DATABASE_URL',
 ]
 
-/**
- * Variables that point a suite or probe at an already-running server.
- *
- * `NEON_AUTH_BASE_URL` is the legacy Neon Auth binding the product still
- * reads (`packages/auth/src/config.ts`). The current artifact never selects
- * the legacy implementation, but the variable is still a credential the
- * deployment carries, so it stays on this list: the guard refuses a hosted
- * Neon Auth endpoint here, and refusing it is a refusal, never a dependency on
- * a hosted Neon to exist.
- */
-export const HTTP_TARGET_VARIABLES = [
+/** Variables that point a suite at an already-running server. */
+const HTTP_TARGET_VARIABLES = [
   'PERF_BASE_URL',
   'ADEA_ACCEPTANCE_URL',
   'CONTROL_PLANE_ORIGIN',
-  'NEON_AUTH_BASE_URL',
+  'AUTH_BASE_URL',
 ]
 
 /**
