@@ -11,7 +11,7 @@
 // retires a failed composition's partial registrations too. Anything the shell
 // registered outside a composition is never touched.
 import type { DevOperation, DevStreamProtocol } from '../../../../../packages/types/src/dev-runtime'
-import type { ChannelAuthority } from '../dev-runtime/channel/authority'
+import type { ChannelAuthority, StreamProviderRegistration } from '../dev-runtime/channel/authority'
 import type { ChannelGateway } from '../dev-runtime/channel/server'
 
 type CommandHandler = Parameters<ChannelAuthority['registerCommandProvider']>[1]
@@ -33,9 +33,15 @@ export function createRuntimeRegistrar<
   let active: { retire: () => void } | undefined
 
   function track(): { surface: RuntimeRegistrationSurface<A, G>; retire: () => void } {
-    // Last registration per key wins, matching the maps they were written to.
+    // Commands and stream handlers: last registration per key wins, matching the
+    // maps they were written to. Stream capabilities are held per registration.
     const commands = new Map<DevOperation, CommandHandler>()
-    const streamProtocols = new Set<DevStreamProtocol>()
+    // Each stream registration keeps its own token, so retiring removes exactly
+    // what this composition registered and never a protocol another owner holds.
+    const streamRegistrations: Array<{
+      protocol: DevStreamProtocol
+      registration: StreamProviderRegistration
+    }> = []
     const streamHandlers = new Map<string, StreamHandler>()
     const authority: A = {
       ...shell.authority,
@@ -44,8 +50,9 @@ export function createRuntimeRegistrar<
         commands.set(operation, handler)
       },
       registerStreamProvider: (protocol: DevStreamProtocol) => {
-        shell.authority.registerStreamProvider(protocol)
-        streamProtocols.add(protocol)
+        const registration = shell.authority.registerStreamProvider(protocol)
+        streamRegistrations.push({ protocol, registration })
+        return registration
       },
     }
     const gateway: G = {
@@ -60,11 +67,12 @@ export function createRuntimeRegistrar<
       retire: () => {
         for (const [operation, handler] of commands)
           shell.authority.unregisterCommandProvider(operation, handler)
-        for (const protocol of streamProtocols) shell.authority.unregisterStreamProvider(protocol)
+        for (const { protocol, registration } of streamRegistrations)
+          shell.authority.unregisterStreamProvider(protocol, registration)
         for (const [protocol, handler] of streamHandlers)
           shell.gateway.unregisterStreamHandler(protocol, handler)
         commands.clear()
-        streamProtocols.clear()
+        streamRegistrations.length = 0
         streamHandlers.clear()
       },
     }

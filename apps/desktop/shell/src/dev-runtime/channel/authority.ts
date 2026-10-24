@@ -86,6 +86,9 @@ export class ChannelRejection extends Error {
 
 export type ChannelIdentity = Readonly<{ channelId: string; clientCredentialId: string }>
 
+/** One registration of a stream protocol; only it can retire itself. */
+export type StreamProviderRegistration = symbol
+
 export type DevCommandHandler = (
   command: DevCommand,
   /** The authenticated channel of the caller; stream-grant replies bind to it. */
@@ -275,7 +278,9 @@ export function createChannelAuthority(options?: {
       else inFlight.delete(key)
     }
   }
-  const streamProviders = new Map<DevStreamProtocol, boolean>()
+  // A protocol is available while any registration of it is held; each
+  // registration is its own token so one owner retiring never removes another's.
+  const streamProviders = new Map<DevStreamProtocol, Set<StreamProviderRegistration>>()
   const auditRecords: ChannelAuditRecord[] = []
   const counters = {
     originRefused: 0,
@@ -960,16 +965,36 @@ export function createChannelAuthority(options?: {
 
   // ── Stream grants (the full-duplex attach path) ──────────────────────────
 
-  function registerStreamProvider(protocol: DevStreamProtocol): void {
-    streamProviders.set(protocol, true)
+  /**
+   * Registers a stream protocol and returns this registration's own token. The
+   * protocol stays available while any registration of it is held, so a caller
+   * that ignores the token keeps the registration for good, as before.
+   */
+  function registerStreamProvider(protocol: DevStreamProtocol): StreamProviderRegistration {
+    const registration: StreamProviderRegistration = Symbol(protocol)
+    const held = streamProviders.get(protocol)
+    if (held) held.add(registration)
+    else streamProviders.set(protocol, new Set([registration]))
+    return registration
   }
 
-  function unregisterStreamProvider(protocol: DevStreamProtocol): void {
-    streamProviders.delete(protocol)
+  /**
+   * Retires one stream registration by its token. A later or earlier
+   * registration of the same protocol, from the shell or anything else, is never
+   * removed by a stale owner; the protocol refuses again only once none is held.
+   */
+  function unregisterStreamProvider(
+    protocol: DevStreamProtocol,
+    registration: StreamProviderRegistration
+  ): void {
+    const held = streamProviders.get(protocol)
+    if (!held) return
+    held.delete(registration)
+    if (held.size === 0) streamProviders.delete(protocol)
   }
 
   function hasStreamProvider(protocol: DevStreamProtocol): boolean {
-    return streamProviders.get(protocol) === true
+    return (streamProviders.get(protocol)?.size ?? 0) > 0
   }
 
   function mintStreamGrant(input: StreamGrantRequest): DevStreamGrant {

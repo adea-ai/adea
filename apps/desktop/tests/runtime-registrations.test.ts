@@ -156,4 +156,65 @@ describe('Dev Runtime host registrations across recomposition', () => {
     w.registrar.retire()
     expect(w.authority.registeredOperations()).toEqual(['dev.project.list'])
   })
+
+  describe('stream capability ownership on retirement', () => {
+    test('a later registration for the same protocol survives the old composition retiring', () => {
+      const w = world()
+      w.composeRuntime('A')
+      expect(w.authority.hasStreamProvider('terminal-bytes-v1')).toBe(true)
+
+      // The shell (or anything outside the composition) registers the same protocol after A.
+      w.authority.registerStreamProvider('terminal-bytes-v1')
+
+      // A's retirement, by recomposition or by retire(), takes only what A registered.
+      expect(() => w.composeRuntime('B', { refused: true })).toThrow()
+      expect(w.authority.hasStreamProvider('terminal-bytes-v1')).toBe(true)
+      w.registrar.retire()
+      expect(w.authority.hasStreamProvider('terminal-bytes-v1')).toBe(true)
+    })
+
+    test('a stream registration that existed before the composition survives its retirement', () => {
+      const w = world()
+      w.authority.registerStreamProvider('terminal-bytes-v1')
+
+      w.composeRuntime('A')
+      expect(w.authority.hasStreamProvider('terminal-bytes-v1')).toBe(true)
+      w.registrar.retire()
+
+      expect(w.authority.hasStreamProvider('terminal-bytes-v1')).toBe(true)
+    })
+
+    test('a stream registration outside any composition survives a composition that registers none', () => {
+      const w = world()
+      w.authority.registerStreamProvider('terminal-bytes-v1')
+      w.registrar.compose(() => {})
+      expect(() =>
+        w.registrar.compose(() => {
+          throw new Error('credential store unavailable')
+        })
+      ).toThrow('credential store unavailable')
+      expect(w.authority.hasStreamProvider('terminal-bytes-v1')).toBe(true)
+    })
+
+    test('stale-runtime cleanup still removes a stream nobody else owns', () => {
+      const w = world()
+      w.composeRuntime('A')
+      w.authority.registerStreamProvider('browser-frames-v1')
+      w.registrar.retire()
+      // A's own protocol is gone; the other owner's is untouched.
+      expect(w.authority.hasStreamProvider('terminal-bytes-v1')).toBe(false)
+      expect(w.authority.hasStreamProvider('browser-frames-v1')).toBe(true)
+    })
+
+    test('retiring the same registration twice removes nothing it does not own', () => {
+      const w = world()
+      const first = w.authority.registerStreamProvider('terminal-bytes-v1')
+      const second = w.authority.registerStreamProvider('terminal-bytes-v1')
+      w.authority.unregisterStreamProvider('terminal-bytes-v1', first)
+      w.authority.unregisterStreamProvider('terminal-bytes-v1', first)
+      expect(w.authority.hasStreamProvider('terminal-bytes-v1')).toBe(true)
+      w.authority.unregisterStreamProvider('terminal-bytes-v1', second)
+      expect(w.authority.hasStreamProvider('terminal-bytes-v1')).toBe(false)
+    })
+  })
 })
