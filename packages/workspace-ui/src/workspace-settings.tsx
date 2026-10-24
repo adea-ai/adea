@@ -436,9 +436,7 @@ export function WorkspaceSettingsDialog(props: {
       open={props.open}
       onClose={close}
       restoreFocusRef={props.restoreFocusRef}
-      headerLeading={
-        <WorkspaceLogo aria-hidden="true" class="block size-10 shrink-0" role="presentation" />
-      }
+      headerLeading={<WorkspaceLogo aria-hidden="true" class="block size-10 shrink-0" />}
       title="Settings"
     >
       <Tabs
@@ -549,14 +547,14 @@ export function WorkspaceSettingsDialog(props: {
                   >
                     {props.appearancePanel?.()}
                   </Show>
-                  <Show when={props.services?.appIcon && props.services.settings}>
-                    <AppIconSetting
-                      value={preferences().appIcon}
-                      save={saveAppIcon}
-                      apply={(variant) =>
-                        props.services?.appIcon?.apply(variant) ?? Promise.resolve(false)
-                      }
-                    />
+                  <Show when={props.services?.settings && props.services.appIcon}>
+                    {(appIcon) => (
+                      <AppIconSetting
+                        value={preferences().appIcon}
+                        save={saveAppIcon}
+                        apply={appIcon().apply}
+                      />
+                    )}
                   </Show>
                 </Show>
                 <Show when={panelSection === 'agents'}>

@@ -2,7 +2,6 @@ import {
   appIconLabels,
   appIconSrc,
   appIconVariants,
-  isAppIconVariant,
   type AppIconVariant,
 } from '@adea-ai/app-ui/lib/app-icon'
 import { RadioGroup, RadioGroupItem } from '@adea-ai/ui/components/ui/radio-group'
@@ -20,7 +19,7 @@ import { createSignal, For, Show } from 'solid-js'
  */
 export function AppIconSetting(props: {
   value: AppIconVariant
-  /** Resolves true only when the pick was persisted. */
+  /** Resolves true only when the pick was persisted; never rejects. */
   save(variant: AppIconVariant): Promise<boolean>
   apply(variant: AppIconVariant): Promise<boolean>
 }) {
@@ -29,7 +28,7 @@ export function AppIconSetting(props: {
   const choose = async (variant: AppIconVariant) => {
     const current = ++request
     setOutcome('idle')
-    const persisted = await props.save(variant).catch(() => false)
+    const persisted = await props.save(variant)
     if (current !== request) return
     if (!persisted) {
       setOutcome('error')
@@ -51,9 +50,7 @@ export function AppIconSetting(props: {
         <RadioGroup
           aria-label="App icon"
           value={props.value}
-          onChange={(value) => {
-            if (isAppIconVariant(value)) void choose(value)
-          }}
+          onChange={(value) => void choose(value as AppIconVariant)}
         >
           <For each={appIconVariants}>
             {(variant) => (
@@ -68,7 +65,7 @@ export function AppIconSetting(props: {
         </RadioGroup>
         <Show when={outcome() === 'error'}>
           <Alert variant="destructive" role="alert">
-            <AlertDescription>Could not save the app icon. Try again.</AlertDescription>
+            <AlertDescription>Could not save the app icon.</AlertDescription>
           </Alert>
         </Show>
       </div>

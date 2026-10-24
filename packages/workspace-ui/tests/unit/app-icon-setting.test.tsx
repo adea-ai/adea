@@ -70,16 +70,6 @@ describe('app icon setting', () => {
     expect(applies).toEqual([])
   })
 
-  test('a save that rejects is treated the same as one that reports failure', async () => {
-    const { container, applies, pick } = mount({
-      save: () => Promise.reject(new Error('disk full')),
-    })
-    pick('black')
-    await waitFor(() => container.querySelector('[role="alert"]') !== null, 'the save error')
-    expect(container.textContent).not.toContain('Saved')
-    expect(applies).toEqual([])
-  })
-
   test('a persisted pick is applied, and says so only when the shell cannot change the icon', async () => {
     const kept = mount({ save: async () => true, applied: false })
     kept.pick('violet')
