@@ -43,6 +43,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -50,6 +51,7 @@ import {
 import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
+  ensurePrivateDirectory,
   environmentKey,
   planCache,
   readVitePlusVersion,
@@ -280,7 +282,9 @@ function runCheckout(
 }
 
 function disposableCacheHome(name: string): string {
-  const home = mkdtempSync(join(tmpdir(), `adea-cache-home-${name}-`))
+  // macOS's temporary directory can start with the /var symlink. The cache correctly refuses
+  // symlinked ancestors, so use the fixture's canonical path to exercise the shared cache.
+  const home = realpathSync(mkdtempSync(join(tmpdir(), `adea-cache-home-${name}-`)))
   return home
 }
 
@@ -429,6 +433,18 @@ describe('the cache key separates every build-relevant identity', () => {
 })
 
 describe('the disposable fixtures', () => {
+  test('a cache home is canonical and accepted by the shared-cache safety checks', () => {
+    const home = disposableCacheHome('canonical')
+    const directory = join(home, 'owned-cache')
+    try {
+      expect(home).toBe(realpathSync(home))
+      expect(() => ensurePrivateDirectory(home, directory)).not.toThrow()
+      expect(existsSync(directory)).toBe(true)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
   test('worktree fixtures are rooted under ~/Developer/.worktrees by default and the root is configurable', () => {
     expect(worktreeFixtureRoot({})).toBe(join(homedir(), 'Developer', '.worktrees'))
     expect(worktreeFixtureRoot({ ADEA_WORKTREE_FIXTURE_ROOT: '  ' })).toBe(
