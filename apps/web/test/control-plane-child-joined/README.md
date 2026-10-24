@@ -304,7 +304,7 @@ its drift hashes from such a stale install.
 Provenance for this pin: CP release 1.114.1 (`48e82a02`, CP #1299) has `@adea-ai/contracts` 1.23.1,
 `@adea-ai/sdk` 1.22.1 and `@adea-ai/runtime-sdk` 1.17.2 in `packages/`. Packed from a clean, built
 checkout there, the three archives are byte-identical, file by file, to the registry packages Adea's
-lockfile installs (the unmodified identity gate; run 6 in `RECEIPT.md`). The earlier pins `bda8b852`
+lockfile installs (the unmodified identity gate, run locally; no receipt for it is recorded in `RECEIPT.md` yet). The earlier pins `bda8b852`
 (1.106.6), `69e6e746` (1.104.0) and `7d36f9bb` stay in this file as the history of the earlier runs.
 
 This is a published CP release revision; the release-parity gap described earlier (a published CP
