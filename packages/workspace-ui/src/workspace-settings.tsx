@@ -3,6 +3,7 @@ import type { AgentSummary, WorkspaceSummary, WorkspaceUpdate } from '@adea-ai/t
 import { MusicToggle } from '@adea-ai/audio'
 import { WorkspaceLogo } from '@adea-ai/app-ui/components/workspace-logo'
 import { AppIconSetting } from './app-icon-picker'
+import { createPreferenceSaver } from './preference-saver'
 import { ThemeToggle } from '@adea-ai/app-ui/components/theme-toggle'
 import { useOptionalTheme } from '@adea-ai/ui/components/theme/lazy'
 import { EmptyDescription } from '@adea-ai/ui/components/ui/empty'
@@ -374,27 +375,16 @@ export function WorkspaceSettingsDialog(props: {
       window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`)
     props.onClose()
   }
-  /** Resolves true only when the preferences were persisted. */
-  const save = async (next: WorkspacePreferences): Promise<boolean> => {
-    setPreferences(next)
-    if (!props.services?.settings) return false
-    setSaveState('saving')
-    try {
-      setPreferences(await props.services.settings.save(next))
-      setSaveState('saved')
-      return true
-    } catch {
-      setSaveState('error')
-      return false
-    }
-  }
+  const preferenceSaver = createPreferenceSaver<WorkspacePreferences>({
+    read: preferences,
+    write: setPreferences,
+    persist: (next) => props.services?.settings?.save(next),
+    state: setSaveState,
+  })
+  const save = preferenceSaver.save
   // A pick that did not persist is not kept on screen.
-  const saveAppIcon = async (variant: AppIconVariant) => {
-    const previous = preferences()
-    const persisted = await save({ ...previous, appIcon: variant })
-    if (!persisted) setPreferences(previous)
-    return persisted
-  }
+  const saveAppIcon = (variant: AppIconVariant) =>
+    preferenceSaver.saveOrRevert((current) => ({ ...current, appIcon: variant }))
   const toggle = (key: 'notifyMentions' | 'notifyTasks' | 'privateNotificationPreviews') =>
     void save({ ...preferences(), [key]: !preferences()[key] })
 
