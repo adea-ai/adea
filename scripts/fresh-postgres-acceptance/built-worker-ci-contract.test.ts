@@ -70,9 +70,52 @@ function response(
 function correctWorker(): BuiltWorkerTransport {
   const issued = new Map<string, { readonly challenge: string; readonly nonce: string }>()
   const sessions = new Map<string, string>()
+  const providerSessions = new Map<string, string>()
+  const signupCookie = '__Secure-better-auth.session_token=session-token-value-0123456789abcdef'
+  let account = { email: '', password: '' }
+  let providerCounter = 0
   let counter = 0
   return async (request: BuiltWorkerRequest) => {
+    if (request.path === '/api/auth/get-session?disableCookieCache=true') {
+      const id = providerSessions.get(request.headers?.cookie ?? '')
+      return response(
+        200,
+        {},
+        id
+          ? JSON.stringify({
+              user: { id: 'user-1', email: account.email },
+              session: {
+                id,
+                token: id === 'signup-session' ? 'body-token' : 'fresh-provider-login-opaque-value',
+              },
+            })
+          : 'null'
+      )
+    }
+    if (request.path === '/api/auth/sign-out' && request.method === 'POST') {
+      providerSessions.delete(request.headers?.cookie ?? '')
+      return response(
+        200,
+        { 'set-cookie': `${signupCookie.split('=')[0]}=; Path=/; Max-Age=0` },
+        '{"success":true}'
+      )
+    }
+    if (request.path === '/api/auth/sign-in/email' && request.method === 'POST') {
+      const body = JSON.parse(request.body ?? '{}') as { email: string; password: string }
+      if (body.email !== account.email || body.password !== account.password)
+        return response(401, {}, '{"code":"INVALID_EMAIL_OR_PASSWORD"}')
+      providerCounter += 1
+      const cookie = `new_provider_cookie=login-cookie-${providerCounter}`
+      providerSessions.set(cookie, `login-session-${providerCounter}`)
+      return response(
+        200,
+        { 'set-cookie': `${cookie}; Path=/; HttpOnly` },
+        '{"token":"fresh-provider-login-opaque-value"}'
+      )
+    }
     if (request.method === 'POST' && request.path === '/api/auth/sign-up/email') {
+      account = JSON.parse(request.body ?? '{}') as { email: string; password: string }
+      providerSessions.set(signupCookie, 'signup-session')
       return response(
         200,
         {
@@ -90,7 +133,7 @@ function correctWorker(): BuiltWorkerTransport {
         // is refused first.
         return response(400, {}, '{"error":"Invalid desktop authorization request"}')
       }
-      if (!request.headers?.cookie) {
+      if (!request.headers?.cookie || !providerSessions.has(request.headers.cookie)) {
         return response(303, { location: '/auth/sign-in' }, '')
       }
       const code = `code-${issued.size}-value`

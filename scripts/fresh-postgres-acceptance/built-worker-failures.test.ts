@@ -12,6 +12,7 @@ import {
   sanitizeWorkerLogs,
   topLevelStringValue,
   withoutTopLevelValue,
+  withoutProviderSessionToken,
 } from './built-worker-failures'
 
 const SECRET = 'adea-auth-secret-0123456789abcdef'
@@ -254,4 +255,31 @@ describe('the built-Worker failure kinds', () => {
     const failure = new BuiltWorkerFailure('cleanup-failed')
     expect(failureMessage(failure)).toContain('cleanup-failed')
   })
+})
+
+describe('strict provider session token exemption', () => {
+  test('removes only the first session token value and preserves all other bytes', () => {
+    const body =
+      '{"session":{"token":"secret","id":"one","nested":{"token":"secret"},"token":"secret"},"session":{"token":"secret"},"echo":"secret"}'
+    expect(withoutProviderSessionToken(body)).toBe(
+      body.replace('"token":"secret"', '"token":"[redacted]"')
+    )
+  })
+  test('recognizes escaped keys while preserving escaped copies', () => {
+    const body = String.raw`{"sess\u0069on":{"to\u006ben":"sec\u0072et","echo":"sec\u0072et"},"session":{"token":"secret"}}`
+    expect(withoutProviderSessionToken(body)).toBe(
+      body.replace(String.raw`"sec\u0072et"`, '"[redacted]"')
+    )
+    expect(jsonAllMemberValues(withoutProviderSessionToken(body))).toContain('secret')
+  })
+  for (const body of [
+    '{"session":{"token":"secret"}',
+    '{"wrapper":{"session":{"token":"secret"}}}',
+    '{"session":{"wrapper":{"token":"secret"}}}',
+    '{"session":{"token":{"nested":"secret"}}}',
+    '{"session":null,"session":{"token":"secret"}}',
+  ]) {
+    test(`does not exempt malformed or unrelated structure: ${body}`, () =>
+      expect(withoutProviderSessionToken(body)).toBe(body))
+  }
 })
