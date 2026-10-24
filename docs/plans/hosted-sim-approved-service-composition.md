@@ -91,6 +91,20 @@ response without sending the error text, and an omitted entitlement policy defau
 No deployment configuration points at this module. It names no binding, hostname, storage engine or
 credential; choosing and wiring those stays with the decisions below.
 
+The composition that fills it exists as source and is also unwired. `createSimR2AssetStore`
+(`sim-r2-store.ts`) is the storage adapter: it calls `get` on one bucket binding for one validated
+key and returns the body and a content type, with no list, write, signer or address. The bucket type
+has a single method, so the adapter cannot do more. `createSimWorkerComposition`
+(`sim-worker-composition.ts`) reads its own bindings (`SIM_DATABASE`, `SIM_EXPORT`, `SIM_ORIGIN`,
+`SIM_PARENT_ORIGINS`, optional `SIM_EXPORT_LOCATION`) and wires the redemption store, the session
+lookup, the allowlist policy and the private reader over the adapter. The deployment supplies the
+validated asset contract and the built frame script. A missing or malformed value answers
+`503 not_configured` before a store is opened, and the loopback switch is never set. The stores are
+opened per request and released by the Worker's `dispose` hook, because a Worker cannot reuse an I/O
+object across requests. `openSimPostgresStores` (`sim-worker-postgres.ts`) is the default opener over
+the three database adapters. Tests use a fake bucket and in-memory stores, plus the disposable
+database for the real stores. None of it proves the bucket is private.
+
 ### The private asset location
 
 `apps/web/src/server/sim-private-assets.ts` reads the engine export from one named private
